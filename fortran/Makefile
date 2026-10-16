@@ -3,10 +3,10 @@
 #                       release version 1.2
 #                   its executable is titan.x
 #
-FFLAGS = -O -cg89 #-mips2 #-trapuv
+FFLAGS = -O2 -std=legacy $(XFLAGS)   # PORT: was -O -cg89 (Sun f77)
 CFLAG1 = $(FFLAGS)
 CFLAG2 = $(FFLAGS) -c
-CC = f77 
+CC = gfortran 
 RM = /bin/rm
 AR = ar crv
 RL = ranlib              # ranlib not necessary on HP or SGI

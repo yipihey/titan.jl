@@ -47,7 +47,7 @@ c     open terminal
 c-----------------------------------------------------------------------
 c
       istp = 1
-      dname = '/dev/tty'
+      dname = '/dev/stdout'   ! PORT: was /dev/tty
       open(unit = itty, iostat = ier, file = dname)
       if (ier .gt. 0) go to 4
 c

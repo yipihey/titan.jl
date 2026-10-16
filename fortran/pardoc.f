@@ -6,8 +6,8 @@ c.......................................................................
 c     calling sequence: titan > start > start{01, 02, ....} > pardoc
 c***********************************************************************
 c
-      include'titan.par'
       include'titan.imp'
+      include'titan.par'
 c
       character*80 header
 c
