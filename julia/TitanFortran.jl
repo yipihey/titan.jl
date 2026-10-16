@@ -14,7 +14,7 @@ non-convergence 'step01') terminates the Julia process too.
 """
 module TitanFortran
 
-using Libdl
+using Libdl, Serialization
 
 const ROOT    = normpath(joinpath(@__DIR__, ".."))
 # run-output directories are git-ignored; create them so a fresh checkout works
@@ -147,12 +147,87 @@ function load(path = LIBPATH[])
     # trajectory changed in the last bits (found in phase 3, see PORTING_NOTES).
     HANDLE[] = Libdl.dlopen(path, Libdl.RTLD_GLOBAL | Libdl.RTLD_NOW | Libdl.RTLD_DEEPBIND)
 end
-__init__() = load()      # load (and bind) before any ccall can trigger a plain dlopen
+# load (and bind) before any ccall can trigger a plain dlopen; TITAN_NOLIB=1 runs without libtitan (julia backend only)
+__init__() = get(ENV, "TITAN_NOLIB", "0") == "1" || load()
 "Address of COMMON block `blk` (gfortran symbol `blk_`)."
 blockptr(blk::Symbol) = Ptr{UInt8}(Libdl.dlsym(load(), Symbol(blk, "_")))
 
 "Zero-copy Julia view of a COMMON variable (array or 0-dim)."
+# --------------------------------------------------------------------------
+# state backends: :common (Fortran COMMON blocks in libtitan) or :julia (Julia-owned arrays,
+# same names and shapes). Everything in the port reaches state through `var`, so the routines
+# run unchanged on either backend.
+# --------------------------------------------------------------------------
+const BACKEND = Ref(:common)
+const JSTATE = Dict{Symbol,Array}()
+"Functions run after a backend switch (modules register their view-cache clearers here)."
+const ON_SWITCH = Function[]
+_switched() = foreach(f -> f(), ON_SWITCH)
+
+"Copy every COMMON variable into Julia-owned arrays and switch to the :julia backend."
+function to_julia!()
+    BACKEND[] === :julia && return nothing
+    empty!(JSTATE)
+    for (_, vs) in BLOCKS, v in vs
+        JSTATE[v.name] = copy(var(v.name))
+    end
+    BACKEND[] = :julia; _switched(); nothing
+end
+"Copy the Julia state back into the COMMON blocks and switch to :common (for Fortran output or comparisons)."
+function to_common!()
+    BACKEND[] === :common && return nothing
+    BACKEND[] = :common
+    for (n, a) in JSTATE; copyto!(var(n), a); end
+    _switched(); nothing
+end
+"""
+    save_state(path) / load_state!(path)
+
+Complete model state (every COMMON variable) in a simple, Julia-version-independent binary format
+("TITANST1": per variable name, element type, dims, raw little-endian data). A path ending in
+`.gz` is written/read through the system `gzip` (initial states are mostly zeros: ~5.6 MB → ~0.1 MB).
+`load_state!` switches to the :julia backend (no libtitan needed).
+"""
+function save_state(path)
+    st = BACKEND[] === :julia ? JSTATE : Dict{Symbol,Array}(v.name => copy(var(v.name)) for (_, vs) in BLOCKS for v in vs)
+    buf = IOBuffer()
+    write(buf, b"TITANST1"); write(buf, Int64(length(st)))
+    for n in sort(collect(keys(st)))
+        a = st[n]; nb = Vector{UInt8}(String(n))
+        code = eltype(a) === Float64 ? 0x01 : eltype(a) === Int32 ? 0x02 : eltype(a) === NTuple{80,UInt8} ? 0x03 : error("type $(eltype(a))")
+        write(buf, Int64(length(nb)), nb, code, Int64(ndims(a))); for d in size(a); write(buf, Int64(d)); end
+        write(buf, reinterpret(UInt8, vec(collect(a))))
+    end
+    data = take!(buf)
+    if endswith(path, ".gz")
+        open(pipeline(`gzip -9 -c`, stdout = path), "w") do io; write(io, data); end
+    else
+        write(path, data)
+    end
+    path
+end
+function load_state!(path)
+    data = endswith(path, ".gz") ? read(`gzip -dc $path`) : read(path)
+    io = IOBuffer(data)
+    String(read(io, 8)) == "TITANST1" || error("load_state!: $path is not a TITANST1 file")
+    n = read(io, Int64); st = Dict{Symbol,Array}()
+    for _ in 1:n
+        name = Symbol(String(read(io, read(io, Int64)))); code = read(io, UInt8)
+        dims = Tuple(read(io, Int64) for _ in 1:read(io, Int64))
+        T = code == 0x01 ? Float64 : code == 0x02 ? Int32 : NTuple{80,UInt8}
+        raw = read(io, prod(dims; init = 1) * sizeof(T))
+        st[name] = reshape(collect(reinterpret(T, raw)), dims)
+    end
+    for (_, vs) in BLOCKS, v in vs
+        haskey(st, v.name) || error("load_state!: $(v.name) missing in $path")
+        size(st[v.name]) == (isempty(v.dims) ? () : Tuple(v.dims)) || error("load_state!: $(v.name) has wrong shape")
+    end
+    empty!(JSTATE); merge!(JSTATE, st)
+    BACKEND[] = :julia; _switched(); nothing
+end
+
 function var(name::Symbol)
+    BACKEND[] === :julia && return JSTATE[name]
     blk, v = VARMAP[name]
     p = blockptr(blk) + v.offset
     isempty(v.dims) ? unsafe_wrap(Array, Ptr{v.T}(p), ()) : unsafe_wrap(Array, Ptr{v.T}(p), Tuple(v.dims))

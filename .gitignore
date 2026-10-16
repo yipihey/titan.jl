@@ -19,3 +19,4 @@ __pycache__/
 Manifest.toml
 lib/build*.log
 lib/p5_runs/
+lib/p6_runs/

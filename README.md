@@ -5,19 +5,20 @@ Gehmeyr & Mihalas (1994, *Physica D* 77, 320), from Fortran 77 to Julia. The sci
 models of quasi-stars under infall: accretion shocks with radiative precursors on radiation-dominated
 envelopes, with a central black-hole luminosity. See `docs/PORTING_NOTES.md` for the full record.
 
-## Status (Phase 4)
+## Status (Phase 6)
+
+**SOD, SUBC and SUPC now run in pure Julia, with no Fortran at run time.** `libtitan.so` is never loaded (`TITAN_NOLIB=1`).
+The initial states were produced once by TITAN's own set-up routines and are stored in `reference_runs/init/*.tstate.gz`.
 
 | Piece | State | Verification |
 |---|---|---|
 | TITAN 1.2 Fortran, gfortran 13 | builds; 3 one-line build fixes (see git history) | all 9 benchmark legs reproduce the 1995 step counts where the run ends on time |
-| `libtitan.so` + Julia COMMON-block wrapper | done | Julia-driven runs byte-identical to the standalone executable |
-| Time-step control flow (`step.f`) | Julia (`TitanDriver.step!`) | byte-identical on all 9 legs |
-| EOS / opacity (ideal gas, benchmark opacities) | Julia | tier (a) ≤ 3e-16 |
-| **All residuals + Jacobian** (7 equations, ForwardDiff, stencil colouring) | Julia (`TitanResidFast`) | Jacobian vs analytic ≤ 2e-11 of row max |
-| Linear solve | Julia static block-pentadiagonal LU with row equilibration (`BlockSolver.Penta`) | vs Fortran matslv 7e-11 |
-| Full Julia path (`jfast`) vs Fortran (both with bookkeeping fixes) | SOD / SUBC / SUPC: identical step counts, observables ≤ 1e-12 | tier (c) ACCEPT |
-| Speed (steady state, excluding JIT) | Julia 4.1–5.6 ms/step vs Fortran 6.0–6.7 ms/step | 2-core VM, ±20 % |
-| Still Fortran | `peq` (Eddington factors), `maxdel`, `update`, `timstp`, `reset`, `totnrg`, I/O | — |
+| `libtitan.so` + Julia COMMON wrapper | kept as reference and for problem set-up | Julia-driven runs byte-identical to the standalone executable |
+| Every routine of the time step | Julia: driver, residuals + ForwardDiff Jacobian, block solver, EOS/opacity, peq, eddfac, update, maxdel, timstp, totnrg, reset | each checked call by call against Fortran over whole runs (`PortHarness`): identical or ≤ 1e-12, apart from 1-ulp `pow` cases |
+| State | Julia-owned arrays (`TitanFortran` `:julia` backend), same names and shapes as the COMMON blocks | — |
+| Pure-Julia runs vs. fixed Fortran reference | SUBC 587/587 and SUPC 713/713 steps; SOD 455 vs 452 | tier (c) ACCEPT on all three |
+| Speed (steady state, excluding JIT) | 2.4 (SOD), 4.3–5.0 (SUPC/SUBC) ms/step vs Fortran 6.4 | 2-core VM |
+| Still Fortran | problem set-up (`start*.f`, `gridinit.f`) and the original output files | to be replaced by Julia set-ups (quasi-star first) |
 
 **Bugs found in TITAN 1.2**, fixed in the Julia driver. Both fixes are on by default; set `TITAN_BITWISE=1` to reproduce 1995:
 1. **Energy diagnostic:** `totnrg` runs after `timstp`, so each step's boundary work is booked with the *next* dt,
@@ -46,6 +47,7 @@ cd lib && make -j1                       # needs gfortran, objcopy
 cd ../julia && julia --project=env -e 'using Pkg; Pkg.instantiate()'
 julia --project=env phase3_run.jl SUPC 9 std     # Julia driver, Fortran routines
 julia --project=env phase3_run.jl SUPC 9 jfast   # all residuals + solver in Julia
+TITAN_NOLIB=1 julia --project=env phase6_run.jl pure SUPC   # pure Julia from the stored initial state
 ```
 Problem numbers: SOD 3, BLST 4, SDOV 5, HEAT 6, COOL 7, SUBC 8, SUPC 9, RLST 10 (see `scripts/legs.sh`). Run outputs go to the git-ignored `lib/p*_runs/`.
 

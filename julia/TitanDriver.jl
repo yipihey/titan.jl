@@ -22,6 +22,22 @@ const PTR = Dict{Symbol,Ptr{Cvoid}}()
 fptr(s::Symbol) = get!(() -> TF.Libdl.dlsym(TF.load(), s), PTR, s)
 fcall(s::Symbol) = ccall(fptr(s), Cvoid, ())
 fmsg(code, xs = 0.0) = ccall(fptr(:port_msg_), Cvoid, (Ref{Int32}, Ref{Float64}), Int32(code), xs)
+"Where Julia-backend messages go (TITAN writes them to the terminal and the .out file)."
+const MSGIO = Ref{IO}(stdout)
+"step.f messages; Fortran port_msg on the COMMON backend, Julia text (and errors instead of STOP) on the Julia backend."
+function msg(code, xs = 0.0)
+    TF.BACKEND[] === :common && return fmsg(code, xs)
+    io = MSGIO[]
+    code == 1 && println(io, "  divergence. jtry = ", g(:jtry))
+    code == 2 && error("TITAN step01: failure to converge after $(g(:ntry)) attempts (jstep $(g(:jstep)), t = $(g(:timen)))")
+    code == 3 && println(io, "  changes over timestep ", xs, " times larger than limit")
+    code == 4 && error("TITAN step02: total changes still too large after $(g(:nback)) attempts")
+    code == 5 && println(io, "  repeat integration step with dtime = ", g(:dtime))
+    nothing
+end
+"EOS / opacity entry points used by the Julia routines (Fortran through the hook shim by default)."
+const EOS = Ref{Function}(() -> fcall(:eos_))
+const OPAC = Ref{Function}(() -> fcall(:opac_))
 
 "Routines called by step; replace an entry to swap in a Julia version."
 const ROUTINES = Dict{Symbol,Function}(
@@ -68,12 +84,12 @@ function step!()
     s!(:iter, g(:iter) + 1)
     g(:iter) <= g(:niter) && @goto three
     # failure to converge: reduce timestep
-    fmsg(1)
+    msg(1)
     s!(:tfac, 5.0e-2)
     s!(:dtime, g(:tfac) * g(:dtime))
     s!(:timen, g(:timeo) + g(:dtime))
     s!(:jtry, g(:jtry) + 1)
-    g(:jtry) > g(:ntry) && fmsg(2)          # Fortran writes, writout, clzfil, STOP
+    g(:jtry) > g(:ntry) && msg(2)          # Fortran writes, writout, clzfil, STOP
     r(:reset)
     FIX_CLOCK[] && s!(:timen, g(:timeo) + g(:dtime))
     @goto two
@@ -89,10 +105,10 @@ function step!()
         FIX_ENERGY[] || r(:totnrg)
         return nothing
     end
-    fmsg(3, xs)
+    msg(3, xs)
     s!(:jback, g(:jback) + 1)
-    g(:jback) > g(:nback) && fmsg(4)
-    fmsg(5)
+    g(:jback) > g(:nback) && msg(4)
+    msg(5)
     r(:reset)                               # (restores tes/tew/tel/teq, so an early totnrg is undone)
     FIX_CLOCK[] && s!(:timen, g(:timeo) + g(:dtime))
     @goto two
@@ -119,6 +135,25 @@ function titan_step!()
     0
 end
 
+"""
+    run_julia!(; output = nothing, maxsteps = typemax(Int))
+
+Pure-Julia main loop (titan.f without archive/writout/writsty/clzfil): one time step, then
+`output(n)`, then TITAN's termination tests (timen ≥ tmax, or jstep > jstepe). No library calls
+if every routine in ROUTINES, EOS/OPAC and TitanCore.EDDFAC is a Julia function.
+"""
+function run_julia!(; output = nothing, maxsteps = typemax(Int))
+    n = 0
+    while n < maxsteps
+        STEPFN[](); n += 1
+        output === nothing || output(n)
+        g(:timen) >= g(:tmax) && return (n, :tmax)
+        s!(:jstep, g(:jstep) + 1)
+        g(:jstep) > g(:jstepe) && return (n, :jstepe)
+    end
+    (n, :maxsteps)
+end
+
 "Run to completion with the Julia driver; `callback(n)` after every step."
 function run!(; callback = nothing)
     n = 0
@@ -131,8 +166,17 @@ end
 
 # --------------------------------------------- COMMON snapshot / restore
 const ALLBLOCKS = sort(collect(keys(TF.BLOCKS)))
-snapshot() = Dict(b => copy(TF.blockbytes(b)) for b in ALLBLOCKS)
-restore!(snap) = (for b in ALLBLOCKS; copyto!(TF.blockbytes(b), snap[b]); end; nothing)
+snapshot() = TF.BACKEND[] === :julia ? Dict{Symbol,Array}(n => copy(a) for (n, a) in TF.JSTATE) :
+                                       Dict(b => copy(TF.blockbytes(b)) for b in ALLBLOCKS)
+function restore!(snap)
+    if TF.BACKEND[] === :julia
+        for (n, a) in snap; copyto!(TF.JSTATE[n], a); end
+    else
+        for b in ALLBLOCKS; copyto!(TF.blockbytes(b), snap[b]); end
+    end
+    nothing
+end
+push!(TF.ON_SWITCH, () -> empty!(SV))
 
 # ------------------------------------------------------- deep-level hooks
 const HOOKFUN = Dict{Int,Function}()

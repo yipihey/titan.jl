@@ -19,6 +19,7 @@ const TF = TD.TF
 "Cached zero-copy views of COMMON arrays (the blocks never move, so the views stay valid)."
 const VC = Dict{Symbol,Array}()
 v(s::Symbol) = get!(() -> TF.var(s), VC, s)
+push!(TF.ON_SWITCH, () -> empty!(VC))
 # concretely typed accessors (type-stable loops; an untyped Array costs ~50x in update!)
 vf(s::Symbol) = v(s)::Vector{Float64}
 vm(s::Symbol) = v(s)::Matrix{Float64}
@@ -163,7 +164,7 @@ update!(; eos!, opac!): apply the Newton correction and refresh all derived and
 time-centred quantities. `eos!`/`opac!` default to the routines installed in the
 driver (Fortran via ccall, or the Julia hooks).
 """
-function update!(; eos! = () -> TD.fcall(:eos_), opac! = () -> TD.fcall(:opac_))
+function update!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     a, b = gi(:ngrs), gi(:ngre); lrad = gi(:lrad) == 1
     gi(:lhydr) == 1 && gi(:ltur) == 0 || error("update!: only lhydr=1, ltur=0 ported")
     rhs = vm(:rhs)
@@ -345,7 +346,7 @@ const PEQ_OLD2_RH = ((:dso, :dsn), (:uso, :usn), (:pgo, :pgn), (:aso, :asn), (:e
                      (:xkpo, :xkpn), (:xneo, :xnen), (:plfo, :plfn))
 
 "Prepare a time step (peq{h,rh}): new → old, extrapolate r and m, boundary values, derived quantities."
-function peq!(; eos! = () -> TD.fcall(:eos_), opac! = () -> TD.fcall(:opac_))
+function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     a, b = gi(:ngrs), gi(:ngre); lrad = gi(:lrad) == 1
     gi(:lhydr) == 1 && gi(:ltur) == 0 || error("peq!: only lhydr=1, ltur=0 ported")
     # ---- replace old by new

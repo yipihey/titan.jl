@@ -18,6 +18,7 @@ const TF = TD.TF
 # cached zero-copy views of the COMMON arrays we touch
 const V = Dict{Symbol,Vector{Float64}}()   # typed: keeps the kernels type-stable
 v(s::Symbol) = get!(() -> TF.var(s), V, s)
+push!(TF.ON_SWITCH, () -> empty!(V))
 gf(s::Symbol) = Float64(TD.g(s))::Float64
 range_k() = (Int(TD.g(:ngrs))::Int - 1):(Int(TD.g(:ngre))::Int + 2)
 

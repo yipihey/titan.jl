@@ -1252,3 +1252,32 @@ setup functions, which is also where the quasi-star problem setup belongs.
   - Against `std`: SUBC 587/587 steps and SUPC 713/713 steps, tier (c) ACCEPT.
   - SOD: observables ACCEPT; 470 vs 452 steps (§P3.3).
   - Speed: 4.5 (SOD), 6.1 (SUPC) and 6.3 (SUBC) ms/step vs Fortran 6.4 (SUPC), excluding JIT.
+
+## Phase 6: no Fortran at run time [run]
+- **State backend** (`TitanFortran`): `BACKEND[] ∈ (:common, :julia)`.
+  - On `:julia`, `var(name)` returns a Julia-owned array with the same name, type and shape as the COMMON variable. Every
+    module reaches state through `var`, so the routines run unchanged on either backend.
+  - `to_julia!()` / `to_common!()` copy between the two.
+  - Modules that cache views register a clearer in `TF.ON_SWITCH`: `TitanCore.VC`, `JuliaPhysics.V`, `TitanDriver.SV`.
+  - `snapshot` / `restore!` work on both backends.
+- **State files:** `save_state` / `load_state!` use a simple Julia-version-independent format ("TITANST1": name, type, dims,
+  raw data), gzipped. A benchmark's complete initial state is 35–63 kB. `TITAN_NOLIB=1` stops libtitan being opened at all.
+- **Driver:**
+  - `TitanDriver.run_julia!` is titan.f's loop without archive/writout/writsty.
+  - `msg()` replaces port_msg on the Julia backend; the fatal codes raise Julia errors instead of STOP.
+  - `TD.EOS` / `TD.OPAC` are the EOS and opacity entry points.
+- **`phase6_run.jl`:**
+  - `capture NAME NN` runs TITAN's Fortran set-up once and stores the state in `reference_runs/init/NAME.tstate.gz`.
+  - `pure NAME` loads that state and runs every routine in Julia.
+
+| problem | pure Julia | fixed Fortran reference | tier (c) | ms/step (steady) |
+|---|---|---|---|---|
+| SOD | 455 steps | 452 | ACCEPT | 2.4 |
+| SUBC | 587 | 587 | ACCEPT | 4.7 |
+| SUPC | 713 | 713 | ACCEPT | 4.3–5.0 |
+
+- **Why SOD changed** (455 here vs 470 for jstep): in jstep the Julia EOS hooks were already installed during TITAN's set-up,
+  whereas the captured state was set up with the Fortran EOS. SOD's step count is sensitive to such last-bit differences (§P3.3).
+- **Remaining Fortran:** problem set-up (`start*.f`, `gridinit.f`, `readeos`/`readopac`) and the original text/dump outputs. The
+  benchmarks keep using the captured states. New problems get Julia set-up functions that fill the same state; the quasi-star
+  accretion problem is the first.
