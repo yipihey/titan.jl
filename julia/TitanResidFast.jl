@@ -165,6 +165,37 @@ end
     return y[k+1] / y[k] - y[k] / y[k+1]
 end
 
+# ------------------------------------------------------------------ pluggable materials
+"""
+Material used by the residual. `nothing` = TITAN's built-in ideal gas + lopac 3/4 (inline, as before).
+Otherwise a material object for which `material_gas(m, ρ, T) -> (p_gas, e_gas, a_s)` and
+`material_opac(m, ρ, T) -> (χ_flux, κ_E, κ_P)` have methods (see TitanMaterials); ρ, T may be Duals.
+"""
+const MATERIAL = Ref{Any}(nothing)
+function material_gas end
+function material_opac end
+"Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
+function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
+    pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
+    @inbounds for k in k0:ngre+2
+        if !(ForwardDiff.value(dn[k]) > 0 && ForwardDiff.value(tn[k]) > 0)   # unused ghost zones (e.g. ngrs-2)
+            pgn[k] = zero(dn[k]); egn[k] = zero(dn[k]); asn[k] = zero(dn[k])
+            c.lrad && (chifn[k] = zero(dn[k]); xken[k] = zero(dn[k]); xkpn[k] = zero(dn[k]); plfn[k] = zero(dn[k]); egrn[k] = zero(dn[k]))
+            continue
+        end
+        pg, eg, as_ = material_gas(m, dn[k], tn[k])
+        pgn[k] = pg; egn[k] = eg; asn[k] = as_
+        if c.lrad
+            χ, κE, κP = material_opac(m, dn[k], tn[k])
+            chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
+            t2 = tn[k] * tn[k]
+            plfn[k] = P.csigr * (t2 * t2) / P.cpi
+            egrn[k] = egn[k] + ern[k] / dn[k]
+        end
+    end
+    nothing
+end
+
 # ------------------------------------------------------------------ residual
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
     ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
@@ -186,10 +217,11 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             for bb in 1:nb; k = k0 + bb - 1; a[k] = c.base[k, cde] * exp(x[(bb-1)*neqn+j]); end
         end
     end
-    # EOS / opacity
+    # EOS / opacity (TITAN built-in physics unless a material is installed, see TitanMaterials)
     Rg = P.ck / (P.cm0 * P.gmu); γ = P.gam
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
-    @inbounds for k in k0:ngre+2
+    MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
+    MATERIAL[] === nothing && @inbounds for k in k0:ngre+2
         pgn[k] = Rg * dn[k] * tn[k]; egn[k] = Rg * tn[k] / (γ - 1); asn[k] = sqrt(γ * pgn[k] / dn[k])
         if c.lrad
             chifn[k] = P.lopac == 3 ? P.chif0 / dn[k] : T(P.csige / P.cm0)
@@ -543,6 +575,11 @@ end
 
 # ------------------------------------------------------------------ assembly
 struct JTag end
+# JTag is a hand-made tag (not a ForwardDiff.Tag), so ForwardDiff cannot order it against tags created by
+# derivatives taken *inside* the residual (e.g. the Newton polish in the Z0 Saha solve). The residual's
+# sweep is always the outer differentiation: JTag ≺ any ForwardDiff.Tag.
+ForwardDiff.:≺(::Type{JTag}, ::Type{<:ForwardDiff.Tag}) = true
+ForwardDiff.:≺(::Type{<:ForwardDiff.Tag}, ::Type{JTag}) = false
 const DBUF = Dict{Any,Any}()
 
 "Residual + coloured AD Jacobian -> rhs, em2..ep2 in COMMON; side outputs -> COMMON."

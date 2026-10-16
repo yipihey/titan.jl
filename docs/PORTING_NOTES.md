@@ -1281,3 +1281,27 @@ setup functions, which is also where the quasi-star problem setup belongs.
 - **Remaining Fortran:** problem set-up (`start*.f`, `gridinit.f`, `readeos`/`readopac`) and the original text/dump outputs. The
   benchmarks keep using the captured states. New problems get Julia set-up functions that fill the same state; the quasi-star
   accretion problem is the first.
+
+## Phase 7: quasi-star physics (in progress)
+Design decisions (Tom, 16 Oct 2026):
+- **Convection:** a local, time-independent MLT convective flux (α = 0.8, as in MESA-QUEST and the steady model) in the
+  energy equation.
+- **Domain:** an outer shell (inner boundary at ~0.3 R with imposed L and the steady-model state) through the photosphere into
+  the infall.
+
+### P7.1 Pluggable materials; Z = 0 Saha gas + tabulated opacities [run]
+- **`Z0Physics.jl`:** the AD-ready Z = 0 EOS and opacity from QuasiStarInfall.jl v2 (validation record in
+  `docs/Z0_EOS_OPACITY.md`). The opacity table is stored as gzipped raw Float64 (`julia/z0/kaptable_Z0.bin.gz`, 7 MB),
+  independent of the Julia version; the round trip is bit-identical.
+- **`TitanMaterials.jl`:** `Builtin` (TITAN's ideal gas + lopac 3/4) and `Z0Gas`.
+  - `Z0Gas` provides gas-only pressure and internal energy (translational + ionization; radiation stays in TITAN's separate
+    E_r), κ_flux = Rosseland (incl. scattering), κ_E = κ_P = Planck (absorption), and n_e for the eddfac scattering term.
+  - a_s (used only in the artificial viscosity) is the monatomic estimate √(5p/3ρ). **[approximation]**
+  - `use!(m)` installs the material in the residual (`TitanResidFast.MATERIAL`, generic in the Dual type) and in the state
+    fills used by peq!/update!.
+- **Nested AD:** the residual's hand-made tag `JTag` is declared ≺ every ForwardDiff.Tag, so the Newton polish inside the Saha
+  solve differentiates correctly within the residual sweep. Unused ghost zones (ρ = T = 0) are skipped.
+- **Checks:**
+  - Z0 coloured AD Jacobian = dense AD Jacobian exactly (728 unknowns); dense AD vs central FD ≤ 1.5e-6 of the row max.
+  - Assembly 0.9 ms/call (Builtin 0.5).
+  - Benchmarks through the material interface are unchanged (SUPC pure: 713 steps, same final time).

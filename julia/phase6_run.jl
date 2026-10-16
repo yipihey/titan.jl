@@ -6,9 +6,10 @@ using Serialization, Printf
 include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "JuliaPhysics.jl"))
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
 include(joinpath(@__DIR__, "TitanCore.jl")); include(joinpath(@__DIR__, "Metrics.jl"))
+include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "TitanMaterials.jl"))
 using .TitanDriver, .Metrics
 const TD = TitanDriver; const TF = TD.TF; const JP = JuliaPhysics; const TX = TitanResidFast
-const BS = BlockSolver; const TC = TitanCore
+const BS = BlockSolver; const TC = TitanCore; const TM = TitanMaterials
 
 initfile(name) = joinpath(TF.ROOT, "reference_runs", "init", "$name.tstate.gz")
 mode, name = ARGS[1], ARGS[2]
@@ -33,7 +34,7 @@ elseif mode == "pure"
                    (:timstp, TC.timstp!), (:totnrg, TC.totnrg!))
         TD.ROUTINES[s] = f
     end
-    TD.EOS[] = JP.eos!; TD.OPAC[] = JP.opac!; TC.EDDFAC[] = TC.eddfac!
+    TM.use!(TM.Builtin()); TC.EDDFAC[] = TC.eddfac!       # benchmarks: TITAN's own ideal gas + opacities
     TD.MSGIO[] = devnull
     snaps = Metrics.Snap[]; tstep = Float64[]
     t0 = time(); tl = Ref(time())
