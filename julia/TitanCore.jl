@@ -183,6 +183,23 @@ function update!(; eos! = () -> TD.fcall(:eos_), opac! = () -> TD.fcall(:opac_))
         tn[k] = (1.0 + rhs[it, k]) * tn[k]
         lrad && (ern[k] = (1.0 + rhs[ie, k]) * ern[k])
     end
+    _ghost_and_derived!(:update, eos!, opac!)
+end
+
+"Eddington-factor routine called by peq (always) and update (ltran = 0). [Fortran until ported]"
+const EDDFAC = Ref{Function}(() -> TD.fcall(:eddfac_))
+
+"""
+Shared tail of update{h,rh} and peq{h,rh}: ghost-zone boundary values, geometry, EOS/opacity,
+Eddington factors and time-centred / zeroed arrays. `mode` ∈ (:update, :peq) selects the few
+places where the Fortran routines differ (eddfac call, plfn operation order, extra zeroing).
+"""
+function _ghost_and_derived!(mode::Symbol, eos!, opac!)
+    a, b = gi(:ngrs), gi(:ngre); lrad = gi(:lrad) == 1
+    rn, xmen, un, dn, tn, unom = (vf(s) for s in (:rn, :xmen, :un, :dn, :tn, :unom))
+    ern, frn, frnom = vf(:ern), vf(:frn), vf(:frnom)
+    mu = gi(:mu); mup1 = gi(:mup1); mum1 = gi(:mum1)
+    xmup1, rxm1 = gf(:xmup1), gf(:rxm1)
     leibc, llibc, lribc = gi(:leibc), gi(:llibc), gi(:lribc)
     leobc, llobc, lrobc = gi(:leobc), gi(:llobc), gi(:lrobc)
     # ---- inner boundary
@@ -244,10 +261,12 @@ function update!(; eos! = () -> TD.fcall(:eos_), opac! = () -> TD.fcall(:opac_))
         egrn, plfn, dplf, chifn, avchin = (vf(s) for s in (:egrn, :plfn, :dplfdltn, :chifn, :avchin))
         csigr, cpi = gf(:csigr), gf(:cpi)
         @inbounds for k in a-1:b+2
-            egrn[k] = egn[k] + (ern[k] / dn[k]); plfn[k] = csigr * tn[k]^4 / cpi; dplf[k] = 4.0 * plfn[k]
+            egrn[k] = egn[k] + (ern[k] / dn[k])
+            plfn[k] = mode === :peq ? csigr / cpi * tn[k]^4 : csigr * tn[k]^4 / cpi
+            dplf[k] = 4.0 * plfn[k]
         end
         @inbounds for k in a:b+1; avchin[k] = 2.0 / (1.0 / chifn[k-1] + 1.0 / chifn[k]); end
-        gi(:ltran) == 0 && TD.fcall(:eddfac_)              # [Fortran] formal solution, not yet ported
+        (mode === :peq || gi(:ltran) == 0) && EDDFAC[]()
     end
     # ---- time-centred quantities
     θ = gf(:thet); dt = gf(:dtime)
@@ -295,6 +314,7 @@ function update!(; eos! = () -> TD.fcall(:eos_), opac! = () -> TD.fcall(:opac_))
     rng = a-1:b+2
     zero!(s) = (view(vf(s), rng) .= 0.0)
     foreach(zero!, (:eto, :et, :etn, :etso, :etb, :etsn))
+    mode === :peq && foreach(zero!, (:egto, :egt, :egtn, :egtso, :egtb, :egtsn))
     if lrad
         foreach(zero!, (:egso, :egb, :egsn))
     else
@@ -309,8 +329,256 @@ function update!(; eos! = () -> TD.fcall(:eos_), opac! = () -> TD.fcall(:opac_))
     if !lrad
         foreach(zero!, (:fro, :fr, :frn, :frso, :frb, :frsn, :chifo, :chif, :chifn, :avchio, :avchi, :avchin,
                         :xkeo, :xke, :xken, :xkpo, :xkp, :xkpn, :plfo, :plf, :plfn, :fedd, :frnom))
+        mode === :peq && foreach(zero!, (:xneo, :xne, :xnen))
     end
     view(vf(:bri), rng) .= view(unom, rng)
+    nothing
+end
+
+# ------------------------------------------------------------------ peq (peq.f → peqh.f / peqrh.f)
+const PEQ_OLD1 = ((:to, :tn), (:do, :dn), (:ro, :rn), (:rmuo, :rmun), (:rmup1o, :rmup1n), (:rmum1o, :rmum1n),
+                  (:dvolo, :dvoln), (:xmeo, :xmen), (:xmo, :xmn), (:uo, :un), (:ego, :egn), (:drdto, :drdt),
+                  (:dmdto, :dmdt), (:urelo, :urel), (:xnto, :xnt))
+const PEQ_OLD2_H  = ((:dso, :dsn), (:uso, :usn), (:pgo, :pgn), (:aso, :asn), (:egso, :egsn))
+const PEQ_OLD2_RH = ((:dso, :dsn), (:uso, :usn), (:pgo, :pgn), (:aso, :asn), (:erso, :ersn), (:egso, :egsn),
+                     (:egro, :egrn), (:egrso, :egrsn), (:chifo, :chifn), (:frso, :frsn), (:xkeo, :xken),
+                     (:xkpo, :xkpn), (:xneo, :xnen), (:plfo, :plfn))
+
+"Prepare a time step (peq{h,rh}): new → old, extrapolate r and m, boundary values, derived quantities."
+function peq!(; eos! = () -> TD.fcall(:eos_), opac! = () -> TD.fcall(:opac_))
+    a, b = gi(:ngrs), gi(:ngre); lrad = gi(:lrad) == 1
+    gi(:lhydr) == 1 && gi(:ltur) == 0 || error("peq!: only lhydr=1, ltur=0 ported")
+    # ---- replace old by new
+    s!(:timeo, gf(:timen)); s!(:timen, gf(:timeo) + gf(:dtime))
+    for (o, n) in ((:teso, :tes), (:tewo, :tew), (:telo, :tel), (:teqo, :teq)); s!(o, gf(n)); end
+    for (o, n) in PEQ_OLD1; copyto!(view(vf(o), a-1:b+2), view(vf(n), a-1:b+2)); end
+    lrad && for (o, n) in ((:ero, :ern), (:fro, :frn)); copyto!(view(vf(o), a-1:b+2), view(vf(n), a-1:b+2)); end
+    for (o, n) in (lrad ? PEQ_OLD2_RH : PEQ_OLD2_H); copyto!(view(vf(o), a-1:b+1), view(vf(n), a-1:b+1)); end
+    lrad && copyto!(view(vf(:avchio), a:b+1), view(vf(:avchin), a:b+1))
+    # ---- extrapolate radii and masses to the new time level (with TITAN's halving retry)
+    rn, xmen, ro, xmeo, un = vf(:rn), vf(:xmen), vf(:ro), vf(:xmeo), vf(:un)
+    drdt, dmdt = vf(:drdt), vf(:dmdt)
+    mu = gi(:mu)
+    leibc, llibc, leobc, llobc = gi(:leibc), gi(:llibc), gi(:leobc), gi(:llobc)
+    jext = 1; nnext = gi(:next); s!(:jext, jext)
+    while true
+        leibc > 0 && (drdt[a] = 0.0)
+        leibc > 0 && (dmdt[a] = -rn[a]^mu * gf(:phil0))
+        leobc > 0 && (drdt[b+1] = 0.0)
+        leobc < 3 && (dmdt[b+1] = -rn[b+1]^mu * gf(:phir0))
+        llibc > 0 && (drdt[a] = un[a]; dmdt[a] = 0.0)
+        llobc > 0 && (drdt[b+1] = un[b+1]; dmdt[b+1] = 0.0)
+        dt = gf(:dtime)
+        @inbounds for k in a:b+1
+            rn[k] = ro[k] + drdt[k] * dt
+            xmen[k] = xmeo[k] - dmdt[k] * dt
+        end
+        mono = true
+        @inbounds for k in a:b
+            (rn[k+1] <= rn[k] || xmen[k+1] > xmen[k]) && (mono = false; break)
+        end
+        mono && break
+        s!(:tfac, 0.5); s!(:dtime, 0.5 * gf(:dtime)); s!(:timen, gf(:timeo) + gf(:dtime))
+        jext += 1; s!(:jext, jext)
+        jext <= nnext || error("peq: grid extrapolation nonmonotonic after $nnext attempts")
+    end
+    # ---- boundary values of u and F
+    leibc <= 2 && (un[a] = gf(:ul)); llibc == 1 && (un[a] = gf(:uextl))
+    leobc <= 2 && (un[b+1] = gf(:ur)); llobc == 1 && (un[b+1] = gf(:uextr))
+    if lrad
+        frn, ern = vf(:frn), vf(:ern)
+        cpi, cc, csigr, xmu = gf(:cpi), gf(:cc), gf(:csigr), gf(:xmu)
+        lribc, lrobc = gi(:lribc), gi(:lrobc)
+        lribc == 1 && (frn[a] = +(2.0 * gf(:geddl) + 1.0) * cpi * gf(:xipl) - cc * gf(:geddl) * ern[a])
+        lribc == 2 && (frn[a] = 0.0)
+        lribc == 3 && (frn[a] = +csigr * gf(:teff)^4 * (1.0 - 0.5xmu) + 0.5 * gf(:xlum) * xmu / (4.0 * cpi * rn[a]^mu))
+        lrobc == 1 && (frn[b+1] = -(2.0 * gf(:geddr) + 1.0) * cpi * gf(:ximr) + cc * gf(:geddr) * ern[b])
+        lrobc == 2 && (frn[b+1] = 0.0)
+        lrobc == 3 && (frn[b+1] = frn[b] * (rn[b] / rn[b+1])^mu)
+    end
+    _ghost_and_derived!(:peq, eos!, opac!)
+end
+
+# ------------------------------------------------------------------ eddfac (eddfac.f, eddf.f, eddg.f)
+"""
+`FIX_EDDFAC_PLANAR[] = true` fixes a TITAN 1.2 bug in the planar (μ = 0) reflecting-inner-boundary
+branch (lribc = 2): the return sweep `do 9 kp = ngre, ngrs, -1` uses the stale outer index k = ngre+1
+instead of kp. Off by default (faithful translation). Not used by SUBC/SUPC, which are spherical.
+"""
+const FIX_EDDFAC_PLANAR = Ref(false)
+
+"eddf.f: accumulate the 0th and 2nd angular moments of xi over ang[1:n] into xmom0[k], xmom2[k]."
+@inline function _eddf!(n, ang, xi, xmom0, xmom2, k)
+    s0 = xmom0[k]; s2 = xmom2[k]
+    @inbounds for i in 1:n-1
+        a, b = ang[i], ang[i+1]; x, y = xi[i], xi[i+1]
+        s0 += 0.5 * (x + y) * (b - a)
+        s2 += (x * b - y * a) * (a^2 + a * b + b^2) / 3.0 + (y - x) * (a + b) * (a^2 + b^2) / 4.0
+    end
+    xmom0[k] = s0; xmom2[k] = s2
+    nothing
+end
+"eddg.f: first moment / zeroth moment of xi over ang[1:n]."
+@inline function _eddg(n, ang, xi)
+    s0 = 0.0; s1 = 0.0
+    @inbounds for i in 1:n-1
+        a, b = ang[i], ang[i+1]; x, y = xi[i], xi[i+1]
+        s0 += 0.5 * (x + y) * (b - a)
+        s1 += (x * b - y * a) * (a + b) / 2.0 + (y - x) * (a^2 + a * b + b^2) / 3.0
+    end
+    s1 / s0
+end
+cvmgp(a, b, c) = c < 0.0 ? b : a
+cvmgm(a, b, c) = c >= 0.0 ? b : a
+
+"Eddington factors f = K/J and boundary factors g from a formal solution (eddfac.f)."
+function eddfac!()
+    a, b = gi(:ngrs), gi(:ngre); fedd = vf(:fedd)
+    if gi(:ltran) > 1
+        view(fedd, a-1:b+2) .= 1.0 / 3.0; s!(:geddl, 0.5); s!(:geddr, 0.5); return nothing
+    end
+    mu = gi(:mu)
+    sf, dtau, dsf, bsf, asf = vf(:sf), vf(:dtau), vf(:dsf), vf(:bsf), vf(:asf)
+    chifn, dn, xnen, plfn, ern, frn, rn = vf(:chifn), vf(:dn), vf(:xnen), vf(:plfn), vf(:ern), vf(:frn), vf(:rn)
+    xim, xip, xi0, ang = vf(:xim), vf(:xip), vf(:xi0), vf(:ang)
+    xmom0, xmom2 = vf(:xmom0), vf(:xmom2)
+    csige, cc, cpi, eps = gf(:csige), gf(:cc), gf(:cpi), gf(:epsedf)
+    nang = gi(:nang); lribc, lrobc = gi(:lribc), gi(:lrobc)
+    source!(k) = (sf[k] = ((chifn[k] * dn[k] - csige * xnen[k]) * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) /
+                          (chifn[k] * dn[k]);
+                  dtau[k] = chifn[k] * dn[k] * (rn[k+1] - rn[k]))
+    function slopes!(withasf)
+        @inbounds for k in a:b-1; dsf[k] = sf[k] - sf[k+1]; end
+        @inbounds for k in a+1:b-1
+            dxm = 0.5 * (dtau[k-1] + dtau[k]); dxp = 0.5 * (dtau[k] + dtau[k+1])
+            sm = dxm * dsf[k] + dxp * dsf[k-1]; prod = dsf[k-1] * dsf[k]
+            denom = cvmgm(sm - eps, sm + eps, sm)
+            bsf[k] = cvmgp(2.0 * prod / denom, 0.0, prod)
+            withasf && (asf[k] = sf[k] - 0.5 * dtau[k] * bsf[k])
+        end
+        bsf[a] = bsf[a+1]; bsf[b] = bsf[b-1]
+    end
+    if mu == 0
+        for k in a:b; source!(k); end
+        slopes!(true)
+        asf[a] = sf[a] - 0.5 * dtau[a] * bsf[a]; asf[b] = sf[b] - 0.5 * dtau[b] * bsf[b]
+        if lribc == 2
+            cjk, ejk, sjk = vf(:cjk), vf(:ejk), vf(:sjk)
+            for j in 2:nang; cjk[j] = 0.0; ejk[j] = -1.0; sjk[j] = 0.0; end
+            for k in a:b, j in 2:nang
+                dt = dtau[k] / ang[j]; ex = exp(-dt)
+                cjk[j] = -ex; ejk[j] = -cjk[j] * ejk[j]
+                sjk[j] = -cjk[j] * sjk[j] + asf[k] * (1.0 - ex) + bsf[k] * ang[j] * (1.0 - (1.0 + dt) * ex)
+            end
+            for j in 2:nang; cjk[j] = -1.0; ejk[j] = -cjk[j] * ejk[j]; sjk[j] = -cjk[j] * sjk[j]; end
+            kstale = b + 1                                   # Fortran DO index after `do 6 k = ngrs, ngre`
+            for kp in b:-1:a, j in 2:nang
+                k = FIX_EDDFAC_PLANAR[] ? kp : kstale
+                dt = dtau[k] / ang[j]; ex = exp(-dt)
+                cjk[j] = -ex; ejk[j] = -cjk[j] * ejk[j]
+                sjk[j] = -cjk[j] * sjk[j] + asf[k] * (1.0 - ex) + bsf[k] * ang[j] * (dt - 1.0 + ex)
+            end
+            for j in 2:nang; xim[j] = sjk[j] / (1.0 + ejk[j]); end
+            xim[1] = xim[2]
+        end
+        lribc == 1 && (xim[1:nang] .= gf(:xipl))
+        if lribc == 3
+            for j in 1:nang
+                xim[j] = (cc * ern[a] + 1.5 * frn[a] * dtau[a]) / (4.0 * cpi) + 3.0 * ang[j] * frn[a] / (4.0 * cpi)
+            end
+        end
+        for k in a:b
+            for j in 2:nang
+                dt = 0.5 * dtau[k] / ang[j]; ex = exp(-dt)
+                xi0[j] = sf[k] * (1.0 - ex) + bsf[k] * ang[j] * (1.0 - (1.0 + dt) * ex) + xim[j] * ex
+                dt = 2.0 * dt; ex = exp(-dt)
+                xip[j] = asf[k] * (1.0 - ex) + bsf[k] * ang[j] * (1.0 - (1.0 + dt) * ex) + xim[j] * ex
+            end
+            xi0[1] = xi0[2]; xip[1] = xip[2]
+            for j in 1:nang; xim[j] = xip[j]; end
+            xmom0[k] = 0.0; xmom2[k] = 0.0
+            _eddf!(nang, ang, xi0, xmom0, xmom2, k)
+            k == b && s!(:geddr, _eddg(nang, ang, xip))
+        end
+        lrobc == 1 && (xip[1:nang] .= gf(:ximr))
+        for k in b:-1:a
+            for j in 2:nang
+                dt = 0.5 * dtau[k] / ang[j]; ex = exp(-dt)
+                xi0[j] = asf[k] * (1.0 - ex) + bsf[k] * ang[j] * (dt - 1.0 + ex) + xip[j] * ex
+                dt = 2.0 * dt; ex = exp(-dt)
+                xim[j] = asf[k] * (1.0 - ex) + bsf[k] * ang[j] * (dt - 1.0 + ex) + xip[j] * ex
+            end
+            xi0[1] = xi0[2]; xim[1] = xim[2]
+            for j in 1:nang; xip[j] = xim[j]; end
+            _eddf!(nang, ang, xi0, xmom0, xmom2, k)
+            fedd[k] = max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+            k == a && s!(:geddl, _eddg(nang, ang, xim))
+            s!(:geddl, max(0.5, min(gf(:geddl), 1.0)))
+        end
+        return nothing
+    end
+    mu == 2 || error("eddfac!: mu must be 0 or 2")
+    rp, sl, sr, p, xang = vf(:rp), vf(:sl), vf(:sr), vf(:p), vf(:xang)
+    ncor = gi(:ncor)
+    for k in b:-1:a; source!(k); end
+    slopes!(false)
+    @inbounds for k in a:b
+        l = 2 * (k - a) + 1
+        rp[l] = rn[k]; rp[l+1] = 0.5 * (rn[k] + rn[k+1])
+        sl[l] = sf[k] + 0.5 * dtau[k] * bsf[k]; sr[l] = sf[k]
+        sl[l+1] = sf[k]; sr[l+1] = sf[k] - 0.5 * dtau[k] * bsf[k]
+    end
+    lmax = 2 * (b - a + 1) + 1
+    rp[lmax] = rn[b+1]
+    for j in 1:ncor; p[j] = Float64(j - 1) * rp[1] / Float64(ncor); end
+    nray = (ncor + 1) + 2 * (b + 1 - a)
+    for j in ncor+1:nray; p[j] = rp[j - ncor]; end
+    lrobc == 1 && (xim[1:nray] .= gf(:ximr))
+    # inward sweep along tangent rays
+    for l in lmax-1:-1:1
+        k = a + (l - 1) ÷ 2; nj = ncor + l
+        @inbounds for j in 1:nj
+            xjl = sqrt(rp[l]^2 - p[j]^2); xjlp1 = sqrt(rp[l+1]^2 - p[j]^2)
+            dtjl = dn[k] * chifn[k] * (xjlp1 - xjl); ex = exp(-dtjl)
+            xip[j] = (1.0 - ex) * sl[l] + (1.0 - (1.0 + dtjl) * ex) * (sr[l] - sl[l]) / dtjl + ex * xim[j]
+            xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
+        end
+        for j in 1:nj; xim[j] = xip[j]; end
+        if iseven(l)
+            k = a + (l - 1) ÷ 2
+            xmom0[k] = 0.0; xmom2[k] = 0.0
+            _eddf!(nj, xang, xip, xmom0, xmom2, k)
+        end
+        l == 1 && s!(:geddl, _eddg(nj, xang, xip))
+    end
+    if lribc == 1
+        for j in 1:ncor+1; xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2); xim[j] = gf(:xipl); end
+    end
+    if lribc == 3                                    # (uses the planar quadrature ang(j), as in TITAN 1.2)
+        for j in 1:ncor+1
+            xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2)
+            xim[j] = (cc * ern[a] + 1.5 * frn[a] * dtau[a]) / (4.0 * cpi) + 3.0 * ang[j] * frn[a] / (4.0 * cpi)
+        end
+    end
+    # outward sweep
+    for l in 2:lmax
+        k = a + (l - 2) ÷ 2; nj = ncor + l - 1
+        @inbounds for j in 1:nj
+            xjl = sqrt(rp[l]^2 - p[j]^2); xjlm1 = sqrt(rp[l-1]^2 - p[j]^2)
+            dtjl = dn[k] * chifn[k] * (xjl - xjlm1); ex = exp(-dtjl)
+            xip[j] = (1.0 - ex) * sr[l-1] + (1.0 - (1.0 + dtjl) * ex) * (sl[l-1] - sr[l-1]) / dtjl + ex * xim[j]
+            xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
+        end
+        for j in 1:nj; xim[j] = xip[j]; end
+        if iseven(l)
+            k = a + (l - 1) ÷ 2
+            xang[nj+1] = 0.0
+            _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
+            fedd[k] = max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+        end
+        l == lmax && s!(:geddr, _eddg(nj, xang, xip))
+        s!(:geddr, max(0.5, min(gf(:geddr), 1.0)))
+    end
     nothing
 end
 

@@ -1226,3 +1226,29 @@ New files: `julia/TitanCore.jl` (translations), `julia/PortHarness.jl` (in-fligh
 
 After (1) and (3), a benchmark run needs Fortran only for initialisation. Initialisation can then be replaced per problem by Julia
 setup functions, which is also where the quasi-star problem setup belongs.
+
+### P5.3 peq{h,rh} and eddfac → Julia: the whole time step runs in Julia [run]
+- **Refactor:** `update!` is split into the Newton correction plus `_ghost_and_derived!(mode)`, which `peq!` shares. The Fortran
+  peq and update tails differ in only three places, all reproduced:
+  - peq always calls eddfac;
+  - peqrh computes `plfn = csigr/cpi*T^4` where updaterh computes `csigr*T^4/cpi`;
+  - peq also zeroes the `egt*` arrays (and peqh zeroes `xne*`).
+- **`peq!`:** new→old copies; extrapolation of r and m with TITAN's halving retry (the retry counter `jext` is kept in COMMON,
+  as in the Fortran); u and F boundary values; then the shared tail.
+- **`eddfac!`:** planar (μ = 0) and spherical (μ = 2) formal solutions, with `eddf`/`eddg` moments.
+  - Translated faithfully, including two TITAN 1.2 quirks. Planar lribc = 2: the return sweep uses the stale index k = ngre+1
+    instead of kp; `FIX_EDDFAC_PLANAR[]` fixes it and is off by default. Spherical lribc = 3: uses the planar quadrature
+    `ang(j)`; not changed.
+  - SUBC and SUPC are spherical with lribc = 2, so neither quirk affects them.
+- **In-flight checks**, every call over the whole run:
+
+| routine | SUPC | SUBC | SOD |
+|---|---|---|---|
+| peq | 713 calls, ≤ 2e-11 (urel/drdt as in P5.1, the rest ≤ 2e-13) | — | 470 calls, identical |
+| eddfac | 713 calls, ≤ 9e-13 (xmom2) | 587 calls, ≤ 4e-13 | n/a (hydro) |
+
+- **"jstep" mode:** every routine of the time step in Julia (residuals, Jacobian, solver, EOS, opacity, peq, eddfac, update,
+  maxdel, timstp, totnrg, reset). Only output (`archive`/`writout`/`writsty`) and initialisation are still Fortran.
+  - Against `std`: SUBC 587/587 steps and SUPC 713/713 steps, tier (c) ACCEPT.
+  - SOD: observables ACCEPT; 470 vs 452 steps (§P3.3).
+  - Speed: 4.5 (SOD), 6.1 (SUPC) and 6.3 (SUBC) ms/step vs Fortran 6.4 (SUPC), excluding JIT.

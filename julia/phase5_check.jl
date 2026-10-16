@@ -10,12 +10,19 @@ const TD = TitanDriver; const TF = TD.TF; const JP = JuliaPhysics; const TX = Ti
 const BS = BlockSolver; const TC = TitanCore; const PH = PortHarness
 
 name, nn = ARGS[1], parse(Int, ARGS[2])
-which = length(ARGS) >= 3 ? Symbol.(split(ARGS[3], ",")) : [:reset, :update, :maxdel, :timstp, :totnrg]
+which = length(ARGS) >= 3 ? Symbol.(split(ARGS[3], ",")) : [:peq, :reset, :update, :maxdel, :timstp, :totnrg]
 TD.ROUTINES[:matgen] = () -> TX.matgen!()
 TD.ROUTINES[:matslv] = BS.Penta.matslv!
 TD.install_hooks!(eos = JP.eos!, opac = JP.opac!)
-jl = Dict(:reset => TC.reset!, :update => TC.update!, :maxdel => TC.maxdel!, :timstp => TC.timstp!, :totnrg => TC.totnrg!)
-for s in which; PH.wrap!(s, jl[s]); end
+jl = Dict(:eddfac => TC.eddfac!, :peq => TC.peq!, :reset => TC.reset!, :update => TC.update!, :maxdel => TC.maxdel!, :timstp => TC.timstp!, :totnrg => TC.totnrg!)
+for s in which
+    if s === :eddfac      # called from inside peq: run the Julia peq! and compare at the EDDFAC hook
+        TD.ROUTINES[:peq] = TC.peq!
+        TC.EDDFAC[] = PH.make_compare(:eddfac, () -> TD.fcall(:eddfac_), TC.eddfac!)
+    else
+        PH.wrap!(s, jl[s])
+    end
+end
 get(ENV, "FOLLOW_JULIA", "0") == "1" && (PH.FOLLOW_JULIA[] = true)
 get(ENV, "PARITY", "0") == "1" && (TC.PARITY[] = true)
 

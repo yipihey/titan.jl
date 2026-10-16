@@ -34,10 +34,12 @@ function vdiff(a::Array{Float64}, b::Array{Float64})
 end
 vdiff(a::Array{Int32}, b::Array{Int32}) = a == b ? 0.0 : 1.0
 
-function wrap!(s::Symbol, jfun::Function)
-    fort = () -> TD.fcall(Symbol(s, "_"))
+wrap!(s::Symbol, jfun::Function) = (TD.ROUTINES[s] = make_compare(s, () -> TD.fcall(Symbol(s, "_")), jfun))
+
+"Comparison closure for any Fortran/Julia pair (e.g. routines called from inside other routines)."
+function make_compare(s::Symbol, fort::Function, jfun::Function)
     st = get!(STATS, s, Dict{Symbol,Float64}()); wr = get!(WRITES, s, Set{Symbol}())
-    TD.ROUTINES[s] = function ()
+    return function ()
         S0 = TD.snapshot(); P0 = capture()
         fort(); A = capture(); SA = TD.snapshot()
         TD.restore!(S0)

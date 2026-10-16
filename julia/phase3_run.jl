@@ -42,6 +42,16 @@ function use!(m)
         TD.ROUTINES[:matslv] = timed(:matslv, JS.matslv!)
         TD.install_hooks!(eos = JP.eos!, opac = JP.opac!)
     end
+    if m == "jstep"                          # Phase 5b: the whole time step in Julia (only I/O and init remain Fortran)
+        TD.ROUTINES[:matgen] = timed(:matgen, () -> TX.matgen!())
+        TD.ROUTINES[:matslv] = timed(:matslv, BS.Penta.matslv!)
+        TD.install_hooks!(eos = JP.eos!, opac = JP.opac!)
+        for (s, f) in ((:peq, TC.peq!), (:reset, TC.reset!), (:update, TC.update!), (:maxdel, TC.maxdel!),
+                       (:timstp, TC.timstp!), (:totnrg, TC.totnrg!))
+            TD.ROUTINES[s] = timed(s, f)
+        end
+        TC.EDDFAC[] = TC.eddfac!
+    end
     if m == "jcore"                          # Phase 5: jfast + Julia reset/update/maxdel/timstp/totnrg (only peq, I/O in Fortran)
         TD.ROUTINES[:matgen] = timed(:matgen, () -> TX.matgen!())
         TD.ROUTINES[:matslv] = timed(:matslv, BS.Penta.matslv!)
