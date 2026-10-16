@@ -1320,4 +1320,55 @@ Design decisions (Tom, 16 Oct 2026):
   **[design choice]** Newton convergence may become linear when the coefficients change strongly between iterates; not yet observed.
 - **Check** (`CONV=1 z0_jac_check.jl`, a superadiabatic test state with all 99 interfaces convecting): coloured AD = dense AD
   exactly, and vs central FD ≤ 1.5e-6 of the row max. Assembly 1.07 ms/call.
-- **Still to validate:** the flux against the steady model's MLT on a real quasi-star profile; that is part of the set-up step.
+- **Validated** against the steady model's MLT on the quasi-star profile in P7.3 (agreement to ≤ 0.002 L).
+
+### P7.3 Quasi-star outer shell: set-up and hydrostatic test [run]
+- **Profile export:** `QuasiStarInfall/scripts/export_profile.jl fBH Mdot out.csv` writes the steady envelope (r, m, P, T, ρ,
+  ∇, ∇_ad, ∇_rad, …). Used here: M = 10⁶ M☉, f_BH = 0.1, L = L_Edd(κ_es) = 1.42e44 erg/s, Ṁ = 0, R = 8.435e15 cm.
+- **`julia/QuasiStarSetup.jl` `setup!`** builds the TITAN state from it, starting from the SUBC state as a parameter template.
+  - Domain: r_in = 0.4 R to R, plus either a grey hydrostatic atmosphere (Ṁ = 0) or a free-fall inflow region (Ṁ > 0).
+  - Grid: 140 envelope zones uniform in ln P_tot; the outer region uniform in r (atmosphere) or geometric from R (inflow).
+  - Masses: per steradian. The mass inside r_in, m(r_in) = 1.565e39 g (BH plus inner envelope), acts as a point mass;
+    the shell holds 4.2e38 g.
+  - Constants: TITAN's cgrav, cc, csigr and car are overwritten with those of the Z0 physics. With Γ ≈ 1 the net force on
+    the gas is about 1 % of gravity, so TITAN's 2·10⁻⁴ differences would matter.
+  - Boundaries: walls (leibc = 1, leobc = 1) with an Eulerian grid (lgrid = 2). The inner boundary has an imposed luminosity
+    (lribc = 3, xlum = L), all of it radiative at the wall; the outer radiation boundary is transmitting (lrobc = 1, ximr = 0).
+    Inflow runs use leobc = 2: a fixed external state ρ_ff, T_Lucy, u = −v_ff, with matching mass flux (phir0) and gas
+    internal-energy flux (phir2).
+  - Material: `Z0Gas` (optionally `grey = true`: κ_R for absorption too), MLT on with α = 0.8 (the steady model's value).
+- **MLT optical-depth cut** (new in `TitanResidFast.convcoef`): F_conv = 0 where the Rosseland optical depth from the outer
+  boundary (on the current iterate) is below `TAU_MLT[]` (default 1).
+  - Without it, the optically thin atmosphere convected spuriously, because there P ≈ fE_r is nearly constant and ∇ blows up.
+  - It also skips unphysical iterates (ρ or T ≤ 0); the step is then rejected by the usual divergence logic.
+- **Driver:** `julia/qstar_run.jl setup|relax` (environment variables QS_NAME, QS_MDOT, QS_GREY, QS_LGRID, …).
+  `julia/qstar_compare.jl` compares a snapshot with the steady profile.
+- **Hydrostatic test, Ṁ = 0** (2000 steps, about 0.4 dynamical times; t_dyn = √(R³/GM) ≈ 6.7e7 s).
+  Table: `reference_runs/qstar_hydrostatic_compare.txt`.
+  - **Interior (0.4–0.98 R):** TITAN keeps the steady structure to |ΔT/T| ≤ 0.5 % and |Δρ/ρ| ≤ 1 %. Its MLT convective
+    fraction matches the steady model's 1 − ∇/∇_rad to ≤ 0.002 of L at every point (0.191 vs 0.191 at 0.42 R; 0.0165 vs
+    0.0163 at 0.85 R). Total L(r) is constant to ±0.7 %. **[run]** This validates both the Z0 material and the MLT flux.
+  - **Surface (r > 0.993 R):** it does not hold, and the reason is physical, not numerical. **[run + analysis]**
+    - The steady model's outer boundary is the Eddington grey T(τ) with τ = 2/3 at R. Its Γ_κ = 0.91 there comes from
+      partly ionized H at 7300 K.
+    - Integrating the atmosphere above R hydrostatically gives only τ ≈ 0.31 in 12 density e-folds. The column needed for
+      τ = 2/3 is not there.
+    - TITAN's radiative equilibrium then cools the top to ≈ 5700 K (non-grey) or ≈ 5000 K (grey). H recombines; at Z = 0
+      the opacity drops by orders of magnitude (the "opacity cliff"); the radiative support vanishes. The atmosphere falls at
+      30–60 km/s (close to free fall) and drains onto a new photosphere near 0.995 R.
+    - The Eulerian top zone then empties below the table's range (ρ ~ 1e-21) and the run stops at t ≈ 2.8e7 s (non-grey) or
+      3.5e7 s (grey).
+    - Implication for the quasi-star question: a Z = 0, Γ ≈ 1 envelope has a sharp photosphere pinned at the H-recombination
+      edge. An extended ~6000 K atmosphere is not hydrostatically supported. This agrees with the steady branch analysis.
+- **Infall runs (Ṁ = 0.3 and 3e-5 M☉/yr), first attempts: not yet working.** **[run]**
+  - Eulerian grid: the run stops at t ≈ 100 s, with time steps of 0.04–5 s. The accretion shock (v_ff = 1.8e8 cm/s, Mach
+    ≈ 200) sits in one zone at T ~ 1e6 K, with a 1300 K undershoot ahead of it (below the 2000 K table edge). The same
+    happens at Ṁ = 3e-5, where the inflow density 1e-20 is also below the table.
+  - Adaptive grid (lgrid = 1, lady = log m, ρ, T): the first step does not converge even at dt = 1e-5 s. The density
+    correction at the first inflow zone is −870× while the grid equation is far from equidistribution.
+  - Next to try:
+    (1) Start from an equidistributed grid: relax the grid equation on the static state first, as start08 effectively does
+        from dt = 1e-25.
+    (2) Ramp the inflow velocity and density at the outer boundary from zero, so the shock forms gradually.
+    (3) Extend the opacity table below 2000 K and below log R = −12 (cold, rarefied inflow).
+    (4) Put a smooth settling layer below the initial contact.

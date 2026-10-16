@@ -120,8 +120,17 @@ function convcoef(ngrs, ngre, base)
     m = MATERIAL[]; m === nothing && error("MLT convection needs a material with material_thermo (e.g. Z0Gas)")
     @inbounds for k in ngrs+1:ngre
         ρi = 0.5 * (base[k-1, 3] + base[k, 3]); Ti = 0.5 * (base[k-1, 5] + base[k, 5])
+        (ρi > 0 && Ti > 0) || continue          # unphysical iterate: no MLT (the step will be rejected)
         nad, cp, δ = material_thermo(m, ρi, Ti)
         cv[1][k] = nad; cv[2][k] = cp; cv[3][k] = δ; cv[4][k] = material_opac(m, ρi, Ti)[1]
+    end
+    # MLT is a diffusion-limit theory: no convective flux above optical depth TAU_MLT (Rosseland,
+    # integrated from the outer boundary on this iterate). Marked by c_P = 0.
+    τ = 0.0
+    @inbounds for k in ngre:-1:ngrs+1
+        (base[k, 3] > 0 && base[k, 5] > 0) &&
+            (τ += material_opac(m, base[k, 3], base[k, 5])[1] * base[k, 3] * (base[k+1, 1] - base[k, 1]))
+        τ < TAU_MLT[] && (cv[2][k] = 0.0)               # τ at interface k
     end
     cv
 end
@@ -204,6 +213,8 @@ derivative sweep (lagged coefficients); the dependence on T, ρ, P and ∇ is di
 """
 const CONVECTION = Ref(false)
 const ALPHA_MLT = Ref(0.8)
+"Minimum Rosseland optical depth (from the outer boundary) for a nonzero MLT flux."
+const TAU_MLT = Ref(1.0)
 "Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
 function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
@@ -461,6 +472,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             lp = log(Pp / Pm)
             abs(ForwardDiff.value(lp)) < 1e-12 && continue
             ∇ = log(tn[k] / tn[k-1]) / lp
+            cpv[k] > 0 || continue                  # optically thin: no MLT flux
             sup = ∇ - nadv[k]                       # superadiabaticity (not `x`: that is the Newton vector)
             ForwardDiff.value(sup) > 0 || continue
             Ti = 0.5 * (tn[k-1] + tn[k]); ρi = 0.5 * (dn[k-1] + dn[k]); Pi = 0.5 * (Pm + Pp)

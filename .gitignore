@@ -20,3 +20,4 @@ Manifest.toml
 lib/build*.log
 lib/p5_runs/
 lib/p6_runs/
+lib/qs_runs/

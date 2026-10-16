@@ -25,8 +25,9 @@ struct Builtin <: Material end
 "Zero-metallicity Saha gas with tabulated mean opacities."
 struct Z0Gas{T} <: Material
     tab::T
+    grey::Bool       # true: Rosseland mean for absorption/emission too (grey; as the steady envelope models)
 end
-Z0Gas() = Z0Gas(Z0.table())
+Z0Gas(tab = Z0.table(); grey = false) = Z0Gas(tab, grey)
 
 # ---------------- residual interface (generic in the number type)
 @inline function TX.material_gas(m::Z0Gas, ρ, T)
@@ -37,7 +38,9 @@ Z0Gas() = Z0Gas(Z0.table())
     return pg, eg, sqrt(5.0 / 3.0 * pg / ρ)
 end
 @inline function TX.material_opac(m::Z0Gas, ρ, T)
-    κR = Z0.kap(m.tab, ρ, T); κP = Z0.kapP(m.tab, ρ, T)
+    κR = Z0.kap(m.tab, ρ, T)
+    m.grey && return κR, κR, κR
+    κP = Z0.kapP(m.tab, ρ, T)
     return κR, κP, κP
 end
 
