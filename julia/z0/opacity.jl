@@ -170,16 +170,34 @@ function _interp(tab::KapTable, M::Matrix{Float64}, ρ, T)
     nT, nR = length(tab.lT), length(tab.lR)
     x = (lT - tab.lT[1]) / (tab.lT[2] - tab.lT[1])
     y = (lR - tab.lR[1]) / (tab.lR[2] - tab.lR[1])
-    x = clamp(x, 0, nT - 1 - 1e-9); y = clamp(y, 0, nR - 1 - 1e-9)
+    x = clamp(x, 0, nT - 1 - 1e-9)
+    if EXTRAP_LOWR[] && pval(y) < 0
+        # below the lowest log R: linear extrapolation in log R with the slope between the first two columns
+        # (fully ionized, thin gas: free-free/bound-free ∝ ρ, slope 1 for κ_P; electron scattering, slope 0 for κ_R)
+        v0 = _cr2(M, x, zero(y), nT, nR); v1 = _cr2(M, x, one(y), nT, nR)
+        return 10^(v0 + y * (v1 - v0))
+    end
+    y = clamp(y, 0, nR - 1 - 1e-9)
+    return 10^_cr2(M, x, y, nT, nR)
+end
+"Catmull–Rom value of table M at fractional node coordinates (x, y) (both inside the table)."
+function _cr2(M, x, y, nT, nR)
     i = floor(Int, pval(x)) + 1; j = floor(Int, pval(y)) + 1
+    j = min(j, nR - 1); i = min(i, nT - 1)
     wx = _crw(x - (i - 1)); wy = _crw(y - (j - 1))
     v = zero(x * y)
     for a in 1:4, b in 1:4
         ii = clamp(i - 2 + a, 1, nT); jj = clamp(j - 2 + b, 1, nR)
         v += wx[a] * wy[b] * M[ii, jj]
     end
-    return 10^v
+    v
 end
+"""
+EXTRAP_LOWR[]: below the table's lowest log R (= log ρ − 3 log T₆) extrapolate log κ linearly in log R instead of
+clamping. Clamping evaluates the opacity of gas up to 1e3 times denser: in a 1e7–1e8 K, 1e-17 g cm⁻³ accretion
+corona it overstates the Planck mean, hence free-free cooling, by that factor. Default true.
+"""
+const EXTRAP_LOWR = Ref(true)
 kap(tab::KapTable, ρ, T) = _interp(tab, tab.lk, ρ, T)
 kapP(tab::KapTable, ρ, T) = _interp(tab, tab.lkP, ρ, T)
 

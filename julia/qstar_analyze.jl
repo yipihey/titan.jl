@@ -1,6 +1,6 @@
 # Summarise a quasi-star infall run from its snapshots (qstar_run.jl relax): per snapshot the shock radius and the
 # post-shock peak temperature, the photosphere (Rosseland τ = 2/3 from the outer boundary) and its effective temperature,
-# the emergent luminosity, the infall mass flux and the mass on the grid.
+# the emergent luminosity, the mass flux at the outer boundary and just outside the shock, and the mass on the grid.
 #   TITAN_NOLIB=1 Z0_TABLE=ext julia --project=env qstar_analyze.jl NAME [stride]
 using Serialization, Printf
 include(joinpath(@__DIR__, "Z0Physics.jl")); const Z0 = Z0Physics
@@ -25,14 +25,16 @@ function summary(s)
     du = [s.u[k+1] - s.u[k] for k in 1:length(s.u)-1]
     ks = argmin(du)                       # most negative du: u drops outward into the infall
     Tpk = maximum(s.T[max(1, ks - 3):min(nz, ks + 3)])
-    Mdot = -4π * s.r[end]^2 * s.d[end] * s.u[end]
+    Mdot = -4π * s.r[end]^2 * s.d[end] * s.u[end]                     # at the outer boundary
+    j = min(ks + 4, length(s.u) - 1)                                  # just outside the shock
+    Mdsh = -4π * s.r[j]^2 * 0.5 * (s.d[j-1] + s.d[j]) * s.u[j]
     (t = s.t, dt = s.dt, rsh = s.r[ks+1] / R0, Tpk, rph = rph / R0, Teff, Lph = Lph / L0, Lout = s.Lrad[end] / L0,
-     Mdot = Mdot / (Msun / yr), dM = (mass(s) - M0) / Msun, uin = s.u[end])
+     Mdot = Mdot / (Msun / yr), Mdsh = Mdsh / (Msun / yr), dM = (mass(s) - M0) / Msun, uin = s.u[end])
 end
-@printf("%-11s %-10s %-9s %-10s %-9s %-7s %-7s %-7s %-10s %-10s\n", "t [s]", "dt", "r_sh/R", "T_peak", "r_ph/R", "T_eff", "L_ph/L0",
-        "L_out", "Mdot", "ΔM [Msun]")
+@printf("%-11s %-10s %-9s %-10s %-9s %-7s %-7s %-7s %-10s %-10s %-10s\n", "t [s]", "dt", "r_sh/R", "T_peak", "r_ph/R", "T_eff", "L_ph/L0",
+        "L_out", "Mdot_out", "Mdot_sh", "ΔM [Msun]")
 for i in 1:stride:length(S)
     q = summary(S[i])
-    @printf("%-11.4e %-10.3e %-9.6f %-10.3e %-9.6f %-7.0f %-7.4f %-7.4f %-10.3e %-10.3e\n", q.t, q.dt, q.rsh, q.Tpk, q.rph, q.Teff,
-            q.Lph, q.Lout, q.Mdot, q.dM)
+    @printf("%-11.4e %-10.3e %-9.6f %-10.3e %-9.6f %-7.0f %-7.4f %-7.4f %-10.3e %-10.3e %-10.3e\n", q.t, q.dt, q.rsh, q.Tpk, q.rph, q.Teff,
+            q.Lph, q.Lout, q.Mdot, q.Mdsh, q.dM)
 end
