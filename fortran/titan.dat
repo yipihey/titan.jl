@@ -1,0 +1,38 @@
+c
+c------------------------------------------------------------- titan.dat
+c
+c     all fundamental physical quantities are taken from the 1986
+c     recommended values (PHYSICS TODAY BG, August 1992, p. 9-13)
+c     
+c     cc.........: speed of light in vacuo 
+c     cgrav......: Newtonian constant of gravitation 
+c     csige......: Thomson electronic cross section 
+c     cgas.......: molar gas constant
+c     ck.........: Boltzmann constant 
+c     cm0........: atomic mass constant
+c     csigr......: Stefan-Boltzmann constant
+c     car........: 4 csigr / cc
+c     cmsol......: solar mass
+c     crsol......: solar radius
+c     clsol......: solar luminosity
+c
+c     all constants are to be taken in cgs units     
+c
+      data  car          , cc           , cgas         , cgrav
+     .    / 7.5659141D-15, 2.99792458D10, 8.314510000D7, 6.67259000D-8/
+c
+      data  ck           , cm0          , cpi          , clsol
+     .    / 1.3806580D-16, 1.6605402D-24, 3.141592653D0, 3.82700000D33/
+c
+      data  cmsol        , crsol        , csige        , csigr
+     .    / 1.98910000D33, 6.96000000D10, 6.6524616D-25, 5.67051000D-5/
+c
+      data  epsedf  , nang
+     .    / 1.0D-50 , 23  /
+c
+      data  (ang(i), i = 1, 23)
+     .    / 0.00D0, 0.01D0, 0.02D0, 0.04D0, 0.06D0, 0.08D0, 0.10D0,
+     .      0.15D0, 0.20D0, 0.25D0, 0.30D0, 0.40D0, 0.50D0, 0.60D0,
+     .      0.70D0, 0.80D0, 0.90D0, 0.92D0, 0.94D0, 0.96D0, 0.98D0,
+     .      0.99D0, 1.00D0 /
+c

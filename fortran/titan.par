@@ -1,0 +1,30 @@
+c
+c------------------------------------------------------------- titan.par
+c     general:
+c
+      parameter( mgr  = 330, meqn =    8 )
+      parameter( madv =  40, mad  =   12 )
+      parameter( mdfz =  10              )
+      parameter( mang =  25, mcor =   25 )
+      parameter( me   =   3, mv   = 1000 )
+c.......................................................................
+c     band matrix:
+c
+      parameter( mpd = 3 * meqn, mld = mpd - 1, mud = mpd - 1 )
+c.......................................................................
+c     eos:
+c
+      parameter( mxe = 51, mye = 176 )
+      parameter(xmine=-27.63102111592855D0, xmaxe = -4.60517018598809D0)
+      parameter(ymine = 8.05904782547916D0, ymaxe = 16.11809565095832D0)
+      parameter(dxe   = 0.46051701859881D0, dye   = 0.046051701859881D0)
+c.......................................................................
+c     opacity:
+c
+      parameter( mxo = 41, myo = 141 )
+      parameter(xmino=-27.63102111592855D0, xmaxo = -4.60517018598809D0)
+      parameter(ymino = 8.05904782547916D0, ymaxo = 16.11809565095832D0)
+      parameter(dxo   = 0.57564627324851D0, dyo   = 0.057564627324851D0)
+c
+c------------------------------------------------------------- titan.par
+c

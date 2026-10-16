@@ -1,0 +1,35 @@
+c
+c------------------------------------------------------------- titan.eq2
+c     used in: advecti, gasmom, radmom
+c
+      dimension 
+     .       qn      (mgr), qsn     (mgr), qo      (mgr), qso     (mgr),
+     .       qb      (mgr), dq      (mgr), qr      (mgr), flow    (mgr),
+     .       denom   (mgr), s       (mgr), 
+     .       dqrdqm1 (mgr), dqrdq00 (mgr), dqrdqp1 (mgr),
+     .       dqsdqm1 (mgr), dqsdq00 (mgr), dqsdqp1 (mgr), 
+     .       dqbdqm1 (mgr), dqbdq00 (mgr), dqbdqp1 (mgr), dqbdqp2 (mgr),
+     .       dqbdfm1 (mgr), dqbdf00 (mgr), dqbdfp1 (mgr), dqbdfp2 (mgr),
+     .       dqbdlfp2(mgr), dqbdlfp1(mgr), dqbdlf00(mgr), dqbdlfm1(mgr),
+     .       dqbdldm1(mgr), dqbdld00(mgr), dqbdldp1(mgr), dqbdldp2(mgr),
+     .       dqbdldm2(mgr)
+c
+      equivalence
+     .            (qn      (1), adv(1,  1)), (qsn     (1), adv(1,  2)),
+     .            (qo      (1), adv(1,  3)), (qso     (1), adv(1,  4)),
+     .            (qb      (1), adv(1,  5)), (dq      (1), adv(1,  6)),
+     .            (qr      (1), adv(1,  7)), (flow    (1), adv(1,  8)),
+     .            (denom   (1), adv(1,  9)), (s       (1), adv(1, 10)),
+     .            (dqrdqm1 (1), adv(1, 11)), (dqrdq00 (1), adv(1, 12)),
+     .            (dqrdqp1 (1), adv(1, 13)), (dqsdqm1 (1), adv(1, 14)),
+     .            (dqsdq00 (1), adv(1, 15)), (dqsdqp1 (1), adv(1, 16)),
+     .            (dqbdqm1 (1), adv(1, 17)), (dqbdq00 (1), adv(1, 18)),
+     .            (dqbdqp1 (1), adv(1, 19)), (dqbdqp2 (1), adv(1, 20)),
+     .            (dqbdfm1 (1), adv(1, 21)), (dqbdf00 (1), adv(1, 22)),
+     .            (dqbdfp1 (1), adv(1, 23)), (dqbdfp2 (1), adv(1, 24)),
+     .            (dqbdldm1(1), adv(1, 25)), (dqbdld00(1), adv(1, 26)),
+     .            (dqbdldp1(1), adv(1, 27)), (dqbdldp2(1), adv(1, 28)),
+     .            (dqbdldm2(1), adv(1, 29)),
+     .            (dqbdlfm1(1), adv(1, 30)), (dqbdlf00(1), adv(1, 31)),
+     .            (dqbdlfp1(1), adv(1, 32)), (dqbdlfp2(1), adv(1, 33))
+c

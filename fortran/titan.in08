@@ -1,0 +1,12 @@
+    4
+    6    output  SUBC.out       new
+    7      dump  SUBC.dmp       new
+    9   history  SUBC.sty       new
+   10    energy  SUBC.nrg       new
+    8    1    1
+ SUBCRITICAL SHOCK PROBLEM
+  7.78e-10 3.115e-10 6.0e+5
+    1    1  999 8.700e+04
+      rho0     chif0  upstn
+c
+c------------------------------------------------------------ titan.in08

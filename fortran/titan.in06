@@ -1,0 +1,12 @@
+    4
+    6    output  HEAT.out       new
+    7      dump  HEAT.dmp       new
+    8   history  HEAT.sty       new
+    9    energy  HEAT.nrg       new
+    6    1    1
+ HEATING TOWARDS RADIATIVE EQUILIBRIUM
+ 5.0000e-1 1.0000e38 2.9677e-11 1.190e-11 1.000e-00
+    1    1  150 1.000e+20
+     xmass      xlum       rho0     chif0     ratio
+c
+c------------------------------------------------------------ titan.in06

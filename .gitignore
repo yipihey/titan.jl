@@ -1,0 +1,19 @@
+# build products
+*.o
+*.so
+*.x
+*.mod
+lib/obj/
+# run outputs (regenerate with scripts/)
+*.dmp
+*.nrg
+*.sty
+*.jls
+lib/jl_runs/
+lib/p2_runs/
+lib/p3_runs/
+lib/p4_runs/
+lib/p4_legs/
+reference_runs/*/dumps/
+__pycache__/
+Manifest.toml

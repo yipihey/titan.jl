@@ -1,0 +1,5 @@
+c
+c--------------------------------------------------------------titan.imp
+c
+      implicit real*8  (a - h, o - z)
+      implicit integer (i - n)

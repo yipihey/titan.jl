@@ -1,0 +1,265 @@
+
+#########################################################################
+#                                                                       #
+#                     TITAN version 1.2 update list                     #
+#                                                                       #
+#                           released October 95                         #
+#                                                                       #
+# This version updates the previous two releases, version 1.0 (Jan 94)  #
+# and version 1.1 (Jan 95),  in a  significant and fundamental manner.  #
+#                                                                       #
+#########################################################################
+                      
+
+ +--------------------------------------------------------------------+
+ |        Important bug corrections in versions 1.0 and 1.1           |
+ |                                                                    |
+ | The usage of the BLAS function ISAMAX is incorrect in the two sub- |
+ | routines MAXDEL and GRIDINIT: the stride for the 2-d arrays of the |
+ | type "rhs(#,ngrs)" is set equal to "1" instead of "meqn" resulting |
+ | in incorrect values for "kx(#)". The resulting wrong estimates for | 
+ | the sizes of the correction vectors (c.f. the TITAN Code Reference |
+ | Manual, XVII.A) still lead to trustworthy solutions as soon as the |
+ | code has converged at each timestep!                               |
+ | ISAMAX is correctly employed in the subroutine TIMSTP for the 2-d  |
+ | array "sx(ngrs,#)", and in all instances with 1-d arrays.          |
+ |                                                                    |
+ | Two terms of the total energy in TOTNRG do not  properly represent |
+ | the formulae in the  TITAN Code Reference Manual, XI.B .  The term |
+ | TE3 is corrected by introducing a new array  "tescr0(#)"  which is |
+ | set in START## and marks the zero time total energy.  The term TE4 |
+ | is changed for the correct time centering of variables.            |
+ |                                                                    |
+ | Users who wish to continue working with versions 1.0/1.1 are asked |
+ | to carry out these  bugs fix themselves.  The exact changes can be |
+ | found from file comparisons with version 1.2.                      |
+ +--------------------------------------------------------------------+
+
+The main objective of version 1.2 is a change in the mass variable from
+"interior" mass "xm", measured outward from the center, to "exterior"
+mass "xme", measured inward from the outer surface. This now enables the
+user to consider problems in self-gravitating flows in which the gravita-
+ting mass is dominated by a very large inner mass (e.g. accretion onto a
+compact object). Or flows in strongly gravitationally stratified media 
+(e.g. stellar envelopes) where the masses of zones in the outer layers
+are many (12 - 15) orders of magnitude smaller than those of the inner
+zones.
+
+The model initialization can be adapted from an old START## routine with 
+merely one new DO loop (DO 155) which links "xme" to "xm" via the constant 
+"xmtot", as described below:
+
+Let "xmass" denote the total interior (gravitational) mass out to the 
+outer boundary (i.e. the stellar mass, or mass of the computational domain
+if there is a zero mass contribution from inside the inner boundary). Out-
+side of this boundary we allow for the possible existence of an external
+mass "xmext", which contributes only a constant to the gravitational poten-
+tial inside (spherical symmetry). This outer mass could serve, for example,
+as a reservoir for mass accretion across the outer boundary. If there is
+no mass flow across the outer boundary (i.e. a lagrangean boundary or an
+eulerian boundary with phir0 = 0.0) "xmext" is not needed and should be 
+set to zero. In addition to any external mass, there can be an internal
+or central mass inside the inner boundary which produces gravitational 
+forces from regions inside the inner boundary.
+
+The parameters "xmass" and "xmext" are either read in and/or determined in 
+the problem setup, i.e. at time t=0:
+
+            xmass = xmn (ngre+2)                 (initial stellar mass)
+            xmext = xmen(ngre+2)                 (outer mass reservoir)
+
+The total mass "xmtot" is then given by the sum:
+
+	    xmtot = xmass + xmext
+
+This quantity is computed at the model initialization and remains fixed 
+in time. The interior and exterior masses are then related at all times 
+by the transformation:
+
+            xmn(k) = xmtot - xmen(k)             (k=ngrs-1,ngre+2)
+
+The user is asked to look into the new START## routines for examples. In
+order to carry over ones favourite problem one should cut out the initi-
+alization part from the old START{01,02} and paste it into the template
+of the new START{01,02} along with the conversion loop DO 155. The parameter
+settings at the beginning of the subroutine should then be adjusted. This
+procedure should allow for an easy transition to the new code version and
+generate a new setup which is consistent within its framework.
+
+Three new output files are offered with this version. They are controlled 
+via the input file titan.in as described in the TITAN Code User's Guide, 
+IV.B . The formatted output file with the suffix ".nrg" allows the user to
+monitor the energy conservation as a function of time. The corresponding 
+name is "energy". The output file with the suffix ".hdf" and name "hdf"
+generates a data set in NCSA's HDF format specification. This is intended 
+to be used in conjunction with an interactive, real time IDL browser for 
+graphical displays. Since this necessitates that the user has IDL installed 
+only a dummy interface in the form of the two subroutines HDFINIT and HSTORE 
+is released to the general public. A comprehensible interface is under deve-
+lopment and accessible to interested IDL users. The formatted output file
+with the suffix ".tty" allows the user to reroute the standard /dev/tty
+which is useful if one wished to run the code in batch/production mode.
+The corresponding name is "rtty". The tty is the default output if this
+option is not invoked.
+
+A new logical variable, called the verbosity flag "ltalk", permits the 
+user to control the amount of output to the tty and the ".out" file di-
+rectly via the input file titan.in. The possible settings are as follows:
+ +-----------+--------------------------------------------------------+
+ | ltalk = 0 | suppression of time step information both to tty and   |
+ |           | ####.out file.                                         |
+ +-----------+--------------------------------------------------------+
+ | ltalk = 1 | minimal output to tty consisting of final convergence  |
+ |           | notice per time step plus printout of the total energy |
+ |           | every 10 time steps;                                   |
+ |	     | detailed output to the ####.out file consisting of all |
+ |	     | iteration information and energy monitoring for every  |
+ |	     | time step.                                             |
+ +-----------+--------------------------------------------------------+
+ | ltalk = 2 | detailed output to the tty and the ####.out file.      |
+ +-----------+--------------------------------------------------------+
+
+The new possibilities of the input file are illustrated on the example of
+problem 3, Sod's shock tube:
+ +--------------------------------------------------------------------+
+ |    4                                                               |
+ |    6    output  SOD.out        new                                 |
+ |    7      dump  SOD.dmp        new                                 |
+ |    8    energy  SOD.nrg        new                                 |
+ |    9      rtty  SOD.tty        new                                 |
+ |    3    1    1                                                     |
+ | SOD SHOCK TUBE PROBLEM                                             |
+ |       1.0       1.0       0.0                                      |
+ |     0.125       0.1       0.0                                      |
+ |    1    1  500 1.100e+00                                           |
+ |       ydl       ypl       yul                                      |
+ |       ydr       ypr       yur                                      |
+ +--------------------------------------------------------------------+
+There are now three output files indicated by "4" in the first line. The
+fourth line accesses the energy monitor which is written into the file
+SOD.nrg. The fifth line reroutes the standard output to the file SOD.tty.
+The sixth line now contains three integers: the first two having the usual 
+meaning, and the last one setting the verbosity flag ltalk = 1. For further 
+explanations see the TITAN Code User's Guide, IV.B .
+
+The following subroutines have been modified, either slightly to correct
+bugs or improve the coding style, or significantly by introducing incom-
+patible changes to the earlier versions:
+ +--------------------------------------------------------------------+
+ | ARCHIVE        GRID      OPAC         RESET    UPDATE{H,R,RH}      |
+ | CLZFIL         GRIDINIT  OPNFIL       START    VISCOUS             |
+ | EDDFAC         LINPACK   PARDOC       START##  WRITOUT             |
+ | EOS            MASS      PEQ{H,R,RH}  STEP     WRITSTY             |
+ | GASMOM{H,RH}   MATSLV    RADMOMRH     TIMSTP   TITAN.{COM,DAT,PAR} |
+ | GASNRG{H,R,RH} MAXDEL    RADNRGRH     TOTNRG   TITAN.IN##          |
+ +--------------------------------------------------------------------+
+Furthermore, all extra math routines for the solution procedure are now
+packed into the file SLVPACK. It contains the former subroutines
+
+The changes in more detail are:
+ +----------------+---------------------------------------------------+
+ | ARCHIVE        | addition of call to HSTORE;                       |
+ |                | modified unformatted dump to file ####.dmp        |
+ +----------------+---------------------------------------------------+
+ | CLZFIL         | simplified to avoid unnecessary system error msgs |
+ +----------------+---------------------------------------------------+
+ | EDDFAC         | limits on "fedd" and "geddl","geddr" enforced to  |
+ |                |        avoid unphysical values                    |
+ +----------------+---------------------------------------------------+
+ | EOS            | addition of sound speed evaluation for leos = 1   |
+ +----------------+---------------------------------------------------+
+ | GASMOM{H,RH}   | exchange of variable "xm" with variable "xme"     |
+ +----------------+---------------------------------------------------+
+ | GASNRGRH       | renaming "u0","x0" to "uk","xk"                   |
+ +----------------+---------------------------------------------------+
+ | GASNRG{H,RH}   | exchange of variable "xm" with variable "xme"     |
+ +----------------+---------------------------------------------------+
+ | GASNRG{H,R,RH} | addition of outer bndy condition for k = ngre + 2 |
+ +----------------+---------------------------------------------------+
+ | GRID           | exchange of variable "xm" with variable "xme";    |
+ |                | interior mass resolution for lady(01) = 1,2,3     |
+ |                |          with necessity of setting mass scale via |
+ |                |          yscl(01);                                |
+ |                | exterior mass resolution for lady(11) = 1,2,3     |
+ +----------------+---------------------------------------------------+
+ | GRIDINIT       | renaming "rc" to "radc";                          |
+ |                | correction of stride in ISAMAX function;          |
+ |                | changing some output formats                      |
+ +----------------+---------------------------------------------------+
+ | LINPACK        | removal of unused variables to avoid compilation  |
+ |                |         warnings                                  |
+ +----------------+---------------------------------------------------+
+ | MASS           | exchange of variable "xm" with variable "xme";    |
+ |                | correction of time centering for inner bndy       |
+ +----------------+---------------------------------------------------+
+ | MATSLV         | moving format statements towards the end          |
+ +----------------+---------------------------------------------------+
+ | MAXDEL         | moving format statements towards the end;         |
+ |                | correction of stride in ISAMAX function;          |
+ |                | introduction of logical variable "ltalk"          |
+ +----------------+---------------------------------------------------+
+ | OPAC           | addition of lopac = 5  (Bremsstrahlung + Thomson  |
+ |                | scattering + Compton cooling)                     |
+ +----------------+---------------------------------------------------+
+ | OPNFIL         | addition of openings of ####.nrg and ####.hdf;    |
+ |                | notice that SGI machines might require different  |
+ |                |        integers assigned to the ttyp and stdin    |
+ +----------------+---------------------------------------------------+
+ | PEQR           | omission of references to mass variable;          |
+ |                | correction of delml into delmr for llobc > 0      |
+ +----------------+---------------------------------------------------+
+ | PEQ{H,RH}      | exchange of variable "xm" with variable "xme"     |
+ +----------------+---------------------------------------------------+
+ | PEQ{H,R,RH}    | exchange of variable "xm" with variable "xme";    |
+ |                | addition of time centered temperature;            |
+ |                | change to time centered evaluation of sound speed |
+ +----------------+---------------------------------------------------+
+ | RADMOMRH       | exchange of variable "xm" with variable "xme"     |
+ +----------------+---------------------------------------------------+
+ | RADNRGRH       | exchange of variable "xm" with variable "xme"     |
+ +----------------+---------------------------------------------------+
+ | RESET          | exchange of variable "xm" with variable "xme"     |
+ +----------------+---------------------------------------------------+
+ | START          | introduction of logical variable "ltalk"          |
+ +----------------+---------------------------------------------------+
+ | START##        | modified unformatted dump to file ####.dmp;       |
+ |                | improvement of layout of control parameters;      |
+ |                | addition of lady(11) for the resolution of the    |
+ |                |          exterior mass;                           |
+ |                | addition of conversion: xmen = xmtot - xmn        |
+ +----------------+---------------------------------------------------+
+ | START10        | availability to specify initial energy deposition |
+ +----------------+---------------------------------------------------+
+ | STEP           | moving format statements towards the end          |
+ +----------------+---------------------------------------------------+
+ | TIMSTP         | exchange of variable "xm" with variable "xme"     |
+ +----------------+---------------------------------------------------+
+ | TOTNRG         | exchange of variable "xm" with variable "xme";    |
+ |                | correction of evaluation of various terms in the  |
+ |                |            formula for the total energy;          |
+ |                | addition of writing output to file ####.nrg;      |
+ |                | introduction of logical variable "ltalk"          |
+ +----------------+---------------------------------------------------+
+ | UPDATER        | omission of references to mass variable;          |
+ |                | correction of delml into delmr for llobc > 0      |
+ +----------------+---------------------------------------------------+
+ | UPDATE{H,RH}   | exchange of variable "xm" with variable "xme"     |
+ +----------------+---------------------------------------------------+
+ | UPDATE{H,R,RH} | exchange of variable "xm" with variable "xme";    |
+ |                | addition of time centered temperature;            |
+ |                | change to time centered evaluation of sound speed |
+ +----------------+---------------------------------------------------+
+ | VISCOUS        | renaming "u0","x0" to "uk","xk"                   |
+ +----------------+---------------------------------------------------+
+ | WRITOUT        | exchange of variable "xm" with variable "xme";    |
+ |                | improvement of the auxiliary variables            |
+ +----------------+---------------------------------------------------+
+ | WRITSTY        | renaming of auxiliary variables to avoid conflict |
+ |                |          with common block variables              |
+ +----------------+---------------------------------------------------+
+
+ +--------------------------------------------------------------------+
+ |  We thank all friendly users, in particular John Hayes, for their  |
+ |              contribution towards this version.                    |
+ +--------------------------------------------------------------------+
+

@@ -1,0 +1,120 @@
+ #########################################################################
+ #                                                                       #
+ #                            Copyright 1995                             #
+ #          by the University of Illinois at Urbana-Champaign            #
+ #                    Urbana, Illinois 61801, U.S.A.                     #
+ #                                                                       #
+ #                         All Rights Reserved                           #
+ #                                                                       #
+ # Premission to use, copy, modify, and distribute this software and its #
+ # documentation for any purpose is hereby granted without fee, provided #
+ # that the above  copyright notice appears in all copies  and that both #
+ # the copyright notice and this  permission notice appear in supporting #
+ # documentation, and that the name of the University of Illinois not be #
+ # used in  advertising or  publicity pertaining to  distribution of the #
+ # software without specific, written  prior permission.                 #
+ #                                                                       #
+ #                             Disclaimer                                #
+ #                                                                       #
+ # Although every  attempt has been made to provide  accurate and error- #
+ # free data and software, the University of Illinois makes no warranty, #
+ # express or implied, for the  accuracy, completeness or  usefulness of #
+ # the information and data provided.  Further, is assumes no legal lia- #
+ # bility or responsibility whatsoever, for any damage or loss users may #
+ # sustain as a result of using them.   In no event shall the University #
+ # of  Illinois be  liable for any  special,  indirect, or consequential #
+ # damages,  or any damages whatsoever resulting from loss of use, data, #
+ # or profits,  whether in an action of  contract,  negligence, or other #
+ # tortious  action  arising out of, or  in connection with, the  use or #
+ # performance of this software. The University of Illinois makes no re- #
+ # presentations about the suitability of this software for any purpose; #
+ # users use the data and codes entirely at their own risk.              #
+ #                                                                       #
+ #########################################################################
+ 
+   TITAN was designed, implemented and documented by Dimitri Mihalas and
+   Michael Gehmeyr,  and is  funded in  part by grants from the National
+   Science Foundation grants  AST-8914143 and  AST-920113, the  National
+   Aeronautics and  Space  Administration grant  90-NASA-M-1665, and re-
+   search funds made available by the University of Illinois.
+  
+   TITAN is a one-dimensional  implicit adaptive-grid radiation hydrody-
+   namics code.  It is written in  standard FORTRAN 77 in a  modular and
+   portable fashion.  It is  being given away  free of charge to  inter-
+   ested researchers. It comes with no warranty.
+  
+   This distribution contains all  the subroutines and libraries used to
+   build the program.  It also contains a  series of initialization rou-
+   tines that  allow the user to  run and benchmark various  simple test
+   problems. Finally, a dummy interface to an interactive graphics brow-
+   ser (linked to IDL software) comes with this release. The browser and
+   enabling software can be requested from the authors or the LCA.
+ 
+   There is a  "user's guide" for the program itself  as well as for the
+   test problems  and a detailed "reference manual" for many of the sub-
+   routines. There is no online help.
+ 
+   This is the third release: TITAN 1.2 . It is intended for the general
+   public. Great care has been given to make the program as  bug-free as 
+   possible,  and as far as  the authors  can tell, there are no serious
+   bugs that affect the performance and results of the numerical experi-
+   ments run with it.
+   
+   TITAN 1.2 has been compiled, run and tested on the following platforms:
+              +----------------------------------------+
+              | SPARC | Station 2        | Solaris 2.4 |
+              | SPARC | Station 10       | SunOS 4.1.3 |
+              |   SGI | Power Challenge  | IRIX  5.3   |
+              |   SGI | Indigo 2 Extreme | IRIX  5.3   |
+              +----------------------------------------+
+   TITAN is  expected to also run on  other machines with possibly small
+   modifications, but no guarantees are given. In particular, TITAN con-
+   tains special features that vectorize it on CRAY supercomputers.  You
+   must  make the  necessary  modifications in the  source  code and the
+   makefile yourself.
+ 
+   Building TITAN:  before you build  TITAN, make  sure you have  all of
+   the necessary source files. TITAN comes in one package in form of the
+   compressed tar-file "titan_tar.gz" which contains  all of the source,
+   as well as additional software (BLAS, LINPACK, CRAYPACK). The startup 
+   and writing routines are at the  user level  which means that you can
+   edit them when you try out  different versions or  modifications of a 
+   given test problem. Begin with uncompressing (unzipping) and untaring 
+   the file titan_tar.gz. Then type "make" in order to compile the entire 
+   source code and to load them into the  executable called "titan.x". A 
+   building protocol looks like this:
+ 
+              mkdir titan
+              cd titan
+              zcat titan_tar.gz | tar xvf -
+              make 
+ 
+   You now can try all the benchmarks. If you edit one of the start rou-
+   tines you can recompile TITAN by simply typing "make titan". For your 
+   favourite problems we have reserved the routines  start01 and start02
+   to generate the initial models. You have to write them yourself. Also
+   you have to  take care of the  code's output in  writout and writsty.
+   These subroutines then are compiled by the same command "make titan".  
+   TITAN then is ready to execute.
+ 
+   Bug reporting or questions:  there is a mailing list for people using
+   TITAN.  It is primarily intended for discussion of issues relating to
+   TITAN's  algorithm   and dissemination of information directly related
+   to its usage.  The list will also be used to announce any bug fixes, 
+   updates and release news. 
+ 
+   If you have bug reports or questions remain after carefully reading 
+   both the TITAN Code User Guide and the TITAN Code Reference manual,
+   we may be reached by e-mail through:
+ 
+              lca@ncsa.uiuc.edu
+  
+ ------------------------------------------------------------------------
+   UNRESOLVED PROBLEMS AND TEMPORARY FIXES
+ ------------------------------------------------------------------------
+   Despite  careful  checking, we find it somewhat  disturbing  that the 
+   identical  FORTRAN code  does  NOT  produce  identical results on all 
+   machines. Further, we have not yet tested the cray version. If you can 
+   identify  the  sources of these  problems, please let us know.  It is 
+   possible that this problem is related to the one described below.
+ -------------------------------------------------------------------------

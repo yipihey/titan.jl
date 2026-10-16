@@ -1,0 +1,91 @@
+titan
+     opnfil
+	  readeos
+	  readopac
+     start
+          start{01,02,03,...,11}
+			 gridinit
+			 grid
+
+     step
+          peq
+                         peq{r,h,rh}
+			       eos
+			       turscl
+          iter =< niter ?
+                         matgen
+                               mass
+                               contin
+					 advectc
+                               viscous
+                               turnrg
+					 advectc
+					 turdrv
+                               gasmom{  h,rh}
+					 advecti
+                               gasnrg{r,h,rh}
+					 advectc
+					 diffuse
+                               radnrg{r,  rh}
+					 advectc
+                               radmom{r,  rh}
+					 advecti
+                               grid
+                         matslv
+                               scopy
+                               sgemm
+                                               sgemv
+                               sgefa or sgefaj
+                                               sscal    trslbl
+                                               saxpy
+                               sgemv
+                                               saxpy
+                               sgesl or sgesl(m)j
+                                               sdot     trslbl    sgeslj
+                                                                  sgemv
+                                                                  sscal
+                               sgbfa or bglsdc
+                                               idamax   
+                                               sscal    sscal
+                                               saxpy    bglsrd
+                               sgbsl or bglssl
+                                               saxpy    bglsrd
+                                               sdot
+
+                         maxdel
+                         update
+                               update{r,h,rh}
+			                 eos
+				         opac
+				         eddfac
+					       eddf
+					       eddg
+			                 turscl
+         dmax =< conv ?  
+                         maxdel
+                         update
+                               update{r,h,rh}
+			                 eos
+				         opac
+				         eddfac
+					       eddf
+					       eddg
+			                 turscl
+                         timstp
+                         smax < 2 stol ?
+                                         totnrg
+                                         return
+                         jback > nback ? 
+                                         clzfil
+                                         stop
+                         reset
+                         
+         jtry  > ntry ?  
+                         stop
+     archive
+         jmod = 0 or jstep = jstepe ?
+                                      ier > 0 ?
+                                                 stop
+     writout
+
+     clzfil

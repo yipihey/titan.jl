@@ -1,0 +1,12 @@
+    4
+    6    output  COOL.out       new
+    7      dump  COOL.dmp       old
+    8   history  COOL.sty       new
+    9    energy  COOL.nrg       new
+    7    1    1
+ COOLING FROM RADIATIVE EQUILIBRIUM
+ 5.0000e-1 1.0000e38 2.9677e-11 1.190e-11 1.000e-00
+    4  151  400 1.000e+20
+     xmass      xlum       rho0     chif0     ratio
+c
+c------------------------------------------------------------ titan.in07

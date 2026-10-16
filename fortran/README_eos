@@ -1,0 +1,414 @@
+=============================================================================
+
+                 A STELLAR ENVELOPE EQUATION OF STATE
+
+                                  by
+
+     Dimitri Mihalas, David Hummer, Werner Dappen, and Barbara Mihalas
+
+
+                             I. INTRODUCTION
+
+     This tape contains tables of numerical results from equation of state 
+calculations for conditions appropriate to stellar envelopes; it also con-
+tains an interpolation routine for evaluating a monotonic thermodynamic 
+function and its derivatives at an arbitrary point within a table. All the 
+results are based on a free-energy minimization method which accounts for the 
+free energy of (1) translational motions of classical particles (nuclei); 
+(2) internal excitation of molecules, atoms, and ions; (3) translational 
+motions of partially degenerate electrons, and (4) Coulomb interactions among 
+charged particles. The internal partition functions of all species are kept 
+finite through use of an occupation probability formalism which accounts for 
+the probability of destruction of relatively loosely bound states through 
+interactions with other particles in the plasma. A complete description of 
+the underlying physics, and of the computational techniques used can be found 
+in:
+
+     D.G. Hummer and D. Mihalas, 
+                Astrophys. J., 331, 794, 1988 (Paper I)
+
+     D. Mihalas, W. Dappen, and D.G. Hummer,  
+                Astrophys. J., 331, 815, 1988 (Paper II)
+
+     W. Dappen, D. Mihalas, D.G. Hummer, B.W. Mihalas,
+                Astrophys. J., 332, 261, 1988 (Paper III)
+
+     The computations have been carried out for astrophysical mixtures of 15
+elements ranging from hydrogen through iron, which, including free electrons,
+comprise 202 distinct molecule, atom, ion species. The only molecules taken 
+into account are the hydrogen molecule H2 and hydrogen molecular ion H2+. 
+Six mixtures ranging from somewhat metal-rich relative to the Sun ("smr2": 
+[Fe/H] = 0.5, as in Mu Leo), to slightly metal-rich ("smr1": [Fe/H] = 0.15, 
+as in Hyades), to solar ("solar": [Fe/H] = 0.0 ), to moderately metal-poor 
+("pop2a": [Fe/H] = -0.5, as in old disk stars), to metal-poor ("pop2b": 
+[Fe/H] = -1.0), to extremely metal-poor ("pop2c": [Fe/H] = -2.0). Detailed 
+element abundances, which allow for the variation of [element / Fe] as a 
+function of [Fe/H], are given below.
+
+                                 TABLE 1
+                       ASSUMED ELEMENT ABUNDANCES
+
+    =======================================================================
+    Name of Mix:     smr2     smr1    solar    pop2a    pop2b    pop2c
+       [Fe/H]  :     +0.5    +0.15     0.0     -0.50    -1.0     -2.0
+    =======================================================================
+      hydrogen     1.00e00  1.00e00  1.00e00  1.00e00  1.00e00  1.00e00
+      helium       1.00e-1  1.00e-1  1.00e-1  1.00e-1  1.00e-1  1.00e-1
+      carbon       1.55e-3  6.90e-4  4.90e-4  1.50e-4  4.90e-5  4.90e-6
+      nitrogen     3.10e-4  1.40e-4  9.80e-5  3.10e-5  9.80e-6  9.80e-7
+      oxygen       2.60e-3  1.20e-3  8.30e-4  4.70e-4  2.60e-4  3.30e-5
+      neon         3.80e-4  1.70e-4  1.20e-4  6.00e-5  3.00e-5  3.80e-6
+      sodium       6.65e-6  3.00e-6  2.10e-6  8.10e-7  2.70e-7  1.30e-8
+      magnesum     1.10e-4  5.40e-5  3.80e-5  1.90e-5  7.60e-6  9.50e-7
+      aluminum     9.50e-6  4.20e-6  3.00e-6  1.20e-6  3.70e-7  9.30e-9
+      silicon      1.10e-4  4.90e-5  3.50e-5  1.80e-5  7.10e-6  8.90e-7
+      sulfur       5.05e-5  2.30e-5  1.60e-5  8.10e-6  3.20e-6  4.10e-7
+      argon        1.40e-5  6.40e-6  4.50e-6  2.20e-6  8.90e-7  1.10e-7
+      potasium     4.10e-7  1.80e-7  1.30e-7  5.20e-8  1.70e-8  4.2e-10
+      calcium      7.30e-6  3.20e-6  2.30e-6  1.10e-6  4.60e-7  5.80e-8
+      iron         1.60e-4  7.10e-5  5.00e-5  1.50e-5  4.90e-6  4.90e-7
+    =======================================================================
+
+     Solar abundances were taken from N. Grevesse, in "Frontiers of Astronomy 
+and Astrophysics", 7th European Regional Astronomy Meeting, Florence, ed. by
+R. Pallavicini, 1984.  The Population II abundances were obtained by using 
+the variations of [element / Fe]  as a function of [Fe/H] suggested by D.L. 
+Lambert, J. Astrophys. Astr., 8, 103, 1987. For the super-metal-rich mixes 
+the abundances of all elements heavier than helium were simply scaled with 
+[Fe/H].
+
+                         II. CONTENTS OF THE TAPE
+
+     The tape sent to you contains a total of 27 files. A list of file names
+(in order of their appearance if the tape is an ASCII tape) and approximate 
+sizes (in megabytes) is given below. The whole tape contains about 43 MB.
+
+                                  TABLE 2.
+                            FILE NAMES AND SIZES
+
+==========================================================================
+#   name      size(MB)    #    name     size(MB)    #    name     size(MB)
+==========================================================================
+1  list                  10  smr1.out    5.00      19  pop2b.eg    0.72
+2  info                  11  solar.eg    0.72      20  pop2b.pe    0.72
+3  smr2.eg     0.72      12  solar.pe    0.72      21  pop2b.pg    0.72
+4  smr2.pe     0.72      13  solar.pg    0.72      22  pop2bout    5.00
+5  smr2.pg     0.72      14  solarout    5.00      23  pop2c.eg    0.72
+6  smr2.out    5.00      15  pop2a.eg    0.72      24  pop2c.pe    0.72
+7  smr1.eg     0.72      16  pop2a.pe    0.72      25  pop2c.pg    0.72
+8  smr1.pe     0.72      17  pop2a.pg    0.72      26  pop2cout    5.00
+9  smr1.pg     0.72      18  pop2aout    5.00      27  interp
+==========================================================================
+
+     It should be noticed that the file "pop2aout" was damaged in the NCSA
+mass storage system, and is not completely recoverable without repeating 
+the calculation.  However it was possible to reconstruct most of the data on
+the file from another (binary) file, and the items still missing will not be
+of interest to most users.
+
+                        III. CONTENTS OF THE FILES
+
+     The tape contains three types of files. The first category consists of
+the files "list", "info", and "interp": 
+
+     "list" is a list of the 27 file names including itself. For ASCII tapes 
+     the names in the list are in the same order as the files appear on the 
+     tape; for UNIX tar tapes the ordering is not relevant because each file 
+     on the tape is labeled.
+
+     "info" contains the descriptive material you are now reading.
+
+     "interp" contains software for monotonized bicubic Hermite interpolation
+     in tables of physical variables (e.g. gas pressure and internal energy);
+     it will be described in more detail later.
+
+     A second category of files all have a suffix "out", denoting the 
+     standard output file of the free-energy minimization program. These are 
+     long files containing all interesting secondary thermodynamic variables 
+     embedded in text composed of descriptive labels. The file starts with 
+     information about the assumed element abundances, and which species have 
+     internal partition functions. Then the output data are given for 
+     successive isotherms; the isotherms run from log T = 3.5 through log T = 
+     7.0, in steps of delta(log T) = 0.02. The first line for each isotherm 
+     gives log T, and the second contains a header (identifying the mix), and 
+     the date and time of the run. Then follows data for each of 51 densities 
+     along the isotherm; the densities range from log rho = -12 to log rho = 
+     -2, in steps of delta(log rho) = 0.2. 
+
+     The first line for each of the 51 data blocks contains log rho; the total
+     number of nuclei Natom [ = density / (mean molecular weight * atomic mass
+     unit)]; the electron density Ne; and the degeneracy factor eta (negative 
+     for low degeneracy, positive for high).
+
+     The second line contains four partial pressures corresponding to each
+     type of free energy, and the total gas pressure.
+
+     The third line contains four contributions to the internal energy, and
+     the total internal energy of the gas.
+
+     The fourth line contains four contributions to the free energy, and
+     the total free energy of the gas.
+
+     The fifth line contains pg/nkT = (gas pressure / total number of 
+     particles * kT); e/nkT = (internal energy / total number of particles 
+     * kT); and pe/ne kT = (electron pressure / number of electrons * kT).
+
+     The sixth line contains cv (specific heat at constant volume);
+     cp (specific heat at constant pressure); chi t = d(ln pg)/d(ln T),
+     at constant rho; and chi rho = d(ln pg)/d(ln rho), at constant T.
+
+     The seventh line contains the three adiabatic gradients gamma1, gamma2,
+     and gamma3 as defined by Chandrasekhar, and qadb = (chi t / chi rho).
+
+     The eighth line contains timing information for the free-energy
+     minimization procedure, which is probably of no interest to the 
+     typical user.
+
+     The third category of files consists of files with names of the form 
+xxxxx.eg, xxxxx.pg, and xxxxx.pe, where "xxxxx" stands for a four or five
+letter code for a mix, as defined in Table 1. These files contain,
+respectively, the basic tables ln eg(ln rho, ln T) (natural logarithm of
+the energy density per unit volume), ln pg(ln rho, ln T) (natural logarithm
+of the total gas pressure, ignoring radiation pressure), and 
+ln pe(ln rho, ln T) (natural logarithm of the electron pressure), from which
+most users will want to obtain values of the physical variables, and their 
+derivatives with respect to density and temperature. The tables cover the 
+same density-temperature domain as the ".out" files discussed above. A full
+description of the format and use of these files is given in the next two
+sections of this document.
+
+                          IV. READING THE FILES
+     
+     Because the desired numerical information in the "out" files is imbedded
+into alphabetic text, the most convenient way to access their contents is to
+examine them with a good screen editor. If, however, one wishes to have the
+computer construct tables of, say, adiabatic exponents and specific heats,
+then one can do a line-by-line search of the file for a known pattern on the
+line that precedes a line containing the data of interest. Then the latter 
+can be read in under format control in such a way as to extract the required 
+information. 
+
+     For example, the following is a fragment from the file "pop2bout" at a 
+particular density and temperature:
+
+==============================================================================
+
+ log rho =  -6.20 natom = 2.95588e+17 ne = 1.83853e+11 eta = -22.26465
+p1 = 9.4139e+04 p2 =7.2129e-01 p3 = 8.0271e-02 p4 =-2.2109e-05 pg = 9.4139e+04
+e1 = 1.4121e+05 e2 =4.3952e+05 e3 = 1.2041e-01 e4 =-6.6326e-05 eg = 5.8073e+05
+f1 =-2.0233e+06 f2 =2.4649e+05 f3 =-1.8675e+00 f4 =-4.4236e-05 fg =-1.7768e+06
+pg/nkt = 1.0000e+00  e/nkt = 6.1689e+00 pe/nekt = 1.0000e+00
+    cv = 2.7877e+01     cp = 3.5071e+01  chi t = 2.5530e+00 chi rho=9.0595e-01
+gamma1 = 1.1398e+00 gamma2 = 1.0874e+00 gamma3 = 1.0916e+00  qadb = 2.8180e+00
+ fmin time = 6.102
+==============================================================================
+
+There are a total of 8976 (= 51 X 176) such data blocks in the file. Note in 
+passing that some lines are longer than the standard 80 characters. 
+
+     If one desires gammas and specific heats, one could use the following 
+code fragment to extract them:
+
+==============================================================================
+      parameter ( m = 8976 )
+      character*8 key, lock
+      data key /' pg/nkt '/
+c
+      dimension cv(m), cp(m), gam1(m), gam2(m), gam3(m)
+c
+      do 5   i = 1, m
+c
+    1 read  (iin, 2) lock
+    2 format( a8 )
+      if( lock .ne. key ) go to 1
+c
+      read  (iin, 3) cv(i), cp(i)
+      read  (iin, 4) gam1(i), gam2(i), gam3(i)
+    3 format( 2(10x, e10.4) )
+    4 format( 3(10x, e10.4) )
+c
+    5 continue
+==============================================================================
+
+In the file scan and data-extraction process we treat cv, cp, and the gammas
+as singly subscripted arrays of the form A(8976), but one can obviously 
+convert them to doubly subscripted arrays of the form AA(51, 176) by use of 
+equivalence statements such as "equivalence ( A, AA )" etc.
+
+     For your convenience we include below a subroutine that will read the 
+xxxxx.eg, xxxxx.pg, and xxxxx.pe files. In the calling sequence you supply
+the unit numbers "iin" and "iout" of the input and output files, and the 
+filename "fname" of the file to be read. The code opens the input file (and 
+assumes that the output file is already open), checks that the actual 
+filename and table dimensions are the same as you have specified, and reads 
+the file. The results are stored in a labeled common block "eostab", which 
+contains:
+
+      nx   = number of ln rho values  (51)
+      ny   = number of ln T   values  (176)
+
+      xmin = minimum value of ln rho  (-27.63102111593)
+      ymin = minimum value of ln T    ( 8.059047825479)
+
+      dx   = increment in ln rho  ( 0.4605170185988 )
+      dy   = increment in ln T    ( 0.04605170185988)
+
+                                              .......
+      f  (nx, ny)  = ln F(ln rho, ln T)             :
+      fx (nx, ny)  =    d(ln F) / d(ln rho)         : dimensions = (51 X 176)
+      fy (nx, ny)  =    d(ln F) / d(ln T  )         :
+      fxy(nx, ny)  = d**2(ln F) / d(ln rho)d(ln T)  :
+                                              ......:
+
+Here ln F denotes ln eg, ln pg, or ln pe. The derivatives fx, fy, and fxy are
+needed both in the Hermite interpolation procedure to obtain function values 
+at arbitrary points on the grid, and in the Newton-Raphson method used to 
+solve either the equations of hydrodynamics or stellar structure.
+
+==============================================================================
+      subroutine readfile( iin, iout, fname )
+c
+      parameter ( mx = 51, my = 176 )
+c
+      character*8 dsn, fname, hdr, jobdat, jobtim
+c
+      dimension hdr(10)
+c
+      common/eostab/ nx, ny, xmin, ymin, dx, dy, f (mx,my), fx (mx,my),
+     .                                           fy(mx,my), fxy(mx,my)
+
+c
+c----------------------------------------------------------------------c
+c     open the file                                                    c
+c----------------------------------------------------------------------c
+c
+      open( unit = iin, file = fname, iostat = ier )
+      if( ier .gt. 0 ) go to 50
+c
+c----------------------------------------------------------------------c
+c     read the data                                                    c
+c----------------------------------------------------------------------c
+c
+      read (iin, 1) dsn, hdr, jobdat, jobtim
+      if( dsn .ne. fname ) go to 60
+c
+      read (iin, 2) xmin, dx, nx, ymin, dy, ny
+      if( nx .ne. mx .or. ny .ne. my ) go to 62
+c
+      read (iin, 3) f, fx, fy, fxy
+c
+    1 format(13a8)
+    2 format( 2(2e20.12, i5) )
+    3 format(4e20.12)
+c
+c----------------------------------------------------------------------c
+c     close the file; return                                           c
+c----------------------------------------------------------------------c
+c
+      close( unit = iin , iostat = ier )
+      if( ier .gt. 0 ) go to 70
+c
+      return
+c
+c----------------------------------------------------------------------c
+c     error exits                                                      c
+c----------------------------------------------------------------------c
+c
+   50 write (iout, 51) ier, fname, iin
+   51 format(' error'i3' opening file 'a10' on unit 'i3)
+      stop 'readf 50'
+c
+   60 write (iout, 61) fname, dsn
+   61 format(' file-name discrepancy. fname = 'a8' dsn = 'a8)
+      stop 'readf 60'
+c
+   62 write (iout, 63) mx, nx, my, ny
+   63 format(' discrepancy in dimensions. mx ='i3' nx ='i3'
+     .                                    my ='i4' ny ='i4)
+      stop 'readf 62'
+c
+   70 write (iout, 71) ier, fname, iin
+   71 format(' error'i3' closing file 'a10' on unit 'i3)
+      stop 'readf 70'
+c
+      end
+==============================================================================
+
+     Typically one wishes to have tables for both pg and eg available to a
+code at the same time. In this event one can either code a loop into the
+subroutine provided above, or can move the contents of common block "eostab"
+into the calling sequence. For multiple tables one should take advantage of
+the fact that nx, ny, xmin, ymin, dx, and dy are the same for all files 
+supplied on this tape.
+
+                      V. INTERPOLATING IN THE TABLES
+
+     To interpolate in the tables use the subroutine in the file "interp" 
+supplied on the tape. This routine performs a monotonized bicubic Hermite
+interpolation in both x (ln rho) and y (ln T). The basic precepts and theory
+underlying the method are described in:
+
+      F.N. Fritsch and R.E. Carlson, SIAM J. Num. Anal., 17, 238, 1980.
+
+      F.N. Fritsch and J. Butland, SIAM J. Sci. Stat. Comput., 5, 300, 1984.
+
+   *  R.E. Carlson and F.N. Fritsch, SIAM J. Num. Anal., 22, 386, 1985.
+
+   ** R.E. Carlson and F.N. Fritsch, "An Algorithm for Monotone Piecewise 
+	    Bicubic Interpolation", Lawrence Livermore National Laboratory
+            Report No. UCID-96791, June 1987. (Submitted to SIAM Journal on
+	    Numerical Analysis)
+
+The essential paper on the theory is the one prefixed with an asterisk. A
+somewhat updated version is described in the paper prefixed with two 
+asterisks.
+Details of the implementation, including complete code documentation and 
+actual software, are given in:
+
+      F.N. Fritsch and R.E. Carlson, "BIMOND: Monotone Bivariate Interpolation
+	    Code", Lawrence Livermore National Laboratory Report No. 
+	    UCID-30197, December 1983.
+
+      F.N. Fritsch and R.E. Carlson, "BIMOND 3: Monotone Piecewise Bicubic
+	    Hermite Interpolation Code", Lawrence Livermore National 
+	    Laboratory Report No. UCID-21143, August 1987.
+
+      The call to the interpolation routine is:
+
+             call interp( ni, xx, yy, fi, fxi, fyi, fxyi )
+
+where the input is: ni = number of (ln rho, ln T) points to be interpolated;
+xx = ln rho at each point; and yy = ln T at each point. The output is fi, fxi,
+fyi, and fxyi which are, respectively, values of f, d(ln f)/d(ln rho), 
+d(ln f)/d(ln T), and d**2(ln f)/d(ln rho)d(ln T). The code assumes that ni is
+not greater than 500; it is trivial to change that restriction. The routine 
+also assumes the existence of the same common block "eostab" as was created 
+in reading the data files with the code given in section IV above.
+
+                          VI. BUGS AND TROUBLE
+
+     It is an absolute fact of life that all codes contain bugs. If you
+discover a bug, or encounter other trouble, in using the material we have
+sent you, please inform us at the following addresses so that we can attempt
+to help you and to rectify the problem in future copies of the tape we 
+distribute.
+
+      D. Mihalas		  	  D. G. Hummer
+      Department of Astronomy             JILA
+      University of Illinois              University of Colorado
+      1011 W. Springfield Ave.            Boulder, CO 80309
+      Urbana, IL 61801                  
+      (217) 333-5529                      (303) 492-7837
+
+      15001@ncsavmsa (BITNET)             dgh@jila (BITNET)
+      dmihalas@ncsa.uiuc.edu (internet)
+
+                          VII. DISCLAIMER
+
+     Although we have made every attempt to provide accurate and error-free 
+data and software, we make no warranty, express or implied, or assume any 
+legal liability or responsibility whatsoever, for the accuracy, completeness, 
+or usefulness of the information and data on this tape, or for any damage or 
+loss you may sustain as a result of using them. The user uses the data and 
+code supplied entirely at his/her own risk.
+=============================================================================

@@ -1,0 +1,7 @@
+c
+c------------------------------------------------------------- titan.eq3
+c     used in: contin, diffuse, gasnrg
+c     
+      dimension    dfz (mgr,mdfz)
+c
+      equivalence  (qd(1), dfz(1,1))
