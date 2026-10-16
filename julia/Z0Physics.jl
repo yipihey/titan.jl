@@ -33,5 +33,5 @@ table() = (TAB[] === nothing && (TAB[] = load_table()); TAB[]::KapTable)
 
 "Gas-only pressure and specific internal energy (ionization included; radiation excluded — TITAN evolves E_r separately)."
 gas_p(ρ, T) = Pgas(ρ, T)
-gas_e(ρ, T) = eint(ρ, T) - arad * T^4 / ρ
+gas_e(ρ, T) = _egas(saha(ρ, T), ρ, T)
 end

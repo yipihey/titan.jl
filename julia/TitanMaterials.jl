@@ -33,9 +33,14 @@ Z0Gas(tab = Z0.table(); grey = false) = Z0Gas(tab, grey)
 @inline function TX.material_gas(m::Z0Gas, ρ, T)
     s = Z0.saha(ρ, T)
     pg = (s.nH + s.nHe + s.ne) * Z0.kB * T
-    eg = Z0._eint(s, ρ, T) - Z0.arad * T^4 / ρ          # gas only: translational + ionization
+    eg = Z0._egas(s, ρ, T)                              # gas only: translational + ionization (computed directly)
     # a_s enters only the artificial viscosity: monatomic-gas estimate (see notes)
     return pg, eg, sqrt(5.0 / 3.0 * pg / ρ)
+end
+@inline function TX.material_gasne(m::Z0Gas, ρ, T)
+    s = Z0.saha(ρ, T)
+    pg = (s.nH + s.nHe + s.ne) * Z0.kB * T
+    return pg, Z0._egas(s, ρ, T), sqrt(5.0 / 3.0 * pg / ρ), s.ne
 end
 @inline function TX.material_opac(m::Z0Gas, ρ, T)
     κR = Z0.kap(m.tab, ρ, T)
@@ -87,6 +92,7 @@ end
 "Install a material in the residual and in the EOS/opacity fills."
 function use!(m::Material)
     TX.MATERIAL[] = m isa Builtin ? nothing : m
+    TD.EDD_MATERIAL_SOURCE[] = !(m isa Builtin)
     TD.EOS[] = () -> fill_eos!(m)
     TD.OPAC[] = () -> fill_opac!(m)
     m

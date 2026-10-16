@@ -1,6 +1,8 @@
 # Phase 7d/e: quasi-star outer shell in pure-Julia TITAN.
 #   TITAN_NOLIB=1 julia --project=env qstar_run.jl setup PROFILE.csv [rin nenv natm]   → reference_runs/init/QSTAR.tstate.gz
-#   TITAN_NOLIB=1 julia --project=env qstar_run.jl relax [tmax_s maxsteps]           hydrostatic test (walls, no infall)
+#   TITAN_NOLIB=1 julia --project=env qstar_run.jl relax [tmax_s maxsteps]           run (hydrostatic test, or infall if set up)
+#   relax options (env): QS_NAME, QS_INIT (set-up to start from), QS_FROM (saved state to continue), QS_SET (scalars),
+#     QS_GASROW / QS_COMPTON (=1: gas-only energy row / Compton exchange, see TitanResidFast), QS_RAMP_FAC/QS_RAMP_T, QS_EVERY
 using Printf, Serialization
 include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "JuliaPhysics.jl"))
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
@@ -72,11 +74,19 @@ elseif mode == "relax"
     tmax = length(ARGS) >= 2 ? parse(Float64, ARGS[2]) : 3e9
     maxsteps = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 400
     name = get(ENV, "QS_NAME", "QSTAR")
-    TF.load_state!(initfile(name))
+    TF.load_state!(initfile(get(ENV, "QS_INIT", name)))           # QS_INIT: start a new run NAME from another set-up
+    ρ0x, φ0x, φ2x = TF.getscalar(:dr), TF.getscalar(:phir0), TF.getscalar(:phir2)   # ramp base = set-up inflow
+    haskey(ENV, "QS_FROM") && TF.load_state!(ENV["QS_FROM"])     # continue from a saved state (ramp keeps its clock)
     install_julia!()
     TX.CONVECTION[] = true; TX.ALPHA_MLT[] = 0.8
+    TX.GASROW[] = get(ENV, "QS_GASROW", "0") == "1"           # gas-only energy row (see TitanResidFast.GASROW)
+    TX.COMPTON[] = get(ENV, "QS_COMPTON", "0") == "1"         # Compton gas-radiation exchange (TitanResidFast.COMPTON)
     TM.use!(TM.Z0Gas(; grey = get(ENV, "QS_GREY", "0") == "1"))
     TD.MSGIO[] = get(ENV, "QS_MSG", "0") == "1" ? stdout : devnull
+    for kv in split(get(ENV, "QS_SET", ""), ","; keepempty = false)      # e.g. QS_SET=ql1=1e-4,cq2=1
+        k, val = split(kv, "="); T = eltype(TF.var(Symbol(k)))
+        TF.setscalar!(Symbol(k), T <: Integer ? T(parse(Int, val)) : parse(Float64, val))
+    end
     TF.setscalar!(:tmax, tmax); TF.setscalar!(:jstep, Int32(1)); TF.setscalar!(:jstepe, Int32(10^7))
     L = TF.getscalar(:xlum)
     snaps = Any[snap()]
@@ -84,7 +94,6 @@ elseif mode == "relax"
     # Inflow ramp (QS_RAMP_FAC = target/initial Ṁ, QS_RAMP_T = e-folding time scale in s): the external density, and with it
     # the mass and energy fluxes through r_out, grow exponentially from the set-up value by QS_RAMP_FAC over QS_RAMP_T·ln(fac).
     rampfac = parse(Float64, get(ENV, "QS_RAMP_FAC", "1")); rampT = parse(Float64, get(ENV, "QS_RAMP_T", "1e6"))
-    ρ0x, φ0x, φ2x = TF.getscalar(:dr), TF.getscalar(:phir0), TF.getscalar(:phir2)
     function ramp!()
         rampfac > 1 || return
         f = min(rampfac, exp(TF.getscalar(:timen) / rampT))
@@ -95,6 +104,9 @@ elseif mode == "relax"
         every = parse(Int, get(ENV, "QS_EVERY", "100"))
         (k <= 3 || k % every == 0) || return
         s = snap(); push!(snaps, s); report(s, L, @sprintf("step %5d", k)); flush(stdout)
+        if k % (10every) == 0          # checkpoint, so long runs can be inspected and continued (QS_FROM)
+            TF.save_state(joinpath(outdir, "$(name)_relaxed.tstate.gz")); serialize(joinpath(outdir, "$(name)_relax_snaps.jls"), snaps)
+        end
     end)
     catch e
         println("STOPPED: ", sprint(showerror, e)); get(ENV, "QS_BT", "0") == "1" && Base.show_backtrace(stdout, catch_backtrace())

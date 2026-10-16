@@ -69,6 +69,15 @@ change the time labels (hence tmax termination) and the energy diagnostic.
 """
 const FIX_CLOCK = Ref(true)
 const FIX_ENERGY = Ref(true)
+"""
+`EDD_MATERIAL_SOURCE[]`: source function of the Eddington-factor formal solution (eddfac).
+false (TITAN): thermal absorption = χ_F ρ − σ_T n_e, i.e. the flux mean minus electron scattering. Exact for
+TITAN's grey built-in opacities. For a tabulated material (χ_F a Rosseland mean, κ_P a Planck mean) that
+difference is round-off/table noise wherever scattering dominates, and in hot thin gas it multiplies a Planck
+function 1e9 times J, so the formal solution returns garbage (f clamped to 0 or 1).
+true (set by `TitanMaterials.use!` for non-built-in materials): S = (κ_P ρ B + σ_T n_e J)/(κ_P ρ + σ_T n_e).
+"""
+const EDD_MATERIAL_SOURCE = Ref(false)
 bitwise!(on::Bool = true) = (FIX_CLOCK[] = !on; FIX_ENERGY[] = !on; nothing)
 get(ENV, "TITAN_BITWISE", "0") == "1" && bitwise!(true)
 

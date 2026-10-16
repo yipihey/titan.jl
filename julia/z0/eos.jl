@@ -125,8 +125,10 @@ end
 
 # --- quantities from a precomputed Saha state (so one Saha solve serves P, e and s) ---------
 _Pgas(s, T) = (s.nH + s.nHe + s.ne) * kB * T
-_eint(s, ρ, T) = (1.5 * (s.nH + s.nHe + s.ne) * kB * T + s.nHp * χH + s.nHe1 * χHe1 +
-                  s.nHe2 * (χHe1 + χHe2)) / ρ + arad * T^4 / ρ
+_eint(s, ρ, T) = _egas(s, ρ, T) + arad * T^4 / ρ
+"Gas-only specific internal energy (translational + ionization). Computed directly, never as e_int − aT⁴/ρ:
+in hot, thin gas aT⁴/ρ exceeds the gas energy by up to 1e11 and the difference keeps only ~5 digits."
+_egas(s, ρ, T) = (1.5 * (s.nH + s.nHe + s.ne) * kB * T + s.nHp * χH + s.nHe1 * χHe1 + s.nHe2 * (χHe1 + χHe2)) / ρ
 function _entropy(s, ρ, T)
     kT = kB * T
     q(m) = (2π * m * kT / h^2)^1.5

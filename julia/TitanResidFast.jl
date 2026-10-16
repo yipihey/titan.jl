@@ -63,6 +63,27 @@ const BUFS = Dict{Symbol,Any}()     # reused context buffers (allocation-free co
 const ETOTAL = Ref(false)
 const ETASW = Ref(0.0)
 """
+GASROW[] (lrad = 1 only): energy row of the gas ALONE,
+  Δ(m e_g)/dt + advection of e_g + p_g ∇·u + Q_visc + MLT flux = −(c κ_E E − 4π κ_P B) ρ dV,
+instead of TITAN's row for gas + radiation, Δ(m(e_g + E/ρ))/dt + … (from which the gas energy is the difference
+with the radiation row). The two are algebraically equal (the exchange term is the radiation row's, with
+opposite sign, so the pair still conserves total energy), but differ in the discrete advection: TITAN advects
+e_g + E/ρ and E/ρ with separate van Leer limiters. Where E/ρ ≫ e_g (thin infalling gas above a radiating star:
+1e5–1e6) the difference of the two advected fluxes is dominated by limiter and round-off differences and the gas
+temperature is garbage (zones cooling to a few hundred K inside a 6000 K radiation field). Default false (TITAN).
+"""
+const GASROW = Ref(false)
+"""
+COMPTON[] (lrad = 1, material with `material_gasne`): Compton energy exchange between gas and radiation,
+  Λ_C = 4 σ_T n_e c E k_B (T − T_r)/(m_e c²),  T_r = (E/a)^{1/4}  (non-relativistic Kompaneets, grey radiation),
+lost by the gas and gained by the radiation (in the radiation row and, with GASROW, in the gas row; TITAN's
+combined row needs no term). Evaluated with the new-time values (fully implicit). Default false (TITAN has none).
+Matters in hot thin gas: behind a 1e8 K accretion shock in a 10 erg cm⁻³ radiation field t_C ≈ 1.5e6 s, far
+shorter than the free-free cooling time.
+"""
+const COMPTON = Ref(false)
+const MEC2 = 8.1871057769e-7            # m_e c² [erg]
+"""
 Dual-energy switch, evaluated on the OLD (start-of-step) state and frozen during the Newton
 iteration: zone k keeps TITAN's internal-energy row when
 η_k = m(e_g [+E_r/ρ]) / (m(e_g [+E_r/ρ]) + K_k) < ηsw  (K_k = m(u_k²+u_{k+1}²)/4).
@@ -139,7 +160,7 @@ end
 const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn, :xken, :xkpn, :plfn,
     :egrn, :r, :u, :fr, :xm, :dmdt, :urel, :rmu, :rmup1, :d, :pg, :eg, :as, :er, :egr, :chif, :xke,
     :xkp, :plf, :dvol, :dvoln, :avchi, :qf, :dudr, :db, :dsn, :fl, :ub, :usn, :flu, :fle, :egb, :egsn,
-    :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv)
+    :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen)
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
     xnuo::Vector{Float64}
@@ -201,6 +222,14 @@ Otherwise a material object for which `material_gas(m, ρ, T) -> (p_gas, e_gas, 
 """
 const MATERIAL = Ref{Any}(nothing)
 function material_gas end
+"`material_gasne(m, ρ, T) -> (p_gas, e_gas, a_s, n_e)`; default: material_gas and n_e = 0 (no Compton exchange)."
+material_gasne(m, ρ, T) = (material_gas(m, ρ, T)..., zero(ρ))
+"Compton exchange rate per volume (erg cm⁻³ s⁻¹) of zone k at the new time level (gas → radiation)."
+@inline function compton(k, W, P)
+    COMPTON[] || return zero(W.tn[k])
+    E = W.ern[k]; Tr = sqrt(sqrt(E * P.cc / (4P.csigr)))
+    4P.csige * W.xnen[k] * P.cc * E * P.ck * (W.tn[k] - Tr) / MEC2
+end
 function material_opac end
 "`material_thermo(m, ρ, T) -> (∇_ad, c_P, δ)` of gas + equilibrium radiation (Float64), for the MLT flux."
 function material_thermo end
@@ -224,7 +253,11 @@ function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
             c.lrad && (chifn[k] = zero(dn[k]); xken[k] = zero(dn[k]); xkpn[k] = zero(dn[k]); plfn[k] = zero(dn[k]); egrn[k] = zero(dn[k]))
             continue
         end
-        pg, eg, as_ = material_gas(m, dn[k], tn[k])
+        if COMPTON[]
+            pg, eg, as_, ne = material_gasne(m, dn[k], tn[k]); W.xnen[k] = ne
+        else
+            pg, eg, as_ = material_gas(m, dn[k], tn[k])
+        end
         pgn[k] = pg; egn[k] = eg; asn[k] = as_
         if c.lrad
             χ, κE, κP = material_opac(m, dn[k], tn[k])
@@ -321,6 +354,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     advect!(ub, usn, un, c.uo, c.uso, flu, θ, P.cadv, P.eps, ngrs, ngre, false, 2)
     if c.lrad
         advect!(egb, egsn, egrn, c.egro, c.egrso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 3)
+        GASROW[] && advect!(W.egbg, W.egsng, egn, c.ego, c.egso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 6)
         qe, qeo, qF, qFo = W.qe, W.qeo, W.qF, W.qFo
         @inbounds for k in ngrs-1:ngre+2
             qe[k] = ern[k] / dn[k]; qeo[k] = c.ero[k] / c.do_[k]
@@ -489,6 +523,20 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         aur = 0.5 * (u[k+1] / r[k+1] + u[k] / r[k])
         if c.etotal && !c.useint[k]
             w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k]
+        elseif c.lrad && GASROW[]
+            egbg = W.egbg
+            w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
+                dfe[k+1] + dfe[k] + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
+                pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k] -
+                (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k]
+            if k == ngrs
+                w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
+            elseif k == ngre
+                w += dmdt[k] * egbg[k]
+                w += P.leobc != 3 ? rmu[k+1] * P.phir2 : -dmdt[k+1] * egbg[k+1]
+            else
+                w += -dmdt[k+1] * egbg[k+1] + dmdt[k] * egbg[k]
+            end
         elseif c.lrad
             w = (dn[k] * egrn[k] * dvoln[k] - c.do_[k] * c.egro[k] * c.dvolo[k]) / dt +
                 rmu[k+1] * fr[k+1] - rmu[k] * fr[k] - dfe[k+1] + dfe[k] +
@@ -531,7 +579,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             w = (ern[k] * dvoln[k] - c.ero[k] * c.dvolo[k]) / dt + rmu[k+1] * fr[k+1] - rmu[k] * fr[k] +
                 fedd[k] * er[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] +
-                (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k]
+                (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * er[k]
             elseif k == ngre
@@ -697,6 +745,7 @@ function store_side!(c::Ctx, ws::WS{D}) where {D}
     if c.lrad
         put!(v(:egrsn), W.egsn, a:b+1); put!(v(:ersn), W.ersn, a:b+1); put!(v(:frsn), W.frsn, a:b+1)
         put!(v(:egrb), W.egb, a+1:b+1); put!(v(:erb), W.erb, a+1:b+1); put!(v(:frb), W.frb, a:b)
+        GASROW[] && (put!(v(:egsn), W.egsng, a:b+1); put!(v(:egb), W.egbg, a+1:b+1))
     else
         put!(v(:egsn), W.egsn, a:b+1); put!(v(:egb), W.egb, a+1:b+1)
     end

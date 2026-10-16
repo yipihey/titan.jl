@@ -445,7 +445,10 @@ function eddfac!()
     xmom0, xmom2 = vf(:xmom0), vf(:xmom2)
     csige, cc, cpi, eps = gf(:csige), gf(:cc), gf(:cpi), gf(:epsedf)
     nang = gi(:nang); lribc, lrobc = gi(:lribc), gi(:lrobc)
-    source!(k) = (sf[k] = ((chifn[k] * dn[k] - csige * xnen[k]) * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) /
+    xkpn = vf(:xkpn); matsrc = TD.EDD_MATERIAL_SOURCE[]
+    source!(k) = (sf[k] = matsrc ?
+                      (xkpn[k] * dn[k] * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) / (xkpn[k] * dn[k] + csige * xnen[k]) :
+                      ((chifn[k] * dn[k] - csige * xnen[k]) * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) /
                           (chifn[k] * dn[k]);
                   dtau[k] = chifn[k] * dn[k] * (rn[k+1] - rn[k]))
     function slopes!(withasf)
