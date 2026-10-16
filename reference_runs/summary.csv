@@ -1,0 +1,9 @@
+problem,lprob,input,final_time_s,jstep,bench1995_time,bench1995_jstep,jstep_match,terminated_by,wall_s_2026,user_s_1995_Indigo2,speedup_approx
+SOD,3,titan.in03,1.116783e+00,454,1.12E+00,454,yes,tmax,2.49,377,151
+BLST,4,titan.in04,5.002646e-02,572,5.00E-02,572,yes,tmax,10.3,587,57
+SDOV,5,titan.in05,2.000311e+05,1097,2.00E+05,1097,yes,tmax,9.0,801,89
+HEAT,6,titan.in06,2.960893e+15,151,3.23E+15,151,yes(trivial: nstep limit),nstep,2.1,196,93
+COOL,7,titan.in07 (restart HEAT dump 4),2.111303e+17,551,2.11E+17,551,yes(trivial: nstep limit),nstep,4.4,323,73
+SUBC,8,titan.in08,8.700283e+04,668,8.70E+04,668,yes,tmax,11.7,836,71
+SUPC,9,titan.in09,1.509343e+04,714,1.51E+04,714,yes,tmax,11.6,810,70
+RLST,10,titan.in10 + titan.in (restart dump 19),6.809549e+03,3350,6.81E+04 (likely typo for 6.81E+03),3350,yes,tmax,30.4+12.6,3183 (PowerChallenge),74

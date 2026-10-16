@@ -1,0 +1,12 @@
+    4
+    6    output  SUPC.out       new
+    7      dump  SUPC.dmp       new
+    9   history  SUPC.sty       new
+   10    energy  SUPC.nrg       new
+    9    1    1
+ SUPERCRITICAL SHOCK PROBLEM
+  7.78e-10 3.115e-10 2.0e+6
+    1    1  999 1.500e+04
+      rho0     chif0 upstn
+c
+c------------------------------------------------------------ titan.in09

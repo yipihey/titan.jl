@@ -1,0 +1,13 @@
+    3
+    6    output  SOD.out        new
+    7      dump  SOD.dmp        new
+    8    energy  SOD.nrg        new
+    3    1    1
+ SOD SHOCK TUBE PROBLEM
+       1.0       1.0       0.0
+     0.125       0.1       0.0
+    1    1  500 1.100e+00
+       ydl       ypl       yul
+       ydr       ypr       yur
+c
+c------------------------------------------------------------ titan.in03

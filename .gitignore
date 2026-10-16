@@ -17,3 +17,4 @@ lib/p4_legs/
 reference_runs/*/dumps/
 __pycache__/
 Manifest.toml
+lib/build*.log

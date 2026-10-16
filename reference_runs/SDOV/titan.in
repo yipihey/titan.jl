@@ -1,0 +1,12 @@
+    4
+    6    output  SDOV.out       new
+    7      dump  SDOV.dmp       new
+    8    energy  SDOV.nrg       new
+    9      rtty  SDOV.tty       new
+    5    1    1
+ TAYLOR-SEDOV BLAST WAVE PROBLEM
+  1.000e-8 5.00000e1 1.0000e14
+    1    1 1500 2.000e+05
+      rho0        t0      rmax
+c
+c------------------------------------------------------------ titan.in05

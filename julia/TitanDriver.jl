@@ -1,0 +1,164 @@
+"""
+    TitanDriver
+
+Phase-2 scaffold: TITAN's time-step control flow (step.f + the titan.f loop body)
+re-implemented in Julia.  Every physics/numerics routine is still the Fortran
+one, called through ccall, with all state in the mapped COMMON blocks.  Routines
+can be swapped at two levels:
+
+* top level (`ROUTINES[:matgen] = f` …): anything called directly by step;
+* deep level (`install_hooks!`): `eos`/`opac`, which Fortran routines call
+  internally, via the C shim in lib/src/hooks.c (eos_ -> Julia or eos_f_).
+"""
+module TitanDriver
+
+include(joinpath(@__DIR__, "TitanFortran.jl"))
+using .TitanFortran
+const TF = TitanFortran
+export TF
+
+# ------------------------------------------------------------------ ccalls
+const PTR = Dict{Symbol,Ptr{Cvoid}}()
+fptr(s::Symbol) = get!(() -> TF.Libdl.dlsym(TF.load(), s), PTR, s)
+fcall(s::Symbol) = ccall(fptr(s), Cvoid, ())
+fmsg(code, xs = 0.0) = ccall(fptr(:port_msg_), Cvoid, (Ref{Int32}, Ref{Float64}), Int32(code), xs)
+
+"Routines called by step; replace an entry to swap in a Julia version."
+const ROUTINES = Dict{Symbol,Function}(
+    s => (() -> fcall(Symbol(s, "_"))) for s in
+    (:peq, :matgen, :matslv, :maxdel, :update, :timstp, :reset, :totnrg))
+r(s) = ROUTINES[s]()
+
+# scalar accessors (zero-copy 0-dim views, cached)
+const SV = Dict{Symbol,Array}()
+sv(s::Symbol) = get!(() -> TF.var(s), SV, s)
+g(s) = sv(s)[]
+s!(s, x) = (a = sv(s); a[] = convert(eltype(a), x))
+
+"""
+Bookkeeping fixes (Phase 4), ON by default in the port:
+
+* `FIX_CLOCK[]`: after a Newton-divergence retry (and in the rarely used
+  "changes too large" branch) step.f calls reset, which sets timen = timeo, so the
+  retried step is integrated with dtime but the clock does not advance.  Fixed by
+  setting timen = timeo + dtime after reset.
+* `FIX_ENERGY[]`: step.f calls timstp BEFORE totnrg, so the energy bookkeeping
+  (boundary work, luminosity, surface and dissipation terms) is multiplied by the
+  dt planned for the NEXT step (20x too large before a divergence retry).  Fixed
+  by calling totnrg before timstp, i.e. with the dt actually taken.
+
+`bitwise!(true)` (or env TITAN_BITWISE=1) switches both off for a bitwise
+reproduction of TITAN 1.2.  Neither fix changes the solution of any step; they
+change the time labels (hence tmax termination) and the energy diagnostic.
+"""
+const FIX_CLOCK = Ref(true)
+const FIX_ENERGY = Ref(true)
+bitwise!(on::Bool = true) = (FIX_CLOCK[] = !on; FIX_ENERGY[] = !on; nothing)
+get(ENV, "TITAN_BITWISE", "0") == "1" && bitwise!(true)
+
+"Julia version of subroutine step (step.f), same control flow and arithmetic."
+function step!()
+    r(:peq)
+    s!(:jtry, 1); s!(:jback, 0)
+    @label two
+    s!(:iter, 1)
+    @label three
+    r(:matgen); r(:matslv); r(:maxdel); r(:update)
+    g(:dmax) <= g(:conv) && @goto seven
+    s!(:iter, g(:iter) + 1)
+    g(:iter) <= g(:niter) && @goto three
+    # failure to converge: reduce timestep
+    fmsg(1)
+    s!(:tfac, 5.0e-2)
+    s!(:dtime, g(:tfac) * g(:dtime))
+    s!(:timen, g(:timeo) + g(:dtime))
+    s!(:jtry, g(:jtry) + 1)
+    g(:jtry) > g(:ntry) && fmsg(2)          # Fortran writes, writout, clzfil, STOP
+    r(:reset)
+    FIX_CLOCK[] && s!(:timen, g(:timeo) + g(:dtime))
+    @goto two
+    @label seven
+    s!(:lboos, 1)
+    r(:matgen); r(:matslv); r(:maxdel); r(:update)
+    s!(:lboos, 0)
+    FIX_ENERGY[] && r(:totnrg)              # book with the dt actually taken
+    r(:timstp)
+    xs = g(:smax) / g(:stol)
+    xchek = 1.0e6
+    if xs < xchek
+        FIX_ENERGY[] || r(:totnrg)
+        return nothing
+    end
+    fmsg(3, xs)
+    s!(:jback, g(:jback) + 1)
+    g(:jback) > g(:nback) && fmsg(4)
+    fmsg(5)
+    r(:reset)                               # (restores tes/tew/tel/teq, so an early totnrg is undone)
+    FIX_CLOCK[] && s!(:timen, g(:timeo) + g(:dtime))
+    @goto two
+end
+
+const LDONE = Ref{Ptr{Int32}}(C_NULL)
+ldone() = (LDONE[] == C_NULL && (LDONE[] = Ptr{Int32}(fptr(:portctl_))); LDONE[])
+
+"The step implementation used by titan_step! (TITAN's by default; e.g. DampedNewton.step!)."
+const STEPFN = Ref{Function}(step!)
+
+"Julia version of titan_step (one iteration of the titan.f loop). 0 = continue."
+function titan_step!()
+    st = unsafe_load(ldone()); st != 0 && return Int(st)
+    STEPFN[]()
+    fcall(:archive_); fcall(:writout_); fcall(:writsty_)
+    if g(:timen) >= g(:tmax)
+        fcall(:clzfil_); unsafe_store!(ldone(), 1); return 1
+    end
+    s!(:jstep, g(:jstep) + 1)
+    if g(:jstep) > g(:jstepe)
+        fcall(:clzfil_); unsafe_store!(ldone(), 2); return 2
+    end
+    0
+end
+
+"Run to completion with the Julia driver; `callback(n)` after every step."
+function run!(; callback = nothing)
+    n = 0
+    while true
+        st = titan_step!(); n += 1
+        callback === nothing || callback(n)
+        st != 0 && return n
+    end
+end
+
+# --------------------------------------------- COMMON snapshot / restore
+const ALLBLOCKS = sort(collect(keys(TF.BLOCKS)))
+snapshot() = Dict(b => copy(TF.blockbytes(b)) for b in ALLBLOCKS)
+restore!(snap) = (for b in ALLBLOCKS; copyto!(TF.blockbytes(b), snap[b]); end; nothing)
+
+# ------------------------------------------------------- deep-level hooks
+const HOOKFUN = Dict{Int,Function}()
+const HOOKPTR = Dict{Int,Ptr{Cvoid}}()
+_hook_eos()  = (HOOKFUN[1](); nothing)
+_hook_opac() = (HOOKFUN[2](); nothing)
+
+"""
+    install_hooks!(; eos = f_or_nothing, opac = f_or_nothing)
+
+`f()` is called in place of the Fortran routine whenever any Fortran code calls
+eos/opac.  Pass `nothing` to restore the Fortran routine.
+"""
+function install_hooks!(; eos = nothing, opac = nothing)
+    for (which, f, jf) in ((1, eos, _hook_eos), (2, opac, _hook_opac))
+        if f === nothing
+            ccall(fptr(:titan_set_hook), Cvoid, (Cint, Ptr{Cvoid}), which, C_NULL)
+        else
+            HOOKFUN[which] = f
+            p = which == 1 ? @cfunction(_hook_eos, Cvoid, ()) : @cfunction(_hook_opac, Cvoid, ())
+            HOOKPTR[which] = p
+            ccall(fptr(:titan_set_hook), Cvoid, (Cint, Ptr{Cvoid}), which, p)
+        end
+    end
+end
+fortran_eos()  = fcall(:eos_f_)
+fortran_opac() = fcall(:opac_f_)
+
+end # module

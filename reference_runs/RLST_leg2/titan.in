@@ -1,0 +1,13 @@
+    5
+    6    output  RLST.out       new
+    7      dump  RLST.dmp       old
+    8   history  RLST.sty       new
+    9    energy  RLST.nrg       new
+   10      rtty  RLST.tty       new
+   10    2    1
+ RADIATING BLAST WAVE PROBLEM
+  1.000e12  1.000e13  1.000e34    1.0e-6    3.0e24    1.0e47
+   19 1801 2000 6.800e+03
+      rmin      rmax      xlum      rho0      xmin      ecnt
+c
+c------------------------------------------------------------ titan.in10

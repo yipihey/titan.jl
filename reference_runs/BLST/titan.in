@@ -1,0 +1,9 @@
+    3
+    6    output  BLST.out       new
+    7      dump  BLST.dmp       new
+    8    energy  BLST.nrg       new
+    4    1    1
+ WOODWARD-COLLELA BLAST WAVE PROBLEM
+    1    1  600 5.000e-02
+c
+c------------------------------------------------------------ titan.in04
