@@ -1305,3 +1305,19 @@ Design decisions (Tom, 16 Oct 2026):
   - Z0 coloured AD Jacobian = dense AD Jacobian exactly (728 unknowns); dense AD vs central FD ≤ 1.5e-6 of the row max.
   - Assembly 0.9 ms/call (Builtin 0.5).
   - Benchmarks through the material interface are unchanged (SUPC pure: 713 steps, same final time).
+
+### P7.2 MLT convective flux in the energy equation [run]
+- **Where it enters:** with `TitanResidFast.CONVECTION[] = true` (α from `ALPHA_MLT`, default 0.8), the energy row gets
+  r^μ F_conv at every interior interface. That is the gas+radiation energy row for radiation runs, the gas-energy row otherwise,
+  or the total-energy row. F_conv = 0 at the two boundary interfaces.
+- **Flux:** F_conv = ρ c_P T √(gδ) ℓ² ζ³ / (4√2 H_P^{3/2}), with ζ = √(U² + ∇ − ∇_ad) − U.
+  - This is Kippenhahn & Weigert's MLT, solved for the flux at a given actual gradient, which is what a time-dependent code
+    needs. It is smooth (∝ ζ³) at the onset ∇ = ∇_ad.
+  - ∇ = Δln T / Δln P from the neighbouring zones at the n level, with P = p_gas + f E_r.
+  - g is the same expression as in the momentum equation; no gravity means no convection.
+- **Lagged coefficients:** ∇_ad, c_P, δ (gas + equilibrium radiation, `material_thermo`) and κ_R come from the current Newton
+  iterate and are held fixed during the derivative sweep. The dependence on T, ρ, P and ∇ is differentiated exactly.
+  **[design choice]** Newton convergence may become linear when the coefficients change strongly between iterates; not yet observed.
+- **Check** (`CONV=1 z0_jac_check.jl`, a superadiabatic test state with all 99 interfaces convecting): coloured AD = dense AD
+  exactly, and vs central FD ≤ 1.5e-6 of the row max. Assembly 1.07 ms/call.
+- **Still to validate:** the flux against the steady model's MLT on a real quasi-star profile; that is part of the set-up step.

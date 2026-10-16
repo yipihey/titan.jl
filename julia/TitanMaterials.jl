@@ -41,6 +41,13 @@ end
     return κR, κP, κP
 end
 
+"∇_ad, c_P, δ of gas + equilibrium radiation (Float64) for the MLT flux; radiation included because the
+convective interior is optically thick (E_r ≈ aT⁴)."
+function TX.material_thermo(m::Z0Gas, ρ, T)
+    st = Z0.eos_rhoT(ρ, T)
+    return st.∇ad, st.cP, st.δ
+end
+
 # ---------------- state-array fills (peq!/update!)
 const V = Dict{Symbol,Vector{Float64}}()
 v(s::Symbol) = get!(() -> TF.var(s), V, s)::Vector{Float64}

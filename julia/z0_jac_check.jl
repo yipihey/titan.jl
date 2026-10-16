@@ -12,6 +12,15 @@ a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
 tn = TF.var(:tn); tn[a-1:b+2] .= 6000.0 .+ 3000.0 .* range(0, 1, length = b - a + 4)
 ern = TF.var(:ern); ern[a-1:b+2] .= 7.56e-15 .* tn[a-1:b+2] .^ 4
 TM.use!(TM.Z0Gas())
+if get(ENV, "CONV", "0") == "1"
+    TX.CONVECTION[] = true
+    TF.setscalar!(:cgrav, 6.674e-8)          # benchmark state has gravity off
+    # make the layer superadiabatic so that the MLT flux is active: steep T, shallow ρ gradient
+    dn = TF.var(:dn); for k in a-1:b+2; dn[k] = 1e-9 * (1 + 0.02 * (b + 2 - k)); end
+    tn .= 0.0; for k in a-1:b+2; tn[k] = 6.0e4 * exp(-0.03 * (k - a)); end
+    ern[a-1:b+2] .= 7.56e-15 .* tn[a-1:b+2] .^ 4
+    println("MLT convection ON (test state made superadiabatic)")
+end
 TD.EOS[](); TD.OPAC[]()
 c = TX.context()
 TX.assemble!(c; ncol = 6)
@@ -40,3 +49,8 @@ end
 @printf("Z0 material: dense AD vs central FD (h = 1e-6, every 7th column), max |Δ|/rowmax = %.2e\n", fdw)
 t = @elapsed for i in 1:20; TX.assemble!(c; ncol = 6); end
 @printf("assemble with Z0 material: %.2f ms/call\n", 1e3 * t / 20)
+if TX.CONVECTION[]
+    ws = TX.getws(Float64, c.mgr); R = zeros(neqn, nb); TX.residual!(R, ws, c, zeros(N))
+    fc_ = ws.a.fcv; ka, kb_ = c.ngrs + 1, c.ngre
+    @printf("F_conv: %d of %d interfaces active, max %.3e erg/cm²/s\n", count(>(0), fc_[ka:kb_]), kb_ - ka + 1, maximum(fc_[ka:kb_]))
+end

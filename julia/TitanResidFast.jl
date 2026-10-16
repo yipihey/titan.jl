@@ -52,6 +52,9 @@ struct Ctx
     p::Par
     etotal::Bool                      # conservative total-energy row instead of gasnrg
     useint::Vector{Bool}              # dual-energy switch: zone k keeps the internal-energy row
+    conv::Bool                        # MLT convective flux in the energy equation (Phase 7)
+    alpha::Float64                    # mixing-length parameter
+    cv::NTuple{4,Vector{Float64}}     # interface ∇_ad, c_P, δ, κ_R from the current iterate (held during the AD sweep)
 end
 
 const CTXBUF = Ref{Any}(nothing)
@@ -78,8 +81,8 @@ v(s) = TF.var(s)
 function context(; etotal::Bool = ETOTAL[], ηsw::Float64 = ETASW[], dt = nothing)
     ngrs = gi(:ngrs); ngre = gi(:ngre); neqn = gi(:neqn); lrad = gi(:lrad) == 1; mgr = TF.MGR
     (gi(:ltur) == 0 && gi(:lhydr) == 1) || error("TitanResidFast: lhydr=1, ltur=0 only")
-    gi(:leos) == 2 || error("leos must be 2")
-    lrad && !(gi(:lopac) in (3, 4)) && error("lopac must be 3 or 4")
+    MATERIAL[] === nothing && gi(:leos) != 2 && error("leos must be 2 (or install a material)")
+    MATERIAL[] === nothing && lrad && !(gi(:lopac) in (3, 4)) && error("lopac must be 3 or 4 (or install a material)")
     lrad && gi(:ltran) != 1 && error("ltran must be 1")
     ix = Tuple(gi(s) for s in (:ir, :im, :id, :iu, :it, :ie, :if))
     code = get!(() -> zeros(Int, neqn), BUFS, Symbol(:code, neqn))::Vector{Int}; fill!(code, 0)
@@ -104,14 +107,30 @@ function context(; etotal::Bool = ETOTAL[], ηsw::Float64 = ETASW[], dt = nothin
         v(:fro), v(:egro), v(:egso), v(:egrso), v(:dso), v(:uso),
         v(:erso), v(:frso), v(:pgo), v(:aso), v(:chifo), v(:xkeo),
         v(:xkpo), v(:plfo), v(:dvolo), v(:xmo), v(:fedd), v(:bri),
-        (la = v(:lady); lb = get!(() -> zeros(Int, length(la)), BUFS, :lady)::Vector{Int}; lb .= la; lb), v(:wt), v(:yscl), P, etotal, dualswitch(ngrs, ngre, lrad, ηsw))
+        (la = v(:lady); lb = get!(() -> zeros(Int, length(la)), BUFS, :lady)::Vector{Int}; lb .= la; lb), v(:wt), v(:yscl), P, etotal, dualswitch(ngrs, ngre, lrad, ηsw),
+        CONVECTION[], ALPHA_MLT[], convcoef(ngrs, ngre, base))
+end
+
+"Interface ∇_ad, c_P, δ, κ_R on the current iterate (base) for the MLT flux; zeros if convection is off."
+function convcoef(ngrs, ngre, base)
+    mgr = TF.MGR
+    cv = Tuple(get!(() -> zeros(mgr), BUFS, nm)::Vector{Float64} for nm in (:cvnad, :cvcp, :cvdel, :cvkap))
+    foreach(a -> fill!(a, 0.0), cv)
+    CONVECTION[] || return cv
+    m = MATERIAL[]; m === nothing && error("MLT convection needs a material with material_thermo (e.g. Z0Gas)")
+    @inbounds for k in ngrs+1:ngre
+        ρi = 0.5 * (base[k-1, 3] + base[k, 3]); Ti = 0.5 * (base[k-1, 5] + base[k, 5])
+        nad, cp, δ = material_thermo(m, ρi, Ti)
+        cv[1][k] = nad; cv[2][k] = cp; cv[3][k] = δ; cv[4][k] = material_opac(m, ρi, Ti)[1]
+    end
+    cv
 end
 
 # ------------------------------------------------------------------ workspace
 const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn, :xken, :xkpn, :plfn,
     :egrn, :r, :u, :fr, :xm, :dmdt, :urel, :rmu, :rmup1, :d, :pg, :eg, :as, :er, :egr, :chif, :xke,
     :xkp, :plf, :dvol, :dvoln, :avchi, :qf, :dudr, :db, :dsn, :fl, :ub, :usn, :flu, :fle, :egb, :egsn,
-    :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss)
+    :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv)
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
     xnuo::Vector{Float64}
@@ -174,6 +193,17 @@ Otherwise a material object for which `material_gas(m, ρ, T) -> (p_gas, e_gas, 
 const MATERIAL = Ref{Any}(nothing)
 function material_gas end
 function material_opac end
+"`material_thermo(m, ρ, T) -> (∇_ad, c_P, δ)` of gas + equilibrium radiation (Float64), for the MLT flux."
+function material_thermo end
+"""
+MLT convection (Phase 7, Tom's choice: local, time-independent MLT). At interior interfaces
+F_conv = ρ c_P T √(gδ) ℓ² ζ³ / (4√2 H_P^{3/2}),  ζ = √(U² + ∇ − ∇_ad) − U  (0 if ∇ ≤ ∇_ad),
+ℓ = α H_P, U = 3acT³/(c_P ρ² κ ℓ²) √(8H_P/(gδ)); ∇ = Δln T/Δln P from the neighbouring zones (n level),
+P = p_gas + f E_r. ∇_ad, c_P, δ, κ are evaluated on the current Newton iterate and held fixed during the
+derivative sweep (lagged coefficients); the dependence on T, ρ, P and ∇ is differentiated exactly.
+"""
+const CONVECTION = Ref(false)
+const ALPHA_MLT = Ref(0.8)
 "Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
 function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
@@ -420,14 +450,37 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     R[iu, kb(k)] = P.leibc == 1 ? un[k+2] + un[k] : P.llibc == 1 ? un[k] - un[k+1] : X(iu, k)
     k = ngre + 2
     R[iu, kb(k)] = P.leobc == 1 ? un[k-2] + un[k] : P.leobc == 3 ? -un[k-1] + un[k] : X(iu, k)
+    # ---------------------------------------------------------------- MLT convective flux (Phase 7)
+    fcv = W.fcv
+    @inbounds for k in ngrs:ngre+1; fcv[k] = zero(T); end
+    if c.conv
+        nadv, cpv, δv, κv = c.cv
+        arad = 4P.csigr / cc
+        @inbounds for k in ngrs+1:ngre
+            Pm = pgn[k-1] + c.fedd[k-1] * ern[k-1]; Pp = pgn[k] + c.fedd[k] * ern[k]
+            lp = log(Pp / Pm)
+            abs(ForwardDiff.value(lp)) < 1e-12 && continue
+            ∇ = log(tn[k] / tn[k-1]) / lp
+            sup = ∇ - nadv[k]                       # superadiabaticity (not `x`: that is the Newton vector)
+            ForwardDiff.value(sup) > 0 || continue
+            Ti = 0.5 * (tn[k-1] + tn[k]); ρi = 0.5 * (dn[k-1] + dn[k]); Pi = 0.5 * (Pm + Pp)
+            gk = 2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g
+            ForwardDiff.value(gk) > 0 || continue          # no gravity → no buoyancy
+            HP = Pi / (ρi * gk); l = c.alpha * HP
+            U = 3arad * cc * Ti^3 / (cpv[k] * ρi^2 * κv[k] * l^2) * sqrt(8HP / (gk * δv[k]))
+            ζ = sqrt(U^2 + sup) - U
+            fcv[k] = ρi * cpv[k] * Ti * sqrt(gk * δv[k]) * l^2 * ζ^3 / (4sqrt(2.0) * HP * sqrt(HP))
+        end
+    end
     # ---------------------------------------------------------------- GAS ENERGY
     @inbounds for k in ngrs:ngre
         aur = 0.5 * (u[k+1] / r[k+1] + u[k] / r[k])
         if c.etotal && !c.useint[k]
-            w = etot_row(k, c, W, T)
+            w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k]
         elseif c.lrad
             w = (dn[k] * egrn[k] * dvoln[k] - c.do_[k] * c.egro[k] * c.dvolo[k]) / dt +
                 rmu[k+1] * fr[k+1] - rmu[k] * fr[k] - dfe[k+1] + dfe[k] +
+                rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
                 (pg[k] + er[k] * fedd[k]) * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] + qf[k] * dudr[k] * dvol[k]
             if k == ngrs
@@ -440,7 +493,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             end
         else
             w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
-                dfe[k+1] + dfe[k] + pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k]
+                dfe[k+1] + dfe[k] + pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k] +
+                rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k]
             if k == ngrs
                 w += -dmdt[k+1] * egb[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
