@@ -1,0 +1,156 @@
+---
+title: "Infall: two branches and a fold"
+---
+
+## A free-fall accretion shock as the outer boundary {#sec-bc-infall}
+
+We replace the photosphere by spherical free-fall infall onto a radiative shock at $R$. Upstream,
+
+$$
+\rho_{\rm in}(r) = \frac{\dot M}{4\pi r^2 v_{\rm ff}} \propto r^{-3/2},\qquad v_{\rm ff} = \Big(\frac{2GM}{r}\Big)^{1/2} .
+$$ {#eq-infall-density}
+
+The post-shock gas cools in a layer that is thin compared with $R$ (checked below) and settles onto the envelope.
+Momentum balance across the shock and the settling layer, and the Eddington approximation through the infall
+column plus the stellar $\tau = 2/3$, give the boundary condition{{< src boundary::outer_bc >}}
+
+$$
+P_b = \rho_{\rm in}v_{\rm ff}^2 + \tfrac23\frac{g}{\kappa_b} + \frac{F_{\rm tot}}{c}\Big(\tau_{\rm in} + \tfrac23\Big),\qquad
+T_b^4 = \tfrac34\,T_L^4\Big(\tau_{\rm in} + \tfrac43\Big),
+$$ {#eq-bc-infall}
+
+with $T_L^4 = L_{\rm tot}/(4\pi\sigma R^2)$ and $L_{\rm tot} = L + GM\dot M/R$. The infall optical depth
+$\tau_{\rm in} = \int_R^\infty \kappa_R\rho_{\rm in}\,dr$ uses the LTE opacity of the infall at the temperature
+[@lucy1971]
+
+$$
+T^4(r) = T_L^4\left[W(r) + \tfrac34\tau(r)\right],\qquad W = \tfrac12\left[1 - (1 - R^2/r^2)^{1/2}\right],
+$$ {#eq-lucy}
+
+integrated inward from $10^4R$ {{< src boundary::infall_tau >}}. As $\dot M \to 0$, @eq-bc-infall reduces exactly to
+@eq-bc-phot. If $\tau_{\rm in} > 2/3$, the observed photosphere lies in the infall at the radius $r_{\rm ph}$ where
+$\tau = 2/3$, and we quote $T_{\rm obs} = [L_{\rm tot}/(4\pi\sigma r_{\rm ph}^2)]^{1/4}$. A stream covering a fraction $f$ of the
+surface at rate $\dot M$ has, at its footprint, the conditions of the spherical model at $\dot M/f$. The browser core
+reproduces $P_b$, $T_b$ and $\tau_{\rm in}$ of the Julia code to $10^{-6}$ {{< test outer_bc_matches_reference "boundary vs Julia" >}}.
+
+## Two branches and a fold {#sec-branches}
+
+Scanning $\log R \in [14, 16.6]$ in steps of 0.025 and bisecting every change of sign gives the solutions in
+@tbl-branches. The browser core finds the same roots as the Julia code in all 22 cases, with identical scan signs
+and $R$ within $3\times10^{-5}$ {{< test branches_match_reference "all roots vs Julia" >}}.
+
+::: {.callout-note title="Corrections to the October 15 notes"}
+Two earlier versions of this table are superseded. The first kept only the first root and reported a spurious jump
+at $\dot M \approx 3$. The second, in the PDF notes of 15 October, was produced by an older version of the code; the
+current code moves its radii by up to 0.5 % and its temperatures by up to 0.4 %. The difference was found when the
+browser port was checked against the Julia code. No root appears or disappears, and no conclusion changes.
+:::
+
+| $M_{\rm BH}/M$ | $\dot M$ | branch | $R$ (cm) | $T_b$ (K) | $\tau_{\rm in}^{\rm LTE}$ | $r_{\rm ph}/R$ | $T_{\rm obs}$ (K) |
+|---|---|---|---|---|---|---|---|
+| 0.1 | 0 | – | $8.44\times10^{15}$ | 7275 | 0 | 1 | 7275 |
+| 0.1 | 0.3 | compact | $3.03\times10^{14}$ | 52965 | 3.24 | 10.6 | 11958 |
+|  |  | extended | $8.42\times10^{15}$ | 7368 | 0.06 | 1 | 7287 |
+| 0.1 | 1 | compact | $8.28\times10^{14}$ | 35857 | 5.74 | 9.68 | 7592 |
+|  |  | extended | $8.39\times10^{15}$ | 7548 | 0.18 | 1 | 7310 |
+| 0.1 | 3 | compact | $2.34\times10^{15}$ | 22439 | 7.27 | 4.47 | 6656 |
+|  |  | extended | $8.33\times10^{15}$ | 8070 | 0.59 | 1 | 7359 |
+| 0.1 | 5 | compact | $3.63\times10^{15}$ | 18189 | 7.60 | 2.93 | 6602 |
+|  |  | extended | $8.27\times10^{15}$ | 8639 | 1.13 | 1.10 | 7081 |
+| 0.1 | $\ge 10$ | none in $10^{14}$–$4\times10^{16}$ cm | | | | | |
+| 0.01 | 0 | – | $1.35\times10^{16}$ | 5756 | 0 | 1 | 5756 |
+| 0.01 | 0.3 | compact | $2.48\times10^{14}$ | 59983 | 3.65 | 13.3 | 11829 |
+|  |  | extended | $1.35\times10^{16}$ | 5761 | 0.003 | 1 | 5757 |
+| 0.01 | 1 | compact | $6.52\times10^{14}$ | 41980 | 6.78 | 13.1 | 7382 |
+|  |  | extended | $1.35\times10^{16}$ | 5772 | 0.007 | 1 | 5765 |
+| 0.01 | 3 | compact | $1.86\times10^{15}$ | 26636 | 9.26 | 6.02 | 6466 |
+|  |  | extended | $1.34\times10^{16}$ | 5807 | 0.01 | 1 | 5792 |
+| 0.01 | 10 | compact | $5.28\times10^{15}$ | 15865 | 9.28 | 2.12 | 6489 |
+|  |  | extended | $1.30\times10^{16}$ | 5966 | 0.04 | 1 | 5922 |
+| 0.01 | $\ge 25$ | none in $10^{14}$–$4\times10^{16}$ cm | | | | | |
+
+: All steady solutions, $M = 10^6\,M_\odot$, $L = L_{\rm Edd}$, $\varepsilon_{\rm in} = 10^{-3}$; $\dot M$ in
+$M_\odot\,{\rm yr}^{-1}$ (or $\dot M/f$ for streams) **[computed]**. Refining the fold with $\Delta\log R = 0.01$: for
+$M_{\rm BH}/M = 0.1$ the two roots are at $\log R = 15.835$ and 15.895 at $\dot M = 9$ and absent at 10; for 0.01 they
+are at 16.005 and 16.075 at $\dot M = 20$ and absent at 25. {#tbl-branches}
+
+At every $\dot M > 0$ we tested there are two steady solutions. The *extended* branch is essentially the
+no-infall star. The *compact* branch is 2.3 to 55 times smaller, with a 16–60 kK boundary buried in infall that is
+optically thick even in LTE. As $\dot M$ grows, the two branches approach each other and disappear together, a fold, at
+$\dot M \approx 9$–10 $M_\odot\,{\rm yr}^{-1}$ for $M_{\rm BH}/M = 0.1$ and 20–25 for 0.01. Above the fold no steady
+hydrostatic solution exists **[computed]**. Which branch nature selects, whether either is stable, and what happens
+past the fold are dynamical questions (@sec-titan-qs).
+
+```{=html}
+<div class="qd-widget" data-widget="shoot"></div>
+```
+
+::: {.callout-tip title="Try it: where the roots come from"}
+The upper panel shows the mismatch of the shooting condition, $m(\varepsilon_{\rm in}R)/M_{\rm BH} - 1$, across trial
+radii. Steady stars are its zero crossings. Raise $\dot M$ and watch the two crossings approach each other and
+merge at the fold. The lower panel shows the boundary temperature of each solution.
+
+{{< lab "p=shoot&md=5" "Open the shooting scan at Ṁ = 5" >}}
+:::
+
+```{=html}
+<div class="qd-widget" data-widget="branches"></div>
+<script type="module" src="../app/js/widgets.js"></script>
+```
+
+## Why infall cannot make a bigger star {#sec-no-bigger}
+
+With $\beta \approx 0.006$–0.007 nearly constant, the envelope is close to an Eddington standard model. Its mass fixes
+$\beta$ and hence the adiabat, the specific entropy. At fixed $M$ the adiabat is therefore pinned, and the outer
+boundary only selects where the adiabat is truncated. Ram pressure raises $P_b$, so the truncation moves deeper, to
+higher $(P, T)$, and the surface becomes smaller and hotter **[interpretation, supported by the β values of
+@sec-validation]**. Accretion-bloated protostars [@hosokawa2012; @hosokawa2013] swell for a different reason:
+entropy deposited in a star dominated by gas pressure. That route is not open here.
+
+## What an observer sees {#sec-observer}
+
+On the compact branch the photosphere lies in the infall at $r_{\rm ph} \approx 2$–13 $R$, that is
+$3\times10^{15}$–$1.1\times10^{16}$ cm. For $\dot M \ge 1$ this approaches the extended-star radius. There
+$T_{\rm obs} \approx 6400$–7600 K, rising to about $1.2\times10^4$ K at $\dot M = 0.3$ **[computed]**. The likely reason
+is the opacity cliff of @sec-cliff: LTE hydrogen recombination makes the opacity collapse near 6–7 kK wherever the
+gas sits, so both branches show a 6000–7500 K surface for $\dot M \gtrsim 1$ **[interpretation]**. On the compact
+branch, however, that surface is an infalling, X-ray-irradiated layer moving at several hundred km s$^{-1}$, not a
+hydrostatic photosphere. Its lines should be redshifted, and LTE is least justified there.
+
+At the boundary, $\Gamma_\kappa = \kappa_b F/(cg)$ exceeds unity on the compact branch (1.4–3.9). It also exceeds unity on
+the $M_{\rm BH}/M = 0.1$ extended branch for $\dot M \ge 1$ (1.19–6.0). These layers are hydrostatic only because
+the ram pressure of the infall holds them down. We expect such a configuration to be Rayleigh–Taylor unstable
+**[interpretation]**.
+
+## Consistency of the infall {#sec-infall-diag}
+
+| $\dot M$ | $\rho_{\rm in}v_{\rm ff}^2$ (dyn cm$^{-2}$) | $\tau_{\rm in}^{\rm LTE}$ | $\tau_{\rm in}^{\rm es}$ | $\ell_{\rm cool}/R$ | ionizations/recombinations (35 eV–1 keV) | $\Gamma_{\rm es}$ |
+|---|---|---|---|---|---|---|
+| 0.01 | 0.12 | 0.003 | 0.024 | 0.37 | 6.0–0.21 | 1.0001 |
+| 0.03 | 0.37 | 0.008 | 0.071 | 0.12 | 2.0–0.07 | 1.0002 |
+| 0.1 | 1.24 | 0.023 | 0.24 | 0.037 | 0.60–0.021 | 1.0007 |
+| 0.3 | 3.77 | 0.061 | 0.71 | 0.012 | 0.20–0.007 | 1.0021 |
+| 1 | 12.6 | 0.18 | 2.4 | 0.004 | 0.06–0.002 | 1.0070 |
+
+: Extended-branch diagnostics for $M_{\rm BH}/M = 0.1$ **[estimate]**: bremsstrahlung cooling behind a factor-4
+compression; ionizations from half of $L_{\rm acc}$ at 35 eV (secondary-electron limit) or 1 keV per ionization,
+against case-B recombinations in the infall out to $10R$; $\Gamma_{\rm es} = L_{\rm tot}/L_{\rm Edd}(\kappa_{\rm es}, M)$. {#tbl-infall-diag}
+
+These numbers raise two consistency issues that the steady model cannot resolve.
+
+1. Because $L \ge L_{\rm Edd}(\kappa_{\rm es})$, *ionized* infall is weightless or pushed outward, so it cannot be in
+   free fall. Free-fall infall must be largely neutral.
+2. Whether the shock keeps the infall ionized depends on the energy per ionization. At low $\dot M$ it probably does.
+   At high $\dot M$, recombinations ($\propto \dot M^2$) outrun ionizations ($\propto \dot M$). On the compact branch the gas
+   near the shock is at 16–60 kK and ionized, so the free-fall boundary is internally inconsistent there. The
+   thin-shock assumption fails for $\dot M \lesssim 0.03$, where $\ell_{\rm cool}/R \gtrsim 0.1$.
+
+## Limitations {#sec-steady-limits}
+
+- 1D, spherical and steady; local MLT (not TDC); no turbulent pressure; no rotation.
+- LTE throughout, including the infall. Photoionization by the $\sim3\times10^7$ K shock is ignored except in the
+  budget estimate, and the radiation force on the infall is ignored in the boundary condition.
+- Continuum-only Rosseland opacity: no H or He lines, no molecules.
+- The inner boundary is a point mass with $m(\varepsilon_{\rm in}R) = M_{\rm BH}$, not the MESA-QUEST
+  saturated-convection radius.
+- The stability of the two branches has not been analysed.

@@ -1372,3 +1372,26 @@ Design decisions (Tom, 16 Oct 2026):
     (2) Ramp the inflow velocity and density at the outer boundary from zero, so the shock forms gradually.
     (3) Extend the opacity table below 2000 K and below log R = −12 (cold, rarefied inflow).
     (4) Put a smooth settling layer below the initial contact.
+
+### P7.4 Infall: next steps (1)–(3) [run]
+- **(3) Extended opacity table** `julia/z0/kaptable_Z0_ext.bin.gz` (`Z0_TABLE=ext`): log T 3.0–8.0, log R −20–1, built by
+  `steady/scripts/build_kap_ext.jl` (754 s on 2 threads). On the v2 nodes it is identical (max |Δ log κ_R| = 0). No molecules:
+  below ~2000 K κ is a lower bound (κ_R = 1.6e-9 at ρ = 1e-20, 1500 K). Outcome: removes the table edge but does not change the
+  failure (run E1 vs R1: identical failure time 2.3e4 s).
+- **(2) Ramped inflow** (`QS_RAMP_FAC`, `QS_RAMP_T` in `qstar_run.jl relax`): the external density and the mass and energy
+  fluxes through r_out grow as exp(t/T_ramp) up to the target. Together with a **smoothed contact**
+  (`QS_WCONTACT`: ln ρ, ln T log-linear and u linear across [R, R(1+w)]), the Eulerian run takes 200–400 s steps instead of 0.04 s
+  and survives to 2.3e4 s (vs ~100 s). It still fails where the infall stops: a single-zone shock at ~7e4–1e5 K with a cold
+  zone ahead.
+- **(1) Adaptive grid.** Root cause of the first-step failures found and fixed: TITAN's grid equation sets
+  ν(ngrs+1) = ν(ngrs) and ν(ngre) = ν(ngre−1) (no time smoothing there). An initial grid that violates these two rows is
+  rearranged within one Newton step at any Δt, which moves interfaces by ~1 % of r and wrecks the mass coordinate
+  (δ ln m_e of order unity at the contact). `QuasiStarSetup.setup!` now makes those two pairs equal for lgrid = 1. Newton then
+  converges quadratically from step 1 (dmax 6.5e-4 → 4.5e-6 → 2.7e-9 at Δt = 1e-3 s). Also added: `equidistribute` (initial grid
+  of equal arc length in (r/xscale, ln ρ, ln T)), `QS_LADY`, `QS_GRIDTAU`.
+  Outcome: run A1 (adaptive, τ_grid = 1e3 s) advances with Δt = 0.04–0.1 s and fails after 7.9 s at the same place.
+- **Status:** the Mach-200 radiating accretion shock is not yet handled. Candidates: larger grid τ so the grid follows the shock;
+  artificial-viscosity parameters; the stiffness of gas–radiation coupling behind the shock (~1 s); total-energy row.
+- **Steady-model tables regenerated** (16 Oct): the browser port of the steady model showed that `steady/output/branches.csv` of
+  15 Oct came from an older code (R off by up to 4.6e-3). `branches.jl`, `fold.jl`, `validate2.jl`, `run_grid.jl` were rerun;
+  no root appears or disappears. The book (`report/`) uses the regenerated numbers.

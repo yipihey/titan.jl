@@ -1,0 +1,24 @@
+[package]
+name = "qs-core"
+version = "0.1.0"
+edition = "2021"
+description = "Steady quasi-star envelope with infall (port of QuasiStarInfall.jl): Saha EOS, tabulated opacity, MLT envelope, shooting; tested, documented, compiled to WebAssembly for the laboratory"
+
+[lib]
+name = "qs_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+
+[dev-dependencies]
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[package.metadata.wasm-pack.profile.release]
+# wasm-pack cannot download binaryen in this environment; the unoptimized module is ~85 kB
+wasm-opt = false

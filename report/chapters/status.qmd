@@ -1,0 +1,52 @@
+---
+title: "Status, reproducibility and how to cite"
+---
+
+## This build
+
+Rendered from commit [{{< var build.sha >}}](https://github.com/yipihey/titan.jl/commit/{{< var build.commit >}})
+of {{< var build.date >}} (rendered {{< var build.rendered >}}) by the
+[publish workflow](https://github.com/yipihey/titan.jl/actions/workflows/publish.yml).
+
+## What is verified, and where
+
+- **The numerical core** (`core/`, Rust compiled to WebAssembly) has a
+  validation suite that `cargo test --release` runs on every push. Every
+  claim in the text that rests on one of its tests carries a ✓ badge
+  linking to the test.
+- **The API documentation** of the core is published with the report at
+  [api/](../api/qs_core/index.html); the ⟨name⟩ marks in the text link
+  to the function that evaluates the equation next to them.
+- **Citations** were verified against SAO/NASA ADS before they entered the
+  bibliography; each entry keeps its bibcode.
+- **The steady model** (Julia, `steady/`) is the reference implementation. The
+  browser core is a port of it, and its tests compare against values exported
+  from the Julia code (`steady/scripts/export_reference.jl`).
+- **The TITAN port** (`julia/`) is verified against the original Fortran in three
+  tiers (@sec-port-method); the record is `docs/PORTING_NOTES.md`. The TITAN figures
+  replay stored run output; they are not recomputed in the browser.
+- **Open items** are stated where they arise. The main one is that the TITAN infall
+  runs do not yet survive the accretion shock (@sec-titan-infall).
+
+## Lineage
+
+This book grew from working notes of 15–16 October 2026. The PDF version of the
+steady-model notes is in `steady/paper/`; its tables predate a code revision and are superseded by this book
+(@sec-branches). The TITAN 1.2 Fortran source (Gehmeyr &
+Mihalas; UIUC licence, notice retained) is in `fortran/`.
+
+## How to cite
+
+The repository carries a `CITATION.cff`; GitHub shows it as "Cite this
+repository". Until a DOI is minted, cite the repository and the commit above.
+
+## Sharing a view of the laboratory
+
+Every state of the laboratory is encoded in the address bar (the part after
+`#`), so copying the URL shares the exact experiment; the *copy link* button
+does this. Plots download as SVG or CSV from their toolbars.
+
+## Annotating and discussing
+
+Pages carry the Hypothesis sidebar: select any passage to annotate it.
+Corrections are welcome as issues; every page has an *Edit this page* link.

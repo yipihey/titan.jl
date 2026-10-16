@@ -1,0 +1,20 @@
+fBH=0.10 Ṁ=  0.00: R=8.435e+15 Teff=  7275 Tb=  7275 Pgas_b=0.321 ram=0 τ_LTE=0.00e+00 τ_es=0.00e+00 Γ_es=1.0000 Mach=0.13 maxΓ=9.9 lcool/R=0.0e+00 ion(35eV)=NaN ion(1keV)=NaN
+fBH=0.10 Ṁ=  0.01: R=8.435e+15 Teff=  7276 Tb=  7280 Pgas_b=0.441 ram=0.125 τ_LTE=3.24e-03 τ_es=2.36e-02 Γ_es=1.0001 Mach=0.13 maxΓ=9.9 lcool/R=3.7e-01 ion(35eV)=6.02e+00 ion(1keV)=2.11e-01
+fBH=0.10 Ṁ=  0.03: R=8.428e+15 Teff=  7279 Tb=  7290 Pgas_b=0.701 ram=0.376 τ_LTE=8.43e-03 τ_es=7.08e-02 Γ_es=1.0002 Mach=0.13 maxΓ=9.9 lcool/R=1.2e-01 ion(35eV)=2.01e+00 ion(1keV)=7.02e-02
+fBH=0.10 Ṁ=  0.10: R=8.422e+15 Teff=  7282 Tb=  7314 Pgas_b=1.64 ram=1.25 τ_LTE=2.37e-02 τ_es=2.36e-01 Γ_es=1.0007 Mach=0.13 maxΓ=9.9 lcool/R=3.7e-02 ion(35eV)=6.02e-01 ion(1keV)=2.11e-02
+fBH=0.10 Ṁ=  0.30: R=8.417e+15 Teff=  7287 Tb=  7368 Pgas_b=4.08 ram=3.77 τ_LTE=6.07e-02 τ_es=7.08e-01 Γ_es=1.0021 Mach=0.13 maxΓ=9.9 lcool/R=1.2e-02 ion(35eV)=2.01e-01 ion(1keV)=7.03e-03
+fBH=0.10 Ṁ=  1.00: R=8.386e+15 Teff=  7310 Tb=  7548 Pgas_b=12.1 ram=12.7 τ_LTE=1.83e-01 τ_es=2.37e+00 Γ_es=1.0070 Mach=0.13 maxΓ=9.9 lcool/R=3.7e-03 ion(35eV)=6.05e-02 ion(1keV)=2.12e-03
+fBH=0.10 Ṁ=  3.00: R=2.336e+15 Teff= 14079 Tb= 22439 Pgas_b=904 ram=929 τ_LTE=7.27e+00 τ_es=1.34e+01 Γ_es=1.0756 Mach=0.17 maxΓ=9.9 lcool/R=2.3e-03 ion(35eV)=7.24e-02 ion(1keV)=2.53e-03
+fBH=0.1 Mdot=10.0: NO SOLUTION
+fBH=0.1 Mdot=30.0: NO SOLUTION
+fBH=0.1 Mdot=100.0: NO SOLUTION
+fBH=0.01 Ṁ=  0.00: R=1.348e+16 Teff=  5756 Tb=  5756 Pgas_b=57 ram=0 τ_LTE=0.00e+00 τ_es=0.00e+00 Γ_es=1.0000 Mach=0.61 maxΓ=99.5 lcool/R=0.0e+00 ion(35eV)=NaN ion(1keV)=NaN
+fBH=0.01 Ṁ=  0.01: R=1.348e+16 Teff=  5755 Tb=  5756 Pgas_b=57 ram=0.0387 τ_LTE=4.47e-04 τ_es=1.87e-02 Γ_es=1.0000 Mach=0.61 maxΓ=99.5 lcool/R=2.9e-01 ion(35eV)=3.76e+00 ion(1keV)=1.32e-01
+fBH=0.01 Ṁ=  0.03: R=1.348e+16 Teff=  5755 Tb=  5756 Pgas_b=57 ram=0.116 τ_LTE=8.86e-04 τ_es=5.60e-02 Γ_es=1.0001 Mach=0.61 maxΓ=99.5 lcool/R=9.7e-02 ion(35eV)=1.25e+00 ion(1keV)=4.39e-02
+fBH=0.01 Ṁ=  0.10: R=1.348e+16 Teff=  5756 Tb=  5757 Pgas_b=57.1 ram=0.387 τ_LTE=1.79e-03 τ_es=1.87e-01 Γ_es=1.0004 Mach=0.60 maxΓ=99.5 lcool/R=2.9e-02 ion(35eV)=3.76e-01 ion(1keV)=1.32e-02
+fBH=0.01 Ṁ=  0.30: R=1.348e+16 Teff=  5757 Tb=  5761 Pgas_b=57.4 ram=1.16 τ_LTE=3.32e-03 τ_es=5.60e-01 Γ_es=1.0013 Mach=0.58 maxΓ=99.5 lcool/R=9.7e-03 ion(35eV)=1.25e-01 ion(1keV)=4.39e-03
+fBH=0.01 Ṁ=  1.00: R=1.346e+16 Teff=  5765 Tb=  5772 Pgas_b=58.4 ram=3.88 τ_LTE=6.59e-03 τ_es=1.87e+00 Γ_es=1.0044 Mach=0.64 maxΓ=99.5 lcool/R=2.9e-03 ion(35eV)=3.77e-02 ion(1keV)=1.32e-03
+fBH=0.01 Ṁ=  3.00: R=1.856e+15 Teff= 15866 Tb= 26636 Pgas_b=1.61e+03 ram=1.65e+03 τ_LTE=9.26e+00 τ_es=1.51e+01 Γ_es=1.0952 Mach=0.16 maxΓ=99.5 lcool/R=2.6e-03 ion(35eV)=9.11e-02 ion(1keV)=3.19e-03
+fBH=0.01 Ṁ= 10.00: R=5.277e+15 Teff=  9445 Tb= 15865 Pgas_b=396 ram=404 τ_LTE=9.28e+00 τ_es=2.98e+01 Γ_es=1.1116 Mach=0.20 maxΓ=99.5 lcool/R=4.6e-04 ion(35eV)=9.61e-03 ion(1keV)=3.37e-04
+fBH=0.01 Mdot=30.0: NO SOLUTION
+fBH=0.01 Mdot=100.0: NO SOLUTION

@@ -55,7 +55,10 @@ if mode == "setup"
     Mdot = parse(Float64, get(ENV, "QS_MDOT", "0")) * Z0.Msun / Z0.yr      # QS_MDOT in Msun/yr
     rout = parse(Float64, get(ENV, "QS_ROUT", "2.0")); dr0 = parse(Float64, get(ENV, "QS_DR0", "5e-5"))
     lgrid = parse(Int, get(ENV, "QS_LGRID", "2"))
-    q = QS.setup!(prof; rin, nenv, natm, grey, Mdot, rout, dr0, lgrid)
+    Mdot_max = Mdot * parse(Float64, get(ENV, "QS_RAMP_FAC", "1"))
+    wcontact = parse(Float64, get(ENV, "QS_WCONTACT", "0")); equi = get(ENV, "QS_EQUI", "0") == "1"
+    lady = Tuple(parse.(Int, split(get(ENV, "QS_LADY", "2,2,2"), ",")))
+    q = QS.setup!(prof; rin, nenv, natm, grey, Mdot, rout, dr0, lgrid, Mdot_max, wcontact, equi, lady)
     @printf("quasi-star shell: M = %.4e g, L = %.4e erg/s, R = %.4e cm, r_in = %.4e (%.2f R), m_in = %.4e g, shell mass %.4e g\n",
             q.M, q.L, q.R, q.r_in, q.r_in / q.R, q.m_in, q.shell)
     Mdot > 0 && @printf("inflow: Ṁ = %.3e g/s, r_out = %.2f R, ρ_out = %.3e, T_out = %.0f, u_out = %.3e cm/s, xmext = %.3e\n",
@@ -78,7 +81,17 @@ elseif mode == "relax"
     L = TF.getscalar(:xlum)
     snaps = Any[snap()]
     t0 = time()
+    # Inflow ramp (QS_RAMP_FAC = target/initial Ṁ, QS_RAMP_T = e-folding time scale in s): the external density, and with it
+    # the mass and energy fluxes through r_out, grow exponentially from the set-up value by QS_RAMP_FAC over QS_RAMP_T·ln(fac).
+    rampfac = parse(Float64, get(ENV, "QS_RAMP_FAC", "1")); rampT = parse(Float64, get(ENV, "QS_RAMP_T", "1e6"))
+    ρ0x, φ0x, φ2x = TF.getscalar(:dr), TF.getscalar(:phir0), TF.getscalar(:phir2)
+    function ramp!()
+        rampfac > 1 || return
+        f = min(rampfac, exp(TF.getscalar(:timen) / rampT))
+        TF.setscalar!(:dr, ρ0x * f); TF.setscalar!(:phir0, φ0x * f); TF.setscalar!(:phir2, φ2x * f)
+    end
     n, why = try TD.run_julia!(maxsteps = maxsteps, output = function (k)
+        ramp!()
         every = parse(Int, get(ENV, "QS_EVERY", "100"))
         (k <= 3 || k % every == 0) || return
         s = snap(); push!(snaps, s); report(s, L, @sprintf("step %5d", k)); flush(stdout)

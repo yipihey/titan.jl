@@ -11,7 +11,9 @@ include(joinpath(@__DIR__, "z0", "constants.jl"))
 include(joinpath(@__DIR__, "z0", "eos.jl"))
 include(joinpath(@__DIR__, "z0", "opacity.jl"))
 
-const TABLEFILE = joinpath(@__DIR__, "z0", "kaptable_Z0.bin.gz")
+# Default table: log T 3.3–8.0, log R −12–1 (the steady model's). `Z0_TABLE=ext` selects the extended table
+# (log T 3.0–8.0, log R −20–1, same nodes inside the default range) needed by cold, rarefied inflow.
+const TABLEFILE = joinpath(@__DIR__, "z0", get(ENV, "Z0_TABLE", "") == "ext" ? "kaptable_Z0_ext.bin.gz" : "kaptable_Z0.bin.gz")
 "Write a table: Int64 nT, nR, then lT, lR, lk (Rosseland), lkP (Planck), all Float64, gzipped."
 function save_table(tab::KapTable, path = TABLEFILE)
     buf = IOBuffer()

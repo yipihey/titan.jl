@@ -1,0 +1,41 @@
+---
+title: "Notation and conventions"
+---
+
+Units are cgs throughout. Logarithms written $\log$ are base 10, and $\ln$ is natural.
+
+| Symbol | Meaning | Where it is fixed |
+|---|---|---|
+| $M$, $M_{\rm BH}$ | total mass, black-hole (point) mass; $f_{\rm BH} = M_{\rm BH}/M$ | @sec-mesa-quest |
+| $L$ | luminosity through the envelope, $L_{\rm Edd}(\kappa_{\rm es}) = 4\pi cGM/(0.2(1+X))$ | @sec-steady-why |
+| $X, Y$ | hydrogen and helium mass fractions, 0.76 and 0.24; $Z = 0$ | @sec-saha |
+| $R$ | stellar boundary radius (photosphere without infall; shock radius with infall) | @eq-bc-phot, @eq-bc-infall |
+| $\varepsilon_{\rm in}$ | inner radius of the steady model in units of $R$ (default $10^{-3}$) | @sec-structure |
+| $\beta$ | $P_{\rm gas}/P$ | @eq-pressure |
+| $\nabla$, $\nabla_{\rm ad}$, $\nabla_{\rm rad}$ | actual, adiabatic, radiative $d\ln T/d\ln P$ | @eq-thermo, @eq-structure |
+| $\chi_\rho$, $\chi_T$, $\delta$, $c_P$, $\Gamma_1$ | thermodynamic derivatives | @eq-thermo |
+| $\kappa_R$, $\kappa_P$ | Rosseland mean (with scattering) and Planck mean (absorption only), cm² g⁻¹ | @eq-rosseland |
+| $R_{\rm tab}$ | table variable $\rho/T_6^3$, $T_6 = T/10^6$ K | @sec-opacity |
+| $\alpha_{\rm MLT}$, $\ell$, $H_P$ | mixing-length parameter (0.8), mixing length $\alpha H_P$, pressure scale height | @eq-mlt-cubic |
+| $U$, $W$, $\xi$, $\zeta$ | MLT efficiency variables; $\zeta = \xi - U$ | @eq-mlt-cubic, @eq-fconv |
+| $\Gamma$ | local Eddington factor for radiation alone, $\kappa L/(4\pi cGm)$ | @sec-validation |
+| $\Gamma_\kappa$ | $\kappa_b F/(cg)$ at the boundary | @eq-bc-phot |
+| $\dot M$ | infall rate, $M_\odot$ yr⁻¹ unless stated; for streams read $\dot M/f$ | @eq-infall-density |
+| $v_{\rm ff}$, $\rho_{\rm in}$ | free-fall speed and infall density | @eq-infall-density |
+| $\tau_{\rm in}$ | LTE Rosseland optical depth of the infall outside $R$ | @eq-bc-infall |
+| $T_L$, $W(r)$ | $[L_{\rm tot}/(4\pi\sigma R^2)]^{1/4}$; geometric dilution factor | @eq-lucy |
+| $r_{\rm ph}$, $T_{\rm obs}$ | observed photosphere ($\tau = 2/3$ in the infall) and its temperature | @sec-bc-infall |
+| $E$, $F$, $f$ | radiation energy density, comoving flux, Eddington factor $K/J$ | @eq-titan |
+| $m_e$ | TITAN's exterior mass per steradian (interior mass $= m_{\rm tot} - m_e$) | @sec-titan-eqs |
+
+**Masses per steradian.** TITAN stores masses and volumes without the factor $4\pi$
+($dV = \Delta r^3/3$). The gravity term $2\mu\pi G\,m/r^\mu$ with $\mu = 2$ then equals $G M/r^2$ for $M = 4\pi m$.
+
+**Fluxes and luminosities.** $F$ is a physical flux (erg cm⁻² s⁻¹) on interfaces, and $L = 4\pi r^2F$. In the TITAN
+figures, $L_{\rm rad}$ and $L_{\rm conv}$ are normalised by the luminosity imposed at the inner boundary.
+
+**Time.** The TITAN clock starts at 0 when the run starts from the steady state. "Steps" count accepted time steps.
+
+**Opacity tables.** The steady model and the browser use the table on $\log T = 3.3$–8.0, $\log R_{\rm tab} = -12$–1.
+The TITAN infall runs use the extended table ($\log T \ge 3.0$, $\log R_{\rm tab} \ge -20$), which is identical on the
+shared nodes. Outside a table the arguments are clamped.

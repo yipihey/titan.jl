@@ -1,0 +1,90 @@
+project:
+  type: book
+  output-dir: _site
+  pre-render:
+    - scripts/build_info.py
+    - scripts/brand_to_css.py
+  # copied verbatim into _site: the standalone laboratory with its WebAssembly package, and the API documentation
+  resources:
+    - app/**
+    - api/**
+
+# quadrant: where the provenance shortcodes look things up
+quadrant:
+  crate: qs_core
+  api: api
+  tests: core/tests
+  app: app/index.html
+
+book:
+  title: "Quasi-stars under infall"
+  subtitle: "A steady envelope model, a Julia TITAN, and what they show"
+  author: "Tom Abel (KIPAC), with Claude"
+  date: today
+  site-url: https://yipihey.github.io/titan.jl/
+  repo-url: https://github.com/yipihey/titan.jl
+  repo-subdir: report
+  repo-branch: main
+  repo-actions: [edit, source, issue]
+  search: true
+  navbar:
+    right:
+      - text: "Laboratory"
+        href: app/index.html
+      - icon: github
+        href: https://github.com/yipihey/titan.jl
+        aria-label: GitHub
+  sidebar:
+    style: docked
+  chapters:
+    - index.qmd
+    - part: "The question"
+      chapters:
+        - chapters/01-question.qmd
+    - part: "A steady model"
+      chapters:
+        - chapters/02-microphysics.qmd
+        - chapters/03-envelope.qmd
+        - chapters/04-infall.qmd
+        - chapters/05-nlte.qmd
+    - part: "TITAN in Julia"
+      chapters:
+        - chapters/06-titan-port.qmd
+        - chapters/07-titan-quasistar.qmd
+    - chapters/references.qmd
+  appendices:
+    - chapters/notation.qmd
+    - chapters/experiments.qmd
+    - chapters/status.qmd
+  page-footer:
+    left: "Quasi-stars under infall · MIT License"
+    right: "build {{< var build.sha >}} · {{< var build.date >}}"
+
+bibliography: chapters/references.bib
+
+citation:
+  type: book
+  author: "Tom Abel"
+  issued: 2026
+  url: https://yipihey.github.io/titan.jl/
+appendix-cite-as: [display, bibtex]
+
+format:
+  html:
+    theme:
+      light: cosmo
+      dark: darkly
+    css:
+      - app/css/quadrant.css
+    toc: true
+    number-sections: true
+    number-depth: 2
+    code-fold: true
+    code-tools: true
+    html-math-method: katex
+    include-in-header: includes/head.html
+    date-modified: last-modified
+    comments:
+      hypothesis:
+        theme: clean
+        openSidebar: false

@@ -5,6 +5,13 @@ Gehmeyr & Mihalas (1994, *Physica D* 77, 320), from Fortran 77 to Julia. The sci
 models of quasi-stars under infall: accretion shocks with radiative precursors on radiation-dominated
 envelopes, with a central black-hole luminosity. See `docs/PORTING_NOTES.md` for the full record.
 
+**The book:** https://yipihey.github.io/titan.jl/ documents every experiment: the steady quasi-star model (`steady/`,
+with an interactive WebAssembly port), the port of TITAN, and the quasi-star runs. Source in `report/`.
+
+**Phase 7 (quasi-star physics):** Z = 0 Saha material, MLT convective flux, quasi-star set-up (`julia/QuasiStarSetup.jl`,
+`julia/qstar_run.jl`). The hydrostatic test holds the interior to 0.5 % and validates the MLT flux; the infall runs do not
+yet survive the accretion shock (PORTING_NOTES P7.3–P7.4).
+
 ## Status (Phase 6)
 
 **SOD, SUBC and SUPC now run in pure Julia, with no Fortran at run time.** `libtitan.so` is never loaded (`TITAN_NOLIB=1`).

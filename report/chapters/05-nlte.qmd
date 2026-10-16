@@ -1,0 +1,71 @@
+---
+title: "Beyond LTE: electrons, H₂ and the Lyman–Werner bands"
+---
+
+The steady model and the TITAN runs assume LTE. @sec-lte showed that radiative rates control hydrogen's $n=2$
+level at the photosphere. This chapter records two further questions about the same assumption, and the plan for
+a non-LTE calculation.
+
+## Could non-Saha electrons make H₂? {#sec-h2}
+
+In the primordial gas, H$_2$ forms through the H$^-$ channel [@galli1998]:
+
+$$
+{\rm H} + e^- \to {\rm H}^- + \gamma \ (k_7),\qquad
+{\rm H}^- + {\rm H} \to {\rm H_2} + e^- \ (k_8),\qquad
+{\rm H}^- + \gamma \to {\rm H} + e^- \ (k_{\rm pd}).
+$$ {#eq-hminus}
+
+If free electrons were out of Saha equilibrium, for example left over from recombining shocked infall, more H$^-$
+and hence more H$_2$ could form. We bound this with steady-state H$^-$, a photodetachment rate $k_{\rm pd}$ in a
+diluted blackbody $W\,B_\nu(T_{\rm rad})$ with the cross section of @john1988, and no H$_2$ destruction, so the result
+is an upper bound **[estimate]**.
+
+At the extended-branch photosphere ($n_{\rm H} \approx 2\times10^{13}$ cm$^{-3}$, $T \approx 7300$ K, $W = 1/2$),
+photodetachment beats associative detachment by $k_{\rm pd}/(k_8 n_{\rm H}) \approx 110$. The formation time
+$n_{\rm H}/(k_8 n_{\rm H} n_{\rm H^-})$ is $10^4$ s in LTE and $4\times10^3$ to $2\times10^6$ s for electron fractions
+between 0.5 and $10^{-3}$. In every case the equilibrium H$_2$ fraction at 7300 K, about $10^{-8}$, caps the result.
+Catalysts change how fast the gas gets there, not where it ends up.
+
+In the infall ($\dot M = 1\,M_\odot\,{\rm yr}^{-1}$, Lucy temperature) we integrate formation along the fall from $r$ to
+$R$. Even with an electron fraction of 0.5 maintained throughout, the accumulated H$_2$ fraction stays below
+$6\times10^{-7}$ for starting radii between $2R$ and $100R$. For $x_e = 10^{-3}$ it stays below $5\times10^{-9}$. The
+reason is the same: photodetachment by the star's radiation is $10^4$–$10^6$ times faster than associative
+detachment everywhere in the infall **[estimate]**.
+
+## Can that small H₂ fraction matter for the Lyman–Werner bands? {#sec-lw}
+
+Small abundances can still matter through line opacity, because the Lyman–Werner lines (11.2–13.6 eV) are strong.
+The infall column outside $R$ is $N_{\rm H} = \int_R^\infty n_{\rm H}\,dr = 2\,n_{\rm H}(R)\,R \approx 3\times10^{24}$ cm$^{-2}$
+at $\dot M = 1$. With the bounds above,
+
+$$
+N_{\rm H_2} \lesssim x_{\rm H_2} N_{\rm H} \approx 10^{16}\text{–}2\times10^{18}\ {\rm cm^{-2}} ,
+$$ {#eq-nh2}
+
+for electron fractions between $10^{-3}$ and 0.5 **[estimate]**. Individual Lyman–Werner lines become optically
+thick, and self-shielding sets in, at $N_{\rm H_2} \sim 10^{14}$ cm$^{-2}$ [@draine1996]. So if H$_2$ is anywhere near
+these bounds, the line cores of the Lyman–Werner bands are saturated across the infall. That would remove
+photons in those lines from the escaping spectrum and shield the infall from H$_2$-dissociating radiation.
+
+Two cautions keep this an open question rather than a result. First, the bounds ignore H$_2$ destruction by the
+Lyman–Werner radiation of the star itself, which at $W \sim 10^{-2}$ of a 7000 K blackbody is strong; the actual
+column could be far smaller. Second, line cores carry a small fraction of the flux unless the damping wings
+overlap, which needs $N_{\rm H_2} \gtrsim 10^{20}$–$10^{21}$ cm$^{-2}$, above our bound. So the effect on the continuum
+is expected to be small, while the effect on the line spectrum near 11–13.6 eV, and on photodissociation in the
+infall, could be large **[interpretation]**. A self-consistent answer needs the H$_2$ chemistry with
+self-shielding inside the non-LTE calculation below.
+
+## The non-LTE plan {#sec-nlte-plan}
+
+A time-independent non-LTE post-processing of steady and dynamical snapshots is justified because the
+recombination times, about 10 s at the photosphere and at most a day in the infall, are much shorter than the
+infall time $R/v_{\rm ff} \sim 2$ yr. The plan:
+
+1. hydrogen with 10–15 levels plus continuum, then helium, on the steady extended- and compact-branch structures;
+2. the Balmer break on both branches as the first observable;
+3. H$_2$ and H$^-$ chemistry with Lyman–Werner self-shielding in the infall (@sec-lw);
+4. the same post-processing on TITAN snapshots once the infall runs are stable (@sec-titan-qs).
+
+This is the only part of the programme where GPUs are expected to pay off: the full non-LTE problem has many
+frequencies and levels per zone, while the radiation hydrodynamics is 1D with seven unknowns per zone.

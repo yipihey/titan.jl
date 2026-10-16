@@ -1,0 +1,39 @@
+---
+title: "Quasi-stars under infall"
+subtitle: "A steady envelope model, a Julia TITAN, and what they show"
+toc: false
+---
+
+Santarelli, Bellinger and collaborators model the "Little Red Dots" seen by JWST as late-stage
+quasi-stars: a black hole of about $10^5\,M_\odot$ inside a $10^6\,M_\odot$ envelope that radiates at the
+Eddington limit with a surface near 6000 K [@santarelli2026lrd; @santarelli2026quest]. This book records what we
+found when we tested two of their working assumptions and how we built the tools to do it.
+
+1. **Is the photosphere in LTE?** Simple rate estimates say that hydrogen there is controlled by radiative,
+   not collisional, rates (@sec-lte).
+2. **Does a ~6000 K hydrostatic photosphere survive the infall that feeds the black hole?** A steady model with a
+   free-fall accretion shock as its outer boundary finds two branches of solutions and a fold beyond which no
+   steady star exists (@sec-branches).
+3. **What does the dynamics do?** We ported the radiation-hydrodynamics code TITAN [@gehmeyr1994] from
+   Fortran to Julia, verified it against the original, added the quasi-star physics, and began the dynamical
+   experiments (@sec-titan-port, @sec-titan-qs).
+
+::: {.callout-note title="How to read the status of a statement"}
+Every result carries one of four labels.
+**[computed]** is an output of the code described here, reproducible from the repository.
+**[tested]** is a computed result pinned by an automated test (a ✓ badge links to the test).
+**[estimate]** is an order-of-magnitude rate or budget with textbook approximations.
+**[interpretation]** is our reading of the results, not separately derived.
+Open problems are said to be open.
+:::
+
+The equations of the steady model are evaluated in the browser by a tested Rust core compiled to WebAssembly.
+A superscript ⟨name⟩ links to the function that evaluates an equation, a ✓ badge links to the test that pins a
+number, and a *lab* button opens the laboratory in the state that reproduces an experiment. The TITAN figures
+replay simulation output produced by the Julia code in the same repository; @sec-experiments lists every
+experiment with the command that reproduces it.
+
+<div class="qd-cta">
+<a class="btn btn-primary btn-lg" href="chapters/01-question.qmd">Start reading</a>
+<a class="btn btn-outline-secondary btn-lg" href="app/index.html">Open the laboratory</a>
+</div>

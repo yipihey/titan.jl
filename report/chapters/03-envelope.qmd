@@ -1,0 +1,100 @@
+---
+title: "A steady quasi-star envelope"
+---
+
+## Why a steady model {#sec-steady-why}
+
+The Kelvin–Helmholtz time of the envelope is $t_{\rm KH} = GM^2/(RL) \approx 5\times10^3$ yr. That is short compared
+with the mass-doubling time $M/\dot M \sim 10^6$ yr at $1\,M_\odot\,{\rm yr}^{-1}$, so the envelope can be treated as a
+sequence of steady states. The model is spherically symmetric and quasi-static. A point mass $M_{\rm BH}$ sits at
+the centre, and a constant luminosity $L = L_{\rm Edd}(\kappa_{\rm es}, M)$ flows through the envelope from the
+central source.
+
+## Structure equations {#sec-structure}
+
+We integrate inward in $x = \ln P$:
+
+$$
+\frac{dr}{dx} = -\frac{P r^2}{G m \rho},\qquad
+\frac{dm}{dx} = 4\pi r^2\rho\,\frac{dr}{dx},\qquad
+\frac{d\ln T}{dx} = \nabla ,
+$$ {#eq-structure}
+
+with the radiative gradient $\nabla_{\rm rad} = 3\kappa_R L P/(16\pi a c G m T^4)$. The integrator{{< src envelope::integrate_inward >}}
+is Dormand–Prince 5(4) with relative tolerance $10^{-7}$. Where $\nabla_{\rm rad} > \nabla_{\rm ad}$, the gradient
+follows from local mixing-length theory [@bohmvitense1958; @kippenhahn2013, eq. 7.18] with
+$\alpha_{\rm MLT} = 0.8$ and $\ell = \alpha H_P$. The efficiency $\xi$ solves the cubic{{< src envelope::mlt >}}
+
+$$
+(\xi - U)^3 + \tfrac{8U}{9}\left(\xi^2 - U^2 - W\right) = 0,\quad
+U = \frac{3acT^3}{c_P\rho^2\kappa\ell^2}\sqrt{\frac{8H_P}{g\delta}},\quad W = \nabla_{\rm rad} - \nabla_{\rm ad},
+$$ {#eq-mlt-cubic}
+
+and then
+
+$$
+\nabla = \xi^2 - U^2 + \nabla_{\rm ad},\qquad v_c^2 = \frac{g\delta\,(\xi - U)^2\ell^2}{8H_P} .
+$$ {#eq-mlt-grad}
+
+The browser core reproduces the Julia MLT to $10^{-6}$ at eight points along a real envelope
+{{< test mlt_matches_reference "MLT vs Julia" >}}.
+
+The radius $R$ is the eigenvalue. Given $R$ and the outer boundary condition (@sec-bc), the integration runs
+inward until $r = \varepsilon_{\rm in}R$ or until the enclosed mass reaches $M_{\rm BH}$. The shooting condition is
+$m(\varepsilon_{\rm in}R) = M_{\rm BH}$. We scan $\log R$ and bisect every change of sign, so every solution is found,
+not just the first. Integration status and $m(r_{\rm in})$ match the Julia code to $10^{-4}$
+{{< test shoot_matches_reference "shooting vs Julia" >}}.
+
+## The photospheric boundary {#sec-bc}
+
+Without infall the outer boundary is an Eddington grey photosphere at $\tau = 2/3$, equivalent to MESA's default:
+
+$$
+T_b = T_{\rm eff},\qquad P_b = \tfrac23\Big(\frac{g}{\kappa_b} + \frac{F}{c}\Big)
+\ \Longleftrightarrow\
+P_{{\rm gas},b} = \tfrac23\frac{g}{\kappa_b}\,(1 - \Gamma_\kappa),\qquad \Gamma_\kappa = \frac{\kappa_b F}{c g} .
+$$ {#eq-bc-phot}
+
+## Validation without infall {#sec-validation}
+
+| $M_{\rm BH}/M$ | $\varepsilon_{\rm in}$ | $R$ (cm) | $T_{\rm eff}$ (K) | $\log g$ | $P_{{\rm gas},b}$ | $\Gamma_\kappa$ | max Mach |
+|---|---|---|---|---|---|---|---|
+| 0.1 | $10^{-4}$ | $8.26\times10^{15}$ | 7350 | 0.289 | 0.24 | 0.94 | 0.13 |
+| 0.1 | $10^{-3}$ | $8.44\times10^{15}$ | 7275 | 0.271 | 0.32 | 0.92 | 0.13 |
+| 0.1 | $10^{-2}$ | $8.69\times10^{15}$ | 7166 | 0.244 | 0.82 | 0.80 | 0.13 |
+| 0.01 | $10^{-4}$–$10^{-2}$ | $1.35\times10^{16}$ | 5756 | $-0.136$ | 57 | 0.024 | 0.61 |
+| Santarelli et al. | | $1.15\times10^{16}$ | 6241 | $-0.003$ | | | |
+
+: Steady envelopes without infall, $M = 10^6\,M_\odot$ **[computed]**. $P_{{\rm gas},b}$ in dyn cm$^{-2}$. {#tbl-validation}
+
+The model brackets the published surface parameters: $T_{\rm eff}$ to within +18 % and −8 %, and $\log g$ to within
+0.3 dex. The inner-radius regularisation changes $R$ by less than 5 %. Differences from MESA-QUEST are expected:
+OPAL tables against our line-free opacity, TDC against local MLT, and a tabulated inner boundary against a point
+mass.
+
+For $M_{\rm BH}/M = 0.1$, $\beta$ stays between 0.0059 and 0.0073 between $0.05R$ and $0.9R$, falling slowly inward
+{{< test eddington_quartic_beta "β range" >}}. The Eddington quartic $1-\beta = 0.003\,\mu^4\beta^4(M/M_\odot)^2$
+gives $\beta = 0.0073$ for $\mu = 0.588$, the top of that range. The envelope is close to, but not exactly,
+an Eddington standard model.
+
+For $M_{\rm BH}/M = 0.1$ the outer envelope sits at a local Eddington factor $\Gamma = \kappa L/(4\pi c G m) \approx 1$ for
+radiation alone, with no ionization peak, because the density there is low. The photosphere itself has
+$\Gamma_\kappa \approx 0.9$, so the gas pressure $P_{\rm gas} \approx 0.4$ dyn cm$^{-2}$ is far below the radiation pressure
+$P_{\rm rad} \approx 7$ dyn cm$^{-2}$. For $M_{\rm BH}/M = 0.01$ the hydrogen-ionization peak is locally super-Eddington
+for radiation alone ($\Gamma \approx 9$ near 9500 K) and convection carries the flux at Mach $\le 0.61$. In both cases
+$\Gamma$ rises deep inside only because $L$ is fixed at $L_{\rm Edd}(M)$ while the enclosed mass $m < M$. Convection is
+subsonic everywhere in MLT **[computed]**.
+
+```{=html}
+<div class="qd-widget" data-widget="envelope"></div>
+<script type="module" src="../app/js/widgets.js"></script>
+```
+
+::: {.callout-tip title="Try it"}
+The envelope above is computed in your browser. Change the black-hole mass fraction, the mixing length or the
+inner-radius regularisation, and the core scans $\log R$, bisects the shooting condition and integrates the
+envelope again. The panels show the temperature, the radiative and adiabatic gradients, the local Eddington
+factor and the convective Mach number. Compare $M_{\rm BH}/M = 0.1$ with 0.01 to see the ionization peak appear.
+
+{{< lab "p=env&fbh=0.01" "Open the envelope with M_BH/M = 0.01" >}}
+:::

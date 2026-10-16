@@ -1,0 +1,7 @@
+fBH=0.1 ε=0.0001: R=8.264e15 cm = 119000.0 Rsun, Teff=7350.0 K, log g=0.289, max Mach=0.132 at T=29200.0, max Γ=9.94, Γκ_phot=0.939, Pgas_b=0.24
+fBH=0.1 ε=0.001: R=8.435e15 cm = 121000.0 Rsun, Teff=7275.0 K, log g=0.271, max Mach=0.132 at T=30400.0, max Γ=9.94, Γκ_phot=0.917, Pgas_b=0.321
+fBH=0.1 ε=0.01: R=8.694e15 cm = 125000.0 Rsun, Teff=7166.0 K, log g=0.244, max Mach=0.13 at T=29300.0, max Γ=9.93, Γκ_phot=0.802, Pgas_b=0.819
+fBH=0.01 ε=0.0001: R=1.348e16 cm = 194000.0 Rsun, Teff=5756.0 K, log g=-0.136, max Mach=0.611 at T=9060.0, max Γ=99.5, Γκ_phot=0.0237, Pgas_b=57.0
+fBH=0.01 ε=0.001: R=1.348e16 cm = 194000.0 Rsun, Teff=5756.0 K, log g=-0.136, max Mach=0.612 at T=9060.0, max Γ=99.5, Γκ_phot=0.0237, Pgas_b=57.0
+fBH=0.01 ε=0.01: R=1.348e16 cm = 194000.0 Rsun, Teff=5755.0 K, log g=-0.136, max Mach=0.612 at T=9060.0, max Γ=99.5, Γκ_phot=0.0237, Pgas_b=57.0
+MESA-QUEST (paper): Teff = 6241 K, log g = -0.003, R = 1.15e16 cm (from L,Teff)

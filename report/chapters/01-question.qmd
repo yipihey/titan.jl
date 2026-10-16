@@ -1,0 +1,82 @@
+---
+title: "The models and the question"
+---
+
+## The MESA-QUEST late-stage quasi-stars {#sec-mesa-quest}
+
+The fiducial model of @santarelli2026lrd has total mass $M = 10^6\,M_\odot$, zero metallicity, and luminosity
+$L \simeq 3.72\times10^{10}\,L_\odot$, the Eddington luminosity for electron scattering,
+$L_{\rm Edd}(\kappa_{\rm es}) = 4\pi c G M/\kappa_{\rm es}$. At the onset of the late stage, where the black hole holds
+about a tenth of the mass, $T_{\rm eff} = 6241$ K and $\log g = -0.003$. These numbers imply
+
+$$
+R = \left(\frac{L}{4\pi\sigma T_{\rm eff}^4}\right)^{1/2} = 1.15\times10^{16}\ {\rm cm}
+\quad(770\ {\rm AU}),\qquad M = \frac{gR^2}{G} = 0.99\times10^6\,M_\odot ,
+$$ {#eq-mesa-radius}
+
+so the published surface parameters are self-consistent **[computed]**. (The paper's equation 5 normalises the
+Kelvin–Helmholtz time to $R = 2\times10^4\,R_\odot$, a factor of about 8 smaller than this radius.)
+
+The models were computed with MESA through the MESA-QUEST extension [@campbell2025; @santarelli2026quest].
+Reading the public inlists and source (`andysantarelli/MESA-QUEST`, directory `qs_LRD_ApJL2026`) gives
+**[verified by reading inlists and source]**:
+
+- convection with `MLT_option='TDC'`, $\alpha_{\rm MLT} = 0.8$, and no MLT++ (`use_superad_reduction=.false.`);
+- MESA's default grey $T$–$\tau$ outer boundary, with no accretion through the outer boundary;
+- a black-hole luminosity $L_{\rm BH} = \alpha\,4\pi cGM_\star/\kappa$ with $\kappa$ from the innermost cell, $\alpha = 1$, efficiency 0.1;
+- an inner boundary at a tabulated saturated-convection radius, with a cavity mass added to the core;
+- `convergence_ignore_equL_residuals=.true.` and an energy-conservation tolerance of $10^{99}$;
+- synthetic spectra from MESA's `colors` module: the nearest LTE, metal-bearing ATLAS9 model
+  [@castelli2003]. The paper notes that $\log g$ lies outside the grid for most models.
+
+Two features of these models matter for everything that follows. The envelope is radiation dominated:
+$\beta \equiv P_{\rm gas}/P \approx 0.006$–0.007, close to what the Eddington quartic predicts for $10^6\,M_\odot$. And the radiation
+force nearly balances gravity throughout the outer envelope, so the net force on the gas is a small residual.
+
+## Is the photosphere in LTE? {#sec-lte}
+
+At $\tau = 2/3$ we estimate the conditions of a pure H/He gas with $P = (2/3)\,g/\kappa$ and H$^-$, H bound-free and
+electron-scattering opacity. We then compare collisional with radiative rates for hydrogen **[estimate]**.
+Collisional ionization from $n=2$ uses a Seaton-type rate. Photoionization from $n=2$ uses
+$J_\nu = B_\nu(T_{\rm eff})$ and Kramers cross sections. Collisional de-excitation of H$\alpha$ uses the van
+Regemorter rate.
+
+|  | quasi-star | same $T_{\rm eff}$, $\log g=1$ | same $T_{\rm eff}$, $\log g=4.4$ |
+|---|---|---|---|
+| $n_e$ at $\tau=2/3$ (cm$^{-3}$) | $5\times10^{11}$ | $1\times10^{12}$ | $1.6\times10^{13}$ |
+| H ionized fraction | 0.025 | 0.011 | $8\times10^{-4}$ |
+| $n=2$: $C_{\rm ion}/R_{\rm ion}$ | $2\times10^{-3}$ | $4\times10^{-3}$ | $5\times10^{-2}$ |
+| H$\alpha$: $C_{32}/A_{32}$ | $2\times10^{-3}$ | $4\times10^{-3}$ | $5\times10^{-2}$ |
+| $P_{\rm rad}/P_{\rm gas}$ | 0.2 | 0.04 | $2\times10^{-4}$ |
+
+: Rate estimates at $\tau = 2/3$ for $T_{\rm eff} = 6241$ K **[estimate]**. {#tbl-lte}
+
+Radiative processes set the $n=2$ population of hydrogen, by a factor of about 500 over collisions. That population
+controls the Balmer-continuum opacity and hence the Balmer break. Above the thermalisation depth one expects $n=2$ to
+be overionized relative to LTE. This is the regime where non-LTE departures in hydrogen are already documented for
+A–F supergiants at $\log g \approx 1$–2, and the quasi-star sits below it. The Balmer break is the feature the paper
+reproduces most closely (3.97 against $3.92\pm0.03$ for UNCOVER-45924), so it is also the least LTE-safe
+observable **[interpretation]**. These estimates give neither the sign nor the size of the non-LTE change; that needs
+a non-LTE calculation (@sec-nlte-plan).
+
+## Speeds and temperatures of the infall {#sec-speeds}
+
+The escape speed from the surface follows from $g$ and $M$ alone:
+
+$$
+v_{\rm esc} = \sqrt{2gR} = \sqrt{2}\,(GMg)^{1/4} \approx 1500\ {\rm km\,s^{-1}} .
+$$ {#eq-vesc}
+
+Gas falling in from far away arrives at nearly this speed. Stopped in a strong shock, it would be heated to
+
+$$
+T_{\rm sh} = \frac{3}{16}\,\frac{\mu m_{\rm H} v_{\rm ff}^2}{k} \approx 3\times10^7\ {\rm K}
+$$ {#eq-tshock}
+
+for a fully ionized gas ($\mu \approx 0.59$) **[estimate]**. So the question behind the rest of this book is
+whether a 6000 K hydrostatic photosphere can sit beneath a flow at $\pm1500$ km s$^{-1}$ whose kinetic energy
+corresponds to $10^7$ K.
+
+In LTE, molecular hydrogen is negligible at the photosphere: $n_{\rm H_2}/n_{\rm H} \sim 4\times10^{-8}$ at 6200 K. It
+rises only to $\sim10^{-3}$ at 3000 K and becomes significant below about 2500 K at these densities **[computed]**.
+@sec-h2 asks whether free electrons out of Saha equilibrium could change this.

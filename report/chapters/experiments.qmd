@@ -1,0 +1,38 @@
+# Experiments and how to reproduce them {#sec-experiments}
+
+Every number in this book comes from one of the runs below. Paths are relative to the repository root. The steady
+model is the Julia package in `steady/`, the TITAN port is in `julia/`, and the browser core is in `report/core/`.
+
+## The steady model {#sec-exp-steady}
+
+| experiment | command | output | chapter |
+|---|---|---|---|
+| opacity table (v2, the steady model's) | `cd steady && julia -t auto --project=. scripts/build_kap.jl` (~5 min on 2 cores) | `steady/output/kaptable_Z0_v2.jls` | @sec-opacity |
+| extended table (TITAN infall) | `julia -t auto --project=. scripts/build_kap_ext.jl` (~13 min) | `kaptable_Z0_v3ext.jls` | @sec-opacity |
+| validation without infall | `scripts/validate2.jl` | printed table | @sec-validation |
+| grid of extended-branch solutions | `scripts/run_grid.jl` | `output/infall_grid.csv` | @sec-infall-diag |
+| all roots, both branches | `scripts/branches.jl` | `output/branches.csv` | @sec-branches |
+| fold refinement | `scripts/fold.jl` | `output/fold.csv` | @sec-branches |
+| H₂ via H⁻ upper bounds | `scripts/h2_noneq.jl` | printed | @sec-h2 |
+| profile for TITAN | `scripts/export_profile.jl 0.1 0 out.csv` | `reference_runs/qs_profile_f0.1_md0.csv` | @sec-titan-setup |
+| reference values for the browser core | `scripts/export_reference.jl ../report/core/data` | `report/core/data/` | all ✓ badges |
+
+## The browser core {#sec-exp-core}
+
+`cd report && make test` runs the Rust validation suite that the ✓ badges link to; `make wasm` builds the
+WebAssembly package used by the figures and the laboratory.
+
+## TITAN {#sec-exp-titan}
+
+| experiment | command (from `julia/`, with `TITAN_NOLIB=1`) | chapter |
+|---|---|---|
+| benchmarks SOD, SUBC, SUPC, pure Julia | `julia --project=env phase6_run.jl pure SUBC` | @sec-port-method |
+| quasi-star set-up, no infall | `julia --project=env qstar_run.jl setup ../reference_runs/qs_profile_f0.1_md0.csv` | @sec-titan-setup |
+| hydrostatic test (non-grey) | `julia --project=env qstar_run.jl relax 3e9 20000` | @sec-hydrostatic |
+| hydrostatic test (grey) | `QS_GREY=1 QS_NAME=QSTAR_GREY` with `setup`, then `relax` | @sec-hydrostatic-surface |
+| infall, Eulerian, ramped (run E1) | `Z0_TABLE=ext QS_NAME=E1 QS_MDOT=3e-3 QS_RAMP_FAC=100 QS_WCONTACT=1e-3` with `setup … 0.4 140 80`, then `QS_RAMP_FAC=100 QS_RAMP_T=2e6 … relax 1e8 20000` | @sec-titan-infall |
+| infall, adaptive grid (run A1) | as E1 plus `QS_LGRID=1 QS_GRIDTAU=1e3` | @sec-titan-infall |
+| figure data | `julia --project=env export_report_data.jl bench`, `… qstar NAME` | figures |
+
+The full engineering record of the port, with every check and its numbers, is
+[`docs/PORTING_NOTES.md`](https://github.com/yipihey/titan.jl/blob/main/docs/PORTING_NOTES.md).

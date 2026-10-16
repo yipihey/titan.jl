@@ -1,0 +1,113 @@
+# TITAN, from Fortran to Julia {#sec-titan-port}
+
+## Why TITAN {#sec-why-titan}
+
+The steady model of the previous chapters leaves three questions to dynamics: which branch nature selects, whether
+either is stable, and what happens past the fold. These need implicit radiation hydrodynamics that can resolve a
+radiating accretion shock on top of a hydrostatic, radiation-dominated envelope. TITAN [@gehmeyr1994] was built for
+this kind of problem. It is one-dimensional, fully implicit, and solves the comoving-frame grey radiation
+hydrodynamics of @mihalas1984 on an adaptive Dorfi–Drury grid [@dorfi1987]. Its radiating-shock benchmarks are the
+standard ones [@sincell1999a; @sincell1999b]. The 1995 release (version 1.2) is Fortran 77 written for Crays and SGI
+workstations.
+
+## The equations TITAN solves {#sec-titan-eqs}
+
+Each zone carries seven unknowns: the radius $r$ and exterior mass $m_e$ at interfaces, the density $\rho$ and gas
+temperature $T$ at zone centres, the velocity $u$ at interfaces, the radiation energy density $E$ at centres, and the
+comoving radiative flux $F$ at interfaces. Schematically (spherical-geometry terms abbreviated, $O(v/c)$, grey), in
+conservative form on a moving mesh with $u_{\rm rel} = u - \dot r$,
+
+$$
+\begin{aligned}
+&\frac{d}{dt}\int\rho\,dV + \oint\rho\,u_{\rm rel}\,dA = 0, \\
+&\frac{d}{dt}\int\rho u\,dV + \oint\rho u\,u_{\rm rel}\,dA + \int\Big(\nabla p + \rho\frac{Gm}{r^2} - \frac{\rho\chi_F}{c}F + \nabla\!\cdot Q\Big)dV = 0,\\
+&\frac{d}{dt}\int\rho\Big(e + \frac{E}{\rho}\Big)dV + \oint\big(\rho e + E\big)u_{\rm rel}\,dA
+ + \int\Big[(p + fE)\,\nabla\!\cdot u + \nabla\!\cdot F + Q\!:\!\nabla u\Big]dV = 0,\\
+&\frac{d}{dt}\int E\,dV + \oint E\,u_{\rm rel}\,dA + \int\Big[\nabla\!\cdot F + fE\,\nabla\!\cdot u
+ + c\,\rho\big(\kappa_E E - 4\pi\kappa_P B/c\big)\Big]dV = 0,\\
+&\frac{1}{c^2}\frac{D F}{Dt} + \nabla(fE) + \frac{3f - 1}{r}E + \frac{\rho\chi_F}{c}F = 0 ,
+\end{aligned}
+$$ {#eq-titan}
+
+plus the grid equation that places the interfaces. The second energy equation is the gas plus radiation energy.
+TITAN discretises each term in its own way; the Julia residuals reproduce those discretisations term by term. The Eddington factor $f = K/J$ comes from a static formal
+solution of the transfer equation along tangent rays. $Q$ is a tensor artificial viscosity, and $\theta$-centring in
+time makes the scheme implicit. Every equation is a residual; Newton–Raphson on all unknowns at once, with a
+block-pentadiagonal Jacobian, advances one step.
+
+## How the port was done {#sec-port-method}
+
+The port went in phases, each verified before the next began. Bitwise identity was used only as a debugging aid:
+the Julia code may use its own mathematics library, automatic differentiation and better linear algebra, so
+acceptance is judged on physics.
+
+1. **Fortran as a library.** The original builds with gfortran after one fix. It reproduces the 1995 step counts of
+   every benchmark that ends at a fixed time, exactly, about 60–150 times faster than the SGI Indigo2 of 1995
+   **[computed]**. Built as a shared library driven from Julia, it is bitwise identical to the standalone code.
+2. **Julia residuals with an automatic-differentiation Jacobian.** All seven equations are written once, as
+   residuals. One stencil-coloured ForwardDiff sweep produces the Jacobian, which agrees with TITAN's hand-coded one to
+   $2\times10^{-11}$ of the row maximum. TITAN drops a few derivatives by design; the AD Jacobian is exact.
+3. **Every routine of the time step.** The predictor, the Newton update, the time-step control, the energy
+   diagnostic, the formal solution for the Eddington factors and the block solver were each translated. Each was then
+   checked *in flight*: on every call during a full run, the Fortran and Julia versions start from the same snapshot
+   of every COMMON variable, and every output variable is compared. All agree to $\le 2\times10^{-11}$; the one
+   outlier traces to a single last-bit difference of `pow` between Julia and glibc.
+4. **No Fortran at run time.** The model state lives in Julia arrays. A benchmark's initial state is captured once
+   from the Fortran set-up and stored in a 35–63 kB file, and the run needs no Fortran library at all.
+
+Acceptance has three tiers:
+
+- **(a)** per routine, $10^{-12}$;
+- **(b)** per step, the Newton tolerance $10^{-5}$;
+- **(c)** physical observables, interpolated to fixed times: positions within 0.5 % of a length scale,
+  temperatures within 1 %, step counts within 3 %.
+
+Tier (c) exists because the time-step history of an implicit code is chaotic at the level of round-off. The 1995
+README already reports different results on different machines.
+
+| problem | pure Julia steps | Fortran (bookkeeping fixed) | tier (c) | ms/step, Julia | ms/step, Fortran |
+|---|---|---|---|---|---|
+| SOD shock tube | 455 | 452 | accept | 2.4 | 6.4 |
+| SUBC subcritical radiating shock | 587 | 587 | accept | 4.7 | 6.7 |
+| SUPC supercritical radiating shock | 713 | 713 | accept | 4.3–5.0 | 6.4 |
+
+: The benchmarks run entirely in Julia **[computed]**. Two bookkeeping fixes (the clock after a rejected step,
+and when the energy diagnostic is booked) change the step at which $t_{\max}$ is reached, not the solution. {#tbl-bench}
+
+```{=html}
+<div class="qd-widget" data-widget="bench"></div>
+<script type="module" src="../app/js/widgets.js"></script>
+```
+
+::: {.callout-tip title="Try it"}
+The figure replays the Julia run of a benchmark and overlays the final state of the original Fortran code. Drag the
+time slider to watch the supercritical shock build its radiative precursor. Switch between density, gas and
+radiation temperature, and velocity. The Fortran curve is drawn at its own final time; differences at that time
+are within the tier (c) tolerances.
+
+{{< lab "p=bench&b=SUPC" "Open the supercritical shock in the lab" >}}
+:::
+
+## What was added for quasi-stars {#sec-titan-additions}
+
+TITAN 1.2 has no convection, no realistic equation of state and no tabulated opacities. No benchmark uses gravity,
+a central mass or an inflow boundary, so those paths had never been exercised.
+
+- **Pluggable materials.** The zero-metallicity Saha gas of @sec-saha and the tabulated means of @sec-opacity enter
+  through one interface, used both inside the AD residual and in the state updates. ForwardDiff differentiates
+  through the Saha solve. A Newton polish of the charge balance keeps the derivatives exact, and the nested AD tags
+  are ordered explicitly. The coloured Jacobian equals the dense AD Jacobian exactly, and finite differences to
+  $1.5\times10^{-6}$ **[computed]**.
+- **A local mixing-length convective flux** in the energy equation, with $\alpha = 0.8$ as in MESA-QUEST. For a time-dependent code the
+  natural form is the flux at a given actual gradient $\nabla$, from the same theory as @eq-mlt-cubic:
+
+  $$
+  F_{\rm conv} = \rho\,c_P T\sqrt{g\delta}\,\frac{\ell^2\zeta^3}{4\sqrt2\,H_P^{3/2}},\qquad \zeta = \sqrt{U^2 + \nabla - \nabla_{\rm ad}} - U .
+  $$ {#eq-fconv}
+
+  It is smooth at onset ($\propto\zeta^3$). It is switched off above Rosseland optical depth 1, because mixing-length
+  theory is a diffusion-limit theory: without the cut, the optically thin atmosphere convects spuriously, since there
+  $P \approx fE$ is nearly constant and $\nabla$ is ill-defined.
+- **Gravity of a central mass**, an imposed luminosity at the inner boundary, a prescribed inflow state at the outer
+  boundary, and the physical constants of the steady model. TITAN's own constants differ by up to $2\times10^{-4}$,
+  which matters when the net force is 1 % of gravity.

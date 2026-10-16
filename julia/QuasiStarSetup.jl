@@ -103,6 +103,34 @@ function inflow_region(R, M, L, Mdot; rout = 2.0, n = 4000, tab = Z0.table())
     return (r = reverse(rs), T = reverse(Ts), ρ = reverse(ρs), τtop = τ)
 end
 
+rout_actual(atm, infall, rout, R) = infall ? rout * R : atm.r[end]
+
+"""
+n+1 interfaces on [a, b] with equal arc length s = ∫ √(1/xscale² + Σ (d y/dr)²) dr of the tabulated columns `ys`
+(here ln ρ, ln T), then limited to a neighbour spacing ratio ≤ `qmax` (TITAN's grid smoothing does the same).
+"""
+function equidistribute(rt, ys, a, b, n; xscale, qmax = 1.3, nfine = 40000)
+    rf = collect(range(a, b, length = nfine))
+    yf = [[linterp(rt, y, r) for r in rf] for y in ys]
+    s = zeros(nfine)
+    for i in 2:nfine
+        dr = rf[i] - rf[i-1]
+        s[i] = s[i-1] + sqrt((dr / xscale)^2 + sum((y[i] - y[i-1])^2 for y in yf))
+    end
+    rI = [linterp(s, rf, x) for x in range(0, s[end], length = n + 1)]
+    rI[1] = a; rI[end] = b
+    for _ in 1:2000                      # limit the spacing ratio by relaxing towards neighbour means
+        d = diff(rI); bad = false
+        for k in 2:n
+            if d[k] > qmax * d[k-1] || d[k-1] > qmax * d[k]
+                rI[k] = 0.5(rI[k-1] + rI[k+1]); bad = true; d = diff(rI)
+            end
+        end
+        bad || break
+    end
+    rI
+end
+
 "n+1 interfaces from a to b, first spacing ≈ d0, growing geometrically."
 function geometric(a, b, d0, n)
     f(q) = d0 * (q^n - 1) / (q - 1) - (b - a)
@@ -131,7 +159,8 @@ the profile and the derived numbers. The state is on the :julia backend; `TF.sav
 """
 function setup!(profile_csv; template = joinpath(TF.ROOT, "reference_runs", "init", "SUBC.tstate.gz"),
                 rin = 0.4, nenv = 140, natm = 60, nH = 12.0, alpha = 0.8, xmext_fac = 10.0, grey = false,
-                Mdot = 0.0, rout = 2.0, dr0 = 2e-4, tmax_inflow = 3e9, lgrid = 2, lady = (2, 2, 2))
+                Mdot = 0.0, rout = 2.0, dr0 = 2e-4, tmax_inflow = 3e9, Mdot_max = Mdot, lgrid = 2, lady = (2, 2, 2),
+                wcontact = 0.0, equi = false)
     ncell = nenv + natm
     iseven(ncell) || error("ncell must be even")
     P = read_profile(profile_csv); h = P.hdr; C = P.cols
@@ -171,10 +200,18 @@ function setup!(profile_csv; template = joinpath(TF.ROOT, "reference_runs", "ini
     r_env = [linterp(lPr, rlP, x) for x in lPq]; r_env[1] = r_in; r_env[end] = R
     r_atm = infall ? geometric(R, rout * R, dr0 * R, natm) : collect(range(R, atm.r[end], length = natm + 1))
     rI = vcat(r_env, r_atm[2:end])                    # ncell + 1 interfaces
-    # combined (r, ln T, ln ρ) table
-    rt = vcat(r_e, atm.r[2:end]); lTt = log.(vcat(T_e, atm.T[2:end])); lρt = log.(vcat(ρ_e, atm.ρ[2:end]))
-    fradt = vcat(frad_e, ones(length(atm.r) - 1))
+    # combined (r, ln T, ln ρ) table; with wcontact > 0 the envelope–inflow contact is spread over [R, R(1+wcontact)]
+    # (log-linear in ρ and T, linear in u): a smooth "settling layer" instead of a jump, so an adaptive grid can resolve it
+    keep = infall && wcontact > 0 ? findall(>=(R * (1 + wcontact)), atm.r) : collect(2:length(atm.r))
+    rt = vcat(r_e, atm.r[keep]); lTt = log.(vcat(T_e, atm.T[keep])); lρt = log.(vcat(ρ_e, atm.ρ[keep]))
+    fradt = vcat(frad_e, ones(length(keep)))
+    if equi            # equidistribute: equal arc length in (r/xscale, ln ρ, ln T), TITAN's resolution measure for lady = log
+        rI = equidistribute(rt, (lρt, lTt), r_in, rout_actual(atm, infall, rout, R), ncell; xscale = R)
+    end
 
+    if lgrid == 1      # TITAN's grid equation sets the first two and the last two zones equal (no time smoothing there)
+        rI[2] = 0.5(rI[1] + rI[3]); rI[end-1] = 0.5(rI[end] + rI[end-2])
+    end
     rn, dn, tn, un = v(:rn), v(:dn), v(:tn), v(:un)
     ern, frn = v(:ern), v(:frn)
     mu = 2; xmup1 = 3.0
@@ -185,7 +222,7 @@ function setup!(profile_csv; template = joinpath(TF.ROOT, "reference_runs", "ini
         ern[k] = Z0.arad * tn[k]^4
     end
     for k in ngrs:ngre+1
-        un[k] = infall && rn[k] > R ? -sqrt(2Z0.G * M / rn[k]) : 0.0
+        un[k] = infall && rn[k] > R ? -sqrt(2Z0.G * M / rn[k]) * (wcontact > 0 ? clamp((rn[k] / R - 1) / wcontact, 0.0, 1.0) : 1.0) : 0.0
         frn[k] = L / (4π * rn[k]^2) * linterp(rt, fradt, rn[k])
     end
     frn[ngrs] = L / (4π * rn[ngrs]^2)                 # lribc = 3: all of L enters as radiation
@@ -218,7 +255,7 @@ function setup!(profile_csv; template = joinpath(TF.ROOT, "reference_runs", "ini
     xmn[k+1] = xmn[k] + dn[k] * dvol(k)
     top = dn[ngre] * dvol(ngre)
     # exterior mass: must stay positive while the inflow removes Ṁ/4π per second from it
-    xmext = infall ? 10 * Mdot / 4π * tmax_inflow : xmext_fac * top
+    xmext = infall ? 10 * max(Mdot, Mdot_max) / 4π * tmax_inflow : xmext_fac * top
     xmass = xmn[ngre+2]; xmtot = xmass + xmext
     s!(:xmass, xmass); s!(:xmext, xmext); s!(:xmtot, xmtot)
     if lgrid == 1   # resolution: linear in r (scale R) plus logarithmic in m (exterior), ρ, T (lady(1:3))

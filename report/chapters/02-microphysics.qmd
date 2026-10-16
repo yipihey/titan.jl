@@ -1,0 +1,112 @@
+---
+title: "Zero-metallicity gas: equation of state and opacity"
+---
+
+Everything in this book, the steady model and the TITAN runs, uses the same microphysics: an ideal gas of
+hydrogen and helium in LTE ionization equilibrium, and continuum mean opacities computed from first principles.
+The composition is $X = 0.76$, $Y = 0.24$, $Z = 0$, as in the MESA-QUEST inlist.
+
+## Saha equilibrium {#sec-saha}
+
+The species are H, H$^+$, He, He$^+$, He$^{2+}$ and e$^-$. With $\lambda_e^{-3} \equiv (2\pi m_e kT/h^2)^{3/2}$, the
+Saha equations{{< src eos::saha >}} are
+
+$$
+\frac{n_{\rm H^+}n_e}{n_{\rm H^0}} = \lambda_e^{-3}e^{-\chi_{\rm H}/kT},\qquad
+\frac{n_{\rm He^+}n_e}{n_{\rm He^0}} = 4\lambda_e^{-3}e^{-\chi_{\rm He\,I}/kT},\qquad
+\frac{n_{\rm He^{2+}}n_e}{n_{\rm He^+}} = \lambda_e^{-3}e^{-\chi_{\rm He\,II}/kT},
+$$ {#eq-saha}
+
+closed by charge neutrality, which is solved for $n_e$. The pressure is that of the particles plus blackbody
+radiation,
+
+$$
+P = (n_{\rm H} + n_{\rm He} + n_e)\,kT + \tfrac13 aT^4 ,
+$$ {#eq-pressure}
+
+and the specific entropy is the Sackur–Tetrode sum over species plus radiation,
+
+$$
+s = \frac{k}{\rho}\sum_i n_i\left[\frac52 + \ln\!\left(\frac{g_i}{n_i}\Big(\frac{2\pi m_i kT}{h^2}\Big)^{3/2}\right)\right]
++ \frac{4aT^3}{3\rho} .
+$$ {#eq-entropy}
+
+The browser core reproduces the Julia implementation to $10^{-9}$ in $n_e$ and the ionized fraction
+{{< test saha_matches_reference "Saha vs Julia" >}}, and in $P$, $e$ and $s$
+{{< test eos_matches_reference "EOS vs Julia" >}}.
+
+## Thermodynamic derivatives {#sec-thermo}
+
+Convection and sound waves need derivatives of $P$ and $s$. With
+$\chi_\rho = \partial\ln P/\partial\ln\rho|_T$, $\chi_T = \partial\ln P/\partial\ln T|_\rho$,
+$s_\rho = \partial s/\partial\ln\rho|_T$ and $s_T = \partial s/\partial\ln T|_\rho$:
+
+$$
+\nabla_{\rm ad} = \Big(\chi_T - \chi_\rho\frac{s_T}{s_\rho}\Big)^{-1},\quad
+\Gamma_1 = \chi_\rho - \chi_T\frac{s_\rho}{s_T},\quad
+\delta = \frac{\chi_T}{\chi_\rho},\quad
+c_P = s_T - s_\rho\,\delta .
+$$ {#eq-thermo}
+
+These are evaluated{{< src eos::eos_state >}} in $(\ln\rho, \ln T)$, which stays well conditioned when
+$\beta \ll 1$. The Julia code uses exact forward-mode automatic differentiation through the Saha solve, so its
+derivatives can enter a Newton–Raphson Jacobian (@sec-titan-port). Three checks pin them:
+
+- the fully ionized gas plus radiation has $\Gamma_1(\beta) = (32 - 24\beta - 3\beta^2)/(24 - 21\beta)$, reproduced to $10^{-5}$ at $\beta = 0.5$, 0.1 and 0.01
+  {{< test gamma1_fully_ionized_radiation "Γ₁(β)" >}};
+- $\nabla_{\rm ad}$ tends to 0.4 for a neutral gas and to 0.25 when radiation dominates {{< test nabla_ad_limits "∇ad limits" >}};
+- the browser core agrees with the Julia derivatives to $10^{-6}$ {{< test eos_matches_reference "derivatives vs Julia" >}}.
+
+In the hydrogen ionization zone the gas is soft: at $P_{\rm gas} \approx 30$ dyn cm$^{-2}$, $\Gamma_1$ drops to about
+0.97 near 8000 K **[computed]**.
+
+## Mean opacities {#sec-opacity}
+
+The Rosseland and Planck means are
+
+$$
+\frac{1}{\kappa_R} = \frac{\int(\kappa_\nu^{\rm abs}+\kappa_\nu^{\rm sc})^{-1}\,\partial_TB_\nu\,d\nu}{\int\partial_TB_\nu\,d\nu},\qquad
+\kappa_P = \frac{\int\kappa_\nu^{\rm abs}B_\nu\,d\nu}{\int B_\nu\,d\nu} ,
+$$ {#eq-rosseland}
+
+on 4000 frequencies, with every absorption edge placed on the frequency grid. The continuum sources are:
+
+- Thomson and H Rayleigh scattering;
+- hydrogenic bound-free from H I ($n\le12$) and He II ($n\le8$), with LTE level populations and Kramers cross sections $\sigma_n = 2.815\times10^{29}Z^4/(n^5\nu^3)$;
+- He I ground-state bound-free;
+- free-free on H$^+$, He$^+$ and He$^{2+}$ (Gaunt factor 1);
+- H$^-$ bound-free and free-free [@john1988].
+
+Stimulated emission is included. **No bound–bound lines and no molecules are included.** $\kappa_R$ is therefore a
+lower bound near $10^4$–$10^5$ K, where line opacity in OPAL-type tables can raise it by a factor of a few, and
+below about 2500 K, where H$_2$ collision-induced absorption would matter.
+
+The means are tabulated on $\log T = 3.3$–8.0 (step 0.005) and $\log R = -12$–1 (step 0.025), with
+$R = \rho/T_6^3$, and interpolated with C¹ bicubic (Catmull–Rom) weights{{< src opacity::KapTable::kappa_r >}}. The
+browser uses the same table, stored in single precision, and agrees with the Julia interpolation to $10^{-5}$
+{{< test kappa_matches_reference "κ vs Julia" >}}. At high temperature $\kappa_R$ tends to the electron-scattering
+value 0.350 cm² g⁻¹ {{< test kappa_high_t_limit "Thomson limit" >}}. (The usual $0.2(1+X) = 0.352$ uses $m_p$ in
+place of $m_{\rm H}$.) For the TITAN infall runs the table was extended to $\log T = 3.0$ and $\log R = -20$, with
+identical values on the original nodes **[computed]**.
+
+## The opacity cliff {#sec-cliff}
+
+At zero metallicity there are no metals to supply free electrons once hydrogen recombines. Between about 8000 and
+6000 K the Rosseland mean therefore falls by orders of magnitude, from the electron-scattering value to the small
+H$^-$ opacity. We call this the *opacity cliff*. It matters twice in this book. It is why the infall photosphere sits
+near 6000–7500 K on both branches of steady solutions (@sec-observer). And it is why the extended atmosphere
+of the steady model drains in TITAN (@sec-hydrostatic-surface).
+
+```{=html}
+<div class="qd-widget" data-widget="micro"></div>
+<script type="module" src="../app/js/widgets.js"></script>
+```
+
+::: {.callout-tip title="Try it"}
+Move the density and watch the ionization fractions and the two means. The ionization edge moves to lower
+temperature at lower density (Saha), and the Rosseland mean collapses with the hydrogen ionized fraction. The
+Planck mean (absorption only) falls far below the Rosseland mean wherever scattering dominates. The panels show
+$\nabla_{\rm ad}$ and $\Gamma_1$ at the same density: both dip in the ionization zones.
+
+{{< lab "p=micro&lr=-12" "Open in the lab at ρ = 10⁻¹² g cm⁻³" >}}
+:::

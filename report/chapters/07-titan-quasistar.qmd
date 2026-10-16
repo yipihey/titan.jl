@@ -1,0 +1,100 @@
+# A quasi-star in TITAN {#sec-titan-qs}
+
+## Set-up {#sec-titan-setup}
+
+The TITAN domain is the outer shell of the steady envelope of @sec-validation, with $M = 10^6\,M_\odot$,
+$M_{\rm BH}/M = 0.1$, $L = L_{\rm Edd} = 1.42\times10^{44}$ erg s$^{-1}$ and no infall, so $R = 8.435\times10^{15}$ cm.
+It runs from $r_{\rm in} = 0.4R$, where convection still carries 19 % of $L$, to the photosphere. Beyond the
+photosphere the domain continues into either a grey hydrostatic atmosphere or a free-fall inflow region.
+
+- The mass inside $r_{\rm in}$ (black hole plus inner envelope, $1.565\times10^{39}$ g) acts as a point mass; the shell
+  holds $4.2\times10^{38}$ g.
+- Both ends are walls. The full luminosity enters as radiation at the inner wall. The outer radiation boundary
+  is transmitting, with no incident intensity.
+- 140 zones uniform in $\ln P$ cover the envelope, and 60–80 zones the outer region.
+
+The script that builds and runs it is linked in @sec-experiments.
+
+## The hydrostatic test {#sec-hydrostatic}
+
+Without infall, a correct code should hold the steady structure. Over 2000 steps, about 0.4 dynamical times
+($t_{\rm dyn} = \sqrt{R^3/GM} \approx 6.7\times10^7$ s):
+
+- **The interior holds.** Between $0.4R$ and $0.98R$, TITAN keeps the steady structure to $|\Delta T/T| \le 0.5\,\%$ and
+  $|\Delta\rho/\rho| \le 1\,\%$. Its convective luminosity, from @eq-fconv, matches the steady model's
+  $1 - \nabla/\nabla_{\rm rad}$ to within $0.002\,L$ at every point: 0.191 against 0.191 at $0.42R$, and 0.0165 against
+  0.0163 at $0.85R$. The total luminosity is constant to $\pm0.7\,\%$ **[computed]**. This validates the zero-metallicity
+  material and the convective flux inside the implicit code, which was the purpose of the test.
+- **The surface does not hold, and the reason is physical** (@sec-hydrostatic-surface).
+
+```{=html}
+<div class="qd-widget" data-widget="qstar" data-run="QSTAR"></div>
+<script type="module" src="../app/js/widgets.js"></script>
+```
+
+::: {.callout-tip title="Try it"}
+Drag the time slider through the hydrostatic run. Dashed curves are the steady model. Switch to the convective
+luminosity to see the two theories, the steady MLT cubic and TITAN's flux form, carry the same flux. Zoom into the
+last per cent of the radius (drag a box, or type a range) to watch the atmosphere drain.
+
+{{< lab "p=qstar&run=QSTAR&v=Lconv" "Open the hydrostatic run in the lab" >}}
+:::
+
+### Why the extended atmosphere drains {#sec-hydrostatic-surface}
+
+The steady model's outer boundary (@eq-bc-phot) assumes there is an atmosphere above $R$ with optical depth 2/3,
+at the Eddington temperature $T(\tau)$. At the photosphere $\Gamma_\kappa = 0.91$: radiation supports 91 % of the
+weight, through the opacity of partly ionized hydrogen at 7300 K.
+
+Integrating that atmosphere outward hydrostatically supplies only $\tau \approx 0.31$ over 12 density e-foldings
+**[computed]**. The column needed for $\tau = 2/3$ is not there. In TITAN, radiative equilibrium sets the
+temperature of the outer layers itself. It cools them to about 5700 K with the non-grey (Planck and Rosseland)
+opacities and about 5000 K with grey opacities. At those temperatures hydrogen recombines and the opacity falls off
+the cliff of @sec-cliff. Radiation stops supporting the gas, the scale height collapses by an order of magnitude, and
+the atmosphere falls at 30–60 km s$^{-1}$, close to free fall, onto a new, sharp photosphere near $0.995R$
+**[computed]**. As it drains, the Eulerian top zone empties below the range of the opacity table, and the run stops
+at $t \approx 2.8\times10^7$ s (non-grey) or $3.5\times10^7$ s (grey).
+
+The conclusion we draw **[interpretation]**: a zero-metallicity envelope radiating at $\Gamma \approx 1$ has a sharp
+photosphere pinned to the hydrogen-recombination edge. An extended, radiation-supported ~6000 K atmosphere is not
+hydrostatically possible. This agrees with the steady branch analysis, where the observed temperature sits at
+6000–7500 K on both branches because of the same cliff (@sec-observer).
+
+## Infall: work in progress {#sec-titan-infall}
+
+Adding infall means a free-fall inflow region above $R$ with a fixed external state at the outer boundary, $2R$:
+density from $\dot M$, the Lucy temperature (@eq-lucy), and velocity $-v_{\rm ff}$. The infall arrives at Mach
+$\approx 200$ relative to the cold gas. These runs do not yet survive. What we have tried and learned:
+
+1. **Sharp contact, Eulerian grid.** The accretion shock sits in a single zone at $10^5$–$10^6$ K with an undershoot
+   to about 1300 K ahead of it. The run fails after about 100 s of model time, at $\dot M = 0.3$ and at
+   $3\times10^{-5}\,M_\odot\,{\rm yr}^{-1}$ alike.
+2. **Extended opacity table** (to 1000 K and $\log R = -20$; @sec-opacity). It removes the table edge from the
+   problem but does not change the outcome.
+3. **Smoothed contact and ramped inflow.** Spreading the envelope–infall contact over $10^{-3}R$, and growing the
+   external density exponentially over a factor of 100, lets the Eulerian run take time steps of a few hundred
+   seconds. It survives to $2.3\times10^4$ s before the single-zone shock fails again.
+4. **Adaptive grid.** At first every infall run on TITAN's adaptive grid failed at its first step, even at
+   $\Delta t = 10^{-5}$ s. The cause was not the infall but two rows of TITAN's grid equation. Next to each boundary,
+   the grid equation simply sets two neighbouring zones equal in size, with none of the time smoothing that protects
+   the interior. An initial grid that violates this is pulled into shape in one step, at any $\Delta t$, which wrecks
+   the mass coordinate. With those two pairs set equal in the initial grid, Newton converges quadratically from the
+   first step **[computed]**. The adaptive run then advances, but with steps of 0.04–0.1 s, and fails after about 8 s,
+   again in the zone where the infall stops.
+
+```{=html}
+<div class="qd-widget" data-widget="qstar" data-run="E1"></div>
+```
+
+::: {.callout-warning title="Status"}
+The infall experiments are unfinished. The figure shows the Eulerian run with ramped inflow up to its failure: a
+single-zone shock that heats to $10^5$ K while the zone ahead of it undercools. The next steps are:
+
+- resolve the shock with the adaptive grid and a larger grid time scale, so the grid can follow the shock without
+  shredding it;
+- review the artificial viscosity and the stiffness of the gas–radiation coupling behind a Mach-200 shock (its
+  relaxation time is about 1 s);
+- choose the energy formulation (the total-energy row of @sec-titan-port conserves energy to round-off).
+:::
+
+{{< lab "p=qstar&run=E1&v=T" "Open the infall run in the lab" >}}
