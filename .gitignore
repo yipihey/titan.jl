@@ -18,3 +18,4 @@ reference_runs/*/dumps/
 __pycache__/
 Manifest.toml
 lib/build*.log
+lib/p5_runs/

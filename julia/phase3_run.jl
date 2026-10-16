@@ -12,6 +12,7 @@ include(joinpath(@__DIR__, "JuliaSolver.jl"))
 include(joinpath(@__DIR__, "TitanResid.jl"))
 include(joinpath(@__DIR__, "Metrics.jl"))
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
+include(joinpath(@__DIR__, "TitanCore.jl")); const TC = TitanCore
 const TX = TitanResidFast; const BS = BlockSolver
 using .TitanDriver, .JuliaPhysics, .JuliaSolver, .Metrics, .TitanResid
 const TR = TitanResid
@@ -40,6 +41,14 @@ function use!(m)
         TD.ROUTINES[:matgen] = timed(:matgen, () -> TR.matgen!())
         TD.ROUTINES[:matslv] = timed(:matslv, JS.matslv!)
         TD.install_hooks!(eos = JP.eos!, opac = JP.opac!)
+    end
+    if m == "jcore"                          # Phase 5: jfast + Julia reset/update/maxdel/timstp/totnrg (only peq, I/O in Fortran)
+        TD.ROUTINES[:matgen] = timed(:matgen, () -> TX.matgen!())
+        TD.ROUTINES[:matslv] = timed(:matslv, BS.Penta.matslv!)
+        TD.install_hooks!(eos = JP.eos!, opac = JP.opac!)
+        for (s, f) in ((:reset, TC.reset!), (:update, TC.update!), (:maxdel, TC.maxdel!), (:timstp, TC.timstp!), (:totnrg, TC.totnrg!))
+            TD.ROUTINES[s] = timed(s, f)
+        end
     end
     if m == "jfast"                          # Phase 4: allocation-free assembly + static block-penta solver
         TD.ROUTINES[:matgen] = timed(:matgen, () -> TX.matgen!())

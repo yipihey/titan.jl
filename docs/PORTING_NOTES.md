@@ -1123,3 +1123,106 @@ With SOD, SUBC and SUPC, all 9 benchmark legs are now covered (`lib/p3_runs/driv
    front position ∝ t^½ for constant opacity.
 8. **Re-validation**: re-baseline the energy ledger (P3.1) as an acceptance observable for
    every new test.
+
+## Phase 4: bookkeeping fixes, total-energy prototype, full Julia residuals, solver, damped Newton
+(Work done 15–16 Oct 2026. The working agent was interrupted before writing this section, so it was written from the logs in
+`lib/p4_runs/` and re-runs from the git repository. **[run]** unless marked.)
+
+### P4.1 Bookkeeping fixes: ON by default
+- `TitanDriver.FIX_CLOCK` and `FIX_ENERGY` are on by default. `TITAN_BITWISE=1` turns both off and reproduces TITAN 1.2 bitwise.
+- Neither fix changes the solution of any step. They change the time labels, so the step at which t_max is reached, and the
+  energy diagnostic.
+- With the fixes, SUBC reaches t_max in 587 steps instead of 667, and SOD in 452 instead of 453.
+- New reference observables for all 9 legs: `reference_runs/metrics_reference_fixed.csv` (from `legcompare.jl`). The originals are
+  in `metrics_reference_orig_all.csv`.
+- `tierc.jl` takes `TIERC_REF=std` to compare against the fixed all-Fortran run (Julia driver). The default remains the bitwise
+  `fortran` run, and each reference writes to its own CSV.
+
+### P4.2 Total-energy formulation (`TitanResidFast.ETOTAL[] = true`)
+The gas-energy row is replaced by a conservative total-energy row: gas + kinetic + radiation, with fluxes in finite-volume form
+on the adaptive grid. Internal energy is recovered by subtraction.
+
+| run | steps | Newton it/step | cumulative energy imbalance / scale |
+|---|---|---|---|
+| SOD std / etot | 471 / 497 | 5.77 / 5.82 | −1.6e-3 / −6e-14 |
+| SUBC std / etot | 667 / 777 | 4.87 / 4.87 | −2.8e-3 / +2.5e-13 |
+| SUPC std / etot | 713 / **1699** | 4.29 / 3.66 | −3.2e-3 / +5.1e-13 |
+
+- **Conservation:** to round-off.
+- **SOD wall heating removed:** at the reflecting wall (t = 0.32), the wall-zone ρ/ρ_exact goes from 1.033 to 0.999 and
+  T/T_exact from 0.980 to 1.0008.
+- **Accuracy at fixed resolution** (`etot_resolution.txt`): at 100 zones, SUBC observables are closer to the 200-zone answer.
+  For example, at t = 3.8e4 the shock position error is 1.6e-2 (std) vs 3.2e-3 (etot) of the width, and T_post is 2.6e-3 vs 8e-5.
+  At 200 zones the two schemes agree to ≤ 6e-3.
+- **Tier (c) against the internal-energy reference fails** (positions 1–5 % of L). This is expected for a *different discretisation*.
+  The criterion for etot is convergence with resolution, not agreement with the old scheme.
+- **Cost:** SUPC needs 2.4× the steps (2× the Newton iterations) through shock formation. The time step is still limited by the
+  relative change in T, and in cold, kinetic-energy-dominated zones T comes from the small difference E − KE.
+- **Dual-energy switch** (`ETASW`, internal-energy row where e_int/(e_int + KE) < η): with η = 0.3 the step counts are normal
+  (SUBC 697, SUPC 727), but the switched zones give back the conservation (SUBC −9.8e-4; SUPC at η = 0.1: −1.9e-3).
+- **[recommendation]** Keep the pure total-energy row and change the time-step control instead (limit the relative change in
+  E_tot, or in e_int only where e_int/KE is not small). For the quasi-star accretion shock, where energy is the whole point, this
+  is the preferred direction. Not yet implemented.
+
+### P4.3 All residuals in Julia (`TitanResidFast`) and static block-pentadiagonal solver (`BlockSolver.Penta`)
+- **Residuals:** all 7 equations (grid, mass, continuity, gas momentum, gas energy, radiation energy, radiation momentum), with
+  one stencil-coloured ForwardDiff sweep.
+  - `ncol = 6` is the default. With 5 colours, the single ±3-block dependence (radmom: ρ(k−3) through the F/ρ interface
+    interpolation) aliases into the +2 entry, giving a Jacobian error of 1.3e-3 of the row max on SOD.
+  - Jacobian vs the Fortran analytic one: ≤ 2.3e-11 of the row max. RHS ≤ 3e-18.
+  - Side outputs (slopes etc. left in COMMON): identical to Fortran.
+- **Solver:** a static 7×7 block-pentadiagonal LU with row equilibration. Agrees with Fortran matslv to 7e-11 and with LAPACK
+  gbtrf to 1e-10. Takes 0.20 ms/call vs 0.30 for Fortran.
+- **"jfast" mode** (residuals + solver + EOS/opacity in Julia; everything else Fortran), against `std` (all-Fortran, fixes on):
+  - SOD, SUBC and SUPC have identical step counts and final times.
+  - Tier (c) observables agree to ≤ 1e-12.
+- **Speed** (steady state, excluding JIT): Julia 4.1–5.1 ms/step vs Fortran 6.4–6.7.
+  - First-call compilation is about 11 s for matgen and 3.5 s for matslv. A PackageCompiler sysimage, or precompiling
+    a package, would remove that.
+- **`TitanResidRef` (the slower reference implementation) is deprecated.** Its side outputs differ from Fortran by up to 1e-2
+  (Jacobian and RHS agree); `TitanResidFast` is exact. Not investigated further.
+
+### P4.4 Damped / line-search Newton (`DampedNewton`, experimental, OFF)
+- **SOD** (fixed bookkeeping, full Julia stack): 428 steps vs 470 with TITAN's dt/20 retry. Divergence retries go from 32 to 25,
+  and Newton iterations from 2709 to 2495. Every tier-(c) observable passes; only the step-count criterion flags (−5 %).
+- **SUBC and SUPC:** abort with `SingularException` in the static block LU at a line-search trial state, where a 7×7 diagonal
+  block is exactly singular. Not resolved.
+- The end-time spread between "seeds" (1e-14 perturbations) is the final-step overshoot past t_max, not a physics difference.
+
+## Phase 5: removing the remaining Fortran (in progress)
+New files: `julia/TitanCore.jl` (translations), `julia/PortHarness.jl` (in-flight checks), `julia/phase5_check.jl`,
+`scripts/phase5_jcore.sh`.
+
+### P5.1 reset, update{h,rh}, maxdel, timstp, totnrg → Julia [run]
+- **Method:** the harness wraps a routine so that on every call it runs the Fortran version and the Julia version from the same
+  COMMON snapshot and compares **every** COMMON variable (Float64: max |Δ|/max|x|; integers: exact). The run continues on the
+  Fortran state, so every call is an isolated test on a real state.
+
+| routine | SUPC (rad-hydro), 713 steps | SOD (hydro), 470 steps |
+|---|---|---|
+| maxdel | 3057 calls, identical | 2709 calls, identical |
+| timstp | 713 calls, identical | 470 calls, identical |
+| totnrg | 713 calls, identical | 470 calls, identical |
+| reset | 6 calls, identical | 32 calls, identical |
+| update | 3057 calls; all variables ≤ 1e-13 except urel 6.6e-7, drdt 3.2e-7 | 2709 calls, identical |
+
+- **The two update outliers are one ulp, amplified by cancellation.** The boundary-cell radius uses a real-exponent power
+  (`rn^rxm1`), where Julia's `pow` differs from glibc's in the last bit. drdt = (rn − ro)/dt and urel then amplify that.
+  Verified: with `PARITY=1` (glibc pow through ccall, `TitanCore.PARITY[]`) every variable is ≤ 4e-16.
+- **"jcore" mode** (jfast + these five routines in Julia; only peq, I/O and initialisation remain Fortran), against `std`:
+  - SUBC 587/587 steps, SUPC 713/713 steps: tier (c) ACCEPT.
+  - SOD: observables ACCEPT; step count 470 vs 452, the same as jfast (known SOD retry sensitivity, §P3.3).
+- **Speed:** jcore runs at 4.4–5.9 ms/step vs Fortran 6.4.
+- **Lesson:** the first version was 30× slower in `update!`. The cause was `Int(TD.g(s))` on an untyped COMMON scalar, which is
+  not inferred as `Int`, so every `rhs[ir, k]` was a dynamic dispatch. Concrete accessor types (`gi(s)::Int`, `vf(s)::Vector{Float64}`)
+  fixed it. Keep this pattern for all COMMON access.
+
+### P5.2 Remaining Fortran in a run
+1. **`peq` → `peqh` / `peqrh`:** old ← new copies, extrapolation of radius and mass with the monotonicity retry, boundary values,
+   EOS/opacity, and the Eddington-factor call.
+2. **`eddfac`:** the formal solution; only called when `ltran = 0`, which no benchmark uses.
+3. **I/O:** `archive`, `writout`, `writsty`, `clzfil`.
+4. **Initialisation:** `start*`, `gridinit`, `readeos` / `readopac`, `opnfil`.
+
+After (1) and (3), a benchmark run needs Fortran only for initialisation. Initialisation can then be replaced per problem by Julia
+setup functions, which is also where the quasi-star problem setup belongs.
