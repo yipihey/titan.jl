@@ -9,8 +9,9 @@ envelopes, with a central black-hole luminosity. See `docs/PORTING_NOTES.md` for
 with an interactive WebAssembly port), the port of TITAN, and the quasi-star runs. Source in `report/`.
 
 **Phase 7 (quasi-star physics):** Z = 0 Saha material, MLT convective flux, quasi-star set-up (`julia/QuasiStarSetup.jl`,
-`julia/qstar_run.jl`). The hydrostatic test holds the interior to 0.5 % and validates the MLT flux; the infall runs do not
-yet survive the accretion shock (PORTING_NOTES P7.3–P7.4).
+`julia/qstar_run.jl`). The hydrostatic test holds the interior to 0.5 % and validates the MLT flux. With four numerical
+defects fixed (artificial-viscosity length, gas energy by cancellation, Eddington-factor source for tabulated opacities,
+TITAN's gas + radiation energy row; P7.5) the infall runs are stable from 3e-3 to 3 M⊙/yr, to 2.6e8 s (run R2).
 
 ## Status (Phase 6)
 

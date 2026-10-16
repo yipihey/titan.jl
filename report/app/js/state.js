@@ -16,9 +16,10 @@ export function makeDefaults() {
     root: -1,         // env: which steady root (index in increasing R; −1 = the largest)
     bench: 'SUPC',    // bench: SOD | SUBC | SUPC
     bvar: 'T',        // bench variable: rho | T | Trad | u
-    run: 'QSTAR',     // qstar: QSTAR | E1 | A1
+    run: 'QSTAR',     // qstar: R2 | QSTAR | E1 | A1
     qvar: 'T',        // qstar variable: T | rho | u | Lconv | Lrad
     ti: 1,            // time slider position in [0, 1] (bench, qstar)
+    qhist: 'radii',   // qstar history plot: radii | mdot | teff | tpk | lum
   };
 }
 
@@ -33,9 +34,10 @@ const SCHEMA = [
   ['root', 'rt', 'int', [-1, 10]],
   ['bench', 'b', 'enum', ['SOD', 'SUBC', 'SUPC']],
   ['bvar', 'bv', 'enum', ['rho', 'T', 'Trad', 'u']],
-  ['run', 'run', 'enum', ['QSTAR', 'E1', 'A1']],
+  ['run', 'run', 'enum', ['R2', 'QSTAR', 'E1', 'A1']],
   ['qvar', 'v', 'enum', ['T', 'rho', 'u', 'Lconv', 'Lrad']],
   ['ti', 'ti', 'num', [0, 1]],
+  ['qhist', 'qh', 'enum', ['radii', 'mdot', 'teff', 'tpk', 'lum']],
 ];
 export const HASH_KEYS = SCHEMA.map((e) => e[1]);
 

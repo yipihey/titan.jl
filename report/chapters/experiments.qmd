@@ -32,7 +32,14 @@ WebAssembly package used by the figures and the laboratory.
 | hydrostatic test (grey) | `QS_GREY=1 QS_NAME=QSTAR_GREY` with `setup`, then `relax` | @sec-hydrostatic-surface |
 | infall, Eulerian, ramped (run E1) | `Z0_TABLE=ext QS_NAME=E1 QS_MDOT=3e-3 QS_RAMP_FAC=100 QS_WCONTACT=1e-3` with `setup … 0.4 140 80`, then `QS_RAMP_FAC=100 QS_RAMP_T=2e6 … relax 1e8 20000` | @sec-titan-infall |
 | infall, adaptive grid (run A1) | as E1 plus `QS_LGRID=1 QS_GRIDTAU=1e3` | @sec-titan-infall |
-| figure data | `julia --project=env export_report_data.jl bench`, `… qstar NAME` | figures |
+| Noh test of the artificial viscosity | `julia --project=env infall_tests.jl noh1d ql=2` (and `ql=0.2`, `mach=2000`, `lgrid=1`) | @sec-infall-defects |
+| step-by-step diagnosis of a stalled run | `QS_SET=… julia --project=env stepdiag.jl STATE.tstate.gz NSTEPS`; Newton trace: `newtrace.jl STATE NSKIP NTRACE` | @sec-infall-defects |
+| gas-only energy row vs TITAN's | `julia --project=env gasrow_check.jl SUBC` (and `SUPC`) | @sec-infall-defects |
+| Compton relaxation box | `Z0_TABLE=ext STOL=0.01 julia --project=env compton_box.jl` | @sec-infall-defects |
+| infall to 3 M⊙/yr (run R2) | `Z0_TABLE=ext QS_NAME=R2 QS_MDOT=3e-3 QS_RAMP_FAC=1000 QS_WCONTACT=1e-3 QS_ROUT=1.2` with `setup … 0.4 140 80`, then `Z0_TABLE=ext QS_NAME=R2 QS_SET=ql1=1e-4,cq2=1 QS_GASROW=1 QS_COMPTON=1 QS_RAMP_FAC=1000 QS_RAMP_T=2e6 QS_EVERY=50 … relax 6e7 200000`; continuation: `QS_NAME=R2c QS_INIT=R2 QS_FROM=STATE … relax 2.5e8` | @sec-infall-runs |
+| resolution (runs R2H, R2L) | as R2 with `setup … 0.4 200 114` and `… 0.4 70 40` | @sec-infall-runs |
+| run summaries | `Z0_TABLE=ext julia --project=env qstar_analyze.jl NAME [stride]` | @sec-infall-runs |
+| figure data | `julia --project=env export_report_data.jl bench`, `… qstar NAME`, `Z0_TABLE=ext … qstar R2+R2c` | figures |
 
 The full engineering record of the port, with every check and its numbers, is
 [`docs/PORTING_NOTES.md`](https://github.com/yipihey/titan.jl/blob/main/docs/PORTING_NOTES.md).

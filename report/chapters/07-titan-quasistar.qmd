@@ -60,41 +60,101 @@ photosphere pinned to the hydrogen-recombination edge. An extended, radiation-su
 hydrostatically possible. This agrees with the steady branch analysis, where the observed temperature sits at
 6000–7500 K on both branches because of the same cliff (@sec-observer).
 
-## Infall: work in progress {#sec-titan-infall}
+## Infall {#sec-titan-infall}
 
-Adding infall means a free-fall inflow region above $R$ with a fixed external state at the outer boundary, $2R$:
-density from $\dot M$, the Lucy temperature (@eq-lucy), and velocity $-v_{\rm ff}$. The infall arrives at Mach
-$\approx 200$ relative to the cold gas. These runs do not yet survive. What we have tried and learned:
+Adding infall means a free-fall inflow region above $R$ with a fixed external state at the outer boundary: density
+from $\dot M$, the Lucy temperature (@eq-lucy), and velocity $-v_{\rm ff}$. The infall arrives at Mach $\approx 200$
+relative to the cold gas. The first runs did not survive the accretion shock (@sec-infall-defects). With four numerical
+defects found and fixed, the same set-up now runs stably through a hundredfold rise of the accretion rate
+(@sec-infall-runs).
 
-1. **Sharp contact, Eulerian grid.** The accretion shock sits in a single zone at $10^5$–$10^6$ K with an undershoot
-   to about 1300 K ahead of it. The run fails after about 100 s of model time, at $\dot M = 0.3$ and at
-   $3\times10^{-5}\,M_\odot\,{\rm yr}^{-1}$ alike.
-2. **Extended opacity table** (to 1000 K and $\log R = -20$; @sec-opacity). It removes the table edge from the
-   problem but does not change the outcome.
-3. **Smoothed contact and ramped inflow.** Spreading the envelope–infall contact over $10^{-3}R$, and growing the
-   external density exponentially over a factor of 100, lets the Eulerian run take time steps of a few hundred
-   seconds. It survives to $2.3\times10^4$ s before the single-zone shock fails again.
-4. **Adaptive grid.** At first every infall run on TITAN's adaptive grid failed at its first step, even at
-   $\Delta t = 10^{-5}$ s. The cause was not the infall but two rows of TITAN's grid equation. Next to each boundary,
-   the grid equation simply sets two neighbouring zones equal in size, with none of the time smoothing that protects
-   the interior. An initial grid that violates this is pulled into shape in one step, at any $\Delta t$, which wrecks
-   the mass coordinate. With those two pairs set equal in the initial grid, Newton converges quadratically from the
-   first step **[computed]**. The adaptive run then advances, but with steps of 0.04–0.1 s, and fails after about 8 s,
-   again in the zone where the infall stops.
+### Why the first runs failed {#sec-infall-defects}
+
+The first attempts, kept in the figure as runs E1 and A1, failed after $2.3\times10^4$ s (Eulerian grid, smoothed
+contact, ramped inflow) and after 8 s (adaptive grid). We stepped the stalled run one step at a time, recording what
+limited the time step and, inside a step, every Newton correction. Four defects came out, one behind the other. None
+appears in TITAN's own test problems: all four need thin gas in a strong radiation field **[computed]**.
+
+1. **The artificial viscosity was too short.** Its length was $10^{-5}r$, about 0.2 zones at $R$. On a planar Noh
+   problem at Mach 200, a 0.2-zone length puts the shock 10–12 zones behind the exact solution, with a post-shock
+   density 75 % off. Two zones put it within half a zone, with a 3.7 % density error, at Mach 200 and at Mach 2000.
+   The infall runs now use two zones.
+2. **The gas energy was a difference of two large numbers.** The equation of state returned the gas energy as total
+   minus radiation, $e_{\rm int} - aT^4/\rho$. Behind the shock, $aT^4/\rho$ is up to $10^{11}$ times the gas energy,
+   so only about five digits survived. The residual became a staircase in $T$ with steps of $10^{-5}$. Newton then
+   cycled between two corrections just above its tolerance, every step was cut twentyfold, and $\Delta t$ stayed near
+   $10^{-3}$ s. Computing the gas energy directly lets $\Delta t$ grow to about 200 s.
+3. **The Eddington factors had the wrong source function.** TITAN's formal solution takes the thermal absorption as
+   the flux-mean opacity minus electron scattering. That difference is exact for TITAN's grey opacities, but with a
+   tabulated Rosseland mean it is table noise. In $10^6$ K gas it multiplies a Planck function $10^9$ times the mean
+   intensity, and the Eddington factor came out as 0 or 1 in alternate zones. With a tabulated material, the source
+   function now uses the Planck mean for emission and Thomson scattering for the rest.
+4. **TITAN's energy equation is for gas plus radiation.** TITAN solves for $e_g + E/\rho$ and obtains the gas
+   temperature from its difference with the radiation equation. In the infall, $E/\rho \approx 3\times10^5\,e_g$.
+   Each of the two equations advects its own quantity with its own slope limiter, so the gas energy becomes the small
+   difference of two discretisation errors. Zones ahead of the shock cooled to 400 K inside a 6000 K radiation field,
+   and the run stopped. An energy equation for the gas alone is algebraically equal and still conserves total energy,
+   because the exchange term is the radiation equation's with the opposite sign. On TITAN's radiating-shock tests it
+   reproduces the original runs: SUBC agrees to $10^{-7}$, and SUPC agrees within the truncation error **[computed]**.
+
+Two pieces of physics were added along the way. First, **Compton exchange** between gas and radiation: behind a
+$10^8$ K shock in this radiation field it cools the gas in $\sim\!10^6$ s, far faster than free–free emission. In a test box,
+the code's relaxation of hot gas towards the radiation temperature follows a reference integration of the same
+rates, with an error that falls linearly with the time step **[computed]**. Second, **the opacity below the table** is now extrapolated rather than clamped. The hot,
+thin layer behind the shock lies below the table's lowest $\log R$. Clamping had overstated its Planck mean, and with
+it the free–free cooling, by a factor of 30–100.
+
+### Stable runs through a rising accretion rate {#sec-infall-runs}
+
+Run R2 starts from the steady envelope with the outer boundary at $1.2R$, so that a change of the inflow reaches the
+star within the run. The external density grows exponentially, raising $\dot M$ from $3\times10^{-3}$ to
+$3\,M_\odot\,{\rm yr}^{-1}$ by $t \approx 1.4\times10^7$ s. The run then continues at that rate. It took 14 000 implicit
+steps to reach $6\times10^7$ s, with typical $\Delta t = 10^3$–$3\times10^4$ s, and a further 670 steps to reach
+$2.6\times10^8$ s, with no failed step **[computed]**. Two regimes appear.
+
+- **Low accretion rate** ($\lesssim 0.03\,M_\odot\,{\rm yr}^{-1}$ at the shock). The infall shocks to
+  $2\times10^7$–$10^8$ K and cannot cool: it is too thin for free–free emission, and Compton cooling takes
+  $\sim\!10^6$ s. A hot, tenuous layer ($\rho \sim 10^{-17}$ g cm$^{-3}$) builds up above the star, and its shock moves
+  out to $1.01R$. Underneath, the photosphere is undisturbed: $r_{\rm ph} = 0.995$–$0.999R$, $T_{\rm eff} \approx
+  7300$ K, $L \approx L_0$.
+- **$\dot M \approx 3\,M_\odot\,{\rm yr}^{-1}$ at the shock** (from $t \approx 2.8\times10^7$ s). The shock falls onto the
+  photosphere and becomes radiative. The pre-shock gas sits at the radiation temperature, about 6500 K, and is
+  compressed about 2000-fold, with short hot episodes in which the peak temperature reaches $10^6$–$3\times10^7$ K.
+  $T_{\rm eff}$ stays at 7300–7450 K and the emergent luminosity within 5 % of $L_0$. The photosphere, however,
+  **contracts steadily**: from $0.9945R$ at $2.8\times10^7$ s to $0.9868R$ at $5.8\times10^7$ s and $0.978R$ at
+  $1.7\times10^8$ s **[computed]**.
+
+**Resolution.** With 1.4 times as many zones (run R2H), the photosphere is at $0.9864R$ at $5.7\times10^7$ s, against
+$0.9868R$ in R2. At half the resolution (run R2L), it is at $0.9891R$ at $5.4\times10^7$ s. The sequence of regimes
+is the same at all three resolutions **[computed]**.
+
+**Against the steady model.** At $\dot M = 3\,M_\odot\,{\rm yr}^{-1}$ (with $f_{\rm BH} = 0.1$), the steady model's
+large-radius root has $R = 0.9876R_0$ and $T_{\rm eff} = 7359$ K (@sec-branches). The dynamical run passes through
+that radius at about $5.5\times10^7$ s, with a matching $T_{\rm eff}$, but it does not stop there. We do not read this as
+agreement. One difference is known: in TITAN the inner boundary is a fixed wall at $0.4R$, so the accreted mass
+(10 $M_\odot$ by $1.7\times10^8$ s) piles up in the shell instead of flowing on to the black hole, as the steady model
+assumes. Whether the contraction is that, or the outer envelope relaxing towards a new structure on its own thermal
+time, is open **[interpretation]**.
 
 ```{=html}
-<div class="qd-widget" data-widget="qstar" data-run="E1"></div>
+<div class="qd-widget" data-widget="qstar" data-run="R2"></div>
 ```
 
-::: {.callout-warning title="Status"}
-The infall experiments are unfinished. The figure shows the Eulerian run with ramped inflow up to its failure: a
-single-zone shock that heats to $10^5$ K while the zone ahead of it undercools. The next steps are:
+::: {.callout-tip title="Try it"}
+Pick run R2 and drag the time slider. In the temperature view, the green curve is the radiation temperature
+$(E/a)^{1/4}$. Early on, the gas behind the shock is at $10^7$–$10^8$ K, far out of equilibrium with the radiation.
+Once $\dot M \approx 3\,M_\odot\,{\rm yr}^{-1}$ arrives, the two temperatures coincide almost everywhere. The history
+plot below the profile shows the shock and the photosphere moving together, and the accretion rate arriving at the
+shock about $10^7$ s after it rises at the boundary. Runs E1 and A1 show the failures before the fixes.
 
-- resolve the shock with the adaptive grid and a larger grid time scale, so the grid can follow the shock without
-  shredding it;
-- review the artificial viscosity and the stiffness of the gas–radiation coupling behind a Mach-200 shock (its
-  relaxation time is about 1 s);
-- choose the energy formulation (the total-energy row of @sec-titan-port conserves energy to round-off).
+{{< lab "p=qstar&run=R2&v=T" "Open the infall run in the lab" >}}
 :::
 
-{{< lab "p=qstar&run=E1&v=T" "Open the infall run in the lab" >}}
+::: {.callout-warning title="Open"}
+- **The adaptive grid.** It still holds the time step to about 0.05 s: as the grid follows the envelope–infall contact,
+  densities in the zones crossing it change by 10 % per step.
+- **The accreted mass has nowhere to go.** A moving inner boundary, or a sink for the accreted mass, is needed before a
+  run can be compared with the steady branches.
+- **First-order time stepping.** The longest steps, up to $10^5$–$10^7$ s, are implicit and stable but not
+  time-accurate on the infall crossing time ($\sim\!10^7$ s across $0.2R$).
+:::

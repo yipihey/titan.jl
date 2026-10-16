@@ -25,8 +25,9 @@ of {{< var build.date >}} (rendered {{< var build.rendered >}}) by the
 - **The TITAN port** (`julia/`) is verified against the original Fortran in three
   tiers (@sec-port-method); the record is `docs/PORTING_NOTES.md`. The TITAN figures
   replay stored run output; they are not recomputed in the browser.
-- **Open items** are stated where they arise. The main one is that the TITAN infall
-  runs do not yet survive the accretion shock (@sec-titan-infall).
+- **Open items** are stated where they arise. The TITAN infall runs now survive the accretion shock up to
+  $3\,M_\odot\,{\rm yr}^{-1}$, but the accreted mass has no sink and the adaptive grid is still too slow
+  (@sec-infall-runs).
 
 ## Lineage
 

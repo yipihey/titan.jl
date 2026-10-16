@@ -1395,3 +1395,59 @@ Design decisions (Tom, 16 Oct 2026):
 - **Steady-model tables regenerated** (16 Oct): the browser port of the steady model showed that `steady/output/branches.csv` of
   15 Oct came from an older code (R off by up to 4.6e-3). `branches.jl`, `fold.jl`, `validate2.jl`, `run_grid.jl` were rerun;
   no root appears or disappears. The book (`report/`) uses the regenerated numbers.
+
+### P7.5 Infall: stable dynamical runs [run]
+Four defects, found one after the other by stepping the stalled run E1 (`julia/stepdiag.jl`: per step the limiting variable
+and zone; `julia/newtrace.jl`: per Newton iteration the largest correction, and a scan of the residual along the Newton
+direction). None of them is in TITAN's own test problems; all are triggered by thin gas in a strong radiation field.
+
+1. **Artificial viscosity too short.** The quasi-star set-up had `ql1 = 1e-5` (viscous length 1e-5 r ≈ 0.2 zones at R).
+   A planar Noh test (`julia/infall_tests.jl noh1d`, Mach 200, 100 zones, `ProblemSetup.jl` builds the state): with a
+   0.2-zone length the shock lags 10–12 zones, the post-shock density is 75 % off and velocities oscillate to 0.13 v0; with
+   2 zones (`ql0 = 2Δx`, `cq2 = 1`) the shock is within 0.5 zones and ρ within 3.7 %, also at Mach 2000 and on the adaptive
+   grid. Infall runs now use `QS_SET=ql1=1e-4,cq2=1` (≈2 zones).
+2. **Gas energy by cancellation.** `Z0Physics.gas_e` and the material's e_g were e_int − aT⁴/ρ. Behind the shock aT⁴/ρ is up
+   to 1e11 times e_g, so e_g kept ~5 digits; the residual is a staircase in T with 1e-5 steps and Newton 2-cycles at
+   dmax = 1.2e-5/2.0e-5 just above `conv = 1e-5` (residual scan: piecewise constant with jumps of the full residual size).
+   Every such step was cut by 20, so dt stayed at 1e-3 s. Fixed by computing e_g directly (`Z0._egas`). dt then grows to 200 s.
+3. **Eddington-factor source function.** eddfac used thermal absorption = χ_F ρ − σ_T n_e (TITAN's grey opacities make
+   that exact). With a tabulated Rosseland χ_F that difference is table noise, and in 1e6 K gas it multiplies B ≈ 1e9 J:
+   f came out 0 or 1 in alternate zones and E decoupled zone by zone. For non-built-in materials the source is now
+   (κ_P ρ B + σ_T n_e J)/(κ_P ρ + σ_T n_e) (`TitanDriver.EDD_MATERIAL_SOURCE`, set by `TitanMaterials.use!`).
+4. **TITAN's gas + radiation energy row.** TITAN's energy row is for e_g + E/ρ; the gas temperature follows from its
+   difference with the radiation row. In the infall E/ρ ≈ 3e5 e_g, and the two rows advect e_g + E/ρ and E/ρ with separate
+   van Leer limiters, so the gas energy is the small difference of two discretisation errors: zones ahead of the shock
+   cooled to 400 K inside a 6000 K radiation field and the run stopped (6 dt cuts). `TitanResidFast.GASROW[] = true`
+   uses the gas-only row Δ(m e_g)/dt + advection(e_g) + p∇·u + Q_visc + MLT = −(cκ_E E − 4πκ_P B)ρ dV. Algebraically equal
+   and still conservative (the exchange term is the radiation row's with opposite sign). Check (`gasrow_check.jl`): SUBC
+   587/587 steps, profiles equal to 7e-8; SUPC 713 vs 693 steps, median |ΔT/T| 6e-4 (different end time, 0.6 %).
+   Default stays false (TITAN).
+
+Physics added on the way:
+- **Compton exchange** (`TitanResidFast.COMPTON`): Λ_C = 4σ_T n_e c E k(T − T_r)/(m_e c²), in the radiation row and the gas
+  row, fully implicit. Behind a 1e8 K shock in E ≈ 10 erg/cm³ it cools in t_C ≈ 1.5e6 s, far faster than free-free.
+  `compton_box.jl`: relaxation of 1e8 K gas in an optically thick box against an RK4 reference including free-free;
+  max |ΔT/T| 0.32 / 0.085 / 0.027 for stol 0.1 / 0.03 / 0.01 (first order in dt, as the scheme).
+- **Opacity below the table** (`Z0Physics.EXTRAP_LOWR`, default on): log κ extrapolated linearly in log R instead of
+  clamped. The corona (1e7–1e8 K, 1e-17 g/cm³) lies below log R = −20; clamping overstated κ_P, and free-free cooling, by
+  30–100×. The extrapolation reproduces κ_P ∝ ρ of the in-table values exactly.
+
+**Runs** (`qstar_run.jl relax`, all with `QS_SET=ql1=1e-4,cq2=1 QS_GASROW=1 QS_COMPTON=1 QS_RAMP_FAC=1000 QS_RAMP_T=2e6`,
+Eulerian grid, `Z0_TABLE=ext`; analysed with `qstar_analyze.jl`):
+- G0 / G1 (outer boundary 2R, ramp ×100, before the Compton and opacity changes): G0 with TITAN's row fails at 2.5e4 s
+  as E1; G1 with the gas row runs to 1e7 s in 3336 steps.
+- **R2** (outer boundary 1.2R so that the ramped inflow reaches the star within the run; Ṁ from 3e-3 to 3 M⊙/yr):
+  13 942 steps to 6e7 s, typical dt 1e3–3e4 s, no failure. Two regimes:
+  * low Ṁ (≲0.03 M⊙/yr at the shock, t ≲ 1.5e7 s): the infall shocks to 2e7–1e8 K and does not cool (free-free time ≫
+    run; Compton ~1e6 s). A hot, tenuous layer (ρ ~ 1e-17) grows above the photosphere; the shock moves out to 1.010 R;
+    the photosphere stays at 0.995–0.999 R with T_eff ≈ 7300 K, L ≈ L0.
+  * Ṁ ≈ 3 M⊙/yr at the shock (t ≳ 2.8e7 s): the shock collapses onto the photosphere and becomes radiative (isothermal:
+    pre-shock gas at T_r ≈ 6500 K, compressed ~2000×), with intermittent hot episodes (T_peak up to 4e6 K).
+    The photosphere contracts steadily: r_ph/R = 0.9945 (2.8e7 s), 0.9898 (4.3e7 s), 0.9868 (5.8e7 s), T_eff 7330–7410 K,
+    L_ph = 1.007–1.05 L0. 4.4 M⊙ accreted onto the grid by 6e7 s. Not yet stationary.
+  * For comparison the steady model's large-R root at Ṁ = 3 (f_BH = 0.1) has R = 0.9876 R0, T_eff = 7359 K: the run is
+    passing through it, not settling on it (yet). [interpretation: the contraction is the outer envelope adjusting to the
+    ram pressure on a time longer than the run; continuation R2c to 2.5e8 s is running]
+- R2L (half resolution, 70 + 40 zones): same sequence; at Ṁ ≈ 3 r_ph/R = 0.9937 (3.6e7 s), 0.9891 (5.4e7 s), T_eff 7360–7400 K.
+- R2A (adaptive grid): still limited to dt ≈ 0.045 s by ρ changes of 10 % per step in the zone at the envelope–infall
+  contact as the grid moves through it; stopped. Open.
