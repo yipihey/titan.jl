@@ -1,0 +1,16 @@
+wave reference (Trbdf2, N = 4096): t = 2.080812e+03 (T_end 2.080812e+03)
+cn      N =    8  t = 2.080812e+03  error = 8.479e-04  order NaN
+cn      N =   16  t = 2.080812e+03  error = 8.310e-05  order 3.35
+cn      N =   32  t = 2.080812e+03  error = 1.414e-05  order 2.56
+cn      N =   64  t = 2.080812e+03  error = 3.524e-06  order 2.00
+cn      N =  128  t = 2.080812e+03  error = 1.483e-06  order 1.25
+be      N =    8  t = 2.080812e+03  error = 4.427e-01  order NaN
+be      N =   16  t = 2.080812e+03  error = 2.617e-01  order 0.76
+be      N =   32  t = 2.080812e+03  error = 1.423e-01  order 0.88
+be      N =   64  t = 2.080812e+03  error = 7.411e-02  order 0.94
+be      N =  128  t = 2.080812e+03  error = 3.780e-02  order 0.97
+trbdf2  N =    8  t = 2.080812e+03  error = 8.958e-04  order NaN
+trbdf2  N =   16  t = 2.080812e+03  error = 1.117e-04  order 3.00
+trbdf2  N =   32  t = 2.080812e+03  error = 1.652e-05  order 2.76
+trbdf2  N =   64  t = 2.080812e+03  error = 3.335e-06  order 2.31
+trbdf2  N =  128  t = 2.080812e+03  error = 1.287e-06  order 1.37

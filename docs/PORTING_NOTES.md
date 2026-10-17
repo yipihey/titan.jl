@@ -1442,14 +1442,14 @@ Eulerian grid, `Z0_TABLE=ext`; analysed with `qstar_analyze.jl`):
     run; Compton ~1e6 s). A hot, tenuous layer (ρ ~ 1e-17) grows above the photosphere; the shock moves out to 1.010 R;
     the photosphere stays at 0.995–0.999 R with T_eff ≈ 7300 K, L ≈ L0.
   * Ṁ ≈ 3 M⊙/yr at the shock (t ≳ 2.8e7 s): the shock collapses onto the photosphere and becomes radiative (isothermal:
-    pre-shock gas at T_r ≈ 6500 K, compressed ~2000×), with intermittent hot episodes (T_peak up to 4e6 K).
-    The photosphere contracts steadily: r_ph/R = 0.9945 (2.8e7 s), 0.9898 (4.3e7 s), 0.9868 (5.8e7 s), T_eff 7330–7410 K,
-    L_ph = 1.007–1.05 L0. 4.4 M⊙ accreted onto the grid by 6e7 s. Not yet stationary.
+    pre-shock gas at T_r ≈ 6700 K, compressed 2600–6800×), with intermittent hot episodes (T_peak up to 2.8e7 K).
+    The photosphere contracts steadily: r_ph/R = 0.9945 (2.8e7 s), 0.9898 (4.3e7 s), 0.9868 (5.8e7 s), T_eff 7260–7450 K,
+    L_ph = 0.98–1.07 L0. 4.4 M⊙ accreted onto the grid by 6e7 s. Not yet stationary.
   * For comparison the steady model's large-R root at Ṁ = 3 (f_BH = 0.1) has R = 0.9876 R0, T_eff = 7359 K: the run is
     passing through it, not settling on it (yet). [interpretation: the contraction is the outer envelope adjusting to the
     ram pressure on a time longer than the run; continuation R2c to 2.5e8 s is running] — superseded: see P7.6, the
     contraction is not caused by the missing sink or the time step, and the adaptive grid does not show it.
-- R2L (half resolution, 70 + 40 zones): same sequence; at Ṁ ≈ 3 r_ph/R = 0.9937 (3.6e7 s), 0.9891 (5.4e7 s), T_eff 7360–7400 K.
+- R2L (half resolution, 70 + 40 zones): same sequence; at Ṁ ≈ 3 r_ph/R = 0.9937 (3.6e7 s), 0.9891 (5.4e7 s), T_eff 7270–7400 K.
 - R2A (adaptive grid): still limited to dt ≈ 0.045 s by ρ changes of 10 % per step in the zone at the envelope–infall
   contact as the grid moves through it; stopped. Open.
 
@@ -1464,7 +1464,7 @@ value: Ṁ_sink = max(0, M_s − M_s0)/τ. The inner wall itself stays at rest.
   −8.5 M⊙"), and every advective flux derived from dm_e/dt was off. Fixed (`FIX_PHIL0`, default on; SUBC unchanged,
   587/587 steps).
 - Runs S6 (τ = 1e6 s) and S7 (τ = 1e7 s), otherwise as R2 to 1.2e8 s: the excess mass below the shock levels off at
-  1.2 and 2.0 M⊙ (R2: 10 M⊙ by 1.7e8 s); 8.8 / 7.9 M⊙ moved onto the point mass. **The photosphere contracts exactly as
+  1.2 and 2.0 M⊙ (R2/R2c: ~14.5 M⊙ by 1.66e8 s); 8.8 / 7.9 M⊙ moved onto the point mass. **The photosphere contracts exactly as
   without the sink** (r_ph/R: 0.9868 at 5.7e7 s and 0.9841 at 1.16e8 s in S6; 0.9868 and 0.9841 in R2/R2c). The
   accumulated mass was therefore not the cause.
 
@@ -1473,7 +1473,7 @@ over γΔ (γ = 2 − √2). Stage 2: BDF2, written as backward Euler over (1−
 on the conserved quantities the residual reads (m, m e_g, m(e_g + E/ρ), E dV, mass-weighted momentum, the flux-row
 inertia F·2M/(ρ₋ + ρ₊), exterior mass). Eulerian grid only. Needed on the way: the Compton term was fully implicit,
 which made even θ = ½ first order; it is now θ-weighted like the other exchange terms.
-- `order_test.jl` (fixed steps, error against N = 4096 or 16384): Compton box: TR-BDF2 2.00, θ = ½ 2.00, backward Euler
+- `order_test.jl` (fixed steps, error against N = 4096 or 16384; outputs stored in `reference_runs/order_test/`): Compton box: TR-BDF2 2.00, θ = ½ 2.00, backward Euler
   1.00 (errors at N = 128: 2.5e-5, 6.2e-5, 1.6e-2). Standing sound wave, 64 zones, amplitude 1e-3 c_s: TR-BDF2 3.0 → 2.3
   down to an absolute floor ≈ 1e-9 c_s (not identified; Newton tolerance and van Leer slopes ruled out); backward Euler
   0.76 → 0.97. Radiating wave (grey, τ = 1 per zone): pre-asymptotic up to N = 2048: TR-BDF2 1.4–1.7, θ = ½ 1.7–1.85, backward
@@ -1481,9 +1481,10 @@ which made even θ = ½ first order; it is now θ-weighted like the other exchan
 - The implicit-midpoint stage fails Newton at an under-resolved shock where backward Euler converges. Fallback: the same
   Δ is retried with backward Euler, and the next 10 steps stay with it (`FALLBACK_BE`, `STICKY`). Those steps are first
   order.
-- Run T2 (as S6, TR-BDF2, to 4e7 s): r_ph(t) equal to S6 within 1e-4 R at every 5e6 s.
-- **Courant cap** (`QS_CFL`): run K1 (as S6, Δt ≤ min Δr/|u|, about 2.5e3 s instead of up to 3e5 s): r_ph(t) equal to S6
-  within 1e-3 R up to 9e7 s (K1 then failed at 9.5e7 s; not investigated). On the Eulerian grid the result does not
+- Run T2 (as S6, TR-BDF2, to 4e7 s): r_ph on the same zone edge as S6 at every 5e6 s (i.e. equal to the zone width,
+  ~1e-3 R near the photosphere).
+- **Courant cap** (`QS_CFL`): run K1 (as S6, Δt ≤ min Δr/|u|, about 2.5e3 s instead of up to 3e5 s): r_ph(t) within one zone
+  (≤ 9.6e-4 R) of S6 up to 9e7 s; S6 has no snapshot between 7.6e7 and 1.16e8 s (K1 failed at 9.5e7 s; not investigated). On the Eulerian grid the result does not
   depend on the time step.
 
 **Adaptive grid.** Diagnosis of the 0.05 s steps: the zones sweep across the envelope–infall contact, or later across
@@ -1491,18 +1492,32 @@ the single-zone radiative shock (a 600× density jump), so their contents change
 grid frozen (τ_grid = 1e30), the adaptive code reproduces the Eulerian steps exactly, so the lgrid = 1 path is
 consistent; the problem is how fast the grid moves. With τ_grid = 1e3 s the grid equation's imbalance at the jump
 (x_ν² S ~ 1e6) moves interfaces at up to 1e10 cm/s. With τ_grid = 1e7 s and weights (exterior mass 1, ln ρ 1e-2, ln T 0)
-the grid concentrates zones gradually and steps of 1e2–1e5 s are taken.
+the grid concentrates zones gradually and the run proceeds (AD1: median step ~830 s, 10 % of steps < 15 s, maximum
+  2.4e5 s). The diagnosis numbers above (0.05 s steps, 10 %/step, 1e10 cm/s, frozen grid) are from interactive
+  `stepdiag.jl` sessions, not stored runs.
 - `to_adaptive.jl` switches a saved Eulerian state to lgrid = 1 (first and last zone pairs re-split to equal width,
   conserving mass and energies, keeping the profile shape: equal values in the two zones made the MLT gradient 0/0).
 - **AD1** (R2 at 6e7 s → adaptive, to 1.2e8 s, 15 150 steps) and **AD2** (same, ln ρ weight 0.1): the grid shrinks the
-  zones at the shock to 1e-6 R and resolves **a hot post-shock cooling layer**: 3.6e7 K right behind the shock (the
-  strong-shock value 3/16 μm_H v²/k ≈ 3.8e7 K), cooling to 6700 K over ~1.5e-3 R. The Eulerian zones there are 8e-4 R;
+  zones to 0.4–1.5e-4 R at the velocity jump and to ~1e-6 R (minimum 3.4e-7 R) at the bottom of the cooling layer, and
+  resolves **a hot post-shock cooling layer**: 3.6e7 K right behind the shock (the
+  strong-shock value 3/16 μm_H v²/k ≈ 3.8e7 K), cooling to 6900 K over ~1.3e-3 R. The Eulerian zones there are 8e-4 R;
   the Eulerian runs collapse this layer into one cool zone. [estimate: Compton cooling time behind the shock ≈ 2e6 s,
   times v/4 ≈ 4e7 cm/s gives ~1e-2 R; the layer is shorter because the gas compresses and free–free cooling grows as it
   cools]
-- With the layer resolved **the photosphere stops contracting**: r_ph/R falls to 0.983 by 7e7 s and then rises to
-  0.9894–0.9898 (1.07–1.2e8 s), with L_ph = 0.91–0.92 L0 and T_eff = 7220–7240 K. AD1 and AD2 agree on r_ph to 3e-4 R,
-  L_ph to 0.01 L0, T_eff to 15 K; their peak temperatures differ (3.4e7 vs 1.4–1.8e7 K, the jump itself is resolved
+- With the layer resolved **the photosphere turns round**: right after the switch it contracts faster than the Eulerian
+  run (min 0.9824 at 7.28e7 s in AD1, 0.9826 at 6.74e7 s in AD2), then rises from ~7.5e7 s to 0.9894–0.9898
+  (1.07–1.2e8 s), with L_ph = 0.91–0.92 L0 and T_eff = 7220–7240 K. Over 1.07–1.2e8 s AD1 and AD2 agree to 1e-4 R,
+  0.004 L0, 8 K (from 6.5e7 s on: up to 9e-4 R, 0.046 L0, 85 K); their peak temperatures differ (3.4e7 vs 1.4–1.8e7 K, the jump itself is resolved
   differently). The Eulerian runs at the same times: r_ph 0.984, L_ph 0.97–1.02 L0 (R2c, S6).
+- **R2A** (adaptive from the set-up: `QS_LGRID=1 QS_GRIDTAU=1e7 QS_LADY=2,2,0 QS_GRIDW=1,1e-2,0`, otherwise R2; 18 295
+  steps to 1.22e8 s): r_ph/R has a minimum of 0.9873 at 6.6e7 s and is back at 0.9910 at 1.22e8 s (T_eff 7244 K,
+  L_ph 0.97 L0). AD1 at the same time: 0.9894, 0.92 L0, T_eff 7243 K; Eulerian S6: 0.9831. The adaptive runs agree on
+  the behaviour (minimum, then re-expansion; its depth depends on the start) but at 1.2e8 s still remember their start.
+  The steady root at Ṁ = 3 has L = 1.02 L0 (R²T_eff⁴, accretion luminosity included), so the adaptive deficit is ~10 %.
+- **R2AH** (adaptive, 200 + 114 zones): stalled at 2.53e7 s (Δt → 1e-3 s) with the MLT flux of one zone just below the
+  shock (1.2e4 K, Δr = 7e-5 R) oscillating up to 2 L0. MLT coefficients are lagged (from the Newton iterate, not in the
+  Jacobian), the likely cause [interpretation]. Stopped; convergence in zone count still open.
+- Verification: an independent pass checked every number of this section and of chapter 7 against the snapshots
+  (11 corrections applied, 17 Oct).
 - **Conclusion so far:** the late, high-Ṁ evolution of R2 is set by an under-resolved shock. The adaptive runs are the
   better approximation; they are not yet a converged answer (one zone count, mgr = 330 caps the number of zones).

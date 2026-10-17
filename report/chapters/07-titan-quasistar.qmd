@@ -118,9 +118,9 @@ $2.6\times10^8$ s, with no failed step **[computed]**. Two regimes appear.
   out to $1.01R$. Underneath, the photosphere is undisturbed: $r_{\rm ph} = 0.995$–$0.999R$, $T_{\rm eff} \approx
   7300$ K, $L \approx L_0$.
 - **$\dot M \approx 3\,M_\odot\,{\rm yr}^{-1}$ at the shock** (from $t \approx 2.8\times10^7$ s). The shock falls onto the
-  photosphere and becomes radiative. The pre-shock gas sits at the radiation temperature, about 6500 K, and is
-  compressed about 2000-fold, with short hot episodes in which the peak temperature reaches $10^6$–$3\times10^7$ K.
-  $T_{\rm eff}$ stays at 7300–7450 K and the emergent luminosity within 5 % of $L_0$. The photosphere, however,
+  photosphere and becomes radiative. The pre-shock gas sits at the radiation temperature, about 6700 K, and is
+  compressed 3000–7000-fold, with short hot episodes in which the peak temperature reaches $10^6$–$3\times10^7$ K.
+  $T_{\rm eff}$ stays at 7260–7460 K and the emergent luminosity within 7 % of $L_0$. The photosphere, however,
   **contracts steadily**: from $0.9945R$ at $2.8\times10^7$ s to $0.9868R$ at $5.8\times10^7$ s and $0.978R$ at
   $1.7\times10^8$ s **[computed]**.
 
@@ -130,7 +130,7 @@ is the same at all three resolutions **[computed]**.
 
 **The three open items.** To test this result, we added an inner mass sink, second-order time stepping and a usable
 adaptive grid (@sec-infall-sink, @sec-infall-time, @sec-infall-adaptive). The first two leave R2 unchanged. The third
-does not: on the adaptive grid the photosphere stops contracting, because the Eulerian grid does not resolve the
+does not: on the adaptive grid the photosphere turns round and re-expands, because the Eulerian grid does not resolve the
 layer behind the shock in which the gas cools.
 
 ```{=html}
@@ -150,7 +150,7 @@ about $10^7$ s after it rises at the boundary. Runs E1 and A1 show the failures 
 
 ### A sink for the accreted mass {#sec-infall-sink}
 
-In R2 the inner boundary is a closed wall, so everything that falls in stays in the shell (10 $M_\odot$ by
+In R2 the inner boundary is a closed wall, so everything that falls in stays in the shell (about 14 $M_\odot$ by
 $1.7\times10^8$ s). The steady model instead lets the accreted mass flow through the envelope to the black hole. The
 inner wall can now pass mass onto the central point mass, carrying the enthalpy of gas and radiation with it. A
 controller holds the mass below the shock at its initial value, with a relaxation time $\tau$.
@@ -181,9 +181,10 @@ All three are **[computed]**. One fix was needed first: the Compton term had bee
 $\theta = 1/2$ first order.
 
 At an under-resolved shock the midpoint stage can fail to converge where backward Euler succeeds. The step is then
-retried with backward Euler, and those steps are first order. On the quasi-star (run T2), TR-BDF2 reproduces the
-backward-Euler photosphere to $10^{-4}R$. So does a run whose step is capped by the Courant time $\Delta r/|u|$ (K1),
-to $10^{-3}R$ **[computed]**. On the Eulerian grid, the time step is not what sets the answer.
+retried with backward Euler, and those steps are first order. On the quasi-star (run T2), TR-BDF2 puts the photosphere on the same
+zone edge as backward Euler at every check up to $4\times10^7$ s, which on this grid means agreement to the zone width,
+about $10^{-3}R$. So does a run whose step is capped by the Courant time $\Delta r/|u|$ (K1, up to $9.5\times10^7$ s, where
+it stopped for a reason not yet known) **[computed]**. On the Eulerian grid, the time step is not what sets the answer.
 
 ### The adaptive grid, and the layer behind the shock {#sec-infall-adaptive}
 
@@ -193,29 +194,46 @@ changes its contents by 10 % per step, whatever the step. With the grid frozen, 
 Eulerian steps, so the implementation is consistent. The problem was the speed of the grid: its relaxation time
 $\tau_{\rm grid} = 10^3$ s let interfaces move at up to $10^{10}$ cm s$^{-1}$ near the jump. With
 $\tau_{\rm grid} = 10^7$ s and a weak weight on density gradients, the grid concentrates its zones gradually, and
-steps of $10^2$–$10^5$ s are taken **[computed]**.
+the run proceeds, with a median step of about 800 s (from about 1 s, in episodes, to $2\times10^5$ s)
+**[computed]**.
 
-Run AD1 continues R2 from $6\times10^7$ s on that grid. Near the shock its zones shrink to $10^{-6}R$, against
-$8\times10^{-4}R$ on the Eulerian grid. The grid then resolves **a hot cooling layer behind the shock**. The gas there
+Run AD1 continues R2 from $6\times10^7$ s on that grid. Its zones shrink to $(0.4$–$1.5)\times10^{-4}R$ at the shock and
+to $10^{-6}R$ at the bottom of the layer behind it, where the density climbs steeply; the Eulerian zones there are
+$8\times10^{-4}R$. The grid then resolves **a hot cooling layer behind the shock**. The gas there
 starts at $3.6\times10^7$ K, the strong-shock value $\tfrac{3}{16}\mu m_{\rm H}v^2/k$, and cools to 6700 K over about
-$1.5\times10^{-3}R$. The Eulerian runs had smeared this layer into a single cool zone.
+$1.3\times10^{-3}R$. The Eulerian runs had smeared this layer into a single cool zone.
 
-With the layer resolved, **the photosphere stops contracting**. It reaches $0.983R$ at $7\times10^7$ s and then moves
-back out to $0.9894$–$0.9898R$ between $1.07$ and $1.2\times10^8$ s. Over that interval
-$L_{\rm ph} = 0.91$–$0.92L_0$ and $T_{\rm eff} = 7220$–7240 K. A second run with a ten times stronger density weight
-(AD2) agrees to $3\times10^{-4}R$, $0.01L_0$ and 15 K. The two runs differ only in the peak temperature, because the
-jump itself is resolved differently. The Eulerian runs at the same times have $r_{\rm ph} = 0.984R$ **[computed]**.
+With the layer resolved, **the photosphere turns round**. Right after the switch it first contracts faster than on
+the Eulerian grid, to $0.982R$ at $7.3\times10^7$ s, and from about $7.5\times10^7$ s it moves back out, to
+$0.9894$–$0.9898R$ between $1.07$ and $1.2\times10^8$ s. Over that last interval $L_{\rm ph} = 0.91$–$0.92L_0$ and
+$T_{\rm eff} = 7220$–7240 K. A second run with a ten times stronger density weight (AD2) agrees with it over that
+interval to $10^{-4}R$, $0.004L_0$ and 8 K; earlier, during the dip, the two differ by up to $9\times10^{-4}R$ and
+$0.05L_0$. Their peak temperatures differ, because the jump itself is resolved differently. The Eulerian runs at the same times have $r_{\rm ph} = 0.984R$ **[computed]**.
 
 **What this means.** The late, high-$\dot M$ evolution of R2, and its contraction, was set by an under-resolved shock.
 The adaptive runs are the better approximation. They are not yet a converged answer, though: there is one zone count,
 and TITAN's array size (330 zones) limits how many more we can add. Their photosphere, $0.990R_0$ with
 $T_{\rm eff} \approx 7230$ K and $L \approx 0.91L_0$, is close to but not at the steady model's large-radius root at
-$\dot M = 3\,M_\odot\,{\rm yr}^{-1}$: $R = 0.9876R_0$, $T_{\rm eff} = 7359$ K, $L = L_0$ (@sec-branches). The luminosity
-deficit means the envelope is still absorbing energy, so the run has not reached a steady state
-**[interpretation]**. RUNR2A
+$\dot M = 3\,M_\odot\,{\rm yr}^{-1}$: $R = 0.9876R_0$, $T_{\rm eff} = 7359$ K, hence $L = 1.02L_0$ including the accretion
+luminosity (@sec-branches). The luminosity deficit means the envelope is still absorbing energy, so the run has not reached a steady state
+**[interpretation]**.
+
+**On the adaptive grid from the start.** Run R2A uses the adaptive grid from $t = 0$, with everything else as in R2.
+It contracts more gently, to a minimum of $0.9873R$ at $6.6\times10^7$ s, then expands to $0.9910R$ at
+$1.22\times10^8$ s, with $T_{\rm eff} = 7244$ K and $L_{\rm ph} = 0.97L_0$. AD1 inherited R2's contracted state. At
+that time it is at $0.9894R$ and $0.92L_0$, with the same $T_{\rm eff}$ to within 1 K. The Eulerian run with the sink
+(S6) is at $0.9831R$ **[computed]**. All three adaptive runs reach a minimum and then re-expand, unlike the Eulerian
+runs; how deep the minimum is depends on where they started, and at $1.2\times10^8$ s they still remember it.
+
+A finer adaptive run (1.4 times the zones, run R2AH) did not get far enough to check convergence. At
+$2.5\times10^7$ s its time step collapsed to $10^{-3}$ s while the convective flux in one zone just below the shock
+(cooled gas at $1.2\times10^4$ K, zone width $7\times10^{-5}R$) oscillated up to $2L_0$ **[computed]**. The mixing-length
+coefficients are taken from the previous Newton iterate and not differentiated, which is a likely cause
+**[interpretation]**.
 
 ::: {.callout-warning title="Open"}
-- **Convergence at the shock.** A second adaptive zone count, which requires raising TITAN's array size.
+- **Convergence at the shock.** The finer adaptive run stalls on an oscillating convective flux; the mixing-length
+  coefficients need to enter the Newton Jacobian. More zones also need a larger TITAN array (330 zones).
 - **A steady state.** Longer runs, to see whether the luminosity deficit closes and where the photosphere settles.
 - **Courant-capped run K1** stopped at $9.5\times10^7$ s; the reason is not yet known.
 :::

@@ -1,0 +1,13 @@
+radwave reference (Trbdf2, N = 16384): t = 2.080812e+03 (T_end 2.080812e+03)
+cn      N =  256  t = 2.080812e+03  error = 8.601e-01  order NaN
+cn      N =  512  t = 2.080812e+03  error = 2.385e-01  order 1.85
+cn      N = 1024  t = 2.080812e+03  error = 6.901e-02  order 1.79
+cn      N = 2048  t = 2.080812e+03  error = 2.094e-02  order 1.72
+be      N =  256  t = 2.080812e+03  error = 4.687e+00  order NaN
+be      N =  512  t = 2.080812e+03  error = 3.785e+00  order 0.31
+be      N = 1024  t = 2.080812e+03  error = 2.655e+00  order 0.51
+be      N = 2048  t = 2.080812e+03  error = 1.630e+00  order 0.70
+trbdf2  N =  256  t = 2.080812e+03  error = 5.048e-01  order NaN
+trbdf2  N =  512  t = 2.080812e+03  error = 1.579e-01  order 1.68
+trbdf2  N = 1024  t = 2.080812e+03  error = 5.408e-02  order 1.55
+trbdf2  N = 2048  t = 2.080812e+03  error = 1.990e-02  order 1.44

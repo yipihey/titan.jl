@@ -1,0 +1,16 @@
+compton reference (Trbdf2, N = 4096): t = 5.946478e+06 (T_end 5.946478e+06)
+cn      N =    8  t = 5.946478e+06  error = 1.640e-02  order NaN
+cn      N =   16  t = 5.946478e+06  error = 3.996e-03  order 2.04
+cn      N =   32  t = 5.946478e+06  error = 9.929e-04  order 2.01
+cn      N =   64  t = 5.946478e+06  error = 2.479e-04  order 2.00
+cn      N =  128  t = 5.946478e+06  error = 6.193e-05  order 2.00
+be      N =    8  t = 5.946478e+06  error = 2.506e-01  order NaN
+be      N =   16  t = 5.946478e+06  error = 1.279e-01  order 0.97
+be      N =   32  t = 5.946478e+06  error = 6.462e-02  order 0.99
+be      N =   64  t = 5.946478e+06  error = 3.247e-02  order 0.99
+be      N =  128  t = 5.946478e+06  error = 1.628e-02  order 1.00
+trbdf2  N =    8  t = 5.946478e+06  error = 6.632e-03  order NaN
+trbdf2  N =   16  t = 5.946478e+06  error = 1.632e-03  order 2.02
+trbdf2  N =   32  t = 5.946478e+06  error = 4.055e-04  order 2.01
+trbdf2  N =   64  t = 5.946478e+06  error = 1.011e-04  order 2.00
+trbdf2  N =  128  t = 5.946478e+06  error = 2.523e-05  order 2.00
