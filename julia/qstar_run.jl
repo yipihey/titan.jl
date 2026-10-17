@@ -151,6 +151,7 @@ elseif mode == "relax"
         push!(snaps, snap()); (length(snaps) - 1, :failed)
     end
     @printf("relax: %d steps (%s) in %.1f s, t = %.4e s\n", n, why, time() - t0, TF.getscalar(:timen))
+    TD.STEPFN[] === Trbdf2.step! && println("TR-BDF2 statistics: ", Trbdf2.STATS)
     serialize(joinpath(outdir, "$(name)_relax_snaps.jls"), snaps)
     TF.save_state(joinpath(outdir, "$(name)_relaxed.tstate.gz"))
 else

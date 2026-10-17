@@ -12,7 +12,8 @@ One step of size Δ from y_n:
    mass-weighted momentum, the flux-row inertia F·2M/(ρ₋+ρ₊), the exterior mass coordinate), so y* is formed on those
    and written back into the old arrays (do, ego, egro, ero, uo, fro, xmeo). Terms with weight 1 − θ vanish at θ = 1.
 After the step the old arrays are restored to y_n, so TITAN's step-size control (timstp) and the energy ledger see the
-whole step Δ. A failed Newton iteration in either stage restarts the step from y_n with Δ × TFAC[].
+whole step Δ. If either stage fails, the same Δ is retried with backward Euler (FALLBACK_BE); only if that fails too is
+the step restarted from y_n with Δ × TFAC[]. Steps taken that way are first order (counted in STATS[:be_fallback]).
 
 Limits: lgrid = 2 only (on a moving grid the volumes in y* would also have to be combined); the energy ledger (totnrg)
 books the step as one backward-Euler step, so it is approximate.
@@ -28,7 +29,12 @@ vf(s) = TF.var(s)::Vector{Float64}
 const γ = 2 - sqrt(2)
 const A = 1 / (γ * (2 - γ)); const B = (1 - γ)^2 / (γ * (2 - γ)); const C2 = (1 - γ) / (2 - γ)
 const TFAC = Ref(0.05)
-const STATS = Dict(:steps => 0, :fail_tr => 0, :fail_bdf => 0)
+const STATS = Dict(:steps => 0, :fail_tr => 0, :fail_bdf => 0, :be_fallback => 0)
+"If either stage fails, retry the same Δ with backward Euler (θ = 1) before cutting Δ (default true). The implicit
+midpoint stage is not dissipative and fails at under-resolved shocks where backward Euler converges."
+const FALLBACK_BE = Ref(true)
+"After a fallback, the next STICKY[] steps go straight to backward Euler (saves the failing TR stage)."
+const STICKY = Ref(10); const BE_LEFT = Ref(0)
 const OLD = (:do, :ego, :egro, :ero, :fro, :uo, :xmeo)
 const SAVE = Dict{Symbol,Vector{Float64}}()
 save!() = (for s in OLD; copyto!(get!(() -> similar(vf(s)), SAVE, s), vf(s)); end)
@@ -57,7 +63,7 @@ function bdf_old!()
     dn, dvn, egn, un, xmen = vf(:dn), vf(:dvoln), vf(:egn), vf(:un), vf(:xmen)
     d0, dv0, eg0, u0, xm0 = SAVE[:do], vf(:dvolo), SAVE[:ego], SAVE[:uo], SAVE[:xmeo]
     do_, ego, uo, xmeo = vf(:do), vf(:ego), vf(:uo), vf(:xmeo)
-    rng = a-1:b+2
+    rng = a:b                          # zones read by the residual's time-derivative terms (ghosts keep y_n)
     mγ(k) = dn[k] * dvn[k]; mn(k) = d0[k] * dv0[k]
     ms = zeros(length(dn))
     @inbounds for k in rng
@@ -67,8 +73,8 @@ function bdf_old!()
     @inbounds for k in rng
         ego[k] = (A * mγ(k) * egn[k] - B * mn(k) * eg0[k]) / ms[k]
         do_[k] = ms[k] / dv0[k]
-        xmeo[k] = A * xmen[k] - B * xm0[k]
     end
+    @inbounds for k in a-1:b+2; xmeo[k] = A * xmen[k] - B * xm0[k]; end
     if lrad
         egrn, ern, frn = vf(:egrn), vf(:ern), vf(:frn)
         egr0, er0, fr0 = SAVE[:egro], SAVE[:ero], SAVE[:fro]
@@ -77,13 +83,13 @@ function bdf_old!()
             egro[k] = (A * mγ(k) * egrn[k] - B * mn(k) * egr0[k]) / ms[k]
             ero[k] = (A * ern[k] * dvn[k] - B * er0[k] * dv0[k]) / dv0[k]
         end
-        @inbounds for k in a:b+2      # flux-row inertia Q = F·2M/(ρ₋ + ρ₊), M = m₋ + m₊
+        @inbounds for k in a+1:b      # flux-row inertia Q = F·2M/(ρ₋ + ρ₊), M = m₋ + m₊
             Qγ = frn[k] * 2 * (mγ(k-1) + mγ(k)) / (dn[k-1] + dn[k])
             Qn = fr0[k] * 2 * (mn(k-1) + mn(k)) / (d0[k-1] + d0[k])
             fro[k] = (A * Qγ - B * Qn) * (do_[k-1] + do_[k]) / (2 * (ms[k-1] + ms[k]))
         end
     end
-    @inbounds for k in a:b+2          # momentum: u·(m₋ + m₊)
+    @inbounds for k in a+1:b          # momentum: u·(m₋ + m₊) (boundary velocities are fixed)
         uo[k] = (A * un[k] * (mγ(k-1) + mγ(k)) - B * u0[k] * (mn(k-1) + mn(k))) / (ms[k-1] + ms[k])
     end
     true
@@ -98,6 +104,15 @@ function step!()
     s!(:jtry, 1); s!(:jback, 0)
     while true
         Δ = g(:dtime)
+        if BE_LEFT[] > 0                  # sticky backward-Euler phase after a fallback
+            BE_LEFT[] -= 1
+            s!(:thet, 1.0); s!(:timen, t0 + Δ)
+            ok = newton!(); s!(:thet, θ0)
+            if ok; STATS[:be_sticky] = get(STATS, :be_sticky, 0) + 1; break; end
+            restore!(); TD.msg(1)
+            s!(:tfac, TFAC[]); s!(:dtime, TFAC[] * Δ); s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)
+            r(:reset); s!(:timen, t0 + g(:dtime)); continue
+        end
         s!(:thet, 0.5); s!(:dtime, γ * Δ); s!(:timen, t0 + γ * Δ)
         ok = newton!()
         if !ok
@@ -113,6 +128,11 @@ function step!()
         end
         restore!(); s!(:thet, θ0); s!(:dtime, Δ); s!(:timen, t0 + Δ)
         ok && break
+        if FALLBACK_BE[]          # same Δ with backward Euler from y_n before cutting the step
+            r(:reset); s!(:thet, 1.0); s!(:timen, t0 + Δ)
+            ok = newton!(); s!(:thet, θ0)
+            ok && (STATS[:be_fallback] += 1; BE_LEFT[] = STICKY[]; break)
+        end
         TD.msg(1)
         s!(:tfac, TFAC[]); s!(:dtime, TFAC[] * Δ)
         s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)

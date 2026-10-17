@@ -262,7 +262,8 @@ function setup!(profile_csv; template = joinpath(TF.ROOT, "reference_runs", "ini
         s!(:ladx, 1); s!(:xscale, R); s!(:alph, 1.5); s!(:ibet, 1); s!(:tau, parse(Float64, get(ENV, "QS_GRIDTAU", "1e3")))
         la = TF.var(:lady); wt = TF.var(:wt); ys = TF.var(:yscl)
         la .= 0; wt .= 0.0
-        for (i, l) in enumerate(lady); la[i] = l; wt[i] = l > 0 ? 1.0 : 0.0; end
+        wts = parse.(Float64, split(get(ENV, "QS_GRIDW", join(ones(length(lady)), ",")), ","))   # weights of the lady terms
+        for (i, l) in enumerate(lady); la[i] = l; wt[i] = l > 0 ? wts[i] : 0.0; end
         ys[1] = xmtot
     end
     xmen = v(:xmen)

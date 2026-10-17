@@ -4,7 +4,7 @@
 include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "JuliaPhysics.jl"))
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
 include(joinpath(@__DIR__, "TitanCore.jl")); include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "TitanMaterials.jl"))
-include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "DampedNewton.jl"))
+include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "Trbdf2.jl")); include(joinpath(@__DIR__, "DampedNewton.jl"))
 using Printf
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const TM = TitanMaterials; const PS = ProblemSetup
 TF.load_state!(ARGS[1]); PS.install_julia!(BlockSolver)
@@ -12,6 +12,7 @@ if haskey(ENV, "QS_FREEZE")     # DampedNewton with branch freezing from iterati
     DampedNewton.KFREEZE[] = parse(Int, ENV["QS_FREEZE"]); DampedNewton.DTRIG[] = parse(Float64, get(ENV, "QS_DTRIG", "1e30"))
     TD.STEPFN[] = DampedNewton.step!
 end
+get(ENV, "QS_TRBDF2", "0") == "1" && (TD.STEPFN[] = Trbdf2.step!)
 TX.CONVECTION[] = get(ENV, "QS_CONV", "1") == "1"; TX.GASROW[] = get(ENV, "QS_GASROW", "0") == "1"; TX.COMPTON[] = get(ENV, "QS_COMPTON", "0") == "1"; TM.use!(TM.Z0Gas()); TD.MSGIO[] = stdout
 for kv in split(get(ENV, "QS_SET", ""), ","; keepempty = false)
     k, val = split(kv, "="); T = eltype(TF.var(Symbol(k))); TF.setscalar!(Symbol(k), T <: Integer ? T(parse(Int, val)) : parse(Float64, val))
