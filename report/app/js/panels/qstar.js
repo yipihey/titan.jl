@@ -7,8 +7,8 @@ const BOOK = new URL('../../../chapters/07-titan-quasistar.html', import.meta.ur
 const RUNS = {
   R2: 'infall to 3 M⊙/yr, Eulerian grid (R2)',
   S6: 'as R2, with the inner mass sink (S6)',
-  AD1: 'R2, then adaptive grid from 6e7 s (AD1)',
-  R2A: 'infall to 3 M⊙/yr, adaptive grid from t = 0 (R2A)',
+  A220: 'adaptive grid, 220 zones, to 6e8 s (A220)',
+  A440: 'adaptive grid, 440 zones, to 1.2e8 s (A440)',
   QSTAR: 'hydrostatic test, no infall',
   E1: 'infall before the fixes (fails at 2.3e4 s)',
   A1: 'infall, adaptive, before the fixes (fails at 8 s)',

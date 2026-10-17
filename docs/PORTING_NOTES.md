@@ -1488,7 +1488,7 @@ which made even θ = ½ first order; it is now θ-weighted like the other exchan
   depend on the time step.
 
 **Adaptive grid.** Diagnosis of the 0.05 s steps: the zones sweep across the envelope–infall contact, or later across
-the single-zone radiative shock (a 600× density jump), so their contents change by 10 % per step whatever Δt. With the
+the radiative shock (density ×2000–5000 over 2–3 zones), so their contents change by 10 % per step whatever Δt. With the
 grid frozen (τ_grid = 1e30), the adaptive code reproduces the Eulerian steps exactly, so the lgrid = 1 path is
 consistent; the problem is how fast the grid moves. With τ_grid = 1e3 s the grid equation's imbalance at the jump
 (x_ν² S ~ 1e6) moves interfaces at up to 1e10 cm/s. With τ_grid = 1e7 s and weights (exterior mass 1, ln ρ 1e-2, ln T 0)
@@ -1521,3 +1521,46 @@ the grid concentrates zones gradually and the run proceeds (AD1: median step ~83
   (11 corrections applied, 17 Oct).
 - **Conclusion so far:** the late, high-Ṁ evolution of R2 is set by an under-resolved shock. The adaptive runs are the
   better approximation; they are not yet a converged answer (one zone count, mgr = 330 caps the number of zones).
+
+### P7.7 Closing the open items of P7.6 [run]
+- **Stall of the finer adaptive run (R2AH, 2.53e7 s).** Behind the shock the pressure is set by the deceleration of the
+  inflow: Δln P across the zone at r/R = 0.99392 was −5.9e-5 against a hydrostatic −Δr/H_P = −0.066, so
+  ∇ = Δln T/Δln P = 110 and the MLT flux was 2 L0 (with convection switched off the same state steps normally).
+  Fixes in `TitanResidFast`:
+  - **`MLT_HS`:** where |Δln P| < ¾ of the hydrostatic value, Δln P is blended smoothly towards −Δr/H_P.
+    Using −Δr/H_P everywhere is not possible: deep convection has ∇ − ∇_ad ~ 1e-6, below the 0.1–1 % difference between
+    the two, and the interior flux went from 0.19 to 23 L. With the blend, Lconv at 0.42–0.95 R on the steady structure
+    is unchanged to 5 digits.
+  - **`MLT_AD`:** ∇_ad, c_P, δ and κ_R are evaluated on the current state with Duals (they enter the Jacobian).
+  - **Smooth optical-depth taper:** the sharp τ = 1 cut is now a smooth step in ln τ between 0.5 and 2.
+- **Array size.** `TITAN_MGR` sets mgr for pure-Julia runs (refused with libtitan). States saved with another mgr load
+  zero-padded. Steps on R2's state are identical with mgr 330 and 500.
+- **K1 stop (9.5e7 s).** Above the shock the spherical formal solution gave negative intensities: f = K/J = 0 in zones
+  120–201 of the saved failure state, and E had fallen to 3.6e-12 in zone 122. `TitanCore.EDD_POSITIVE` (on with tabulated materials) clamps the
+  linear-in-τ source reconstruction and the ray intensities at 0, and uses f = 1/3 if J = 0. The moments are summed
+  over decreasing μ, so xmom0 < 0 is the normal sign; a first version mistook this for J = 0.
+  - Effect: f is unchanged on R2's state at 6e7 s; on the failed K1 state f = 0.30–0.43 instead of 0/1.
+  - Rerun K2 (= K1 with all fixes): 49 899 steps to 1.2e8 s, no failure; final r_ph 0.9841 R.
+- **Zone-count convergence** (adaptive from t = 0, otherwise R2; runs A220, A314, A440; A440 with `TITAN_MGR=500`):
+  - **Shock region:** about 100 / 140 / 190 zones within ±0.005 R of the shock, minimum widths 2.0 / 1.2 / 0.77e-7 R.
+  - **Cooling layer:** peak 3.66 / 3.68 / 3.70e7 K; length to 1e4 K 1.57 / 1.62 / 1.64e-3 R.
+  - **At 1.2e8 s:** r_ph 0.99104 / 0.99132 / 0.99149, T_eff 7242 / 7238 / 7236 K, L_ph 0.964 / 0.963 / 0.962 L0.
+  - **Maximum differences over 1e6–1.19e8 s:**
+    - Δr_ph: 8.3e-4 (220 vs 314) and 4.5e-4 R (314 vs 440); 220 vs 440 1.07e-3 R.
+    - ΔT_eff and ΔL: 35–65 K and 0.02–0.04 L0, depending on how snapshots are matched in time; no clear trend (timing
+      of short fluctuations). Comparable to the offsets from the steady model, so those use time averages (220 zones only).
+  - **Minimum r_ph:** 0.98733 / 0.98747 / 0.98756 at 6.5–6.6e7 s.
+  - The `qstar_analyze` T_peak column (maximum within 3 zones of the velocity jump) is not a converged quantity.
+  - A220 matches the earlier R2A, which used the old MLT, to 4e-5 R at 1.2e8 s.
+- **Long runs** (A220 continued from 1.2e8 to 6e8 s, about 9 t_dyn):
+  - **A220d** (Δt ≤ 1e5 s, `QS_DTMAX`), 2e8–6e8 s, 80 snapshots: r_ph = 0.98893 ± 0.00110 (range 0.9875–0.9915),
+    T_eff = 7311 ± 13 K, L_ph = 1.001 ± 0.006 L0.
+  - **Variants:** A220c (uncapped Δt, up to ~5e6 s, 341 steps) and A220s (inner sink, τ = 1e6 s) end within 2e-4 R,
+    11 K and 0.006 L0 of A220d.
+  - **Steady large-R root at Ṁ = 3:** 0.98757 R0, 7359 K, 1.02 L0. The dynamical star settles 1.4e-3 R further out,
+    48 K cooler and 2 % fainter [computed].
+  - **Interpretation** [interpretation, not shown]: the steady model replaces the resolved cooling layer, whose shock
+    sits ~1.6e-3 R above the photosphere, by a boundary condition at the photosphere; that may account for this
+    difference.
+- Verification: a second independent pass checked P7.7 and the chapter against the run data (17 Oct); 6 numbers
+  corrected; numbers from interactive diagnosis sessions (no saved state) are marked as such.

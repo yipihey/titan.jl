@@ -44,8 +44,11 @@ WebAssembly package used by the figures and the laboratory.
 | TR-BDF2 and Courant-capped runs (T2, K1) | as S6 plus `QS_TRBDF2=1` (`relax 4e7`), or `QS_CFL=1` | @sec-infall-time |
 | adaptive continuation (AD1, AD2) | `julia --project=env to_adaptive.jl R2_t6e7.tstate.gz OUT 1e7 2,2,0 1,1e-2,0` (AD2: `1,1e-1,0`), then as R2 with `QS_FROM=OUT QS_INIT=R2 … relax 1.2e8` | @sec-infall-adaptive |
 | finer adaptive run (R2AH, stalls at 2.5e7 s) | as R2A with `setup … 0.4 200 114` | @sec-infall-adaptive |
+| adaptive runs at 220, 314, 440 zones (A220, A314, A440) | R2's `setup` with `QS_LGRID=1 QS_GRIDTAU=1e7 QS_LADY=2,2,0 QS_GRIDW=1,1e-2,0` and `0.4 140 80` / `0.4 200 114` / `0.4 280 160` (the last with `TITAN_MGR=500` for setup and run), then R2's `relax … 1.2e8` | @sec-infall-adaptive |
+| long run (A220d; A220c, A220s) | `QS_FROM=A220 state QS_INIT=R2A QS_DTMAX=1e5 … relax 6e8` (A220c without the cap; A220s with `QS_SINK_TAU=1e6 QS_SINK_M0=4.205784e38`) | @sec-infall-adaptive |
+| Courant-capped rerun (K2) | as K1 with the current code | @sec-infall-adaptive |
 | adaptive run from the set-up (R2A) | R2's `setup` plus `QS_LGRID=1 QS_GRIDTAU=1e7 QS_LADY=2,2,0 QS_GRIDW=1,1e-2,0`, then R2's `relax … 1.2e8 600000` | @sec-infall-adaptive |
-| figure data | `julia --project=env export_report_data.jl bench`, `… qstar NAME`, `Z0_TABLE=ext … qstar R2+R2c`, `… qstar R2+AD1 PROFILE qstar_AD1.json`, `… qstar S6`, `… qstar R2A` | figures |
+| figure data | `julia --project=env export_report_data.jl bench`, `… qstar NAME`, `Z0_TABLE=ext … qstar R2+R2c`, `… qstar R2+AD1 PROFILE qstar_AD1.json`, `… qstar S6`, `… qstar A220+A220d PROFILE qstar_A220.json`, `… qstar A440` | figures |
 
 The full engineering record of the port, with every check and its numbers, is
 [`docs/PORTING_NOTES.md`](https://github.com/yipihey/titan.jl/blob/main/docs/PORTING_NOTES.md).

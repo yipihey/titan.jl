@@ -26,9 +26,9 @@ of {{< var build.date >}} (rendered {{< var build.rendered >}}) by the
   tiers (@sec-port-method); the record is `docs/PORTING_NOTES.md`. The TITAN figures
   replay stored run output; they are not recomputed in the browser.
 - **Open items** are stated where they arise. The TITAN infall runs survive the accretion shock up to
-  $3\,M_\odot\,{\rm yr}^{-1}$. At that rate the result depends on resolving a thin cooling layer behind the shock,
-  which the adaptive grid does and the Eulerian grid does not; convergence in the zone count is still open
-  (@sec-infall-adaptive).
+  $3\,M_\odot\,{\rm yr}^{-1}$. Resolving the cooling layer behind the shock (adaptive grid, converged in the zone count
+  to $\sim\!10^{-3}R$) the star settles within $1.4\times10^{-3}R$ and 50 K of the steady model; why it does not settle
+  exactly there is open (@sec-infall-adaptive).
 
 ## Lineage
 

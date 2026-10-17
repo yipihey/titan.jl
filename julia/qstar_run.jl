@@ -4,7 +4,7 @@
 #   relax options (env): QS_NAME, QS_INIT (set-up to start from), QS_FROM (saved state to continue), QS_SET (scalars),
 #     QS_GASROW / QS_COMPTON (=1: gas-only energy row / Compton exchange, see TitanResidFast), QS_RAMP_FAC/QS_RAMP_T, QS_EVERY,
 #     QS_SINK_TAU (inner mass sink relaxation time [s]; with QS_FROM give QS_SINK_M0 [g] = the original shell mass),
-#     QS_TRBDF2=1 (second-order time stepping), QS_CFL (advective Courant cap on Δt)
+#     QS_TRBDF2=1 (second-order time stepping), QS_CFL (advective Courant cap on Δt), QS_DTMAX (cap on Δt [s])
 using Printf, Serialization
 include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "JuliaPhysics.jl"))
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
@@ -128,7 +128,9 @@ elseif mode == "relax"
     # next step (QS_CFL = C: Δt ≤ C·min_k Δr_k/|u_k|), for time accuracy where TITAN's relative-change control allows more.
     get(ENV, "QS_TRBDF2", "0") == "1" && (TD.STEPFN[] = Trbdf2.step!; println("time integrator: TR-BDF2"))
     cfl = parse(Float64, get(ENV, "QS_CFL", "0"))
+    dtmax = parse(Float64, get(ENV, "QS_DTMAX", "Inf"))          # plain upper limit on Δt [s]
     function cfl!()
+        TF.getscalar(:dtime) > dtmax && TF.setscalar!(:dtime, dtmax)
         cfl > 0 || return
         a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre)); rn = TF.var(:rn); un = TF.var(:un)
         dtc = minimum((rn[k+1] - rn[k]) / max(abs(un[k]), abs(un[k+1]), 1.0) for k in a:b) * cfl
