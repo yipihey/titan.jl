@@ -128,13 +128,10 @@ $2.6\times10^8$ s, with no failed step **[computed]**. Two regimes appear.
 $0.9868R$ in R2. At half the resolution (run R2L), it is at $0.9891R$ at $5.4\times10^7$ s. The sequence of regimes
 is the same at all three resolutions **[computed]**.
 
-**Against the steady model.** At $\dot M = 3\,M_\odot\,{\rm yr}^{-1}$ (with $f_{\rm BH} = 0.1$), the steady model's
-large-radius root has $R = 0.9876R_0$ and $T_{\rm eff} = 7359$ K (@sec-branches). The dynamical run passes through
-that radius at about $5.5\times10^7$ s, with a matching $T_{\rm eff}$, but it does not stop there. We do not read this as
-agreement. One difference is known: in TITAN the inner boundary is a fixed wall at $0.4R$, so the accreted mass
-(10 $M_\odot$ by $1.7\times10^8$ s) piles up in the shell instead of flowing on to the black hole, as the steady model
-assumes. Whether the contraction is that, or the outer envelope relaxing towards a new structure on its own thermal
-time, is open **[interpretation]**.
+**The three open items.** To test this result, we added an inner mass sink, second-order time stepping and a usable
+adaptive grid (@sec-infall-sink, @sec-infall-time, @sec-infall-adaptive). The first two leave R2 unchanged. The third
+does not: on the adaptive grid the photosphere stops contracting, because the Eulerian grid does not resolve the
+layer behind the shock in which the gas cools.
 
 ```{=html}
 <div class="qd-widget" data-widget="qstar" data-run="R2"></div>
@@ -143,18 +140,82 @@ time, is open **[interpretation]**.
 ::: {.callout-tip title="Try it"}
 Pick run R2 and drag the time slider. In the temperature view, the green curve is the radiation temperature
 $(E/a)^{1/4}$. Early on, the gas behind the shock is at $10^7$–$10^8$ K, far out of equilibrium with the radiation.
-Once $\dot M \approx 3\,M_\odot\,{\rm yr}^{-1}$ arrives, the two temperatures coincide almost everywhere. The history
-plot below the profile shows the shock and the photosphere moving together, and the accretion rate arriving at the
-shock about $10^7$ s after it rises at the boundary. Runs E1 and A1 show the failures before the fixes.
+Once $\dot M \approx 3\,M_\odot\,{\rm yr}^{-1}$ arrives, the two temperatures coincide almost everywhere on this grid.
+Now switch to run AD1 at the same late time: the adaptive grid keeps a hot layer behind the shock. The *zone width*
+view shows why. The history plot shows the shock and the photosphere, and the accretion rate arriving at the shock
+about $10^7$ s after it rises at the boundary. Runs E1 and A1 show the failures before the fixes.
 
-{{< lab "p=qstar&run=R2&v=T" "Open the infall run in the lab" >}}
+{{< lab "p=qstar&run=AD1&v=T&ti=0.95" "Open the adaptive run in the lab" >}}
 :::
 
+### A sink for the accreted mass {#sec-infall-sink}
+
+In R2 the inner boundary is a closed wall, so everything that falls in stays in the shell (10 $M_\odot$ by
+$1.7\times10^8$ s). The steady model instead lets the accreted mass flow through the envelope to the black hole. The
+inner wall can now pass mass onto the central point mass, carrying the enthalpy of gas and radiation with it. A
+controller holds the mass below the shock at its initial value, with a relaxation time $\tau$.
+
+Making the wall porous exposed a sign error in TITAN 1.2. Its mass-coordinate equation books a mass flux through the
+inner boundary with the opposite sign to its own continuity equation. No TITAN test problem has such a flux. Here it
+took mass away from the core instead of adding to it, and spoiled every advective flux. Fixed, the benchmark runs are
+unchanged **[computed]**.
+
+With $\tau = 10^6$ s (run S6) and $10^7$ s (S7), the excess mass below the shock levels off at 1.2 and 2.0
+$M_\odot$, and about 8–9 $M_\odot$ pass onto the core by $1.2\times10^8$ s. **The photosphere contracts exactly as in
+R2**: $0.9868R$ at $5.7\times10^7$ s and $0.9841R$ at $1.16\times10^8$ s, in R2 and S6 alike **[computed]**. The
+accumulated mass was not the cause.
+
+### Second-order time stepping {#sec-infall-time}
+
+TITAN's θ-scheme is first order at $\theta = 1$, which every run here uses. We added TR-BDF2, a second-order, L-stable
+scheme [@bank1985; @hosea1996], built from TITAN's own equations: an implicit-midpoint step over a fraction $\gamma = 2-\sqrt2$ of
+the step, then a BDF2 step written as a backward-Euler step from a combined starting state. With fixed steps:
+
+- **Compton box:** TR-BDF2 converges at order 2.00 and backward Euler at 1.00. At 128 steps their errors are
+  $2.5\times10^{-5}$ and $1.6\times10^{-2}$.
+- **Standing sound wave:** TR-BDF2 converges at order 2.3–3, down to an absolute floor of about $10^{-9}c_s$.
+- **Radiating sound wave:** convergence is not yet asymptotic at 2048 steps. Even so, TR-BDF2 is 80 times more
+  accurate than backward Euler there.
+
+All three are **[computed]**. One fix was needed first: the Compton term had been fully implicit, which made even
+$\theta = 1/2$ first order.
+
+At an under-resolved shock the midpoint stage can fail to converge where backward Euler succeeds. The step is then
+retried with backward Euler, and those steps are first order. On the quasi-star (run T2), TR-BDF2 reproduces the
+backward-Euler photosphere to $10^{-4}R$. So does a run whose step is capped by the Courant time $\Delta r/|u|$ (K1),
+to $10^{-3}R$ **[computed]**. On the Eulerian grid, the time step is not what sets the answer.
+
+### The adaptive grid, and the layer behind the shock {#sec-infall-adaptive}
+
+The adaptive grid had been stuck at steps of 0.05 s. The reason is that its zones swept across a sharp jump: first the
+envelope–infall contact, later the single-zone radiative shock, a 600-fold density jump. A zone crossing such a jump
+changes its contents by 10 % per step, whatever the step. With the grid frozen, the adaptive code reproduces the
+Eulerian steps, so the implementation is consistent. The problem was the speed of the grid: its relaxation time
+$\tau_{\rm grid} = 10^3$ s let interfaces move at up to $10^{10}$ cm s$^{-1}$ near the jump. With
+$\tau_{\rm grid} = 10^7$ s and a weak weight on density gradients, the grid concentrates its zones gradually, and
+steps of $10^2$–$10^5$ s are taken **[computed]**.
+
+Run AD1 continues R2 from $6\times10^7$ s on that grid. Near the shock its zones shrink to $10^{-6}R$, against
+$8\times10^{-4}R$ on the Eulerian grid. The grid then resolves **a hot cooling layer behind the shock**. The gas there
+starts at $3.6\times10^7$ K, the strong-shock value $\tfrac{3}{16}\mu m_{\rm H}v^2/k$, and cools to 6700 K over about
+$1.5\times10^{-3}R$. The Eulerian runs had smeared this layer into a single cool zone.
+
+With the layer resolved, **the photosphere stops contracting**. It reaches $0.983R$ at $7\times10^7$ s and then moves
+back out to $0.9894$–$0.9898R$ between $1.07$ and $1.2\times10^8$ s. Over that interval
+$L_{\rm ph} = 0.91$–$0.92L_0$ and $T_{\rm eff} = 7220$–7240 K. A second run with a ten times stronger density weight
+(AD2) agrees to $3\times10^{-4}R$, $0.01L_0$ and 15 K. The two runs differ only in the peak temperature, because the
+jump itself is resolved differently. The Eulerian runs at the same times have $r_{\rm ph} = 0.984R$ **[computed]**.
+
+**What this means.** The late, high-$\dot M$ evolution of R2, and its contraction, was set by an under-resolved shock.
+The adaptive runs are the better approximation. They are not yet a converged answer, though: there is one zone count,
+and TITAN's array size (330 zones) limits how many more we can add. Their photosphere, $0.990R_0$ with
+$T_{\rm eff} \approx 7230$ K and $L \approx 0.91L_0$, is close to but not at the steady model's large-radius root at
+$\dot M = 3\,M_\odot\,{\rm yr}^{-1}$: $R = 0.9876R_0$, $T_{\rm eff} = 7359$ K, $L = L_0$ (@sec-branches). The luminosity
+deficit means the envelope is still absorbing energy, so the run has not reached a steady state
+**[interpretation]**. RUNR2A
+
 ::: {.callout-warning title="Open"}
-- **The adaptive grid.** It still holds the time step to about 0.05 s: as the grid follows the envelope–infall contact,
-  densities in the zones crossing it change by 10 % per step.
-- **The accreted mass has nowhere to go.** A moving inner boundary, or a sink for the accreted mass, is needed before a
-  run can be compared with the steady branches.
-- **First-order time stepping.** The longest steps, up to $10^5$–$10^7$ s, are implicit and stable but not
-  time-accurate on the infall crossing time ($\sim\!10^7$ s across $0.2R$).
+- **Convergence at the shock.** A second adaptive zone count, which requires raising TITAN's array size.
+- **A steady state.** Longer runs, to see whether the luminosity deficit closes and where the photosphere settles.
+- **Courant-capped run K1** stopped at $9.5\times10^7$ s; the reason is not yet known.
 :::

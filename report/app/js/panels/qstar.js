@@ -5,14 +5,17 @@ import { select, slider, readout } from '../viz/ui.js';
 
 const BOOK = new URL('../../../chapters/07-titan-quasistar.html', import.meta.url).href;
 const RUNS = {
-  R2: 'infall, Ṁ ramped to 3 M⊙/yr (stable, run R2)',
+  R2: 'infall to 3 M⊙/yr, Eulerian grid (R2)',
+  S6: 'as R2, with the inner mass sink (S6)',
+  AD1: 'R2, then adaptive grid from 6e7 s (AD1)',
+  R2A: 'infall to 3 M⊙/yr, adaptive grid from t = 0 (R2A)',
   QSTAR: 'hydrostatic test, no infall',
   E1: 'infall before the fixes (fails at 2.3e4 s)',
   A1: 'infall, adaptive, before the fixes (fails at 8 s)',
 };
 const VARS = {
   T: ['T [K] (gas, and radiation T_r = (E/a)^¼)', true], rho: ['ρ [g cm⁻³]', true], u: ['u [cm s⁻¹]', false],
-  Lrad: ['L_rad / L', false], Lconv: ['L_conv / L', false],
+  Lrad: ['L_rad / L', false], Lconv: ['L_conv / L', false], dr: ['zone width Δr / R', true],
 };
 const HIST = {
   radii: ['r / R', false, [['rsh', 'shock'], ['rph', 'photosphere (τ_R = 2/3)']]],
@@ -49,7 +52,8 @@ export async function mountQstar(host, S, onChange = () => {}, opts = {}) {
     const [ylabel, ylog] = VARS[v];
     const atInterfaces = v === 'u' || v === 'Lconv' || v === 'Lrad';
     const x = (atInterfaces ? s.r : centres(s.r)).map((r) => r / D.R);
-    const series = [{ x, y: s[v], label: `TITAN gas, t = ${fmt(s.t, 3)} s` }];
+    const y = v === 'dr' ? Float64Array.from({ length: s.r.length - 1 }, (_, i) => (s.r[i + 1] - s.r[i]) / D.R) : s[v];
+    const series = [{ x, y, label: v === 'dr' ? `zone widths, t = ${fmt(s.t, 3)} s` : `TITAN gas, t = ${fmt(s.t, 3)} s` }];
     if (v === 'T' && s.Er) series.push({ x, y: s.Er.map((E) => Math.pow(E / ARAD, 0.25)), label: 'TITAN radiation T_r', color: '#009E73' });
     const st = D.steady;
     if (v === 'T' || v === 'rho' || v === 'Lconv') {

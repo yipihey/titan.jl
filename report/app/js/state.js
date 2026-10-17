@@ -16,8 +16,8 @@ export function makeDefaults() {
     root: -1,         // env: which steady root (index in increasing R; −1 = the largest)
     bench: 'SUPC',    // bench: SOD | SUBC | SUPC
     bvar: 'T',        // bench variable: rho | T | Trad | u
-    run: 'QSTAR',     // qstar: R2 | QSTAR | E1 | A1
-    qvar: 'T',        // qstar variable: T | rho | u | Lconv | Lrad
+    run: 'QSTAR',     // qstar: R2 | S6 | AD1 | R2A | QSTAR | E1 | A1
+    qvar: 'T',        // qstar variable: T | rho | u | Lconv | Lrad | dr
     ti: 1,            // time slider position in [0, 1] (bench, qstar)
     qhist: 'radii',   // qstar history plot: radii | mdot | teff | tpk | lum
   };
@@ -34,8 +34,8 @@ const SCHEMA = [
   ['root', 'rt', 'int', [-1, 10]],
   ['bench', 'b', 'enum', ['SOD', 'SUBC', 'SUPC']],
   ['bvar', 'bv', 'enum', ['rho', 'T', 'Trad', 'u']],
-  ['run', 'run', 'enum', ['R2', 'QSTAR', 'E1', 'A1']],
-  ['qvar', 'v', 'enum', ['T', 'rho', 'u', 'Lconv', 'Lrad']],
+  ['run', 'run', 'enum', ['R2', 'S6', 'AD1', 'R2A', 'QSTAR', 'E1', 'A1']],
+  ['qvar', 'v', 'enum', ['T', 'rho', 'u', 'Lconv', 'Lrad', 'dr']],
   ['ti', 'ti', 'num', [0, 1]],
   ['qhist', 'qh', 'enum', ['radii', 'mdot', 'teff', 'tpk', 'lum']],
 ];

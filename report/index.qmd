@@ -17,7 +17,8 @@ found when we tested two of their working assumptions and how we built the tools
 3. **What does the dynamics do?** We ported the radiation-hydrodynamics code TITAN [@gehmeyr1994] from
    Fortran to Julia, verified it against the original, and added the quasi-star physics. After four numerical
    defects were fixed, it follows the envelope stably while the accretion rate rises a thousandfold to
-   $3\,M_\odot\,{\rm yr}^{-1}$ (@sec-titan-port, @sec-titan-qs).
+   $3\,M_\odot\,{\rm yr}^{-1}$. At that rate the answer depends on resolving a thin, hot cooling layer behind the
+   accretion shock, which only the adaptive grid does (@sec-titan-port, @sec-titan-qs).
 
 ::: {.callout-note title="How to read the status of a statement"}
 Every result carries one of four labels.

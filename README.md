@@ -12,6 +12,9 @@ with an interactive WebAssembly port), the port of TITAN, and the quasi-star run
 `julia/qstar_run.jl`). The hydrostatic test holds the interior to 0.5 % and validates the MLT flux. With four numerical
 defects fixed (artificial-viscosity length, gas energy by cancellation, Eddington-factor source for tabulated opacities,
 TITAN's gas + radiation energy row; P7.5) the infall runs are stable from 3e-3 to 3 M⊙/yr, to 2.6e8 s (run R2).
+P7.6 adds an inner mass sink (and fixes a sign error in TITAN 1.2's inner mass flux), second-order TR-BDF2 time stepping
+(`julia/Trbdf2.jl`), and an adaptive grid that works on this problem; the adaptive runs resolve a hot cooling layer
+behind the shock that the Eulerian grid misses, which changes the late evolution.
 
 ## Status (Phase 6)
 
