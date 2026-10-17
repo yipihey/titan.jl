@@ -95,6 +95,11 @@ function parse_params(path = joinpath(FSRC, "titan.par"))
             else
                 P[Symbol(lowercase(k))] = int_eval(Meta.parse(vs), P)
             end
+            # TITAN_MGR: larger grid arrays for pure-Julia runs (TITAN_NOLIB=1); the Fortran library is built with 330
+            if lowercase(k) == "mgr" && haskey(ENV, "TITAN_MGR")
+                get(ENV, "TITAN_NOLIB", "0") == "1" || error("TITAN_MGR needs TITAN_NOLIB=1 (libtitan has mgr = $(P[:mgr]))")
+                P[:mgr] = parse(Int, ENV["TITAN_MGR"])
+            end
         end
     end
     P
@@ -220,8 +225,18 @@ function load_state!(path)
     end
     for (_, vs) in BLOCKS, v in vs
         haskey(st, v.name) || error("load_state!: $(v.name) missing in $path")
-        size(st[v.name]) == (isempty(v.dims) ? () : Tuple(v.dims)) || error("load_state!: $(v.name) has wrong shape")
+        want = isempty(v.dims) ? () : Tuple(v.dims)
+        if size(st[v.name]) != want
+            # a state saved with another mgr (TITAN_MGR): copy into arrays of this build's shape (zone index first,
+            # so the overlap keeps every zone); refuse if it would cut used zones
+            length(want) == ndims(st[v.name]) || error("load_state!: $(v.name) has wrong rank")
+            a = zeros(eltype(st[v.name]), want); old = st[v.name]
+            rng = Tuple(1:min(size(old, i), want[i]) for i in 1:length(want))
+            a[rng...] .= old[rng...]
+            st[v.name] = a
+        end
     end
+    haskey(st, :ngre) && st[:ngre][] + 2 > PARAMS[:mgr] && error("load_state!: ngre + 2 = $(st[:ngre][] + 2) > mgr = $(PARAMS[:mgr]); set TITAN_MGR")
     empty!(JSTATE); merge!(JSTATE, st)
     BACKEND[] = :julia; _switched(); nothing
 end
