@@ -407,6 +407,16 @@ branch (lribc = 2): the return sweep `do 9 kp = ngre, ngrs, -1` uses the stale o
 instead of kp. Off by default (faithful translation). Not used by SUBC/SUPC, which are spherical.
 """
 const FIX_EDDFAC_PLANAR = Ref(false)
+"""
+`EDD_POSITIVE[]` (spherical formal solution): keep the linear-in-τ source reconstruction and the ray intensities
+non-negative, and use f = 1/3 if the mean intensity vanishes (the moments are accumulated over decreasing μ, so
+xmom0 < 0 is the normal sign). Without it a steep source-function jump made
+intensities negative, f = K/J came out 0 in a run of zones above the accretion shock, and the radiation field there
+broke up zone by zone (run K1 stopped at 9.5e7 s). On whenever a tabulated material is installed
+(`TitanDriver.EDD_MATERIAL_SOURCE`, default :auto), or set true/false explicitly; off for TITAN's built-in physics (bit-reproducible benchmarks).
+"""
+const EDD_POSITIVE = Ref{Any}(:auto)        # :auto (follow EDD_MATERIAL_SOURCE), true or false
+edpos() = EDD_POSITIVE[] === :auto ? TD.EDD_MATERIAL_SOURCE[] : EDD_POSITIVE[]::Bool
 
 "eddf.f: accumulate the 0th and 2nd angular moments of xi over ang[1:n] into xmom0[k], xmom2[k]."
 @inline function _eddf!(n, ang, xi, xmom0, xmom2, k)
@@ -531,6 +541,9 @@ function eddfac!()
         rp[l] = rn[k]; rp[l+1] = 0.5 * (rn[k] + rn[k+1])
         sl[l] = sf[k] + 0.5 * dtau[k] * bsf[k]; sr[l] = sf[k]
         sl[l+1] = sf[k]; sr[l+1] = sf[k] - 0.5 * dtau[k] * bsf[k]
+        if edpos()     # a source function reconstructed linearly in τ must not go negative
+            sl[l] = max(sl[l], 0.0); sr[l+1] = max(sr[l+1], 0.0)
+        end
     end
     lmax = 2 * (b - a + 1) + 1
     rp[lmax] = rn[b+1]
@@ -545,6 +558,7 @@ function eddfac!()
             xjl = sqrt(rp[l]^2 - p[j]^2); xjlp1 = sqrt(rp[l+1]^2 - p[j]^2)
             dtjl = dn[k] * chifn[k] * (xjlp1 - xjl); ex = exp(-dtjl)
             xip[j] = (1.0 - ex) * sl[l] + (1.0 - (1.0 + dtjl) * ex) * (sr[l] - sl[l]) / dtjl + ex * xim[j]
+            edpos() && (xip[j] = max(xip[j], 0.0))
             xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
         end
         for j in 1:nj; xim[j] = xip[j]; end
@@ -571,6 +585,7 @@ function eddfac!()
             xjl = sqrt(rp[l]^2 - p[j]^2); xjlm1 = sqrt(rp[l-1]^2 - p[j]^2)
             dtjl = dn[k] * chifn[k] * (xjl - xjlm1); ex = exp(-dtjl)
             xip[j] = (1.0 - ex) * sr[l-1] + (1.0 - (1.0 + dtjl) * ex) * (sl[l-1] - sr[l-1]) / dtjl + ex * xim[j]
+            edpos() && (xip[j] = max(xip[j], 0.0))
             xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
         end
         for j in 1:nj; xim[j] = xip[j]; end
@@ -578,7 +593,8 @@ function eddfac!()
             k = a + (l - 1) ÷ 2
             xang[nj+1] = 0.0
             _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
-            fedd[k] = max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+            fedd[k] = edpos() && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 :
+                      max(0.0, min(xmom2[k] / xmom0[k], 1.0))
         end
         l == lmax && s!(:geddr, _eddg(nj, xang, xip))
         s!(:geddr, max(0.5, min(gf(:geddr), 1.0)))

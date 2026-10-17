@@ -13,6 +13,7 @@ if haskey(ENV, "QS_FREEZE")     # DampedNewton with branch freezing from iterati
     TD.STEPFN[] = DampedNewton.step!
 end
 get(ENV, "QS_TRBDF2", "0") == "1" && (TD.STEPFN[] = Trbdf2.step!)
+haskey(ENV, "QS_MLT_OLD") && (TX.MLT_AD[] = false; TX.MLT_HS[] = false)
 TX.CONVECTION[] = get(ENV, "QS_CONV", "1") == "1"; TX.GASROW[] = get(ENV, "QS_GASROW", "0") == "1"; TX.COMPTON[] = get(ENV, "QS_COMPTON", "0") == "1"; TM.use!(TM.Z0Gas()); TD.MSGIO[] = stdout
 for kv in split(get(ENV, "QS_SET", ""), ","; keepempty = false)
     k, val = split(kv, "="); T = eltype(TF.var(Symbol(k))); TF.setscalar!(Symbol(k), T <: Integer ? T(parse(Int, val)) : parse(Float64, val))
