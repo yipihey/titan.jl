@@ -149,19 +149,22 @@ function convcoef(ngrs, ngre, base)
     foreach(a -> fill!(a, 0.0), cv)
     CONVECTION[] || return cv
     m = MATERIAL[]; m === nothing && error("MLT convection needs a material with material_thermo (e.g. Z0Gas)")
-    @inbounds for k in ngrs+1:ngre
+    MLT_AD[] || @inbounds for k in ngrs+1:ngre       # lagged coefficients (not needed when MLT_AD)
         ρi = 0.5 * (base[k-1, 3] + base[k, 3]); Ti = 0.5 * (base[k-1, 5] + base[k, 5])
         (ρi > 0 && Ti > 0) || continue          # unphysical iterate: no MLT (the step will be rejected)
         nad, cp, δ = material_thermo(m, ρi, Ti)
         cv[1][k] = nad; cv[2][k] = cp; cv[3][k] = δ; cv[4][k] = material_opac(m, ρi, Ti)[1]
     end
-    # MLT is a diffusion-limit theory: no convective flux above optical depth TAU_MLT (Rosseland,
-    # integrated from the outer boundary on this iterate). Marked by c_P = 0.
+    # MLT is a diffusion-limit theory: no convective flux above optical depth TAU_MLT (Rosseland, integrated from
+    # the outer boundary on this iterate). Weight w(τ) per interface: a smooth step in ln τ from 0 at TAU_MLT/2 to 1
+    # at 2·TAU_MLT (it was a sharp cut at TAU_MLT: a flux that jumps when τ crosses the cut makes Newton cycle).
+    cvw = get!(() -> zeros(mgr), BUFS, :cvw)::Vector{Float64}; fill!(cvw, 0.0)
     τ = 0.0
     @inbounds for k in ngre:-1:ngrs+1
         (base[k, 3] > 0 && base[k, 5] > 0) &&
             (τ += material_opac(m, base[k, 3], base[k, 5])[1] * base[k, 3] * (base[k+1, 1] - base[k, 1]))
-        τ < TAU_MLT[] && (cv[2][k] = 0.0)               # τ at interface k
+        x = clamp((log(max(τ, 1e-300)) - log(TAU_MLT[] / 2)) / log(4.0), 0.0, 1.0)
+        cvw[k] = x * x * (3 - 2x)
     end
     cv
 end
@@ -267,6 +270,21 @@ const CONVECTION = Ref(false)
 const ALPHA_MLT = Ref(0.8)
 "Minimum Rosseland optical depth (from the outer boundary) for a nonzero MLT flux."
 const TAU_MLT = Ref(1.0)
+"""
+MLT_AD[]: evaluate ∇_ad, c_P, δ and κ_R of the MLT flux on the current state inside the residual, so they enter the
+Newton Jacobian (default true). false: take them from the Newton iterate and hold them constant in the Jacobian, as
+before. Lagged coefficients converge to the same solution when Newton converges, but in the hydrogen ionisation zone
+c_P changes by 10–30 % per 1 % in T and Newton then wanders instead of converging (finer adaptive run, 17 Oct).
+"""
+const MLT_AD = Ref(true)
+"""
+MLT_HS[]: in layers far from hydrostatic equilibrium (|Δln P| < ¾ of the hydrostatic −Δr/H_P, H_P = P/(ρg)) measure
+∇ against the hydrostatic pressure scale, blending smoothly (default true); hydrostatic layers keep the actual Δln P.
+Behind the accretion shock the pressure is set by the deceleration of the inflow, not by gravity, it is nearly flat,
+and ∇ = Δln T/Δln P reached 110 and a convective flux of 2 L. (Using −Δr/H_P everywhere is not possible: deep
+convection has ∇ − ∇_ad ~ 1e-6, below the 0.1–1 % discretisation difference between the two.)
+"""
+const MLT_HS = Ref(true)
 "Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
 function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
@@ -526,23 +544,40 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     fcv = W.fcv
     @inbounds for k in ngrs:ngre+1; fcv[k] = zero(T); end
     if c.conv
-        nadv, cpv, δv, κv = c.cv
+        nadv, cpv, δv, κv = c.cv; cvw = BUFS[:cvw]::Vector{Float64}
         arad = 4P.csigr / cc
         @inbounds for k in ngrs+1:ngre
             Pm = pgn[k-1] + c.fedd[k-1] * ern[k-1]; Pp = pgn[k] + c.fedd[k] * ern[k]
-            lp = log(Pp / Pm)
-            abs(ForwardDiff.value(lp)) < 1e-12 && continue
-            ∇ = log(tn[k] / tn[k-1]) / lp
-            cpv[k] > 0 || continue                  # optically thin: no MLT flux
-            sup = ∇ - nadv[k]                       # superadiabaticity (not `x`: that is the Newton vector)
-            ForwardDiff.value(sup) > 0 || continue
+            wτ = cvw[k]; wτ > 0 || continue          # optically thin: no MLT flux
             Ti = 0.5 * (tn[k-1] + tn[k]); ρi = 0.5 * (dn[k-1] + dn[k]); Pi = 0.5 * (Pm + Pp)
             gk = 2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g
             ForwardDiff.value(gk) > 0 || continue          # no gravity → no buoyancy
             HP = Pi / (ρi * gk); l = c.alpha * HP
-            U = 3arad * cc * Ti^3 / (cpv[k] * ρi^2 * κv[k] * l^2) * sqrt(8HP / (gk * δv[k]))
+            # ∇ = Δln T/Δln P with the actual pressure difference. MLT_HS: where the layer is far from hydrostatic
+            # (|Δln P| below half of the hydrostatic −Δr/H_P, Δr between zone centres) blend smoothly to the
+            # hydrostatic value: behind the accretion shock the pressure is nearly flat, Δln P → 0 and ∇ reached 110.
+            # Hydrostatic layers (ratio ≈ 1) are untouched: deep convection has ∇ − ∇_ad ~ 1e-6, so ∇ must keep the
+            # discretisation of the pressure difference that balances the momentum equation.
+            lp = log(Pp / Pm)
+            if MLT_HS[]
+                lph = -0.5 * (rn[k+1] - rn[k-1]) / HP
+                q = clamp((ForwardDiff.value(lp / lph) - 0.25) / 0.5, 0.0, 1.0); sw = q * q * (3 - 2q)
+                sw < 1 && (lp = sw * lp + (1 - sw) * lph)
+            end
+            abs(ForwardDiff.value(lp)) < 1e-12 && continue
+            ∇ = log(tn[k] / tn[k-1]) / lp
+            if MLT_AD[]                              # coefficients on the current state, differentiated
+                th = material_thermo(MATERIAL[], ρi, Ti); nad, cpk, δk = th
+                κk = material_opac(MATERIAL[], ρi, Ti)[1]
+            else                                     # lagged: from the Newton iterate, constant in the Jacobian
+                nad, cpk, δk, κk = nadv[k], cpv[k], δv[k], κv[k]
+                cpk > 0 || continue
+            end
+            sup = ∇ - nad                            # superadiabaticity (not `x`: that is the Newton vector)
+            ForwardDiff.value(sup) > 0 || continue
+            U = 3arad * cc * Ti^3 / (cpk * ρi^2 * κk * l^2) * sqrt(8HP / (gk * δk))
             ζ = sqrt(U^2 + sup) - U
-            fcv[k] = ρi * cpv[k] * Ti * sqrt(gk * δv[k]) * l^2 * ζ^3 / (4sqrt(2.0) * HP * sqrt(HP))
+            fcv[k] = wτ * ρi * cpk * Ti * sqrt(gk * δk) * l^2 * ζ^3 / (4sqrt(2.0) * HP * sqrt(HP))
         end
     end
     # ---------------------------------------------------------------- GAS ENERGY
