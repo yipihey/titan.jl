@@ -2,13 +2,15 @@
 #   TITAN_NOLIB=1 julia --project=env qstar_run.jl setup PROFILE.csv [rin nenv natm]   → reference_runs/init/QSTAR.tstate.gz
 #   TITAN_NOLIB=1 julia --project=env qstar_run.jl relax [tmax_s maxsteps]           run (hydrostatic test, or infall if set up)
 #   relax options (env): QS_NAME, QS_INIT (set-up to start from), QS_FROM (saved state to continue), QS_SET (scalars),
-#     QS_GASROW / QS_COMPTON (=1: gas-only energy row / Compton exchange, see TitanResidFast), QS_RAMP_FAC/QS_RAMP_T, QS_EVERY
+#     QS_GASROW / QS_COMPTON (=1: gas-only energy row / Compton exchange, see TitanResidFast), QS_RAMP_FAC/QS_RAMP_T, QS_EVERY,
+#     QS_SINK_TAU (inner mass sink relaxation time [s]; with QS_FROM give QS_SINK_M0 [g] = the original shell mass),
+#     QS_TRBDF2=1 (second-order time stepping), QS_CFL (advective Courant cap on Δt)
 using Printf, Serialization
 include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "JuliaPhysics.jl"))
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
 include(joinpath(@__DIR__, "TitanCore.jl"))
 include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "TitanMaterials.jl"))
-include(joinpath(@__DIR__, "QuasiStarSetup.jl"))
+include(joinpath(@__DIR__, "QuasiStarSetup.jl")); include(joinpath(@__DIR__, "Trbdf2.jl"))
 using .TitanDriver
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const BS = BlockSolver
 const TC = TitanCore; const TM = TitanMaterials; const QS = QuasiStarSetup; const Z0 = Z0Physics
@@ -99,11 +101,47 @@ elseif mode == "relax"
         f = min(rampfac, exp(TF.getscalar(:timen) / rampT))
         TF.setscalar!(:dr, ρ0x * f); TF.setscalar!(:phir0, φ0x * f); TF.setscalar!(:phir2, φ2x * f)
     end
+    # Inner mass sink (QS_SINK_TAU = relaxation time in s; unset: closed wall). The mass below the shock is held at its
+    # initial value M_s0: each step the inner wall passes Ṁ_sink = max(0, M_s − M_s0)/τ onto the central point mass,
+    # carrying the gas and radiation enthalpy of the innermost zone (TitanResidFast.INNER_SINK).
+    sinkτ = parse(Float64, get(ENV, "QS_SINK_TAU", "0"))
+    function shellmass()
+        a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre)); rn = TF.var(:rn); dn = TF.var(:dn); un = TF.var(:un)
+        ks = argmin([un[k+1] - un[k] for k in a:b]) + a - 1          # shock: largest outward velocity drop
+        sum(4π / 3 * (rn[k+1]^3 - rn[k]^3) * dn[k] for k in a:ks-1)
+    end
+    Ms0 = get(ENV, "QS_SINK_M0", "") == "" ? shellmass() : parse(Float64, ENV["QS_SINK_M0"])
+    sinkMdot = Ref(0.0)
+    Mc0 = 4π * (TF.getscalar(:xmtot) - TF.var(:xmen)[Int(TF.getscalar(:ngrs))]) / Z0.Msun
+    function sink!()
+        sinkτ > 0 || return
+        a = Int(TF.getscalar(:ngrs)); r = TF.var(:rn)[a]; ρ = TF.var(:dn)[a]
+        Md = max(0.0, shellmass() - Ms0) / sinkτ; sinkMdot[] = Md
+        φ0 = -Md / (4π * r^2)
+        TF.setscalar!(:phil0, φ0); TF.setscalar!(:phil2, φ0 * (TF.var(:egn)[a] + TF.var(:pgn)[a] / ρ))
+    end
+    if sinkτ > 0
+        TX.INNER_SINK[] = true; TX.GASROW[] || error("QS_SINK_TAU needs QS_GASROW=1")
+        @printf("inner sink: τ = %.3e s, M_shell0 = %.6e g (below the shock)\n", sinkτ, Ms0); sink!()
+    end
+    # Time integrator (QS_TRBDF2=1: second-order TR-BDF2, Trbdf2.jl) and an optional advective Courant limit on the
+    # next step (QS_CFL = C: Δt ≤ C·min_k Δr_k/|u_k|), for time accuracy where TITAN's relative-change control allows more.
+    get(ENV, "QS_TRBDF2", "0") == "1" && (TD.STEPFN[] = Trbdf2.step!; println("time integrator: TR-BDF2"))
+    cfl = parse(Float64, get(ENV, "QS_CFL", "0"))
+    function cfl!()
+        cfl > 0 || return
+        a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre)); rn = TF.var(:rn); un = TF.var(:un)
+        dtc = minimum((rn[k+1] - rn[k]) / max(abs(un[k]), abs(un[k+1]), 1.0) for k in a:b) * cfl
+        TF.getscalar(:dtime) > dtc && TF.setscalar!(:dtime, dtc)
+    end
     n, why = try TD.run_julia!(maxsteps = maxsteps, output = function (k)
-        ramp!()
+        ramp!(); sink!(); cfl!()
         every = parse(Int, get(ENV, "QS_EVERY", "100"))
         (k <= 3 || k % every == 0) || return
-        s = snap(); push!(snaps, s); report(s, L, @sprintf("step %5d", k)); flush(stdout)
+        s = snap(); push!(snaps, s); report(s, L, @sprintf("step %5d", k))
+        sinkτ > 0 && @printf("          sink: Ṁ = %.4e Msun/yr, point mass gained %.4e Msun\n", sinkMdot[] * Z0.yr / Z0.Msun,
+                              4π * (TF.getscalar(:xmtot) - TF.var(:xmen)[Int(TF.getscalar(:ngrs))]) / Z0.Msun - Mc0)
+        flush(stdout)
         if k % (10every) == 0          # checkpoint, so long runs can be inspected and continued (QS_FROM)
             TF.save_state(joinpath(outdir, "$(name)_relaxed.tstate.gz")); serialize(joinpath(outdir, "$(name)_relax_snaps.jls"), snaps)
         end

@@ -77,11 +77,20 @@ const GASROW = Ref(false)
 COMPTON[] (lrad = 1, material with `material_gasne`): Compton energy exchange between gas and radiation,
   Λ_C = 4 σ_T n_e c E k_B (T − T_r)/(m_e c²),  T_r = (E/a)^{1/4}  (non-relativistic Kompaneets, grey radiation),
 lost by the gas and gained by the radiation (in the radiation row and, with GASROW, in the gas row; TITAN's
-combined row needs no term). Evaluated with the new-time values (fully implicit). Default false (TITAN has none).
+combined row needs no term). θ-weighted between old and new state, like the other exchange terms. Default false (TITAN has none).
 Matters in hot thin gas: behind a 1e8 K accretion shock in a 10 erg cm⁻³ radiation field t_C ≈ 1.5e6 s, far
 shorter than the free-free cooling time.
 """
 const COMPTON = Ref(false)
+"""
+INNER_SINK[] (lrad = 1): the inner wall becomes porous to mass. A mass flux `phil0` (< 0: out of the grid, onto the
+central point mass, which grows through m(r) = m_tot − m_e) carries the gas enthalpy in `phil2` (set by the caller,
+e.g. phil0·(e_g + p_g/ρ) of zone ngrs) and, with this switch, the radiation enthalpy (1 + f)E/ρ·phil0 in the radiation
+row (and in TITAN's combined row). The wall itself does not move (u = 0 there). Default false.
+"""
+const INNER_SINK = Ref(false)
+"Sign of the inner-boundary mass flux in the mass row (see the MASS rows of residual!). Default true (fixed)."
+const FIX_PHIL0 = Ref(true)
 const MEC2 = 8.1871057769e-7            # m_e c² [erg]
 """
 Dual-energy switch, evaluated on the OLD (start-of-step) state and frozen during the Newton
@@ -101,6 +110,7 @@ end
 v(s) = TF.var(s)
 function context(; etotal::Bool = ETOTAL[], ηsw::Float64 = ETASW[], dt = nothing)
     ngrs = gi(:ngrs); ngre = gi(:ngre); neqn = gi(:neqn); lrad = gi(:lrad) == 1; mgr = TF.MGR
+    lrad && compton_old!(ngrs, ngre)
     (gi(:ltur) == 0 && gi(:lhydr) == 1) || error("TitanResidFast: lhydr=1, ltur=0 only")
     MATERIAL[] === nothing && gi(:leos) != 2 && error("leos must be 2 (or install a material)")
     MATERIAL[] === nothing && lrad && !(gi(:lopac) in (3, 4)) && error("lopac must be 3 or 4 (or install a material)")
@@ -228,7 +238,20 @@ material_gasne(m, ρ, T) = (material_gas(m, ρ, T)..., zero(ρ))
 @inline function compton(k, W, P)
     COMPTON[] || return zero(W.tn[k])
     E = W.ern[k]; Tr = sqrt(sqrt(E * P.cc / (4P.csigr)))
-    4P.csige * W.xnen[k] * P.cc * E * P.ck * (W.tn[k] - Tr) / MEC2
+    Λn = 4P.csige * W.xnen[k] * P.cc * E * P.ck * (W.tn[k] - Tr) / MEC2
+    P.θ == 1 ? Λn : P.θ * Λn + (1 - P.θ) * LAMO[][k]
+end
+"Compton rate of the old (start-of-step) state, per zone, filled by `context()` (θ-weighting of the exchange)."
+const LAMO = Ref(Float64[])
+function compton_old!(ngrs, ngre)
+    m = MATERIAL[]; buf = get!(() -> zeros(TF.MGR), BUFS, :lamo)::Vector{Float64}; fill!(buf, 0.0); LAMO[] = buf
+    (COMPTON[] && m !== nothing) || return
+    dO, tO, eO = v(:do), v(:to), v(:ero); cc, csigr, csige, ck = gf(:cc), gf(:csigr), gf(:csige), gf(:ck)
+    @inbounds for k in ngrs:ngre
+        (dO[k] > 0 && tO[k] > 0 && eO[k] > 0) || continue
+        ne = material_gasne(m, dO[k], tO[k])[4]; Tr = sqrt(sqrt(eO[k] * cc / (4csigr)))
+        buf[k] = 4csige * ne * cc * eO[k] * ck * (tO[k] - Tr) / MEC2
+    end
 end
 function material_opac end
 "`material_thermo(m, ρ, T) -> (∇_ad, c_P, δ)` of gas + equilibrium radiation (Float64), for the MLT flux."
@@ -446,7 +469,11 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     R[ir, 1] = X(ir, k0)
     # ---------------------------------------------------------------- MASS
     @inbounds for k in ngrs+1:ngre+1; R[im, kb(k)] = xmen[k-1] - xmen[k] - dn[k-1] * dvoln[k-1]; end
-    R[im, kb(ngrs)] = xmen[ngrs] - c.xmeo[ngrs] + rmu[ngrs] * P.phil0 * dt
+    # TITAN 1.2 (mass.f) has `+ rmu·phil0·dt`: the opposite sign to its own continuity row (contin.f: inflow rmu·phil0
+    # into zone ngrs) and to peq (dmdt(ngrs) = −r^mu·phil0). Never exercised (phil0 = 0 in every test problem); with
+    # mass leaving through the inner boundary it moves the exterior mass the wrong way, so m(r) loses what the core
+    # should gain and every advective flux derived from dm_e/dt is off by 2r²·phil0. FIX_PHIL0[] = false restores 1.2.
+    R[im, kb(ngrs)] = xmen[ngrs] - c.xmeo[ngrs] + (FIX_PHIL0[] ? -1 : 1) * rmu[ngrs] * P.phil0 * dt
     R[im, 1] = X(im, k0)
     k = ngrs - 1
     if P.leibc == 1; R[im, kb(k)] = xmen[k] - 2xmen[k+1] + xmen[k+2]
@@ -545,6 +572,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] + qf[k] * dudr[k] * dvol[k]
             if k == ngrs
                 w += -dmdt[k+1] * egb[k+1] - (P.phil2 + er[k] * urel[k]) * rmu[k]
+                INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
             elseif k == ngre
                 w += dmdt[k] * egb[k]
                 w += P.leobc != 3 ? rmu[k+1] * (P.phir2 + urel[k+1] * er[k]) : -dmdt[k+1] * egb[k+1]
@@ -582,6 +610,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * er[k]
+                INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
             elseif k == ngre
                 w += dmdt[k] * erb[k]
                 w += P.leobc != 3 ? urel[k+1] * rmu[k+1] * er[k] : -dmdt[k+1] * erb[k+1]
