@@ -8,7 +8,9 @@ name = ARGS[1]; stride = length(ARGS) > 1 ? parse(Int, ARGS[2]) : 1
 S = deserialize(joinpath(@__DIR__, "..", "lib", "qs_runs", "$(name)_relax_snaps.jls"))
 meta = deserialize(joinpath(@__DIR__, "..", "lib", "qs_runs", "setup_meta.jls"))
 include(joinpath(@__DIR__, "qstar_summary.jl"))
-R0 = meta.R; L0 = S[1].Lrad[end-1]; M0 = QSum.mass(S[1])
+# L0: luminosity of the steady star at t = 0 (the set-up), the same for every run and continuation (it was the first
+# snapshot's outer L, which for a continuation such as A220d or W30d is not the t = 0 value)
+R0 = meta.R; L0 = meta.L; M0 = QSum.mass(S[1])
 summary(s) = QSum.summary(s, R0, L0, M0)
 @printf("%-11s %-10s %-9s %-10s %-9s %-7s %-7s %-7s %-10s %-10s %-10s\n", "t [s]", "dt", "r_sh/R", "T_peak", "r_ph/R", "T_eff", "L_ph/L0",
         "L_out", "Mdot_out", "Mdot_sh", "ΔM [Msun]")

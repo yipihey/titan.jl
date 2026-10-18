@@ -385,7 +385,7 @@ The features **[computed]**:
 - **Balmer decrement.** $L({\rm H}\alpha)/L({\rm H}\beta) = 5.1$, against 2.86 for recombination (case B). Hβ and the
   higher Balmer lines have deep absorption troughs (down to 3–9 % of the continuum), and from Hε up the absorption wins.
 - **Infrared lines are strong.** Paα carries $0.19\,L({\rm H}\alpha)$, and the Paschen and Brackett lines together
-  $5.1\times10^{42}$ erg s$^{-1}$, more than half of Hα. Their equivalent widths are large because the continuum is faint
+  $5.2\times10^{42}$ erg s$^{-1}$, more than half of Hα. Their equivalent widths are large because the continuum is faint
   there.
 - **Lyα is weak**: $0.056\,L({\rm H}\alpha)$. The higher Lyman lines are in net absorption.
 
@@ -397,21 +397,61 @@ self-absorption and continuum pumping as causes **[interpretation]**.
 solution's own net line power, summed over all 66 transitions, is $1.11\times10^{43}$ (the figure in
 @sec-spec-nlte). The two are not the same quantity, and `julia/nlte_linepower.jl` compares them line by line **[computed]**:
 
-- For the strong emission lines the emergent luminosity matches the local Sobolev net power to about 20 %: ratio 0.81
+- For the strong emission lines the emergent luminosity matches the local Sobolev net power to 20–35 %: ratio 0.81
   for Hα, 0.80 for Lyα, 0.87 for Paα, 0.95–1.07 for Paβ and the Brackett lines, 1.05–1.34 for the higher Paschen lines,
   1.33 for Hβ.
-- The difference in the totals comes from the higher Balmer and Lyman lines. In the local balance Hγ–Hθ and Lyβ–Lyε are
+- Most of the difference in the totals comes from Hγ–Hθ, partly offset by Hα (emergent $2.0\times10^{42}$ erg s$^{-1}$
+  below local), with the 43 transitions that are not ray-traced adding the rest (last bullet). In the local balance Hγ–Hθ and Lyβ–Lyε are
   strong net absorbers of the continuum (Hγ–Hθ together $-5.1\times10^{42}$ erg s$^{-1}$, Lyβ–Lyε $-1.7\times10^{41}$).
   In the emergent spectrum they are nearly neutral ($+0.2\times10^{42}$ and $-0.4\times10^{40}$).
 - Over the same 23 lines the local net power is $1.29\times10^{43}$; the other 43 transitions add $-0.18\times10^{43}$.
 
-So the luminosities of the strong lines are uncertain by about 20 % from this check alone. The local balance counts
+So the luminosities of the strong lines are uncertain by 20–35 % from this check alone. The local balance counts
 absorption of all the continuum the gas sees, including light headed inwards to the star. The emergent profile counts only
 what is removed from the light that leaves. With fixed temperatures in both the star and the infall, energy absorbed from
 the inward light is not returned anywhere, so the two need not agree **[interpretation]**. The total line luminosity is
 therefore uncertain by about 50 %. The Balmer decrement is less certain than either line, because Hα and Hβ move in
 opposite directions: from the local net powers it would be 8.3 instead of 5.1. Both are far above case B
 **[computed; estimate]**.
+
+## The spectrum of the wide domain {#sec-spec-wide}
+
+Run W30 (@sec-infall-wide) computes the infall out to $30R$ instead of assuming it beyond $1.2R$. Its snapshot at
+$4.18\times10^8$ s was put through the same continuum calculation as A220's (spectrum `W30_late_ext`: TITAN's infall to
+$30R$, the free-fall extension from there to $120R$, LTE). Two changes to `julia/spectra_run.jl` were needed, both
+because the 300-zone grid resolves the shock region far more finely:
+
+- The velocity jump is spread over about ten zones, none of which drops by 100 km s$^{-1}$, so the script took the
+  snapshot for a star without a shock. It now also looks at the total drop over 21 zones.
+- The bottom of the cooling layer is resolved by zones of $10^{-8}R$. Leaving out two zones below it, as on A220, left
+  zones irradiated by the layer in the Unsöld–Lucy correction, which then hit its ±30 % limit every pass. Leaving out the
+  same $5\times10^{-6}R$ slice as on A220 (`ldr`) fixes this: the corrected star carries $1.022$ of TITAN's luminosity,
+  with a largest local flux error of 5.7 % (A220: 1.018 and 5.0 %).
+
+The result is the A220 spectrum **[computed]**:
+
+| | A220 (extension beyond $1.2R$) | W30 (TITAN to $30R$) |
+|---|---|---|
+| optical 3646–7000 Å [erg s⁻¹] | $8.30\times10^{43}$ | $8.32\times10^{43}$ |
+| FUV 912–2000 Å | $5.37\times10^{42}$ | $5.33\times10^{42}$ |
+| X 2–10 keV | $2.18\times10^{40}$ | $2.20\times10^{40}$ |
+| X 10–40 keV | $1.27\times10^{40}$ | $1.29\times10^{40}$ |
+| Balmer jump [dex] | 0.598 | 0.608 |
+
+: LTE continuum bands of the late infall with the assumed extension (A220) and with TITAN's own outer infall (W30). {#tbl-spec-wide}
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="W30_late_ext" data-compare="A220_late_ext" data-view="sed"></div>
+```
+
+In LTE the outer infall is almost neutral and hardly matters for the continuum, so this is a weak test. The real test is
+the non-LTE calculation, in which most of the Hα and of the neutral column comes from beyond $5R$. **It has not been
+done yet.** A first attempt ran the Unsöld–Lucy correction inside the non-LTE iteration without the new `ldr` limit;
+the correction hit its clamp, the emergent continuum fell to 0.75 of TITAN's luminosity, and the run was discarded
+**[tested]**. `julia/nlte_run.jl` now takes the same `ldr` option. Until that run is done, the non-LTE results of
+@sec-spec-nlte and @sec-spec-full rest on the assumed extension. @tbl-outer-infall shows that it is within 16 % of
+TITAN's temperatures out to $30R$, but TITAN's gas is up to 29 % warmer than dilute radiative equilibrium at 3–4 $R$,
+which the non-LTE ionization could be sensitive to **[interpretation]**.
 
 ## What is robust {#sec-spec-robust}
 
@@ -425,7 +465,8 @@ opposite directions: from the local net powers it would be 8.3 instead of 5.1. B
   the Lyman-continuum treatment are varied **[tested]**. Heating the infall would be expected to raise its ionization
   further **[interpretation]**.
 - **Model-dependent**: how strong and how narrow that emission is (the extension of the infall beyond TITAN's grid);
+  the line ratios (Balmer decrement 5.1 from the emergent profiles, 8.3 from the local line powers, @sec-spec-full);
   the escaping X-rays (helium in LTE); the Balmer jump and the far UV (no lines in the continuum opacity); everything that
   depends on the infall's temperature, which is held fixed.
-- **Next**: thermal balance of the infall in non-LTE; helium; lines in the continuum opacity; a TITAN grid that reaches
-  the outer infall instead of an assumed extension.
+- **Next**: the non-LTE calculation on the wide-domain run W30, whose TITAN grid reaches $30R$ (@sec-spec-wide);
+  thermal balance of the infall in non-LTE; helium; lines in the continuum opacity.

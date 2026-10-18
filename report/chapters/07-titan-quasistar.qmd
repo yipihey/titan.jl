@@ -219,8 +219,8 @@ energy **[computed; interpretation]**.
 
 Continued to $6\times10^8$ s, about nine dynamical times (run A220 continued with steps capped at $10^5$ s), the
 photosphere settles into slow oscillations about a mean. From $2\times10^8$ s on it is at
-$r_{\rm ph} = 0.9889 \pm 0.0011R$, $T_{\rm eff} = 7311 \pm 13$ K and $L_{\rm ph} = 1.001 \pm 0.006L_0$ (mean and spread
-of 80 snapshots). The same continuation with uncapped steps (up to $5\times10^6$ s), and with the inner mass sink,
+$r_{\rm ph} = 0.9889 \pm 0.0011R$, $T_{\rm eff} = 7311 \pm 13$ K and $L_{\rm ph} = 0.997 \pm 0.006L_0$ (mean and spread
+of 80 snapshots; $L_0$ is the steady star's luminosity at $t = 0$). The same continuation with uncapped steps (up to $5\times10^6$ s), and with the inner mass sink,
 ends within $2\times10^{-4}R$, 11 K and $0.006L_0$ of it **[computed]**.
 
 **Against the steady model.** At $\dot M = 3\,M_\odot\,{\rm yr}^{-1}$ ($f_{\rm BH} = 0.1$), the steady model's
@@ -230,6 +230,69 @@ replaces the shock and its cooling layer with a boundary condition at the photos
 resolved and its shock sits about $1.6\times10^{-3}R$ above it. A difference of this size from that simplification is plausible,
 but we have not shown that it accounts for the whole difference **[interpretation]**. The Eulerian runs, which
 contracted to $0.984R$, were wrong because of resolution.
+
+### A wider domain: the infall from $30R$ {#sec-infall-wide}
+
+All runs so far put the outer boundary at $1.2R$. The spectra (@sec-spec-infall) need the infall further out, and
+used an assumed free fall with $T \propto r^{-1/2}$ beyond the grid. Run **W30** instead puts the boundary at $30R$, with
+300 zones.
+
+- **Set-up.** Steady free fall at $3\,M_\odot\,{\rm yr}^{-1}$ from $30R$ down to the star, at $t = 0$, with the
+  temperature of the steady model's dilute radiation field. There is no ramp in $\dot M$: gas entering at $30R$ needs
+  about $5\times10^9$ s to reach the star, ten times the length of the run.
+- **Grid.** The radius term of the adaptive-grid measure (`xscale`) is $1000R$ instead of $R$, and a temperature
+  term is added: the mass, density and temperature terms carry the weights 1, $10^{-2}$ and $10^{-2}$ (A220: 1,
+  $10^{-2}$ and none; `QS_XSCALE`, `QS_GRIDW` in `julia/QuasiStarSetup.jl`). With
+  `xscale` $= 10R$ or $100R$ and no temperature term (runs W30a, W30b) the radius term pulled most zones out into the
+  long infall: 18 and 2 zones within $\pm0.005R$ of the shock (W30: 206), so the shock was not resolved, and the runs
+  crawled or stalled **[tested]**.
+- **No convection in the infall.** In W30c the mixing-length flux rose to $6\times10^6L_0$ in the supersonic infall and
+  the steps fell below 1 s **[tested]**. A smooth step now switches the convective flux off where the gas falls faster than
+  10–30 km s$^{-1}$ (`MLT_NOINFALL` in `julia/TitanResidFast.jl`). In the hydrostatic star nothing falls that fast, so
+  nothing changes there.
+- **Not possible: grafting zones onto A220.** Adding even one free-falling zone outside the boundary of a saved A220
+  state made the first Newton step fail; the cause was not found (`julia/extend_grid.jl`, kept for reference)
+  **[tested]**.
+
+W30 ran to $1.2\times10^8$ s (89 000 steps), and its continuation W30d with steps capped at $10^5$ s (as A220d) to
+$4.5\times10^8$ s (4300 steps). The grid puts 206 of its 300 zones within $\pm0.005R$ of the shock, and 33 beyond
+$1.2R$. The cooling layer behind the shock reaches $3.7\times10^7$ K, as in A220 **[computed]**.
+
+```{=html}
+<div class="qd-widget" data-widget="qstar" data-run="W30"></div>
+```
+
+**The star does not notice.** From $2\times10^8$ s on, W30d has $r_{\rm ph} = 0.9891 \pm 0.0014R$,
+$T_{\rm eff} = 7310 \pm 17$ K and $L_{\rm ph} = 0.997 \pm 0.008L_0$ (50 snapshots). That is A220d to $2\times10^{-4}R$,
+1 K and $0.0002L_0$, well inside the spread of either **[computed]**. Moving the outer boundary from $1.2R$ to $30R$
+changes nothing at the photosphere.
+
+**The outer infall.** Beyond $1.2R$ it falls at the free-fall speed to within 1 %, and its density follows the steady
+free fall ($\rho \propto r^{-3/2}$) to within 2 %. Its
+temperature, time-averaged after $2\times10^8$ s (`julia/outer_infall.jl`), is compared below with dilute radiative
+equilibrium with the photosphere, $T^4 = T_{\rm eff}^4\,W(r)$, and with the law assumed for the spectra, $T \propto
+r^{-1/2}$ from $T(1.2R)$ **[computed]**.
+
+: Temperature of the outer infall in W30d (mean over 50 snapshots, $2$–$4.5\times10^8$ s) against dilute radiative
+equilibrium ($T_{\rm eff} = 7310$ K) and the extension law used for the spectra. {#tbl-outer-infall}
+
+| $r/R$ | 1.2 | 2 | 3 | 4 | 6 | 8 | 12 | 20 | 29 |
+|---|---|---|---|---|---|---|---|---|---|
+| TITAN $T$ [K] | 5177 | 3920 | 3750 | 3348 ± 118 | 2503 ± 77 | 2058 | 1597 | 1192 | 973 |
+| dilute equilibrium [K] | 5027 | 3719 | 3006 | 2595 | 2114 | 1829 | 1493 | 1156 | 960 |
+| $T \propto r^{-1/2}$ [K] | 5177 | 4010 | 3274 | 2836 | 2315 | 2005 | 1637 | 1268 | 1053 |
+
+- Beyond $12R$ the gas is within 7 % of dilute radiative equilibrium (with the stellar radius $R$ in $W$), and 1.4 % above it
+  at $29R$.
+- Between $2.5R$ and $8R$ it is up to 29 % warmer than that, with a plateau near 3800 K from $2R$ to $3R$ and
+  a spread of 120 K (standard deviation) at $4R$. At $1.2\times10^8$ s it had been closer to equilibrium (about 2980 K at $3.9R$, 13 % above it). Compression of the infalling gas, and an opacity that falls steeply with temperature
+  near 3000–4000 K, would both keep the gas warmer than the radiation field. We did not separate the two
+  **[interpretation]**.
+- The assumed law is within 16 % of TITAN everywhere: too cool by 13–15 % at 3–4 $R$, too warm by 5–8 % beyond
+  $16R$.
+
+So the extension used in @sec-spec-infall was a fair guess out to $30R$, and the spectra of W30 (@sec-spec-wide) test
+what the difference does (so far in LTE only). Beyond $30R$ even W30 relies on the extension.
 
 ::: {.callout-note title="Closed since the last version"}
 - **The finer adaptive run** had stalled on a convective flux of $2L_0$ just below the shock. There the pressure is set

@@ -21,6 +21,10 @@ and runs to 6e8 s that settle within 1.4e-3 R and 50 K of the steady model. P7.8
 correction, the shock's X-rays through the infall column, the Balmer jump, and bracketed Hα/Hβ profiles of the infall.
 P7.9: non-LTE hydrogen in the infall (`julia/NLTEH.jl`, `nlte_run.jl`): the star keeps the inner infall ionized and
 puts Hα into strong emission.
+P7.10: a wide-domain run with the outer boundary at 30 R (W30; `QS_XSCALE`, `MLT_NOINFALL`), whose photosphere matches
+A220's and whose outer infall is close to dilute radiative equilibrium; the full non-LTE hydrogen line spectrum
+(`nlte_spectrum.jl`, 23 lines, Balmer decrement 5.1) with a per-line energy check (`nlte_linepower.jl`). The non-LTE
+calculation on W30 is still to do.
 
 ## Status (Phase 6)
 

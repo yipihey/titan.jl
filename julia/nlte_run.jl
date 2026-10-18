@@ -35,7 +35,10 @@ base = SP.Opac(atm)
 dolucy = get(opt, :lucy, "1") == "1"
 Lz = [0.5 * (s.Lrad[k] + s.Lconv[k] + s.Lrad[k+1] + s.Lconv[k+1]) for k in eachindex(s.d)]
 Ltarget = [z > 0 ? Lz[z] : s.Lrad[end] for z in atm.zone]
-lsel = findall(j -> 0 < atm.zone[j] <= d.kc - 2 && atm.r[j] >= 0.95R0, eachindex(atm.r))
+# ldr=x (in R): leave out the zones within x·R below the bottom of the cooling layer, as spectra_run.jl ldr=… (needed for
+# the 300-zone W30 grid; without it the correction hit its clamp there and the emergent L fell to 0.75 L_TITAN in a test)
+ldr = parse(Float64, get(opt, :ldr, "0")) * R0
+lsel = findall(j -> 0 < atm.zone[j] <= d.kc - 2 && atm.r[j] >= 0.95R0 && atm.r[j] <= s.r[d.kc+1] - ldr, eachindex(atm.r))
 _, R = SP.rays(atm.r; ncore = 12); R = SP.weights!(atm, R)
 # start: LTE (Saha–Boltzmann) populations
 nl = Any[nothing for _ in eachindex(atm.r)]

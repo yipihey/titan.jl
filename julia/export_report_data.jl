@@ -41,6 +41,7 @@ elseif mode == "spectra"
     names = ARGS[2:end]
     LABEL = Dict("star_t0" => "steady star before infall (t = 0)",
                  "A220_late_ext" => "infall, 4.2e8 s, LTE infall + free-fall extension",
+                 "W30_late_ext" => "wide domain W30, 4.2e8 s, LTE infall (TITAN to 30 R) + extension",
                  "A220_late_ion" => "infall, 4.2e8 s, infall fully ionized (limit)",
                  "A220_late_noext" => "infall, 4.2e8 s, grid only (to 1.20 R)",
                  "A220_late_ext_nlte" => "infall, 4.2e8 s, non-LTE hydrogen in the infall",

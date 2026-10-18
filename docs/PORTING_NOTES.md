@@ -1554,7 +1554,7 @@ the grid concentrates zones gradually and the run proceeds (AD1: median step ~83
   - A220 matches the earlier R2A, which used the old MLT, to 4e-5 R at 1.2e8 s.
 - **Long runs** (A220 continued from 1.2e8 to 6e8 s, about 9 t_dyn):
   - **A220d** (Δt ≤ 1e5 s, `QS_DTMAX`), 2e8–6e8 s, 80 snapshots: r_ph = 0.98893 ± 0.00110 (range 0.9875–0.9915),
-    T_eff = 7311 ± 13 K, L_ph = 1.001 ± 0.006 L0.
+    T_eff = 7311 ± 13 K, L_ph = 0.997 ± 0.006 L0 (was quoted 1.001 with the old normalisation, see P7.10).
   - **Variants:** A220c (uncapped Δt, up to ~5e6 s, 341 steps) and A220s (inner sink, τ = 1e6 s) end within 2e-4 R,
     11 K and 0.006 L0 of A220d.
   - **Steady large-R root at Ṁ = 3:** 0.98757 R0, 7359 K, 1.02 L0. The dynamical star settles 1.4e-3 R further out,
@@ -1642,3 +1642,48 @@ Post-processing of `A220_late_ext` (A220d, 4.18e8 s). Chapter section `sec-spec-
   ionising yield when the gas is already ionised.
 - Verification: independent pass on 18 Oct; corrections applied (S/J range 1.4–53, wings −1100/+1700 km/s, convergence
   caveat, extension-test wording, n₁ 48 %, S/J 4 %, labels).
+
+### P7.10 Wide domain (outer boundary at 30 R) and the full hydrogen line spectrum [run]
+Chapter sections `sec-infall-wide` (ch. 7) and `sec-spec-full`, `sec-spec-wide` (ch. 8).
+- **Set-up W30**: `QS_NAME=W30 QS_MDOT=3 QS_WCONTACT=1e-3 QS_ROUT=30 QS_LGRID=1 QS_GRIDTAU=1e7 QS_LADY=2,2,2
+  QS_GRIDW=1,1e-2,1e-2 QS_XSCALE=1000 TITAN_MGR=500 Z0_TABLE=ext qstar_run.jl setup ../reference_runs/qs_profile_f0.1_md0.csv 0.4 140 160`
+  (300 zones; full Ṁ from t = 0, no ramp: travel time from 30 R ≈ 5e9 s). Init state `reference_runs/init/W30.tstate.gz`.
+  - New `QS_XSCALE` (radius term of the adaptive-grid measure, in R; default 1).
+  - New `TX.MLT_NOINFALL` (`QS_MLT_NOINFALL=1`): convective flux × (1 − smoothstep((−u − 10 km/s)/20 km/s)), i.e. off in
+    gas falling faster than 30 km/s. Without it (W30c) Lconv reached 6e6 L0 in the supersonic infall, dt < 1 s by 3e4 s.
+  - W30a/W30b (xscale 10 R / 100 R, no T term): zones drawn into the infall (18 / 2 zones within ±0.005 R of the shock,
+    204 / 175 beyond 1.2 R), shock unresolved; W30a crawled to 9.4e7 s with dt 1–100 s, W30b stopped at 3.4e7 s.
+  - `extend_grid.jl` (graft free-fall zones onto a saved A220 state): first Newton step fails even for 1 zone (only the
+    flux-equation residual differs; cause not found). Kept, marked as not working.
+- **Runs**: W30 relax `QS_SET=ql1=1e-4,cq2=1 QS_GASROW=1 QS_COMPTON=1 QS_MLT_NOINFALL=1 QS_EVERY=200 relax 1.2e8 400000`
+  (88 876 steps); W30d from `W30_relaxed.tstate.gz` with `QS_DTMAX=1e5 QS_EVERY=50 relax 4.5e8 200000` (4272 steps).
+  - 206 of 300 zones within ±0.005 R of the shock (min width 4e-9 R), 33 beyond 1.2 R; Tmax 3.7e7 K. The velocity jump is
+    spread over ~10 fine zones (largest single-zone drop 75 km/s).
+  - 2e8–4.5e8 s (50 snapshots): r_ph 0.9891 ± 0.0014 R, T_eff 7310 ± 17 K, L_ph 0.997 ± 0.008 L0. A220d (80): 0.98893 ±
+    0.0011, 7311 ± 13, 0.997 ± 0.006.
+  - `qstar_analyze.jl` now normalises to the t = 0 luminosity (setup_meta L = 1.4204e44); before, it used the first
+    snapshot's outer L, which for continuations (A220d: 1.4150e44, W30d: 1.3810e44) is not L0. A220d's L_ph was quoted as
+    1.001 L0; it is 0.997 L0 (chapter corrected).
+  - Ṁ_out in the summary is 3.22 vs 3.00 at the shock: an artefact of the diagnostic (cell-centre ρ × outer-face r² v in
+    a 2.5 R wide zone; (30/28.8)^1.5 = 1.063). u = v_ff to 1 % and ρ r^1.5 constant to 2 % beyond 1.2 R; infall mass
+    491.7 Msun unchanged.
+  - Outer T (`outer_infall.jl`, log `lib/qs_runs/W30d_outer.log`, untracked like all of lib/qs_runs): within 7 % of dilute RE beyond 12 R (1.4 % at 29 R);
+    up to 29 % above it at 3–4 R (plateau ≈ 3800 K at 2–3 R, ±118 K fluctuations at 4 R); the extension law T ∝ r^-1/2
+    is within 16 % (13–15 % too cool at 3–4 R).
+- **`spectra_run.jl`** changes: no-shock test now also needs the 21 zones around the largest drop to drop < 500 km/s
+  (W30's spread jump was taken for "no shock" → Lucy on 255 zones, ratio 0.973); option `ldr` (exclude zones within
+  ldr·R below the bottom of the cooling layer; the 1e-8 R zones there hit the ±30 % clamp with ltop = 2 alone).
+  `W30_late_ext`: `spectra_run.jl W30d 4.18e8 ext=1 rmax=4 n=400 lucy=20 damp=0.5 nl=200 ldr=5e-6` → ∫L/L_TITAN 1.0224,
+  flux error 5.7 % (A220_late_ext: 1.0178, 5.0 %).
+- **`nlte_spectrum.jl`**: 23 lines (Ly α–ε, H α–θ, Pa α–ζ, Br α–δ), ray integration as `line_profile.jl` with the non-LTE
+  populations, inverted points (the 4 X-ray artifact points) transparent; composite νL_ν on 900–30000 Å
+  (`lib/spectra/linespec_NAME.jls`). A220_late_ext: Hα/Hβ 5.07, Paα/Hα 0.186, Lyα/Hα 0.056, 23 lines 1.65e43 erg/s.
+- **`nlte_linepower.jl`**: ray-integrated vs local Sobolev net power per line: Hα 0.81, Lyα 0.80, Paα 0.87, Paβ–Brδ
+  0.95–1.34, Hβ 1.33; Hγ–Hθ net absorbers locally (−5.1e42) but ≈ neutral emergent (+0.2e42). Sobolev sum over the 23 lines
+  1.29e43, all 66 transitions 1.11e43. Decrement from local powers 8.3.
+- **W30 non-LTE: not done.** A first `nlte_run.jl W30_late_ext` (100 + 85 passes, discarded) ran its per-pass Lucy
+  correction without `ldr`: |ΔH/H| up to 0.30, emergent continuum fell to 1.09e44 (0.75 L_TITAN). `nlte_run.jl` now has
+  `ldr`; rerun with `ldr=5e-6` (≈ 35 s per pass on 118 points; run in chunks of ≤ 100 passes with `init=` because of the
+  2 h job limit).
+- Verification: independent pass on 18 Oct; corrections applied (extension law within 16 %, 1.4 % at 29 R, spread at 4 R,
+  W30a/b failure description, Pa+Br 5.2e42, strong-line agreement 20–35 %, origin of the total difference, ΔL 0.0002 L0).

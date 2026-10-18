@@ -27,7 +27,9 @@ get_lucytop(opt) = parse(Int, get(opt, :ltop, "2"))     # Lucy up to zone kc −
 rmin = parse(Float64, get(opt, :rmin, "0.6")) * 8.4352e15
 keep = findall(k -> 0.5 * (s.r[k] + s.r[k+1]) >= rmin, eachindex(s.d))
 du = [s.u[k+1] - s.u[k] for k in 1:length(s.u)-1]; ksh = argmin(du)          # shock zone (largest velocity drop)
-noshock = du[ksh] > -1e7                       # no velocity jump above 100 km/s: hydrostatic star, no shock
+# no shock: no zone drops the velocity by 100 km/s, and the 21 zones around the largest drop by less than 500 km/s together
+# (the 300-zone wide-domain grid, W30, spreads the jump over ~10 very fine zones, each dropping by less than 100 km/s)
+noshock = du[ksh] > -1e7 && sum(du[max(1, ksh - 10):min(end, ksh + 10)]) > -5e7
 noshock && (ksh = length(s.d))
 # bottom of the hot post-shock cooling layer: the last zone below the shock with T < 1e4 K. The cooling layer is
 # heated by the shock, not in radiative equilibrium, so it is excluded from the Unsöld–Lucy correction.
@@ -58,7 +60,11 @@ infall_ion = get(opt, :ion, "0") == "1"
 atm = merge(atm, (ion = [hot[j] || (infall_ion && (z == 0 || z > ksh)) for (j, z) in enumerate(atm.zone)],))
 println("zones treated as fully ionised: ", count(atm.ion), " (hot layer ", count(hot), ")")
 # corrected zones: from 0.95 R up to zone kc − ltop, just below the bottom of the cooling layer (all zones above 0.95 R if no shock)
-sel = findall(j -> 0 < atm.zone[j] <= kc - get_lucytop(opt) && atm.r[j] >= 0.95 * 8.4352e15, eachindex(atm.r))
+# ldr=x (in R, default 0): also leave out the zones within x·R below the bottom of the cooling layer. On the 300-zone
+# wide-domain grid (W30) the bottom of the layer is resolved by zones of 1e-8 R, so two zones are a far thinner slice
+# than on A220 (5e-6 R) and the correction there hits its ±30 % clamp; ldr = 5e-6 leaves out the same slice as ltop = 2 on A220.
+ldr = parse(Float64, get(opt, :ldr, "0")) * 8.4352e15
+sel = findall(j -> 0 < atm.zone[j] <= kc - get_lucytop(opt) && atm.r[j] >= 0.95 * 8.4352e15 && atm.r[j] <= s.r[kc+1] - ldr, eachindex(atm.r))
 # re=1 (experimental, does not converge for the A220 snapshot: the 1000 K extension is far from equilibrium with the
 # stellar light and the 30 % per-pass clamp binds for all 20 passes): the infall is brought to local radiative equilibrium with the
 # non-grey field instead of keeping TITAN's (grey) temperatures and the assumed T ∝ r^-1/2 of the extension
@@ -71,7 +77,9 @@ for it in 1:nlucy
     _, _, mom = SP.spectrum(atm, νl; moments = true)
     Tn, err = SP.lucy(atm, mom, sel, Ltarget; damp = parse(Float64, get(opt, :damp, "1")), thin)
     rerr = isempty(thin) ? 0.0 : maximum(abs(mom.κJ[k] * mom.J[k] / (mom.κB[k] * mom.B[k]) - 1) for k in thin)
-    @printf("Lucy %2d: max |ΔH/H| in the corrected zones %.4f, max |ΔT/T| %.4f; infall max |κJ J/κB B − 1| %.4f\n", it, err, maximum(abs.(Tn ./ atm.T .- 1)), rerr)
+    jmax = argmax(abs.(Tn ./ atm.T .- 1))
+    @printf("Lucy %2d: max |ΔH/H| in the corrected zones %.4f, max |ΔT/T| %.4f (zone %d, r/R %.5f, T %.0f K); infall max |κJ J/κB B − 1| %.4f\n",
+            it, err, maximum(abs.(Tn ./ atm.T .- 1)), atm.zone[jmax], atm.r[jmax] / 8.4352e15, atm.T[jmax], rerr)
     global atm = merge(atm, (T = Tn,))
 end
 L, its = SP.spectrum(atm, ν; verbose = true)

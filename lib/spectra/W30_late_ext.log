@@ -1,0 +1,25 @@
+zones treated as fully ionised: 0 (hot layer 0)
+shock zone 200 (r/R = 0.99011), cooling layer down to zone 133; Lucy on 76 zones
+Lucy  1: max |ΔH/H| in the corrected zones 0.1386, max |ΔT/T| 0.0182 (zone 119, r/R 0.98866, T 6857 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy  2: max |ΔH/H| in the corrected zones 0.1419, max |ΔT/T| 0.0133 (zone 119, r/R 0.98866, T 6982 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy  3: max |ΔH/H| in the corrected zones 0.1455, max |ΔT/T| 0.0114 (zone 78, r/R 0.98863, T 8759 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy  4: max |ΔH/H| in the corrected zones 0.1482, max |ΔT/T| 0.0115 (zone 78, r/R 0.98863, T 8860 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy  5: max |ΔH/H| in the corrected zones 0.1492, max |ΔT/T| 0.0114 (zone 78, r/R 0.98863, T 8962 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy  6: max |ΔH/H| in the corrected zones 0.1482, max |ΔT/T| 0.0112 (zone 78, r/R 0.98863, T 9064 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy  7: max |ΔH/H| in the corrected zones 0.1449, max |ΔT/T| 0.0107 (zone 78, r/R 0.98863, T 9166 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy  8: max |ΔH/H| in the corrected zones 0.1392, max |ΔT/T| 0.0100 (zone 78, r/R 0.98863, T 9264 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy  9: max |ΔH/H| in the corrected zones 0.1314, max |ΔT/T| 0.0091 (zone 78, r/R 0.98863, T 9356 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 10: max |ΔH/H| in the corrected zones 0.1217, max |ΔT/T| 0.0081 (zone 78, r/R 0.98863, T 9442 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 11: max |ΔH/H| in the corrected zones 0.1104, max |ΔT/T| 0.0070 (zone 79, r/R 0.98863, T 8973 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 12: max |ΔH/H| in the corrected zones 0.0979, max |ΔT/T| 0.0059 (zone 79, r/R 0.98863, T 9036 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 13: max |ΔH/H| in the corrected zones 0.0848, max |ΔT/T| 0.0048 (zone 79, r/R 0.98863, T 9090 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 14: max |ΔH/H| in the corrected zones 0.0712, max |ΔT/T| 0.0036 (zone 79, r/R 0.98863, T 9133 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 15: max |ΔH/H| in the corrected zones 0.0576, max |ΔT/T| 0.0031 (zone 85, r/R 0.98864, T 6908 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 16: max |ΔH/H| in the corrected zones 0.0440, max |ΔT/T| 0.0034 (zone 84, r/R 0.98864, T 6971 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 17: max |ΔH/H| in the corrected zones 0.0401, max |ΔT/T| 0.0037 (zone 83, r/R 0.98864, T 7094 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 18: max |ΔH/H| in the corrected zones 0.0451, max |ΔT/T| 0.0040 (zone 82, r/R 0.98864, T 7317 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 19: max |ΔH/H| in the corrected zones 0.0507, max |ΔT/T| 0.0044 (zone 82, r/R 0.98864, T 7288 K); infall max |κJ J/κB B − 1| 0.0000
+Lucy 20: max |ΔH/H| in the corrected zones 0.0570, max |ΔT/T| 0.0048 (zone 81, r/R 0.98863, T 7694 K); infall max |κJ J/κB B − 1| 0.0000
+ALI iterations: median 13, max 77; direct solutions: 80
+W30d t=4.1781e+08: 344 points (60 in extension), 422 frequencies in 603 s; ∫L_ν dν = 1.4890e+44 erg/s, TITAN L_rad(out) = 1.4564e+44 (ratio 1.0224), Ṁ = 3.229 Msun/yr
+saved lib/spectra/W30_late_ext.jls

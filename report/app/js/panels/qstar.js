@@ -8,6 +8,7 @@ const RUNS = {
   R2: 'infall to 3 M⊙/yr, Eulerian grid (R2)',
   S6: 'as R2, with the inner mass sink (S6)',
   A220: 'adaptive grid, 220 zones, to 6e8 s (A220)',
+  W30: 'wide domain to 30 R, 300 zones, to 4.5e8 s (W30, W30d)',
   A440: 'adaptive grid, 440 zones, to 1.2e8 s (A440)',
   QSTAR: 'hydrostatic test, no infall',
   E1: 'infall before the fixes (fails at 2.3e4 s)',

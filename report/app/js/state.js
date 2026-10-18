@@ -4,7 +4,7 @@
 // Lists and vectors are joined with '_' (never commas).
 
 export const PANELS = ['micro', 'env', 'shoot', 'branch', 'bench', 'qstar', 'spec'];
-const SPECTRA = ['star_t0', 'A220_late_ext', 'A220_late_ext_nlte', 'A220_late_ext10_nlte', 'A220_late_ion', 'A220_late_hotion', 'A220_late_noext', 'A220_corona_ext'];
+const SPECTRA = ['star_t0', 'A220_late_ext', 'W30_late_ext', 'A220_late_ext_nlte', 'A220_late_ext10_nlte', 'A220_late_ion', 'A220_late_hotion', 'A220_late_noext', 'A220_corona_ext'];
 
 export function makeDefaults() {
   return {
@@ -17,7 +17,7 @@ export function makeDefaults() {
     root: -1,         // env: which steady root (index in increasing R; −1 = the largest)
     bench: 'SUPC',    // bench: SOD | SUBC | SUPC
     bvar: 'T',        // bench variable: rho | T | Trad | u
-    run: 'QSTAR',     // qstar: R2 | S6 | A220 | A440 | QSTAR | E1 | A1
+    run: 'QSTAR',     // qstar: R2 | S6 | A220 | A440 | W30 | QSTAR | E1 | A1
     qvar: 'T',        // qstar variable: T | rho | u | Lconv | Lrad | dr
     ti: 1,            // time slider position in [0, 1] (bench, qstar)
     qhist: 'radii',   // qstar history plot: radii | mdot | teff | tpk | lum
@@ -40,7 +40,7 @@ const SCHEMA = [
   ['root', 'rt', 'int', [-1, 10]],
   ['bench', 'b', 'enum', ['SOD', 'SUBC', 'SUPC']],
   ['bvar', 'bv', 'enum', ['rho', 'T', 'Trad', 'u']],
-  ['run', 'run', 'enum', ['R2', 'S6', 'A220', 'A440', 'QSTAR', 'E1', 'A1']],
+  ['run', 'run', 'enum', ['R2', 'S6', 'A220', 'A440', 'W30', 'QSTAR', 'E1', 'A1']],
   ['qvar', 'v', 'enum', ['T', 'rho', 'u', 'Lconv', 'Lrad', 'dr']],
   ['ti', 'ti', 'num', [0, 1]],
   ['qhist', 'qh', 'enum', ['radii', 'mdot', 'teff', 'tpk', 'lum']],
