@@ -102,7 +102,8 @@ for it in 1:maxit
     maxch = 0.0
     for (q, j) in enumerate(sel)
         T = atm.T[j]; st = base.s[j]; cur = nl[j]   # (non-LTE points keep their temperatures)
-        # X-ray energy absorbed above 100 eV by H and He bound–free → secondary H ionisations (36 eV per ion pair)
+        # X-ray energy absorbed above 100 eV by H and He bound–free → secondary H ionisations (36 eV per ion pair).
+        # Known artifact: credited to H even when n₁ → 0, which inverts Hα in the few points right above the shock.
         Γx = 0.0
         if xray
             dep = 0.0

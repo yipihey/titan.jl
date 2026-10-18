@@ -8,7 +8,7 @@ const VIEWS = {
   sed: 'νL_ν [erg s⁻¹]',
   ratio: 'L_ν / L_ν(steady star at t = 0)',
   T: 'T [K] used for the spectrum (after the Unsöld–Lucy correction)',
-  xH: 'H ionized fraction (LTE, Saha) used for the spectrum',
+  xH: 'H ionized fraction used for the spectrum (Saha, or non-LTE)',
   Halpha: 'Hα from the infall (estimate), F / F_continuum',
   Hbeta: 'Hβ from the infall (estimate), F / F_continuum',
 };
@@ -38,7 +38,7 @@ export async function mountSpec(host, S, onChange = () => {}, opts = {}) {
   const plot = new LinePlot(d, { width: 760, height: 380 });
   const tbox = h('div', 'qd-panel', host);
   const table = h('table', null, tbox); table.style.cssText = 'font-size:0.85em;border-collapse:collapse;width:100%';
-  caption(host, 'Static-frame LTE continuum (no lines) of stored TITAN snapshots: spherical rays, Feautrier/ALI with coherent Thomson scattering, Unsöld–Lucy correction of the hydrostatic atmosphere below the shock. Infall in LTE at the TITAN temperature, or (limit) fully ionized; beyond the grid a free-fall extension with an assumed T ∝ r^-1/2. Stored output, not recomputed here.', BOOK + '#sec-spec-method');
+  caption(host, 'Static-frame LTE continuum (no lines) of stored TITAN snapshots: spherical rays, Feautrier/ALI with coherent Thomson scattering, Unsöld–Lucy correction of the hydrostatic atmosphere below the shock. Infall in LTE at the TITAN temperature, or (limit) fully ionized; beyond the grid a free-fall extension with an assumed T ∝ r^-1/2. The non-LTE spectrum has non-LTE hydrogen in the infall; its line luminosity is listed separately. Stored output, not recomputed here.', BOOK + '#sec-spec-method');
   const opt = (r) => ({ value: r.name, label: r.label });
   const draw = () => {
     const A = byName[S.spec], B = S.spec2 === 'none' ? null : byName[S.spec2];
@@ -62,9 +62,17 @@ export async function mountSpec(host, S, onChange = () => {}, opts = {}) {
       plot.setAxes({ xlabel: XAX[xk], ylabel: VIEWS[S.sview], xlog: true, ylog: true,
         ylim: S.sview === 'sed' ? [ymax * 1e-12, ymax * 3] : [1e-4, 1e4], title: '' });
     } else if (S.sview === 'Halpha' || S.sview === 'Hbeta') {
-      const ln = (A.lines || []).find((l) => l.name === S.sview);
-      if (ln) LVAR.forEach(([k, lab, col, dash]) => series.push({ x: ln.v, y: ln[k], label: lab, color: col, dash }));
-      plot.setAxes({ xlabel: 'velocity [km/s] (positive = redshift)', ylabel: VIEWS[S.sview] + (ln ? '' : ' — not computed for this spectrum'), xlog: false, ylog: false, title: A.label });
+      // a non-LTE solution has one profile (its own populations and source function); the LTE spectra show the six
+      // brackets (b₂ × thermal or scattering source function); a comparison spectrum adds its profiles, thinner
+      const add = (r, thin) => {
+        const ln = (r.lines || []).find((l) => l.name === S.sview);
+        if (!ln) return false;
+        if (ln.nlte && ln.nlte.length) series.push({ x: ln.v, y: ln.nlte, label: `non-LTE: ${r.label}`, color: '#009E73', width: thin ? 1 : 2 });
+        else LVAR.forEach(([k, lab, col, dash]) => series.push({ x: ln.v, y: ln[k], label: (thin ? '(compare) ' : '') + lab, color: col, dash, width: thin ? 0.8 : 1.5 }));
+        return true;
+      };
+      const ok = add(A, false); if (B) add(B, true);
+      plot.setAxes({ xlabel: 'velocity [km/s] (positive = redshift)', ylabel: VIEWS[S.sview] + (ok ? '' : ' — not computed for this spectrum'), xlog: false, ylog: false, title: A.label });
     } else {
       runs.forEach((r, i) => series.push({ x: r.prof.r, y: S.sview === 'T' ? r.prof.T : r.prof.xH, label: r.label, color: COLORS[i] }));
       if (S.sview === 'T') runs.forEach((r, i) => series.push({ x: r.prof.r, y: r.prof.T_titan, label: 'TITAN T (before the correction)', color: COLORS[i], dash: '4 3', width: 1 }));
@@ -73,11 +81,11 @@ export async function mountSpec(host, S, onChange = () => {}, opts = {}) {
     plot.setSeries(series);
     plot.setMarkers(S.sview === 'T' || S.sview === 'xH' ? runs.map((r, i) => ({ x: r.rph, label: 'photosphere', color: COLORS[i] })) : []);
     plot.draw();
-    const head = ['spectrum', 'L / L_TITAN', 'optical 3646–7000 Å', 'FUV 912–2000 Å', 'X 0.5–2 keV', 'X 2–10 keV', 'X 10–40 keV', 'Balmer jump [dex]'];
+    const head = ['spectrum', 'continuum L / L_TITAN', 'lines (non-LTE)', 'optical 3646–7000 Å', 'FUV 912–2000 Å', 'X 0.5–2 keV', 'X 2–10 keV', 'X 10–40 keV', 'Balmer jump [dex]'];
     const cell = (v) => (v > 1e30 ? fmt(v, 2) : '—');
     table.innerHTML = '<caption style="caption-side:top;text-align:left">band luminosities [erg s⁻¹]</caption><tr>' +
       head.map((x) => `<th style="text-align:left;padding:2px 6px">${x}</th>`).join('') + '</tr>' +
-      runs.map((r) => '<tr>' + [r.label, fmt(r.bands.total / r.Ltitan, 4), cell(r.bands.opt), cell(r.bands.FUV), cell(r.bands.X_05_2),
+      runs.map((r) => '<tr>' + [r.label, fmt(r.bands.total / r.Ltitan, 4), r.Lline > 0 ? fmt(r.Lline, 2) : '—', cell(r.bands.opt), cell(r.bands.FUV), cell(r.bands.X_05_2),
         cell(r.bands.X_2_10), cell(r.bands.X_10_40), fmt(r.Dbalmer, 3)].map((x) => `<td style="padding:2px 6px">${x}</td>`).join('') + '</tr>').join('');
     onChange(S);
   };

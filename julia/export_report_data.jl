@@ -44,6 +44,7 @@ elseif mode == "spectra"
                  "A220_late_ion" => "infall, 4.2e8 s, infall fully ionized (limit)",
                  "A220_late_noext" => "infall, 4.2e8 s, grid only (to 1.20 R)",
                  "A220_late_ext_nlte" => "infall, 4.2e8 s, non-LTE hydrogen in the infall",
+                 "A220_late_ext10_nlte" => "infall, 4.2e8 s, non-LTE, infall ending at 12 R (test)",
                  "A220_late_bare" => "infall, 4.2e8 s, star only (infall above the shock removed)",
                  "A220_late_hotion" => "infall, 4.2e8 s, cooling layer fully ionized (test)",
                  "R2_late_ext" => "Eulerian run R2, 5.8e7 s, LTE infall + extension",

@@ -1604,3 +1604,41 @@ Post-processing only; TITAN itself is unchanged. Chapter `08-spectra.qmd`.
   shock_budget / spectrum_test runs (18 Oct); 3 numbers corrected (e per H 1.16, hotion 4 digits, 3.5e40), wording of
   the LTE no-soft-X-ray claim, flux errors per run, the ALI/direct check range, labels; EUV band export fixed (it was
   linearly interpolated across the Lyman edge).
+
+### P7.9 Non-LTE hydrogen in the infall [run]
+Post-processing of `A220_late_ext` (A220d, 4.18e8 s). Chapter section `sec-spec-nlte`.
+- **`julia/NLTEH.jl`**: H I n = 1–12 (l-averaged) + H II. Johnson (1972) f-values (Lyα 0.4162, Hα 0.6407, Hβ 0.1193,
+  Paα 0.8420) and bound–free gaunt factors (Verner for n = 1); van Regemorter excitation, Seaton ionisation
+  (Mihalas 1978); Sobolev escape probabilities with the local continuum for all lines (net rate
+  β[(n_l B_lu − n_u B_ul) J_c − n_u A]); photoionisation/recombination with the transfer's J_ν below 100 eV; X-rays
+  above 100 eV → secondary ionisations at 36 eV. n_e update by geometric mean (a plain update oscillates, n_p ∝ 1/n_e).
+  J at line frequencies: interpolate J/B_ν(T), then × B_ν (log-interpolating J left 1e-3 errors in the LTE test).
+  `NOpac` gives Spectrum.jl the non-LTE κ and S_th = η/κ (new `coeffs3` hook in Spectrum.monochromatic).
+- **Tests** (`nlte_test.jl`): f-values above; with J = B the SE returns LTE to 9e-10, 2.6e-7, 3e-13 at
+  (1e-15, 6600 K), (1e-12, 9000 K), (1e-16, 4000 K) for β ∈ {1, 1e-3, 0.3}, collisions ×{1, 0.01, 100};
+  NOpac with LTE populations gives S_th = B to 1.2e-7.
+- **`nlte_run.jl`**: non-LTE points = infall outside the shock zone with T < 2e4 K (94 of 266 points), 294 frequencies
+  (30 μm–40 keV, H edges to n = 12). Λ-iteration on the continua, Ng on log populations every 5 passes, and the
+  Unsöld–Lucy correction of the star each pass. Without that correction the emergent L fell from 1.49e44 to 1.05e44
+  (the ionised infall back-scatters light onto a star held at fixed T; heating budget: +2.8e43 erg/s into the
+  photosphere zones).
+  - Passes: 80 (from LTE, no Ng/Lucy) + 83 (Ng + Lucy) + 40 (plain, from that state) = 203. Over the last 40,
+    max |Δx_H| 0.013, max |Δn₂/n₂| 3 %; n₁ in the >99 % ionised zones at 1.3–8 R still moves by up to 48 % (ratio 0.64–1.48). The change per pass stayed at 7–8e-4 (stagnation), and the 20-pass sensitivity runs all raise x_H(8.5 R) by +0.024 to +0.046: converged to a few per cent beyond 5 R only.
+  - Result: x_H > 0.99 inside ~4.3 R (LTE 0.30–0.99 inside 1.2 R, ~0 beyond 2 R); 0.93 at 8.5 R, 0.51 at 40 R, 0.07 at
+    120 R. N_H I 8.26e23 (LTE 7.96e24) of N_H 8.88e24; Thomson depth 5.36 (LTE 0.61). Hα S_L/J_c 1.4–1.7 inside 1.2 R,
+    3.1 at 1.8 R, 22 at 8.5 R, 45 at 40 R; S_L/B 1.7–3.4 inside 1.2 R.
+  - Energy: continuum 1.233e44 + lines 1.11e43 = 0.918 L_TITAN; the rest is absorbed by infall gas at fixed T.
+  - Bands: 2–10 keV 3.27e40, 10–40 keV 1.39e40, 0.5–2 keV none (He in LTE); Balmer jump 0.74 dex.
+- **Sensitivity** (20+ passes each from the solution): collisions ×0.3 / ×3, X-rays off, Lyman continuum in detailed
+  balance: N_H I 7.5–8.3e23, Thomson depth 5.36–5.41, S_L/J at 1.08/8.5/40 R unchanged to 4 %.
+- **Lines** (`LP_NLTE`): Hα peak 84× continuum at −20 km/s, FWHM 360 km/s, EW −795 Å; Hβ peak 8.4, EW −75 Å, red
+  trough 0.03 at +160 km/s. Line power from the SE 1.1e43 erg/s ≈ EW × continuum.
+- **Extension test** (`A220_late_ext10`: free fall only to 10 r_out = 12 R; LTE ratio 1.0215): 141 passes from LTE
+  (stopped at the 1e-3 criterion while the line power still rose 0.5 %/pass). N_H I 1.21e23; x_H and S_L/J as in the main run inside ~4 R (5e-4, 1.5 %); at 8–11.5 R x_H 0.02–0.08 lower, S_L/J 7–14 % higher; Hα FWHM 820 km/s; lines 5.55e42 erg/s; continuum + lines 0.947 L_TITAN; Hα EW −492 Å, peak 27; Hβ EW −81 Å,
+  trough 0.46 at +500 km/s.
+- **Known artifact**: the 4 non-LTE points at r < 0.991 R (just above the shock) have n₁ → 0 and an inverted Hα
+  (S_L/J ≈ −146, |τ| ~ 1e-3), because Γx = dep/(36 eV)/n₁ credits all absorbed X-ray energy (H and He) to H ionisations
+  even when n₁ → 0. With xray=0 they are normal (S/J 1.34, 1.16). Negligible for the spectrum; a fix would cap the
+  ionising yield when the gas is already ionised.
+- Verification: independent pass on 18 Oct; corrections applied (S/J range 1.4–53, wings −1100/+1700 km/s, convergence
+  caveat, extension-test wording, n₁ 48 %, S/J 4 %, labels).

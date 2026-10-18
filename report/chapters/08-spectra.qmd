@@ -8,16 +8,22 @@ a first step towards the non-LTE plan of @sec-nlte-plan, not a replacement for i
 - **X-rays.** The hot layer radiates about $1.7\times10^{42}$ erg s$^{-1}$ of free–free emission above 0.5 keV. The
   infall column outside the shock, $N_{\rm H} = 8\times10^{24}$ cm$^{-2}$, lets through only photons above about 4 keV.
   What escapes is a hard component of $3.5\times10^{40}$ erg s$^{-1}$ (2–40 keV) peaking near 9 keV if the infall is
-  neutral, and $5\times10^{41}$ erg s$^{-1}$ (0.5–40 keV) if it is fully ionized. A photon count says the X-rays cannot
-  keep the column ionized, which favours the first number **[computed; estimate]** (@sec-spec-hot).
+  neutral, and $5\times10^{41}$ erg s$^{-1}$ (0.5–40 keV) if it is fully ionized **[computed]** (@sec-spec-hot). In
+  non-LTE the hydrogen is mostly ionized, but helium (kept in LTE) still blocks everything below 2 keV:
+  $4.7\times10^{40}$ erg s$^{-1}$ escapes in 2–40 keV (@sec-spec-nlte).
 - **The Balmer jump grows.** It rises from 0.23 dex for the star before infall to 0.60 dex with the neutral (LTE)
   infall, or 0.40 dex if the infall is ionized. The far UV (912–2000 Å) becomes 2.2 times fainter than before the
   infall, and 1.6 times fainter than with an ionized infall **[computed]** (@sec-spec-infall).
 - **No Lyman continuum or soft X-rays escape** in the LTE calculations with the free-fall extension. Without the extension
   (infall only to $1.2R$), $4\times10^{38}$ erg s$^{-1}$ escapes in 0.5–2 keV **[computed]**.
 - **Hydrogen lines from the infall** show redshifted absorption near $+1100$ to $+1500$ km s$^{-1}$, 14–50 % deep
-  at Hα. The emission part depends on the line source function, which LTE cannot fix. Recombination
-  powered by the accretion is too weak to matter **[estimate]** (@sec-spec-lines).
+  at Hα, when the populations are bracketed around LTE. The emission part depends on the line source function, which LTE
+  cannot fix. Recombination powered by the accretion is too weak to matter **[estimate]** (@sec-spec-lines).
+- **Non-LTE hydrogen settles both questions** (@sec-spec-nlte). The star's light keeps the infall ionized: more than
+  99 % within $4.4R$, with a neutral column of $8\times10^{23}$ instead of $8\times10^{24}$ cm$^{-2}$. The Hα source
+  function is 1.4–53 times the local continuum, so the infall puts Hα into strong emission: equivalent width
+  −800 Å, narrow (FWHM 360 km s$^{-1}$), from the slow outer infall. That last number rests on the assumed extension of
+  the infall to $120R$ **[computed]**. Ending the infall at $12R$ instead still gives −490 Å.
 
 ## Method {#sec-spec-method}
 
@@ -152,8 +158,8 @@ The energy budget of the shock comes from `julia/shock_budget.jl` on the same sn
   (case B, @osterbrock1989). If every X-ray photon above 0.5 keV spent its energy on ionizations at 36 eV each (the
   most it could), it would make $3\times10^{52}$ per second, about 370 times too few **[estimate]**. This agrees with the
   ionization budget of the steady model at $\dot M = 1$ (@tbl-infall-diag), now at three times the infall rate. The
-  X-rays alone cannot ionize the column. That the stellar light does not ionize it either is what LTE assumes near the star,
-  where the gas and radiation temperatures are close. It is not shown here.
+  X-rays alone cannot ionize the column. The star's light can, through the excited levels of hydrogen; the non-LTE
+  calculation of @sec-spec-nlte finds the column 90 % ionized.
 
 ```{=html}
 <div class="qd-widget" data-widget="spec" data-spec="A220_late_ext" data-compare="A220_late_ion" data-xax="E"></div>
@@ -228,17 +234,134 @@ side of the infall, falling towards us, is seen against the scattered halo besid
 at 1.15–1.45 times the continuum, and Hα shows net emission. With pure scattering, the scattered light, diluted
 by the distance from the star, stays below the continuum the infall itself scatters off the disc (the halo of
 @sec-spec-infall). Hα is then net absorption of 6–9 Å. Which limit applies depends on the balance of collisional and
-radiative rates in this gas, a question for the non-LTE calculation (@sec-nlte-plan).
+radiative rates in this gas. The non-LTE calculation of @sec-spec-nlte answers it: neither; the source function is
+above the continuum, and Hα is in strong emission.
+
+## Non-LTE hydrogen: settling the two open questions {#sec-spec-nlte}
+
+The LTE calculation left two things open: how ionized the infall really is, which sets what X-rays get through, and
+what the Hα source function is, which decides between emission and absorption. Both need the hydrogen level
+populations out of LTE. `julia/NLTEH.jl` solves for them in the infall, iterated with the continuum transfer
+(`julia/nlte_run.jl`).
+
+**Model.** The atom has twelve l-averaged levels plus the proton.
+
+- *Lines*: Sobolev escape probabilities in the infall's own velocity field, with the local continuum as the external
+  radiation. Oscillator strengths are Kramers' with the gaunt factors of @johnson1972, which reproduce Lyα, Hα and Hβ to
+  0.1 %.
+- *Continua*: photoionization and recombination with the mean intensity from the full spherical transfer, which in turn
+  uses the non-LTE opacities and emissivities. Cross sections: @verner1996 for $n = 1$, Kramers with Johnson's gaunt
+  factor above. The Lyman continuum is treated like the others.
+- *Collisions*: excitation by the formula of @vanregemorter1962 and ionization by Seaton's approximation, both as given
+  by @mihalas1978. These are order-of-magnitude rates, so they are varied by factors 0.3 and 3.
+- *X-rays*: the energy absorbed above 100 eV (by H and He) makes secondary ionizations of H at 36 eV each, the most it
+  could. In the four non-LTE points right above the shock ($r < 0.991R$) this drives $n_1$ to zero and inverts Hα. That is
+  an artifact of the upper bound, harmless for the spectrum (the inverted line has $|\tau| \sim 10^{-3}$); with the
+  X-rays switched off these points behave like their neighbours.
+- *Fixed*: TITAN's densities, velocities and temperatures (beyond $1.2R$ the assumed extension law). Helium stays in LTE. The star below the shock stays in LTE,
+  but its temperatures are re-corrected every iteration (Unsöld–Lucy), because the ionized infall sends light back onto
+  it.
+
+With $J_\nu = B_\nu(T)$ the solver returns LTE populations to $3\times10^{-7}$ or better, for all escape probabilities and
+collision scalings tried **[tested]** (`julia/nlte_test.jl`). The iteration is Λ-iteration on the continua, so it converges
+slowly: the solution here took 203 passes. Over the last 40 passes, without acceleration, the ionized fraction changed
+by at most 0.013 and $n_2$ by at most 3 %. The change per pass did not shrink over those passes, though, and 20 more
+accelerated passes (the sensitivity runs below) move the ionized fraction beyond $5R$ by another 0.02–0.05, always
+upwards. The solution is therefore converged only to a few per cent in the ionized fraction beyond $5R$, and probably
+slightly under-ionized there **[tested]**.
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="A220_late_ext_nlte" data-compare="A220_late_ext" data-view="xH"></div>
+```
+
+**1. The infall is ionized, by the star.** Within about $4.3R$ hydrogen is more than 99 % ionized, against 30–99 % in LTE
+inside $1.2R$ and essentially neutral beyond $2R$. Further out the ionized fraction falls slowly: 0.93 at $8.5R$, 0.5 at
+$40R$, 0.07 at the edge of the extension. The neutral column is $(7.5$–$8.3)\times10^{23}$ cm$^{-2}$, a tenth of the LTE
+value, almost all of it beyond $5R$. The Thomson depth is 5.4 instead of 0.6 **[computed]**. Neither the collision rates
+(×0.3, ×3), nor the X-rays (switched off), nor the Lyman continuum (forced into detailed balance) change the neutral
+column by more than 10 % or the Thomson depth by more than 1 %. That spread is comparable with the iteration drift
+above, so the tests show insensitivity but cannot resolve smaller effects **[tested]**. They rule out collisions, X-rays
+and photoionization from the ground state as what keeps the gas ionized. What remains is photoionization from the excited
+levels by the star's diluted optical and near-UV light; the gas sees that light at a colour temperature near 7300 K
+while its own temperature is 1000–6700 K **[interpretation]**. How $n = 2$ is kept populated (trapped Lyα, the
+recombination cascade, continuum pumping) was not separated. The photon count of @sec-spec-hot stands: the X-rays cannot
+ionize the column. What changes is the LTE assumption that it is neutral.
+
+**What it does to the X-rays.** Less neutral hydrogen lets more through: 2–10 keV rises from $2.2\times10^{40}$ to
+$3.3\times10^{40}$ erg s$^{-1}$, and 10–40 keV from $1.3$ to $1.4\times10^{40}$. Below 2 keV nothing escapes **[computed]**: helium, kept in LTE and so
+neutral, absorbs there, and the remaining neutral hydrogen alone would block photons below about 0.7 keV **[estimate]**.
+The continuum changes too. The Balmer jump is 0.74 dex, against 0.60 in LTE, and 0.54 dex if the infall ends at $12R$;
+the optical band (3646–7000 Å) is 14 % fainter than in LTE **[computed]**. That fits Balmer-continuum light being
+absorbed by the photoionization from $n = 2$ that ionizes the infall **[interpretation]**. Whether the star could ionize helium too is not
+computed. It has no photons above 24.6 eV, so it could only do so through excited levels, as for hydrogen.
+
+**2. Hα is in emission, strongly.** The Hα source function is above the local continuum throughout the infall (apart
+from the four X-ray-artifact points above): $S_L/J_c = 1.4$–$1.8$ inside $1.2R$, 3 at $1.8R$, 22 at $8.5R$, 45 at
+$40R$, with a maximum of 53 at $32R$ **[computed]**. It is neither the thermal
+limit ($S_L = B_\nu(T)$) nor pure scattering ($S_L < J_c$). The thermal value is 1.7–3.4 times lower inside $1.2R$, and far lower beyond, where the assumed temperature is low. The $n = 2$ population is also much higher than LTE far out, so the line is optically
+thick (Sobolev depth 10–2000) through most of the extension. Both brackets of @tbl-spec-lines are therefore wrong
+in the same direction.
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="A220_late_ext_nlte" data-compare="none" data-view="Halpha"></div>
+```
+
+The profile computed with these populations and source functions (and the non-LTE continuum) has the following
+features **[computed]**:
+
+- **Hα** peaks at 84 times the continuum, centred at −20 km s$^{-1}$, with a full width at half maximum of 360 km s$^{-1}$
+  and asymmetric wings from about −1100 to +1700 km s$^{-1}$. Its equivalent width is −800 Å.
+- **Hβ** peaks at 8.4 times the continuum (−75 Å). It has a deep, narrow absorption trough on the red side, down to 0.03 of the
+  continuum at +160 km s$^{-1}$.
+- **Where it forms.** 76 % of the power in all lines comes from beyond $5R$, and half from beyond $12R$ **[computed]**.
+  That is why the line is narrow: the slow outer infall falls at a few hundred km s$^{-1}$. The red absorption is
+  presumably the same gas in front of the disc; this was not separated ray by ray **[interpretation]**.
+
+**Energy.** All the hydrogen lines together carry $1.1\times10^{43}$ erg s$^{-1}$, 8 % of $L$. That is roughly the Hα
+equivalent width times the non-LTE continuum near Hα, about $0.9\times10^{43}$ erg s$^{-1}$. The power comes from stellar Balmer-continuum
+photons, absorbed and re-emitted in lines, not from the accretion. The continuum plus lines is 0.92 of TITAN's
+luminosity. The missing 8 % is absorbed by infall gas held at fixed temperature; in reality it would heat that gas
+**[computed; interpretation]**.
+
+**How much rests on the extension.** The test is to end the free-fall extension at $12R$ instead of $120R$ (run
+`A220_late_ext10`).
+
+- **Unchanged inside about $4R$**: the ionized fraction to $5\times10^{-4}$ and $S_L/J_c$ to 1.5 %. At 8–11.5 $R$ the
+  ionized fraction is 0.02–0.08 lower and $S_L/J_c$ 7–14 % higher.
+- **Neutral column**: falls to $1.2\times10^{23}$ cm$^{-2}$.
+- **Hα**: still in strong emission, with equivalent width −490 Å, peak 27 times the continuum and $5.6\times10^{42}$
+  erg s$^{-1}$ in all lines; Hβ is at −81 Å. The Hα line is broader, with FWHM 820 km s$^{-1}$ instead of 360, because
+  the slowest gas is gone.
+- **Convergence**: this run met the convergence threshold while its line power was still rising by 0.5 % per pass, so
+  if anything it underestimates the lines **[computed; tested]**.
+
+The emission does not need the far infall, but its strength and width do depend on how far out the infall
+continues.
+
+::: {.callout-warning title="What decides these numbers"}
+- **The extension.** Most of the Hα, and most of the remaining neutral column, comes from gas between $5R$ and $120R$.
+  There the free fall at constant $\dot M$ and the $T \propto r^{-1/2}$ law are assumptions, not TITAN output.
+- **Fixed temperatures.** The infall absorbs 8 % of $L$ without heating. A thermal balance would raise its
+  temperature. That lowers recombination, so it would raise the ionization further, but it changes the line source
+  function in ways not computed here.
+- **Simplifications.** Helium is in LTE. The lines use Sobolev escape probabilities with the local continuum, and the
+  continuum transfer is static. The model atom is l-averaged with twelve levels, and the collision rates are approximate
+  (tested ×0.3 to ×3).
+:::
 
 ## What is robust {#sec-spec-robust}
 
 - **Robust**, because it follows from energetics and column densities that do not depend on LTE: the shock radiates its
-  power as hard free–free emission; the infall column is $N_{\rm H} \approx 8\times10^{24}$ cm$^{-2}$; X-rays below a
-  few keV cannot get through it unless it is ionized; the X-rays cannot ionize it themselves; recombination lines
-  powered by the accretion are negligible; any hydrogen line formed in the infall is redshifted by up to the
-  infall speed at the shock, about 1670 km s$^{-1}$ **[computed; estimate]**.
-- **Model-dependent**: the escaping X-ray luminosity (a factor 14 between the neutral and ionized limits, and a
-  factor 7 in 2–10 keV from the extension); the size of the Balmer jump and the far-UV deficit (LTE, no lines); whether Hα shows net
-  absorption or emission.
-- **Next**: the non-LTE hydrogen and helium post-processing of @sec-nlte-plan on these snapshots, with photoionization
-  by the star and by the shock, and lines in the opacity.
+  power as hard free–free emission; the infall column is $N_{\rm H} \approx (8$–$9)\times10^{24}$ cm$^{-2}$; X-rays cannot
+  ionize it themselves; recombination lines powered by the accretion are negligible; any hydrogen line formed in the
+  infall is redshifted by up to the infall speed at the shock, about 1670 km s$^{-1}$ **[computed; estimate]**.
+- **Settled by the non-LTE calculation, within its assumptions** (fixed temperatures, LTE helium, an iteration
+  converged to a few per cent beyond $5R$): the star's light keeps the inner infall fully ionized, and the Hα source
+  function exceeds the continuum, so Hα is in emission. Neither result changes when the collision rates, the X-rays or
+  the Lyman-continuum treatment are varied **[tested]**. Heating the infall would be expected to raise its ionization
+  further **[interpretation]**.
+- **Model-dependent**: how strong and how narrow that emission is (the extension of the infall beyond TITAN's grid);
+  the escaping X-rays (helium in LTE); the Balmer jump and the far UV (no lines in the continuum opacity); everything that
+  depends on the infall's temperature, which is held fixed.
+- **Next**: thermal balance of the infall in non-LTE; helium; lines in the continuum opacity; a TITAN grid that reaches
+  the outer infall instead of an assumed extension.

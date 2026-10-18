@@ -19,6 +19,8 @@ a positivity-preserving Eddington-factor solution, `TITAN_MGR` (array size), zon
 and runs to 6e8 s that settle within 1.4e-3 R and 50 K of the steady model. P7.8: emergent spectra of TITAN snapshots
 (`julia/Spectrum.jl`, `spectra_run.jl`, `shock_budget.jl`, `line_profile.jl`): static LTE continuum with Unsöld–Lucy
 correction, the shock's X-rays through the infall column, the Balmer jump, and bracketed Hα/Hβ profiles of the infall.
+P7.9: non-LTE hydrogen in the infall (`julia/NLTEH.jl`, `nlte_run.jl`): the star keeps the inner infall ionized and
+puts Hα into strong emission.
 
 ## Status (Phase 6)
 

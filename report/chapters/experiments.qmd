@@ -52,7 +52,9 @@ WebAssembly package used by the figures and the laboratory.
 | tests of the spectrum code | `julia -t 2 --project=env spectrum_test.jl` | @sec-spec-method |
 | shock energy budget, column, line bounds | `Z0_TABLE=ext julia --project=env shock_budget.jl A220d 4.2e8` (and `R2 5.8e7`, `A220 8e6`) | @sec-spec-hot |
 | Hα and Hβ of the infall | `Z0_TABLE=ext julia -t 2 --project=env line_profile.jl A220_late_ext` (`LP_NZ=9000`, `LP_XI=30` for the checks) | @sec-spec-lines |
-| figure data | `julia --project=env export_report_data.jl bench`, `… qstar NAME`, `Z0_TABLE=ext … qstar R2+R2c`, `… qstar R2+AD1 PROFILE qstar_AD1.json`, `… qstar S6`, `… qstar A220+A220d PROFILE qstar_A220.json`, `… qstar A440`, `Z0_TABLE=ext … spectra star_t0 A220_late_ext A220_late_ion A220_late_hotion A220_late_noext A220_corona_ext` | figures |
+| non-LTE hydrogen in the infall | `Z0_TABLE=ext julia -t 2 --project=env nlte_run.jl A220_late_ext maxit=… [init=…] [cscale=0.3/3] [xray=0] [caseB=1]` (about 19 s per pass; 203 passes for the main solution, see `lib/spectra/nlte_A220_late_ext.log`); extension test: `spectra_run.jl A220d 4.2e8 ext=1 rmax=10 … out=A220_late_ext10`, then `nlte_run.jl A220_late_ext10 maxit=160 minit=40`; summary: `nlte_summary.jl OUT`; tests: `nlte_test.jl` | @sec-spec-nlte |
+| non-LTE line profiles | `LP_NLTE=A220_late_ext LP_TAG=_nlte julia -t 2 --project=env line_profile.jl A220_late_ext` | @sec-spec-nlte |
+| figure data | `julia --project=env export_report_data.jl bench`, `… qstar NAME`, `Z0_TABLE=ext … qstar R2+R2c`, `… qstar R2+AD1 PROFILE qstar_AD1.json`, `… qstar S6`, `… qstar A220+A220d PROFILE qstar_A220.json`, `… qstar A440`, `Z0_TABLE=ext … spectra star_t0 A220_late_ext A220_late_ext_nlte A220_late_ext10_nlte A220_late_ion A220_late_hotion A220_late_noext A220_corona_ext` | figures |
 
 The full engineering record of the port, with every check and its numbers, is
 [`docs/PORTING_NOTES.md`](https://github.com/yipihey/titan.jl/blob/main/docs/PORTING_NOTES.md).
