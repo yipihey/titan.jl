@@ -340,7 +340,9 @@ continues.
 
 ::: {.callout-warning title="What decides these numbers"}
 - **The extension.** Most of the Hα, and most of the remaining neutral column, comes from gas between $5R$ and $120R$.
-  There the free fall at constant $\dot M$ and the $T \propto r^{-1/2}$ law are assumptions, not TITAN output.
+  There the free fall at constant $\dot M$ and the $T \propto r^{-1/2}$ law are assumptions, not TITAN output. Out to
+  $30R$ the wide-domain run W30 has since replaced them with TITAN's own infall, with no change in these results
+  (@sec-spec-wide).
 - **Fixed temperatures.** The infall absorbs 8 % of $L$ without heating. A thermal balance would raise its
   temperature. That lowers recombination, so it would raise the ionization further, but it changes the line source
   function in ways not computed here.
@@ -445,13 +447,49 @@ The result is the A220 spectrum **[computed]**:
 ```
 
 In LTE the outer infall is almost neutral and hardly matters for the continuum, so this is a weak test. The real test is
-the non-LTE calculation, in which most of the Hα and of the neutral column comes from beyond $5R$. **It has not been
-done yet.** A first attempt ran the Unsöld–Lucy correction inside the non-LTE iteration without the new `ldr` limit;
-the correction hit its clamp, the emergent continuum fell to 0.75 of TITAN's luminosity, and the run was discarded
-**[tested]**. `julia/nlte_run.jl` now takes the same `ldr` option. Until that run is done, the non-LTE results of
-@sec-spec-nlte and @sec-spec-full rest on the assumed extension. @tbl-outer-infall shows that it is within 16 % of
-TITAN's temperatures out to $30R$, but TITAN's gas is up to 29 % warmer than dilute radiative equilibrium at 3–4 $R$,
-which the non-LTE ionization could be sensitive to **[interpretation]**.
+the non-LTE calculation, in which most of the Hα and of the neutral column comes from beyond $5R$.
+
+**Non-LTE on the wide domain.** `nlte_run.jl W30_late_ext` with the same settings as for A220, plus `ldr` (100
+accelerated passes, then 40 unaccelerated). Over the last 40 passes the ionized fraction changed by at most 0.016 and
+$n_2$ by at most 3.7 %, again upwards beyond $5R$: the same convergence quality as the A220 solution (0.013 and 3 %)
+**[computed]**. A first attempt had run the Unsöld–Lucy correction inside the non-LTE iteration without `ldr`. The
+correction hit its clamp, the emergent continuum fell to 0.75 of TITAN's luminosity, and that run was discarded
+**[tested]**.
+
+The non-LTE results do not change when TITAN's own outer infall replaces the assumed one **[computed]**:
+
+| | A220 (extension beyond $1.2R$) | W30 (TITAN to $30R$) |
+|---|---|---|
+| ionized fraction > 0.99 out to | $4.6R$ | $4.7R$ |
+| ionized fraction at $8.5R$ / $40R$ | 0.93 / 0.51 | 0.92 / 0.50 |
+| neutral column [cm⁻²] | $8.3\times10^{23}$ | $8.5\times10^{23}$ |
+| Thomson depth | 5.36 | 5.41 |
+| continuum + lines / TITAN's $L$ | 0.918 | 0.922 |
+| Hα: peak, EW, FWHM | 84, −795 Å, 360 km s⁻¹ | 86, −805 Å, 360 km s⁻¹ |
+| Hβ: peak, EW | 8.4, −75 Å | 8.2, −73 Å |
+| Balmer decrement $L({\rm H}\alpha)/L({\rm H}\beta)$ | 5.07 | 5.28 |
+| $L({\rm Pa}\alpha)/L({\rm H}\alpha)$, $L({\rm Ly}\alpha)/L({\rm H}\alpha)$ | 0.186, 0.056 | 0.188, 0.054 |
+| 23 lines, ray-integrated [erg s⁻¹] | $1.65\times10^{43}$ | $1.65\times10^{43}$ |
+| X 2–10 keV, 10–40 keV [erg s⁻¹] | $3.27$, $1.39\times10^{40}$ | $3.31$, $1.41\times10^{40}$ |
+| Balmer jump [dex] | 0.74 | 0.74 |
+
+: Non-LTE results for the assumed outer infall (A220) and TITAN's own (W30). The ">0.99" radius is the first non-LTE
+point beyond $1.1R$ below 0.99. {#tbl-spec-wide-nlte}
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="W30_late_ext_nlte" data-compare="A220_late_ext_nlte" data-view="full"></div>
+```
+
+The differences are of the size of the iteration drift, so none of them is resolved. The per-line energy check
+(`nlte_linepower.jl`) gives the same ratios as for A220: emergent over local net power 0.81 for Hα and Lyα, 0.87 for
+Paα, 1.37 for Hβ **[computed]**. The X-ray artifact above the shock covers the same thin layer ($r < 0.9913R$), now
+sampled by 14 non-LTE points instead of 4 because the grid is finer there.
+
+Why so little changes, although TITAN's gas is up to 29 % warmer than assumed at 3–4 $R$: there the gas is already more
+than 98 % ionized, and the ionization is set by the star's light, not the local temperature (@sec-spec-nlte). Beyond
+$12R$, where most of the Hα forms, TITAN and the assumed law agree to 5–8 % **[interpretation]**. So the non-LTE
+spectrum no longer rests on an assumed infall inside $30R$. Beyond $30R$ it still does: half of the line power comes from
+beyond $12R$, and the extension test (@sec-spec-nlte) showed that ending the infall at $12R$ halves the lines.
 
 ## What is robust {#sec-spec-robust}
 
@@ -464,9 +502,11 @@ which the non-LTE ionization could be sensitive to **[interpretation]**.
   function exceeds the continuum, so Hα is in emission. Neither result changes when the collision rates, the X-rays or
   the Lyman-continuum treatment are varied **[tested]**. Heating the infall would be expected to raise its ionization
   further **[interpretation]**.
-- **Model-dependent**: how strong and how narrow that emission is (the extension of the infall beyond TITAN's grid);
+- **Model-dependent**: how strong and how narrow that emission is (the infall beyond $30R$, which no TITAN run covers);
   the line ratios (Balmer decrement 5.1 from the emergent profiles, 8.3 from the local line powers, @sec-spec-full);
   the escaping X-rays (helium in LTE); the Balmer jump and the far UV (no lines in the continuum opacity); everything that
   depends on the infall's temperature, which is held fixed.
-- **Next**: the non-LTE calculation on the wide-domain run W30, whose TITAN grid reaches $30R$ (@sec-spec-wide);
-  thermal balance of the infall in non-LTE; helium; lines in the continuum opacity.
+- **Settled by the wide-domain run**: inside $30R$ the assumed infall was adequate; with TITAN's own outer infall the
+  non-LTE results are unchanged to within the iteration drift (@sec-spec-wide) **[computed]**.
+- **Next**: thermal balance of the infall in non-LTE; helium; lines in the continuum opacity; where the infall really
+  begins beyond $30R$.

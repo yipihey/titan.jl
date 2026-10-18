@@ -1,0 +1,24 @@
+Lyα   Sobolev net 6.027e+41  gross 7.242e+41  ray 4.882e+41  ray/net 0.81
+Lyβ   Sobolev net -3.575e+40  gross 3.340e+40  ray 4.670e+39  ray/net -0.13
+Lyγ   Sobolev net -4.324e+40  gross 1.276e+40  ray -2.540e+39  ray/net 0.06
+Lyδ   Sobolev net -4.292e+40  gross 7.923e+39  ray -3.667e+39  ray/net 0.09
+Lyε   Sobolev net -4.227e+40  gross 6.021e+39  ray -3.959e+39  ray/net 0.09
+Hα    Sobolev net 1.104e+43  gross 1.233e+43  ray 8.991e+42  ray/net 0.81
+Hβ    Sobolev net 1.243e+42  gross 3.201e+42  ray 1.703e+42  ray/net 1.37
+Hγ    Sobolev net -5.029e+41  gross 1.534e+42  ray 5.354e+41  ray/net -1.06
+Hδ    Sobolev net -9.245e+41  gross 9.459e+41  ray 1.574e+41  ray/net -0.17
+Hε    Sobolev net -1.012e+42  gross 6.367e+41  ray -2.940e+40  ray/net 0.03
+Hζ    Sobolev net -9.472e+41  gross 4.895e+41  ray -1.074e+41  ray/net 0.11
+Hη    Sobolev net -9.028e+41  gross 3.484e+41  ray -1.852e+41  ray/net 0.21
+Hθ    Sobolev net -8.045e+41  gross 2.885e+41  ray -2.075e+41  ray/net 0.26
+Paα   Sobolev net 1.932e+42  gross 2.093e+42  ray 1.689e+42  ray/net 0.87
+Paβ   Sobolev net 1.123e+42  gross 1.442e+42  ray 1.060e+42  ray/net 0.94
+Paγ   Sobolev net 5.835e+41  gross 8.619e+41  ray 6.103e+41  ray/net 1.05
+Paδ   Sobolev net 3.156e+41  gross 5.152e+41  ray 3.709e+41  ray/net 1.18
+Paε   Sobolev net 2.342e+41  gross 3.739e+41  ray 2.837e+41  ray/net 1.21
+Paζ   Sobolev net 1.349e+41  gross 2.346e+41  ray 1.785e+41  ray/net 1.32
+Brα   Sobolev net 3.201e+41  gross 3.419e+41  ray 2.998e+41  ray/net 0.94
+Brβ   Sobolev net 3.142e+41  gross 3.588e+41  ray 3.047e+41  ray/net 0.97
+Brγ   Sobolev net 1.976e+41  gross 2.346e+41  ray 2.043e+41  ray/net 1.03
+Brδ   Sobolev net 1.464e+41  gross 1.721e+41  ray 1.560e+41  ray/net 1.07
+total Sobolev net 1.293e+43 gross 2.718e+43 ray 1.650e+43 (SE P sum 1.115e+43)

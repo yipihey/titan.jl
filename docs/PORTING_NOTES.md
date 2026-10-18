@@ -1681,9 +1681,20 @@ Chapter sections `sec-infall-wide` (ch. 7) and `sec-spec-full`, `sec-spec-wide` 
 - **`nlte_linepower.jl`**: ray-integrated vs local Sobolev net power per line: Hα 0.81, Lyα 0.80, Paα 0.87, Paβ–Brδ
   0.95–1.34, Hβ 1.33; Hγ–Hθ net absorbers locally (−5.1e42) but ≈ neutral emergent (+0.2e42). Sobolev sum over the 23 lines
   1.29e43, all 66 transitions 1.11e43. Decrement from local powers 8.3.
-- **W30 non-LTE: not done.** A first `nlte_run.jl W30_late_ext` (100 + 85 passes, discarded) ran its per-pass Lucy
+- **W30 non-LTE, first attempt (discarded).** A first `nlte_run.jl W30_late_ext` (100 + 85 passes, discarded) ran its per-pass Lucy
   correction without `ldr`: |ΔH/H| up to 0.30, emergent continuum fell to 1.09e44 (0.75 L_TITAN). `nlte_run.jl` now has
   `ldr`; rerun with `ldr=5e-6` (≈ 35 s per pass on 118 points; run in chunks of ≤ 100 passes with `init=` because of the
   2 h job limit).
 - Verification: independent pass on 18 Oct; corrections applied (extension law within 16 %, 1.4 % at 29 R, spread at 4 R,
   W30a/b failure description, Pa+Br 5.2e42, strong-line agreement 20–35 %, origin of the total difference, ΔL 0.0002 L0).
+- **W30 non-LTE (done, 18 Oct)**: `nlte_run.jl W30_late_ext ldr=5e-6` 100 passes (Ng + Lucy; Lucy |ΔH/H| 0.065 → 0.009,
+  out `W30_late_ext_c1`), then 40 plain passes from it (`ng=0`, out `W30_late_ext`). 118 non-LTE points (A220: 94).
+  Drift over the last 40: max |Δx_H| 0.016 (10.6 R), |Δn₂/n₂| 3.7 %; x_H(5.2 R) 0.969 → 0.978, (8.6 R) 0.907 → 0.922,
+  (11.8 R) 0.867 → 0.882: upwards, as for A220.
+  - N_H I 8.47e23 (A220 8.26e23), Thomson 5.41 (5.36), continuum 1.231e44 + lines (SE) 1.115e43 = 0.922 L_TITAN (0.918).
+    x_H < 0.99 from 4.68 R (A220 4.59 R, same criterion); x_H(8.6 R) 0.922 (0.932), (40.4 R) 0.503 (0.510). Line power
+    beyond 5 R 0.79 (0.76), beyond 12 R 0.51 (0.48).
+  - Hα peak 86.3, EW −805 Å, FWHM 360 km/s; Hβ 8.24, −73 Å, trough 0.031 at +160 km/s. 23 lines 1.650e43 (A220 1.650e43);
+    Hα/Hβ 5.28 (5.07); Paα/Hα 0.188; Lyα/Hα 0.054. X 2–10 keV 3.31e40, 10–40 keV 1.41e40; Balmer jump 0.743 dex.
+  - Energy check (`linepower_W30_late_ext.log`): ray/net Hα 0.81, Lyα 0.81, Paα 0.87, Hβ 1.37; Sobolev 23-line sum 1.293e43.
+  - Inverted (X-ray artifact) points: 14, at r/R 0.99030–0.99128 (A220: 4, 0.99030–0.99088): same layer, finer grid.

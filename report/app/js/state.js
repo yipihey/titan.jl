@@ -4,7 +4,7 @@
 // Lists and vectors are joined with '_' (never commas).
 
 export const PANELS = ['micro', 'env', 'shoot', 'branch', 'bench', 'qstar', 'spec'];
-const SPECTRA = ['star_t0', 'A220_late_ext', 'W30_late_ext', 'A220_late_ext_nlte', 'A220_late_ext10_nlte', 'A220_late_ion', 'A220_late_hotion', 'A220_late_noext', 'A220_corona_ext'];
+const SPECTRA = ['star_t0', 'A220_late_ext', 'W30_late_ext', 'A220_late_ext_nlte', 'W30_late_ext_nlte', 'A220_late_ext10_nlte', 'A220_late_ion', 'A220_late_hotion', 'A220_late_noext', 'A220_corona_ext'];
 
 export function makeDefaults() {
   return {
