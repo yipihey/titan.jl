@@ -1,0 +1,47 @@
+┌ Warning: Assignment to `acc` in soft scope is ambiguous because a global variable by the same name exists: `acc` will be treated as a new local. Disambiguate by using `local acc` to suppress this warning or `global acc` to assign to the existing global variable.
+└ @ /home/claude/titan.jl/julia/analytic_infall.jl:116
+trap iteration  1: Thomson depth 3.358, τ* at the base 1.162 (change 1.079e+00)
+trap iteration  2: Thomson depth 3.490, τ* at the base 1.180 (change 6.224e-01)
+trap iteration  3: Thomson depth 3.551, τ* at the base 1.187 (change 3.291e-01)
+trap iteration  4: Thomson depth 3.584, τ* at the base 1.190 (change 1.714e-01)
+trap iteration  5: Thomson depth 3.601, τ* at the base 1.191 (change 8.891e-02)
+trap iteration  6: Thomson depth 3.612, τ* at the base 1.192 (change 4.622e-02)
+trap iteration  7: Thomson depth 3.617, τ* at the base 1.193 (change 2.598e-02)
+trap iteration  8: Thomson depth 3.621, τ* at the base 1.193 (change 1.494e-02)
+trap iteration  9: Thomson depth 3.623, τ* at the base 1.193 (change 8.687e-03)
+trap iteration 10: Thomson depth 3.624, τ* at the base 1.193 (change 5.114e-03)
+trap iteration 11: Thomson depth 3.625, τ* at the base 1.194 (change 3.014e-03)
+trap iteration 12: Thomson depth 3.625, τ* at the base 1.194 (change 1.779e-03)
+trap iteration 13: Thomson depth 3.625, τ* at the base 1.194 (change 1.057e-03)
+trap iteration 14: Thomson depth 3.625, τ* at the base 1.194 (change 6.293e-04)
+Ṁ = 3.00 Msun/yr, T_eff = 7310 K, L = 1.420e+44, R* = 0.9905 R0, star = bb, T = W30_late_ext, r to 120 R0
+    r/R0      T       x_H        b2   S/J(Hα)     τ(Hα)
+   0.990  18975    1.0000 2.827e+01 9.208e-01 2.118e+00
+   0.990   8566    0.9997 1.429e+00 9.027e-01 4.418e+00
+   0.990   6694    0.9996 3.392e-01 8.976e-01 5.503e+00
+   0.992   6672    0.9996 3.438e-01 9.030e-01 5.709e+00
+   1.010   6494    0.9995 3.284e-01 9.260e-01 6.525e+00
+   1.144   5469    0.9988 1.659e-01 1.066e+00 1.115e+01
+   1.642   4093    0.9923 4.481e-02 1.745e+00 3.067e+01
+   2.754   3803    0.9203 1.139e-01 3.734e+00 7.305e+01
+   4.683   3135    0.6012 5.723e-02 5.796e+00 8.698e+01
+   7.800   2156    0.3387 5.378e-04 5.725e+00 6.459e+01
+  13.020   1547    0.2004 1.001e-06 4.866e+00 4.293e+01
+  21.661   1151    0.1305 3.619e-10 4.360e+00 3.110e+01
+  31.317   1000    0.0949 3.976e-12 3.867e+00 2.262e+01
+  35.162   1000    0.0821 5.050e-12 3.467e+00 1.808e+01
+  39.479   1000    0.0711 6.406e-12 3.113e+00 1.444e+01
+  44.326   1000    0.0615 8.118e-12 2.799e+00 1.152e+01
+  49.769   1000    0.0532 1.028e-11 2.523e+00 9.187e+00
+  55.879   1000    0.0461 1.300e-11 2.283e+00 7.319e+00
+  62.740   1000    0.0399 1.644e-11 2.076e+00 5.828e+00
+  70.442   1000    0.0345 2.078e-11 1.901e+00 4.638e+00
+  79.091   1000    0.0299 2.625e-11 1.755e+00 3.689e+00
+  88.802   1000    0.0259 3.316e-11 1.637e+00 2.933e+00
+  99.704   1000    0.0224 4.187e-11 1.543e+00 2.331e+00
+ 111.946   1000    0.0194 5.288e-11 1.469e+00 1.852e+00
+neutral column 2.913e+24 cm⁻², Thomson depth 3.625
+net line power: all 2.654e+42, Hα 2.538e+42, Hβ 1.744e+41, Paα 4.564e+41, Lyα 1.293e+39 erg/s; Hα/Hβ 14.56
+  fraction of the line power beyond    5 R0: 0.26
+  fraction of the line power beyond   12 R0: 0.06
+  fraction of the line power beyond   30 R0: 0.01

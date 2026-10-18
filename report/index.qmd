@@ -36,6 +36,9 @@ number, and a *lab* button opens the laboratory in the state that reproduces an 
 replay simulation output produced by the Julia code in the same repository; @sec-experiments lists every
 experiment with the command that reproduces it.
 
+A short companion, [*What a fed quasi-star looks like*](spectra/index.html), presents only the spectra: the non-LTE
+calculation, a simple model that reproduces it, and the comparison with the Little Red Dots.
+
 <div class="qd-cta">
 <a class="btn btn-primary btn-lg" href="chapters/01-question.qmd">Start reading</a>
 <a class="btn btn-outline-secondary btn-lg" href="app/index.html">Open the laboratory</a>

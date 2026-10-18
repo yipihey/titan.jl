@@ -96,7 +96,7 @@ Statistical equilibrium of one point. T, nH (total hydrogen), neHe (electrons fr
 ionisations per ground-state atom per s), start populations n0 (length NL) and np0. Returns (n, np, ne, β, P) with β
 the escape probabilities of the lines (matrix, l < u) and P the net power escaping in the lines [erg cm⁻³ s⁻¹].
 """
-function solve_point(T, nH, neHe, v, r, s, ν, wν, J, Γx, n0, np0; cscale = 1.0, caseB = false, nit = 200, tol = 1e-10)
+function solve_point(T, nH, neHe, v, r, s, ν, wν, J, Γx, n0, np0; cscale = 1.0, caseB = false, ots2 = false, nit = 200, tol = 1e-10)
     n = copy(n0); np = np0; ne = np + neHe
     x = h .* ν ./ (kB * T)
     # bound–free integrals (only below 100 eV; the X-rays enter through Γx)
@@ -110,6 +110,9 @@ function solve_point(T, nH, neHe, v, r, s, ν, wν, J, Γx, n0, np0; cscale = 1.
     end
     if caseB      # Lyman continuum in detailed balance (no net radiative rate)
         Rph[1] = 0.0; Rrc[1] = 0.0
+    end
+    if ots2       # on-the-spot Balmer continuum (simple model only, analytic_infall.jl): radiative recombinations to n = 2
+        Rrc[2] = 0.0      # are re-absorbed nearby and do not count; J must then hold only the (attenuated) external light
     end
     Jline = zeros(NL, NL)
     lν = log.(ν)

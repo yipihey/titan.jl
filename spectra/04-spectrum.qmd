@@ -1,0 +1,128 @@
+# The full emission spectrum {#sec-spec}
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="W30_late_ext_nlte" data-compare="star_t0" data-view="full"></div>
+```
+
+The figure shows the emergent spectrum of the non-LTE solution: the continuum, with 23 hydrogen lines computed one by
+one and multiplied onto it. For comparison, the TITAN star before any infall is shown (continuum only). From the far UV to
+the near infrared, each feature has a definite origin.
+
+## The continuum
+
+| band | star without infall | with infall, non-LTE | origin of the difference |
+|---|---|---|---|
+| far UV 912–2000 Å [erg s⁻¹] | $1.18\times10^{43}$ | $5.8\times10^{42}$ | absorbed in the infall (Lyman-line pumping, photoionization from $n=2$) |
+| optical 3646–7000 Å | $6.2\times10^{43}$ | $7.1\times10^{43}$ | not separated: the irradiated photosphere, and re-emission in the infall |
+| Balmer jump [dex] | 0.23 | 0.74 | photoionization from $n=2$ in the infall |
+| X 2–10 keV | — | $3.3\times10^{40}$ | the shock, through the infall |
+| X 10–40 keV | — | $1.4\times10^{40}$ | the shock, through the infall |
+
+: Band luminosities of the TITAN star at $t = 0$ (`star_t0`) and of the fed star at $4.18\times10^8$ s with
+non-LTE hydrogen (`W30_late_ext_nlte`) **[computed]**. {#tbl-spec-bands}
+
+**The photosphere** ($T_{\rm eff} = 7310$ K) makes almost all of the light. Above the Balmer edge its spectrum is
+within a factor 1.2 of a blackbody at $T_{\rm eff}$. Below the edge it has a far-UV excess: 13 times the blackbody at
+1500 Å, 78 times at Lyα, 770 times at 1000 Å. Between the Lyman and Balmer edges a zero-metallicity photosphere has
+little continuum opacity, so the light there comes from deeper, hotter layers. Our opacities contain no lines, so this
+excess is probably overestimated **[computed; interpretation]**. It powers the ionization of the infall (@sec-sm).
+
+**The Balmer jump** grows from 0.23 dex for the bare star to 0.74 dex. The infall absorbs Balmer-continuum light in
+photoionizations from $n = 2$, the very process that keeps it ionized. In LTE, with neutral, Boltzmann-populated gas,
+the jump is 0.61 dex **[computed]**. A strong Balmer break here is a sign of dense gas around the star with a
+populated $n=2$, not of an old stellar population **[interpretation]**.
+
+**Electron scattering.** The Thomson depth of 5.4 does not change the continuum's shape, because the scattering is
+coherent and grey. It traps the light (@sec-sm) and lengthens the photons' path, which strengthens every absorption
+in the infall.
+
+**X-rays.** The shock heats the post-shock gas to $3.7\times10^7$ K, and $\tfrac12\dot M v^2 = 2.6\times10^{42}$ erg
+s$^{-1}$ is radiated as free–free emission, $7.3\times10^{41}$ erg s$^{-1}$ of it above 2 keV. Only $4.7\times10^{40}$
+erg s$^{-1}$ escapes above 2 keV, through a column of $9\times10^{24}$ cm$^{-2}$ that is Thomson-thick and partly
+neutral. Nothing escapes below about 2 keV **[computed]**. Helium, held in LTE and therefore neutral, sets that
+cut-off. If the star's far UV ionized helium as well, it could move. That is not computed. The ratio
+$L_{2-10\,\rm keV}/L \approx 2\times10^{-4}$ makes this an X-ray-weak source.
+
+## The hydrogen lines
+
+| series | line | λ [Å] | peak / continuum | EW [Å] | $L$ [erg s⁻¹] |
+|---|---|---|---|---|---|
+| Lyman | Lyα | 1215.7 | 64 | −99 | $4.9\times10^{41}$ |
+| | Lyβ | 1025.7 | 1.8 | −1.3 | $5\times10^{39}$ |
+| | Lyγ–Lyε | 973–938 | 1.1–1.2 | +0.8 to +1.5 | net absorption |
+| Balmer | Hα | 6564.7 | 86 | −805 | $9.0\times10^{42}$ |
+| | Hβ | 4862.7 | 8.2 | −73 | $1.70\times10^{42}$ |
+| | Hγ | 4341.7 | 2.8 | −18 | $5.4\times10^{41}$ |
+| | Hδ | 4102.9 | 1.6 | −4.6 | $1.6\times10^{41}$ |
+| | Hε–Hθ | 3971–3799 | 1.06–1.3 | +0.8 to +5.1 | net absorption |
+| Paschen | Paα | 18756 | 111 | −3160 | $1.69\times10^{42}$ |
+| | Paβ | 12822 | 23 | −559 | $1.06\times10^{42}$ |
+| | Paγ–Paζ | 10941–9232 | 2.3–8.9 | −205 to −35 | $(1.8$–$6.1)\times10^{41}$ |
+| Brackett | Brα | 40523 | 100 | −7050 | $3.0\times10^{41}$ |
+| | Brβ–Brδ | 26259–19451 | 6.0–28 | −1810 to −324 | $(1.6$–$3.0)\times10^{41}$ |
+
+: The hydrogen lines of the fed quasi-star (vacuum wavelengths; EW < 0 is emission; $L$ = −EW × the continuum
+$L_\lambda$ at the line). Each line is integrated along rays through the infall with the non-LTE populations, as one
+line at a time **[computed]**. {#tbl-spec-lines}
+
+**Why Hα is so strong.** In the outer infall the populations of $n=2$ and $n=3$ are set by the star's far UV, not
+by the cold gas. The Hα source function there is 10–60 times the local continuum. The line is optically thick
+everywhere (Sobolev depth 10–2800), so its luminosity is the thick-line integral $\propto\int r\,v\,S_L\,dr$
+(@sec-sm-halpha). The line luminosity is starlight, absorbed in the Balmer and Paschen continua and re-emitted. It is
+not recombination radiation powered by the accretion. The shock's X-rays could drive at most a few
+$10^{40}$ erg s$^{-1}$ of Hα through the ionizations they make **[estimate]**.
+
+**Why it is narrow.** Half of the power comes from beyond $12R$, where the gas falls at less than about 500 km s$^{-1}$. The
+FWHM is 360 km s$^{-1}$. The wings reach −1100 and +1700 km s$^{-1}$: the red wing comes from the gas falling onto the
+near side of the star at up to 1770 km s$^{-1}$ **[computed; interpretation]**. Our profiles leave out electron
+scattering in the line, and with $\tau_{\rm es} \approx 5$ that would broaden the wings. That is the most important
+omission for comparing profiles with observations (@sec-lrd).
+
+**The Balmer decrement**, $L({\rm H\alpha})/L({\rm H\beta}) = 5.3$ (case B: 2.86), owes nothing to dust. Both lines are
+optically thick, and each line's luminosity is set by its source function and the velocity field, not by
+recombination statistics. Hβ is further weakened by absorption against the star: it has a trough down to 3 % of the
+continuum at +160 km s$^{-1}$. The decrement depends on how the line power is counted. From the solution's own local
+line powers it would be 8.9 instead of 5.3 (@sec-spec-energy). Either way it is far from case B **[computed]**.
+
+**Redshifted Balmer absorption.** From Hβ upwards every Balmer line has an absorption trough at +160 to +180 km s$^{-1}$,
+down to 3–8 % of the continuum, and from Hε up absorption wins over emission. The gas between us and the star falls away from us, so its absorption
+is redshifted. Its source function in these lines is below the stellar intensity behind it. Redshifted absorption is
+the kinematic signature of infall **[computed; interpretation]**.
+
+**Paschen and Brackett** lines are strong: together $5.2\times10^{42}$ erg s$^{-1}$, 57 % of Hα. Their equivalent
+widths are huge, Paα −3200 Å and Brα −7000 Å, because the stellar continuum is faint in the infrared. Paα/Hα = 0.19
+**[computed]**.
+
+**Lyα is weak**: 0.054 of Hα, against about 10 in case B for nebulae. Lyα is so optically thick that its photons
+scatter until they are destroyed, mostly when the excited atom is photoionized from $n=2$. The higher Lyman lines are
+in net absorption **[computed; interpretation]**.
+
+## The energy in the lines {#sec-spec-energy}
+
+The 23 emergent profiles carry $1.65\times10^{43}$ erg s$^{-1}$. The solution's own net line power (Sobolev escape,
+summed over all 66 transitions of the model atom) is $1.12\times10^{43}$ erg s$^{-1}$. Line by line
+(`julia/nlte_linepower.jl`) **[computed]**:
+
+- For the strong emission lines, the emergent luminosity is 0.8–1.4 times the local net power: Hα 0.81, Lyα 0.81,
+  Paα 0.87, Paβ to Brδ 0.94–1.32, Hβ 1.37.
+- Most of the difference is in Hγ–Hθ. In the local balance they absorb $5.1\times10^{42}$ erg s$^{-1}$ of continuum. In the
+  emergent spectrum they are close to neutral, $+0.2\times10^{42}$.
+- The local balance counts all the light the gas absorbs, including light headed inwards to the star. The emergent
+  profile counts only what is removed from the light that leaves. With temperatures held fixed, energy absorbed from
+  the inward light goes nowhere, so the two need not agree **[interpretation]**.
+
+So the strong lines are uncertain by 20–40 %, and the total line luminosity by about 50 %.
+
+## What is not in this spectrum
+
+- **Electron-scattering wings** of the lines, expected with $\tau_{\rm es} \approx 5$.
+- **Helium** lines and non-LTE helium. The soft X-ray cut-off depends on it.
+- **Metals**: none, since the model is at zero metallicity. So there is no Fe II, O I, Na D or Ca II.
+- **Thermal balance** of the infall. It absorbs 8 % of $L$ at fixed temperature.
+- **The infall beyond $30R$**, which is assumed out to $120R$.
+- **Line opacity** in the star's own photosphere, which would reduce the far-UV excess (@sec-sm).
+- **Asphericity**. Everything here is spherical: one viewing angle, no disc, no outflow.
+
+```{=html}
+<script type="module" src="../app/js/widgets.js"></script>
+```

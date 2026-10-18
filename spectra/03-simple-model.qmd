@@ -1,0 +1,199 @@
+# A simple model of the infall {#sec-sm}
+
+The full calculation needs a TITAN run, a spherical transfer code and 140 coupled iterations. This chapter builds a
+model that needs none of them, and tests each step against the full solution of @sec-nlte. It has three levels:
+
+- the structure of the infall in closed form;
+- a closed formula for its ionization;
+- a semi-analytic version, in which the same 12-level atom sits in a prescribed radiation field, with no transfer.
+
+Along the way it shows what actually sets the answer.
+
+## Structure in closed form {#sec-sm-structure}
+
+Steady free fall at $\dot M$ onto a star of mass $M$ and radius $R$:
+
+$$
+v_{\rm ff} = \sqrt{2GM/r}, \qquad n_{\rm H}(r) = \frac{X\dot M}{4\pi r^2 v_{\rm ff}\,m_{\rm H}} = n_0\left(\frac{r}{R}\right)^{-3/2},
+\qquad N_{\rm H} = 2 n_0 R\left[1 - \sqrt{R/r_{\rm out}}\right].
+$$
+
+For $\dot M = 3\,M_\odot\,{\rm yr}^{-1}$, $M = 10^6\,M_\odot$ and $R = 8.4\times10^{15}$ cm, this gives
+$v_{\rm ff}(R) = 1770$ km s$^{-1}$, $n_0 = 5.4\times10^8$ cm$^{-3}$ and, out to $120R$,
+$N_{\rm H} = 8.3\times10^{24}$ cm$^{-2}$ **[computed]**. TITAN's infall follows this free fall to within 1–2 %
+beyond $1.2R$ (@sec-nlte). Fully ionized, the column has Thomson depth $\sigma_{\rm T}N_{\rm H} = 5.5$. Half of the
+column (to $120R$) lies within $3.4R$ of the star, because $N_{\rm H}(<r) \propto 1 - (R/r)^{1/2}$.
+
+**Radiation trapping.** An electron-scattering envelope does not absorb the star's light, but it makes the light
+random-walk. Then the mean intensity exceeds the geometrically diluted value $W(r)I_\nu$, with
+$W = \tfrac12[1-\sqrt{1-(R/r)^2}]$. In the Eddington approximation ($K = J/3$) for a sphere carrying the star's flux:
+
+$$
+J_\nu(r) = W(r)\,I_\nu + 3H_\nu(r)\,\tau^*(r), \qquad H_\nu = \frac{L_\nu}{16\pi^2 r^2}, \qquad
+\tau^*(r) = r^2\int_r^\infty \frac{n_e\sigma_{\rm T}}{r'^2}\,dr' .
+$$
+
+For $n_e \propto r^{-3/2}$, $\tau^* = \tau_{\rm es}/5$, so near the star $J/J_{\rm geom} \approx 1 + 0.3\,\tau_{\rm es}
+\approx 2.5$. In the full solution, $J(\mathrm{H}\alpha)/[W B_\nu(T_{\rm eff})]$ is 2.0–2.5 within $2R$ and falls to 1.2
+at $20R$ **[computed]**. A plane-parallel estimate, $1 + 1.5\,\tau_{\rm es} \approx 9$, would be four times too large.
+
+## What ionizes the infall {#sec-sm-mechanism}
+
+The full solution answers this directly (`julia/nlte_rates.jl`) **[computed]**:
+
+- **The Lyman continuum is in detailed balance.** About half of all photoionizations are from the ground state, but
+  they are balanced by recombinations to it, to $10^{-4}$ of all recombinations beyond $1.2R$. The Lyman-continuum radiation is the
+  infall's own recombination light, reabsorbed nearby. That is case B, as in a nebula.
+- **The net ionization comes from $n = 2$.** Photoionization from $n=2$ by Balmer-continuum light exceeds
+  recombination to $n=2$ by 0.10–0.35 of all recombinations, increasing outwards. This balances the recombinations to
+  $n \ge 4$ that cascade down. From $n=3$ the net rate is small and changes sign.
+- **What keeps $n=2$ populated is far-UV light.** At 1000 Å the mean intensity in the infall is 400–1200 times
+  that of a 7310 K blackbody, diluted.
+
+The decisive test replaces bands of the full solution's own $J_\nu$ with the diluted, trapped light of a 7310 K
+blackbody, and recomputes the populations at fixed temperatures **[computed]**:
+
+| replaced band | neutral column [cm⁻²] | Thomson depth | $L$(Hα) [erg s⁻¹] |
+|---|---|---|---|
+| none (the full solution's own $J_\nu$, case B) | $7.0\times10^{23}$ | 5.10 | $1.11\times10^{43}$ |
+| far UV, 912–1300 Å | $3.0\times10^{24}$ | 3.57 | $3.9\times10^{42}$ |
+| near UV, 1300–3646 Å | $4.6\times10^{23}$ | 5.26 | $1.31\times10^{43}$ |
+| optical and infrared, > 3646 Å | $7.0\times10^{23}$ | 5.10 | $9.2\times10^{42}$ |
+
+: Which part of the radiation field the infall's ionization depends on. $L$(Hα) is the local net line power. {#tbl-sm-bands}
+
+Only the far UV matters. It contains Lyα (1216 Å) and Lyβ (1026 Å): continuum light at those wavelengths pumps the
+optically thick Lyman lines. That fills $n = 2$ and $n = 3$, and the star's ordinary optical light ionizes them.
+
+**Where the far UV comes from.** The answer is the star itself, not the shock. The emergent spectrum of the TITAN star
+without any infall (`star_t0`) is 772 times a 7310 K blackbody at 1000 Å, 78 times at Lyα and 13 times at 1500 Å.
+Above the Balmer edge it is within a factor 1.2 of the blackbody **[computed]**. Between the Lyman and Balmer edges, a
+zero-metallicity photosphere without line opacity has a window: there we see deep, hot layers. With the star's
+spectrum in place of the blackbody in that band, the full-$J$ test returns a neutral column of $5.7\times10^{23}$
+cm$^{-2}$ **[computed]**.
+
+::: {.callout-warning title="The weak point"}
+The infall's ionization, and with it the Hα, rests on the star's far-UV excess. That excess comes from a photosphere
+computed in LTE, with continuum opacities only. The Lyman lines, Lyα above all, would absorb part of it, and metals
+would absorb more. Below, the far UV is reduced by up to a factor 1000 to see how much this matters.
+:::
+
+## A closed formula for the ionization {#sec-sm-closed}
+
+Take the three findings as assumptions:
+
+- the Lyman continuum is in detailed balance (case B);
+- Lyα and Lyβ are thick and in radiative balance with the star's far UV, so
+  $n_2/n_1 = (g_2/g_1)\,J_{\rm Ly\alpha}/(2h\nu^3/c^2)$ and the same for $n_3$ with Lyβ;
+- $n=2$ and $n=3$ are photoionized by the Balmer and Paschen continua.
+
+Both the pumping and the ionizing light scale with the same dilution-and-trapping factor $f(r) = W + 3\tau^* R^2/4r^2$.
+Ionization balance per volume, with $n_e = n_p = x\,n_{\rm H}$, then gives
+
+$$
+\frac{x^2}{1-x} = \frac{f(r)^2\,Q_0}{n_{\rm H}(r)\,\alpha_B(T)}, \qquad
+Q_0 = \frac{g_2 I_{\rm Ly\alpha}}{g_1\,2h\nu_{\alpha}^3/c^2}\,\Gamma_2 + \frac{g_3 I_{\rm Ly\beta}}{g_1\,2h\nu_{\beta}^3/c^2}\,\Gamma_3 ,
+$$
+
+with $\Gamma_i = 4\pi\int I_\nu\sigma_i\,d\nu/h\nu$ the undiluted photoionization rates, all from the star's spectrum.
+For the TITAN star: $(g_2/g_1)I_{\rm Ly\alpha}/(2h\nu^3/c^2) = 2.7\times10^{-5}$, $\Gamma_2 = 1.6\times10^5$ s$^{-1}$
+and $\Gamma_3 = 8.0\times10^5$ s$^{-1}$. The only other input is $\alpha_B(T)$ (`julia/closed_form.jl`).
+
+Far out, $f \approx (R/2r)^2$ and $n_{\rm H} \propto r^{-3/2}$, so the right-hand side falls as $r^{-5/2}$. The
+infall is fully ionized where it exceeds 1, and beyond, the ionized fraction falls roughly as $x \propto r^{-5/4}$
+(a little faster, since $\alpha_B$ grows as the gas cools).
+
+```{=html}
+<div class="qd-widget" data-widget="analytic" data-view="x"></div>
+```
+
+| $r/R$ | 2 | 5 | 8 | 12 | 20 | 30 | 50 | 80 | 115 |
+|---|---|---|---|---|---|---|---|---|---|
+| closed form | 0.9999 | 0.997 | 0.987 | 0.94 | 0.73 | 0.46 | 0.27 | 0.15 | 0.10 |
+| full non-LTE | 0.9998 | 0.978 | 0.93 | 0.88 | 0.81 | 0.67 | 0.39 | 0.21 | 0.13 |
+
+: Ionized fraction of the closed form against the full solution (W30, same points and temperatures). {#tbl-sm-closed}
+
+The closed form gives a neutral column of $8.8\times10^{23}$ against $8.0\times10^{23}$ cm$^{-2}$, and a Thomson depth
+of 4.98 against 5.06, on the same points **[computed]**. It is too ionized inside $12R$ and too neutral beyond $20R$,
+by up to 0.2 in $x$. The profile is right to that accuracy, with no free parameter. The widget evaluates the formula
+live: move $\dot M$ or the far UV and see how the ionized region responds (the temperatures stay W30's).
+
+## The semi-analytic model {#sec-sm-semi}
+
+The same 12-level statistical equilibrium as the full calculation (`NLTEH.solve_point`), at every radius, in the
+prescribed field $J_\nu = f(r)\,I_\nu$ of the TITAN star (`star_t0`), with case B and the $\tau^*$ iteration, but no
+transfer (`julia/analytic_infall.jl`):
+
+| | full non-LTE | semi-analytic | no trapping | blackbody star |
+|---|---|---|---|---|
+| neutral column [cm⁻²] | $8.5\times10^{23}$ | $3.5\times10^{23}$ | $5.0\times10^{23}$ | $2.9\times10^{24}$ |
+| Thomson depth | 5.41 | 5.33 | 5.23 | 3.63 |
+| $L$(Hα) [erg s⁻¹] | $1.10\times10^{43}$ | $1.32\times10^{43}$ | $1.14\times10^{43}$ | $2.5\times10^{42}$ |
+| $L$(Hβ) | $1.24\times10^{42}$ | $1.31\times10^{42}$ | $1.27\times10^{42}$ | $1.7\times10^{41}$ |
+| $L$(Paα) | $1.93\times10^{42}$ | $2.24\times10^{42}$ | $1.92\times10^{42}$ | $4.6\times10^{41}$ |
+| $L$(Lyα) | $6.0\times10^{41}$ | $1.6\times10^{42}$ | $7.8\times10^{41}$ | $1\times10^{39}$ |
+| line power from beyond $5R$ | 79 % | 84 % | 79 % | 26 % |
+
+: Semi-analytic models against the full solution. Line luminosities are local net Sobolev powers, the quantity both
+compute. All columns use W30's temperatures **[computed]**. {#tbl-sm-semi}
+
+Without any transfer, the semi-analytic model gets the strong lines to 20 % and the Thomson depth to 2 %. It needs the
+star's real spectrum: with a blackbody, which lacks the far-UV excess, the infall stays mostly neutral and Hα is four
+times weaker. Thomson trapping matters little for the lines. Lyα, which is scattered and destroyed in the infall, is
+where the model is worst.
+
+**How much the far UV matters.** The star's light below 1300 Å is scaled down in both models:
+
+| far UV × | 1 | 0.1 | 0.01 | 0.001 |
+|---|---|---|---|---|
+| neutral column, closed form [cm⁻²] | $8.8\times10^{23}$ | $1.6\times10^{24}$ | $2.6\times10^{24}$ | $4.1\times10^{24}$ |
+| neutral column, semi-analytic | $3.5\times10^{23}$ | $9.7\times10^{23}$ | $2.1\times10^{24}$ | $3.8\times10^{24}$ |
+| $L$(Hα), semi-analytic [erg s⁻¹] | $1.32\times10^{43}$ | $8.4\times10^{42}$ | $4.4\times10^{42}$ | $2.0\times10^{42}$ |
+
+: Sensitivity to the star's far-UV excess **[computed]**. {#tbl-sm-fuv}
+
+Hα falls only as the 0.2–0.35 power of the far UV. Even a thousandfold weaker far UV leaves it in emission, at
+$2\times10^{42}$ erg s$^{-1}$, and the infall still ionized (more than 95 %) within $1.6R$. The strength of Hα depends on the photosphere's far UV, but its
+presence does not.
+
+```{=html}
+<div class="qd-widget" data-widget="analytic" data-view="fuv"></div>
+```
+
+## Hα in closed form {#sec-sm-halpha}
+
+In an optically thick Sobolev line the power escaping per unit volume is $(4\pi\nu_0/c)(S_L - J)\langle Q\rangle$, with
+$\langle Q\rangle$ the angle-averaged velocity gradient. For free fall,
+$\langle Q\rangle = (v/r)\langle|1-\tfrac32\mu^2|\rangle = 0.589\,v/r$. Hence
+
+$$
+L_{\rm line} = \frac{16\pi^2\nu_0}{c}\;0.589\int r\,v_{\rm ff}(r)\,\bigl[S_L(r) - J_\nu(r)\bigr]\,dr .
+$$
+
+With the full solution's $S_L$ and $J$, this gives $L({\rm H\alpha}) = 1.08\times10^{43}$ erg s$^{-1}$, against
+$1.10\times10^{43}$ from the exact Sobolev rates **[computed]**. Hα is thick everywhere it matters.
+
+The source function falls roughly as $S_L \propto r^{-1.2}$ out to $20R$: $0.95\,B_\nu(T_{\rm eff})$ at $1.2R$ and
+$0.034\,B_\nu$ at $20R$. Beyond that it falls faster. With $v_{\rm ff} \propto r^{-1/2}$, the integrand goes as
+$r^{-0.7}$, so $L({\rm H\alpha}) \propto r_{\rm out}^{0.3}$. A factor 10 in the outer radius is a factor 2 in Hα. This
+is what the earlier extension test found: ending the infall at $12R$ instead of $120R$ halved the lines.
+
+```{=html}
+<div class="qd-widget" data-widget="analytic" data-view="SB"></div>
+```
+
+## What the simple model says
+
+1. The infall is a Thomson-thick, partly ionized cocoon: $N_{\rm H} = 2n_0R$, $\tau_{\rm es} \approx 5$ **[computed]**.
+2. It is ionized by the star's own light, in two steps. The far UV pumps the Lyman lines, and the optical continuum
+   photoionizes the excited atoms. The Lyman continuum is in case-B balance, and the shock's X-rays do not matter
+   **[computed]**.
+3. A one-line formula reproduces the ionized fraction to about 0.2 and the neutral column to 10 % **[computed]**.
+4. Hα is thick everywhere it matters. Its luminosity is an integral of $r\,v\,S_L$ and grows slowly with the extent of the
+   infall, as $r_{\rm out}^{0.3}$ **[computed]**.
+5. The weak point is the star's far UV, which no calculation here has done with lines **[interpretation]**.
+
+```{=html}
+<script type="module" src="../app/js/widgets.js"></script>
+```

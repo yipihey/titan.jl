@@ -1,0 +1,54 @@
+# What LTE would have said {#sec-lte}
+
+TITAN's own opacities, and the first spectra computed from its snapshots, assume LTE: level populations and
+ionization set by the local temperature (Saha–Boltzmann). For the infall that assumption fails badly. Apart from a thin layer right above the shock, the gas is at
+1000–6700 K, but it sees the radiation of a 7300 K star, diluted by geometry and enhanced in the far UV. Its
+hydrogen densities ($6\times10^{8}$ cm$^{-3}$ at the star down to $4\times10^{5}$ cm$^{-3}$ at $120R$) are far too low for collisions to enforce LTE.
+
+## Side by side
+
+| | LTE | non-LTE |
+|---|---|---|
+| ionized fraction at $2R$ / $8.5R$ / $40R$ | 0.003 / $3\times10^{-11}$ / $3\times10^{-28}$ | 0.9998 / 0.92 / 0.50 |
+| neutral column [cm⁻²] | $8.1\times10^{24}$ | $8.5\times10^{23}$ |
+| Thomson depth of the infall | 0.59 | 5.4 |
+| Hα | EW −10 to −18 Å (thermal source function) or +0.5 to +1.7 Å (pure scattering), depending on an assumed $n_2$ | EW −805 Å, peak 86 × continuum |
+| Hβ | EW −1.5 to −5.3 Å, or +0.1 to +0.8 Å | EW −73 Å, absorption trough to 0.031 at +160 km s⁻¹ |
+| Balmer jump [dex] | 0.61 | 0.74 |
+| optical 3646–7000 Å [erg s⁻¹] | $8.3\times10^{43}$ | $7.1\times10^{43}$ |
+| X 2–10 keV / 10–40 keV [erg s⁻¹] | $2.2$ / $1.3\times10^{40}$ | $3.3$ / $1.4\times10^{40}$ |
+
+: The same TITAN snapshot (W30, $4.18\times10^8$ s) with LTE and with non-LTE hydrogen in the infall. The LTE line
+entries bracket the unknown: departure coefficients $b_2 = 0.1$–10 for $n=2$, and either a thermal or a pure
+scattering source function **[computed]**. {#tbl-lte-nlte}
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="W30_late_ext_nlte" data-compare="W30_late_ext" data-view="sed"></div>
+```
+
+## What changes, and why
+
+- **Ionization.** In LTE the infall is neutral beyond $2R$. Out of LTE it is ionized, because the excited levels are
+  populated by the star's radiation, not by the 1000–4000 K gas, and are then photoionized by its optical light
+  (@sec-sm). This is the classic situation of a cool gas irradiated by a hot source, as in nebulae or stellar winds,
+  where LTE is known to fail **[interpretation]**.
+- **Electron scattering.** A Thomson depth of 5.4 instead of 0.6 means most of the star's light is scattered several
+  times on its way out. That traps the radiation (@sec-sm) and would broaden lines by electron scattering. Our line
+  profiles leave this broadening out (@sec-spec).
+- **Hα.** LTE cannot decide even the sign of Hα: the result depends on the $n=2$ population and the source function,
+  which LTE does not fix. The non-LTE source function is far above the thermal one in the outer infall, so the line is
+  in emission and 40–80 times stronger than any LTE bracket.
+- **Continuum.** Photoionization from $n=2$ in the infall absorbs Balmer-continuum light. The Balmer jump deepens from
+  0.61 to 0.74 dex, and the optical band loses 14 %.
+- **X-rays.** The neutral column is ten times smaller, so a little more of the shock's hard X-rays escape: 2–10 keV
+  rises by 50 %. Below about 2 keV nothing escapes in either case, because helium, kept in LTE, is neutral.
+
+## The one thing LTE gets right
+
+LTE does get the free-fall structure and the shock right, and with it the energy budget. The accretion shock radiates
+2 % of $L$, the star does the rest, and $T_{\rm eff}$ and $L$ are TITAN's. The emergent continuum shape changes, but
+only by redistributing that energy **[computed]**.
+
+```{=html}
+<script type="module" src="../app/js/widgets.js"></script>
+```

@@ -1,0 +1,243 @@
+[
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "What a fed quasi-star looks like",
+    "section": "",
+    "text": "This is the short companion to Quasi-stars under infall. That book records how the tools were built and tested: a steady envelope model, a Julia port of the radiation-hydrodynamics code TITAN, and continuum and non-LTE line transfer for its snapshots. This one keeps only what they predict for the spectrum of a quasi-star that is being fed, and asks how it compares with the Little Red Dots seen by JWST.\nThe object. A quasi-star of 10^6\\,M_\\odot (black hole of 10^5\\,M_\\odot inside), radius R = 8.4\\times10^{15} cm, effective temperature 7300 K and luminosity 1.4\\times10^{44} erg s^{-1} (Santarelli et al. 2026; Begelman and Dexter 2026). Gas falls onto it from 30R at 3\\,M_\\odot\\,{\\rm yr}^{-1}, freely, and stops in a radiative shock at the photosphere. TITAN follows the star and the infall through 4.5\\times10^8 s (run W30).\nWhat the spectrum shows, in one paragraph. The star’s own light keeps the infall ionized out to about 4R and partly ionized out to 100R. Its far ultraviolet does it through the Lyman lines, so the X-rays of the shock do not matter. Hα comes out in strong, narrow emission (equivalent width −800 Å, FWHM 360 km s^{-1}), with a steep Balmer decrement (5.1–5.3) and no dust anywhere. Hβ and the higher Balmer lines show deep redshifted absorption, the infall seen against the star. The Paschen and Brackett lines are strong, Lyα is weak, and the Balmer jump is 0.74 dex. The shock’s X-rays mostly do not escape: L_{2-10\\,\\rm keV}/L \\approx 2\\times10^{-4}. All of this is [computed] with the stated assumptions (Chapter 2).\nThe book in five chapters.\n\nThe full non-LTE calculation on the TITAN run (Chapter 2).\nWhat LTE would have said, and why it is wrong here (Chapter 3).\nA simple model that reproduces the full calculation with no transfer. Most of it is closed form, and it shows which ingredients matter (Chapter 4).\nThe whole emission spectrum, line by line and band by band, and what produces each part (Chapter 5).\nThe Little Red Dots: what JWST spectra show, and where this model agrees and where it does not (Chapter 6).\n\n\n\n\n\n\n\nHow to read the status of a statement\n\n\n\n[computed]: output of the code in the repository, reproducible with the commands in Appendix A. [tested]: a computed result checked by a test or a deliberate variation. [estimate]: an order-of-magnitude argument. [interpretation]: our reading of the results, not separately derived. [observed]: a measurement reported in the literature, with its reference.\n\n\n\nStart reading The detailed book\n\n\n\n\n\nBegelman, Mitchell C., and Jason Dexter. 2026. “Little Red Dots as Late-Stage Quasi-Stars.” The Astrophysical Journal 996: 48. https://doi.org/10.3847/1538-4357/ae274a.\n\n\nSantarelli, Andrew D., Ebraheem Farag, Earl P. Bellinger, Priyamvada Natarajan, Rohan P. Naidu, Claire B. Campbell, and Matthew E. Caplan. 2026. “Evolutionary Tracks and Spectral Properties of Quasi-Stars and Their Correlation with Little Red Dots.” The Astrophysical Journal Letters 998: L4. https://doi.org/10.3847/2041-8213/ae3713.",
+    "crumbs": [
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>What a fed quasi-star looks like</span>"
+    ]
+  },
+  {
+    "objectID": "01-nlte.html",
+    "href": "01-nlte.html",
+    "title": "2  The non-LTE spectrum of the TITAN quasi-star",
+    "section": "",
+    "text": "2.1 The model\nThe star. A 10^6\\,M_\\odot quasi-star with a 10^5\\,M_\\odot black hole, from the stellar-structure models of Santarelli et al. (2026): radius R = 8.4352\\times10^{15} cm and luminosity L_0 = 1.420\\times10^{44} erg s^{-1}. TITAN, ported to Julia, evolves its envelope in radiation hydrodynamics on an adaptive grid. It uses zero-metallicity LTE opacities, without lines, and mixing-length convection (details in the detailed book).\nThe infall. In run W30, gas enters through an outer boundary at 30R at 3\\,M_\\odot\\,{\\rm yr}^{-1} and the free-fall speed. It reaches the star at v_{\\rm ff}(R) = 1770 km s^{-1} and stops in a radiative shock at the photosphere. Behind the shock a thin cooling layer reaches 3.7\\times10^7 K and radiates the kinetic power \\tfrac12\\dot M v^2 = 2.6\\times10^{42} erg s^{-1}, 2 % of L_0, mostly as hard free–free emission. The star settles after a few dynamical times. From 2\\times10^8 s to 4.5\\times10^8 s its photosphere stays at r_{\\rm ph} = 0.989R, T_{\\rm eff} = 7310 \\pm 17 K and L = 0.997\\,L_0 [computed]. Moving the outer boundary from 1.2R to 30R changes none of this.\nThe spectrum calculation. It uses the snapshot at 4.18\\times10^8 s.\nThe iteration took 140 passes. Over the last 40, without acceleration, the ionized fraction moved by at most 0.016 and n_2 by at most 3.7 % [computed].",
+    "crumbs": [
+      "<span class='chapter-number'>2</span>  <span class='chapter-title'>The non-LTE spectrum of the TITAN quasi-star</span>"
+    ]
+  },
+  {
+    "objectID": "01-nlte.html#the-model",
+    "href": "01-nlte.html#the-model",
+    "title": "2  The non-LTE spectrum of the TITAN quasi-star",
+    "section": "",
+    "text": "Continuum: static spherical transfer through the star, the shock layer and the infall, out to 120R. Beyond TITAN’s 30R we assume the same free fall continues, with T \\propto r^{-1/2}. It includes coherent Thomson scattering, and the temperatures below the shock are corrected to radiative equilibrium for the non-grey opacities (Unsöld–Lucy).\nHydrogen out of LTE: wherever the infall is cooler than 2\\times10^4 K (118 points from just above the shock to 120R). The atom has twelve levels plus the proton. Collision rates are approximate, and line transfer uses Sobolev escape probabilities in the free-fall velocity field.\nCoupling: the bound–free rates use the mean intensity from the full transfer, which in turn uses the non-LTE opacities and emissivities, iterated to convergence. X-rays above 100 eV make secondary ionizations.\nHeld fixed: TITAN’s temperatures and densities. Helium stays in LTE.",
+    "crumbs": [
+      "<span class='chapter-number'>2</span>  <span class='chapter-title'>The non-LTE spectrum of the TITAN quasi-star</span>"
+    ]
+  },
+  {
+    "objectID": "01-nlte.html#the-infall-is-ionized-by-the-star",
+    "href": "01-nlte.html#the-infall-is-ionized-by-the-star",
+    "title": "2  The non-LTE spectrum of the TITAN quasi-star",
+    "section": "2.2 The infall is ionized by the star",
+    "text": "2.2 The infall is ionized by the star\n\nHydrogen is more than 99 % ionized out to 4.2R, 92 % at 8.5R, 50 % at 40R and 8 % at 120R [computed]. In LTE at the same temperatures it would be neutral beyond 2R (Chapter 3).\n\nThe neutral column is 8.5\\times10^{23} cm^{-2} out of 9.0\\times10^{24} cm^{-2} in all.\nThe infall has a Thomson depth of 5.4: an electron-scattering cocoon around the star.\nThe collision rates (×0.3, ×3), the X-rays (switched off) and the Lyman-continuum treatment were varied on the earlier run A220. None of them changes the neutral column by more than 10 % [tested].\n\nWhat does ionize it is worked out in Chapter 4: the star’s far-UV light pumps the Lyman lines, and the excited atoms are photoionized by its optical light.",
+    "crumbs": [
+      "<span class='chapter-number'>2</span>  <span class='chapter-title'>The non-LTE spectrum of the TITAN quasi-star</span>"
+    ]
+  },
+  {
+    "objectID": "01-nlte.html#hα-in-strong-emission",
+    "href": "01-nlte.html#hα-in-strong-emission",
+    "title": "2  The non-LTE spectrum of the TITAN quasi-star",
+    "section": "2.3 Hα in strong emission",
+    "text": "2.3 Hα in strong emission\nThe Hα source function is above the local continuum everywhere in the infall (apart from a thin X-ray-heated layer just above the shock, below 0.9913R). S_L/J_c = 1.4 just above the star, 11 at 4.7R, 32 at 13R and about 60 at 30R. The line is optically thick: Sobolev depths range from 10 to 2800 [computed].\n\nThe profiles are integrated along rays through the infall with the non-LTE populations [computed].\n\n\n\nTable 2.1: Hα and Hβ of the non-LTE solution.\n\n\n\n\n\n\n\n\n\n\n\n\n\npeak / continuum\nEW [Å]\nFWHM [km s⁻¹]\nother\n\n\n\n\nHα\n86 at −20 km s⁻¹\n−805\n360\nwings from −1120 to +1680 km s⁻¹\n\n\nHβ\n8.2 at −20 km s⁻¹\n−73\n560\nabsorption trough to 0.031 of the continuum at +160 km s⁻¹\n\n\n\n\n\n\n\nNarrow. Most of the line forms far out, where the gas falls slowly. 79 % of the line power comes from beyond 5R, 51 % from beyond 12R and 17 % from beyond 30R [computed]. The free-fall speed is 560 km s^{-1} at 10R and 280 km s^{-1} at 40R.\nAsymmetric. The red wing reaches the infall speed at the shock. That gas falls away from us in front of the star. Gas behind the star is hidden, so the blue wing is shorter [interpretation].\nRedshifted absorption in Hβ is the infall in front of the star, absorbing its light. Hα has none because its source function is above the continuum everywhere [interpretation].",
+    "crumbs": [
+      "<span class='chapter-number'>2</span>  <span class='chapter-title'>The non-LTE spectrum of the TITAN quasi-star</span>"
+    ]
+  },
+  {
+    "objectID": "01-nlte.html#energy",
+    "href": "01-nlte.html#energy",
+    "title": "2  The non-LTE spectrum of the TITAN quasi-star",
+    "section": "2.4 Energy",
+    "text": "2.4 Energy\nThe continuum carries 1.231\\times10^{44} erg s^{-1}. The hydrogen lines carry 1.1\\times10^{43} erg s^{-1} in the solution’s own line balance, or 1.65\\times10^{43} erg s^{-1} summed over the 23 computed emergent profiles. The difference is discussed in Section 5.3. Together this is 0.92 of TITAN’s luminosity [computed]. The power in the lines is starlight, absorbed in the Balmer and Paschen continua and re-emitted. The accretion shock adds only 2 % of L.\nThe missing 8 % is absorbed by infall gas whose temperature is held fixed. In reality it would heat that gas, and the temperatures would have to be solved for together with the populations. That is the main approximation left in the calculation [interpretation].\n\n\n\n\n\n\nTITAN’s infall or an assumed one\n\n\n\nThe same calculation on the earlier run A220 stopped TITAN’s grid at 1.2R and assumed the free fall beyond it. W30 replaces the assumption out to 30R with TITAN’s own infall. The gas there is up to 20 % warmer than assumed at 3–4 R, but every result above moves by no more than the iteration drift. The ionized fraction at 40R is 0.51 for A220 and 0.50 for W30, Hα has EW −795 and −805 Å, and the Balmer decrement is 5.07 and 5.28 [computed]. What is still assumed is the gas beyond 30R. It emits about 17 % of the line power and holds about two thirds of the neutral column.\n\n\n\n\n\n\n\nSantarelli, Andrew D., Claire B. Campbell, Ebraheem Farag, Earl P. Bellinger, Priyamvada Natarajan, and Matthew E. Caplan. 2026. “MESA-QUEST: Tracing the Formation of Direct Collapse Black Hole Seeds via Quasi-Stars.” The Astrophysical Journal 998: 150. https://doi.org/10.3847/1538-4357/ae371e.",
+    "crumbs": [
+      "<span class='chapter-number'>2</span>  <span class='chapter-title'>The non-LTE spectrum of the TITAN quasi-star</span>"
+    ]
+  },
+  {
+    "objectID": "02-lte.html",
+    "href": "02-lte.html",
+    "title": "3  What LTE would have said",
+    "section": "",
+    "text": "3.1 Side by side\nTITAN’s own opacities, and the first spectra computed from its snapshots, assume LTE: level populations and ionization set by the local temperature (Saha–Boltzmann). For the infall that assumption fails badly. Apart from a thin layer right above the shock, the gas is at 1000–6700 K, but it sees the radiation of a 7300 K star, diluted by geometry and enhanced in the far UV. Its hydrogen densities (6\\times10^{8} cm^{-3} at the star down to 4\\times10^{5} cm^{-3} at 120R) are far too low for collisions to enforce LTE.",
+    "crumbs": [
+      "<span class='chapter-number'>3</span>  <span class='chapter-title'>What LTE would have said</span>"
+    ]
+  },
+  {
+    "objectID": "02-lte.html#side-by-side",
+    "href": "02-lte.html#side-by-side",
+    "title": "3  What LTE would have said",
+    "section": "",
+    "text": "Table 3.1: The same TITAN snapshot (W30, 4.18\\times10^8 s) with LTE and with non-LTE hydrogen in the infall. The LTE line entries bracket the unknown: departure coefficients b_2 = 0.1–10 for n=2, and either a thermal or a pure scattering source function [computed].\n\n\n\n\n\n\n\n\n\n\n\nLTE\nnon-LTE\n\n\n\n\nionized fraction at 2R / 8.5R / 40R\n0.003 / 3\\times10^{-11} / 3\\times10^{-28}\n0.9998 / 0.92 / 0.50\n\n\nneutral column [cm⁻²]\n8.1\\times10^{24}\n8.5\\times10^{23}\n\n\nThomson depth of the infall\n0.59\n5.4\n\n\nHα\nEW −10 to −18 Å (thermal source function) or +0.5 to +1.7 Å (pure scattering), depending on an assumed n_2\nEW −805 Å, peak 86 × continuum\n\n\nHβ\nEW −1.5 to −5.3 Å, or +0.1 to +0.8 Å\nEW −73 Å, absorption trough to 0.031 at +160 km s⁻¹\n\n\nBalmer jump [dex]\n0.61\n0.74\n\n\noptical 3646–7000 Å [erg s⁻¹]\n8.3\\times10^{43}\n7.1\\times10^{43}\n\n\nX 2–10 keV / 10–40 keV [erg s⁻¹]\n2.2 / 1.3\\times10^{40}\n3.3 / 1.4\\times10^{40}",
+    "crumbs": [
+      "<span class='chapter-number'>3</span>  <span class='chapter-title'>What LTE would have said</span>"
+    ]
+  },
+  {
+    "objectID": "02-lte.html#what-changes-and-why",
+    "href": "02-lte.html#what-changes-and-why",
+    "title": "3  What LTE would have said",
+    "section": "3.2 What changes, and why",
+    "text": "3.2 What changes, and why\n\nIonization. In LTE the infall is neutral beyond 2R. Out of LTE it is ionized, because the excited levels are populated by the star’s radiation, not by the 1000–4000 K gas, and are then photoionized by its optical light (Chapter 4). This is the classic situation of a cool gas irradiated by a hot source, as in nebulae or stellar winds, where LTE is known to fail [interpretation].\nElectron scattering. A Thomson depth of 5.4 instead of 0.6 means most of the star’s light is scattered several times on its way out. That traps the radiation (Chapter 4) and would broaden lines by electron scattering. Our line profiles leave this broadening out (Chapter 5).\nHα. LTE cannot decide even the sign of Hα: the result depends on the n=2 population and the source function, which LTE does not fix. The non-LTE source function is far above the thermal one in the outer infall, so the line is in emission and 40–80 times stronger than any LTE bracket.\nContinuum. Photoionization from n=2 in the infall absorbs Balmer-continuum light. The Balmer jump deepens from 0.61 to 0.74 dex, and the optical band loses 14 %.\nX-rays. The neutral column is ten times smaller, so a little more of the shock’s hard X-rays escape: 2–10 keV rises by 50 %. Below about 2 keV nothing escapes in either case, because helium, kept in LTE, is neutral.",
+    "crumbs": [
+      "<span class='chapter-number'>3</span>  <span class='chapter-title'>What LTE would have said</span>"
+    ]
+  },
+  {
+    "objectID": "02-lte.html#the-one-thing-lte-gets-right",
+    "href": "02-lte.html#the-one-thing-lte-gets-right",
+    "title": "3  What LTE would have said",
+    "section": "3.3 The one thing LTE gets right",
+    "text": "3.3 The one thing LTE gets right\nLTE does get the free-fall structure and the shock right, and with it the energy budget. The accretion shock radiates 2 % of L, the star does the rest, and T_{\\rm eff} and L are TITAN’s. The emergent continuum shape changes, but only by redistributing that energy [computed].",
+    "crumbs": [
+      "<span class='chapter-number'>3</span>  <span class='chapter-title'>What LTE would have said</span>"
+    ]
+  },
+  {
+    "objectID": "03-simple-model.html",
+    "href": "03-simple-model.html",
+    "title": "4  A simple model of the infall",
+    "section": "",
+    "text": "4.1 Structure in closed form\nThe full calculation needs a TITAN run, a spherical transfer code and 140 coupled iterations. This chapter builds a model that needs none of them, and tests each step against the full solution of Chapter 2. It has three levels:\nAlong the way it shows what actually sets the answer.\nSteady free fall at \\dot M onto a star of mass M and radius R:\nv_{\\rm ff} = \\sqrt{2GM/r}, \\qquad n_{\\rm H}(r) = \\frac{X\\dot M}{4\\pi r^2 v_{\\rm ff}\\,m_{\\rm H}} = n_0\\left(\\frac{r}{R}\\right)^{-3/2},\n\\qquad N_{\\rm H} = 2 n_0 R\\left[1 - \\sqrt{R/r_{\\rm out}}\\right].\nFor \\dot M = 3\\,M_\\odot\\,{\\rm yr}^{-1}, M = 10^6\\,M_\\odot and R = 8.4\\times10^{15} cm, this gives v_{\\rm ff}(R) = 1770 km s^{-1}, n_0 = 5.4\\times10^8 cm^{-3} and, out to 120R, N_{\\rm H} = 8.3\\times10^{24} cm^{-2} [computed]. TITAN’s infall follows this free fall to within 1–2 % beyond 1.2R (Chapter 2). Fully ionized, the column has Thomson depth \\sigma_{\\rm T}N_{\\rm H} = 5.5. Half of the column (to 120R) lies within 3.4R of the star, because N_{\\rm H}(&lt;r) \\propto 1 - (R/r)^{1/2}.\nRadiation trapping. An electron-scattering envelope does not absorb the star’s light, but it makes the light random-walk. Then the mean intensity exceeds the geometrically diluted value W(r)I_\\nu, with W = \\tfrac12[1-\\sqrt{1-(R/r)^2}]. In the Eddington approximation (K = J/3) for a sphere carrying the star’s flux:\nJ_\\nu(r) = W(r)\\,I_\\nu + 3H_\\nu(r)\\,\\tau^*(r), \\qquad H_\\nu = \\frac{L_\\nu}{16\\pi^2 r^2}, \\qquad\n\\tau^*(r) = r^2\\int_r^\\infty \\frac{n_e\\sigma_{\\rm T}}{r'^2}\\,dr' .\nFor n_e \\propto r^{-3/2}, \\tau^* = \\tau_{\\rm es}/5, so near the star J/J_{\\rm geom} \\approx 1 + 0.3\\,\\tau_{\\rm es}\n\\approx 2.5. In the full solution, J(\\mathrm{H}\\alpha)/[W B_\\nu(T_{\\rm eff})] is 2.0–2.5 within 2R and falls to 1.2 at 20R [computed]. A plane-parallel estimate, 1 + 1.5\\,\\tau_{\\rm es} \\approx 9, would be four times too large.",
+    "crumbs": [
+      "<span class='chapter-number'>4</span>  <span class='chapter-title'>A simple model of the infall</span>"
+    ]
+  },
+  {
+    "objectID": "03-simple-model.html#sec-sm-mechanism",
+    "href": "03-simple-model.html#sec-sm-mechanism",
+    "title": "4  A simple model of the infall",
+    "section": "4.2 What ionizes the infall",
+    "text": "4.2 What ionizes the infall\nThe full solution answers this directly (julia/nlte_rates.jl) [computed]:\n\nThe Lyman continuum is in detailed balance. About half of all photoionizations are from the ground state, but they are balanced by recombinations to it, to 10^{-4} of all recombinations beyond 1.2R. The Lyman-continuum radiation is the infall’s own recombination light, reabsorbed nearby. That is case B, as in a nebula.\nThe net ionization comes from n = 2. Photoionization from n=2 by Balmer-continuum light exceeds recombination to n=2 by 0.10–0.35 of all recombinations, increasing outwards. This balances the recombinations to n \\ge 4 that cascade down. From n=3 the net rate is small and changes sign.\nWhat keeps n=2 populated is far-UV light. At 1000 Å the mean intensity in the infall is 400–1200 times that of a 7310 K blackbody, diluted.\n\nThe decisive test replaces bands of the full solution’s own J_\\nu with the diluted, trapped light of a 7310 K blackbody, and recomputes the populations at fixed temperatures [computed]:\n\n\n\nTable 4.1: Which part of the radiation field the infall’s ionization depends on. L(Hα) is the local net line power.\n\n\n\n\n\n\n\n\n\n\n\nreplaced band\nneutral column [cm⁻²]\nThomson depth\nL(Hα) [erg s⁻¹]\n\n\n\n\nnone (the full solution’s own J_\\nu, case B)\n7.0\\times10^{23}\n5.10\n1.11\\times10^{43}\n\n\nfar UV, 912–1300 Å\n3.0\\times10^{24}\n3.57\n3.9\\times10^{42}\n\n\nnear UV, 1300–3646 Å\n4.6\\times10^{23}\n5.26\n1.31\\times10^{43}\n\n\noptical and infrared, &gt; 3646 Å\n7.0\\times10^{23}\n5.10\n9.2\\times10^{42}\n\n\n\n\n\n\nOnly the far UV matters. It contains Lyα (1216 Å) and Lyβ (1026 Å): continuum light at those wavelengths pumps the optically thick Lyman lines. That fills n = 2 and n = 3, and the star’s ordinary optical light ionizes them.\nWhere the far UV comes from. The answer is the star itself, not the shock. The emergent spectrum of the TITAN star without any infall (star_t0) is 772 times a 7310 K blackbody at 1000 Å, 78 times at Lyα and 13 times at 1500 Å. Above the Balmer edge it is within a factor 1.2 of the blackbody [computed]. Between the Lyman and Balmer edges, a zero-metallicity photosphere without line opacity has a window: there we see deep, hot layers. With the star’s spectrum in place of the blackbody in that band, the full-J test returns a neutral column of 5.7\\times10^{23} cm^{-2} [computed].\n\n\n\n\n\n\nThe weak point\n\n\n\nThe infall’s ionization, and with it the Hα, rests on the star’s far-UV excess. That excess comes from a photosphere computed in LTE, with continuum opacities only. The Lyman lines, Lyα above all, would absorb part of it, and metals would absorb more. Below, the far UV is reduced by up to a factor 1000 to see how much this matters.",
+    "crumbs": [
+      "<span class='chapter-number'>4</span>  <span class='chapter-title'>A simple model of the infall</span>"
+    ]
+  },
+  {
+    "objectID": "03-simple-model.html#sec-sm-closed",
+    "href": "03-simple-model.html#sec-sm-closed",
+    "title": "4  A simple model of the infall",
+    "section": "4.3 A closed formula for the ionization",
+    "text": "4.3 A closed formula for the ionization\nTake the three findings as assumptions:\n\nthe Lyman continuum is in detailed balance (case B);\nLyα and Lyβ are thick and in radiative balance with the star’s far UV, so n_2/n_1 = (g_2/g_1)\\,J_{\\rm Ly\\alpha}/(2h\\nu^3/c^2) and the same for n_3 with Lyβ;\nn=2 and n=3 are photoionized by the Balmer and Paschen continua.\n\nBoth the pumping and the ionizing light scale with the same dilution-and-trapping factor f(r) = W + 3\\tau^* R^2/4r^2. Ionization balance per volume, with n_e = n_p = x\\,n_{\\rm H}, then gives\n\n\\frac{x^2}{1-x} = \\frac{f(r)^2\\,Q_0}{n_{\\rm H}(r)\\,\\alpha_B(T)}, \\qquad\nQ_0 = \\frac{g_2 I_{\\rm Ly\\alpha}}{g_1\\,2h\\nu_{\\alpha}^3/c^2}\\,\\Gamma_2 + \\frac{g_3 I_{\\rm Ly\\beta}}{g_1\\,2h\\nu_{\\beta}^3/c^2}\\,\\Gamma_3 ,\n\nwith \\Gamma_i = 4\\pi\\int I_\\nu\\sigma_i\\,d\\nu/h\\nu the undiluted photoionization rates, all from the star’s spectrum. For the TITAN star: (g_2/g_1)I_{\\rm Ly\\alpha}/(2h\\nu^3/c^2) = 2.7\\times10^{-5}, \\Gamma_2 = 1.6\\times10^5 s^{-1} and \\Gamma_3 = 8.0\\times10^5 s^{-1}. The only other input is \\alpha_B(T) (julia/closed_form.jl).\nFar out, f \\approx (R/2r)^2 and n_{\\rm H} \\propto r^{-3/2}, so the right-hand side falls as r^{-5/2}. The infall is fully ionized where it exceeds 1, and beyond, the ionized fraction falls roughly as x \\propto r^{-5/4} (a little faster, since \\alpha_B grows as the gas cools).\n\n\n\n\nTable 4.2: Ionized fraction of the closed form against the full solution (W30, same points and temperatures).\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nr/R\n2\n5\n8\n12\n20\n30\n50\n80\n115\n\n\n\n\nclosed form\n0.9999\n0.997\n0.987\n0.94\n0.73\n0.46\n0.27\n0.15\n0.10\n\n\nfull non-LTE\n0.9998\n0.978\n0.93\n0.88\n0.81\n0.67\n0.39\n0.21\n0.13\n\n\n\n\n\n\nThe closed form gives a neutral column of 8.8\\times10^{23} against 8.0\\times10^{23} cm^{-2}, and a Thomson depth of 4.98 against 5.06, on the same points [computed]. It is too ionized inside 12R and too neutral beyond 20R, by up to 0.2 in x. The profile is right to that accuracy, with no free parameter. The widget evaluates the formula live: move \\dot M or the far UV and see how the ionized region responds (the temperatures stay W30’s).",
+    "crumbs": [
+      "<span class='chapter-number'>4</span>  <span class='chapter-title'>A simple model of the infall</span>"
+    ]
+  },
+  {
+    "objectID": "03-simple-model.html#sec-sm-semi",
+    "href": "03-simple-model.html#sec-sm-semi",
+    "title": "4  A simple model of the infall",
+    "section": "4.4 The semi-analytic model",
+    "text": "4.4 The semi-analytic model\nThe same 12-level statistical equilibrium as the full calculation (NLTEH.solve_point), at every radius, in the prescribed field J_\\nu = f(r)\\,I_\\nu of the TITAN star (star_t0), with case B and the \\tau^* iteration, but no transfer (julia/analytic_infall.jl):\n\n\n\nTable 4.3: Semi-analytic models against the full solution. Line luminosities are local net Sobolev powers, the quantity both compute. All columns use W30’s temperatures [computed].\n\n\n\n\n\n\n\n\n\n\n\n\n\nfull non-LTE\nsemi-analytic\nno trapping\nblackbody star\n\n\n\n\nneutral column [cm⁻²]\n8.5\\times10^{23}\n3.5\\times10^{23}\n5.0\\times10^{23}\n2.9\\times10^{24}\n\n\nThomson depth\n5.41\n5.33\n5.23\n3.63\n\n\nL(Hα) [erg s⁻¹]\n1.10\\times10^{43}\n1.32\\times10^{43}\n1.14\\times10^{43}\n2.5\\times10^{42}\n\n\nL(Hβ)\n1.24\\times10^{42}\n1.31\\times10^{42}\n1.27\\times10^{42}\n1.7\\times10^{41}\n\n\nL(Paα)\n1.93\\times10^{42}\n2.24\\times10^{42}\n1.92\\times10^{42}\n4.6\\times10^{41}\n\n\nL(Lyα)\n6.0\\times10^{41}\n1.6\\times10^{42}\n7.8\\times10^{41}\n1\\times10^{39}\n\n\nline power from beyond 5R\n79 %\n84 %\n79 %\n26 %\n\n\n\n\n\n\nWithout any transfer, the semi-analytic model gets the strong lines to 20 % and the Thomson depth to 2 %. It needs the star’s real spectrum: with a blackbody, which lacks the far-UV excess, the infall stays mostly neutral and Hα is four times weaker. Thomson trapping matters little for the lines. Lyα, which is scattered and destroyed in the infall, is where the model is worst.\nHow much the far UV matters. The star’s light below 1300 Å is scaled down in both models:\n\n\n\nTable 4.4: Sensitivity to the star’s far-UV excess [computed].\n\n\n\n\n\n\n\n\n\n\n\n\nfar UV ×\n1\n0.1\n0.01\n0.001\n\n\n\n\nneutral column, closed form [cm⁻²]\n8.8\\times10^{23}\n1.6\\times10^{24}\n2.6\\times10^{24}\n4.1\\times10^{24}\n\n\nneutral column, semi-analytic\n3.5\\times10^{23}\n9.7\\times10^{23}\n2.1\\times10^{24}\n3.8\\times10^{24}\n\n\nL(Hα), semi-analytic [erg s⁻¹]\n1.32\\times10^{43}\n8.4\\times10^{42}\n4.4\\times10^{42}\n2.0\\times10^{42}\n\n\n\n\n\n\nHα falls only as the 0.2–0.35 power of the far UV. Even a thousandfold weaker far UV leaves it in emission, at 2\\times10^{42} erg s^{-1}, and the infall still ionized (more than 95 %) within 1.6R. The strength of Hα depends on the photosphere’s far UV, but its presence does not.",
+    "crumbs": [
+      "<span class='chapter-number'>4</span>  <span class='chapter-title'>A simple model of the infall</span>"
+    ]
+  },
+  {
+    "objectID": "03-simple-model.html#sec-sm-halpha",
+    "href": "03-simple-model.html#sec-sm-halpha",
+    "title": "4  A simple model of the infall",
+    "section": "4.5 Hα in closed form",
+    "text": "4.5 Hα in closed form\nIn an optically thick Sobolev line the power escaping per unit volume is (4\\pi\\nu_0/c)(S_L - J)\\langle Q\\rangle, with \\langle Q\\rangle the angle-averaged velocity gradient. For free fall, \\langle Q\\rangle = (v/r)\\langle|1-\\tfrac32\\mu^2|\\rangle = 0.589\\,v/r. Hence\n\nL_{\\rm line} = \\frac{16\\pi^2\\nu_0}{c}\\;0.589\\int r\\,v_{\\rm ff}(r)\\,\\bigl[S_L(r) - J_\\nu(r)\\bigr]\\,dr .\n\nWith the full solution’s S_L and J, this gives L({\\rm H\\alpha}) = 1.08\\times10^{43} erg s^{-1}, against 1.10\\times10^{43} from the exact Sobolev rates [computed]. Hα is thick everywhere it matters.\nThe source function falls roughly as S_L \\propto r^{-1.2} out to 20R: 0.95\\,B_\\nu(T_{\\rm eff}) at 1.2R and 0.034\\,B_\\nu at 20R. Beyond that it falls faster. With v_{\\rm ff} \\propto r^{-1/2}, the integrand goes as r^{-0.7}, so L({\\rm H\\alpha}) \\propto r_{\\rm out}^{0.3}. A factor 10 in the outer radius is a factor 2 in Hα. This is what the earlier extension test found: ending the infall at 12R instead of 120R halved the lines.",
+    "crumbs": [
+      "<span class='chapter-number'>4</span>  <span class='chapter-title'>A simple model of the infall</span>"
+    ]
+  },
+  {
+    "objectID": "03-simple-model.html#what-the-simple-model-says",
+    "href": "03-simple-model.html#what-the-simple-model-says",
+    "title": "4  A simple model of the infall",
+    "section": "4.6 What the simple model says",
+    "text": "4.6 What the simple model says\n\nThe infall is a Thomson-thick, partly ionized cocoon: N_{\\rm H} = 2n_0R, \\tau_{\\rm es} \\approx 5 [computed].\nIt is ionized by the star’s own light, in two steps. The far UV pumps the Lyman lines, and the optical continuum photoionizes the excited atoms. The Lyman continuum is in case-B balance, and the shock’s X-rays do not matter [computed].\nA one-line formula reproduces the ionized fraction to about 0.2 and the neutral column to 10 % [computed].\nHα is thick everywhere it matters. Its luminosity is an integral of r\\,v\\,S_L and grows slowly with the extent of the infall, as r_{\\rm out}^{0.3} [computed].\nThe weak point is the star’s far UV, which no calculation here has done with lines [interpretation].",
+    "crumbs": [
+      "<span class='chapter-number'>4</span>  <span class='chapter-title'>A simple model of the infall</span>"
+    ]
+  },
+  {
+    "objectID": "04-spectrum.html",
+    "href": "04-spectrum.html",
+    "title": "5  The full emission spectrum",
+    "section": "",
+    "text": "5.1 The continuum\nThe figure shows the emergent spectrum of the non-LTE solution: the continuum, with 23 hydrogen lines computed one by one and multiplied onto it. For comparison, the TITAN star before any infall is shown (continuum only). From the far UV to the near infrared, each feature has a definite origin.\nThe photosphere (T_{\\rm eff} = 7310 K) makes almost all of the light. Above the Balmer edge its spectrum is within a factor 1.2 of a blackbody at T_{\\rm eff}. Below the edge it has a far-UV excess: 13 times the blackbody at 1500 Å, 78 times at Lyα, 770 times at 1000 Å. Between the Lyman and Balmer edges a zero-metallicity photosphere has little continuum opacity, so the light there comes from deeper, hotter layers. Our opacities contain no lines, so this excess is probably overestimated [computed; interpretation]. It powers the ionization of the infall (Chapter 4).\nThe Balmer jump grows from 0.23 dex for the bare star to 0.74 dex. The infall absorbs Balmer-continuum light in photoionizations from n = 2, the very process that keeps it ionized. In LTE, with neutral, Boltzmann-populated gas, the jump is 0.61 dex [computed]. A strong Balmer break here is a sign of dense gas around the star with a populated n=2, not of an old stellar population [interpretation].\nElectron scattering. The Thomson depth of 5.4 does not change the continuum’s shape, because the scattering is coherent and grey. It traps the light (Chapter 4) and lengthens the photons’ path, which strengthens every absorption in the infall.\nX-rays. The shock heats the post-shock gas to 3.7\\times10^7 K, and \\tfrac12\\dot M v^2 = 2.6\\times10^{42} erg s^{-1} is radiated as free–free emission, 7.3\\times10^{41} erg s^{-1} of it above 2 keV. Only 4.7\\times10^{40} erg s^{-1} escapes above 2 keV, through a column of 9\\times10^{24} cm^{-2} that is Thomson-thick and partly neutral. Nothing escapes below about 2 keV [computed]. Helium, held in LTE and therefore neutral, sets that cut-off. If the star’s far UV ionized helium as well, it could move. That is not computed. The ratio L_{2-10\\,\\rm keV}/L \\approx 2\\times10^{-4} makes this an X-ray-weak source.",
+    "crumbs": [
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>The full emission spectrum</span>"
+    ]
+  },
+  {
+    "objectID": "04-spectrum.html#the-continuum",
+    "href": "04-spectrum.html#the-continuum",
+    "title": "5  The full emission spectrum",
+    "section": "",
+    "text": "Table 5.1: Band luminosities of the TITAN star at t = 0 (star_t0) and of the fed star at 4.18\\times10^8 s with non-LTE hydrogen (W30_late_ext_nlte) [computed].\n\n\n\n\n\n\n\n\n\n\n\nband\nstar without infall\nwith infall, non-LTE\norigin of the difference\n\n\n\n\nfar UV 912–2000 Å [erg s⁻¹]\n1.18\\times10^{43}\n5.8\\times10^{42}\nabsorbed in the infall (Lyman-line pumping, photoionization from n=2)\n\n\noptical 3646–7000 Å\n6.2\\times10^{43}\n7.1\\times10^{43}\nnot separated: the irradiated photosphere, and re-emission in the infall\n\n\nBalmer jump [dex]\n0.23\n0.74\nphotoionization from n=2 in the infall\n\n\nX 2–10 keV\n—\n3.3\\times10^{40}\nthe shock, through the infall\n\n\nX 10–40 keV\n—\n1.4\\times10^{40}\nthe shock, through the infall",
+    "crumbs": [
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>The full emission spectrum</span>"
+    ]
+  },
+  {
+    "objectID": "04-spectrum.html#the-hydrogen-lines",
+    "href": "04-spectrum.html#the-hydrogen-lines",
+    "title": "5  The full emission spectrum",
+    "section": "5.2 The hydrogen lines",
+    "text": "5.2 The hydrogen lines\n\n\n\nTable 5.2: The hydrogen lines of the fed quasi-star (vacuum wavelengths; EW &lt; 0 is emission; L = −EW × the continuum L_\\lambda at the line). Each line is integrated along rays through the infall with the non-LTE populations, as one line at a time [computed].\n\n\n\n\n\n\n\n\n\n\n\n\n\nseries\nline\nλ [Å]\npeak / continuum\nEW [Å]\nL [erg s⁻¹]\n\n\n\n\nLyman\nLyα\n1215.7\n64\n−99\n4.9\\times10^{41}\n\n\n\nLyβ\n1025.7\n1.8\n−1.3\n5\\times10^{39}\n\n\n\nLyγ–Lyε\n973–938\n1.1–1.2\n+0.8 to +1.5\nnet absorption\n\n\nBalmer\nHα\n6564.7\n86\n−805\n9.0\\times10^{42}\n\n\n\nHβ\n4862.7\n8.2\n−73\n1.70\\times10^{42}\n\n\n\nHγ\n4341.7\n2.8\n−18\n5.4\\times10^{41}\n\n\n\nHδ\n4102.9\n1.6\n−4.6\n1.6\\times10^{41}\n\n\n\nHε–Hθ\n3971–3799\n1.06–1.3\n+0.8 to +5.1\nnet absorption\n\n\nPaschen\nPaα\n18756\n111\n−3160\n1.69\\times10^{42}\n\n\n\nPaβ\n12822\n23\n−559\n1.06\\times10^{42}\n\n\n\nPaγ–Paζ\n10941–9232\n2.3–8.9\n−205 to −35\n(1.8–6.1)\\times10^{41}\n\n\nBrackett\nBrα\n40523\n100\n−7050\n3.0\\times10^{41}\n\n\n\nBrβ–Brδ\n26259–19451\n6.0–28\n−1810 to −324\n(1.6–3.0)\\times10^{41}\n\n\n\n\n\n\nWhy Hα is so strong. In the outer infall the populations of n=2 and n=3 are set by the star’s far UV, not by the cold gas. The Hα source function there is 10–60 times the local continuum. The line is optically thick everywhere (Sobolev depth 10–2800), so its luminosity is the thick-line integral \\propto\\int r\\,v\\,S_L\\,dr (Section 4.5). The line luminosity is starlight, absorbed in the Balmer and Paschen continua and re-emitted. It is not recombination radiation powered by the accretion. The shock’s X-rays could drive at most a few 10^{40} erg s^{-1} of Hα through the ionizations they make [estimate].\nWhy it is narrow. Half of the power comes from beyond 12R, where the gas falls at less than about 500 km s^{-1}. The FWHM is 360 km s^{-1}. The wings reach −1100 and +1700 km s^{-1}: the red wing comes from the gas falling onto the near side of the star at up to 1770 km s^{-1} [computed; interpretation]. Our profiles leave out electron scattering in the line, and with \\tau_{\\rm es} \\approx 5 that would broaden the wings. That is the most important omission for comparing profiles with observations (Chapter 6).\nThe Balmer decrement, L({\\rm H\\alpha})/L({\\rm H\\beta}) = 5.3 (case B: 2.86), owes nothing to dust. Both lines are optically thick, and each line’s luminosity is set by its source function and the velocity field, not by recombination statistics. Hβ is further weakened by absorption against the star: it has a trough down to 3 % of the continuum at +160 km s^{-1}. The decrement depends on how the line power is counted. From the solution’s own local line powers it would be 8.9 instead of 5.3 (Section 5.3). Either way it is far from case B [computed].\nRedshifted Balmer absorption. From Hβ upwards every Balmer line has an absorption trough at +160 to +180 km s^{-1}, down to 3–8 % of the continuum, and from Hε up absorption wins over emission. The gas between us and the star falls away from us, so its absorption is redshifted. Its source function in these lines is below the stellar intensity behind it. Redshifted absorption is the kinematic signature of infall [computed; interpretation].\nPaschen and Brackett lines are strong: together 5.2\\times10^{42} erg s^{-1}, 57 % of Hα. Their equivalent widths are huge, Paα −3200 Å and Brα −7000 Å, because the stellar continuum is faint in the infrared. Paα/Hα = 0.19 [computed].\nLyα is weak: 0.054 of Hα, against about 10 in case B for nebulae. Lyα is so optically thick that its photons scatter until they are destroyed, mostly when the excited atom is photoionized from n=2. The higher Lyman lines are in net absorption [computed; interpretation].",
+    "crumbs": [
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>The full emission spectrum</span>"
+    ]
+  },
+  {
+    "objectID": "04-spectrum.html#sec-spec-energy",
+    "href": "04-spectrum.html#sec-spec-energy",
+    "title": "5  The full emission spectrum",
+    "section": "5.3 The energy in the lines",
+    "text": "5.3 The energy in the lines\nThe 23 emergent profiles carry 1.65\\times10^{43} erg s^{-1}. The solution’s own net line power (Sobolev escape, summed over all 66 transitions of the model atom) is 1.12\\times10^{43} erg s^{-1}. Line by line (julia/nlte_linepower.jl) [computed]:\n\nFor the strong emission lines, the emergent luminosity is 0.8–1.4 times the local net power: Hα 0.81, Lyα 0.81, Paα 0.87, Paβ to Brδ 0.94–1.32, Hβ 1.37.\nMost of the difference is in Hγ–Hθ. In the local balance they absorb 5.1\\times10^{42} erg s^{-1} of continuum. In the emergent spectrum they are close to neutral, +0.2\\times10^{42}.\nThe local balance counts all the light the gas absorbs, including light headed inwards to the star. The emergent profile counts only what is removed from the light that leaves. With temperatures held fixed, energy absorbed from the inward light goes nowhere, so the two need not agree [interpretation].\n\nSo the strong lines are uncertain by 20–40 %, and the total line luminosity by about 50 %.",
+    "crumbs": [
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>The full emission spectrum</span>"
+    ]
+  },
+  {
+    "objectID": "04-spectrum.html#what-is-not-in-this-spectrum",
+    "href": "04-spectrum.html#what-is-not-in-this-spectrum",
+    "title": "5  The full emission spectrum",
+    "section": "5.4 What is not in this spectrum",
+    "text": "5.4 What is not in this spectrum\n\nElectron-scattering wings of the lines, expected with \\tau_{\\rm es} \\approx 5.\nHelium lines and non-LTE helium. The soft X-ray cut-off depends on it.\nMetals: none, since the model is at zero metallicity. So there is no Fe II, O I, Na D or Ca II.\nThermal balance of the infall. It absorbs 8 % of L at fixed temperature.\nThe infall beyond 30R, which is assumed out to 120R.\nLine opacity in the star’s own photosphere, which would reduce the far-UV excess (Chapter 4).\nAsphericity. Everything here is spherical: one viewing angle, no disc, no outflow.",
+    "crumbs": [
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>The full emission spectrum</span>"
+    ]
+  },
+  {
+    "objectID": "05-lrds.html",
+    "href": "05-lrds.html",
+    "title": "6  The Little Red Dots",
+    "section": "",
+    "text": "(in preparation)",
+    "crumbs": [
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>The Little Red Dots</span>"
+    ]
+  },
+  {
+    "objectID": "references.html",
+    "href": "references.html",
+    "title": "References",
+    "section": "",
+    "text": "Begelman, Mitchell C., and Jason Dexter. 2026. “Little Red Dots as\nLate-Stage Quasi-Stars.” The Astrophysical Journal 996:\n48. https://doi.org/10.3847/1538-4357/ae274a.\n\n\nSantarelli, Andrew D., Claire B. Campbell, Ebraheem Farag, Earl P.\nBellinger, Priyamvada Natarajan, and Matthew E. Caplan. 2026.\n“MESA-QUEST: Tracing the Formation of Direct Collapse\nBlack Hole Seeds via Quasi-Stars.” The Astrophysical\nJournal 998: 150. https://doi.org/10.3847/1538-4357/ae371e.\n\n\nSantarelli, Andrew D., Ebraheem Farag, Earl P. Bellinger, Priyamvada\nNatarajan, Rohan P. Naidu, Claire B. Campbell, and Matthew E. Caplan.\n2026. “Evolutionary Tracks and Spectral Properties of Quasi-Stars\nand Their Correlation with Little Red Dots.” The\nAstrophysical Journal Letters 998: L4. https://doi.org/10.3847/2041-8213/ae3713.",
+    "crumbs": [
+      "References"
+    ]
+  },
+  {
+    "objectID": "experiments.html",
+    "href": "experiments.html",
+    "title": "Appendix A — Reproducing the results",
+    "section": "",
+    "text": "Every number labelled [computed] comes from code in the repository, run from julia/ with Z0_TABLE=ext TITAN_NOLIB=1 julia -t 2 --project=env …. Run outputs go to lib/ (the logs of the spectra are in lib/spectra/). The detailed book lists the steps that lead to the TITAN runs themselves.\n\n\n\n\n\n\n\n\nresult\ncommand\nchapter\n\n\n\n\nTITAN run W30 (infall from 30R), continuation W30d\nqstar_run.jl setup … and relax … with QS_ROUT=30; see the detailed book\nChapter 2\n\n\ncontinuum spectrum of the snapshot at 4.18\\times10^8 s\nspectra_run.jl W30d 4.18e8 ext=1 rmax=4 n=400 lucy=20 damp=0.5 nl=200 ldr=5e-6 out=W30_late_ext\nChapter 2, Chapter 3\n\n\nnon-LTE hydrogen in the infall\nnlte_run.jl W30_late_ext ldr=5e-6 maxit=100 minit=100 out=W30_late_ext_c1, then nlte_run.jl W30_late_ext ldr=5e-6 init=W30_late_ext_c1 ng=0 maxit=40 minit=40\nChapter 2\n\n\nsummary (columns, Thomson depth, source functions)\nnlte_summary.jl W30_late_ext\nChapter 2\n\n\nHα, Hβ profiles and the LTE brackets\nLP_NLTE=W30_late_ext LP_TAG=_nlte line_profile.jl W30_late_ext\nChapter 2, Chapter 3\n\n\nthe 23-line spectrum\nnlte_spectrum.jl W30_late_ext\nChapter 5\n\n\nline energy check\nnlte_linepower.jl W30_late_ext\nSection 5.3\n\n\nwhat ionizes the infall (rates, J_\\nu)\nnlte_rates.jl W30_late_ext\nSection 4.2\n\n\nband-replacement tests\nanalytic_infall.jl star=bb temp=W30_late_ext trap=1 jfull=W30_late_ext caseB=1 band=λ1,λ2 (log analytic_bandtests.log)\nSection 4.2\n\n\nclosed-form ionization\nclosed_form.jl (CF_FUV=f for the far-UV scaling)\nSection 4.3\n\n\nsemi-analytic model\nanalytic_infall.jl star=t0 temp=W30_late_ext trap=1 caseB=1 [fuv=f] out=… (trap=0, star=bb for the variants)\nSection 4.4\n\n\nfigure data\nexport_report_data.jl spectra …, … analytic, … qstar W30+W30d\nall",
+    "crumbs": [
+      "Appendices",
+      "<span class='chapter-number'>A</span>  <span class='chapter-title'>Reproducing the results</span>"
+    ]
+  }
+]

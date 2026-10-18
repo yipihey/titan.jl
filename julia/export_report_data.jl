@@ -4,6 +4,7 @@
 #                                                     with the snapshots of its continuation CONT appended)
 #   Z0_TABLE=ext julia --project=env export_report_data.jl spectra NAME...   emergent spectra lib/spectra/NAME.jls (spectra_run.jl)
 #                                                     → spectra.json, with band luminosities
+#   Z0_TABLE=ext julia --project=env export_report_data.jl analytic   simple models vs the W30 non-LTE solution → analytic.json
 using Serialization, Printf
 include(joinpath(@__DIR__, "Metrics.jl")); using .Metrics
 const OUT = joinpath(@__DIR__, "..", "report", "app", "data"); mkpath(OUT)
@@ -120,4 +121,23 @@ elseif mode == "qstar"
         snaps = [(t = s.t, r = s.r, u = s.u, rho = s.d, T = s.T, pg = s.pg, Er = s.er, Lrad = s.Lrad ./ hdr[:L], Lconv = s.Lconv ./ hdr[:L])
                  for s in snaps[idx]])
     writejs(out, hist === nothing ? prof : merge(prof, (hist = hist,)))
+elseif mode == "analytic"
+    # the simple models of the infall's hydrogen (analytic_infall.jl, closed_form.jl) against the full non-LTE solution
+    # of W30 → analytic.json: profiles for the second book's "analytic" panel, and the constants of the closed form
+    include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "Spectrum.jl")); include(joinpath(@__DIR__, "NLTEH.jl"))
+    Z = Z0Physics; NHm = NLTEH; R0 = 8.4352e15; M = 1e6 * Z.Msun; sp(n) = joinpath(@__DIR__, "..", "lib", "spectra", n)
+    dn = deserialize(sp("nlte_W30_late_ext.jls"))
+    ν32 = (NHm.En[3] - NHm.En[2]) / Z.h; B0 = 2Z.h * ν32^3 / Z.c^2; Bh = Spectrum.Bν(ν32, 7310.0)
+    fA(i, l, u) = (st = dn.nl[i]; f = NHm.fosc(l, u); ν = (NHm.En[u] - NHm.En[l]) / Z.h; Blu = 4π * NHm.πe2mc * f / (Z.h * ν);
+        Bul = NHm.gn[l] / NHm.gn[u] * Blu; A = 2Z.h * ν^3 / Z.c^2 * Bul; Z.h * ν * st.β[l, u] * (st.n[u] * A - (st.n[l] * Blu - st.n[u] * Bul) * dn.Jhα[i]))
+    full = (r = dn.r ./ R0, T = dn.T, x = [st.np / (st.np + sum(st.n)) for st in dn.nl],
+            SB = [B0 / (st.n[2] * NHm.gn[3] / (st.n[3] * NHm.gn[2]) - 1) / Bh for st in dn.nl],
+            dL = [4π * dn.r[i]^3 * fA(i, 2, 3) for i in eachindex(dn.nl)])       # dL(Hα)/d ln r
+    sim(n) = (a = deserialize(sp("analytic_$n.jls")); (r = a.r ./ R0, x = a.xH, dL = 4π .* a.r .^ 3 .* a.PHa, LHa = a.LHa, NHI = a.NHI, τT = a.τT))
+    cf = deserialize(sp("closedform_W30.jls"))
+    writejs("analytic.json", (Teff = 7310.0, L = 1.4204e44, M = M, R0 = R0, Rst = sqrt(1.4204e44 / (4π * Z.σSB * 7310.0^4)),
+        X = 0.76, mH = Z.mH, Msun = Z.Msun, yr = Z.yr, G = Z.G, p2 = cf.p2, p3 = cf.p3, G2 = cf.G2, G3 = cf.G3,
+        full = full, closed = (r = cf.r ./ R0, T = cf.T, x = cf.x),
+        simple = sim("simple_W30T"), simple_bb = sim("simple_W30T_bb"),
+        fuv = [(f = f, s = sim("simple_fuv$f")) for f in ("0.1", "0.01", "0.001")]))
 end

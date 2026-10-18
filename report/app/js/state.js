@@ -26,6 +26,11 @@ export function makeDefaults() {
     sview: 'sed',     // spec: sed | ratio | T | xH | Halpha | Hbeta
     sxax: 'lam',      // spec: x axis lam | E
     sbb: 0,           // spec: 1 = overlay blackbodies
+    aview: 'x',       // analytic (second book): x | dL | SB | fuv
+    amdot: 3,         // analytic: Ṁ [M_sun/yr] of the closed form
+    afuv: 1,          // analytic: factor on the star's far UV in the closed form
+    atrap: 1,         // analytic: 1 = Thomson trapping in the closed form
+    alog: 0,          // analytic: log y axis
   };
 }
 
@@ -49,6 +54,11 @@ const SCHEMA = [
   ['sview', 'sv', 'enum', ['sed', 'ratio', 'T', 'xH', 'full', 'Halpha', 'Hbeta']],
   ['sxax', 'sx', 'enum', ['lam', 'E']],
   ['sbb', 'bb', 'int', [0, 1]],
+  ['aview', 'av', 'enum', ['x', 'dL', 'SB', 'fuv']],
+  ['amdot', 'amd', 'num', [0.1, 30]],
+  ['afuv', 'afu', 'num', [1e-3, 10]],
+  ['atrap', 'atr', 'int', [0, 1]],
+  ['alog', 'alg', 'int', [0, 1]],
 ];
 export const HASH_KEYS = SCHEMA.map((e) => e[1]);
 

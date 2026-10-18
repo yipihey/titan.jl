@@ -29,6 +29,8 @@ book:
   search: true
   navbar:
     right:
+      - text: "The short book"
+        href: spectra/index.html
       - text: "Laboratory"
         href: app/index.html
       - icon: github

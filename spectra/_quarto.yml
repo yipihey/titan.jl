@@ -1,0 +1,52 @@
+project:
+  type: book
+  output-dir: _site
+
+# The second book: rendered on its own and published under spectra/ of the first book's site (see
+# .github/workflows/publish.yml), whose laboratory code (../app/js) and data (../app/data) the widgets use.
+book:
+  title: "What a fed quasi-star looks like"
+  subtitle: "Non-LTE spectra of a TITAN quasi-star under infall, a simple model of them, and the Little Red Dots"
+  author: "Tom Abel (KIPAC), with Claude"
+  date: today
+  site-url: https://yipihey.github.io/titan.jl/spectra/
+  repo-url: https://github.com/yipihey/titan.jl
+  repo-subdir: spectra
+  repo-branch: main
+  repo-actions: [edit, source, issue]
+  search: true
+  navbar:
+    right:
+      - text: "The detailed book"
+        href: ../index.html
+      - text: "Laboratory"
+        href: ../app/index.html
+  sidebar:
+    style: docked
+  chapters:
+    - index.qmd
+    - 01-nlte.qmd
+    - 02-lte.qmd
+    - 03-simple-model.qmd
+    - 04-spectrum.qmd
+    - 05-lrds.qmd
+    - references.qmd
+  appendices:
+    - experiments.qmd
+  page-footer:
+    left: "What a fed quasi-star looks like · MIT License"
+    right: "companion to [Quasi-stars under infall](../index.html)"
+
+bibliography: references.bib
+
+format:
+  html:
+    theme:
+      light: cosmo
+      dark: darkly
+    toc: true
+    number-sections: true
+    number-depth: 2
+    html-math-method: katex
+    include-in-header: includes/head.html
+    date-modified: last-modified

@@ -3,7 +3,7 @@ name: Publish book
 on:
   push:
     branches: [main]
-    paths: ['report/**', 'steady/output/**', '.github/workflows/publish.yml']
+    paths: ['report/**', 'spectra/**', 'steady/output/**', '.github/workflows/publish.yml']
   workflow_dispatch:
 
 permissions:
@@ -55,6 +55,12 @@ jobs:
 
       - name: Render site
         run: quarto render
+
+      # the second book (spectra/) is published below the first, whose laboratory code and data its widgets use
+      - name: Render the second book into spectra/
+        run: |
+          (cd ../spectra && quarto render)
+          rm -rf _site/spectra && cp -r ../spectra/_site _site/spectra
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

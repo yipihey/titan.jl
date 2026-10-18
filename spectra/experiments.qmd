@@ -1,0 +1,21 @@
+# Reproducing the results {#sec-exp}
+
+Every number labelled **[computed]** comes from code in the [repository](https://github.com/yipihey/titan.jl), run from
+`julia/` with `Z0_TABLE=ext TITAN_NOLIB=1 julia -t 2 --project=env …`. Run outputs go to `lib/` (the logs of the
+spectra are in `lib/spectra/`). The [detailed book](../chapters/experiments.html) lists the steps that lead to the
+TITAN runs themselves.
+
+| result | command | chapter |
+|---|---|---|
+| TITAN run W30 (infall from $30R$), continuation W30d | `qstar_run.jl setup …` and `relax …` with `QS_ROUT=30`; see the detailed book | @sec-nlte |
+| continuum spectrum of the snapshot at $4.18\times10^8$ s | `spectra_run.jl W30d 4.18e8 ext=1 rmax=4 n=400 lucy=20 damp=0.5 nl=200 ldr=5e-6 out=W30_late_ext` | @sec-nlte, @sec-lte |
+| non-LTE hydrogen in the infall | `nlte_run.jl W30_late_ext ldr=5e-6 maxit=100 minit=100 out=W30_late_ext_c1`, then `nlte_run.jl W30_late_ext ldr=5e-6 init=W30_late_ext_c1 ng=0 maxit=40 minit=40` | @sec-nlte |
+| summary (columns, Thomson depth, source functions) | `nlte_summary.jl W30_late_ext` | @sec-nlte |
+| Hα, Hβ profiles and the LTE brackets | `LP_NLTE=W30_late_ext LP_TAG=_nlte line_profile.jl W30_late_ext` | @sec-nlte, @sec-lte |
+| the 23-line spectrum | `nlte_spectrum.jl W30_late_ext` | @sec-spec |
+| line energy check | `nlte_linepower.jl W30_late_ext` | @sec-spec-energy |
+| what ionizes the infall (rates, $J_\nu$) | `nlte_rates.jl W30_late_ext` | @sec-sm-mechanism |
+| band-replacement tests | `analytic_infall.jl star=bb temp=W30_late_ext trap=1 jfull=W30_late_ext caseB=1 band=λ1,λ2` (log `analytic_bandtests.log`) | @sec-sm-mechanism |
+| closed-form ionization | `closed_form.jl` (`CF_FUV=f` for the far-UV scaling) | @sec-sm-closed |
+| semi-analytic model | `analytic_infall.jl star=t0 temp=W30_late_ext trap=1 caseB=1 [fuv=f] out=…` (`trap=0`, `star=bb` for the variants) | @sec-sm-semi |
+| figure data | `export_report_data.jl spectra …`, `… analytic`, `… qstar W30+W30d` | all |

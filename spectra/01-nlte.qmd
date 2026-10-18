@@ -1,0 +1,104 @@
+# The non-LTE spectrum of the TITAN quasi-star {#sec-nlte}
+
+## The model
+
+**The star.** A $10^6\,M_\odot$ quasi-star with a $10^5\,M_\odot$ black hole, from the stellar-structure models of
+@santarelli2026quest: radius $R = 8.4352\times10^{15}$ cm and luminosity $L_0 = 1.420\times10^{44}$ erg s$^{-1}$.
+TITAN, ported to Julia, evolves its envelope in radiation hydrodynamics on an adaptive grid. It uses zero-metallicity
+LTE opacities, without lines, and mixing-length convection (details in [the detailed book](../chapters/07-titan-quasistar.html)).
+
+**The infall.** In run W30, gas enters through an outer boundary at $30R$ at $3\,M_\odot\,{\rm yr}^{-1}$ and the free-fall speed. It
+reaches the star at $v_{\rm ff}(R) = 1770$ km s$^{-1}$ and stops in a radiative shock at the photosphere. Behind the
+shock a thin cooling layer reaches $3.7\times10^7$ K and radiates the kinetic power $\tfrac12\dot M v^2 = 2.6\times10^{42}$
+erg s$^{-1}$, 2 % of $L_0$, mostly as hard free–free emission. The star settles after a few dynamical times. From
+$2\times10^8$ s to $4.5\times10^8$ s its photosphere stays at $r_{\rm ph} = 0.989R$, $T_{\rm eff} = 7310 \pm 17$ K and
+$L = 0.997\,L_0$ **[computed]**. Moving the outer boundary from $1.2R$ to $30R$ changes none of this.
+
+```{=html}
+<div class="qd-widget" data-widget="qstar" data-run="W30"></div>
+```
+
+**The spectrum calculation.** It uses the snapshot at $4.18\times10^8$ s.
+
+- *Continuum*: static spherical transfer through the star, the shock layer and the infall, out to $120R$. Beyond
+  TITAN's $30R$ we assume the same free fall continues, with $T \propto r^{-1/2}$. It includes coherent Thomson
+  scattering, and the temperatures below the shock are corrected to radiative equilibrium for the non-grey opacities
+  (Unsöld–Lucy).
+- *Hydrogen out of LTE*: wherever the infall is cooler than $2\times10^4$ K (118 points from just above the shock to
+  $120R$). The atom has twelve levels plus the proton. Collision rates are approximate, and line transfer uses Sobolev escape probabilities in the
+  free-fall velocity field.
+- *Coupling*: the bound–free rates use the mean intensity from the full transfer, which in turn uses the non-LTE
+  opacities and emissivities, iterated to convergence. X-rays above 100 eV make secondary ionizations.
+- *Held fixed*: TITAN's temperatures and densities. Helium stays in LTE.
+
+The iteration took 140 passes. Over the last 40, without acceleration, the ionized fraction moved by at most 0.016 and
+$n_2$ by at most 3.7 % **[computed]**.
+
+## The infall is ionized by the star
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="W30_late_ext_nlte" data-compare="W30_late_ext" data-view="xH"></div>
+```
+
+Hydrogen is more than 99 % ionized out to $4.2R$, 92 % at $8.5R$, 50 % at $40R$ and 8 % at $120R$ **[computed]**.
+In LTE at the same temperatures it would be neutral beyond $2R$ (@sec-lte).
+
+- The neutral column is $8.5\times10^{23}$ cm$^{-2}$ out of $9.0\times10^{24}$ cm$^{-2}$ in all.
+- The infall has a Thomson depth of 5.4: an electron-scattering cocoon around the star.
+- The collision rates (×0.3, ×3), the X-rays (switched off) and the Lyman-continuum treatment were varied on the
+  earlier run A220. None of them changes the neutral column by more than 10 % **[tested]**.
+
+What does ionize it is worked out in @sec-sm: the star's far-UV light pumps the Lyman lines, and the excited atoms are
+photoionized by its optical light.
+
+## Hα in strong emission
+
+The Hα source function is above the local continuum everywhere in the infall (apart from a thin X-ray-heated layer
+just above the shock, below $0.9913R$). $S_L/J_c = 1.4$ just above the star, 11 at $4.7R$, 32 at $13R$ and about 60
+at $30R$. The line is optically thick: Sobolev depths range from 10 to 2800 **[computed]**.
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="W30_late_ext_nlte" data-compare="none" data-view="Halpha"></div>
+```
+
+**The profiles** are integrated along rays through the infall with the non-LTE populations **[computed]**.
+
+| | peak / continuum | EW [Å] | FWHM [km s⁻¹] | other |
+|---|---|---|---|---|
+| Hα | 86 at −20 km s⁻¹ | −805 | 360 | wings from −1120 to +1680 km s⁻¹ |
+| Hβ | 8.2 at −20 km s⁻¹ | −73 | 560 | absorption trough to 0.031 of the continuum at +160 km s⁻¹ |
+
+: Hα and Hβ of the non-LTE solution. {#tbl-nlte-lines}
+
+- **Narrow.** Most of the line forms far out, where the gas falls slowly. 79 % of the line power comes from beyond
+  $5R$, 51 % from beyond $12R$ and 17 % from beyond $30R$ **[computed]**. The free-fall speed is 560 km s$^{-1}$ at
+  $10R$ and 280 km s$^{-1}$ at $40R$.
+- **Asymmetric.** The red wing reaches the infall speed at the shock. That gas falls away from us in front of the
+  star. Gas behind the star is hidden, so the blue wing is shorter **[interpretation]**.
+- **Redshifted absorption in Hβ** is the infall in front of the star, absorbing its light. Hα has none because its
+  source function is above the continuum everywhere **[interpretation]**.
+
+## Energy
+
+The continuum carries $1.231\times10^{44}$ erg s$^{-1}$. The hydrogen lines carry $1.1\times10^{43}$ erg s$^{-1}$ in the
+solution's own line balance, or $1.65\times10^{43}$ erg s$^{-1}$ summed over the 23 computed emergent profiles. The
+difference is discussed in @sec-spec-energy. Together this is 0.92 of TITAN's luminosity **[computed]**. The power in
+the lines is starlight, absorbed in the Balmer and Paschen continua and re-emitted. The accretion shock adds only 2 %
+of $L$.
+
+The missing 8 % is absorbed by infall gas whose temperature is held fixed. In reality it would heat that gas, and the
+temperatures would have to be solved for together with the populations. That is the main approximation left in the
+calculation **[interpretation]**.
+
+::: {.callout-note title="TITAN's infall or an assumed one"}
+The same calculation on the earlier run A220 stopped TITAN's grid at $1.2R$ and assumed the free fall beyond it. W30
+replaces the assumption out to $30R$ with TITAN's own infall. The gas there is up to 20 % warmer than assumed at
+3–4 $R$, but every result above moves by no more than the iteration drift. The ionized fraction at $40R$ is 0.51 for
+A220 and 0.50 for W30, Hα has EW −795 and −805 Å, and the Balmer decrement is 5.07 and 5.28 **[computed]**. What is still
+assumed is the gas beyond $30R$. It emits about 17 % of the line power and holds about two thirds of the neutral
+column.
+:::
+
+```{=html}
+<script type="module" src="../app/js/widgets.js"></script>
+```

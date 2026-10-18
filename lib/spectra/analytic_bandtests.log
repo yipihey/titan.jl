@@ -1,0 +1,21 @@
+== full J with case B; band 0,0 Å from the diluted, trapped 7310 K blackbody
+neutral column 7.012e+23 cm⁻², Thomson depth 5.097
+net line power: all 1.156e+43, Hα 1.114e+43, Hβ 1.315e+42, Paα 1.935e+42, Lyα 7.458e+41 erg/s; Hα/Hβ 8.47
+== full J with case B; band 912,1300 Å from the diluted, trapped 7310 K blackbody
+neutral column 2.991e+24 cm⁻², Thomson depth 3.574
+net line power: all 2.291e+42, Hα 3.858e+42, Hβ 3.009e+41, Paα 6.591e+41, Lyα 1.245e+39 erg/s; Hα/Hβ 12.82
+== full J with case B; band 1300,3646 Å from the diluted, trapped 7310 K blackbody
+neutral column 4.621e+23 cm⁻², Thomson depth 5.256
+net line power: all 1.520e+43, Hα 1.305e+43, Hβ 1.422e+42, Paα 2.160e+42, Lyα 7.460e+41 erg/s; Hα/Hβ 9.18
+== full J with case B; band 3646,400000 Å from the diluted, trapped 7310 K blackbody
+neutral column 7.002e+23 cm⁻², Thomson depth 5.097
+net line power: all 1.116e+43, Hα 9.211e+42, Hβ 8.892e+41, Paα 1.733e+42, Lyα 7.487e+41 erg/s; Hα/Hβ 10.36
+== full J with case B; band 912,400000 Å from the diluted, trapped 7310 K blackbody
+neutral column 2.913e+24 cm⁻², Thomson depth 3.625
+net line power: all 2.654e+42, Hα 2.538e+42, Hβ 1.744e+41, Paα 4.564e+41, Lyα 1.293e+39 erg/s; Hα/Hβ 14.56
+== full J with case B; band 912,1300 Å from the diluted, trapped TITAN star (star_t0)
+neutral column 5.722e+23 cm⁻², Thomson depth 5.183
+net line power: all 1.284e+43, Hα 1.204e+43, Hβ 1.421e+42, Paα 2.108e+42, Lyα 1.514e+42 erg/s; Hα/Hβ 8.48
+== full J with case B; band 912,400000 Å from the diluted, trapped TITAN star (star_t0)
+neutral column 3.490e+23 cm⁻², Thomson depth 5.331
+net line power: all 1.653e+43, Hα 1.317e+43, Hβ 1.313e+42, Paα 2.240e+42, Lyα 1.563e+42 erg/s; Hα/Hβ 10.04

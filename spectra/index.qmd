@@ -1,0 +1,45 @@
+---
+toc: false
+---
+
+# Preface {.unnumbered}
+
+This is the short companion to [*Quasi-stars under infall*](../index.html). That book records how the tools
+were built and tested: a steady envelope model, a Julia port of the radiation-hydrodynamics code TITAN, and
+continuum and non-LTE line transfer for its snapshots. This one keeps only what they predict for the spectrum of a quasi-star that is
+being fed, and asks how it compares with the Little Red Dots seen by JWST.
+
+**The object.** A quasi-star of $10^6\,M_\odot$ (black hole of $10^5\,M_\odot$ inside), radius
+$R = 8.4\times10^{15}$ cm, effective temperature 7300 K and luminosity $1.4\times10^{44}$ erg s$^{-1}$
+[@santarelli2026lrd; @begelman2026]. Gas falls onto it from $30R$ at $3\,M_\odot\,{\rm yr}^{-1}$, freely, and stops in a
+radiative shock at the photosphere. TITAN follows the star and the infall through $4.5\times10^8$ s (run W30).
+
+**What the spectrum shows, in one paragraph.** The star's own light keeps the infall ionized out to about $4R$ and
+partly ionized out to $100R$. Its far ultraviolet does it through the Lyman lines, so the X-rays of the shock do not
+matter. Hα comes out in strong, narrow emission (equivalent width −800 Å, FWHM 360 km s$^{-1}$), with a steep
+Balmer decrement (5.1–5.3) and no dust anywhere. Hβ and the higher Balmer lines show deep redshifted absorption,
+the infall seen against the star. The Paschen and Brackett lines are strong, Lyα is weak, and the Balmer jump is
+0.74 dex. The shock's X-rays mostly do not escape: $L_{2-10\,\rm keV}/L \approx 2\times10^{-4}$. All of this is
+**[computed]** with the stated assumptions (@sec-nlte).
+
+**The book in five chapters.**
+
+1. The full non-LTE calculation on the TITAN run (@sec-nlte).
+2. What LTE would have said, and why it is wrong here (@sec-lte).
+3. A simple model that reproduces the full calculation with no transfer. Most of it is closed form, and it shows
+   which ingredients matter (@sec-sm).
+4. The whole emission spectrum, line by line and band by band, and what produces each part (@sec-spec).
+5. The Little Red Dots: what JWST spectra show, and where this model agrees and where it does not (@sec-lrd).
+
+::: {.callout-note title="How to read the status of a statement"}
+**[computed]**: output of the code in the repository, reproducible with the commands in @sec-exp.
+**[tested]**: a computed result checked by a test or a deliberate variation.
+**[estimate]**: an order-of-magnitude argument.
+**[interpretation]**: our reading of the results, not separately derived.
+**[observed]**: a measurement reported in the literature, with its reference.
+:::
+
+<div class="qd-cta">
+<a class="btn btn-primary btn-lg" href="01-nlte.html">Start reading</a>
+<a class="btn btn-outline-secondary btn-lg" href="../index.html">The detailed book</a>
+</div>
