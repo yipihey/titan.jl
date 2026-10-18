@@ -83,6 +83,7 @@ elseif mode == "relax"
     TX.CONVECTION[] = true; TX.ALPHA_MLT[] = 0.8
     TX.GASROW[] = get(ENV, "QS_GASROW", "0") == "1"           # gas-only energy row (see TitanResidFast.GASROW)
     TX.COMPTON[] = get(ENV, "QS_COMPTON", "0") == "1"         # Compton gas-radiation exchange (TitanResidFast.COMPTON)
+    TX.MLT_NOINFALL[] = get(ENV, "QS_MLT_NOINFALL", "0") == "1"   # no MLT in the inflow (TitanResidFast.MLT_NOINFALL)
     TM.use!(TM.Z0Gas(; grey = get(ENV, "QS_GREY", "0") == "1"))
     TD.MSGIO[] = get(ENV, "QS_MSG", "0") == "1" ? stdout : devnull
     for kv in split(get(ENV, "QS_SET", ""), ","; keepempty = false)      # e.g. QS_SET=ql1=1e-4,cq2=1

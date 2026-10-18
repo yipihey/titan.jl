@@ -72,9 +72,17 @@ elseif mode == "spectra"
             τ >= 2 / 3 && (kph = k; break)
         end
         rph = d.atm.r[kph]; Teff = (d.Ltitan / (4π * 5.670374419e-5 * rph^2))^0.25
+        # non-LTE solutions: the full line spectrum of nlte_spectrum.jl (lib/spectra/linespec_OUT.jls, OUT = n minus "_nlte")
+        lsf = joinpath(@__DIR__, "..", "lib", "spectra", "linespec_$(replace(n, "_nlte" => "")).jls")
+        linespec = if endswith(n, "_nlte") && isfile(lsf)
+            ls = deserialize(lsf)
+            (lam = ls.λ, nuLnu = ls.νLν, table = [(name = x.name, lam = x.λ, EW = x.EW, L = x.Lline) for x in ls.lines])
+        else
+            (lam = Float64[], nuLnu = Float64[], table = [])
+        end
         lf = joinpath(@__DIR__, "..", "lib", "spectra", "lines_$n.jls")
         lines = isfile(lf) ? deserialize(lf) : []
-        push!(runs, (name = n, lines = lines, Lline = haskey(d, :Lline) ? d.Lline : 0.0, label = get(LABEL, n, n), run = d.run, t = d.t, Mdot = d.Mdot * Z0Physics.yr / Z0Physics.Msun,
+        push!(runs, (name = n, lines = lines, linespec = linespec, Lline = haskey(d, :Lline) ? d.Lline : 0.0, label = get(LABEL, n, n), run = d.run, t = d.t, Mdot = d.Mdot * Z0Physics.yr / Z0Physics.Msun,
             Ltitan = d.Ltitan, rph = rph / R0, Teff = Teff, lam = cc ./ ν .* 1e8, E = hP .* ν ./ keV, nuLnu = ν .* L, bands = bands, Dbalmer = Dbalmer,
             nlucy = d.nlucy, ion = haskey(d, :ion) ? d.ion : false, prof = prof))
         @printf("%-18s ∫L = %.4e (TITAN %.4e, ratio %.4f)  X(0.5–2) %.2e  X(2–10) %.2e  X(10–40) %.2e  EUV %.2e  FUV %.3e  opt %.3e  D_B = %.3f  r_ph/R = %.5f  T_eff = %.0f K\n",

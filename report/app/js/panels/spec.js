@@ -9,6 +9,7 @@ const VIEWS = {
   ratio: 'L_ν / L_ν(steady star at t = 0)',
   T: 'T [K] used for the spectrum (after the Unsöld–Lucy correction)',
   xH: 'H ionized fraction used for the spectrum (Saha, or non-LTE)',
+  full: 'νL_ν with the hydrogen lines (non-LTE spectra only) [erg s⁻¹]',
   Halpha: 'Hα from the infall (estimate), F / F_continuum',
   Hbeta: 'Hβ from the infall (estimate), F / F_continuum',
 };
@@ -61,6 +62,14 @@ export async function mountSpec(host, S, onChange = () => {}, opts = {}) {
       const ymax = Math.max(...series.flatMap((s) => Array.from(s.y).filter(Number.isFinite)));
       plot.setAxes({ xlabel: XAX[xk], ylabel: VIEWS[S.sview], xlog: true, ylog: true,
         ylim: S.sview === 'sed' ? [ymax * 1e-12, ymax * 3] : [1e-4, 1e4], title: '' });
+    } else if (S.sview === 'full') {
+      runs.forEach((r, i) => {
+        const ls = r.linespec;
+        if (ls && ls.lam.length) series.push({ x: ls.lam, y: ls.nuLnu, label: r.label + ' (continuum + H lines)', color: COLORS[i] });
+        else series.push({ x: r.lam, y: r.nuLnu, label: r.label + ' (continuum only)', color: COLORS[i], dash: '4 3' });
+      });
+      const ym = Math.max(...series.flatMap((q) => Array.from(q.y).filter((v) => Number.isFinite(v) && v > 0)));
+      plot.setAxes({ xlabel: 'λ [Å] (vacuum)', ylabel: VIEWS.full, xlog: true, ylog: true, xlim: [900, 30000], ylim: [ym * 1e-4, ym * 3], title: '' });
     } else if (S.sview === 'Halpha' || S.sview === 'Hbeta') {
       // a non-LTE solution has one profile (its own populations and source function); the LTE spectra show the six
       // brackets (b₂ × thermal or scattering source function); a comparison spectrum adds its profiles, thinner

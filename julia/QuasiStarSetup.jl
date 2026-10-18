@@ -259,7 +259,8 @@ function setup!(profile_csv; template = joinpath(TF.ROOT, "reference_runs", "ini
     xmass = xmn[ngre+2]; xmtot = xmass + xmext
     s!(:xmass, xmass); s!(:xmext, xmext); s!(:xmtot, xmtot)
     if lgrid == 1   # resolution: linear in r (scale R) plus logarithmic in m (exterior), ρ, T (lady(1:3))
-        s!(:ladx, 1); s!(:xscale, R); s!(:alph, 1.5); s!(:ibet, 1); s!(:tau, parse(Float64, get(ENV, "QS_GRIDTAU", "1e3")))
+        s!(:ladx, 1); s!(:xscale, R * parse(Float64, get(ENV, "QS_XSCALE", "1")));   # QS_XSCALE: radius scale of the grid resolution, in R
+        s!(:alph, 1.5); s!(:ibet, 1); s!(:tau, parse(Float64, get(ENV, "QS_GRIDTAU", "1e3")))
         la = TF.var(:lady); wt = TF.var(:wt); ys = TF.var(:yscl)
         la .= 0; wt .= 0.0
         wts = parse.(Float64, split(get(ENV, "QS_GRIDW", join(ones(length(lady)), ",")), ","))   # weights of the lady terms

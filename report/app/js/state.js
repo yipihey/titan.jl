@@ -46,7 +46,7 @@ const SCHEMA = [
   ['qhist', 'qh', 'enum', ['radii', 'mdot', 'teff', 'tpk', 'lum']],
   ['spec', 'sp', 'enum', SPECTRA],
   ['spec2', 'sp2', 'enum', ['none', ...SPECTRA]],
-  ['sview', 'sv', 'enum', ['sed', 'ratio', 'T', 'xH', 'Halpha', 'Hbeta']],
+  ['sview', 'sv', 'enum', ['sed', 'ratio', 'T', 'xH', 'full', 'Halpha', 'Hbeta']],
   ['sxax', 'sx', 'enum', ['lam', 'E']],
   ['sbb', 'bb', 'int', [0, 1]],
 ];

@@ -1,0 +1,48 @@
+  Lyα: 4 inverted point(s) set transparent
+Lyα    1– 2 λ   1215.68 Å: peak   62.321 at   -40 km/s, min 1.000, EW   -100.10 Å, L_line +4.970e+41 erg/s
+  Lyβ: 4 inverted point(s) set transparent
+Lyβ    1– 3 λ   1025.73 Å: peak    1.892 at  -400 km/s, min 0.010, EW     -1.73 Å, L_line +6.069e+39 erg/s
+  Lyγ: 4 inverted point(s) set transparent
+Lyγ    1– 4 λ    972.55 Å: peak    1.240 at  -560 km/s, min 0.011, EW     +0.77 Å, L_line -2.323e+39 erg/s
+  Lyδ: 4 inverted point(s) set transparent
+Lyδ    1– 5 λ    949.75 Å: peak    1.115 at  -680 km/s, min 0.024, EW     +1.29 Å, L_line -3.647e+39 erg/s
+  Lyε: 4 inverted point(s) set transparent
+Lyε    1– 6 λ    937.81 Å: peak    1.075 at  -700 km/s, min 0.024, EW     +1.47 Å, L_line -3.990e+39 erg/s
+  Hα: 4 inverted point(s) set transparent
+Hα     2– 3 λ   6564.70 Å: peak   83.751 at   -20 km/s, min 1.000, EW   -795.05 Å, L_line +8.877e+42 erg/s
+  Hβ: 4 inverted point(s) set transparent
+Hβ     2– 4 λ   4862.74 Å: peak    8.383 at   -20 km/s, min 0.032, EW    -75.15 Å, L_line +1.752e+42 erg/s
+  Hγ: 4 inverted point(s) set transparent
+Hγ     2– 5 λ   4341.73 Å: peak    2.860 at   -20 km/s, min 0.034, EW    -18.34 Å, L_line +5.568e+41 erg/s
+  Hδ: 4 inverted point(s) set transparent
+Hδ     2– 6 λ   4102.94 Å: peak    1.636 at  -420 km/s, min 0.044, EW     -4.77 Å, L_line +1.642e+41 erg/s
+  Hε: 4 inverted point(s) set transparent
+Hε     2– 7 λ   3971.24 Å: peak    1.298 at  -540 km/s, min 0.056, EW     +0.68 Å, L_line -2.520e+40 erg/s
+  Hζ: 4 inverted point(s) set transparent
+Hζ     2– 8 λ   3890.19 Å: peak    1.156 at  -600 km/s, min 0.059, EW     +2.75 Å, L_line -1.061e+41 erg/s
+  Hη: 4 inverted point(s) set transparent
+Hη     2– 9 λ   3836.51 Å: peak    1.085 at  -760 km/s, min 0.066, EW     +4.63 Å, L_line -1.844e+41 erg/s
+  Hθ: 4 inverted point(s) set transparent
+Hθ     2–10 λ   3799.01 Å: peak    1.055 at  -860 km/s, min 0.085, EW     +5.11 Å, L_line -2.075e+41 erg/s
+  Paα: 4 inverted point(s) set transparent
+Paα    3– 4 λ  18756.28 Å: peak  106.353 at   -20 km/s, min 1.000, EW  -3088.44 Å, L_line +1.654e+42 erg/s
+  Paβ: 4 inverted point(s) set transparent
+Paβ    3– 5 λ  12821.67 Å: peak   22.665 at   -20 km/s, min 1.000, EW   -564.26 Å, L_line +1.071e+42 erg/s
+  Paγ: 4 inverted point(s) set transparent
+Paγ    3– 6 λ  10941.16 Å: peak    9.019 at   -40 km/s, min 1.000, EW   -210.63 Å, L_line +6.290e+41 erg/s
+  Paδ: 4 inverted point(s) set transparent
+Paδ    3– 7 λ  10052.19 Å: peak    4.664 at   -40 km/s, min 1.000, EW    -98.76 Å, L_line +3.825e+41 erg/s
+  Paε: 4 inverted point(s) set transparent
+Paε    3– 8 λ   9548.65 Å: peak    3.317 at   -40 km/s, min 1.000, EW    -64.21 Å, L_line +2.916e+41 erg/s
+  Paζ: 4 inverted point(s) set transparent
+Paζ    3– 9 λ   9231.60 Å: peak    2.294 at   -60 km/s, min 1.000, EW    -36.06 Å, L_line +1.819e+41 erg/s
+  Brα: 4 inverted point(s) set transparent
+Brα    4– 5 λ  40522.82 Å: peak   93.901 at   -40 km/s, min 1.000, EW  -6859.50 Å, L_line +2.919e+41 erg/s
+  Brβ: 4 inverted point(s) set transparent
+Brβ    4– 6 λ  26258.79 Å: peak   28.080 at   -60 km/s, min 1.000, EW  -1807.35 Å, L_line +3.055e+41 erg/s
+  Brγ: 4 inverted point(s) set transparent
+Brγ    4– 7 λ  21661.29 Å: peak    9.672 at   -60 km/s, min 1.000, EW   -572.00 Å, L_line +2.076e+41 erg/s
+  Brδ: 4 inverted point(s) set transparent
+Brδ    4– 8 λ  19450.95 Å: peak    6.084 at   -60 km/s, min 1.000, EW   -330.86 Å, L_line +1.595e+41 erg/s
+Balmer decrement L(Hα)/L(Hβ) = 5.07 (case B 2.86); L(Paα)/L(Hα) = 0.186; L(Lyα)/L(Hα) = 0.056; total lines 1.650e+43 erg/s
+saved lib/spectra/linespec_A220_late_ext.jls

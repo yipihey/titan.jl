@@ -165,6 +165,10 @@ function convcoef(ngrs, ngre, base)
             (τ += material_opac(m, base[k, 3], base[k, 5])[1] * base[k, 3] * (base[k+1, 1] - base[k, 1]))
         x = clamp((log(max(τ, 1e-300)) - log(TAU_MLT[] / 2)) / log(4.0), 0.0, 1.0)
         cvw[k] = x * x * (3 - 2x)
+        if MLT_NOINFALL[]          # no MLT flux in infalling gas: smooth step from inflow 10 km/s (MLT on) to 30 (off)
+            y = clamp((-base[k, 4] - 1e6) / 2e6, 0.0, 1.0)
+            cvw[k] *= 1 - y * y * (3 - 2y)
+        end
     end
     cv
 end
@@ -285,6 +289,13 @@ and ∇ = Δln T/Δln P reached 110 and a convective flux of 2 L. (Using −Δr/
 convection has ∇ − ∇_ad ~ 1e-6, below the 0.1–1 % discretisation difference between the two.)
 """
 const MLT_HS = Ref(true)
+"""
+MLT_NOINFALL[]: switch the MLT flux off at interfaces where the gas falls inwards faster than 30 km/s (smoothly from
+10 km/s). Mixing-length convection assumes a quasi-hydrostatic layer; in the supersonic free fall of a large inflow
+domain (r_out = 30 R) the optical-depth cut alone left it on, and spurious convective fluxes of 10⁴–10⁶ L stalled the run.
+Default off (the earlier runs, with r_out = 1.2 R, did not need it).
+"""
+const MLT_NOINFALL = Ref(false)
 "Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
 function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
