@@ -1,0 +1,21 @@
+W30_late_ext Halpha: es=0 res=0; 1000000 photons: escaped 0.990, absorbed by the star 0.010; 0.00 electron scatterings and 0.00 line resonances per photon
+  emitted (net) line power 1.107e+43 erg/s, escaping 1.097e+43; profile: peak at -10 km/s, FWHM 420 km/s, centroid +10 km/s
+  exponential wing scale (600–2500 km/s): blue 150, red 257 km/s (exponential FWHM 2 ln2 W: 208, 356); fraction beyond ±1000 km/s: blue 0.001, red 0.006
+W30_late_ext Halpha: es=0 res=1; 1000000 photons: escaped 0.991, absorbed by the star 0.009; 0.00 electron scatterings and 0.23 line resonances per photon
+  emitted (net) line power 1.107e+43 erg/s, escaping 1.097e+43; profile: peak at -10 km/s, FWHM 340 km/s, centroid -44 km/s
+  exponential wing scale (600–2500 km/s): blue 151, red 359 km/s (exponential FWHM 2 ln2 W: 209, 498); fraction beyond ±1000 km/s: blue 0.001, red 0.006
+W30_late_ext Halpha: es=1 res=1; 1000000 photons: escaped 0.975, absorbed by the star 0.025; 3.37 electron scatterings and 0.30 line resonances per photon
+  emitted (net) line power 1.107e+43 erg/s, escaping 1.079e+43; profile: peak at -10 km/s, FWHM 320 km/s, centroid -423 km/s
+  exponential wing scale (600–2500 km/s): blue 1023, red 333 km/s (exponential FWHM 2 ln2 W: 1418, 462); fraction beyond ±1000 km/s: blue 0.171, red 0.007
+W30_late_ext Halpha: es=1 res=1 Te=10000.0; 1000000 photons: escaped 0.974, absorbed by the star 0.026; 3.38 electron scatterings and 0.28 line resonances per photon
+  emitted (net) line power 1.107e+43 erg/s, escaping 1.079e+43; profile: peak at -10 km/s, FWHM 300 km/s, centroid -357 km/s
+  exponential wing scale (600–2500 km/s): blue 1278, red 583 km/s (exponential FWHM 2 ln2 W: 1772, 808); fraction beyond ±1000 km/s: blue 0.195, red 0.046
+W30_late_ext Halpha: es=1 res=1 Te=30000.0; 1000000 photons: escaped 0.974, absorbed by the star 0.026; 3.37 electron scatterings and 0.23 line resonances per photon
+  emitted (net) line power 1.107e+43 erg/s, escaping 1.079e+43; profile: peak at +10 km/s, FWHM 300 km/s, centroid -236 km/s
+  exponential wing scale (600–2500 km/s): blue 1816, red 1107 km/s (exponential FWHM 2 ln2 W: 2517, 1535); fraction beyond ±1000 km/s: blue 0.205, red 0.111
+W30_late_ext Hbeta: es=1 res=1; 1000000 photons: escaped 0.875, absorbed by the star 0.125; 6.71 electron scatterings and 0.40 line resonances per photon
+  emitted (net) line power 3.200e+42 erg/s, escaping 2.801e+42; profile: peak at +10 km/s, FWHM 480 km/s, centroid -891 km/s
+  exponential wing scale (600–2500 km/s): blue 1722, red 396 km/s (exponential FWHM 2 ln2 W: 2388, 549); fraction beyond ±1000 km/s: blue 0.376, red 0.017
+W30_late_ext Hbeta: es=0 res=1; 1000000 photons: escaped 0.956, absorbed by the star 0.044; 0.00 electron scatterings and 0.36 line resonances per photon
+  emitted (net) line power 3.200e+42 erg/s, escaping 3.061e+42; profile: peak at +10 km/s, FWHM 400 km/s, centroid -86 km/s
+  exponential wing scale (600–2500 km/s): blue 151, red 742 km/s (exponential FWHM 2 ln2 W: 209, 1029); fraction beyond ±1000 km/s: blue 0.002, red 0.024

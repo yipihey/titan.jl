@@ -6,7 +6,8 @@ using Serialization, Printf
 include(joinpath(@__DIR__, "Z0Physics.jl")); const Z0 = Z0Physics
 name = ARGS[1]; stride = length(ARGS) > 1 ? parse(Int, ARGS[2]) : 1
 S = deserialize(joinpath(@__DIR__, "..", "lib", "qs_runs", "$(name)_relax_snaps.jls"))
-meta = deserialize(joinpath(@__DIR__, "..", "lib", "qs_runs", "setup_meta.jls"))
+# QS_META=NAME: the set-up the run started from (lib/qs_runs/setup_meta_NAME.jls); default: the last set-up made
+meta = deserialize(joinpath(@__DIR__, "..", "lib", "qs_runs", haskey(ENV, "QS_META") ? "setup_meta_$(ENV["QS_META"]).jls" : "setup_meta.jls"))
 include(joinpath(@__DIR__, "qstar_summary.jl"))
 # L0: luminosity of the steady star at t = 0 (the set-up), the same for every run and continuation (it was the first
 # snapshot's outer L, which for a continuation such as A220d or W30d is not the t = 0 value)

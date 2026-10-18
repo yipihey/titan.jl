@@ -1,0 +1,18 @@
+W30_late_ext Halpha: es=1 res=1; 1000000 photons: escaped 0.975, absorbed by the star 0.025; 3.37 electron scatterings and 0.30 line resonances per photon
+  emitted (net) line power 1.107e+43 erg/s, escaping 1.079e+43; profile: peak at -10 km/s, FWHM 320 km/s, centroid +423 km/s
+  exponential wing scale (600–2500 km/s): blue 322, red 1017 km/s (exponential FWHM 2 ln2 W: 447, 1410); fraction beyond ±1000 km/s: blue 0.007, red 0.171
+  inclination  0–30°: FWHM 320 km/s, centroid +425 km/s, beyond ±1000 km/s: blue 0.007, red 0.172
+  inclination 30–60°: FWHM 320 km/s, centroid +424 km/s, beyond ±1000 km/s: blue 0.007, red 0.171
+  inclination 60–90°: FWHM 320 km/s, centroid +422 km/s, beyond ±1000 km/s: blue 0.007, red 0.171
+W30_late_ext Halpha: es=1 res=1; 1000000 photons: escaped 0.973, absorbed by the star 0.027; 3.63 electron scatterings and 1.21 line resonances per photon
+  emitted (net) line power 1.107e+43 erg/s, escaping 1.078e+43; profile: peak at +10 km/s, FWHM 260 km/s, centroid -202 km/s
+  exponential wing scale (600–2500 km/s): blue 851, red 625 km/s (exponential FWHM 2 ln2 W: 1180, 867); fraction beyond ±1000 km/s: blue 0.118, red 0.040
+  inclination  0–30°: FWHM 520 km/s, centroid -358 km/s, beyond ±1000 km/s: blue 0.180, red 0.048
+  inclination 30–60°: FWHM 180 km/s, centroid -207 km/s, beyond ±1000 km/s: blue 0.114, red 0.037
+  inclination 60–90°: FWHM 280 km/s, centroid -170 km/s, beyond ±1000 km/s: blue 0.110, red 0.041
+W30_late_ext Halpha: es=1 res=1; 1000000 photons: escaped 0.973, absorbed by the star 0.027; 3.70 electron scatterings and 1.45 line resonances per photon
+  emitted (net) line power 1.107e+43 erg/s, escaping 1.078e+43; profile: peak at +10 km/s, FWHM 260 km/s, centroid -7 km/s
+  exponential wing scale (600–2500 km/s): blue 746, red 749 km/s (exponential FWHM 2 ln2 W: 1034, 1038); fraction beyond ±1000 km/s: blue 0.078, red 0.076
+  inclination  0–30°: FWHM 280 km/s, centroid -77 km/s, beyond ±1000 km/s: blue 0.100, red 0.080
+  inclination 30–60°: FWHM 160 km/s, centroid -24 km/s, beyond ±1000 km/s: blue 0.079, red 0.073
+  inclination 60–90°: FWHM 280 km/s, centroid +21 km/s, beyond ±1000 km/s: blue 0.072, red 0.078

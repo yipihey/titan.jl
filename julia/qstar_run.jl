@@ -70,7 +70,10 @@ if mode == "setup"
     @printf("outer region: top r/R = %.5f, T_top = %.0f K, ρ_top = %.3e, τ_top = %.3e; %d zones (%d envelope, %d atmosphere)\n",
             q.atm.r[end] / q.R, q.atm.T[end], q.atm.ρ[end], q.atm.τtop, nenv + natm, nenv, natm)
     TF.save_state(initfile(get(ENV, "QS_NAME", "QSTAR")))
-    serialize(joinpath(outdir, "setup_meta.jls"), (M = q.M, L = q.L, R = q.R, r_in = q.r_in))
+    # setup_meta.jls: the last set-up (read by qstar_analyze.jl by default); setup_meta_NAME.jls: this one, kept
+    meta = (M = q.M, L = q.L, R = q.R, r_in = q.r_in)
+    serialize(joinpath(outdir, "setup_meta.jls"), meta)
+    serialize(joinpath(outdir, "setup_meta_$(get(ENV, "QS_NAME", "QSTAR")).jls"), meta)
     println("saved ", initfile(get(ENV, "QS_NAME", "QSTAR")))
 elseif mode == "relax"
     tmax = length(ARGS) >= 2 ? parse(Float64, ARGS[2]) : 3e9
