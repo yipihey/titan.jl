@@ -16,5 +16,5 @@ One dated entry per decision; link the chapter and the test.
   atr, alg. The closed form is checked against the full non-LTE solution in `julia/closed_form.jl` (neutral column
   8.8e23 vs 8.0e23 cm⁻², Thomson depth 4.98 vs 5.06 on the same points), not by a Rust test.
 - The simple models use the emergent spectrum of the TITAN star without infall (`star_t0`) as the stellar intensity,
-  because its far-UV excess (772× a 7310 K blackbody at 1000 Å) is what ionizes the infall; with a blackbody the infall
+  because its far-UV excess (about 700× a 7310 K blackbody at 1000 Å) is what ionizes the infall; with a blackbody the infall
   stays neutral. Both books flag that excess as the weak point (photosphere without line opacity).

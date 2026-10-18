@@ -22,14 +22,15 @@ the near infrared, each feature has a definite origin.
 non-LTE hydrogen (`W30_late_ext_nlte`) **[computed]**. {#tbl-spec-bands}
 
 **The photosphere** ($T_{\rm eff} = 7310$ K) makes almost all of the light. Above the Balmer edge its spectrum is
-within a factor 1.2 of a blackbody at $T_{\rm eff}$. Below the edge it has a far-UV excess: 13 times the blackbody at
-1500 Å, 78 times at Lyα, 770 times at 1000 Å. Between the Lyman and Balmer edges a zero-metallicity photosphere has
+within 30 % of a blackbody at $T_{\rm eff}$. Below the edge it has a far-UV excess: 13 times the blackbody at
+1500 Å, 73 times at Lyα, about 700 times at 1000 Å. Between the Lyman and Balmer edges a zero-metallicity photosphere has
 little continuum opacity, so the light there comes from deeper, hotter layers. Our opacities contain no lines, so this
 excess is probably overestimated **[computed; interpretation]**. It powers the ionization of the infall (@sec-sm).
 
 **The Balmer jump** grows from 0.23 dex for the bare star to 0.74 dex. The infall absorbs Balmer-continuum light in
 photoionizations from $n = 2$, the very process that keeps it ionized. In LTE, with neutral, Boltzmann-populated gas,
-the jump is 0.61 dex **[computed]**. A strong Balmer break here is a sign of dense gas around the star with a
+the jump is 0.61 dex **[computed]**. Measured in the windows observers use for LRDs, the break is much smaller,
+because our spectrum lacks the high Balmer lines near the edge (@sec-lrd). A strong Balmer break here is a sign of dense gas around the star with a
 populated $n=2$, not of an old stellar population **[interpretation]**.
 
 **Electron scattering.** The Thomson depth of 5.4 does not change the continuum's shape, because the scattering is
@@ -49,7 +50,7 @@ $L_{2-10\,\rm keV}/L \approx 2\times10^{-4}$ makes this an X-ray-weak source.
 |---|---|---|---|---|---|
 | Lyman | Lyα | 1215.7 | 64 | −99 | $4.9\times10^{41}$ |
 | | Lyβ | 1025.7 | 1.8 | −1.3 | $5\times10^{39}$ |
-| | Lyγ–Lyε | 973–938 | 1.1–1.2 | +0.8 to +1.5 | net absorption |
+| | Lyγ–Lyε | 973–938 | 1.07–1.21 | +0.8 to +1.5 | net absorption |
 | Balmer | Hα | 6564.7 | 86 | −805 | $9.0\times10^{42}$ |
 | | Hβ | 4862.7 | 8.2 | −73 | $1.70\times10^{42}$ |
 | | Hγ | 4341.7 | 2.8 | −18 | $5.4\times10^{41}$ |
@@ -68,13 +69,14 @@ line at a time **[computed]**. {#tbl-spec-lines}
 **Why Hα is so strong.** In the outer infall the populations of $n=2$ and $n=3$ are set by the star's far UV, not
 by the cold gas. The Hα source function there is 10–60 times the local continuum. The line is optically thick
 everywhere (Sobolev depth 10–2800), so its luminosity is the thick-line integral $\propto\int r\,v\,S_L\,dr$
-(@sec-sm-halpha). The line luminosity is starlight, absorbed in the Balmer and Paschen continua and re-emitted. It is
+(@sec-sm-halpha). The line luminosity is starlight, absorbed in the far-UV Lyman lines and the Balmer continuum and re-emitted
+**[interpretation]**. It is
 not recombination radiation powered by the accretion. The shock's X-rays could drive at most a few
 $10^{40}$ erg s$^{-1}$ of Hα through the ionizations they make **[estimate]**.
 
 **Why it is narrow.** Half of the power comes from beyond $12R$, where the gas falls at less than about 500 km s$^{-1}$. The
-FWHM is 360 km s$^{-1}$. The wings reach −1100 and +1700 km s$^{-1}$: the red wing comes from the gas falling onto the
-near side of the star at up to 1770 km s$^{-1}$ **[computed; interpretation]**. Our profiles leave out electron
+FWHM is about 370 km s$^{-1}$. The wings reach −1100 and +1700 km s$^{-1}$: the red wing comes from the gas falling onto the
+near side of the star at up to 1670 km s$^{-1}$ **[computed; interpretation]**. Our profiles leave out electron
 scattering in the line, and with $\tau_{\rm es} \approx 5$ that would broaden the wings. That is the most important
 omission for comparing profiles with observations (@sec-lrd).
 
@@ -86,7 +88,8 @@ line powers it would be 8.9 instead of 5.3 (@sec-spec-energy). Either way it is 
 
 **Redshifted Balmer absorption.** From Hβ upwards every Balmer line has an absorption trough at +160 to +180 km s$^{-1}$,
 down to 3–8 % of the continuum, and from Hε up absorption wins over emission. The gas between us and the star falls away from us, so its absorption
-is redshifted. Its source function in these lines is below the stellar intensity behind it. Redshifted absorption is
+is redshifted. Its source function in these lines is below the stellar intensity behind it. (The same holds for Hα
+beyond $1.2R$, but there the envelope's emission fills the absorption in.) Redshifted absorption is
 the kinematic signature of infall **[computed; interpretation]**.
 
 **Paschen and Brackett** lines are strong: together $5.2\times10^{42}$ erg s$^{-1}$, 57 % of Hα. Their equivalent

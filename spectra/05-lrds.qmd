@@ -1,3 +1,184 @@
 # The Little Red Dots {#sec-lrd}
 
-(in preparation)
+JWST found a population of compact, red sources at $z \approx 2$–9 with broad Balmer lines: the "Little Red Dots"
+(LRDs) [@matthee2024; @greene2024; @kocevski2025]. Their spectra are now known in detail, and several groups read
+them as black holes inside dense gas envelopes ("black hole stars") or as quasi-stars [@inayoshi2025b; @naidu2026;
+@degraaff2025a; @begelman2026; @santarelli2026lrd]. This chapter sets what is observed beside what the fed quasi-star
+of the previous chapters predicts. It is a comparison, not a fit. The model has one mass, one accretion rate, one
+viewing angle and no free parameters, and it is spherical and metal-free.
+
+The literature summary is current to October 2026. Values marked **[observed]** are quoted from the papers cited;
+where we combined or converted published numbers, we say so. Some 2026 papers were available to us only as abstracts,
+which is noted.
+
+## What the LRD spectra show
+
+**Continuum.**
+
+- *Shape.* The SED is V-shaped: blue in the rest-frame UV and red in the optical, with the turnover at the Balmer limit
+  [@setton2024; @kokorev2024]. Nearly all sources are unresolved.
+- *Dust.* Hot dust emission is weak or absent in the mid-infrared [@leung2024; @setton2025], and ALMA finds no cold
+  dust in 60 LRDs [@casey2025].
+- *Temperature.* The optical continua of 146 LRDs are fitted by modified blackbodies at typical temperatures near
+  5000 K, with a tail towards 2000 K [@degraaff2025b].
+- *Bolometric corrections.* For two LRDs with measured SEDs, $L_{\rm bol}/\lambda L_{5100}$ is 3.9 and 6.9 and
+  $L_{\rm bol}/L({\rm H\alpha})$ is 11 and 30. The averages are 5.4 and 19, and $L_{\rm bol} \sim 10^{44}$ erg s$^{-1}$
+  at $6 < z < 9$ [@greene2025].
+- *Balmer breaks.* $\langle f_\nu\rangle(4000$–4100 Å$)/\langle f_\nu\rangle(3620$–3720 Å$)$ ranges from none to
+  about 3.5 in most published LRDs [@degraaff2025a; @degraaff2025b]. The extremes are 6.9 (+2.8/−1.5; The Cliff,
+  @degraaff2025a) and 7.7 (+2.3/−1.4; MoM-BH\*-1, @naidu2026), too strong for any stellar population **[observed]**.
+
+**Broad Balmer lines.**
+
+- *Widths.* Broad components have FWHM of about 1200 to 4500 km s$^{-1}$
+  [@matthee2024; @barro2025; @labbe2024]. The profiles are a narrow core plus exponential wings.
+- *Cores and wings.* In @rusakov2025 the cores of 9 of 12 objects are about 300 km s$^{-1}$ wide and the lines are
+  symmetric. The wings are fitted as electron scattering at Thomson depths 0.5–2.8 (assumed electron temperatures
+  $10^4$–$3\times10^4$ K), which lowers the black-hole masses by 1–2 dex. @matthee2026 finds exponential wings in all
+  18 of their LRDs, with Hα wing FWHM 1040–1600 km s$^{-1}$ (median 1360). The wings are symmetric apart from weak
+  asymmetries in some of the bluest sources. The inferred $\tau_e$ is 1–2.5 without absorption and up to 5 with it.
+- *Debate.* The scattering interpretation is disputed. In the "Rosetta Stone", Hα, Hβ and Paβ have different profiles
+  that no single exponential model fits with plausible parameters [@brazzini2025]. A direct dynamical mass for
+  A2744-QSO1 agrees with the virial one [@juodzbalis2025].
+- *Strength.* The most luminous LRD has $L({\rm H\alpha}) \approx 10^{44}$ erg s$^{-1}$ [@labbe2024]. Rest-frame
+  equivalent widths reach 800–1700 Å [@labbe2024; @sneppen2026] **[observed]**.
+
+**Balmer decrements.** Broad Hα/Hβ is mostly above case B:
+
+- a median of 7.8 (range 3.6–14) in @matthee2026;
+- 6–30 in @kiyota2026 (abstract only);
+- 21 in a local LRD [@ji2025b].
+
+The decrement rises with luminosity and Balmer-break strength [@degraaff2025b]. Whether this is dust or radiative
+transfer in dense gas is debated [@nikopoulos2025; @kiyota2026; @torralba2025b] **[observed]**.
+
+**Narrow Balmer absorption.**
+
+- *Incidence.* It is common at high resolution: 35 % [@yanagisawa2026, abstract only], 4 of 10 [@davis2026] and about
+  60 % [@matthee2026] of LRDs.
+- *Velocities.* Most absorbers are blueshifted: 38 of 46 Hα absorbers, spanning −430 to +140 km s$^{-1}$
+  [@yanagisawa2026].
+- *The redshifted minority* (about 10–15 % of Hα absorbers) sits in the reddest sources with the strongest breaks.
+  @matthee2026 reads it as the densest absorbers flowing in. In RUBIES-EGS-49140 and A2744-45924, the absorption
+  centroids move progressively redward from Hα to Hδ, while the absorbed equivalent widths decline only weakly with
+  series order [@wang2026, abstract only].
+- *Hβ redward of Hα.* In A2744-QSO1, Hβ absorption lies $+90 \pm 30$ km s$^{-1}$ redward of Hα, which is at
+  $-40$ km s$^{-1}$ (a 3σ result; @deugenio2025a). In the local LRD J1025+1402, Hβ is at $+100$ and Hα at
+  $-62$ km s$^{-1}$, measured in spectra from different instruments [@ji2025b].
+- *Depths.* Absorption equivalent widths are a few Å. Troughs can go below the continuum [@deugenio2025b], and Hβ
+  absorbs relatively more strongly than Hα [@matthee2026].
+- *Columns and densities.* Absorber columns are $N(n{=}2) \sim 10^{14}$–$10^{15}$ cm$^{-2}$
+  [@juodzbalis2024; @ji2025b], and the inferred gas densities are $10^{9}$–$10^{11}$ cm$^{-3}$ [@inayoshi2025b]
+  **[observed]**.
+
+**Other lines.**
+
+- *Present:* Fe II emission and [Fe II]; O I λ8446 and λ11287 (pumped by Lyβ); He I emission; and blueshifted He I
+  λ10830 absorption [@labbe2024; @juodzbalis2024; @kokorev2025; @torralba2025b].
+- *Weak:* [O III] in the reddest sources [@barro2025].
+- *Lyα:* weak relative to Hα (0.07 in A2744-45924), and mostly from the host galaxy [@torralba2025a; @jiz2026].
+- *Paschen:* we found no published Paα/Hα ratio. In the Rosetta Stone, broad Paβ/Hα is 0.35, our ratio of the
+  fluxes given by @juodzbalis2024 **[observed]**.
+
+**X-rays and radio.** LRDs are X-ray weak:
+
+- AGN with broad lines found by JWST lie 1–2 dex below the usual X-ray relations [@maiolino2025];
+- a stack of 34 LRDs gives limits about 1 dex below the $L_X$–$L({\rm H\alpha})$ relation, with a tentative combined
+  signal [@yue2024];
+- a deep Chandra stack of 55 LRDs detects nothing [@sacchi2025];
+- for the Rosetta Stone, $L_{\rm bol}/L_X > 1.5\times10^4$ [@juodzbalis2024].
+
+They are also radio-silent [@perger2025] **[observed]**.
+
+**Variability.** Little or none. There is no significant rest-UV variability in 21 LRDs over 6–11 years in the
+observed frame [@tee2025]. In A2744-QSO1, broad-line equivalent widths change by up to about 20 % over 2.4 rest-frame
+years [@furtak2025] **[observed]**.
+
+## The fed quasi-star beside them
+
+| property | LRDs **[observed]** | fed quasi-star **[computed]** | |
+|---|---|---|---|
+| $L_{\rm bol}$ | $\sim10^{44}$ (z > 6) to $10^{45}$ erg s$^{-1}$ | $1.4\times10^{44}$ erg s$^{-1}$ | ✓ |
+| photosphere | modified blackbody, $T \approx 5000$ K (tail to 2000 K) | $T_{\rm eff} = 7310$ K | ✗ too hot |
+| Balmer break, windows 4000–4100 / 3620–3720 Å | none to ≈ 3.5; extremes 6.9, 7.7 | 1.35; the jump at the edge itself is 5.5 | ? |
+| hot dust | weak or absent | none (no dust) | ✓ |
+| Hα EW | up to 800–1700 Å | −805 Å | ✓ |
+| $L_{\rm bol}/L({\rm H\alpha})$ | 11 and 30 (two objects) | 15.5 | ✓ |
+| $L_{\rm bol}/\lambda L_{5100}$ | 3.9 and 6.9 (two objects) | 1.3 | ✗ |
+| Hα core | ≈ 300 km s$^{-1}$ (9 of 12) | FWHM ≈ 370 km s$^{-1}$ | ✓ |
+| Hα wings | exponential, FWHM ≈ 1000–1600 km s$^{-1}$, symmetric | −1100 to +1700 km s$^{-1}$, asymmetric; no electron scattering in the profile | ✗ |
+| Thomson depth | 0.5–5 (from the wings) | 5.4 in all, ≈ 1 outside the Hα-forming region | ~ |
+| Hα/Hβ (broad) | median 7.8, 3.6–14, up to 30 | 5.3 (emergent) or 8.9 (local line power), no dust | ~ |
+| Hα absorption | 35–60 % at high resolution, mostly blueshifted | filled in by emission; none in the profile | ✗ |
+| Hβ absorption | in several objects redward of Hα | trough to 3 % of the continuum at +160 km s$^{-1}$ | ~ |
+| redshifted (inflowing) absorbers | 10–15 %, in the reddest, strongest-break sources | in every Balmer line from Hβ up | ~ minority |
+| Lyα/Hα | weak, ≈ 0.07 in A2744-45924 | 0.054 | ✓ |
+| Paβ/Hα | 0.35 (Rosetta Stone) | 0.12 | ✗ one object |
+| $L_{\rm bol}/L_{2-10\,\rm keV}$ | > $1.5\times10^4$ (Rosetta Stone) | $4.2\times10^3$ | ✗ marginal |
+| metal lines (Fe II, O I, Na D, Ca II) | common | none (zero metallicity) | — |
+| variability | little or none | photosphere ±0.14 % in radius, ±0.8 % in $L$, over years | ✓ |
+
+: The fed quasi-star (TITAN run W30 with non-LTE hydrogen, a single model) against what is reported for LRDs. ✓:
+consistent; ~: partly; ✗: in tension; ?: depends on the definition; —: not modelled. The model numbers come from
+@sec-nlte–@sec-spec and `julia/lrd_metrics.jl` **[computed]**. {#tbl-lrd}
+
+**The Balmer break is definition-dependent here.** Our continuum drops by a factor 5.5 across the Balmer edge, the
+non-LTE infall's work (the bare star has 1.7). But the observers' blue window, 3620–3720 Å, lies mostly redward of
+the 3646 Å edge. Our spectrum has no Balmer lines above $n = 10$ to blanket that region, so the window catches the
+unabsorbed side and the ratio comes out at 1.35. In a real spectrum the merging high Balmer lines and the instrumental
+resolution fill this gap. Which value to compare needs a spectrum computed with the full Balmer series
+**[computed; interpretation]**.
+
+## What agrees
+
+- **Luminosity and line strength.** A $10^6\,M_\odot$ quasi-star fed at $3\,M_\odot\,{\rm yr}^{-1}$ has the luminosity
+  of a high-redshift LRD. Its Hα has the observed equivalent width and a fraction of the bolometric luminosity
+  ($L_{\rm bol}/L({\rm H\alpha}) = 15.5$) between the two measured LRDs (11 and 30) **[computed]**. The Hα power is
+  reprocessed starlight in the envelope, not accretion power. That is why it can be large while the X-rays are weak
+  **[interpretation]**.
+- **A narrow core.** The intrinsic Hα width of the infall, about 370 km s$^{-1}$, matches the ≈ 300 km s$^{-1}$
+  cores found by @rusakov2025.
+- **A Thomson-thick cocoon without dust.** The star ionizes its own infall to a Thomson depth of 5.4, with no AGN, and the
+  same gas gives a steep Balmer decrement and a deep Balmer jump with no dust and no old stars. Only about 1 of the 5.4
+  lies outside the region where Hα forms, at the low end of what the wing fits infer.
+- **Redshifted absorption in the higher Balmer lines.** Hβ and the higher lines show absorption at +160 to
+  +180 km s$^{-1}$, while Hα shows none. Something similar is seen in the reddest LRDs: Hβ absorbed redward of Hα,
+  and centroids moving redward with series order [@deugenio2025a; @wang2026]. In the model, though, the velocity
+  shift with series order is only 20 km s$^{-1}$, one step of our velocity grid. The troughs also get shallower with
+  series order (from 3 % of the continuum in Hβ to 8 % in Hθ), whereas the observed absorbed equivalent widths
+  decline only weakly **[computed; interpretation]**.
+
+## What does not
+
+- **The wings.** This is the clearest tension.
+  - Our profiles do not include electron scattering, and adding it would not obviously produce the observed wings.
+  - Hα forms mostly beyond $5R$, where only $\tau_{\rm es} \approx 1$ remains outside it (power-weighted mean), and
+    the gas there is at about 2000 K.
+  - Electrons that cold have a thermal speed $\sqrt{2kT/m_e} \approx 250$ km s$^{-1}$, against 550 km s$^{-1}$ at
+    $10^4$ K, the low end of what the wing fits assume (our arithmetic).
+  - Symmetric wings 1000–1600 km s$^{-1}$ wide would need the line to form inside a hotter, thicker scattering layer
+    **[estimate]**.
+- **Hα absorption.** Observed Hα absorbers are common and mostly blueshifted, that is, outflowing. In the model the infall in front
+  of the star does absorb Hα, since beyond $1.2R$ its source function is below the star's intensity. But the
+  emission of the whole envelope fills that in, and nothing flows out.
+- **The temperature.** At 7310 K the photosphere is hotter than the ≈ 5000 K of most LRD continua. The star is the
+  $f_{\rm BH} = 0.1$ quasi-star model at one stage of its evolution. Cooler and larger quasi-stars exist later in the
+  same tracks [@santarelli2026lrd; @begelman2026]. They were not run.
+- **The optical luminosity.** $L_{\rm bol}/\lambda L_{5100} = 1.3$, against 3.9 and 6.9. A 7300 K star puts much of
+  its light near 5100 Å. The empirical factors include a UV component and a cooler, redder continuum **[interpretation]**.
+- **X-rays, marginally.** The shock lets $L_{2-10\,\rm keV} \approx 3\times10^{40}$ erg s$^{-1}$ escape:
+  $L/L_X = 4.2\times10^3$, about 3.6 times more X-rays than the Rosetta Stone's limit allows. The emergent X-rays depend
+  on helium, which is not computed out of LTE, and on the accretion rate.
+
+## What would decide it
+
+1. **Electron-scattering wings computed in the model.** Scatter the line photons in the actual infall (temperature,
+   ionization and Thomson depth along each ray) and compare the wing shape and its symmetry with @rusakov2025 and
+   @matthee2026.
+2. **A cooler quasi-star.** Repeat the calculation for a later, $\approx 5000$ K stage, where the far-UV excess that
+   ionizes the infall should be weaker (@sec-sm).
+3. **The full Balmer series**, so that the break can be measured the way observers measure it.
+4. **Infall plus outflow.** The observed absorbers are mostly blueshifted. A star fed at the equator that loses gas at
+   the poles would show both signatures, depending on the viewing angle. This needs a two-dimensional model.
+5. **Helium and metals.** He I λ10830 absorption and O I λ8446 (pumped by Lyβ) are direct probes of the same far-UV
+   pumping that ionizes our infall. They are the natural next lines to compute.

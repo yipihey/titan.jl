@@ -16,11 +16,17 @@ radiative shock at the photosphere. TITAN follows the star and the infall throug
 
 **What the spectrum shows, in one paragraph.** The star's own light keeps the infall ionized out to about $4R$ and
 partly ionized out to $100R$. Its far ultraviolet does it through the Lyman lines, so the X-rays of the shock do not
-matter. Hα comes out in strong, narrow emission (equivalent width −800 Å, FWHM 360 km s$^{-1}$), with a steep
+matter. Hα comes out in strong, narrow emission (equivalent width −800 Å, FWHM 370 km s$^{-1}$), with a steep
 Balmer decrement (5.1–5.3) and no dust anywhere. Hβ and the higher Balmer lines show deep redshifted absorption,
 the infall seen against the star. The Paschen and Brackett lines are strong, Lyα is weak, and the Balmer jump is
 0.74 dex. The shock's X-rays mostly do not escape: $L_{2-10\,\rm keV}/L \approx 2\times10^{-4}$. All of this is
 **[computed]** with the stated assumptions (@sec-nlte).
+
+**Against the Little Red Dots.** The model has the luminosity, Hα equivalent width, Hα-to-bolometric ratio, narrow
+line core and Thomson-thick, dust-free cocoon of the LRDs seen by JWST, and it is X-ray weak, though perhaps not weak
+enough. It lacks their symmetric electron-scattering wings and their mostly blueshifted Hα absorption, and its
+photosphere is about 2300 K too hot
+(@sec-lrd).
 
 **The book in five chapters.**
 

@@ -29,7 +29,7 @@ scattering source function **[computed]**. {#tbl-lte-nlte}
 ## What changes, and why
 
 - **Ionization.** In LTE the infall is neutral beyond $2R$. Out of LTE it is ionized, because the excited levels are
-  populated by the star's radiation, not by the 1000–4000 K gas, and are then photoionized by its optical light
+  populated by the star's radiation, not by the 1000–6700 K gas, and are then photoionized by its near-UV (Balmer-continuum) light
   (@sec-sm). This is the classic situation of a cool gas irradiated by a hot source, as in nebulae or stellar winds,
   where LTE is known to fail **[interpretation]**.
 - **Electron scattering.** A Thomson depth of 5.4 instead of 0.6 means most of the star's light is scattered several
@@ -43,11 +43,12 @@ scattering source function **[computed]**. {#tbl-lte-nlte}
 - **X-rays.** The neutral column is ten times smaller, so a little more of the shock's hard X-rays escape: 2–10 keV
   rises by 50 %. Below about 2 keV nothing escapes in either case, because helium, kept in LTE, is neutral.
 
-## The one thing LTE gets right
+## What the choice does not touch
 
-LTE does get the free-fall structure and the shock right, and with it the energy budget. The accretion shock radiates
-2 % of $L$, the star does the rest, and $T_{\rm eff}$ and $L$ are TITAN's. The emergent continuum shape changes, but
-only by redistributing that energy **[computed]**.
+Neither choice changes the TITAN structure: the free fall, the shock (2 % of $L$), the star's $T_{\rm eff}$ and $L$.
+The spectra are computed on the same snapshot. The energy that leaves differs, though. In LTE the continuum carries
+1.02 of TITAN's luminosity. With non-LTE hydrogen, continuum plus lines carry 0.92–0.96. The rest is absorbed by infall
+gas held at fixed temperature (@sec-nlte) **[computed]**.
 
 ```{=html}
 <script type="module" src="../app/js/widgets.js"></script>

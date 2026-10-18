@@ -18,4 +18,5 @@ TITAN runs themselves.
 | band-replacement tests | `analytic_infall.jl star=bb temp=W30_late_ext trap=1 jfull=W30_late_ext caseB=1 band=λ1,λ2` (log `analytic_bandtests.log`) | @sec-sm-mechanism |
 | closed-form ionization | `closed_form.jl` (`CF_FUV=f` for the far-UV scaling) | @sec-sm-closed |
 | semi-analytic model | `analytic_infall.jl star=t0 temp=W30_late_ext trap=1 caseB=1 [fuv=f] out=…` (`trap=0`, `star=bb` for the variants) | @sec-sm-semi |
+| the model in LRD metrics (Balmer-break ratio, $L_{\rm bol}/L({\rm H\alpha})$, $L_{\rm bol}/\lambda L_{5100}$, τ outside the Hα region) | `lrd_metrics.jl W30_late_ext` | @sec-lrd |
 | figure data | `export_report_data.jl spectra …`, `… analytic`, `… qstar W30+W30d` | all |
