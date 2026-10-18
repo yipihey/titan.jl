@@ -43,6 +43,7 @@ elseif mode == "spectra"
                  "A220_late_ext" => "infall, 4.2e8 s, LTE infall + free-fall extension",
                  "A220_late_ion" => "infall, 4.2e8 s, infall fully ionized (limit)",
                  "A220_late_noext" => "infall, 4.2e8 s, grid only (to 1.20 R)",
+                 "A220_late_ext_nlte" => "infall, 4.2e8 s, non-LTE hydrogen in the infall",
                  "A220_late_bare" => "infall, 4.2e8 s, star only (infall above the shock removed)",
                  "A220_late_hotion" => "infall, 4.2e8 s, cooling layer fully ionized (test)",
                  "R2_late_ext" => "Eulerian run R2, 5.8e7 s, LTE infall + extension",
@@ -63,7 +64,7 @@ elseif mode == "spectra"
         Dbalmer = log10(Lat(ν, L, 3664.0) / Lat(ν, L, 3628.0))       # Balmer jump: L_ν just red / just blue of 3646 Å
         R0 = 8.4352e15
         prof = (r = d.atm.r ./ R0, T = d.atm.T, T_titan = d.T_titan, rho = d.atm.ρ,
-                xH = [Z0Physics.saha(d.atm.ρ[k], d.atm.T[k]).xH for k in eachindex(d.atm.r)])
+                xH = haskey(d, :xH) ? d.xH : [Z0Physics.saha(d.atm.ρ[k], d.atm.T[k]).xH for k in eachindex(d.atm.r)])
         tab = Z0Physics.table(); τ = 0.0; kph = length(d.atm.r)          # TITAN-style photosphere: Rosseland τ = 2/3
         for k in length(d.atm.r):-1:2
             τ += Z0Physics.kap(tab, d.atm.ρ[k], d.T_titan[k]) * d.atm.ρ[k] * (d.atm.r[k] - d.atm.r[k-1])
@@ -72,7 +73,7 @@ elseif mode == "spectra"
         rph = d.atm.r[kph]; Teff = (d.Ltitan / (4π * 5.670374419e-5 * rph^2))^0.25
         lf = joinpath(@__DIR__, "..", "lib", "spectra", "lines_$n.jls")
         lines = isfile(lf) ? deserialize(lf) : []
-        push!(runs, (name = n, lines = lines, label = get(LABEL, n, n), run = d.run, t = d.t, Mdot = d.Mdot * Z0Physics.yr / Z0Physics.Msun,
+        push!(runs, (name = n, lines = lines, Lline = haskey(d, :Lline) ? d.Lline : 0.0, label = get(LABEL, n, n), run = d.run, t = d.t, Mdot = d.Mdot * Z0Physics.yr / Z0Physics.Msun,
             Ltitan = d.Ltitan, rph = rph / R0, Teff = Teff, lam = cc ./ ν .* 1e8, E = hP .* ν ./ keV, nuLnu = ν .* L, bands = bands, Dbalmer = Dbalmer,
             nlucy = d.nlucy, ion = haskey(d, :ion) ? d.ion : false, prof = prof))
         @printf("%-18s ∫L = %.4e (TITAN %.4e, ratio %.4f)  X(0.5–2) %.2e  X(2–10) %.2e  X(10–40) %.2e  EUV %.2e  FUV %.3e  opt %.3e  D_B = %.3f  r_ph/R = %.5f  T_eff = %.0f K\n",

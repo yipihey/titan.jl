@@ -1,0 +1,337 @@
+== part 1: 80 Λ-iterations from LTE (no Ng, no backwarming correction; output not kept)
+== part 2: 83 iterations from part 1, with the Lucy correction and Ng (→ nlte_A220_late_ext_prev40.jls)
+started from nlte_A220_it80
+94 non-LTE points, r/R = 0.9903–120.0; 294 frequencies; cscale = 1.0, caseB = false, xray = true
+   Lucy: max |ΔH/H| 0.1621 in the star
+it  1: max |Δn_p/n_p|, |Δn₂/n₂| = 1.21e-02   ∫L_ν = 1.1039e+44 erg/s, + lines 3.933e+42   (25 s)
+   Lucy: max |ΔH/H| 0.1682 in the star
+it  2: max |Δn_p/n_p|, |Δn₂/n₂| = 8.01e-03   ∫L_ν = 1.0941e+44 erg/s, + lines 3.993e+42   (46 s)
+   Lucy: max |ΔH/H| 0.1725 in the star
+it  3: max |Δn_p/n_p|, |Δn₂/n₂| = 1.90e-02   ∫L_ν = 1.0866e+44 erg/s, + lines 4.062e+42   (63 s)
+   Lucy: max |ΔH/H| 0.1748 in the star
+it  4: max |Δn_p/n_p|, |Δn₂/n₂| = 2.91e-02   ∫L_ν = 1.0821e+44 erg/s, + lines 4.134e+42   (83 s)
+   Lucy: max |ΔH/H| 0.1843 in the star
+  Ng extrapolation
+it  5: max |Δn_p/n_p|, |Δn₂/n₂| = 3.76e-02   ∫L_ν = 1.0812e+44 erg/s, + lines 4.207e+42   (101 s)
+   Lucy: max |ΔH/H| 0.2027 in the star
+it  6: max |Δn_p/n_p|, |Δn₂/n₂| = 4.24e-02   ∫L_ν = 1.0916e+44 erg/s, + lines 4.266e+42   (120 s)
+   Lucy: max |ΔH/H| 0.2199 in the star
+it  7: max |Δn_p/n_p|, |Δn₂/n₂| = 1.99e-02   ∫L_ν = 1.0946e+44 erg/s, + lines 4.329e+42   (139 s)
+   Lucy: max |ΔH/H| 0.2337 in the star
+it  8: max |Δn_p/n_p|, |Δn₂/n₂| = 3.53e-02   ∫L_ν = 1.1048e+44 erg/s, + lines 4.389e+42   (157 s)
+   Lucy: max |ΔH/H| 0.2428 in the star
+it  9: max |Δn_p/n_p|, |Δn₂/n₂| = 4.50e-02   ∫L_ν = 1.1202e+44 erg/s, + lines 4.440e+42   (176 s)
+   Lucy: max |ΔH/H| 0.2466 in the star
+  Ng extrapolation
+it 10: max |Δn_p/n_p|, |Δn₂/n₂| = 4.47e-02   ∫L_ν = 1.1392e+44 erg/s, + lines 4.480e+42   (195 s)
+   Lucy: max |ΔH/H| 0.2443 in the star
+it 11: max |Δn_p/n_p|, |Δn₂/n₂| = 3.59e-02   ∫L_ν = 1.1602e+44 erg/s, + lines 4.520e+42   (215 s)
+   Lucy: max |ΔH/H| 0.2357 in the star
+it 12: max |Δn_p/n_p|, |Δn₂/n₂| = 3.40e-02   ∫L_ν = 1.1823e+44 erg/s, + lines 4.546e+42   (234 s)
+   Lucy: max |ΔH/H| 0.2214 in the star
+it 13: max |Δn_p/n_p|, |Δn₂/n₂| = 2.71e-02   ∫L_ν = 1.2043e+44 erg/s, + lines 4.567e+42   (253 s)
+   Lucy: max |ΔH/H| 0.2026 in the star
+it 14: max |Δn_p/n_p|, |Δn₂/n₂| = 2.32e-02   ∫L_ν = 1.2253e+44 erg/s, + lines 4.588e+42   (272 s)
+   Lucy: max |ΔH/H| 0.1809 in the star
+  Ng extrapolation
+it 15: max |Δn_p/n_p|, |Δn₂/n₂| = 2.28e-02   ∫L_ν = 1.2445e+44 erg/s, + lines 4.610e+42   (291 s)
+   Lucy: max |ΔH/H| 0.1583 in the star
+it 16: max |Δn_p/n_p|, |Δn₂/n₂| = 3.79e-02   ∫L_ν = 1.2535e+44 erg/s, + lines 4.812e+42   (310 s)
+   Lucy: max |ΔH/H| 0.1365 in the star
+it 17: max |Δn_p/n_p|, |Δn₂/n₂| = 1.80e-02   ∫L_ν = 1.2707e+44 erg/s, + lines 4.839e+42   (330 s)
+   Lucy: max |ΔH/H| 0.1196 in the star
+it 18: max |Δn_p/n_p|, |Δn₂/n₂| = 1.35e-02   ∫L_ν = 1.2839e+44 erg/s, + lines 4.870e+42   (348 s)
+   Lucy: max |ΔH/H| 0.1037 in the star
+it 19: max |Δn_p/n_p|, |Δn₂/n₂| = 1.84e-02   ∫L_ν = 1.2942e+44 erg/s, + lines 4.905e+42   (367 s)
+   Lucy: max |ΔH/H| 0.0891 in the star
+  Ng extrapolation
+it 20: max |Δn_p/n_p|, |Δn₂/n₂| = 2.21e-02   ∫L_ν = 1.3023e+44 erg/s, + lines 4.945e+42   (385 s)
+   Lucy: max |ΔH/H| 0.0768 in the star
+it 21: max |Δn_p/n_p|, |Δn₂/n₂| = 1.84e-02   ∫L_ν = 1.2998e+44 erg/s, + lines 5.349e+42   (404 s)
+   Lucy: max |ΔH/H| 0.0652 in the star
+it 22: max |Δn_p/n_p|, |Δn₂/n₂| = 1.28e-02   ∫L_ν = 1.3054e+44 erg/s, + lines 5.389e+42   (421 s)
+   Lucy: max |ΔH/H| 0.0550 in the star
+it 23: max |Δn_p/n_p|, |Δn₂/n₂| = 1.56e-02   ∫L_ν = 1.3093e+44 erg/s, + lines 5.432e+42   (441 s)
+   Lucy: max |ΔH/H| 0.0460 in the star
+it 24: max |Δn_p/n_p|, |Δn₂/n₂| = 1.67e-02   ∫L_ν = 1.3120e+44 erg/s, + lines 5.477e+42   (460 s)
+   Lucy: max |ΔH/H| 0.0381 in the star
+  Ng extrapolation
+it 25: max |Δn_p/n_p|, |Δn₂/n₂| = 1.72e-02   ∫L_ν = 1.3139e+44 erg/s, + lines 5.523e+42   (480 s)
+   Lucy: max |ΔH/H| 0.0325 in the star
+it 26: max |Δn_p/n_p|, |Δn₂/n₂| = 2.66e-02   ∫L_ν = 1.2987e+44 erg/s, + lines 6.125e+42   (498 s)
+   Lucy: max |ΔH/H| 0.0267 in the star
+it 27: max |Δn_p/n_p|, |Δn₂/n₂| = 1.96e-02   ∫L_ν = 1.3027e+44 erg/s, + lines 6.168e+42   (517 s)
+   Lucy: max |ΔH/H| 0.0218 in the star
+it 28: max |Δn_p/n_p|, |Δn₂/n₂| = 7.74e-03   ∫L_ν = 1.3043e+44 erg/s, + lines 6.209e+42   (536 s)
+   Lucy: max |ΔH/H| 0.0175 in the star
+it 29: max |Δn_p/n_p|, |Δn₂/n₂| = 1.08e-02   ∫L_ν = 1.3047e+44 erg/s, + lines 6.251e+42   (556 s)
+   Lucy: max |ΔH/H| 0.0150 in the star
+  Ng extrapolation
+it 30: max |Δn_p/n_p|, |Δn₂/n₂| = 1.23e-02   ∫L_ν = 1.3045e+44 erg/s, + lines 6.294e+42   (576 s)
+   Lucy: max |ΔH/H| 0.0148 in the star
+it 31: max |Δn_p/n_p|, |Δn₂/n₂| = 1.20e-02   ∫L_ν = 1.2924e+44 erg/s, + lines 6.790e+42   (594 s)
+   Lucy: max |ΔH/H| 0.0146 in the star
+it 32: max |Δn_p/n_p|, |Δn₂/n₂| = 7.46e-03   ∫L_ν = 1.2939e+44 erg/s, + lines 6.828e+42   (613 s)
+   Lucy: max |ΔH/H| 0.0145 in the star
+it 33: max |Δn_p/n_p|, |Δn₂/n₂| = 8.00e-03   ∫L_ν = 1.2939e+44 erg/s, + lines 6.865e+42   (631 s)
+   Lucy: max |ΔH/H| 0.0143 in the star
+it 34: max |Δn_p/n_p|, |Δn₂/n₂| = 9.64e-03   ∫L_ν = 1.2933e+44 erg/s, + lines 6.903e+42   (650 s)
+   Lucy: max |ΔH/H| 0.0142 in the star
+  Ng extrapolation
+it 35: max |Δn_p/n_p|, |Δn₂/n₂| = 1.01e-02   ∫L_ν = 1.2924e+44 erg/s, + lines 6.940e+42   (668 s)
+   Lucy: max |ΔH/H| 0.0140 in the star
+it 36: max |Δn_p/n_p|, |Δn₂/n₂| = 1.99e-02   ∫L_ν = 1.2778e+44 erg/s, + lines 7.541e+42   (687 s)
+   Lucy: max |ΔH/H| 0.0139 in the star
+it 37: max |Δn_p/n_p|, |Δn₂/n₂| = 1.29e-02   ∫L_ν = 1.2794e+44 erg/s, + lines 7.574e+42   (707 s)
+   Lucy: max |ΔH/H| 0.0138 in the star
+it 38: max |Δn_p/n_p|, |Δn₂/n₂| = 6.15e-03   ∫L_ν = 1.2795e+44 erg/s, + lines 7.604e+42   (726 s)
+   Lucy: max |ΔH/H| 0.0137 in the star
+it 39: max |Δn_p/n_p|, |Δn₂/n₂| = 6.96e-03   ∫L_ν = 1.2790e+44 erg/s, + lines 7.634e+42   (745 s)
+   Lucy: max |ΔH/H| 0.0136 in the star
+  Ng extrapolation
+it 40: max |Δn_p/n_p|, |Δn₂/n₂| = 7.49e-03   ∫L_ν = 1.2782e+44 erg/s, + lines 7.665e+42   (764 s)
+   Lucy: max |ΔH/H| 0.0135 in the star
+it 41: max |Δn_p/n_p|, |Δn₂/n₂| = 7.52e-03   ∫L_ν = 1.2777e+44 erg/s, + lines 7.679e+42   (783 s)
+   Lucy: max |ΔH/H| 0.0134 in the star
+it 42: max |Δn_p/n_p|, |Δn₂/n₂| = 7.59e-03   ∫L_ν = 1.2769e+44 erg/s, + lines 7.709e+42   (801 s)
+   Lucy: max |ΔH/H| 0.0133 in the star
+it 43: max |Δn_p/n_p|, |Δn₂/n₂| = 7.40e-03   ∫L_ν = 1.2760e+44 erg/s, + lines 7.739e+42   (819 s)
+   Lucy: max |ΔH/H| 0.0133 in the star
+it 44: max |Δn_p/n_p|, |Δn₂/n₂| = 7.21e-03   ∫L_ν = 1.2752e+44 erg/s, + lines 7.768e+42   (839 s)
+   Lucy: max |ΔH/H| 0.0132 in the star
+  Ng extrapolation
+it 45: max |Δn_p/n_p|, |Δn₂/n₂| = 7.05e-03   ∫L_ν = 1.2744e+44 erg/s, + lines 7.798e+42   (858 s)
+   Lucy: max |ΔH/H| 0.0131 in the star
+it 46: max |Δn_p/n_p|, |Δn₂/n₂| = 2.15e-02   ∫L_ν = 1.2612e+44 erg/s, + lines 8.454e+42   (877 s)
+   Lucy: max |ΔH/H| 0.0131 in the star
+it 47: max |Δn_p/n_p|, |Δn₂/n₂| = 7.62e-03   ∫L_ν = 1.2620e+44 erg/s, + lines 8.480e+42   (895 s)
+   Lucy: max |ΔH/H| 0.0130 in the star
+it 48: max |Δn_p/n_p|, |Δn₂/n₂| = 4.93e-03   ∫L_ν = 1.2620e+44 erg/s, + lines 8.502e+42   (913 s)
+   Lucy: max |ΔH/H| 0.0130 in the star
+it 49: max |Δn_p/n_p|, |Δn₂/n₂| = 4.32e-03   ∫L_ν = 1.2617e+44 erg/s, + lines 8.524e+42   (930 s)
+   Lucy: max |ΔH/H| 0.0129 in the star
+  Ng extrapolation
+it 50: max |Δn_p/n_p|, |Δn₂/n₂| = 4.62e-03   ∫L_ν = 1.2613e+44 erg/s, + lines 8.546e+42   (950 s)
+   Lucy: max |ΔH/H| 0.0129 in the star
+it 51: max |Δn_p/n_p|, |Δn₂/n₂| = 4.03e-03   ∫L_ν = 1.2572e+44 erg/s, + lines 8.782e+42   (970 s)
+   Lucy: max |ΔH/H| 0.0128 in the star
+it 52: max |Δn_p/n_p|, |Δn₂/n₂| = 3.41e-03   ∫L_ν = 1.2571e+44 erg/s, + lines 8.802e+42   (988 s)
+   Lucy: max |ΔH/H| 0.0128 in the star
+it 53: max |Δn_p/n_p|, |Δn₂/n₂| = 3.84e-03   ∫L_ν = 1.2568e+44 erg/s, + lines 8.822e+42   (1006 s)
+   Lucy: max |ΔH/H| 0.0127 in the star
+it 54: max |Δn_p/n_p|, |Δn₂/n₂| = 3.90e-03   ∫L_ν = 1.2566e+44 erg/s, + lines 8.841e+42   (1024 s)
+   Lucy: max |ΔH/H| 0.0127 in the star
+  Ng extrapolation
+it 55: max |Δn_p/n_p|, |Δn₂/n₂| = 3.86e-03   ∫L_ν = 1.2563e+44 erg/s, + lines 8.861e+42   (1043 s)
+   Lucy: max |ΔH/H| 0.0127 in the star
+it 56: max |Δn_p/n_p|, |Δn₂/n₂| = 6.95e-03   ∫L_ν = 1.2491e+44 erg/s, + lines 9.377e+42   (1062 s)
+   Lucy: max |ΔH/H| 0.0126 in the star
+it 57: max |Δn_p/n_p|, |Δn₂/n₂| = 3.26e-03   ∫L_ν = 1.2491e+44 erg/s, + lines 9.394e+42   (1080 s)
+   Lucy: max |ΔH/H| 0.0126 in the star
+it 58: max |Δn_p/n_p|, |Δn₂/n₂| = 3.30e-03   ∫L_ν = 1.2488e+44 erg/s, + lines 9.408e+42   (1099 s)
+   Lucy: max |ΔH/H| 0.0126 in the star
+it 59: max |Δn_p/n_p|, |Δn₂/n₂| = 2.95e-03   ∫L_ν = 1.2487e+44 erg/s, + lines 9.423e+42   (1117 s)
+   Lucy: max |ΔH/H| 0.0126 in the star
+  Ng extrapolation
+it 60: max |Δn_p/n_p|, |Δn₂/n₂| = 2.72e-03   ∫L_ν = 1.2486e+44 erg/s, + lines 9.438e+42   (1135 s)
+   Lucy: max |ΔH/H| 0.0125 in the star
+it 61: max |Δn_p/n_p|, |Δn₂/n₂| = 2.91e-03   ∫L_ν = 1.2475e+44 erg/s, + lines 9.532e+42   (1154 s)
+   Lucy: max |ΔH/H| 0.0125 in the star
+it 62: max |Δn_p/n_p|, |Δn₂/n₂| = 2.98e-03   ∫L_ν = 1.2474e+44 erg/s, + lines 9.546e+42   (1173 s)
+   Lucy: max |ΔH/H| 0.0125 in the star
+it 63: max |Δn_p/n_p|, |Δn₂/n₂| = 2.71e-03   ∫L_ν = 1.2473e+44 erg/s, + lines 9.560e+42   (1191 s)
+   Lucy: max |ΔH/H| 0.0125 in the star
+it 64: max |Δn_p/n_p|, |Δn₂/n₂| = 2.52e-03   ∫L_ν = 1.2472e+44 erg/s, + lines 9.573e+42   (1211 s)
+   Lucy: max |ΔH/H| 0.0125 in the star
+  Ng extrapolation
+it 65: max |Δn_p/n_p|, |Δn₂/n₂| = 2.45e-03   ∫L_ν = 1.2472e+44 erg/s, + lines 9.587e+42   (1231 s)
+   Lucy: max |ΔH/H| 0.0124 in the star
+it 66: max |Δn_p/n_p|, |Δn₂/n₂| = 6.38e-03   ∫L_ν = 1.2435e+44 erg/s, + lines 9.959e+42   (1250 s)
+   Lucy: max |ΔH/H| 0.0124 in the star
+it 67: max |Δn_p/n_p|, |Δn₂/n₂| = 4.49e-03   ∫L_ν = 1.2431e+44 erg/s, + lines 9.970e+42   (1268 s)
+   Lucy: max |ΔH/H| 0.0124 in the star
+it 68: max |Δn_p/n_p|, |Δn₂/n₂| = 3.33e-03   ∫L_ν = 1.2429e+44 erg/s, + lines 9.981e+42   (1286 s)
+   Lucy: max |ΔH/H| 0.0124 in the star
+it 69: max |Δn_p/n_p|, |Δn₂/n₂| = 2.39e-03   ∫L_ν = 1.2427e+44 erg/s, + lines 9.992e+42   (1305 s)
+   Lucy: max |ΔH/H| 0.0124 in the star
+  Ng extrapolation
+it 70: max |Δn_p/n_p|, |Δn₂/n₂| = 1.97e-03   ∫L_ν = 1.2427e+44 erg/s, + lines 1.000e+43   (1323 s)
+   Lucy: max |ΔH/H| 0.0124 in the star
+it 71: max |Δn_p/n_p|, |Δn₂/n₂| = 2.16e-03   ∫L_ν = 1.2425e+44 erg/s, + lines 1.002e+43   (1342 s)
+   Lucy: max |ΔH/H| 0.0124 in the star
+it 72: max |Δn_p/n_p|, |Δn₂/n₂| = 1.66e-03   ∫L_ν = 1.2425e+44 erg/s, + lines 1.003e+43   (1361 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+it 73: max |Δn_p/n_p|, |Δn₂/n₂| = 1.77e-03   ∫L_ν = 1.2426e+44 erg/s, + lines 1.004e+43   (1380 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+it 74: max |Δn_p/n_p|, |Δn₂/n₂| = 1.80e-03   ∫L_ν = 1.2426e+44 erg/s, + lines 1.005e+43   (1399 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+  Ng extrapolation
+it 75: max |Δn_p/n_p|, |Δn₂/n₂| = 1.82e-03   ∫L_ν = 1.2426e+44 erg/s, + lines 1.006e+43   (1417 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+it 76: max |Δn_p/n_p|, |Δn₂/n₂| = 2.42e-02   ∫L_ν = 1.2337e+44 erg/s, + lines 1.110e+43   (1437 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+it 77: max |Δn_p/n_p|, |Δn₂/n₂| = 8.00e-03   ∫L_ν = 1.2341e+44 erg/s, + lines 1.110e+43   (1455 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+it 78: max |Δn_p/n_p|, |Δn₂/n₂| = 3.05e-03   ∫L_ν = 1.2339e+44 erg/s, + lines 1.109e+43   (1473 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+it 79: max |Δn_p/n_p|, |Δn₂/n₂| = 2.63e-03   ∫L_ν = 1.2338e+44 erg/s, + lines 1.109e+43   (1492 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+  Ng extrapolation
+it 80: max |Δn_p/n_p|, |Δn₂/n₂| = 2.32e-03   ∫L_ν = 1.2338e+44 erg/s, + lines 1.108e+43   (1511 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+it 81: max |Δn_p/n_p|, |Δn₂/n₂| = 2.66e-03   ∫L_ν = 1.2334e+44 erg/s, + lines 1.106e+43   (1529 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+it 82: max |Δn_p/n_p|, |Δn₂/n₂| = 1.57e-03   ∫L_ν = 1.2336e+44 erg/s, + lines 1.106e+43   (1547 s)
+   Lucy: max |ΔH/H| 0.0123 in the star
+it 83: max |Δn_p/n_p|, |Δn₂/n₂| = 8.33e-04   ∫L_ν = 1.2337e+44 erg/s, + lines 1.106e+43   (1565 s)
+     r/R       T   x_H LTE  x_H NLTE        b1        b2        b3   S/B(Hα)   S/J(Hα)        Γx
+  0.9903    6684 9.921e-01 1.000e+00 6.789e-289 3.995e-04 1.237e-02 -1.788e+02 -1.425e+02 6.36e+286
+  0.9906    6678 9.920e-01 1.000e+00 4.577e-101 3.968e-04 1.233e-02 -1.794e+02 -1.428e+02  9.21e+98
+  0.9922    6654 9.913e-01 1.000e+00 3.340e-05 3.313e-01 5.697e-01 1.768e+00 1.401e+00  6.43e+02
+  0.9982    6587 9.889e-01 1.000e+00 2.549e-04 4.844e-01 8.088e-01 1.712e+00 1.341e+00  1.63e+01
+  1.0128    6448 9.817e-01 1.000e+00 1.489e-04 4.478e-01 7.862e-01 1.803e+00 1.376e+00  5.60e+00
+  1.0346    6259 9.629e-01 1.000e+00 7.989e-05 4.011e-01 7.569e-01 1.941e+00 1.419e+00  2.36e+00
+  1.0592    6055 9.204e-01 1.000e+00 4.226e-05 3.518e-01 7.233e-01 2.118e+00 1.465e+00  1.14e+00
+  1.0846    5852 8.362e-01 1.000e+00 2.140e-05 3.029e-01 6.850e-01 2.333e+00 1.511e+00  6.19e-01
+  1.1102    5656 7.036e-01 1.000e+00 1.029e-05 2.575e-01 6.443e-01 2.585e+00 1.559e+00  3.74e-01
+  1.1359    5476 5.472e-01 1.000e+00 4.823e-06 2.183e-01 6.050e-01 2.865e+00 1.609e+00  2.48e-01
+  1.1615    5314 4.033e-01 1.000e+00 2.364e-06 1.866e-01 5.700e-01 3.163e+00 1.659e+00  1.68e-01
+  1.1872    5187 3.032e-01 1.000e+00 1.383e-06 1.660e-01 5.473e-01 3.413e+00 1.706e+00  1.15e-01
+  1.3229    4993 1.903e-01 1.000e+00 5.798e-07 1.739e-01 6.037e-01 3.582e+00 1.977e+00  4.52e-02
+  1.6703    4444 3.217e-02 1.000e+00 3.768e-08 1.312e-01 6.214e-01 4.867e+00 2.734e+00  5.24e-03
+  2.1089    3955 3.965e-03 9.998e-01 3.514e-09 8.482e-02 5.926e-01 7.155e+00 3.807e+00  3.27e-04
+  2.6626    3520 3.678e-04 9.987e-01 1.723e-10 4.568e-02 5.081e-01 1.135e+01 5.297e+00  2.58e-05
+  3.3618    3132 2.511e-05 9.951e-01 3.133e-12 2.056e-02 3.928e-01 1.943e+01 7.298e+00  3.25e-06
+  4.2445    2788 1.217e-06 9.864e-01 2.070e-14 7.672e-03 2.728e-01 3.603e+01 9.895e+00  6.00e-07
+  5.3590    2481 4.011e-08 9.708e-01 4.979e-17 2.339e-03 1.689e-01 7.297e+01 1.315e+01  1.48e-07
+  6.7661    2208 8.578e-10 9.482e-01 4.244e-20 5.704e-04 9.231e-02 1.631e+02 1.707e+01  4.55e-08
+  8.5427    1965 1.128e-11 9.197e-01 1.209e-23 1.085e-04 4.410e-02 4.089e+02 2.164e+01  1.64e-08
+ 10.7859    1749 8.592e-14 8.871e-01 1.058e-27 1.563e-05 1.824e-02 1.172e+03 2.685e+01  6.60e-09
+ 13.6180    1556 3.541e-16 8.516e-01 2.566e-32 1.654e-06 6.461e-03 3.918e+03 3.267e+01  2.88e-09
+ 17.1937    1385 7.323e-19 8.120e-01 1.529e-37 1.241e-07 1.932e-03 1.560e+04 3.898e+01  1.32e-09
+ 21.7084    1233 6.976e-22 7.641e-01 1.966e-43 6.344e-09 4.765e-04 7.521e+04 4.532e+01  6.22e-10
+ 27.4085    1097 2.781e-25 7.017e-01 4.687e-50 2.112e-10 9.364e-05 4.439e+05 5.060e+01  2.94e-10
+ 34.6053    1000 2.889e-28 6.106e-01 8.720e-56 1.155e-11 2.118e-05 1.835e+06 5.137e+01  1.36e-10
+ 43.6918    1000 3.441e-28 4.705e-01 2.833e-55 2.180e-11 1.903e-05 8.733e+05 4.149e+01  6.20e-11
+ 55.1642    1000 4.099e-28 3.513e-01 8.834e-55 3.937e-11 1.607e-05 4.082e+05 3.252e+01  3.10e-11
+ 69.6491    1000 4.882e-28 2.605e-01 2.597e-54 6.854e-11 1.345e-05 1.963e+05 2.590e+01  1.64e-11
+ 87.9373    1000 5.815e-28 1.912e-01 7.480e-54 1.163e-10 1.125e-05 9.675e+04 2.097e+01  8.92e-12
+111.0275    1000 6.927e-28 1.373e-01 2.194e-53 1.947e-10 9.344e-06 4.799e+04 1.700e+01  4.80e-12
+saved lib/spectra/nlte_A220_late_ext.jls
+== part 3: 40 plain iterations (no Ng) from part 2 (→ nlte_A220_late_ext.jls)
+started from nlte_main_a
+94 non-LTE points, r/R = 0.9903M-bM-^@M-^S120.0; 294 frequencies; cscale = 1.0, caseB = false, xray = true
+   Lucy: max |M-NM-^TH/H| 0.0123 in the star
+it  1: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.72e-04   M-bM-^HM-+L_M-NM-= = 1.2338e+44 erg/s, + lines 1.106e+43   (25 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it  2: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.18e-04   M-bM-^HM-+L_M-NM-= = 1.2338e+44 erg/s, + lines 1.106e+43   (44 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it  3: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.02e-04   M-bM-^HM-+L_M-NM-= = 1.2339e+44 erg/s, + lines 1.106e+43   (62 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it  4: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.15e-04   M-bM-^HM-+L_M-NM-= = 1.2339e+44 erg/s, + lines 1.106e+43   (80 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it  5: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.30e-04   M-bM-^HM-+L_M-NM-= = 1.2340e+44 erg/s, + lines 1.106e+43   (98 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it  6: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.43e-04   M-bM-^HM-+L_M-NM-= = 1.2340e+44 erg/s, + lines 1.106e+43   (116 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it  7: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.55e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.106e+43   (135 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it  8: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.66e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.107e+43   (154 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it  9: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.76e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.107e+43   (173 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it 10: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.83e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.107e+43   (192 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it 11: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.90e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.107e+43   (211 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it 12: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.95e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.107e+43   (230 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it 13: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.98e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.107e+43   (249 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it 14: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 8.02e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.107e+43   (269 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it 15: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 8.05e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.108e+43   (289 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it 16: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 8.06e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.108e+43   (308 s)
+   Lucy: max |M-NM-^TH/H| 0.0122 in the star
+it 17: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 8.07e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.108e+43   (327 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 18: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 8.07e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.108e+43   (346 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 19: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 8.05e-04   M-bM-^HM-+L_M-NM-= = 1.2341e+44 erg/s, + lines 1.108e+43   (365 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 20: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 8.03e-04   M-bM-^HM-+L_M-NM-= = 1.2340e+44 erg/s, + lines 1.109e+43   (386 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 21: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 8.01e-04   M-bM-^HM-+L_M-NM-= = 1.2340e+44 erg/s, + lines 1.109e+43   (406 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 22: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.97e-04   M-bM-^HM-+L_M-NM-= = 1.2340e+44 erg/s, + lines 1.109e+43   (426 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 23: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.94e-04   M-bM-^HM-+L_M-NM-= = 1.2339e+44 erg/s, + lines 1.109e+43   (447 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 24: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.90e-04   M-bM-^HM-+L_M-NM-= = 1.2339e+44 erg/s, + lines 1.109e+43   (466 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 25: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.86e-04   M-bM-^HM-+L_M-NM-= = 1.2339e+44 erg/s, + lines 1.110e+43   (485 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 26: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.81e-04   M-bM-^HM-+L_M-NM-= = 1.2339e+44 erg/s, + lines 1.110e+43   (505 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 27: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.77e-04   M-bM-^HM-+L_M-NM-= = 1.2338e+44 erg/s, + lines 1.110e+43   (524 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 28: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.72e-04   M-bM-^HM-+L_M-NM-= = 1.2338e+44 erg/s, + lines 1.110e+43   (543 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 29: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.67e-04   M-bM-^HM-+L_M-NM-= = 1.2338e+44 erg/s, + lines 1.111e+43   (561 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 30: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.59e-04   M-bM-^HM-+L_M-NM-= = 1.2337e+44 erg/s, + lines 1.111e+43   (580 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 31: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.55e-04   M-bM-^HM-+L_M-NM-= = 1.2337e+44 erg/s, + lines 1.111e+43   (599 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 32: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.50e-04   M-bM-^HM-+L_M-NM-= = 1.2336e+44 erg/s, + lines 1.111e+43   (618 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 33: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.44e-04   M-bM-^HM-+L_M-NM-= = 1.2336e+44 erg/s, + lines 1.112e+43   (637 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 34: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.38e-04   M-bM-^HM-+L_M-NM-= = 1.2336e+44 erg/s, + lines 1.112e+43   (656 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 35: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.34e-04   M-bM-^HM-+L_M-NM-= = 1.2335e+44 erg/s, + lines 1.112e+43   (674 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 36: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.29e-04   M-bM-^HM-+L_M-NM-= = 1.2335e+44 erg/s, + lines 1.112e+43   (694 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 37: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.22e-04   M-bM-^HM-+L_M-NM-= = 1.2335e+44 erg/s, + lines 1.112e+43   (715 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 38: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.16e-04   M-bM-^HM-+L_M-NM-= = 1.2335e+44 erg/s, + lines 1.113e+43   (736 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 39: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.11e-04   M-bM-^HM-+L_M-NM-= = 1.2334e+44 erg/s, + lines 1.113e+43   (755 s)
+   Lucy: max |M-NM-^TH/H| 0.0121 in the star
+it 40: max |M-NM-^Tn_p/n_p|, |M-NM-^TnM-bM-^BM-^B/nM-bM-^BM-^B| = 7.05e-04   M-bM-^HM-+L_M-NM-= = 1.2334e+44 erg/s, + lines 1.113e+43   (775 s)
+     r/R       T   x_H LTE  x_H NLTE        b1        b2        b3   S/B(HM-NM-1)   S/J(HM-NM-1)        M-NM-^Sx
+  0.9903    6684 9.921e-01 1.000e+00 1.253e-298 3.995e-04 1.237e-02 -1.788e+02 -1.424e+02 1.70e+298
+  0.9906    6678 9.920e-01 1.000e+00 3.158e-122 3.968e-04 1.233e-02 -1.794e+02 -1.427e+02 1.33e+120
+  0.9922    6654 9.913e-01 1.000e+00 3.334e-05 3.309e-01 5.693e-01 1.769e+00 1.401e+00  6.44e+02
+  0.9982    6587 9.889e-01 1.000e+00 2.547e-04 4.840e-01 8.084e-01 1.713e+00 1.341e+00  1.63e+01
+  1.0128    6448 9.817e-01 1.000e+00 1.488e-04 4.474e-01 7.858e-01 1.804e+00 1.375e+00  5.61e+00
+  1.0346    6259 9.629e-01 1.000e+00 7.980e-05 4.007e-01 7.566e-01 1.942e+00 1.419e+00  2.36e+00
+  1.0592    6055 9.204e-01 1.000e+00 4.218e-05 3.514e-01 7.229e-01 2.119e+00 1.464e+00  1.14e+00
+  1.0846    5852 8.362e-01 1.000e+00 2.142e-05 3.026e-01 6.847e-01 2.334e+00 1.511e+00  6.18e-01
+  1.1102    5656 7.036e-01 1.000e+00 1.037e-05 2.573e-01 6.442e-01 2.586e+00 1.559e+00  3.71e-01
+  1.1359    5476 5.472e-01 1.000e+00 4.928e-06 2.183e-01 6.051e-01 2.866e+00 1.608e+00  2.42e-01
+  1.1615    5314 4.033e-01 1.000e+00 2.380e-06 1.864e-01 5.699e-01 3.164e+00 1.658e+00  1.67e-01
+  1.1872    5187 3.032e-01 1.000e+00 1.327e-06 1.656e-01 5.463e-01 3.415e+00 1.706e+00  1.20e-01
+  1.3229    4993 1.903e-01 1.000e+00 7.424e-07 1.752e-01 6.079e-01 3.580e+00 1.974e+00  3.49e-02
+  1.6703    4444 3.217e-02 1.000e+00 4.926e-08 1.320e-01 6.249e-01 4.866e+00 2.730e+00  3.97e-03
+  2.1089    3955 3.965e-03 9.998e-01 2.720e-09 8.443e-02 5.903e-01 7.160e+00 3.804e+00  4.24e-04
+  2.6626    3520 3.678e-04 9.992e-01 1.104e-10 4.546e-02 5.063e-01 1.136e+01 5.290e+00  4.04e-05
+  3.3618    3132 2.511e-05 9.968e-01 2.062e-12 2.045e-02 3.917e-01 1.947e+01 7.288e+00  4.92e-06
+  4.2445    2788 1.217e-06 9.903e-01 1.458e-14 7.627e-03 2.723e-01 3.619e+01 9.890e+00  8.44e-07
+  5.3590    2481 4.011e-08 9.778e-01 3.734e-17 2.323e-03 1.690e-01 7.352e+01 1.317e+01  1.95e-07
+  6.7661    2208 8.578e-10 9.582e-01 3.350e-20 5.664e-04 9.270e-02 1.650e+02 1.715e+01  5.62e-08
+  8.5427    1965 1.128e-11 9.320e-01 9.959e-24 1.079e-04 4.451e-02 4.151e+02 2.182e+01  1.93e-08
+ 10.7859    1749 8.592e-14 9.005e-01 9.061e-28 1.559e-05 1.851e-02 1.193e+03 2.717e+01  7.45e-09
+ 13.6180    1556 3.541e-16 8.640e-01 2.285e-32 1.656e-06 6.587e-03 3.989e+03 3.311e+01  3.14e-09
+ 17.1937    1385 7.323e-19 8.211e-01 1.423e-37 1.249e-07 1.973e-03 1.583e+04 3.944e+01  1.39e-09
+ 21.7084    1233 6.976e-22 7.675e-01 1.921e-43 6.420e-09 4.849e-04 7.564e+04 4.555e+01  6.32e-10
+ 27.4085    1097 2.781e-25 6.982e-01 4.789e-50 2.145e-10 9.443e-05 4.406e+05 5.027e+01  2.91e-10
+ 34.6053    1000 2.889e-28 6.035e-01 9.087e-56 1.174e-11 2.117e-05 1.805e+06 5.060e+01  1.35e-10
+ 43.6918    1000 3.441e-28 4.651e-01 2.928e-55 2.213e-11 1.903e-05 8.605e+05 4.092e+01  6.16e-11
+ 55.1642    1000 4.099e-28 3.490e-01 8.981e-55 3.991e-11 1.618e-05 4.054e+05 3.230e+01  3.10e-11
+ 69.6491    1000 4.882e-28 2.591e-01 2.631e-54 6.945e-11 1.357e-05 1.954e+05 2.579e+01  1.64e-11
+ 87.9373    1000 5.815e-28 1.900e-01 7.589e-54 1.179e-10 1.136e-05 9.636e+04 2.089e+01  8.92e-12
+111.0275    1000 6.927e-28 1.365e-01 2.225e-53 1.973e-10 9.441e-06 4.786e+04 1.695e+01  4.81e-12
+saved lib/spectra/nlte_check_noNg.jls

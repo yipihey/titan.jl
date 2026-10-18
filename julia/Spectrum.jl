@@ -121,6 +121,12 @@ function coeffs(o::Opac, k, ν)
 end
 
 """
+(absorption, scattering, thermal source function) at frequency ν for point k. For an LTE `Opac` the source is B_ν(T);
+other opacity types (the non-LTE hydrogen of NLTEH.jl) add methods returning S_th = η_th/κ.
+"""
+coeffs3(o::Opac, k, ν) = (coeffs(o, k, ν)..., Bν(ν, o.T[k]))
+
+"""
 Rays: impact parameters p = 0, core rays inside r[1], and p = r[k] for every zone centre. For each ray the indices of
 the zones it crosses (r ≥ p), outermost first, and the path coordinate z = √(r² − p²).
 """
@@ -272,7 +278,7 @@ function monochromatic(atm, op, R, ν; tol = 1e-5, maxit = 80, moments = false, 
     nr = length(atm.r)
     κ = zeros(nr); σ = zeros(nr); B = zeros(nr)
     for k in 1:nr
-        ab, sc = coeffs(op, k, ν); κ[k] = max(ab, 1e-300); σ[k] = sc; B[k] = Bν(ν, atm.T[k])
+        ab, sc, Bk = coeffs3(op, k, ν); κ[k] = max(ab, 1e-300); σ[k] = sc; B[k] = Bk
     end
     χ = κ .+ σ; ε = κ ./ χ
     # μ weights per radius (trapezoid over the rays that reach it, μ from 1 (p = 0) down to 0 (p = r))
@@ -429,14 +435,14 @@ function lucy(atm, mom, sel, Ltarget; damp = 1.0, thin = Int[])
 end
 
 "Frequency grid (Hz) from λ = λmax down to photon energy Emax [keV], with every opacity edge bracketed."
-function grid(; λmax_μm = 10.0, Emax_keV = 40.0, n = 500)
+function grid(; λmax_μm = 10.0, Emax_keV = 40.0, n = 500, nedge = 6)
     ν1 = c / (λmax_μm * 1e-4); ν2 = Emax_keV * 1.602176634e-9 / h
     ν = collect(exp.(range(log(ν1), log(ν2), length = n)))
     edges = Float64[]
-    for nl in 1:6; push!(edges, Z0.χH / (h * nl^2)); end
+    for nl in 1:nedge; push!(edges, Z0.χH / (h * nl^2)); end
     for nl in 1:3; push!(edges, Z0.χHe2 / (h * nl^2)); end
     push!(edges, Z0.χHe1 / h); push!(edges, c / 1.6419e-4)
-    for e in edges, f in (0.995, 1.005); push!(ν, e * f); end
+    for e in edges, f in (0.995, 1.005); ν1 < e * f < ν2 && push!(ν, e * f); end
     sort!(unique!(ν))
 end
 

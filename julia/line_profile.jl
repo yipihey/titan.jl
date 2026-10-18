@@ -44,6 +44,18 @@ vgrid = collect(range(-2500e5, 2500e5, length = 251))
 bvals = (0.1, 1.0, 10.0)
 out = []
 op = SP.Opac(atm); _, R = SP.rays(atm.r; ncore = 12); R = SP.weights!(atm, R)
+# LP_NLTE=OUT: also the profile from the non-LTE hydrogen solution lib/spectra/nlte_OUT.jls (nlte_run.jl): its level
+# populations and line source function in the infall, and its non-LTE continuum (NLTEH.NOpac) as background
+NL = get(ENV, "LP_NLTE", "")
+if NL != ""
+    include(joinpath(@__DIR__, "NLTEH.jl"))
+    dn = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", "nlte_$NL.jls"))
+    dn.sel == inf || error("non-LTE points differ from the line-forming points")
+    haskey(dn, :Tstar) && (atm = merge(atm, (T = dn.Tstar,)))      # the star re-corrected for the infall's backwarming
+    op = SP.Opac(atm)
+    nlfull = Any[nothing for _ in eachindex(atm.r)]; for (q, j) in enumerate(dn.sel); nlfull[j] = dn.nl[q]; end
+    op = NLTEH.NOpac(op, nlfull)
+end
 for L in LINES
     ν0 = Z0.c / (L.λ * 1e-8)
     _, _, _, ci = SP.monochromatic(atm, op, R, ν0; moments = :I)
@@ -52,6 +64,8 @@ for L in LINES
     # line opacity factor per unit b: K(r) = πe²/mc f λ n_l (1 − (g_l n_u)/(g_u n_l)) [cm² s⁻¹ cm⁻³ · cm = s⁻¹]
     Kr = [πe2mc * L.f * L.λ * 1e-8 * pops[k][L.l] * (1 - gl * pops[k][L.u] / (gu * pops[k][L.l])) for k in eachindex(rI)]
     SLlte = [SP.Bν(ν0, TI[k]) for k in eachindex(rI)]
+    Krn = NL == "" ? Kr : [πe2mc * L.f * L.λ * 1e-8 * (dn.nl[k].n[L.l] - gl / gu * dn.nl[k].n[L.u]) for k in eachindex(rI)]
+    SLn = NL == "" ? SLlte : [2Z0.h * ν0^3 / Z0.c^2 / (dn.nl[k].n[L.l] * gu / (dn.nl[k].n[L.u] * gl) - 1) for k in eachindex(rI)]
     Fc = sum(0.5 * (Ic[j] * ps[j] + Ic[j+1] * ps[j+1]) * (ps[j+1] - ps[j]) for j in 1:length(ps)-1)
     # mean intensity of the stellar disc (rays inside the shock radius), the light the infall scatters
     jin = findall(<(rsh), ps)
@@ -78,11 +92,14 @@ for L in LINES
         zs = p < rsh ? zfar .+ (znear - zfar) .* gq : (zp = znear .* gq; vcat(-reverse(zp), zp[2:end]))
         rz = sqrt.(p^2 .+ zs .^ 2)
         (z = zs, r = rz, w = [r < rsh ? NaN : interp(r, rI, uabs) * z / r for (z, r) in zip(zs, rz)],
-         K = [r < rI[1] ? 0.0 : interp(r, rI, Kr) for r in rz], Slte = [interp(r, rI, SLlte) for r in rz],
+         K = [r < rI[1] ? 0.0 : interp(r, rI, Kr) for r in rz], Kn = [r < rI[1] ? 0.0 : interp(r, rI, Krn) for r in rz],
+         Sn = [interp(r, rI, SLn) for r in rz], Slte = [interp(r, rI, SLlte) for r in rz],
          Δv = [sqrt(2Z0.kB * interp(r, rI, TI) / Z0.mH + ξturb^2) for r in rz])
     end
-    for b in bvals, src in (:lte, :scat)
-        SL = src == :lte ? SLlte : SLscat(b)
+    cases = [(b, src) for b in bvals for src in (:lte, :scat)]
+    NL != "" && push!(cases, (1.0, :nlte))
+    for (b, src) in cases
+        SL = src == :scat ? SLscat(b) : SLlte
         SZ = [ry === nothing ? nothing : [interp(r, rI, SL) for r in ry.r] for ry in RAYS]
         F = zeros(length(vgrid))
         Threads.@threads for iv in eachindex(vgrid)
@@ -91,8 +108,9 @@ for L in LINES
             for j in eachindex(ps)
                 I = Ic[j]; ry = RAYS[j]
                 if ry !== nothing
-                    zs, wz, Kz = ry.z, ry.w, ry.K
-                    Sz = src == :lte ? ry.Slte : SZ[j]
+                    zs, wz = ry.z, ry.w
+                    Kz = src == :nlte ? ry.Kn : ry.K
+                    Sz = src == :lte ? ry.Slte : src == :nlte ? ry.Sn : SZ[j]
                     Δvz = ry.Δv
                     for i in 1:length(zs)-1
                         (isfinite(wz[i]) && isfinite(wz[i+1])) || continue
@@ -124,7 +142,8 @@ for L in LINES
     end
     push!(out, (name = L.name, λ = L.λ, v = vgrid ./ 1e5,
                 lte_b01 = prof[(0.1, :lte)], lte_b1 = prof[(1.0, :lte)], lte_b10 = prof[(10.0, :lte)],
-                scat_b01 = prof[(0.1, :scat)], scat_b1 = prof[(1.0, :scat)], scat_b10 = prof[(10.0, :scat)]))
+                scat_b01 = prof[(0.1, :scat)], scat_b1 = prof[(1.0, :scat)], scat_b10 = prof[(10.0, :scat)],
+                nlte = get(prof, (1.0, :nlte), Float64[])))
 end
 serialize(joinpath(@__DIR__, "..", "lib", "spectra", "lines_$(name)$(get(ENV, "LP_TAG", "")).jls"), out)
 println("saved lib/spectra/lines_$name.jls")
