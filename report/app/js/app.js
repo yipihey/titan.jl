@@ -6,11 +6,12 @@ import { mountShoot } from './panels/shoot.js';
 import { mountBranches } from './panels/branches.js';
 import { mountBench } from './panels/bench.js';
 import { mountQstar } from './panels/qstar.js';
+import { mountSpec } from './panels/spec.js';
 import { copyText, flash } from './viz/download.js';
 
 const LABELS = {
   micro: 'Microphysics', env: 'Steady envelope', shoot: 'Shooting scan', branch: 'Branches and fold',
-  bench: 'TITAN benchmarks', qstar: 'Quasi-star in TITAN',
+  bench: 'TITAN benchmarks', qstar: 'Quasi-star in TITAN', spec: 'Spectra',
 };
 const EXPLAIN = {
   micro: 'Saha ionization of H/He, the Rosseland and Planck means, ∇_ad and Γ₁ along temperature at fixed density (book §2).',
@@ -19,8 +20,9 @@ const EXPLAIN = {
   branch: 'All steady solutions as a function of the infall rate, published and recomputed here (book §4).',
   bench: 'The radiating-shock and shock-tube benchmarks of TITAN, run by the Julia port, against the original Fortran (book §6).',
   qstar: 'The quasi-star outer shell in the Julia TITAN: the hydrostatic test and the first infall runs (book §7).',
+  spec: 'Emergent LTE continuum spectra of TITAN snapshots: the steady star, the infall and its shock, in two limits for the infall ionization (book chapter "Spectral signatures of infall").',
 };
-const MOUNT = { micro: mountMicro, env: mountEnvelope, shoot: mountShoot, branch: mountBranches, bench: mountBench, qstar: mountQstar };
+const MOUNT = { micro: mountMicro, env: mountEnvelope, shoot: mountShoot, branch: mountBranches, bench: mountBench, qstar: mountQstar, spec: mountSpec };
 
 const S = decodeHash(location.hash);
 const host = document.getElementById('lab');

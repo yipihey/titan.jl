@@ -1,0 +1,13 @@
+Halpha lte  b₂ =  0.1: minimum 0.860 at +1480 km/s, maximum 1.153 at +0 km/s, equivalent width -1.63 Å (positive = net absorption)
+Halpha scat b₂ =  0.1: minimum 0.767 at +1080 km/s, maximum 1.000 at -2500 km/s, equivalent width 5.95 Å (positive = net absorption)
+Halpha lte  b₂ =  1.0: minimum 0.719 at +1380 km/s, maximum 1.310 at -20 km/s, equivalent width -4.85 Å (positive = net absorption)
+Halpha scat b₂ =  1.0: minimum 0.655 at +1380 km/s, maximum 1.000 at -2500 km/s, equivalent width 8.42 Å (positive = net absorption)
+Halpha lte  b₂ = 10.0: minimum 0.567 at +1280 km/s, maximum 1.451 at -20 km/s, equivalent width -7.93 Å (positive = net absorption)
+Halpha scat b₂ = 10.0: minimum 0.504 at +1280 km/s, maximum 1.000 at -2500 km/s, equivalent width 8.91 Å (positive = net absorption)
+Hbeta  lte  b₂ =  0.1: minimum 0.922 at +1180 km/s, maximum 1.004 at +0 km/s, equivalent width 1.10 Å (positive = net absorption)
+Hbeta  scat b₂ =  0.1: minimum 0.914 at +1180 km/s, maximum 1.000 at -2500 km/s, equivalent width 1.42 Å (positive = net absorption)
+Hbeta  lte  b₂ =  1.0: minimum 0.795 at +1080 km/s, maximum 1.024 at +0 km/s, equivalent width 2.88 Å (positive = net absorption)
+Hbeta  scat b₂ =  1.0: minimum 0.761 at +1080 km/s, maximum 1.000 at -2500 km/s, equivalent width 4.72 Å (positive = net absorption)
+Hbeta  lte  b₂ = 10.0: minimum 0.640 at +1360 km/s, maximum 1.073 at -20 km/s, equivalent width 3.23 Å (positive = net absorption)
+Hbeta  scat b₂ = 10.0: minimum 0.625 at +1360 km/s, maximum 1.000 at -2500 km/s, equivalent width 6.20 Å (positive = net absorption)
+saved lib/spectra/lines_A220_late_ext.jls

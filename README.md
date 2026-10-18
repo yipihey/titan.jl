@@ -16,7 +16,9 @@ P7.6 adds an inner mass sink (and fixes a sign error in TITAN 1.2's inner mass f
 (`julia/Trbdf2.jl`), and an adaptive grid that works on this problem; the adaptive runs resolve a hot cooling layer
 behind the shock that the Eulerian grid misses, which changes the late evolution. P7.7: MLT in non-hydrostatic layers,
 a positivity-preserving Eddington-factor solution, `TITAN_MGR` (array size), zone-count convergence at 220/314/440 zones,
-and runs to 6e8 s that settle within 1.4e-3 R and 50 K of the steady model.
+and runs to 6e8 s that settle within 1.4e-3 R and 50 K of the steady model. P7.8: emergent spectra of TITAN snapshots
+(`julia/Spectrum.jl`, `spectra_run.jl`, `shock_budget.jl`, `line_profile.jl`): static LTE continuum with Unsöld–Lucy
+correction, the shock's X-rays through the infall column, the Balmer jump, and bracketed Hα/Hβ profiles of the infall.
 
 ## Status (Phase 6)
 

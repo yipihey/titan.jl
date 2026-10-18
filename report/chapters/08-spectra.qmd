@@ -1,0 +1,244 @@
+# Spectral signatures of infall {#sec-spectra}
+
+The resolved runs of @sec-infall-adaptive give the structure of the star, of the infall above it, and of the hot layer
+behind the accretion shock. This chapter post-processes those snapshots into emergent spectra, to see what the infall
+and the shock add to the light of the star. Most of the chapter is a continuum calculation in LTE, without lines. It is
+a first step towards the non-LTE plan of @sec-nlte-plan, not a replacement for it. The results:
+
+- **X-rays.** The hot layer radiates about $1.7\times10^{42}$ erg s$^{-1}$ of free–free emission above 0.5 keV. The
+  infall column outside the shock, $N_{\rm H} = 8\times10^{24}$ cm$^{-2}$, lets through only photons above about 4 keV.
+  What escapes is a hard component of $3.5\times10^{40}$ erg s$^{-1}$ (2–40 keV) peaking near 9 keV if the infall is
+  neutral, and $5\times10^{41}$ erg s$^{-1}$ (0.5–40 keV) if it is fully ionized. A photon count says the X-rays cannot
+  keep the column ionized, which favours the first number **[computed; estimate]** (@sec-spec-hot).
+- **The Balmer jump grows.** It rises from 0.23 dex for the star before infall to 0.60 dex with the neutral (LTE)
+  infall, or 0.40 dex if the infall is ionized. The far UV (912–2000 Å) becomes 2.2 times fainter than before the
+  infall, and 1.6 times fainter than with an ionized infall **[computed]** (@sec-spec-infall).
+- **No Lyman continuum or soft X-rays escape** in the LTE calculations with the free-fall extension. Without the extension
+  (infall only to $1.2R$), $4\times10^{38}$ erg s$^{-1}$ escapes in 0.5–2 keV **[computed]**.
+- **Hydrogen lines from the infall** show redshifted absorption near $+1100$ to $+1500$ km s$^{-1}$, 14–50 % deep
+  at Hα. The emission part depends on the line source function, which LTE cannot fix. Recombination
+  powered by the accretion is too weak to matter **[estimate]** (@sec-spec-lines).
+
+## Method {#sec-spec-method}
+
+The code is `julia/Spectrum.jl`; its tests are in `julia/spectrum_test.jl`. Each snapshot is treated as a static,
+spherical atmosphere in LTE at the TITAN densities and temperatures.
+
+- **Opacity.** It is the Z = 0 continuum of @sec-opacity, evaluated per frequency: bound–free from H (n ≤ 12), He I
+  (ground) and He II (n ≤ 8), free–free, H⁻ (@john1988), Thomson and Rayleigh scattering, with Saha–Boltzmann
+  populations. There are no lines, no gaunt factors and no molecules. For X-rays the ground-state cross sections of
+  H I, He I and He II are replaced by the fits of @verner1996, because the forms in the table opacity are only good
+  near threshold. The He I power law $\propto\nu^{-1.7}$, for example, is 2000 times too large at 10 keV
+  **[computed]**. The fitted values at threshold are $6.35\times10^{-18}$ and $7.44\times10^{-18}$ cm² for H I and He I
+  **[tested]**.
+- **Transfer.** Rays are traced in impact parameter, one through every grid point plus 12 core rays. Each ray is solved
+  in Feautrier form. The source function $S_\nu = \epsilon B_\nu + (1-\epsilon)J_\nu$ includes coherent electron
+  scattering, solved by accelerated Λ-iteration (@rybicki1991) with Ng extrapolation. Scattering-dominated frequencies
+  (hard X-rays in the hot layer, where $\epsilon \sim 10^{-11}$) converge too slowly that way, so above 80 iterations
+  the Λ operator is built and the problem solved directly. The two methods agree to $2\times10^{-5}$ where ALI could be iterated to convergence (5000 Å to 0.47 Å); at harder energies, where only the direct solution converges, there is no independent check **[tested]**. The
+  emergent intensity comes from a formal solution with $S$ linear in optical depth. An isothermal, optically thick,
+  absorption-dominated sphere gives $L_\nu = 4\pi^2R^2B_\nu$ to 0.14 % or better **[tested]**.
+- **Jumps in the grid.** Where $T$ or $\rho$ jumps by more than a factor 1.5 between neighbouring zones, two extra
+  points are placed just either side of the interface. The segment between them takes the smaller extinction of the
+  two sides. Without this, interpolating between a 7000 K dense zone and a $10^6$ K shocked zone spread the hot
+  source function over the cool zone's optical depth. The flux inside the hot layer then reached 4.2 $L_0$, carried in the EUV (300–900 Å), and
+  up to 14 $L_0$ escaped when the infall was ionized: 150–750 times the power of the accretion, which is impossible
+  **[tested]**.
+- **Temperatures.** TITAN's temperatures are in radiative equilibrium with its grey radiation field, not with the
+  frequency-dependent one used here. Taken as they are, the star at $t = 0$ emits 24 % too much, mostly in a UV
+  window at 912–3646 Å. Below the shock the temperatures are therefore corrected towards non-grey radiative equilibrium
+  (the Unsöld–Lucy scheme, @lucy1964), with TITAN's luminosity at each radius as the target. Above the shock they are
+  left at TITAN's values. Correcting the infall too, to local radiative equilibrium, did not converge
+  **[tested]**.
+- **Beyond the grid.** TITAN's grid ends at $1.20R$. The infall is continued as free fall at the same $\dot M$ out to
+  $120R$, with an assumed $T \propto r^{-1/2}$ (dilute radiative equilibrium) and a 1000 K floor. The spectrum
+  without this extension is computed for comparison.
+- **Static frame.** The infall velocity ($v/c \le 0.006$) is ignored in the continuum. It matters for the lines
+  (@sec-spec-lines).
+
+The check on all of this is energy. The frequency-integrated emergent luminosity is $1.007$ times TITAN's for the star
+at $t = 0$, and $1.018$ times TITAN's at $4.2\times10^8$ s with the infall **[computed]**. The corrected atmosphere
+still has local flux errors in the steepest part of the photosphere at late times: 5 % with the extension, 3.5 % for
+the ionized infall and 8.6 % without the extension, where the error was still growing over the last passes, so that
+row of @tbl-spec-bands is the least reliable (1.3 % at $t = 0$). That
+part is only a few zones thick on the TITAN grid.
+
+::: {.callout-warning title="What this calculation is not"}
+It has no lines, so the UV between 912 and 2000 Å is a line-free LTE continuum. Real Lyman and Balmer lines (and
+any metals) would remove much of that flux. It is LTE throughout, and @sec-observer noted that LTE is least justified
+in the infall. In the infall the temperatures are TITAN's grey values, and beyond $1.2R$ they are assumed. Compton
+scattering is treated as coherent Thomson scattering, so the X-rays are not down-scattered and Klein–Nishina effects
+are absent. Treat the numbers below as the continuum of this model, not as a prediction of what a telescope would see.
+:::
+
+## The spectra {#sec-spec-infall}
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="A220_late_ext" data-compare="star_t0"></div>
+<script type="module" src="../app/js/widgets.js"></script>
+```
+
+The snapshot is run A220 continued to $4.18\times10^8$ s, about six dynamical times, at
+$\dot M = 3\,M_\odot\,{\rm yr}^{-1}$ (@sec-infall-adaptive). It is compared with the star at $t = 0$, before any
+infall. All spectra use the same 422 frequencies from 10 μm to 40 keV.
+
+| spectrum | $L/L_{\rm TITAN}$ | optical 3646–7000 Å | far UV 912–2000 Å | Balmer jump (dex) | X-rays 2–10 keV | X-rays 10–40 keV |
+|---|---|---|---|---|---|---|
+| star at $t = 0$ | 1.007 | $6.2\times10^{43}$ | $1.18\times10^{43}$ | 0.23 | — | — |
+| infall, LTE, with extension | 1.018 | $8.3\times10^{43}$ | $5.4\times10^{42}$ | 0.60 | $2.2\times10^{40}$ | $1.3\times10^{40}$ |
+| infall, LTE, grid only (to $1.2R$) | 1.043 | $8.6\times10^{43}$ | $6.0\times10^{42}$ | 0.63 | $1.6\times10^{41}$ | $1.7\times10^{40}$ |
+| infall fully ionized (limit) | 0.957 | $7.1\times10^{43}$ | $8.4\times10^{42}$ | 0.40 | $2.3\times10^{41}$ | $1.6\times10^{40}$ |
+
+: Band luminosities in erg s$^{-1}$ **[computed]**. The Balmer jump is $\log_{10}$ of $L_\nu$ at 3664 Å over $L_\nu$
+at 3628 Å. "—" means below $10^{30}$ erg s$^{-1}$. {#tbl-spec-bands}
+
+**The star itself changes.** At late times the photosphere sits $1.1\times10^{-2}R$ further in and is about 100 K
+hotter ($T_{\rm eff} = 7374$ K from TITAN's luminosity and its Rosseland photosphere, against 7277 K at $t = 0$). Some of
+the change from $t = 0$ is therefore the star's own and not the infall's absorption. We tried to separate the two by
+removing the infall from the late snapshot. That is not a clean experiment. Without the infall, the star cannot be
+brought back to radiative equilibrium at TITAN's luminosity (flux errors still 34 % after 20 corrections). With the
+corrected temperatures of the full run it emits 27 % more than TITAN's luminosity, because the infall had been warming
+it from above and absorbing part of its light. So we only compare limits of the infall at the same time **[tested]**.
+
+**The infall deepens the Balmer jump.** With the infall neutral (LTE at its TITAN temperature of 6600–6700 K near the
+star), the jump is 0.60 dex. With the same gas fully ionized it is 0.40 dex. The difference is Balmer-continuum
+absorption by $n = 2$ hydrogen in the infall. In LTE the Hα Sobolev optical depth of the same gas is 24–61 within
+$1.2R$ (@sec-spec-lines) **[computed]**.
+
+**The far UV is absorbed.** Between 912 and 2000 Å the late spectrum with the LTE infall is 2.2 times fainter than
+the star at $t = 0$, and 1.6 times fainter than with an ionized infall. At 1000 Å the factors are 3.3 and 1.8
+**[computed]**. With lines included, this window would be partly closed in any case.
+
+**The extension matters for X-rays, not for the optical.** The gas between $1.2R$ and $120R$ changes the optical
+band by 3 % and the far UV by 11 %. It lowers the 2–10 keV luminosity sevenfold, because it adds most of the hydrogen
+column (@sec-spec-hot) **[computed]**. Its density follows from free fall at the same $\dot M$, but its temperature
+law, and with it its LTE ionization, is assumed.
+
+**A scattering halo.** In LTE the electrons of the infall alone give it a Thomson depth of 0.56 outside the shock,
+and its radial continuum optical depth at Hα is 0.57. The infall therefore scatters part of the photosphere's light
+into a halo. At Hα its intensity at $p = 1.1R$ is a quarter of a 7300 K blackbody, against 0.45 at the limb of the
+disc and 0.9 at its centre **[computed]**.
+
+**The ionized limit** puts a Thomson optical depth of about 6.5 into the infall ($N_{\rm H}$ below, 1.16 electrons
+per H atom). The emergent luminosity then
+falls 4 % below TITAN's, because the electrons scatter light back into the star and free–free absorption at the fixed
+temperatures takes some of it. This limit also brightens the far infrared: at 10 μm it gives 3.2 times the LTE value,
+from free–free emission of the ionized column **[computed]**.
+
+::: {.callout-tip title="Try it"}
+Compare the LTE and ionized infall, switch the x axis to photon energy to see the X-rays, or show the temperatures
+and ionization the spectrum was computed from. The blackbody checkbox overlays a blackbody with TITAN's $T_{\rm eff}$
+and luminosity.
+
+{{< lab "p=spec&sp=A220_late_ext&sp2=A220_late_ion&sx=E" "X-rays: LTE against ionized infall" >}}
+{{< lab "p=spec&sp=A220_late_ext&sp2=A220_late_ion&sv=xH" "Hydrogen ionization of the infall" >}}
+:::
+
+## The shock and its X-rays {#sec-spec-hot}
+
+The energy budget of the shock comes from `julia/shock_budget.jl` on the same snapshot.
+
+- **Power.** The infall brings $\tfrac12\dot Mv^2 = 2.65\times10^{42}$ erg s$^{-1}$ ($0.019L_0$) into the shock at
+  1670 km s$^{-1}$ **[computed]**.
+- **Cooling.** In the hot layer, free–free emission ($1.4\times10^{-27}\sqrt{T}\,n_e\sum Z^2n_i$ erg cm$^{-3}$ s$^{-1}$, gaunt
+  factor 1.2, @rybicki1979) amounts to 1.02 times that power. TITAN's own Planck-mean exchange amounts to 0.86 times it,
+  and Compton cooling to 0.09 times **[computed]**. The layer is radiative, as it should be.
+- **X-rays made.** The free–free emission above 0.5 keV is $1.7\times10^{42}$ erg s$^{-1}$, and above 2 keV
+  $7.3\times10^{41}$ erg s$^{-1}$ (thin thermal spectra at the layer's temperatures, up to $3.6\times10^7$ K)
+  **[computed]**. About half should go inward into the star **[estimate]**.
+- **The column.** Outside the shock (grid plus extension) $N_{\rm H} = 8.4\times10^{24}$ cm$^{-2}$, 90 % of it neutral in
+  LTE **[computed]**. With the cross sections of @verner1996, H and He absorb everything below about 4 keV.
+- **Could the X-rays ionize it?** Kept fully ionized, the column would recombine $1.1\times10^{55}$ times a second
+  (case B, @osterbrock1989). If every X-ray photon above 0.5 keV spent its energy on ionizations at 36 eV each (the
+  most it could), it would make $3\times10^{52}$ per second, about 370 times too few **[estimate]**. This agrees with the
+  ionization budget of the steady model at $\dot M = 1$ (@tbl-infall-diag), now at three times the infall rate. The
+  X-rays alone cannot ionize the column. That the stellar light does not ionize it either is what LTE assumes near the star,
+  where the gas and radiation temperatures are close. It is not shown here.
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="A220_late_ext" data-compare="A220_late_ion" data-xax="E"></div>
+```
+
+**What escapes.** With the LTE infall, the emergent X-rays are $2.2\times10^{40}$ erg s$^{-1}$ in 2–10 keV and
+$1.3\times10^{40}$ in 10–40 keV. $\nu L_\nu$ peaks at 8–9 keV at $4.2\times10^{40}$ erg s$^{-1}$. In total, 2 % of what the
+layer makes above 0.5 keV escapes. If the infall were fully ionized, $2.2\times10^{41}$ and $2.3\times10^{41}$ erg s$^{-1}$ would
+come out in 0.5–2 and 2–10 keV. Its Thomson depth of 6.5 still returns much of the rest into the star
+**[computed]**. Treating the bottom of the cooling layer as fully ionized instead of LTE changes nothing (identical spectra
+to four digits), so its bound–free opacity is not involved **[tested]**.
+
+**Only resolved layers give X-rays.** In the Eulerian run R2 at the same infall rate ($5.8\times10^7$ s) the hot layer is a single zone. Its
+free–free emission is 1.5 % of $\tfrac12\dot Mv^2$, and above 2 keV it makes $1.6\times10^{38}$ erg s$^{-1}$, 4500
+times less than A220 **[computed]**. That run's one-zone shock, a $4\times10^6$ K zone $8\times10^{-4}R$ wide above
+zones at 8000 K and $1.3\times10^4$ K, cannot be brought to non-grey radiative equilibrium either. Its luminosity
+comes out 2.6 times TITAN's, or 1.3 times with the correction extended to the cooled zone under the shock, where the
+flux error is still 36 % after 20 corrections. We do not show its spectrum **[tested]**.
+
+**Less than 3 % in the EUV from the cooling gas.** Whatever the cooling gas radiates below $10^6$ K, in lines or
+recombination continua that this calculation does not include, is limited by its enthalpy. That is
+$\dot M\,\tfrac52 kT/\mu m_{\rm H} = 0.94\,(T/T_{\rm peak})$ of $\tfrac12\dot Mv^2$, or 2.5 % at $10^6$ K
+**[estimate]**. Most of it would be absorbed by the same column.
+
+## Hydrogen lines from the infall {#sec-spec-lines}
+
+Hydrogen in the infall is mostly neutral in LTE, and close to the star its $n = 2$ population gives an Hα Sobolev optical
+depth of 24–61 between the shock and $1.2R$. At $1.8R$ it is 0.2, because the assumed temperature of the
+extension falls below 4300 K, and it is 0.003 at $2.4R$ **[computed]**. Lines form in the infall, then, within about $0.8R$ of the shock. There the
+gas falls at 1300–1670 km s$^{-1}$.
+
+**Recombination is negligible.** If every accreted hydrogen atom recombined once after the shock, case B
+(@osterbrock1989, 0.45 Hα photons per recombination) would give $L({\rm H}\alpha) \le 1.2\times10^{38}$ erg s$^{-1}$;
+even one Lyα photon per atom would give only $1.4\times10^{39}$ erg s$^{-1}$. Against the continuum near Hα, $L_\lambda \approx 1.3\times10^{40}$ erg s$^{-1}$ Å$^{-1}$, that is an
+equivalent width below 0.01 Å **[estimate]**. Any Hα from the infall must therefore come from the photosphere's light,
+absorbed and scattered or re-emitted by the infalling gas, not from the energy of the accretion.
+
+**Profiles.** `julia/line_profile.jl` integrates Hα and Hβ along the same rays as the continuum, through the infall
+outside the shock (gas below $2\times10^4$ K), with Gaussian profiles of thermal plus 10 km s$^{-1}$ microturbulent
+width. Two things are not known, so they are bracketed:
+
+- **the $n = 2$ population**: LTE times a factor $b_2 = 0.1$, 1 or 10. Trapping of Lyα in this column would raise it.
+- **the line source function**: thermal ($S_L = B_\nu(T)$, the LTE limit) or pure scattering of the photosphere's
+  light ($S_L = \beta_c I_\star/\beta$ with Sobolev escape probabilities, @castor1970).
+
+The continuum is the one computed above. The photosphere's own static absorption line is not included, so these are
+the infall's contribution only.
+
+```{=html}
+<div class="qd-widget" data-widget="spec" data-spec="A220_late_ext" data-compare="none" data-view="Halpha"></div>
+```
+
+| | $b_2$ | Hα minimum (at km s$^{-1}$) | Hα peak | Hα EW (Å) | Hβ minimum (at km s$^{-1}$) | Hβ EW (Å) |
+|---|---|---|---|---|---|---|
+| thermal | 0.1 | 0.86 (+1480) | 1.15 | −1.6 | 0.92 (+1180) | +1.1 |
+| thermal | 1 | 0.72 (+1380) | 1.31 | −4.9 | 0.80 (+1080) | +2.9 |
+| thermal | 10 | 0.57 (+1280) | 1.45 | −7.9 | 0.64 (+1360) | +3.2 |
+| scattering | 0.1 | 0.77 (+1080) | 1.00 | +6.0 | 0.91 (+1180) | +1.4 |
+| scattering | 1 | 0.66 (+1380) | 1.00 | +8.4 | 0.76 (+1080) | +4.7 |
+| scattering | 10 | 0.50 (+1280) | 1.00 | +8.9 | 0.63 (+1360) | +6.2 |
+
+: Hα and Hβ of the infall at $4.2\times10^8$ s, flux relative to the continuum. EW > 0 is net absorption
+**[estimate]**. With three times as many points along each ray the numbers change by less than 0.01 in the
+minima and 0.01 Å in the EW **[tested]**. With 30 km s$^{-1}$ microturbulence instead of 10 the minima are up to 0.07 deeper and the EWs change by up to 1.2 Å **[tested]**. {#tbl-spec-lines}
+
+**What does not depend on the brackets.** In all six cases the strongest feature is absorption on the red side, at
+$+1080$ to $+1480$ km s$^{-1}$, 14–50 % deep in Hα and 8–37 % in Hβ. It is made on the stellar disc by the near side of the infall, which falls away from us at
+close to the free-fall speed. Weaker absorption, 1–13 % deep, appears at $-1050$ to $-650$ km s$^{-1}$, where the far
+side of the infall, falling towards us, is seen against the scattered halo beside the disc **[estimate]**.
+
+**What does.** With a thermal source function, the infall seen beside the stellar disc emits around zero velocity,
+at 1.15–1.45 times the continuum, and Hα shows net emission. With pure scattering, the scattered light, diluted
+by the distance from the star, stays below the continuum the infall itself scatters off the disc (the halo of
+@sec-spec-infall). Hα is then net absorption of 6–9 Å. Which limit applies depends on the balance of collisional and
+radiative rates in this gas, a question for the non-LTE calculation (@sec-nlte-plan).
+
+## What is robust {#sec-spec-robust}
+
+- **Robust**, because it follows from energetics and column densities that do not depend on LTE: the shock radiates its
+  power as hard free–free emission; the infall column is $N_{\rm H} \approx 8\times10^{24}$ cm$^{-2}$; X-rays below a
+  few keV cannot get through it unless it is ionized; the X-rays cannot ionize it themselves; recombination lines
+  powered by the accretion are negligible; any hydrogen line formed in the infall is redshifted by up to the
+  infall speed at the shock, about 1670 km s$^{-1}$ **[computed; estimate]**.
+- **Model-dependent**: the escaping X-ray luminosity (a factor 14 between the neutral and ionized limits, and a
+  factor 7 in 2–10 keV from the extension); the size of the Balmer jump and the far-UV deficit (LTE, no lines); whether Hα shows net
+  absorption or emission.
+- **Next**: the non-LTE hydrogen and helium post-processing of @sec-nlte-plan on these snapshots, with photoionization
+  by the star and by the shock, and lines in the opacity.

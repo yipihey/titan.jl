@@ -1,0 +1,25 @@
+zones treated as fully ionised: 97 (hot layer 0)
+shock zone 186 (r/R = 0.99021), cooling layer down to zone 158; Lucy on 79 zones
+Lucy  1: max |ΔH/H| in the corrected zones 0.3207, max |ΔT/T| 0.0561
+Lucy  2: max |ΔH/H| in the corrected zones 0.3400, max |ΔT/T| 0.0424
+Lucy  3: max |ΔH/H| in the corrected zones 0.3820, max |ΔT/T| 0.0406
+Lucy  4: max |ΔH/H| in the corrected zones 0.4224, max |ΔT/T| 0.0460
+Lucy  5: max |ΔH/H| in the corrected zones 0.4490, max |ΔT/T| 0.0495
+Lucy  6: max |ΔH/H| in the corrected zones 0.4508, max |ΔT/T| 0.0491
+Lucy  7: max |ΔH/H| in the corrected zones 0.4201, max |ΔT/T| 0.0435
+Lucy  8: max |ΔH/H| in the corrected zones 0.3771, max |ΔT/T| 0.0372
+Lucy  9: max |ΔH/H| in the corrected zones 0.3262, max |ΔT/T| 0.0293
+Lucy 10: max |ΔH/H| in the corrected zones 0.2709, max |ΔT/T| 0.0231
+Lucy 11: max |ΔH/H| in the corrected zones 0.2284, max |ΔT/T| 0.0179
+Lucy 12: max |ΔH/H| in the corrected zones 0.1886, max |ΔT/T| 0.0135
+Lucy 13: max |ΔH/H| in the corrected zones 0.1534, max |ΔT/T| 0.0133
+Lucy 14: max |ΔH/H| in the corrected zones 0.1235, max |ΔT/T| 0.0134
+Lucy 15: max |ΔH/H| in the corrected zones 0.0991, max |ΔT/T| 0.0131
+Lucy 16: max |ΔH/H| in the corrected zones 0.0809, max |ΔT/T| 0.0124
+Lucy 17: max |ΔH/H| in the corrected zones 0.0658, max |ΔT/T| 0.0112
+Lucy 18: max |ΔH/H| in the corrected zones 0.0533, max |ΔT/T| 0.0098
+Lucy 19: max |ΔH/H| in the corrected zones 0.0430, max |ΔT/T| 0.0101
+Lucy 20: max |ΔH/H| in the corrected zones 0.0345, max |ΔT/T| 0.0111
+ALI iterations: median 39, max 79; direct solutions: 162
+A220d t=4.1812e+08: 266 points (60 in extension), 422 frequencies in 620 s; ∫L_ν dν = 1.4023e+44 erg/s, TITAN L_rad(out) = 1.4650e+44 (ratio 0.9572), Ṁ = 3.024 Msun/yr
+saved lib/spectra/A220_late_ion.jls

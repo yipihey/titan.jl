@@ -3,7 +3,8 @@
 // so a bare URL is the default experiment and any hash is a permalink, a preset and a regression fixture at once.
 // Lists and vectors are joined with '_' (never commas).
 
-export const PANELS = ['micro', 'env', 'shoot', 'branch', 'bench', 'qstar'];
+export const PANELS = ['micro', 'env', 'shoot', 'branch', 'bench', 'qstar', 'spec'];
+const SPECTRA = ['star_t0', 'A220_late_ext', 'A220_late_ion', 'A220_late_hotion', 'A220_late_noext', 'A220_corona_ext'];
 
 export function makeDefaults() {
   return {
@@ -20,6 +21,11 @@ export function makeDefaults() {
     qvar: 'T',        // qstar variable: T | rho | u | Lconv | Lrad | dr
     ti: 1,            // time slider position in [0, 1] (bench, qstar)
     qhist: 'radii',   // qstar history plot: radii | mdot | teff | tpk | lum
+    spec: 'A220_late_ext',  // spec: the spectrum shown (lib/spectra/NAME.jls, exported to spectra.json)
+    spec2: 'star_t0', // spec: comparison spectrum, or 'none'
+    sview: 'sed',     // spec: sed | ratio | T | xH | Halpha | Hbeta
+    sxax: 'lam',      // spec: x axis lam | E
+    sbb: 0,           // spec: 1 = overlay blackbodies
   };
 }
 
@@ -38,6 +44,11 @@ const SCHEMA = [
   ['qvar', 'v', 'enum', ['T', 'rho', 'u', 'Lconv', 'Lrad', 'dr']],
   ['ti', 'ti', 'num', [0, 1]],
   ['qhist', 'qh', 'enum', ['radii', 'mdot', 'teff', 'tpk', 'lum']],
+  ['spec', 'sp', 'enum', SPECTRA],
+  ['spec2', 'sp2', 'enum', ['none', ...SPECTRA]],
+  ['sview', 'sv', 'enum', ['sed', 'ratio', 'T', 'xH', 'Halpha', 'Hbeta']],
+  ['sxax', 'sx', 'enum', ['lam', 'E']],
+  ['sbb', 'bb', 'int', [0, 1]],
 ];
 export const HASH_KEYS = SCHEMA.map((e) => e[1]);
 

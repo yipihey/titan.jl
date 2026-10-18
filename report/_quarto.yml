@@ -51,6 +51,7 @@ book:
       chapters:
         - chapters/06-titan-port.qmd
         - chapters/07-titan-quasistar.qmd
+        - chapters/08-spectra.qmd
     - chapters/references.qmd
   appendices:
     - chapters/notation.qmd

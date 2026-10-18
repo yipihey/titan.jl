@@ -1564,3 +1564,43 @@ the grid concentrates zones gradually and the run proceeds (AD1: median step ~83
     difference.
 - Verification: a second independent pass checked P7.7 and the chapter against the run data (17 Oct); 6 numbers
   corrected; numbers from interactive diagnosis sessions (no saved state) are marked as such.
+
+### P7.8 Emergent spectra of the infall runs [run]
+Post-processing only; TITAN itself is unchanged. Chapter `08-spectra.qmd`.
+- **`julia/Spectrum.jl`** (static, spherical, LTE continuum):
+  - Opacity: `Z0.kappa_nu`, with the ground-state bound–free cross sections of H I, He I and He II replaced by the
+    Verner et al. (1996) fits (`coeffs`). The table opacity's He I law (7.4e-18 (ν₀/ν)^1.7) is 1900× the fit at 10 keV;
+    H I Kramers is 4.4× at 10 keV. At threshold the fits give 6.35e-18 (H I) and 7.44e-18 cm² (He I).
+  - Transfer: impact-parameter rays, Feautrier with the Rybicki–Hummer diagonal ALI, Ng acceleration every 4 iterations;
+    after 80 iterations the full Λ matrix is built and solved (`direct_J`). Direct and ALI-to-convergence agree to
+    2e-5 on A220 frequencies from 5000 Å to 0.47 Å; at 0.36 Å the ALI had not converged after 3000 iterations.
+    Not checked at harder energies (only the direct solution converges there). Convergence test floors J at 1e-10 of its maximum (deep Wien tails).
+  - Emergent intensities from a formal solution (linear S); Feautrier u[1] was 2× off when the top dτ is large.
+  - **Interface pairs**: where T or ρ jumps by > 1.5 between zones, two points at r_iface ∓ 1 % of the half-widths;
+    the segment between them takes min(χ) (`dtau`). Without it (A220 at 4.2e8 s) the flux inside the hot layer was
+    4.2 L0 in the EUV (300–900 Å), and the ionised-infall case emitted 14.3 L0 in total.
+  - `lucy`: Unsöld–Lucy correction (Lucy 1964), damped (T ∝ (T_new/T)^0.5), clamped to ±30 %; `thin` = local RE only.
+- **`spectra_run.jl`**: Lucy on zones ≥ 0.95 R up to kc − 2 (kc: last zone below the shock with T < 1e4 K); target
+  L = TITAN L_rad + L_conv at zone centres. Options ext, ion, hotion, bare, tfrom, re, ltop, split.
+  - A220 at t = 0: ∫L/L_TITAN 1.0065, local flux error 1.3 % after 20 passes (was 1.24 without correction).
+  - A220d at 4.18e8 s: 1.0178 (LTE infall + extension), 0.957 (ionised infall), 1.043 (no extension); flux error 5 %.
+  - hotion=1 (cooling layer forced fully ionised): identical spectrum to 4 digits (5.6e-5).
+  - ltop = 0 (Lucy up to kc): T changes hit the ±30 % clamp in the top zones; ltop = 2 kept.
+  - re=1 (local RE in the infall): does not converge (κ_J J/κ_B B up to 1e27 in the 1000 K extension at the start).
+  - bare=1: without the infall the star cannot be corrected back to L_TITAN (34 % flux error); with tfrom the corrected
+    temperatures of the full run it gives 1.27 L_TITAN. Not used.
+  - R2 (Eulerian) at 5.8e7 s: 2.62 L_TITAN (1.30 with ltop = 0, flux error 36 %). Not used.
+- **Results (A220d, 4.18e8 s)**: bands in the chapter's table; Balmer jump 0.23 (t = 0) → 0.60 dex (LTE infall),
+  0.40 (ionised); escaping X-rays 2.2e40 (2–10 keV) + 1.3e40 (10–40 keV) with the LTE infall, 2.2e41 + 2.3e41 + 1.6e40
+  (0.5–2, 2–10, 10–40 keV) ionised.
+- **`shock_budget.jl`**: ½Ṁv² = 2.647e42 erg/s; ff 1.02, TITAN exchange 0.864, Compton 0.091 of it; ff > 0.5 keV
+  1.74e42, > 2 keV 7.27e41; N_H = 8.37e24 (90 % neutral in LTE), LTE Thomson depth 0.558; recombinations if ionised
+  1.10e55 /s vs ≤ 3.01e52 /s ionisations from the X-rays. R2: ff 1.5 % of ½Ṁv², > 2 keV 1.6e38.
+- **`line_profile.jl`**: Hα/Hβ through the infall (T < 2e4 K) with Gaussian profiles (thermal + ξ = 10 km/s), b₂ = 0.1,
+  1, 10 and thermal or scattering (Castor 1970 escape probabilities) source functions. A Sobolev root-finding version
+  was not converged in the ray sampling (EW changed 40 % from 3000 to 9000 samples) and an earlier version interpolated
+  S_L between the shocked zone and the infall; both replaced. 3000 vs 9000 samples now agree to 0.01.
+- Verification: an independent pass checked chapter 08 and P7.8 against the saved spectra, line files and fresh
+  shock_budget / spectrum_test runs (18 Oct); 3 numbers corrected (e per H 1.16, hotion 4 digits, 3.5e40), wording of
+  the LTE no-soft-X-ray claim, flux errors per run, the ALI/direct check range, labels; EUV band export fixed (it was
+  linearly interpolated across the Lyman edge).

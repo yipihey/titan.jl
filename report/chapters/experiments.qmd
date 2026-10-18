@@ -48,7 +48,11 @@ WebAssembly package used by the figures and the laboratory.
 | long run (A220d; A220c, A220s) | `QS_FROM=A220 state QS_INIT=R2A QS_DTMAX=1e5 … relax 6e8` (A220c without the cap; A220s with `QS_SINK_TAU=1e6 QS_SINK_M0=4.205784e38`) | @sec-infall-adaptive |
 | Courant-capped rerun (K2) | as K1 with the current code | @sec-infall-adaptive |
 | adaptive run from the set-up (R2A) | R2's `setup` plus `QS_LGRID=1 QS_GRIDTAU=1e7 QS_LADY=2,2,0 QS_GRIDW=1,1e-2,0`, then R2's `relax … 1.2e8 600000` | @sec-infall-adaptive |
-| figure data | `julia --project=env export_report_data.jl bench`, `… qstar NAME`, `Z0_TABLE=ext … qstar R2+R2c`, `… qstar R2+AD1 PROFILE qstar_AD1.json`, `… qstar S6`, `… qstar A220+A220d PROFILE qstar_A220.json`, `… qstar A440` | figures |
+| spectra of TITAN snapshots | `Z0_TABLE=ext julia -t 2 --project=env spectra_run.jl RUN TIME ext=1 n=400 lucy=20 damp=0.5 nl=200 out=NAME` (A220 0 `ext=0` → `star_t0`; A220d 4.2e8 → `A220_late_ext`, with `ion=1` → `A220_late_ion`, `hotion=1` → `A220_late_hotion`, `ext=0` → `A220_late_noext`; A220 8e6 → `A220_corona_ext`); about 2–10 min each; output `lib/spectra/NAME.jls` | @sec-spec-infall |
+| tests of the spectrum code | `julia -t 2 --project=env spectrum_test.jl` | @sec-spec-method |
+| shock energy budget, column, line bounds | `Z0_TABLE=ext julia --project=env shock_budget.jl A220d 4.2e8` (and `R2 5.8e7`, `A220 8e6`) | @sec-spec-hot |
+| Hα and Hβ of the infall | `Z0_TABLE=ext julia -t 2 --project=env line_profile.jl A220_late_ext` (`LP_NZ=9000`, `LP_XI=30` for the checks) | @sec-spec-lines |
+| figure data | `julia --project=env export_report_data.jl bench`, `… qstar NAME`, `Z0_TABLE=ext … qstar R2+R2c`, `… qstar R2+AD1 PROFILE qstar_AD1.json`, `… qstar S6`, `… qstar A220+A220d PROFILE qstar_A220.json`, `… qstar A440`, `Z0_TABLE=ext … spectra star_t0 A220_late_ext A220_late_ion A220_late_hotion A220_late_noext A220_corona_ext` | figures |
 
 The full engineering record of the port, with every check and its numbers, is
 [`docs/PORTING_NOTES.md`](https://github.com/yipihey/titan.jl/blob/main/docs/PORTING_NOTES.md).
