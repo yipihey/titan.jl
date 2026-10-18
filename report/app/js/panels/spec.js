@@ -90,6 +90,18 @@ export async function mountSpec(host, S, onChange = () => {}, opts = {}) {
     plot.setSeries(series);
     plot.setMarkers(S.sview === 'T' || S.sview === 'xH' ? runs.map((r, i) => ({ x: r.rph, label: 'photosphere', color: COLORS[i] })) : []);
     plot.draw();
+    if (S.sview === 'full') {          // line table of the non-LTE line spectra (nlte_spectrum.jl)
+      const withLs = runs.filter((r) => r.linespec && r.linespec.table);
+      if (withLs.length) {
+        const names = withLs[0].linespec.table.map((x) => x.name);
+        const get = (r, n) => r.linespec.table.find((x) => x.name === n);
+        table.innerHTML = '<caption style="caption-side:top;text-align:left">hydrogen lines: equivalent width [Å] (negative = emission) and line luminosity [erg s⁻¹]</caption><tr><th style="text-align:left;padding:2px 6px">line</th><th style="text-align:left;padding:2px 6px">λ_vac [Å]</th>' +
+          withLs.map((r) => `<th style="text-align:left;padding:2px 6px">EW: ${r.label}</th><th style="text-align:left;padding:2px 6px">L_line</th>`).join('') + '</tr>' +
+          names.map((n) => '<tr>' + [n, fmt(get(withLs[0], n).lam, 6), ...withLs.flatMap((r) => { const x = get(r, n); return x ? [fmt(x.EW, 3), fmt(x.L, 2)] : ['—', '—']; })]
+            .map((x) => `<td style="padding:2px 6px">${x}</td>`).join('') + '</tr>').join('');
+        onChange(S); return;
+      }
+    }
     const head = ['spectrum', 'continuum L / L_TITAN', 'lines (non-LTE)', 'optical 3646–7000 Å', 'FUV 912–2000 Å', 'X 0.5–2 keV', 'X 2–10 keV', 'X 10–40 keV', 'Balmer jump [dex]'];
     const cell = (v) => (v > 1e30 ? fmt(v, 2) : '—');
     table.innerHTML = '<caption style="caption-side:top;text-align:left">band luminosities [erg s⁻¹]</caption><tr>' +
