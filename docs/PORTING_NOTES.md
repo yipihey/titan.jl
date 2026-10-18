@@ -1690,11 +1690,14 @@ Chapter sections `sec-infall-wide` (ch. 7) and `sec-spec-full`, `sec-spec-wide` 
 - **W30 non-LTE (done, 18 Oct)**: `nlte_run.jl W30_late_ext ldr=5e-6` 100 passes (Ng + Lucy; Lucy |ΔH/H| 0.065 → 0.009,
   out `W30_late_ext_c1`), then 40 plain passes from it (`ng=0`, out `W30_late_ext`). 118 non-LTE points (A220: 94).
   Drift over the last 40: max |Δx_H| 0.016 (10.6 R), |Δn₂/n₂| 3.7 %; x_H(5.2 R) 0.969 → 0.978, (8.6 R) 0.907 → 0.922,
-  (11.8 R) 0.867 → 0.882: upwards, as for A220.
+  (11.8 R) 0.867 → 0.882: upwards at 3–25 R as for A220, slightly downwards beyond (≤ 0.008, at 38.6 R).
   - N_H I 8.47e23 (A220 8.26e23), Thomson 5.41 (5.36), continuum 1.231e44 + lines (SE) 1.115e43 = 0.922 L_TITAN (0.918).
-    x_H < 0.99 from 4.68 R (A220 4.59 R, same criterion); x_H(8.6 R) 0.922 (0.932), (40.4 R) 0.503 (0.510). Line power
+    x_H falls through 0.99 at 4.23 R interpolated (A220 4.27 R); first point below at 4.68 R (4.59 R); x_H(8.6 R) 0.922 (0.932), (40.4 R) 0.503 (0.510). Line power
     beyond 5 R 0.79 (0.76), beyond 12 R 0.51 (0.48).
   - Hα peak 86.3, EW −805 Å, FWHM 360 km/s; Hβ 8.24, −73 Å, trough 0.031 at +160 km/s. 23 lines 1.650e43 (A220 1.650e43);
     Hα/Hβ 5.28 (5.07); Paα/Hα 0.188; Lyα/Hα 0.054. X 2–10 keV 3.31e40, 10–40 keV 1.41e40; Balmer jump 0.743 dex.
   - Energy check (`linepower_W30_late_ext.log`): ray/net Hα 0.81, Lyα 0.81, Paα 0.87, Hβ 1.37; Sobolev 23-line sum 1.293e43.
+  - Line power beyond 30 R: 17 % (A220 14 %); about two thirds of the neutral column is beyond 30 R.
+  - Verification: independent pass; corrections applied (warmer-than-assumed 15–20 %, drift direction, 0.99 radius,
+    beyond-30 R reliance, ratio wording).
   - Inverted (X-ray artifact) points: 14, at r/R 0.99030–0.99128 (A220: 4, 0.99030–0.99088): same layer, finer grid.

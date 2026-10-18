@@ -20,10 +20,14 @@ a first step towards the non-LTE plan of @sec-nlte-plan, not a replacement for i
   at Hα, when the populations are bracketed around LTE. The emission part depends on the line source function, which LTE
   cannot fix. Recombination powered by the accretion is too weak to matter **[estimate]** (@sec-spec-lines).
 - **Non-LTE hydrogen settles both questions** (@sec-spec-nlte). The star's light keeps the infall ionized: more than
-  99 % within $4.4R$, with a neutral column of $8\times10^{23}$ instead of $8\times10^{24}$ cm$^{-2}$. The Hα source
+  99 % within $4.3R$, with a neutral column of $8\times10^{23}$ instead of $8\times10^{24}$ cm$^{-2}$. The Hα source
   function is 1.4–53 times the local continuum, so the infall puts Hα into strong emission: equivalent width
-  −800 Å, narrow (FWHM 360 km s$^{-1}$), from the slow outer infall. That last number rests on the assumed extension of
-  the infall to $120R$ **[computed]**. Ending the infall at $12R$ instead still gives −490 Å.
+  −795 Å, narrow (FWHM 360 km s$^{-1}$), from the slow outer infall. That last number rests on the extension of the
+  infall to $120R$ **[computed]**. Ending the infall at $12R$ instead still gives −490 Å.
+- **The full line spectrum** (@sec-spec-full): 23 hydrogen lines, a Balmer decrement of 5.1 (case B 2.86), strong
+  Paschen and Brackett lines and weak Lyα **[computed]**.
+- **TITAN's own infall to $30R$** (run W30, @sec-spec-wide) replaces the assumed one there and changes these results by
+  only a few per cent, within the iteration drift **[computed]**. Only the gas beyond $30R$ is still assumed.
 
 ## Method {#sec-spec-method}
 
@@ -310,7 +314,7 @@ The profile computed with these populations and source functions (and the non-LT
 features **[computed]**:
 
 - **Hα** peaks at 84 times the continuum, centred at −20 km s$^{-1}$, with a full width at half maximum of 360 km s$^{-1}$
-  and asymmetric wings from about −1100 to +1700 km s$^{-1}$. Its equivalent width is −800 Å.
+  and asymmetric wings from about −1100 to +1700 km s$^{-1}$. Its equivalent width is −795 Å.
 - **Hβ** peaks at 8.4 times the continuum (−75 Å). It has a deep, narrow absorption trough on the red side, down to 0.03 of the
   continuum at +160 km s$^{-1}$.
 - **Where it forms.** 76 % of the power in all lines comes from beyond $5R$, and half from beyond $12R$ **[computed]**.
@@ -342,7 +346,7 @@ continues.
 - **The extension.** Most of the Hα, and most of the remaining neutral column, comes from gas between $5R$ and $120R$.
   There the free fall at constant $\dot M$ and the $T \propto r^{-1/2}$ law are assumptions, not TITAN output. Out to
   $30R$ the wide-domain run W30 has since replaced them with TITAN's own infall, with no change in these results
-  (@sec-spec-wide).
+  (@sec-spec-wide). Beyond $30R$, which still holds about two thirds of the neutral column, they remain assumptions.
 - **Fixed temperatures.** The infall absorbs 8 % of $L$ without heating. A thermal balance would raise its
   temperature. That lowers recombination, so it would raise the ionization further, but it changes the line source
   function in ways not computed here.
@@ -451,7 +455,7 @@ the non-LTE calculation, in which most of the Hα and of the neutral column come
 
 **Non-LTE on the wide domain.** `nlte_run.jl W30_late_ext` with the same settings as for A220, plus `ldr` (100
 accelerated passes, then 40 unaccelerated). Over the last 40 passes the ionized fraction changed by at most 0.016 and
-$n_2$ by at most 3.7 %, again upwards beyond $5R$: the same convergence quality as the A220 solution (0.013 and 3 %)
+$n_2$ by at most 3.7 %, upwards between $5R$ and $25R$ as for A220 and slightly downwards (≤ 0.008) beyond: the same convergence quality as the A220 solution (0.013 and 3 %)
 **[computed]**. A first attempt had run the Unsöld–Lucy correction inside the non-LTE iteration without `ldr`. The
 correction hit its clamp, the emergent continuum fell to 0.75 of TITAN's luminosity, and that run was discarded
 **[tested]**.
@@ -460,7 +464,7 @@ The non-LTE results do not change when TITAN's own outer infall replaces the ass
 
 | | A220 (extension beyond $1.2R$) | W30 (TITAN to $30R$) |
 |---|---|---|
-| ionized fraction > 0.99 out to | $4.6R$ | $4.7R$ |
+| ionized fraction falls through 0.99 at | $4.3R$ | $4.2R$ |
 | ionized fraction at $8.5R$ / $40R$ | 0.93 / 0.51 | 0.92 / 0.50 |
 | neutral column [cm⁻²] | $8.3\times10^{23}$ | $8.5\times10^{23}$ |
 | Thomson depth | 5.36 | 5.41 |
@@ -473,23 +477,23 @@ The non-LTE results do not change when TITAN's own outer infall replaces the ass
 | X 2–10 keV, 10–40 keV [erg s⁻¹] | $3.27$, $1.39\times10^{40}$ | $3.31$, $1.41\times10^{40}$ |
 | Balmer jump [dex] | 0.74 | 0.74 |
 
-: Non-LTE results for the assumed outer infall (A220) and TITAN's own (W30). The ">0.99" radius is the first non-LTE
-point beyond $1.1R$ below 0.99. {#tbl-spec-wide-nlte}
+: Non-LTE results for the assumed outer infall (A220) and TITAN's own (W30). The 0.99 radius is interpolated between
+the non-LTE points. {#tbl-spec-wide-nlte}
 
 ```{=html}
 <div class="qd-widget" data-widget="spec" data-spec="W30_late_ext_nlte" data-compare="A220_late_ext_nlte" data-view="full"></div>
 ```
 
 The differences are of the size of the iteration drift, so none of them is resolved. The per-line energy check
-(`nlte_linepower.jl`) gives the same ratios as for A220: emergent over local net power 0.81 for Hα and Lyα, 0.87 for
-Paα, 1.37 for Hβ **[computed]**. The X-ray artifact above the shock covers the same thin layer ($r < 0.9913R$), now
+(`nlte_linepower.jl`) gives nearly the same ratios as for A220: emergent over local net power 0.81 for Hα and Lyα, 0.87 for
+Paα, 1.37 for Hβ (A220: 1.33) **[computed]**. The X-ray artifact above the shock covers the same thin layer ($r < 0.9913R$), now
 sampled by 14 non-LTE points instead of 4 because the grid is finer there.
 
-Why so little changes, although TITAN's gas is up to 29 % warmer than assumed at 3–4 $R$: there the gas is already more
+Why so little changes, although TITAN's gas is up to about 20 % warmer than assumed at 3–4 $R$ (15–18 % in the time average, @tbl-outer-infall): there the gas is already more
 than 98 % ionized, and the ionization is set by the star's light, not the local temperature (@sec-spec-nlte). Beyond
 $12R$, where most of the Hα forms, TITAN and the assumed law agree to 5–8 % **[interpretation]**. So the non-LTE
-spectrum no longer rests on an assumed infall inside $30R$. Beyond $30R$ it still does: half of the line power comes from
-beyond $12R$, and the extension test (@sec-spec-nlte) showed that ending the infall at $12R$ halves the lines.
+spectrum no longer rests on an assumed infall inside $30R$. Beyond $30R$ it still does: that gas emits about 17 % of the line power
+and holds about two thirds of the neutral column **[computed]**.
 
 ## What is robust {#sec-spec-robust}
 

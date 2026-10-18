@@ -292,7 +292,8 @@ equilibrium ($T_{\rm eff} = 7310$ K) and the extension law used for the spectra.
   $16R$.
 
 So the extension used in @sec-spec-infall was a fair guess out to $30R$, and the spectra of W30 (@sec-spec-wide) test
-what the difference does: in LTE and in non-LTE, the spectra are unchanged. Beyond $30R$ even W30 relies on the extension.
+what the difference does: in LTE and in non-LTE the spectra are unchanged to within a few per cent (in non-LTE, the
+iteration drift). Beyond $30R$ even W30 relies on the extension.
 
 ::: {.callout-note title="Closed since the last version"}
 - **The finer adaptive run** had stalled on a convective flux of $2L_0$ just below the shock. There the pressure is set
