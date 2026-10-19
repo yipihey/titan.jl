@@ -837,3 +837,28 @@ starts at 1e3 < n_crit, where LTE populations overcool (first 500 steps: T_c 161
 the low-density limit). Source function × f = 1/(1 + Λ_LTE/(n_H Λ₀)) per zone (the GP98/HM79 combination of
 `cool_H2_thin`; env NLTE=0 for pure LTE) [design: an escape-probability-free approximation; f → 1 above ≈ 1e5 cm⁻³].
 Cost: ≈ 0.6 s per step on 6 cores before the thin shortcut and bin changes.
+
+### M3b result: collapse of the z = 19 cloud with H₂ line transfer [run]
+
+`IC=abn02z19 TCMB=54.5 NSTOP=1e18`, `lines` (H2Lines transfer for the lines, non-LTE factor on, RA04 CIE for the
+continuum), 200 shells, Saha+SCVH95 above ρ_eq; log `lib/popiii/m2c_abn02z19_lines_n200_v1.log`. 8303 steps; all lines
+thin (shortcut) below n_c ≈ 1e9, 23 thick at 1e10, 99 at 1e12, 157 at 1e14, 206 at 1e16, 224 of 231 at 1e18. Line
+luminosity 1.8e33 erg/s (n_c = 1e4) → 2.7e34 (1e8) → 4.2e36 (1e12) → 6.5e36 (1e16–1e18; RHFC02 P100: ≈ 1e36 at
+τ_c = 1 for 100 M☉; this cloud's molecular envelope is larger).
+
+| log n_c | T_c, H₂ line transfer + RA04 CIE | f_H2 | T_c, RA04 local fits | ON98 |
+|---|---|---|---|---|
+| 6 | 260 | 0.00118 | 254 | 251 |
+| 8 | 638 | 0.00166 | 634 | 398 |
+| 10 | 816 | 0.0506 | 802 | 554 |
+| 12 | 1273 | 0.867 | 1245 | 1122 |
+| 14 | 1731 | 0.962 | 1751 | 1650 |
+| 16 | 2241 | 0.883 | 2260 | 2218 |
+| 17 | 2488 | 0.883 | 2506 | 2985 |
+| 18 | 3090 | 0.743 | 3105 | 3700 |
+
+- **H₂ line transfer and RA04's local fits give the same central track within 1–2 %** at every density, as RA04
+  claimed for their simplified model against R02. The 17 % deficit against ON98 at 1e18 (3090 vs ≈ 3700 K) therefore
+  does not come from the line cooling; it stays with the continuum (RA04's CIE fit vs ON98's continuum treatment), the
+  EOS, or the ON98 read-off. Our track agrees with RHFC02's stage 4 (3000 K).
+- Cost: 8303 steps in < 2 h with 16 threads (most steps have few thick lines).
