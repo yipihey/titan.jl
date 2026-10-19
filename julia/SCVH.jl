@@ -5,8 +5,11 @@ Saumon, Chabrier & Van Horn (1995, ApJS 99, 713) equation-of-state tables for H 
 h_tab_i.dat, he_tab_i.dat; copies from YREC, see POPIII_NOTES M2e). Each table: 63 isotherms, log T = 2.10 … 7.06 in
 steps of 0.08; per isotherm a header `logT npts`, then rows
   log P, X_H2, X_H, log ρ, log S, log U, (∂log ρ/∂log T)_P, (∂log ρ/∂log P)_T, (∂log S/∂log T)_P, (∂log S/∂log P)_T, ∇_ad
-(cgs; X = number concentrations of H₂ and H for the H table — for He the corresponding He and He⁺ — [interp: column
-meanings from the SCVH95 table description, readme.doc not obtained]).
+(cgs; X = number concentrations of H₂ and H for the H table, and of He and He⁺ for the He table). The column order
+is confirmed by an independent labelled copy: github.com/chreinhardt/scvh, eos-tables-pt/hydrogen_scvh_extended.data,
+header "log T, logP, x_H2, x_H, logRho, logE, logS". At log T = 2.10 and log P = 4.0 its logE = 10.1201 and
+logS = 8.8910 are this table's columns 6 and 5. That copy extends to log T = 1.06 and low P with Kovetz et al.
+(2009); not used here.
 
 Mixture (SCVH95 additive-volume rule): at fixed (P, T), 1/ρ = X/ρ_H + Y/ρ_He, U = X U_H + Y U_He (the entropy of
 mixing is ignored here: it does not enter p or U).
