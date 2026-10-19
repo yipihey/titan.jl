@@ -82,4 +82,93 @@ function chem!(m::PrimordialGas)
     dTmax
 end
 
+
+# ====================================================================== G5: network gas (ChemNet) with an EOS-validity switch
+"""
+    NetGas(x, net, photos, cooling; env, pswitch = 1e4)
+
+Metal-free gas with the general network (ChemNet/ChemRates; composition `x[k]` = free-species abundances per zone). The
+switch to the equilibrium EOS table (PopIIIEqEOS: Saha + SCVH95) is made on **EOS validity, not density**: where the
+ideal-gas pressure of the zone is ≥ `pswitch` (RHFC02: non-ideal effects from 1e4 dyn cm⁻², SCVH95 from 1e6 with a
+blend between) — the network (detailed balance, implicit, L-stable) already relaxes to equilibrium by itself wherever
+the chemistry is fast, so no ρ_eq is needed. `env` supplies J_ν for photo-processes (`ChemNet.photorates`); default
+the CMB/zero field given by the caller.
+"""
+mutable struct NetGas <: TM.Material
+    x::Vector{Vector{Float64}}           # per zone index k
+    net::Any; photos::Any
+    cooling::Union{Nothing,Function}     # (ρ, T, d::Dict) -> Λ
+    env::Any                             # (Trad, J)
+    pswitch::Float64
+    eqzone::Vector{Bool}                 # per zone: in the equilibrium (table) regime after the last chem! step
+    Λext::Vector{Float64}
+end
+NetGas(x, net, photos, cooling; env, pswitch = 1e4) =
+    NetGas(x, net, photos, cooling, env, pswitch, falses(length(x)), zeros(length(x)))
+
+import ..ChemNet
+const CNn = ChemNet
+
+@inline function TX.material_gas(m::NetGas, ρ, T)
+    k = TX.ZONE[]
+    if m.eqzone[k]
+        u, p = EQ.eos(ρ, T)
+    else
+        u, p = CNn.eos(ρ, T, m.x[k], m.net)
+    end
+    return p, u, sqrt(5.0 / 3.0 * p / ρ)
+end
+function TM.fill_eos!(m::NetGas)
+    dn, tn, pgn, egn, asn = TM.v(:dn), TM.v(:tn), TM.v(:pgn), TM.v(:egn), TM.v(:asn)
+    @inbounds for k in TM.krange()
+        (dn[k] > 0 && tn[k] > 0) || continue
+        TX.ZONE[] = k
+        pg, eg, as_ = TX.material_gas(m, dn[k], tn[k])
+        pgn[k] = pg; egn[k] = eg; asn[k] = as_
+    end
+    nothing
+end
+TM.fill_opac!(::NetGas) = nothing
+
+"Free-species vector from the equilibrium table's composition (H₂, H⁺; H⁻ and Li⁺ in Saha with the table's electrons)."
+function x_from_table(m::NetGas, ρ, T)
+    y = EQ.composition(ρ, T); nH = ρ / CNn.μH()
+    xH2 = y[3]; xHp = y[1]; xH = 1 - xHp - 2xH2
+    ne = xHp * nH
+    xHm = xH * ne / CNn.Keq([:Hm], [:H, :e], T)
+    out = zeros(length(m.net.free))
+    for (i, s) in enumerate(m.net.free)
+        out[i] = s === :Hp ? xHp : s === :H2 ? xH2 : s === :Hm ? xHm :
+                 s === :Lip ? (K = CNn.Keq([:Li], [:Lip, :e], T); CNn.yLi * K / (K + max(ne, 1e-300))) : 0.0
+    end
+    out
+end
+
+"After a converged hydro step: network step per zone in the ideal regime, equilibrium-table step where p ≥ pswitch."
+function chem!(m::NetGas)
+    a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
+    dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
+    dn, tn, egn, pgn = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:pgn)
+    dTmax = 0.0
+    for k in a:b
+        Λx = m.Λext[k]
+        cool = Λx == 0 ? m.cooling : (m.cooling === nothing ? ((ρ, T, d) -> Λx) : ((ρ, T, d) -> m.cooling(ρ, T, d) + Λx))
+        if pgn[k] >= m.pswitch
+            coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
+            _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
+            m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
+        else
+            m.eqzone[k] && (m.eqzone[k] = false)     # (back to the ideal regime: the network continues from the table composition)
+            x1, T1 = CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = m.env, photos = m.photos, cooling = cool)
+            m.x[k] = x1
+        end
+        dTmax = max(dTmax, abs(T1 / tn[k] - 1)); tn[k] = T1
+    end
+    for k in a-2:a-1; k >= 1 && (m.x[k] = m.x[a]; m.eqzone[k] = m.eqzone[a]); end
+    for k in b+1:b+2; m.x[k] = m.x[b]; m.eqzone[k] = m.eqzone[b]; end
+    tn[a-1] = tn[a]; tn[b+1] = tn[b]; tn[b+2] = tn[b]
+    TM.fill_eos!(m)
+    dTmax
+end
+
 end # module

@@ -1144,3 +1144,27 @@ steps after it stalled at 1e21 cm⁻³): network/equilibrium = 1.0000 for H₂, 
 (1e16, 2000 K) where x_H⁺ ~ 1e-22, 0.3–2 % at (1e16, 8000 K). Li electrons with the network self-consistent: at (1e18,
 3000 K) x_e = 4.16e-10 (vs 4.45e-10 from PrimordialChem.ne_with_Li, which adds Li⁺ to an unchanged H⁺: the extra
 electrons suppress H⁺ 13×).
+
+### G5 network chemistry in the collapse [run]
+`PopIIIMaterial.NetGas`: ChemNet network (`ChemNet.step`, coupled with T and cooling) per zone; the Saha+SCVH table
+(`PopIIIEqEOS`) where the ideal-gas pressure ≥ PSWITCH (default 1e4 dyn cm⁻², RHFC02's EOS validity) — a criterion on
+the EOS, not a tuned ρ_eq. Driver: `CHEM=rhfc02 | net | netmodern | netmodernli` in popiii_m2c.jl (default rhfc02 unchanged).
+- P100 `ra04`, `CHEM=net` (RHFC02 network in ChemNet) vs the reference `m2c_ra04_n100_eq.log` (PrimordialGas, ρ_eq = 5e-11):
+
+  | log n_c | 8 | 10 | 12 | 14 | 16 | 17 |
+  |---|---|---|---|---|---|---|
+  | T_c ref / net [K] | 390 / 374 | 621 / 608 | 1066 / 1061 | 1749 / 1800 | 2196 / 2213 | 2545 / 2466 |
+  | f_H2 ref / net | 3.8e-3 / 3.7e-3 | 0.331 / 0.325 | 0.951 / 0.951 | 0.968 / 0.975 | 0.934 / 0.963 | 0.893 / 0.919 |
+
+  Above 1e14 the network stays out of equilibrium up to the pressure switch (n_c ≈ 5e16), so f_H2 is higher than the
+  reference's Saha by up to 3 %. At the switch, T_c dips by 0.07 % and max dT/T is ≈ 5e-2 for ≈ 40 steps: a mild kick, no jump.
+- `CHEM=netmodernli` first died at step 0 with NaN: below ≈ 200 K, K(H → H⁺ + e) and K(Li → Li⁺ + e) underflow to 0, so
+  the detailed-balance reverses k_f/K and the Milne α = A/K became 0/0. Fixed in general:
+  - `ChemNet.lnKeq`.
+  - Reverses are formed in logarithms. Below the underflow temperature of an endothermic fit (T_u ≈ ΔE/700k), the
+    exothermic reverse is extrapolated as a power law from [T_u, 2T_u].
+  - `Photo` is now a list of levels (E_x, g, E_th, σ(ν)) with the electronic partition function. The Milne integral is
+    done per level with the Boltzmann factor and 1/K in one exponent.
+  - All rates are finite at 35 K. With J = B, R/(αK) = 1 ± 1e-15 for H⁻, H and Li at 100 K–1e4 K.
+  - The per-level frequency grids raise H's Milne total over case A from 0.60/0.86/1.00 to 0.81/0.91/0.95 at 1e3/3e3/1e4 K.
+    At 35 K it is 0.26 (n ≤ 15 truncation; the Hummer–Mihalas follow-up).

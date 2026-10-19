@@ -86,11 +86,13 @@ const SPECIES = Dict{Symbol,Species}(
 )
 Ztr(s::Species, T) = (2π * s.m * kB * T / hP^2)^1.5
 "Equilibrium constant Π_P n / Π_R n [cm^{-3 Δν}] of R → P (vectors of species names, repeats allowed)."
-function Keq(R, P, T)
+Keq(R, P, T) = exp(lnKeq(R, P, T))
+"ln Keq — use this where K itself under- or overflows (ionisation equilibria below a few hundred K)."
+function lnKeq(R, P, T)
     lnK = zero(T)
     for p in P; s = SPECIES[p]; lnK += log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
     for r in R; s = SPECIES[r]; lnK -= log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
-    exp(lnK)
+    lnK
 end
 
 # ------------------------------------------------------------------ reactions
@@ -99,13 +101,20 @@ struct Reaction
     R::Vector{Symbol}; P::Vector{Symbol}
     k::Function           # (T, env) -> rate coefficient [cm^{3(n_R−1)} s⁻¹]
 end
-"Photo-process X + γ → products with cross section σ(ν, T) (T: the species' level populations, e.g. atomic H's excited
-levels in Boltzmann ratio) above the threshold energy Eth."
+"""
+Photo-process X + γ → products from the levels of X: `levels` = [(E_x, g, E_th, σ(ν)), …] (excitation energy above X's
+ground state, statistical weight, threshold, cross section), populated in Boltzmann ratio g e^{−E_x/kT}/Z(T) with Z the
+electronic partition function of X (the same as in X's Zint, so that the Milne pair gives Saha exactly).
+"""
 struct Photo
     name::String
-    R::Symbol; P::Vector{Symbol}; σ::Function; Eth::Float64
+    R::Symbol; P::Vector{Symbol}
+    levels::Vector{Tuple{Float64,Float64,Float64,Function}}
+    Z::Function
     milne::Bool           # add the inverse (radiative attachment/recombination) from the Milne relation
 end
+"Single-level process with cross section σ(ν) above Eth."
+Photo(name, R, P, σ::Function, Eth::Real, milne::Bool) = Photo(name, R, P, [(0.0, 1.0, Float64(Eth), σ)], T -> 1.0, milne)
 struct Network
     species::Vector{Symbol}          # all species in the network (incl. eliminated; He as inert spectator)
     free::Vector{Symbol}             # the unknowns
@@ -117,22 +126,47 @@ function with_db(list)
     out = Reaction[]
     for (r, db) in list
         push!(out, r)
-        db && push!(out, Reaction(r.name * " (reverse, detailed balance)", r.P, r.R, (T, env) -> r.k(T, env) / Keq(r.R, r.P, T)))
+        db && push!(out, Reaction(r.name * " (reverse, detailed balance)", r.P, r.R, reverse_k(r)))
     end
     out
 end
+"""
+k_r = k_f / K, formed in logarithms. An endothermic k_f (∝ e^{−ΔE/kT}) underflows below T_u ≈ ΔE/(700 k) (225 K for H
+ionisation); there k_r — the exothermic direction, a power law in T — is extrapolated from [T_u, 2T_u] as a power law.
+"""
+function reverse_k(r::Reaction)
+    Tu = Ref(NaN)
+    lnkr(T, env) = log(r.k(T, env)) - lnKeq(r.R, r.P, T)
+    function k(T, env)
+        kf = r.k(T, env)
+        kf > 1e-290 && return exp(log(kf) - lnKeq(r.R, r.P, T))
+        iszero(kf) || kf > 0 || return zero(T)                 # a fit that is ≤ 0 (clipped) stays 0
+        if isnan(Tu[])
+            t = ForwardDiff.value(T); while r.k(t, env) <= 1e-290 && t < 1e6; t *= 1.05; end
+            Tu[] = t
+        end
+        Tu[] >= 1e6 && return zero(T)
+        a = lnkr(Tu[], env); s = (lnkr(2Tu[], env) - a) / log(2.0)
+        exp(a + s * log(T / Tu[]))
+    end
+end
 
 "Photo-rate [s⁻¹] 4π∫σJ/(hν)dν and the Milne inverse coefficient α for A + e → X + γ (stimulated emission included)."
-function photorates(p::Photo, T, env; n = 400)
-    ν0 = p.Eth / hP; νs = [ν0 * exp(x) for x in range(0.0, log(1 + 60kB * max(T, env.Trad) / p.Eth + 30.0), length = n + 1)]
-    R = 0.0; A = 0.0
-    for i in 1:n
-        ν = 0.5 * (νs[i] + νs[i+1]); dν = νs[i+1] - νs[i]; σ = p.σ(ν, T); J = env.J(ν)
-        R += 4π * σ * J / (hP * ν) * dν
-        A += 4π * σ / (hP * ν) * (2hP * ν^3 / c^2 + J) * exp(-hP * ν / (kB * T)) * dν
+function photorates(p::Photo, T, env; n = 200)
+    # α = Σ_levels (n_l/Π n_P)_eq × 4π∫σ_l/(hν)(2hν³/c² + J) e^{−hν/kT} dν, (n_l/Π n_P)_eq = g_l e^{−E_x/kT}/(Z K(X → P));
+    # the Boltzmann factors and 1/K are combined in one exponent (each alone under/overflows below a few hundred K)
+    lnK = lnKeq([p.R], p.P, T); Z = p.Z(T); R = 0.0; A = 0.0
+    for (Ex, g, Eth, σf) in p.levels
+        ν0 = Eth / hP; νs = [ν0 * exp(x) for x in range(0.0, log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), length = n + 1)]
+        w = g / Z; Rl = 0.0; Al = 0.0
+        for i in 1:n
+            ν = 0.5 * (νs[i] + νs[i+1]); dν = νs[i+1] - νs[i]; σ = σf(ν); J = env.J(ν)
+            Rl += 4π * σ * J / (hP * ν) * dν
+            Al += 4π * σ / (hP * ν) * (2hP * ν^3 / c^2 + J) * exp(-(Ex + hP * ν) / (kB * T) - lnK) * dν
+        end
+        R += w * exp(-Ex / (kB * T)) * Rl; A += w * Al
     end
-    # α = (n_X/(n_products))_eq × A, (n_X / Π n_P)_eq = 1/K(X → P)
-    R, A / Keq([p.R], p.P, T)
+    R, A
 end
 
 # ------------------------------------------------------------------ composition

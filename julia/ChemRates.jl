@@ -30,20 +30,14 @@ function rhfc02(; k5 = PC.k5_pss)
 end
 
 """
-Photo-ionisation cross section of atomic H with its levels n ≤ ChemNet.NH_LEVELS populated in Boltzmann ratio to the
-ground state at T: σ(ν, T) = Σ_n p_n(T) σ_n(ν), Kramers σ_n = 7.91e-18 n (ν_n/ν)³ cm² (g = 1) for ν ≥ ν_n = ν₁/n². Its Milne
-inverse is the total radiative recombination (≈ case A); with J = B the pair gives Saha exactly (the partition function
-of H includes the same levels). Order-of-magnitude cross sections (Gaunt factors 1); to refine with exact hydrogenic σ.
+Photo-ionisation of atomic H from its levels n ≤ ChemNet.NH_LEVELS (Boltzmann populations, ChemNet.Photo): 1s from
+Verner et al. 1996, n ≥ 2 Kramers σ_n = 7.91e-18 n (ν_n/ν)³ cm² (Gaunt factor 1) for ν ≥ ν_n = ν₁/n². Its Milne inverse
+is the total radiative recombination (≈ case A); with J = B the pair gives Saha exactly (the partition function of H
+includes the same levels). Order-of-magnitude cross sections for n ≥ 2; to refine with exact hydrogenic σ.
 """
-function σ_H(ν, T)
-    ν1 = 13.598 * 1.602176634e-12 / 6.62607015e-27; Z = CN.ZH_el(T); s = 0.0
-    for n in 1:CN.NH_LEVELS
-        νn = ν1 / n^2; ν < νn && continue
-        pn = 2n^2 * exp(-13.598 * 1.602176634e-12 * (1 - 1 / n^2) / (1.380649e-16 * T)) / Z
-        s += pn * (n == 1 ? σ_verner(ν, 13.598, VERNER_HI) : 7.91e-18 * n * (νn / ν)^3)
-    end
-    s
-end
+levels_H() = [(CN.χH * (1 - 1 / n^2), 2.0n^2, CN.χH / n^2,
+               n == 1 ? (ν -> σ_verner(ν, 13.598, VERNER_HI)) : (ν -> 7.91e-18 * n * (CN.χH / n^2 / (6.62607015e-27 * ν))^3))
+              for n in 1:CN.NH_LEVELS]
 """
 Verner et al. (1996, ApJ 465, 487) outer-shell fit, as coded in D. A. Verner's phfit2.f (version 2, 1996; copy in FAC
 `ionis/phfit2.f`): σ = σ₀ [(x−1)² + y_w²] z^{0.5P−5.5} (1 + √(z/y_a))^{−P} Mb, x = E/E₀ − y₀, z = √(x² + y₁²), for E ≥ E_th.
@@ -58,26 +52,20 @@ end
 const VERNER_HI = (4.298e-1, 5.475e4, 3.288e1, 2.963, 0.0, 0.0, 0.0)       # PH2(1,1): H I 1s
 const VERNER_LiI = (3.107, 6.245e1, 1.501e1, 4.895, 0.0, 0.0, 0.0)        # PH2(3,3): Li I 2s, threshold 5.392 eV
 """
-Li photo-ionisation from its levels (ChemNet.LI_LEVELS) in Boltzmann ratio: ground 2s from Verner et al. 1996; excited
+Li photo-ionisation from its levels (ChemNet.LI_LEVELS, Boltzmann populations): ground 2s from Verner et al. 1996; excited
 levels hydrogenic (Kramers, σ = 7.91e-18 n* (ν_th/ν)³ cm², n* the effective quantum number) — approximate. The Milne
 inverse is then the total radiative recombination (≈ case A), checked against GP98 Li1 (Verner & Ferland 1996).
 """
-function σ_Li(ν, T)
-    Z = CN.ZLi_el(T); s = 0.0; E = 6.62607015e-27 * ν
-    for (i, (Ex, g, ns)) in enumerate(CN.LI_LEVELS)
-        Eth = CN.χLi - Ex; E < Eth && continue
-        p = g * exp(-Ex / (1.380649e-16 * T)) / Z
-        s += p * (i == 1 ? σ_verner(ν, 5.392, VERNER_LiI) : 7.91e-18 * ns * (Eth / E)^3)
-    end
-    s
-end
+levels_Li() = [(Ex, g, CN.χLi - Ex,
+                i == 1 ? (ν -> σ_verner(ν, 5.392, VERNER_LiI)) : (ν -> 7.91e-18 * ns * ((CN.χLi - Ex) / (6.62607015e-27 * ν))^3))
+               for (i, (Ex, g, ns)) in enumerate(CN.LI_LEVELS)]
 """
 Voronov (1997, ADNDT 65, 1) collisional ionisation by electrons: k = A (1 + P√U) U^K e^{−U}/(X + U) cm³ s⁻¹, U = ΔE/kT
 (coefficients as in the AMUSE/SPHRAY and FAC copies of Voronov's table). Li I: ΔE 5.4 eV, P 0, A 1.39e-7, X 0.438, K 0.41.
 """
 voronov(T, dE, P, A, X, K) = (U = dE * 11604.518 / T; A * (1 + P * sqrt(U)) * U^K * exp(-U) / (X + U))
 "H⁻ photodetachment (John 1988), ν in Hz."
-σ_Hm(ν, T) = CO.σ_Hm_bf(2.99792458e14 / ν)
+σ_Hm(ν) = CO.σ_Hm_bf(2.99792458e14 / ν)
 
 """
 Modern set: detailed balance for every reversible channel. Returns (net, photos).
@@ -104,7 +92,7 @@ function modern(; li = false)
     ]
     rx = CN.with_db(lst)
     photos = [CN.Photo("H- + γ → H + e (John 1988)", :Hm, [:H, :e], σ_Hm, 0.754 * 1.602176634e-12, true),
-              CN.Photo("H(n ≤ 8) + γ → H+ + e (hydrogenic, Boltzmann levels)", :H, [:Hp, :e], σ_H, 13.598 * 1.602176634e-12 / CN.NH_LEVELS^2, true)]
+              CN.Photo("H(n ≤ $(CN.NH_LEVELS)) + γ → H+ + e (Verner 1s + Kramers, Boltzmann levels)", :H, [:Hp, :e], levels_H(), CN.ZH_el, true)]
     species = [:H, :Hp, :Hm, :H2, :H2p, :e, :He]; free = [:Hp, :Hm, :H2, :H2p]
     if li
         # G4: lithium (Li, Li⁺; Li⁻ and LiH not yet). Sources: rates_li_extraction.md (GP98 Table 4), Verner 1996,
@@ -117,7 +105,7 @@ function modern(; li = false)
             (R("Li + H+ → Li+ + H + γ (GP98 Li8, Stancil & Zygelman 1996)", [:Li, :Hp], [:Lip, :H], k(T -> 1.7e-13 * T^-0.051 * exp(-T / 282000))), false),
         ]
         append!(rx, CN.with_db(lst_li))
-        push!(photos, CN.Photo("Li(levels) + γ → Li+ + e (Verner 1996 + hydrogenic)", :Li, [:Lip, :e], σ_Li, CN.χLi - CN.LI_LEVELS[end][1], true))
+        push!(photos, CN.Photo("Li(levels) + γ → Li+ + e (Verner 1996 + hydrogenic)", :Li, [:Lip, :e], levels_Li(), CN.ZLi_el, true))
     end
     CN.Network(species, free, rx), photos
 end
