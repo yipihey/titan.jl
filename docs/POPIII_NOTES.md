@@ -999,3 +999,8 @@ absorption-only (abs.) mean, S = B_ν.)
    10 cm⁻¹ … max(1e5, 25 kT_max/hc) (`popiii_regimes.fgrid`, `ContinuumOpacity.grid(; T)`): F/F_D = 0.97–1.06 across the
    core (0.99 over most of it; Δτ_R per zone 1e12).
 4. **M3b line-transfer collapse with the corrected solver**: rerun as `_v2` (in progress).
+   Regime analysis rerun with the scaled grid (`lib/popiii/m3c_regimes_li.txt` replaced): unchanged below log n_c ≈ 20
+   (the grid already covered the spectrum); central F/F_D (extinction) at log n_c = 22.1: 0.996 (was 0.80); last snapshot
+   (22.8): 0.99 (was 0.17). Remaining: 1.15 (extinction) / 1.7 (absorption) at log n_c = 21.1, during core formation,
+   where dissociation and the onset of ionisation make κ_ν vary steeply within single zones — a transition zone, not a
+   regime boundary.
