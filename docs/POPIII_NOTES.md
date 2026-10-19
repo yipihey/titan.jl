@@ -471,3 +471,64 @@ failed on any shock-free run (`shellmass()` summed over an empty range, from the
 dynamical time step), with all tests passing. Left for later: Eddington factors with r = 0 (M0.1 item 4; needed with
 radiation, M2b/M3); the adaptive grid with interior mass (M4).
 **Default for the collapse runs: θ = 0.5, C_dyn ≤ 0.01** (to revisit with shocks in M3).
+
+## M2a Primordial chemistry module and one-zone tracks (19 Oct 2026) [read-src + run]
+
+**Rate sources** — full extraction, verbatim formulas, page references and every cross-check: `docs/popiii_rates_extraction.md`
+(compiled by a subagent from the page images of AAZN97 (Abel, Anninos, Zhang & Norman 1997, New Astron. 2, 181),
+GP98, GA08, RA04, RA05, RHFC02; spot values re-checked here [run]).
+- **RHFC02 Table A1 is fully specified**: AAZN97 k1, k2 (case A), k7, k8 [read-src]; PSS83 k4 = 5.5e-29/T, k5 =
+  6.5e-7 T^−½ e^−52000/T (1 − e^−6000/T), k6 = k4/8, k7 = k5/8, k9 = 1.7e-4 × 5.8e-11 T^½ e^−158000/T — **PSS83 only
+  through RA04/RA05** (and the ADS OCR text layer of PSS83 Table 1, which agrees; the page images beyond p. 632 are not
+  reachable). RHFC02's "AANZ98" is AAZN97 (the k-numbers match its appendix tables).
+- Printing errors found in the sources: RA05 k5 unit (cm⁶ for cm³); GA08 three-body units (cm³ for cm⁶); GA08 k7 and
+  AAZN97 k9 "log" means ln; AAZN97's printed k13 (the code's form agrees with GA08); AAZN97's formation-cooling formula
+  (1.38 for 1.83 eV, k10 missing); RA04 eq. 6 factor 2 (M0.4).
+- **ChemistryKernels.jl / EmissionKernels.jl are not RHFC02** (M0.5 confirmed in detail): case-B recombination; the
+  ABN02 three-body rate (14× below PSS83); no H-impact dissociation below 3481 K; no H₂-partner three-body channels; an
+  unsourced heating suppression n/(n + 1e8); H₂–H⁺ and H₂–e⁻ cooling fits that do not match GA08 although labelled so;
+  an LTE fit that is not HM79 (0.55× at 8000 K). They stay a cross-check only.
+- **Detailed balance [run]**: PSS83's k5/k4 = 0.25 × K_Saha(T) (0.256 at 1000 K → 0.250 at 5000 K; K from partition
+  functions, `PrimordialChem.K_H2`). The PSS83 network relaxes to an equilibrium 4× too molecular in K; RHFC02 switched
+  to Saha/SCVH equilibrium above ρ_eq = 5e-11 g cm⁻³ anyway. RA04's modified k5 is 0.13–0.34 K (no constant factor).
+  Option `k5_db` = k4 K_H₂ (modern, detailed balance).
+
+**Code** `julia/PrimordialChem.jl`:
+- Species H, H⁺, H⁻, H₂, H₂⁺, e⁻, He (neutral, n_He/n_H = 1/12); unknowns x_H⁺, x_H⁻, x_H₂, x_H₂⁺; **x_H and x_e
+  eliminated (H nuclei and charge conserved by construction, to round-off)**.
+- `rates_rhfc02(; k5, tb)`: the faithful set; `k5_ra04`, `k5_db` options. AAZN97 H₂⁺ channels etc. not yet (RHFC02 has
+  none; needed for the modern set).
+- EOS `eos_rhfc02` (A6–A9): u_th = Σ N_i kT/(γ_i − 1) with H₂ from Eq. A9, u_chem = −Σ N_i χ_i (H₂ 4.48 eV, H 13.6 eV,
+  H⁻ 0.754 eV, H₂⁺ 2.65 eV). [interp] RHFC02's "weighted average of the adiabatic indexes" read as the number-weighted
+  average of 1/(γ−1), which is what makes u_th = Σ N_i kT/(γ_i − 1). Checks: c_v = 1.625 k per H nucleus (atomic),
+  1.875 k (molecular, vibration excited); T(u) inverts to round-off.
+- Cooling: `cool_H2_thin` (RA05 eq. 1.22: HM79 LTE / (1 + LTE/(n_H Λ_GP98)), per molecule × n_H₂; n_H = atomic H);
+  `cool_H2_ra04` (× min(1, (ρ/m_H/8e9)^−0.45)); `cool_CIE_ra04` (A = 0.054, escape factor (1−e^−τ)/τ with
+  τ = (ρ/3.3e-8)^2.8).
+- **`step_coupled`: chemistry and T solved together** (backward Euler in y with the rates at the new T, plus
+  u(ρ, T, y) = u; damped Newton keeping every abundance including x_H, x_e ≥ 0; recursive halving). Found necessary:
+  with rates held at a fixed T (operator split), H₂ dissociation at T ≳ 2000 K absorbed more than the thermal energy in
+  one step and u fell below u(T → 0). This is the chemo-thermal coupling that M0.2 option (A) worried about; within
+  the chemistry step it is now exact. Cooling is implicit in T (backward Euler) — the cooling time can be ≪ the step.
+- `onezone`: dρ/dt = ρ/t_ff, Δln ρ steps; (1) compression (trapezoid in p) + implicit cooling at fixed y, (2)
+  `step_coupled` at fixed u.
+
+**One-zone tracks** (`julia/popiii_m2_onezone.jl cooling k5`, logs `lib/popiii/m2_onezone_*.log`), from RHFC02 P100's
+centre (ρ/m_H = 2.6e6, 270 K, f_H₂ = 5e-4, f_e = 1e-10):
+- three-body conversion: f_H₂ = 1e-2 at log ρ/m_H = 9.4, 0.23 at 10.4, 0.78 at 11.4, 0.97 at 12.4 (RHFC02: "n ≳ 1e8,
+  3-body reactions efficient ... stages 2–3");
+- thin cooling only: T 660–830 K at 1e12–1e14, still molecular at 1e17 (1936 K);
+- RA04 thick lines: dissociation from ≈ 1800 K, the "thermostat" holds T ≈ 2300–3300 K at 1e15–1e17 (f_H₂ 0.89 → 0.62);
+  RHFC02 stage 4: T_c = 3000 K, "H₂ is dissociating";
+- RA04 lines + CIE: CIE cools from 2050 to 1690 K around 1e15–1e16, then T rises (2440 K at 1e17).
+- k5 choice (PSS83 / detailed balance / RA04) at log ρ/m_H = 17.9: T = 2841 / 2696 / 2845 K — a 5 % systematic.
+- Δln ρ = 0.01 vs 0.003: max |ΔT/T| = 3.5 %, |Δf| = 2.7e-3 (first order; where it peaks: to locate).
+- **The one-zone free fall is not RHFC02's centre early on**: the P100 centre takes 7.2e5 yr from stage 0 to 1
+  (Table 2), the free fall from the same state 4.4e4 yr to the same density; adiabatic heating then dominates and the
+  one-zone gas is at ~1000 K at 1e8 where RHFC02 has 450 K. RHFC02's cloud starts near hydrostatic equilibrium; the
+  comparison with RHFC02 is the 1D run (M2c/M3), not this.
+
+**Next (M2b/M2c):** the chemistry and the RHFC02 EOS as a TITAN material (composition per Lagrangian shell, operator
+split chemistry with `step_coupled` per shell after each hydro step, as M0.2 (A), u kept by the energy row); the
+1D collapse of P100 with thin / RA04 local cooling (RA04's own 1D test) against RHFC02's stage table; then the
+continuum (Lenzuni Planck mean, faithful) and line transfer (M3). Saha equilibrium switch at ρ_eq.
