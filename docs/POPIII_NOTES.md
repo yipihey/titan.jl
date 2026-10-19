@@ -900,3 +900,34 @@ Measured directly on the collapse: frequency-resolved flux vs the Rosseland diff
 Windows between the CIA bands dominate the absorption Rosseland mean up to ≈ 1e18 (10⁸ below κ_P at 1e14); there the
 extinction mean is set by Rayleigh scattering — photons in the windows scatter but are barely absorbed (not
 thermalised). The spectrum fills in with H⁻ at ≳ 1e20, 4000–6000 K: κ_P/κ_R → 7 → 1.3 and absorption ≈ extinction.
+
+**Formal-solution fix (M3c) [run].** The first regime analysis gave F/F_D = 1e4–1e5 deep in the core — a solver error:
+(i) the source function was constant per zone (with optically thick zones the flux then arises only from the jumps
+between zones), and (ii) once made linear in τ between the interfaces, the short-characteristic step had S_in and
+S_out swapped in its weights (invisible as long as S_in = S_out — hence all earlier tests passed). Correct:
+I_out = I_in e^{−Δτ} + S_out (w₀ − w₁/Δτ) + S_in w₁/Δτ. Now: S at the interfaces (linear in r between zone centres), linear
+in τ along each segment, in `H2Lines.cooling` and the new general `H2Lines.formal_flux` (used by popiii_regimes).
+**New test** (h2lines_test.jl §4): grey sphere, T = T₀(1 − 0.5 (r/R)²): F/F_D = 0.993–0.999 for χR = 1e2–1e5 (Δτ per zone up
+to 1.2e3), 0.94–0.96 at χR = 10 (not yet diffusive, expected). A single Gaussian line is not a diffusion test (its wings
+stay thin). **Consequence:** the M3b line-transfer collapse (constant S per zone) is suspect where single zones are
+optically thick in the lines with a temperature gradient (near the core); to be rerun.
+
+**H⁻ (Tom: "H⁻ has no bound states and should be very easy to be calculated always via photo attachment and detachment
+from the full radiation spectrum").** H⁻ has one bound state (0.754 eV, no excited bound states): a single fast steady
+state, computable from rates with J_ν (Milne relation → Saha when J = B). Which term dominates [run]:
+
+| n_H | T | photodetachment in a full Planck field [s⁻¹] | associative detachment k₈ n_H [s⁻¹] | ratio | x_e(H, Saha) | x_e(Li, Saha) |
+|---|---|---|---|---|---|---|
+| 1e14 | 1500 | 1.9e3 | 4.0e2 | 4.8 | 9e-22 | 2.2e-11 |
+| 1e16 | 2000 | 1.6e4 | 3.3e5 | 0.05 | 1.6e-16 | 3.0e-10 |
+| 1e18 | 3000 | 1.6e5 | 2.5e8 | 6e-4 | 3.1e-11 | 4.6e-10 |
+| 1e20 | 4000 | 6.1e5 | 2.4e10 | 3e-5 | 2.6e-9 | 4.6e-10 |
+| 1e21 | 6000 | 2.9e6 | 6.0e11 | 5e-6 | 1.2e-6 | 4.6e-10 |
+
+The radiation field controls H⁻ only below ≈ 1e15 cm⁻³ (where H⁻ is irrelevant for the opacity, and J < B anyway);
+above ≈ 1e16 associative detachment and its inverse (20–1e5× faster than photodetachment even in a Planck field)
+lock H⁻ to the collisional steady state = Saha with the local electrons. **The lever is n_e: lithium.** Li (5.39 eV)
+supplies the electrons below ≈ 3500 K (15× H's at 3000 K, ≫ at 1500–2000 K); our network has no Li → H⁻ opacity (∝ n_e)
+underestimated in the 1e16–1e19 window regime. Mayer & Duschl 2005 (Table 1: ⁷Li/H = (4.15 ± 0.45)e-10, SBBN, Coc et
+al. 2004; §2.3: "Lithium providing free electrons at comparably low temperatures (T ≈ 800…3000 K). These enhance the
+H⁻ … abundance in the high-density limit"). `popiii_regimes.jl` LI=1 (default) adds Li ⇌ Li⁺ + e⁻ in Saha.

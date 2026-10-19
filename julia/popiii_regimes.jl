@@ -22,44 +22,27 @@ L = HL.load()
 νs = [CO.c * 10^x for x in range(1.0, 5.0, length = 301)]
 νm = [0.5 * (νs[i] + νs[i+1]) for i in 1:300]; dν = diff(νs)
 
-"Composition of zone j: number densities; H⁻ from Saha with H + e (LTE: fast at these densities) unless larger in the network."
+const LiH = 4.15e-10          # ⁷Li/H, SBBN (Coc et al. 2004) as Mayer & Duschl 2005 Table 1
+const USELI = get(ENV, "LI", "1") == "1"
+"Saha ionisation of Li (5.3917 eV; statistical weights g(Li⁺) g(e)/g(Li) = 1·2/2): free electrons from Li at given n_e."
+KLi(T) = (2π * PC.me * PC.kB * T / PC.hP^2)^1.5 * exp(-5.3917PC.eV / (PC.kB * T))
+"""
+Composition of zone j: number densities. Electrons: the network's (or Saha's) x_e from H, plus Li ⇌ Li⁺ + e⁻ in Saha
+(LI=1, default; Li provides the electrons below ≈ 3500 K, Mayer & Duschl 2005 §2.3). H⁻: collisional steady state =
+Saha with the local electrons (associative detachment and its inverse are 20–1e5× faster than photodetachment in a full
+Planck field above 1e16 cm⁻³, M3c), unless the network has more.
+"""
 function comp(ρ, T, y)
     nHn = ρ / PC.μH; nH = PC.xH(y) * nHn; nH2 = y[3] * nHn; nHe = PC.yHe * nHn; nHp = y[1] * nHn; ne = max(PC.xe(y), 0.0) * nHn
+    if USELI                                                  # n_Li⁺ = n_Li K/(K + n_e), n_e = n_e,H + n_Li⁺ (fixed point)
+        nLi = LiH * nHn; K = KLi(T); ne0 = ne
+        for _ in 1:50; ne = ne0 + nLi * K / (K + ne + 1e-300); end
+    end
     nHm = max(y[2] * nHn, nH * ne * (PC.hP^2 / (2π * PC.me * PC.kB * T))^1.5 / 4 * exp(0.754PC.eV / (PC.kB * T)))
     (; nHn, nH, nH2, nHe, nHp, ne, nHm)
 end
 
-"Flux at each interface from a frequency-resolved formal solution on tangent rays (as H2Lines, no Doppler): χ[k, f], S[k, f]."
-function flux(r, χ, S)
-    n = size(χ, 1); nf = size(χ, 2); Fm = zeros(n + 1, nf)
-    Threads.@threads for f in 1:nf
-        Ff = zeros(n + 1); ΔI = zeros(n + 1, n)
-        for j in 1:n
-            p = r[j]; nk = n + 2 - j; zk = [sqrt(max(r[k]^2 - p^2, 0.0)) for k in j:n+1]
-            Iin = zeros(nk); I = 0.0
-            for m in nk-1:-1:1
-                kz = j + m - 1; I = HL.sh(I, χ[kz, f] * (zk[m+1] - zk[m]), S[kz, f], S[kz, f]); Iin[m] = I
-            end
-            I = Iin[1]
-            for (m, k) in enumerate(j:n+1)
-                if m > 1; kz = j + m - 2; I = HL.sh(I, χ[kz, f] * (zk[m] - zk[m-1]), S[kz, f], S[kz, f]); end
-                ΔI[k, j] = m == 1 ? 0.0 : I - Iin[m]
-            end
-        end
-        for k in 2:n+1
-            acc = 0.0
-            for j in 1:k-1
-                μa = sqrt(max(1 - (r[j+1] / r[k])^2, 0.0)); μb = sqrt(max(1 - (r[j] / r[k])^2, 0.0))
-                Ia = j + 1 <= n ? ΔI[k, j+1] : 0.0; Ib = ΔI[k, j]; d = μb - μa; d <= 0 && continue
-                s1 = (Ib - Ia) / d
-                acc += Ia * (μb^2 - μa^2) / 2 + s1 * ((μb^3 - μa^3) / 3 - μa * (μb^2 - μa^2) / 2)
-            end
-            Ff[k] = 2π * acc * dν[f]
-        end
-        Fm[:, f] .= Ff                  # one column per frequency (no shared writes between threads)
-    end
-    vec(sum(Fm; dims = 2))
-end
+flux(r, χ, S) = HL.formal_flux(r, χ, S .* reshape(dν, 1, :))      # S·dν: frequency integral
 
 @printf("%s: %d snapshots\n", ARGS[1], length(snaps))
 for (is, s) in enumerate(snaps)

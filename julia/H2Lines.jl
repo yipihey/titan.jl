@@ -13,7 +13,7 @@ the modern A-values are the "modern" switch, not a reproduction of RHFC02's numb
 302 levels of the list.
 
 Formal solution along a ray, per segment of optical depth Δτ with the source function linear in τ (short
-characteristics):  I_out = I_in e^{−Δτ} + S_in (w0 − w1/Δτ) + S_out (w1/Δτ),  w0 = 1 − e^{−Δτ},  w1 = w0 − Δτ e^{−Δτ}
+characteristics):  I_out = I_in e^{−Δτ} + S_out (w0 − w1/Δτ) + S_in (w1/Δτ),  w0 = 1 − e^{−Δτ},  w1 = w0 − Δτ e^{−Δτ}
 (Δτ ≪ 1: series), exact for S linear in τ, accurate in the diffusion limit.
 """
 module H2Lines
@@ -90,6 +90,14 @@ function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, τth
         # line-integrated opacity coefficient per zone: κ0_k = (hν/4π)(c²/2hν³) A (g_u/g_l n_l − n_u)   [cm⁻¹ × Hz]
         κ0 = [h * ν0 / (4π) * c^2 / (2h * ν0^3) * L.A[i] * nH2[k] * (gu / gl * pops[k][L.il[i]] - pops[k][L.iu[i]]) for k in 1:n]
         S = [fn[k] * Bν(ν0, T[k]) for k in 1:n]
+        # source at the interfaces (linear in r between zone centres; centre and surface: the zone value) — the segments
+        # use S linear in τ between the entry and exit interfaces, so the flux is right in optically thick zones with a
+        # gradient (constant S per zone gives the flux only through the jumps between zones)
+        Si = similar(S, n + 1); Si[1] = S[1]; Si[n+1] = S[n]
+        for k in 2:n
+            rc0 = 0.5 * (r[k-1] + r[k]); rc1 = 0.5 * (r[k] + r[k+1]); w = (r[k] - rc0) / (rc1 - rc0)
+            Si[k] = (1 - w) * S[k-1] + w * S[k]
+        end
         # optically thin line (RHFC02: "If the line absorption depth is < 0.1, we use the optically thin
         # approximation"): radial line-centre depth from the centre to the surface below τthin → emission 4π κ0 S per zone
         τc = sum(κ0[k] / (sqrt(π) * vth[k] / c * ν0) * (r[k+1] - r[k]) for k in 1:n)
@@ -125,14 +133,16 @@ function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, τth
                     φ = exp(-(vcom / vth[kz])^2) / (sqrt(π) * vth[kz] / c * ν0)
                     κ0[kz] * φ * (zk[m+1] - zk[m])
                 end
+                # segment m runs between interfaces j+m−1 (inner) and j+m (outer); at the tangent point of ray j (m = 1,
+                # inner end) the source is that of interface j
                 Iin = zeros(nk); I = 0.0
                 for m in nk-1:-1:1
-                    kz = j + m - 1; I = sh(I, dτ(m, -1.0), S[kz], S[kz]); Iin[m] = I
+                    I = sh(I, dτ(m, -1.0), Si[j+m], Si[j+m-1]); Iin[m] = I
                 end
                 I = Iin[1]; Iout1 = I
                 for (m, k) in enumerate(j:n+1)
                     if m > 1
-                        kz = j + m - 2; I = sh(I, dτ(m - 1, 1.0), S[kz], S[kz])
+                        I = sh(I, dτ(m - 1, 1.0), Si[j+m-2], Si[j+m-1])
                     end
                     ΔI[k, j] = m == 1 ? 0.0 : I - Iin[m]          # at the tangent point μ = 0: ΔI = 0
                 end
@@ -166,7 +176,45 @@ end
         return I * (1 - Δτ) + 0.5Δτ * (Sin + Sout)
     end
     e = exp(-Δτ); w0 = 1 - e; w1 = w0 - Δτ * e
-    I * e + Sin * (w0 - w1 / Δτ) + Sout * (w1 / Δτ)
+    I * e + Sout * (w0 - w1 / Δτ) + Sin * (w1 / Δτ)       # S(t) = S_out + (S_in − S_out) t/Δτ, t from the exit
 end
+
+"Frequency-integrated flux [per unit of the S·dν weights] at each interface from a formal solution on tangent rays without\nDoppler shifts: χ[k, f], S[k, f] per zone and frequency (S interpolated to the interfaces, linear in τ along segments);\neach frequency contributes with weight dν[f] = 1 (caller multiplies)."
+function formal_flux(r, χ, S)
+    n = size(χ, 1); nf = size(χ, 2); Fm = zeros(n + 1, nf)
+    Threads.@threads for f in 1:nf
+        Ff = zeros(n + 1); ΔI = zeros(n + 1, n)
+        Si = zeros(n + 1); Si[1] = S[1, f]; Si[n+1] = S[n, f]          # source at the interfaces (linear in r)
+        for k in 2:n
+            rc0 = 0.5 * (r[k-1] + r[k]); rc1 = 0.5 * (r[k] + r[k+1]); w = (r[k] - rc0) / (rc1 - rc0)
+            Si[k] = (1 - w) * S[k-1, f] + w * S[k, f]
+        end
+        for j in 1:n
+            p = r[j]; nk = n + 2 - j; zk = [sqrt(max(r[k]^2 - p^2, 0.0)) for k in j:n+1]
+            Iin = zeros(nk); I = 0.0
+            for m in nk-1:-1:1
+                kz = j + m - 1; I = sh(I, χ[kz, f] * (zk[m+1] - zk[m]), Si[j+m], Si[j+m-1]); Iin[m] = I
+            end
+            I = Iin[1]
+            for (m, k) in enumerate(j:n+1)
+                if m > 1; kz = j + m - 2; I = sh(I, χ[kz, f] * (zk[m] - zk[m-1]), Si[j+m-2], Si[j+m-1]); end
+                ΔI[k, j] = m == 1 ? 0.0 : I - Iin[m]
+            end
+        end
+        for k in 2:n+1
+            acc = 0.0
+            for j in 1:k-1
+                μa = sqrt(max(1 - (r[j+1] / r[k])^2, 0.0)); μb = sqrt(max(1 - (r[j] / r[k])^2, 0.0))
+                Ia = j + 1 <= n ? ΔI[k, j+1] : 0.0; Ib = ΔI[k, j]; d = μb - μa; d <= 0 && continue
+                s1 = (Ib - Ia) / d
+                acc += Ia * (μb^2 - μa^2) / 2 + s1 * ((μb^3 - μa^3) / 3 - μa * (μb^2 - μa^2) / 2)
+            end
+            Ff[k] = 2π * acc
+        end
+        Fm[:, f] .= Ff                  # one column per frequency (no shared writes between threads)
+    end
+    vec(sum(Fm; dims = 2))
+end
+
 
 end # module

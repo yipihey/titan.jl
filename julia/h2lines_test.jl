@@ -49,3 +49,19 @@ for (nH2, n, nb) in ((1e8, 40, 30), (1e8, 80, 30), (1e12, 80, 30), (1e14, 80, 30
     @printf("  n_H2 = %.0e, n = %3d, nbin = %3d: max τ_line = %.2e, total L ratio %.5f, worst line |ΔL/L| %.3e\n",
             nH2, n, nb, τmax, Lr[end] / Lan_tot, worst)
 end
+
+# 4. diffusion limit, grey: χ uniform, S = B(T(r)) at one frequency, T = T0 (1 − 0.5 (r/R)²): F → −(4π/3χ) dS/dr when
+#    χR ≫ 1 (formal_flux, used for the continuum in popiii_regimes and the same scheme as the lines)
+println("\n4. grey diffusion limit: F/F_D at r = 0.3, 0.5, 0.7 R (χR = optical radius)")
+for (χR, n) in ((1e1, 80), (1e2, 80), (1e3, 80), (1e3, 160), (1e5, 80), (1e5, 160))
+    R = 1e16; χ = χR / R; ν = 1e14; T0 = 2000.0
+    r = collect(range(0.0, R, length = n + 1)); rc = 0.5 .* (r[1:end-1] .+ r[2:end])
+    S = reshape([HL.Bν(ν, T0 * (1 - 0.5 * (x / R)^2)) for x in rc], n, 1)
+    F = HL.formal_flux(r, fill(χ, n, 1), S)
+    out = String[]
+    for xr in (0.3, 0.5, 0.7)
+        k = round(Int, xr * n) + 1; dSdr = (HL.Bν(ν, T0 * (1 - 0.5 * ((r[k] + 1e-6R) / R)^2)) - HL.Bν(ν, T0 * (1 - 0.5 * ((r[k] - 1e-6R) / R)^2))) / 2e-6R
+        push!(out, @sprintf("%.4f", F[k] / (-(4π / (3χ)) * dSdr)))
+    end
+    @printf("  chi R = %.0e (Δτ per zone %.1e), n = %3d: F/F_D = %s\n", χR, χR / n, n, join(out, ", "))
+end
