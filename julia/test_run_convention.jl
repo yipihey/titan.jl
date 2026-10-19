@@ -24,11 +24,13 @@ julia_cmd(args...; env = Dict{String,String}()) =
         @test doc["properties"]["io.every"]["x-run"]["mutable"] == "always"
     end
     @testset "env sources" begin
-        out = read(julia_cmd("relax", "--show-params"; env = Dict("QS_SINK_TAU" => "3e6", "QS_SET" => "ql1=1e-4")), String)
+        out = read(julia_cmd("relax", "--show-params"; env = Dict("QS_SINK_TAU" => "3e6", "QS_GASROW" => "1", "QS_SET" => "ql1=1e-4")), String)
         rows = Dict(split(l, '\t')[1] => split(l, '\t')[2:3] for l in split(out, '\n'; keepempty = false))
         @test parse(Float64, rows["sink.tau"][1]) == 3e6 && rows["sink.tau"][2] == "env:QS_SINK_TAU"
         @test rows["common.ql1"][2] == "env:QS_SET" || rows["common.ql1"][2] == "cli"
         @test rows["io.every"][2] == "default"
+        # sink.tau without physics.gasrow is refused at parse time (x-run.requires), not at the sink.
+        @test_throws ProcessFailedException read(julia_cmd("relax", "--show-params"; env = Dict("QS_SINK_TAU" => "3e6")), String)
     end
     @testset "relax run + resume conform" begin
         if !isfile(RUNCHECK)

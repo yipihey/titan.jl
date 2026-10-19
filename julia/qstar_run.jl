@@ -91,7 +91,7 @@ end
 @param physics.mlt_noinfall::Bool = false group="physics" mutable=:never env="QS_MLT_NOINFALL" doc="no mixing-length convection in the inflow (TitanResidFast.MLT_NOINFALL)"
 @param ramp.fac::Float64 = 1.0 group="ramp" mutable=:restart env="QS_RAMP_FAC" doc="inflow ramp: target/initial Mdot (density and fluxes at r_out grow exponentially by this factor); setup: Mdot_max"
 @param ramp.t::Float64 = 1e6 unit="s" group="ramp" mutable=:restart env="QS_RAMP_T" doc="inflow ramp: e-folding time scale (the ramp lasts t*ln(fac))"
-@param sink.tau::Float64 = 0.0 unit="s" group="sink" mutable=:never env="QS_SINK_TAU" doc="requires physics.gasrow (checked at start, not declared as x-run.requires: RunConvention fires a requires on any file-sourced value, so a resume would trip over the parent's default 0). Inner mass sink relaxation time; 0 = closed wall. The shell mass below the shock is held at sink.m0"
+@param sink.tau::Float64 = 0.0 unit="s" group="sink" mutable=:never env="QS_SINK_TAU" requires="physics.gasrow" doc="Inner mass sink relaxation time; 0 = closed wall; needs physics.gasrow. The shell mass below the shock is held at sink.m0"
 @param sink.m0::Float64 = 0.0 unit="g" group="sink" mutable=:never env="QS_SINK_M0" doc="shell mass the sink holds; 0 = measured from the loaded state (the value used is recorded in params.json)"
 @param integrator.trbdf2::Bool = false group="integrator" mutable=:never env="QS_TRBDF2" doc="second-order TR-BDF2 time stepping (Trbdf2.jl)"
 @param integrator.cfl::Float64 = 0.0 group="integrator" mutable=:restart env="QS_CFL" doc="advective Courant cap on the next step, dt <= cfl*min(dr/|u|); 0 = off"
