@@ -1004,3 +1004,62 @@ absorption-only (abs.) mean, S = B_ν.)
    (22.8): 0.99 (was 0.17). Remaining: 1.15 (extinction) / 1.7 (absorption) at log n_c = 21.1, during core formation,
    where dissociation and the onset of ionisation make κ_ν vary steeply within single zones — a transition zone, not a
    regime boundary.
+
+## G Generalisation plan (Tom, 19 Oct 2026: "We want to implement all. Please plan ahead.")
+
+Audit (19 Oct): several fixes were tuned to this problem. Replace each by a general method; keep the old behaviour as a
+switch where it is the faithful-RHFC02 choice. Every item ends with a test that fails on the old method or proves the
+general one, a notes section, a commit.
+
+**G0 Test suite** `julia/popiii_tests.jl`: one entry point running every acceptance test so far (SOD/SUBC/SUPC
+regression, quasi-star P7.3; M1 static sphere, dust, BE, LP; M2 conservation, Saha consistency, one-zone; H2Lines thin /
+homogeneous sphere / grey diffusion), each PASS/FAIL with its number. Run after every G item.
+
+**G1 Artificial viscosity ∝ local zone width** (replaces ql1 = 0.15 tuned to Δr/r of one grid). Option in
+TitanResidFast: viscous length l_k = c_l·Δr_k (θ-centred). Map to RHFC02's q ∝ c_q ρ Δv² (c_q = 4). Tests: spherical
+Noh/Sod on uniform and geometric grids (stretch 1.02–1.2): shock width in zones and post-shock error independent of the
+stretch with l ∝ Δr, not with l ∝ r; regression unchanged when off.
+
+**G2 TR-BDF2 for the collapse** (replaces θ = 0.55). `Trbdf2.jl` (2nd order, L-stable; verified on the Eulerian grid)
+on the Lagrangian grid with REGULAR_CENTRE, XMINT, PEXT, EXTMASS; chemistry split after each full step. Tests: dust
+collapse convergence order (expect ≈ 2 in C_dyn), BE static, LP converged values; z = 19 collapse without the θ = 0.5
+ringing; T_c track vs θ = 0.55 at converged Δt.
+
+**G3 Reaction-network engine** (replaces the hand-coded 4-unknown network). Reactions as data (reactants, products,
+rate function, energy); unknowns = all species; conservation of H, He, Li nuclei and charge by elimination; Jacobian by
+ForwardDiff; coupled implicit chemistry + T step (as now). Rate sets: RHFC02 faithful; modern (AAZN97/GA08 incl. H₂⁺
+channels, H⁻ + H⁺, collisional detachment); **detailed-balance pairing** — each reverse rate from the forward one and the
+equilibrium constant (partition functions), incl. three-body recombination H⁺ + 2e and three-body H⁻ attachment — so
+the network's own equilibrium is Saha/K exactly.
+
+**G4 H⁻ and Li from rate balance with J_ν** (replaces Saha-only H⁻ and Li). H⁻: radiative attachment / photodetachment
+(Milne-consistent with John 1988 σ_ν, J_ν supplied per zone), associative detachment + inverse, collisional detachment
++ inverse, mutual neutralisation. Li: Li, Li⁺ (+ Li⁻, LiH if the sources support them): collisional and photo-
+ionisation, radiative + three-body recombination, charge exchange with H⁺ — rates from GP98's Li network (local) and
+primary sources. J_ν: CMB by default, the transfer solution when available. Tests: J = B → Saha for H⁻ and Li; x_e(Li)
+vs Mayer & Duschl 2005 Fig. 1 (POP III vs Li-free); one-zone tracks unchanged at low density.
+
+**G5 Timescale-based equilibrium** (replaces ρ_eq = 5e-11). Per zone: equilibrium when the network's slowest
+relaxation time (smallest eigenvalue of its Jacobian) < ε Δt, or where the gas is non-ideal (p ≥ 1e4 dyn cm⁻², where
+SCVH applies; blend as now). With G3's detailed balance the switch is continuous. Tests: no T jump at the switch;
+collapse track vs the ρ_eq run.
+
+**G6 Line transfer: per-line frequency grids and non-LTE populations** (replaces the f_H₂ ≥ 0.1 span cut and the
+GP98-factor non-LTE). (a) Per line: span and bin width from the zones carrying ≥ 99.9 % of that line's emissivity and
+opacity; thin-line shortcut controlled by a stated tolerance. (b) Non-LTE level populations: statistical equilibrium of
+the 63 levels with collisional rates (H–H₂, H₂–H₂, He–H₂, e–H₂ state-to-state data — to obtain: BASECOL / Flower's
+CCP7 (unreachable so far) / Cloudy's data files) and radiative rates with J̄ from the transfer — first with local escape
+probabilities (multilevel LVG), then accelerated Λ-iteration (Rybicki & Hummer 1991) with the short-characteristics
+solver. Tests: LTE limit at high n; thin low-density limit vs the GP98/GA08 cooling fits; two-level analytic cases
+(escape probability, thermalisation length); ALI convergence.
+
+**G7 Implicit line cooling** (replaces explicit Λ with Δt ≤ 0.1 uρ/Λ): linearise Λ_k in T_k (local derivative from the
+transfer's source-function dependence) inside the coupled chemistry/T step. Test: the collapse with the cooling cap off.
+
+**G8 Initial-condition construction**: splice radius of the ABN02 cloud chosen automatically (where the hydrostatic
+interior and the read-off envelope agree best in ρ and slope), documented; and Tom's profile data when available.
+
+**Order and parallelism.** G0 first. Then G1, G2, G6a in parallel (separate files: TitanResidFast/ProblemSetup;
+Trbdf2.jl; H2Lines) in git worktrees; G3 → G4 → G5 in sequence (one engine); G6b after the collision data are found
+(search started); G7 after G6b; G8 any time. Finally rerun the reference collapses (P100, z = 19) with everything and
+redo the M3c regime map. Implementation of well-specified packages by subagents; design, review and verification here.
