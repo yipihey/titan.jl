@@ -52,7 +52,21 @@ const χH = 13.598eV; const EA_H = 0.754eV; const D0_H2 = 4.478eV; const D0_H2p 
 const χLi = 5.3917eV
 "Levels of atomic H kept in its partition function and photo-ionisation (n ≤ NH_LEVELS; the sum diverges without a
 cut-off — at the densities where excited levels matter they are pressure-dissolved and SCVH95 takes over)."
-const NH_LEVELS = 8
+const NH_LEVELS = 15
+"""
+Li I levels for the partition function and photo-ionisation: ground 2s (g = 2) plus quantum-defect hydrogenic levels
+n ≤ NH_LEVELS, l ≤ 3, E_nl = χ_Li − Ry/(n − δ_l)², δ_s = 0.40, δ_p = 0.05, δ_d = δ_f = 0, g = 2(2l + 1)
+[approximate: 2p at 1.85 eV, 3s 3.37 eV — the measured 1.848 and 3.373 eV]. Returns (E_exc [erg], g, n*) per level.
+"""
+const LI_LEVELS = let lv = [(0.0, 2.0, 2 - 0.40)]
+    δ = (0.40, 0.05, 0.0, 0.0); Ry = 13.6057 * 1.602176634e-12
+    for n in 2:NH_LEVELS, l in 0:min(n - 1, 3)
+        (n == 2 && l == 0) && continue
+        ns = n - δ[l+1]; push!(lv, (χLi - Ry / ns^2, 2.0 * (2l + 1), ns))
+    end
+    lv
+end
+ZLi_el(T) = (z = zero(T); for (E, g, _) in LI_LEVELS; z += g * exp(-E / (kB * T)); end; z)
 "Electronic partition function of H, levels n ≤ NH_LEVELS (g = 2n², E_n = χ(1 − 1/n²))."
 ZH_el(T) = (z = zero(T); for n in 1:NH_LEVELS; z += 2n^2 * exp(-χH * (1 - 1 / n^2) / (kB * T)); end; z)
 "H₂⁺ rotation (B = 29.9 cm⁻¹ → θ = 43 K) and vibration (2297 cm⁻¹ → 3305 K), ortho/para weights 3/1, electron spin 2 [approximate]."
@@ -67,7 +81,7 @@ const SPECIES = Dict{Symbol,Species}(
     :H2p => Species(:H2p, 2mH - me, 1, (2, 0, 0), -(χH + D0_H2p), Zint_H2p, T -> 2.5),
     :e   => Species(:e, me, -1, (0, 0, 0), 0.0, T -> 2 + zero(T), T -> 1.5),
     :He  => Species(:He, 4.0026 * 1.66053907e-24, 0, (0, 1, 0), 0.0, T -> 1 + zero(T), T -> 1.5),
-    :Li  => Species(:Li, 7.016 * 1.66053907e-24, 0, (0, 0, 1), -χLi, T -> 2 * 4 + zero(T), T -> 1.5),
+    :Li  => Species(:Li, 7.016 * 1.66053907e-24, 0, (0, 0, 1), -χLi, T -> 4 * ZLi_el(T), T -> 1.5),     # × nuclear spin 4
     :Lip => Species(:Lip, 7.016 * 1.66053907e-24 - me, 1, (0, 0, 1), 0.0, T -> 4 + zero(T), T -> 1.5),
 )
 Ztr(s::Species, T) = (2π * s.m * kB * T / hP^2)^1.5
@@ -212,26 +226,37 @@ end
 
 """
 Steady state of the network at fixed (ρ, T) (for tests): pseudo-transient continuation — backward-Euler steps at fixed
-T with dt growing from 1e-8 s by ×10 to 1e30 s (robust from far-from-equilibrium starts).
+T; a step is accepted only when its Newton converges (then dt × 3), otherwise it is retried with dt / 10; ends when an
+accepted step with dt ≥ 1e30 s leaves the state unchanged.
 """
-function steady(x0, ρ, T, net; env, photos = Photo[])
+function steady(x0, ρ, T, net; env, photos = Photo[], maxsteps = 2000)
     nH = ρ / μH(); nf = length(net.free)
     ph = [(p, photorates(p, T, env)...) for p in photos]
     x = collect(Float64, x0); dt = 1e-8
-    while dt <= 1e30
-        xo = copy(x)
-        for it in 1:100
-            F(xx) = xx .- xo .- dt .* dxdt(xx, nH, T, net, env, ph)
+    function newton(xo, dt)
+        x = copy(xo)
+        F(xx) = xx .- xo .- dt .* dxdt(xx, nH, T, net, env, ph)
+        for it in 1:60
             R = F(x); Jm = ForwardDiff.jacobian(F, x)
-            δ = -(Jm \ R); all(isfinite, δ) || break
+            δ = -(Jm \ R); all(isfinite, δ) || return (x, false)
             λ = 1.0
             for i in 1:nf; x[i] + λ * δ[i] < 0 && (λ = min(λ, 0.9 * x[i] / -δ[i])); end
             d0 = full(x, net); d1 = full(x .+ δ, net)
             for s in (:H, :Li, :e); haskey(d0, s) || continue; dv = d1[s] - d0[s]; d0[s] + λ * dv < 0 && (λ = min(λ, 0.9 * d0[s] / -dv)); end
             x .+= λ .* δ
-            λ == 1.0 && maximum(abs.(δ) ./ max.(abs.(x), 1e-30)) < 1e-13 && break
+            λ == 1.0 && maximum(abs.(δ) ./ max.(abs.(x), 1e-30)) < 1e-13 && return (x, true)
         end
-        dt *= 10
+        (x, false)
+    end
+    for k in 1:maxsteps
+        xn, ok = newton(x, dt)
+        if ok
+            done = dt >= 1e30 && maximum(abs.(xn .- x) ./ max.(abs.(xn), 1e-30)) < 1e-10
+            x = xn; dt *= 3
+            done && return x
+        else
+            dt /= 10; dt < 1e-30 && error("ChemNet.steady: no convergence (nH = $nH, T = $T)")
+        end
     end
     x
 end

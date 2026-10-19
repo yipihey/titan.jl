@@ -1121,3 +1121,26 @@ Tests [run]:
   — to obtain, e.g. Stancil 1994 / Dunn 1968): deviations 2 % (H₂), 0.3 % (H⁺), 1 % (H⁻) at (1e16, 8000 K, 2 % ionised),
   and x_H⁺ = 1e-21 instead of ~1e-43 at (1e10, 1000 K) (negligible in absolute terms).
 - Hydrogen photo-ionisation cross sections are Kramers (g = 1): order of magnitude — refine.
+
+### G4 Lithium and photo-pairs in the network [run]
+Data: Li rates from GP98 Table 4 (subagent extraction `~/Projects/popiii_lit/rates_li_extraction.md`: 26 reactions;
+photo-processes only as CMB rates, no σ(ν)); **Verner et al. 1996 photo-ionisation fits** (D. A. Verner's phfit2.f v2,
+copy in FAC `ionis/phfit2.f`: H I PH2 (0.4298 eV, 5.475e4 Mb, 32.88, 2.963), Li I PH2 (3.107 eV, 62.45 Mb, 15.01, 4.895),
+threshold 5.392 eV; `~/Projects/popiii_lit/verner/`); **Voronov 1997** collisional ionisation (Li I: 5.4 eV, P 0, A
+1.39e-7, X 0.438, K 0.41; AMUSE/SPHRAY and FAC copies).
+Network (`ChemRates.modern(; li = true)`): Li + e ⇌ Li⁺ + 2e (Voronov, detailed balance), Li⁺ + H⁻ ⇌ Li + H (GP98 Li3,
+Peart & Hayton 1994; d.b.), Li + H⁺ → Li⁺ + H + γ (GP98 Li8, one-way), Li(levels) + γ ⇌ Li⁺ + e (Milne). GP98 Li7
+(charge exchange, Kimura et al.) left out: direction/validity doubtful in GP98's table. Li⁻, LiH, LiH⁺: not yet.
+**Levels**: H (n ≤ 15, Boltzmann) and Li I (2s + quantum-defect levels n ≤ 15, l ≤ 3; 2p 1.81 eV vs 1.848 measured)
+in both the partition functions and the photo-cross sections (ground states Verner, excited hydrogenic/Kramers) — the
+Milne total recombination then reaches: H 0.60 / 0.86 / 1.00 of case A (AAZN97 k2) at 1e3 / 3e3 / 1e4 K; Li 0.59 / 0.72 /
+0.80 of GP98 Li1 (Verner & Ferland 1996). The shortfall at low T is recombination to n > 15 and the Gaunt-factor-1
+excited-level cross sections → **next: Hummer & Mihalas (1988) occupation probabilities** (level dissolution with
+density, consistently in Z and σ) and exact hydrogenic σ_n; the n ≤ 15 cut-off is harmless below ≈ 1.5e4 K (Z_H = 2.08;
+SCVH95 takes over in the dense hot core).
+**Equilibrium test** (J = B(T), steady state by pseudo-transient continuation — rewritten to accept only converged
+steps after it stalled at 1e21 cm⁻³): network/equilibrium = 1.0000 for H₂, H⁺, H⁻ and Li⁺ at (1e14, 2000), (1e18, 3500),
+(1e20, 6000), (1e21, 1e4 K). Remaining deviations from the one-way radiative association H + H⁺ → H₂⁺ + γ: H⁺ 3.4× at
+(1e16, 2000 K) where x_H⁺ ~ 1e-22, 0.3–2 % at (1e16, 8000 K). Li electrons with the network self-consistent: at (1e18,
+3000 K) x_e = 4.16e-10 (vs 4.45e-10 from PrimordialChem.ne_with_Li, which adds Li⁺ to an unchanged H⁺: the extra
+electrons suppress H⁺ 13×).
