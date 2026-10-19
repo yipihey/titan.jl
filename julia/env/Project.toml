@@ -1,3 +1,7 @@
 [deps]
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+RunConvention = "5b1f3c0e-7a52-4d0a-9c0b-0c8f2a6d41e7"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
+[sources]
+RunConvention = {path = "/Users/tabel/Projects/koine/julia/RunConvention.jl"}
