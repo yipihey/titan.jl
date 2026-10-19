@@ -281,6 +281,12 @@ function cool_H2_thin(ρ, T, y)
     L = Λ_H2_LTE_HM(T); L0 = Λ_H2_0_GP(T)
     nH2 * L / (1 + L / max(nHat * L0, 1e-300))
 end
+"""
+H₂ cooling with a radiation-bath floor: Λ(T) − Λ(T_bath) at the same density and composition, so the gas cannot cool
+below T_bath (here the CMB, T_bath = 2.725 (1 + z) K; ABN02's start is z = 19: 54.5 K). [design] Enzo/GA08-style
+convention; no source in the RHFC02 set (RHFC02 starts at T ≫ T_CMB).
+"""
+cool_floor(f, Tb) = (ρ, T, y) -> f(ρ, T, y) - f(ρ, Tb, y)
 "RA04 eq. 22: optically thick H₂ lines ≈ thin × min(1, (n/n0)^−0.45), n = ρ/m_H, n0 = 8e9 cm⁻³."
 cool_H2_ra04(ρ, T, y) = cool_H2_thin(ρ, T, y) * min(1.0, (ρ / mH / 8e9)^-0.45)
 """

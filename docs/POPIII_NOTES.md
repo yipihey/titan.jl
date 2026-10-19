@@ -706,3 +706,30 @@ from the M2b read-off):
 - Above 1e16 both runs lie 10–20 % below ON98 and agree with RHFC02's stage 4 (M2d): the remaining difference is the
   cooling/transfer treatment (RA04's local fits), not the initial state.
 - Peak infall at n_c = 1e18: 6.7 km/s.
+
+## M2g The z = 19 ABN02 cloud, extended past 1000 M☉ (19 Oct 2026)
+
+**Tom:** "Using the blue line with central density of 1e3 would be best. We can extend it to masses past 1000 solar
+mass cloud we can see the effects of radiating MS star in the envelope."
+
+`IC=abn02z19` (`popiii_m2c.jl`), ABN02 Fig. 2 blue solid lines (z = 19), read off [read-src, approximate ±0.05–0.1 dex]:
+- n(r): log n = 3.05 for log r(pc) ≤ −0.59, 2.90 at −0.27, 2.61 at 0.06, 2.01 at 0.38, 1.27 at 0.71, 0.60 at 0.95,
+  0.30 at 1.20, −0.07 at 1.44, −0.59 at 1.68, −1.48 at 1.97.
+- T(M): 178–180 K for M ≲ 440 M☉, 194 at 720, 247 at 1.2e3, 416 at 2e3, 650 at 3.2e3, 855 at 5.2e3, 1000 at 8e3
+  (peak: virial-shock heating), 890 at 1.4e4, 725 at 2.2e4.
+- H₂ fraction: 6.6e-4 … 7.2e-4 inside 200 M☉, falling to 1e-4 at 1.4e4 M☉.
+- v_r(M): +0.0 … +0.22 km/s (slight outflow) inside ~700 M☉; −0.38 at 1.2e3, −1.0 at 2e3, −0.5 at 3–5e3, −1.5 at
+  1.4e4, −2.6 at 2.2e4 M☉.
+- dark matter (z = 19 line): log ρ_DM [GeV cm⁻³] = 4.39 at log r = −1.24, 4.17 at −0.76, 3.65 at −0.43, 2.23 at 0.63,
+  1.71 at 1.20, 1.19 at 1.52, −0.59 at 2.0.
+- enclosed gas mass (panel B): 34 M☉ at 0.45 pc, 180 at 1.15 pc, 1.3e3 at 7.4 pc, 8.3e3 at 48 pc, 3.4e4 at 100 pc.
+- assumed (not in ABN02): x_e = 1e-4; CMB floor T_CMB = 2.725 × 20 = 54.5 K in the H₂ cooling (`PrimordialChem.cool_floor`,
+  Λ(T) − Λ(T_CMB); env TCMB).
+
+Construction: hydrostatic interior (ABN02's n_c = 1.1e3, T(M), DM; as `abn02hs`) out to r_join = 7.4 pc (1000 M☉), where
+it agrees with the read-off within 0.1 dex (log n 3.00 / 2.82 / 2.49 / 0.71 vs 3.05 / 2.95 / 2.61 / 0.80 at log r
+−0.84 / −0.35 / 0.06 / 0.87); outside, the read-off n(r) spliced on continuously (factor 0.81) with ABN02's infall
+velocities (blended in over one M_join). A purely hydrostatic continuation fails there: with T rising outward through
+the virial-shock layer the hydrostatic density plunges and the mass saturates at ≈ 1.8e3 M☉ — the outer gas in ABN02 is
+accreting, not static. Default cloud 1e4 M☉ (MCLOUD): R = 58 pc (ABN02 panel B: 1e4 M☉ at ≈ 55 pc), 200 shells (central
+3e-7 M☉, q = 1.117), pressure/gravity = 0.99 inside 7.4 pc, ≈ 0.4 in the infalling envelope.
