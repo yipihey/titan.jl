@@ -1,0 +1,8 @@
+M2c collapse [IC abn02]: cooling ra04, 150 shells (q = 1.1425, dm1 = 3e-7 Msun), R = 1.037e+19 cm, rho_c/rho_edge = 9546.9, T_edge = 166.3 K, p_ext = 1.611e-12
+theta = 0.55, C_dyn = 0.01, k5 = pss, rho_eq = 5e-11, central t_ff0 = 5.665e+04 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+    500    5.587 3.0586e+04     145.5     251.2  1.283e-03     -0.819  2.07e-05  4.44e+08
+   1000    5.493 5.9563e+04     124.7     251.2  1.291e-03     -0.822  1.21e-06  2.69e+07
+   1500    5.195 1.0484e+05      78.9     251.2  1.294e-03     -0.816  2.32e-05  8.81e+08
+   2000    4.880 1.5745e+05      48.7     251.2  1.296e-03     -0.789  3.25e-05  1.34e+09
+stopped: TITAN step01: failure to converge after 10 attempts (jstep 2144, t = 5.563644464333338e12)

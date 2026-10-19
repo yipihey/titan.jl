@@ -677,3 +677,32 @@ hydrostatic equilibrium outward to 1000 M☉ (at rest): pressure/gravity = 0.99 
 (round-off of Δp); log n = 5.79 / 5.55 / 4.60 / 2.75 / −0.42 at log r(pc) = −1.57 / −1.08 / −0.59 / 0.06 / 0.87 vs
 ABN02 5.81 / 5.25 / 3.99 / 2.87 / 0.97; 1000 M☉ inside 3.0 pc (ABN02 read-off: 3.4 pc); ρ_c/ρ_edge = 1.2e4 — far
 beyond the Bonnor–Ebert limit, an unstable equilibrium.
+
+## M2f Collapse of the hydrostatic ABN02-like cloud (19 Oct 2026) [run]
+
+`IC=abn02hs`, 1000 M☉, 150 shells (central 3e-7 M☉), ABN02 dark matter, RA04 local cooling, Saha above ρ_eq, θ = 0.55,
+C_dyn = 0.01; log `lib/popiii/m2c_abn02hs_ra04_n150.log`. Smooth collapse, 3929 steps: quasi-static contraction to
+n_c = 1e7 in 4.2e5 yr, then runaway (1e13 at 4.88e5 yr, 1e18 shortly after). Central track (ON98 Fig. 3a interpolated
+from the M2b read-off):
+
+| log n_c | ABN02-like 1000 M☉: T_c | f_H2 | P100 (provisional): T_c | ON98 |
+|---|---|---|---|---|
+| 8 | 571 | 0.00208 | 368 | 398 |
+| 9 | 722 | 0.00568 | 424 | 466 |
+| 10 | 775 | 0.0655 | 562 | 554 |
+| 11 | 1015 | 0.482 | 787 | 827 |
+| 12 | 1238 | 0.877 | 1002 | 1122 |
+| 13 | 1553 | 0.983 | 1309 | 1380 |
+| 14 | 1760 | 0.954 | 1669 | 1650 |
+| 15 | 2034 | 0.894 | 1965 | 1964 |
+| 16 | 2276 | 0.869 | 2180 | 2218 |
+| 17 | 2540 | 0.863 | 2418 | 2985 |
+| 18 | 3105 | 0.735 | 2983 | 3700 |
+
+- The 1000 M☉ ABN02-like cloud is 40–70 % warmer than the 100 M☉ runs at 1e8–1e10 and converges onto the same track by
+  1e14–1e16 (within 4 %) — the behaviour RHFC02 §3.2.5 / Fig. 7 describe (higher-mass models warmer at a given n_c,
+  memory of the initial state lost by n_c ≈ 1e14). Three-body conversion happens at higher n_c here (f_H2 = 0.48 at
+  1e11 vs 0.75 in P100) because the gas is warmer.
+- Above 1e16 both runs lie 10–20 % below ON98 and agree with RHFC02's stage 4 (M2d): the remaining difference is the
+  cooling/transfer treatment (RA04's local fits), not the initial state.
+- Peak infall at n_c = 1e18: 6.7 km/s.
