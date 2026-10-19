@@ -17,6 +17,9 @@ include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
 using ForwardDiff
+# INTEGRATOR=trbdf2: second-order L-stable TR-BDF2 (Trbdf2.jl, G2) instead of TITAN's theta scheme
+include(joinpath(@__DIR__, "Trbdf2.jl"))
+get(ENV, "INTEGRATOR", "theta") == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
 const Msun = 1.98847e33
 
 cool = isempty(ARGS) ? "ra04" : ARGS[1]; nsh = length(ARGS) > 1 ? parse(Int, ARGS[2]) : 100
@@ -312,4 +315,5 @@ try
 catch e
     pr("stopped: %s\n", sprint(showerror, e)[1:min(end, 400)])
 end
+TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
 close(io)
