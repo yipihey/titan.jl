@@ -1091,3 +1091,12 @@ background limit after core formation (step ≈ 9500, log n_c 22.9). Central tra
 The solver fix changes the central track by ≤ 0.1 % (the constant-S error sat in line cooling that is negligible for the
 core's energy budget); line transfer and RA04's fits agree within 1–3 % through core formation, both on RHFC02's
 stages.
+
+### G6a Per-line frequency grids [run]
+`H2Lines.cooling(…; tol = 0.01, cover = 0.999)`: per line, the zones carrying 99.9 % of that line's emission
+(n_u A hν ΔV) or of its line-centre opacity column set the span ±(3 v_th + |u|) and the bin width (≤ ½ their smallest
+v_th; 30 ≤ bins ≤ 200). Replaces the f_H₂ ≥ 0.1 cut and its hard-coded μ_H. Thin shortcut by tolerance: τ_c < 2 tol (the
+thin approximation overestimates a uniform sphere's line luminosity by ≈ (3/8)τ_c). Test 5 (h2lines_test.jl): hot,
+1 %-molecular core (2e4 K) in a cold infalling envelope (≤ 2000 K, ≤ 20 km/s): surface line luminosity per-line vs a
+reference with every zone in every span and 4000 bins: ratio 1.00000, max |ΔΛ/Λ| 2.5e-7 over the cooling zones, with
+≤ 183 bins (0.3 s vs 6.4 s). Tests 1–4 unchanged.

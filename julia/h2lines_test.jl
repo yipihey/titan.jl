@@ -65,3 +65,18 @@ for (χR, n) in ((1e1, 80), (1e2, 80), (1e3, 80), (1e3, 160), (1e5, 80), (1e5, 1
     end
     @printf("  chi R = %.0e (Δτ per zone %.1e), n = %3d: F/F_D = %s\n", χR, χR / n, n, join(out, ", "))
 end
+
+# 5. per-line frequency grids (G6a): hot, mostly dissociated core (2e4 K, 1 % of the H₂ density) inside a cold molecular
+#    envelope (200–2000 K) falling in at up to 20 km/s. Reference: all zones in every line's span, up to 4000 bins.
+println("\n5. per-line frequency grids vs a fully resolved global grid (hot core + cold infalling envelope)")
+let n = 80, R = 1e15
+    r = collect(range(0.0, R, length = n + 1)); rc = 0.5 .* (r[1:end-1] .+ r[2:end])
+    T = [x < 0.1R ? 2e4 : 2000 * (0.1R / x) for x in rc]
+    nH2 = [x < 0.1R ? 1e10 : 1e12 * (0.1R / x)^2 for x in rc]
+    u = [-2e6 * min(1.0, x / (0.2R)) for x in r]
+    t0 = time(); Λa, La, _ = HL.cooling(L, r, u, ones(n), T, nH2); ta = time() - t0; nba = HL.LAST[].nbins
+    t0 = time(); Λb, Lb, _ = HL.cooling(L, r, u, ones(n), T, nH2; cover = 1.0, nbinmax = 4000, nbin = 4000); tb = time() - t0
+    @printf("  L(surface): per-line %.5e (≤ %d bins, %.1f s), reference %.5e (4000 bins, %.1f s): ratio %.5f; max |ΔΛ/Λ| over zones with ≥ 1e-3 of the peak cooling: %.3e\n",
+            La[end], nba, ta, Lb[end], tb, La[end] / Lb[end],
+            maximum(abs(Λa[k] / Λb[k] - 1) for k in 1:n if abs(Λb[k]) > 1e-3 * maximum(abs, Λb)))
+end

@@ -58,7 +58,7 @@ function thin_per_molecule(L::LineList, T)
 end
 
 Bν(ν, T) = 2h * ν^3 / c^2 / expm1(h * ν / (kB * T))
-"Bins used and number of lines solved by transfer in the last call."
+"Largest number of bins used by a line and number of lines solved by transfer in the last call."
 const LAST = Ref((nbins = 0, nthick = 0))
 
 """
@@ -67,22 +67,17 @@ const LAST = Ref((nbins = 0, nthick = 0))
 Line cooling rate Λ_k [erg cm⁻³ s⁻¹] of each zone and the line luminosity L(r_i) [erg s⁻¹] at each interface.
 r: interfaces (n+1, r[1] = 0 allowed), u: interface velocities (n+1), ρ, T, nH2: zones (n). Zone values are uniform
 within the zone; the velocity along a ray inside a zone is interpolated linearly in r between the interfaces.
-Frequency bins: per line, nbin bins spanning ±(3 v_th,max + max|u|) around the rest frequency (comoving shift taken
-into account per segment).
+Frequency bins per line (G6a): span ±(3 v_th + |u|) and bin width ≤ ½ v_th,min over the zones that carry a fraction
+`cover` of that line's emission or opacity column (nbin ≤ bins ≤ nbinmax); comoving shift per segment. Lines with a
+radial line-centre depth < 2 tol use the thin emission (relative error ≲ tol).
 """
-function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, τthin = 0.02, nbinmax = 200)
+function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, tol = 0.01, nbinmax = 200, cover = 0.999)
     n = length(T); @assert length(r) == n + 1
     vth = [sqrt(2kB * T[k] / mH2) for k in 1:n]
-    # span and bin width from the molecular zones (fraction of H nuclei in H₂ ≥ 0.1; μ_H = 2.2316e-24 g, metal free with
-    # n_He/n_H = 1/12): the hot, mostly dissociated core (f_H₂ ≈ 0.04 at T ~ 4e4 K, v_th ~ 17 km/s) would otherwise set the
-    # span and push the bins past the cap (M3d). Its lines are buried under the opaque continuum anyway.
-    act = [2nH2[k] * 2.2316e-24 / ρ[k] >= 0.1 for k in 1:n]
-    any(act) || (act = trues(n))
-    vspan = 3maximum(vth[act]) + maximum(abs, u)
-    # bins no wider than half the narrowest thermal width (cold outer zones), at least nbin, at most nbinmax
-    nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth[act]))) + 1, nbin, nbinmax)
-    xs = range(-vspan, vspan, length = nb)            # velocity offsets of the bin centres [cm/s]
-    dv = step(xs)
+    # thin-line shortcut by tolerance: the thin approximation overestimates a uniform sphere's line luminosity by a
+    # relative ≈ (3/8)τ_c for τ_c ≪ 1 (escape from the centre): τ_c < 2 tol keeps the error ≲ tol (h2lines_test §3)
+    τthin = 2tol
+    nbmax_used = Threads.Atomic{Int}(0)
     fn = fnlte === nothing ? ones(n) : fnlte          # non-LTE factor on the source function (upper-level depletion)
     # LTE populations per zone
     pops = [populations(L, T[k]) for k in 1:n]
@@ -116,6 +111,22 @@ function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, τth
             end
             continue
         end
+        # per-line frequency grid (G6a): the zones that carry `cover` (99.9 %) of this line's emission (n_u A hν ΔV) or of its
+        # line-centre opacity column (κ0 Δr/Δν_D) set the span ±(3 v_th + |u|) and the bin width (≤ ½ their smallest v_th)
+        em = [fn[k] * nH2[k] * pops[k][L.iu[i]] * L.A[i] * (r[k+1]^3 - r[k]^3) for k in 1:n]
+        oc = [κ0[k] / (vth[k] / c * ν0) * (r[k+1] - r[k]) for k in 1:n]
+        act = falses(n)
+        for w in (em, oc)
+            tot = sum(abs, w); tot > 0 || continue
+            p_ = sortperm(abs.(w); rev = true); acc_ = 0.0
+            for k in p_; act[k] = true; acc_ += abs(w[k]); acc_ >= cover * tot && break; end
+        end
+        any(act) || (act .= true)
+        ka = findall(act)
+        vspan = 3maximum(vth[ka]) + maximum(max(abs(u[k]), abs(u[k+1])) for k in ka)
+        nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth[ka]))) + 1, nbin, nbinmax)
+        Threads.atomic_max!(nbmax_used, nb)
+        xs = range(-vspan, vspan, length = nb); dv = step(xs)
         Fν = zeros(n + 1)                          # ∫ flux over the line (erg cm⁻² s⁻¹) at each interface
         ΔI = zeros(n + 1, n)                       # I(μ) − I(−μ) at interface k on ray j (frequency bin), j ≤ k
         for ib in 1:nb
@@ -171,7 +182,7 @@ function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, τth
     end
     for k in 1:n+1; Lr[k] = sum(view(Lline, :, k)); end
     Λ = [(Lr[k+1] - Lr[k]) / (4π / 3 * (r[k+1]^3 - r[k]^3)) for k in 1:n]
-    LAST[] = (nbins = nb, nthick = nthick[])
+    LAST[] = (nbins = nbmax_used[], nthick = nthick[])
     Λ, Lr, Lline
 end
 
