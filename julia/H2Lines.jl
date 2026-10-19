@@ -58,6 +58,8 @@ function thin_per_molecule(L::LineList, T)
 end
 
 Bν(ν, T) = 2h * ν^3 / c^2 / expm1(h * ν / (kB * T))
+"Bins used and number of lines solved by transfer in the last call."
+const LAST = Ref((nbins = 0, nthick = 0))
 
 """
     cooling(L, r, u, ρ, T, nH2; nbin = 30, vmax_extra = 0.0) -> (Λ, Lr)
@@ -68,75 +70,93 @@ within the zone; the velocity along a ray inside a zone is interpolated linearly
 Frequency bins: per line, nbin bins spanning ±(3 v_th,max + max|u|) around the rest frequency (comoving shift taken
 into account per segment).
 """
-function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30)
+function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, τthin = 0.02, nbinmax = 200)
     n = length(T); @assert length(r) == n + 1
     vth = [sqrt(2kB * T[k] / mH2) for k in 1:n]
     vspan = 3maximum(vth) + maximum(abs, u)
-    xs = range(-vspan, vspan, length = nbin)          # velocity offsets of the bin centres [cm/s]
+    # bins no wider than half the narrowest thermal width (cold outer zones), at least nbin, at most nbinmax
+    nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth))) + 1, nbin, nbinmax)
+    xs = range(-vspan, vspan, length = nb)            # velocity offsets of the bin centres [cm/s]
     dv = step(xs)
+    fn = fnlte === nothing ? ones(n) : fnlte          # non-LTE factor on the source function (upper-level depletion)
     # LTE populations per zone
     pops = [populations(L, T[k]) for k in 1:n]
     nl = length(L.A)
     Lr = zeros(n + 1)
     # rays: impact parameters p_j = r[j], j = 1..n (r[1] = 0: the central ray); intersections with interfaces k ≥ j
-    Lline = zeros(nl, n + 1)
+    Lline = zeros(nl, n + 1); nthick = Threads.Atomic{Int}(0)
     Threads.@threads for i in 1:nl
         ν0 = L.ν[i]; gu = L.g[L.iu[i]]; gl = L.g[L.il[i]]
         # line-integrated opacity coefficient per zone: κ0_k = (hν/4π)(c²/2hν³) A (g_u/g_l n_l − n_u)   [cm⁻¹ × Hz]
         κ0 = [h * ν0 / (4π) * c^2 / (2h * ν0^3) * L.A[i] * nH2[k] * (gu / gl * pops[k][L.il[i]] - pops[k][L.iu[i]]) for k in 1:n]
-        S = [Bν(ν0, T[k]) for k in 1:n]
+        S = [fn[k] * Bν(ν0, T[k]) for k in 1:n]
+        # optically thin line (RHFC02: "If the line absorption depth is < 0.1, we use the optically thin
+        # approximation"): radial line-centre depth from the centre to the surface below τthin → emission 4π κ0 S per zone
+        τc = sum(κ0[k] / (sqrt(π) * vth[k] / c * ν0) * (r[k+1] - r[k]) for k in 1:n)
+        if τc < τthin
+            # thin: L(r_k) = Σ_{zones below} 4π κ0 S ΔV (κ0 S = n_u A hν/4π · f for κ0 ≈ n_l B…: use the exact thin emissivity)
+            acc = 0.0
+            Lline[i, 1] = 0.0
+            for k in 1:n
+                em = fn[k] * nH2[k] * pops[k][L.iu[i]] * L.A[i] * h * ν0         # erg cm⁻³ s⁻¹
+                acc += em * 4π / 3 * (r[k+1]^3 - r[k]^3); Lline[i, k+1] = acc
+            end
+            continue
+        end
         Fν = zeros(n + 1)                          # ∫ flux over the line (erg cm⁻² s⁻¹) at each interface
-        for ib in 1:nbin
+        ΔI = zeros(n + 1, n)                       # I(μ) − I(−μ) at interface k on ray j (frequency bin), j ≤ k
+        for ib in 1:nb
             vb = xs[ib]                            # observer-frame offset: ν = ν0 (1 + vb/c)
-            # I along each ray at each interface crossing, outgoing (μ > 0) half; the incoming half from the far side
-            # Ray j (p = r[j]): crosses interfaces k = j..n+1 at z_k = √(r_k² − p²); segments between consecutive k.
+            fill!(ΔI, 0.0)
+            # Ray j (p = r[j]) crosses interfaces k = j..n+1 at z_k = √(r_k² − p²); segment m (between interfaces
+            # j+m−1 and j+m) lies in zone j+m−1. Incoming half (−ẑ) from the outer boundary (I = 0) to z = 0, then the
+            # outgoing half; at interface k the outgoing and incoming intensities give ΔI(μ_k), μ_k = z_k/r_k.
             for j in 1:n
                 p = r[j]
-                nk = n + 1 - j + 1                 # interfaces j..n+1
+                nk = n + 1 - j + 1
                 zk = [sqrt(max(r[k]^2 - p^2, 0.0)) for k in j:n+1]
-                # inward half (from z = +R down to z = 0): direction of propagation −ẑ; then outward half 0 → +R
-                # segment m between interfaces j+m-1 and j+m lies in zone j+m-1
-                function dτS(m, dir)               # optical depth and source of segment m (zone kz) along direction dir
+                function dτ(m, dir)
                     kz = j + m - 1
                     zm = 0.5 * (zk[m] + zk[m+1]); rm = sqrt(p^2 + zm^2)
                     w = clamp((rm - r[kz]) / (r[kz+1] - r[kz]), 0.0, 1.0)
                     ur = (1 - w) * u[kz] + w * u[kz+1]
-                    μ = rm > 0 ? dir * zm / rm : 0.0  # cosine between the ray and the radial direction
-                    vcom = vb - μ * ur              # comoving-frame offset
-                    φ = exp(-(vcom / vth[kz])^2) / (sqrt(π) * vth[kz] / c * ν0)    # profile per Hz
-                    (κ0[kz] * φ * (zk[m+1] - zk[m]), S[kz])
+                    μ = rm > 0 ? dir * zm / rm : 0.0
+                    vcom = vb - μ * ur
+                    φ = exp(-(vcom / vth[kz])^2) / (sqrt(π) * vth[kz] / c * ν0)
+                    κ0[kz] * φ * (zk[m+1] - zk[m])
                 end
-                # incoming: I = 0 at the outer boundary; integrate segments m = nk-1 down to 1 (towards the centre)
                 Iin = zeros(nk); I = 0.0
                 for m in nk-1:-1:1
-                    Δτ, Sm = dτS(m, -1.0)
-                    I = sh(I, Δτ, Sm, Sm)
-                    Iin[m] = I
+                    kz = j + m - 1; I = sh(I, dτ(m, -1.0), S[kz], S[kz]); Iin[m] = I
                 end
-                # outgoing: from the centre crossing (z = 0 at interface j) outward; at z = 0 the incoming I continues
-                Iout = zeros(nk); I = Iin[1]; Iout[1] = I
-                for m in 1:nk-1
-                    Δτ, Sm = dτS(m, 1.0)
-                    I = sh(I, Δτ, Sm, Sm)
-                    Iout[m+1] = I
-                end
-                # contribution to the flux at each interface k ≥ j: weight from μ-quadrature (trapezoid in μ over rays)
+                I = Iin[1]; Iout1 = I
                 for (m, k) in enumerate(j:n+1)
-                    k == 1 && continue
-                    μk = zk[m] / r[k]
-                    # trapezoid weights in μ between neighbouring rays j−1, j, j+1 at radius r[k]
-                    μlo = j < k ? sqrt(max(1 - (r[j+1] / r[k])^2, 0.0)) : 0.0
-                    μhi = j > 1 ? sqrt(max(1 - (r[j-1] / r[k])^2, 0.0)) : 1.0
-                    wμ = 0.5 * (μhi - μlo)
-                    Ip = Iout[m]; Im = m == 1 ? Iout[1] : Iin[m]
-                    Fν[k] += 2π * wμ * μk * (Ip - Im) * (dv / c * ν0)
+                    if m > 1
+                        kz = j + m - 2; I = sh(I, dτ(m - 1, 1.0), S[kz], S[kz])
+                    end
+                    ΔI[k, j] = m == 1 ? 0.0 : I - Iin[m]          # at the tangent point μ = 0: ΔI = 0
                 end
+            end
+            # F(r_k) = 2π ∫₀¹ μ ΔI(μ) dμ with ΔI linear in μ between the rays (exact in the thin limit, ΔI ∝ μ)
+            for k in 2:n+1
+                acc = 0.0
+                for j in 1:k-1                    # interval between rays j+1 (smaller μ) and j (larger μ)
+                    μa = sqrt(max(1 - (r[j+1] / r[k])^2, 0.0)); μb = sqrt(max(1 - (r[j] / r[k])^2, 0.0))
+                    Ia = j + 1 <= n ? ΔI[k, j+1] : 0.0; Ib = ΔI[k, j]      # ray p = r[n+1] grazes the surface: ΔI = 0
+                    d = μb - μa; d <= 0 && continue
+                    s1 = (Ib - Ia) / d
+                    # ∫ μ (Ia + s1 (μ − μa)) dμ from μa to μb
+                    acc += Ia * (μb^2 - μa^2) / 2 + s1 * ((μb^3 - μa^3) / 3 - μa * (μb^2 - μa^2) / 2)
+                end
+                Fν[k] += 2π * acc * (dv / c * ν0)
             end
         end
         for k in 1:n+1; Lline[i, k] = 4π * r[k]^2 * Fν[k]; end
+        Threads.atomic_add!(nthick, 1)
     end
     for k in 1:n+1; Lr[k] = sum(view(Lline, :, k)); end
     Λ = [(Lr[k+1] - Lr[k]) / (4π / 3 * (r[k+1]^3 - r[k]^3)) for k in 1:n]
+    LAST[] = (nbins = nb, nthick = nthick[])
     Λ, Lr, Lline
 end
 

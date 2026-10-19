@@ -18,6 +18,8 @@ const kB = 1.380649e-16; const mH = 1.6735575e-24; const eV = 1.602176634e-12; c
 const yHe = 1 / 12                                  # n_He / n_H (RHFC02 App. A1.2)
 const χH2 = 4.48eV; const χH = 13.598eV; const χHm = 0.754eV; const χH2p = 2.65eV   # binding energies (see notes)
 
+"Energy offset: u + UOFF_TH = energy relative to cold H₂ (+ neutral He), positive (SCVH95's zero)."
+const UOFF_TH = (χH + χH2 / 2) / (mH * (1 + 4yHe))
 "Mass per H nucleus [g] (H + He, metal free)."
 const μH = mH * (1 + 4yHe)
 

@@ -807,3 +807,33 @@ limit at step ≈ 68 500, in the post-core phase (Δt ≈ 40 s).
   m ≈ 0.022 M☉, r ≈ 6e11 cm, infall −21 km/s in front of it (RHFC02: shock "∼ 15 km/s → 2 km/s", smeared).
 - Not yet measured (no profiles saved): core mass by RHFC02's definition (infall < 0.1 v_ff), its growth and Ṁ —
   next run saves snapshots. Performance: ≈ 35 000 steps/h post-core (Δt ≈ 40 s by stol/C_dyn in the core).
+
+## M3b H₂ line transfer (19 Oct 2026) [run]
+
+**Line data**: ExoMol RACPPK (Roueff et al. 2019, exomol.com; `~/Projects/popiii_lit/H2lines/`, not in the repo): 302
+levels, 4712 quadrupole lines (v ≤ 14, J ≤ 31). RHFC02's subset v ≤ 2, J ≤ 20: 63 levels, 231 lines. RHFC02 used the
+Turner, Kirby-Docken & Dalgarno 1977 A-values (not available): these are modern values. Thin LTE emission per molecule
+(this subset) vs the HM79 fit: 0.947 (300 K), 0.983 (1000), 0.973 (2000), 0.908 (3000), 0.735 (5000 K; HM79 includes
+v > 2).
+
+**Code** `julia/H2Lines.jl` (`cooling(L, r, u, ρ, T, nH2; nbin, fnlte, τthin)`): LTE level populations (partition
+function over all 302 levels) × an optional non-LTE factor on the source function; α from RHFC02 Eq. A11; Gaussian
+thermal profile; comoving-frame Doppler shift from the bulk velocity (linear in r within a zone); tangent rays with
+impact parameters = interface radii; short characteristics with the source linear in τ; F(r_k) = 2π∫μΔI dμ integrated
+**exactly for ΔI linear in μ between rays** (the trapezoid in μ made the innermost zone's thin cooling 1.5× too large:
+with two rays it gives 2πjr instead of 4πjr/3); Λ_k = ΔL/ΔV (Eq. A10). Frequency bins: span ±(3 v_th,max + |u|_max),
+width ≤ ½ the narrowest thermal width (≥ nbin = 30, ≤ 200). Lines whose radial line-centre depth is < τthin = 0.02
+use the thin emission (RHFC02 used the same shortcut with 0.1; at 0.1 single lines near the threshold were off by
+5 %). Threaded over lines.
+
+**Tests** (`julia/h2lines_test.jl`): thin uniform sphere — total and innermost-zone cooling = thin emission to 1e-6;
+homogeneous static sphere vs the analytic emergent flux πS[1 − (1 − (1 + 2τ)e^{−2τ})/(2τ²)] at line-centre depths up to
+2.6e7 — total line luminosity within 0.6 % (0.3 % with 160 shells), every line within 1 %.
+
+**In TITAN** (`popiii_m2c.jl lines`): after each step's chemistry, H2Lines on the new state; Λ_k held fixed over the next
+step (`PrimordialGas.Λext`, added to the local CIE cooling inside the implicit chemistry/T step); Δt ≤ 0.1 uρ/|Λ|
+(RHFC02 A2.2 C_cool). **Non-LTE**: RHFC02 assumed LTE because their cloud started at 2.6e6 cm⁻³; the z = 19 cloud
+starts at 1e3 < n_crit, where LTE populations overcool (first 500 steps: T_c 161 K vs 203 K with the RA04 fit, which has
+the low-density limit). Source function × f = 1/(1 + Λ_LTE/(n_H Λ₀)) per zone (the GP98/HM79 combination of
+`cool_H2_thin`; env NLTE=0 for pure LTE) [design: an escape-probability-free approximation; f → 1 above ≈ 1e5 cm⁻³].
+Cost: ≈ 0.6 s per step on 6 cores before the thin shortcut and bin changes.

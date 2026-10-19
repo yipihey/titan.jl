@@ -21,9 +21,11 @@ mutable struct PrimordialGas <: TM.Material
     cooling::Union{Nothing,Function}      # (ρ, T, y) -> Λ [erg cm⁻³ s⁻¹]
     ρeq::Float64                          # equilibrium chemistry above this density (RHFC02: 5e-11 g cm⁻³); Inf = never
     eqtable::Bool                         # true: equilibrium EOS from PopIIIEqEOS (Saha + SCVH95, RHFC02); false: Saha only
+    Λext::Vector{Float64}                 # per zone k: extra cooling [erg cm⁻³ s⁻¹] held fixed over the next step (line transfer)
 end
-PrimordialGas(y, rates, cooling) = PrimordialGas(y, rates, cooling, 5e-11, false)
-PrimordialGas(y, rates, cooling, ρeq) = PrimordialGas(y, rates, cooling, ρeq, false)
+PrimordialGas(y, rates, cooling) = PrimordialGas(y, rates, cooling, 5e-11, false, zeros(length(y)))
+PrimordialGas(y, rates, cooling, ρeq) = PrimordialGas(y, rates, cooling, ρeq, false, zeros(length(y)))
+PrimordialGas(y, rates, cooling, ρeq, eqtable) = PrimordialGas(y, rates, cooling, ρeq, eqtable, zeros(length(y)))
 
 @inline function TX.material_gas(m::PrimordialGas, ρ, T)
     if m.eqtable && ForwardDiff.value(ρ) >= m.ρeq
@@ -65,9 +67,11 @@ function chem!(m::PrimordialGas)
     dn, tn, egn = TM.v(:dn), TM.v(:tn), TM.v(:egn)
     dTmax = 0.0
     for k in a:b
-        y1, T1 = dn[k] >= m.ρeq ? (m.eqtable ? EQ.step(dn[k], egn[k], tn[k], dt; cooling = m.cooling) :
-                                             PC.step_equilibrium(dn[k], egn[k], tn[k], dt; cooling = m.cooling)) :
-                                  PC.step_coupled(m.y[k], dn[k], egn[k], tn[k], dt, m.rates; cooling = m.cooling)
+        Λx = m.Λext[k]
+        cool = Λx == 0 ? m.cooling : (m.cooling === nothing ? ((ρ, T, y) -> Λx) : ((ρ, T, y) -> m.cooling(ρ, T, y) + Λx))
+        y1, T1 = dn[k] >= m.ρeq ? (m.eqtable ? EQ.step(dn[k], egn[k], tn[k], dt; cooling = cool) :
+                                             PC.step_equilibrium(dn[k], egn[k], tn[k], dt; cooling = cool)) :
+                                  PC.step_coupled(m.y[k], dn[k], egn[k], tn[k], dt, m.rates; cooling = cool)
         dTmax = max(dTmax, abs(T1 / tn[k] - 1))
         m.y[k] = y1; tn[k] = T1
     end
