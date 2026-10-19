@@ -195,8 +195,11 @@ if yz !== nothing
     for k in 1:a0-1; ystore[k] = yz[1]; end; for k in a0+nsh:length(ystore); ystore[k] = yz[end]; end
 end
 mat = PM.PrimordialGas(ystore, PC.rates_rhfc02(; k5 = k5f), cf, parse(Float64, get(ENV, "RHOEQ", "5e-11")))
+# artificial viscosity: viscous length l = ql1 r ≈ 2 Δr (the SOD state's ql0 = 1e-4 cm is zero at these scales, M2g);
+# Δr/r ≈ 0.04 (core) … 0.12 (envelope) on the geometric mass grid; quadratic term only (cq2), as PORTING_NOTES P7
+av = (ql0 = 0.0, ql1 = parse(Float64, get(ENV, "AVQL1", "0.15")), cq1 = 0.0, cq2 = parse(Float64, get(ENV, "AVCQ2", "1.0")))
 PS.build!(; rI, rho, T = Tz, u = uI, geom = 2, lgrid = 3, inner = :wall, outer = :free, pext = 0.0,
-          selfgrav = true, material = mat)
+          selfgrav = true, material = mat, av)
 TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
 PS.install_julia!(BlockSolver); TD.MSGIO[] = devnull
 a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre))
@@ -216,7 +219,7 @@ tff = sqrt(3π / (32Z0.G * ρc))
 TF.setscalar!(:dtime, 1e-3tff); TF.setscalar!(:tmax, 1e3tff)
 pr("M2c collapse [IC %s]: cooling %s, %d shells (q = %.4f, dm1 = 3e-7 Msun), R = %.3e cm, rho_c/rho_edge = %.1f, T_edge = %.1f K, p_ext = %.3e\n",
    ic, cool, nsh, q, rI[end], rho[1] / rho[end], Tz[end], TX.PEXT[])
-pr("theta = %.2f, C_dyn = %g, k5 = %s, rho_eq = %g, central t_ff0 = %.3e yr\n", TF.getscalar(:thet), TC.DT_DYN[], k5s, mat.ρeq, tff / 3.156e7)
+pr("theta = %.2f, C_dyn = %g, k5 = %s, rho_eq = %g, AV ql1 = %g cq2 = %g, central t_ff0 = %.3e yr\n", TF.getscalar(:thet), TC.DT_DYN[], k5s, mat.ρeq, av.ql1, av.cq2, tff / 3.156e7)
 # ON98 Fig. 3a (run A), read off: (log n_c, log T_c)
 on98 = [(6.3, 2.40), (8.0, 2.60), (10.0, 2.75), (12.0, 3.05), (15.0, 3.30), (16.0, 3.35), (20.0, 3.80)]
 on98T(ln) = (j = findfirst(p -> p[1] >= ln, on98); j === nothing ? NaN : j == 1 ? 10^on98[1][2] :
@@ -227,12 +230,26 @@ Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(EN
 try
     TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k)
         dT = PM.chem!(mat)
+        if haskey(ENV, "PROFAT") && k in parse.(Int, split(ENV["PROFAT"], ","))
+            rr = TF.var(:rn); uu = TF.var(:un); dd = TF.var(:dn); tt = TF.var(:tn)
+            pr("  profile at step %d, t = %.4e yr:\n", k, TF.getscalar(:timen) / 3.156e7)
+            for j in 1:8:nsh
+                kk = a + j - 1
+                pr("    j %3d m %.3e r %.3e pc  n %.3e  T %7.1f  u %7.3f km/s  f_H2 %.2e\n", j, 4π * TX.XMINT[][kk+1] / Msun, rr[kk+1] / 3.0857e18,
+                   dd[kk] / (1.22 * PC.mH), tt[kk], uu[kk+1] / 1e5, 2mat.y[kk][3])
+            end
+        end
         ρc_ = TF.var(:dn)[a]; Tc_ = TF.var(:tn)[a]; ln = log10(ρc_ / PC.mH)
         if ln >= nextln[] || k % 500 == 0
             umin = minimum(TF.var(:un)[a:b+1]) / 1e5
             pr("%7d %8.3f %10.4e %9.1f %9.1f %10.3e %10.3f %9.2e %9.2e\n", k, ln, TF.getscalar(:timen) / 3.156e7, Tc_, on98T(ln),
                2mat.y[a][3], umin, dT, TF.getscalar(:dtime))
             ln >= nextln[] && (nextln[] += 0.25)
+            if get(ENV, "UDIAG", "0") == "1"            # where the fastest infall is
+                uu = TF.var(:un)[a:b+1]; ku = argmin(uu); rr = TF.var(:rn)[a:b+1]
+                pr("        u_min %.3f km/s at interface %d of %d, r = %.3e pc, m = %.3e Msun, T(zone) = %.1f, n = %.3e\n", uu[ku] / 1e5, ku, nsh + 1,
+                   rr[ku] / 3.0857e18, 4π * TX.XMINT[][a+ku-1] / Msun, TF.var(:tn)[a+min(ku, nsh)-1], TF.var(:dn)[a+min(ku, nsh)-1] / (1.22 * PC.mH))
+            end
             if get(ENV, "DTDIAG", "0") == "1"           # which variable/zone limits Δt (timstp: kx, dx per equation)
                 kx = TF.var(:kx); dx = TF.var(:dx); names = ("r", "m", "rho", "u", "T")
                 j = argmax(abs.(dx[1:5])); xs = TF.getscalar(:stol) / TF.getscalar(:smax)

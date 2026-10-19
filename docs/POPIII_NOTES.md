@@ -733,3 +733,38 @@ velocities (blended in over one M_join). A purely hydrostatic continuation fails
 the virial-shock layer the hydrostatic density plunges and the mass saturates at ≈ 1.8e3 M☉ — the outer gas in ABN02 is
 accreting, not static. Default cloud 1e4 M☉ (MCLOUD): R = 58 pc (ABN02 panel B: 1e4 M☉ at ≈ 55 pc), 200 shells (central
 3e-7 M☉, q = 1.117), pressure/gravity = 0.99 inside 7.4 pc, ≈ 0.4 in the infalling envelope.
+
+### M2g result: collapse of the z = 19 cloud, 1e4 M☉ [run]
+
+**First attempt failed — no artificial viscosity at these scales.** The run inherited the SOD state's viscosity:
+`ql0 = 1e-4` (cm!), `ql1 = 0`, `cq2 = 1` — a viscous length of a micron on a parsec grid, i.e. none. The infalling,
+virial-shock-heated envelope drives a compression wave into the 150 K core; it steepens into a weak shock at
+r ≈ 0.3–0.5 pc (4.6 Myr), and without viscosity single shells spike (n ×4, T to 480 K, u to −3.5 km/s) and relax; one
+spike ran away to −26 km/s, Δt fell to 1e6 s, and the chemistry Newton hit a singular Jacobian. (The earlier runs,
+M2c–M2f, had the same non-viscosity but met no shock before n_c = 1e18.)
+**Fix:** `popiii_m2c.jl` now sets `av = (ql0 = 0, ql1 = 0.15, cq1 = 0, cq2 = 1)` (env AVQL1, AVCQ2): viscous length
+0.15 r ≈ 2 zones (Δr/r ≈ 0.04 core … 0.12 envelope), quadratic term only, as PORTING_NOTES P7 for the quasi-star infall.
+
+**Run** (`IC=abn02z19 TCMB=54.5`, 200 shells, ABN02 z = 19 dark matter, RA04 local cooling, Saha above ρ_eq, θ = 0.55,
+C_dyn = 0.01; log `lib/popiii/m2c_abn02z19_ra04_n200.log`): smooth, 7843 steps to n_c = 1e18.
+
+| log n_c | z=19 cloud, 1e4 M☉: t [Myr] | T_c | f_H2 | 1000 M☉ hydrostatic: T_c | P100: T_c | ON98 |
+|---|---|---|---|---|---|---|
+| 4 | 6.889 | 145 | 0.001 | - | - | - |
+| 6 | 14.416 | 254 | 0.00117 | - | - | 251 |
+| 8 | 14.813 | 634 | 0.00167 | 571 | 368 | 398 |
+| 10 | 14.830 | 802 | 0.0516 | 775 | 562 | 554 |
+| 12 | 14.831 | 1245 | 0.868 | 1238 | 1002 | 1122 |
+| 14 | 14.831 | 1751 | 0.956 | 1760 | 1669 | 1650 |
+| 16 | 14.831 | 2260 | 0.874 | 2276 | 2180 | 2218 |
+| 18 | 14.831 | 3065 | 0.752 | 3105 | 2983 | 3700 |
+
+- Quasi-static phase: n_c 1e3 → 1e4 in 6.9 Myr, → 1e6 at 14.4 Myr (ABN02 reach ~7e5 nine Myr after z = 19: our
+  contraction is ~1.5× slower — static dark matter halo here, growing in ABN02; and the read-off initial state). Then
+  the runaway: 1e6 → 1e18 in 0.4 Myr.
+- From n_c ≈ 1e10 on, the central track is the same as the 1000 M☉ hydrostatic cloud's (M2f) within 1–3 %: the 1e4 M☉
+  envelope does not change the centre's thermal history (as RHFC02 found for different total masses); warmer than
+  the 100 M☉ runs and ON98 at 1e8–1e12, converging by 1e14–1e16, 17 % below ON98 at 1e18 (cooling treatment, M2d).
+- Peak infall at n_c = 1e18: −6.4 km/s at m ≈ 0.05 M☉.
+- The 1e4 M☉ envelope (out to 58 pc, falling in at ≲ 2.6 km/s) is in the grid for the later stages (accretion,
+  radiation of the protostar/main-sequence star into the envelope — M4/M5).
