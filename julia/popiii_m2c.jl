@@ -142,7 +142,22 @@ if ic in ("abn02", "abn02hs", "abn02z19")
             # outside r_join the gas is not static in ABN02 (virial-shock heating, infall −0.4…−2.6 km/s): splice the
             # read-off n(r) on continuously at r_join (default 10^0.87 = 7.4 pc, where the two agree within 0.12 dex) and
             # integrate the mass outward; velocities there from v(M) (zero inside)
-            rj = pc * 10^parse(Float64, get(ENV, "LRJOIN", "0.87"))
+            # G8: r_join automatic (LRJOIN=auto, default): the outermost radius inside which the hydrostatic interior stays
+            # within DLNJOIN (default 0.15 dex, the read-off accuracy of ABN02 Fig. 2) of ABN02's read-off n(r) everywhere ("best agreement" alone is degenerate: in
+            # the flat core both agree trivially); the slope mismatch there is printed
+            lj = get(ENV, "LRJOIN", "auto")
+            if lj == "auto"
+                lnh(x) = (j = clamp(searchsortedfirst(rg, pc * 10^x), 2, length(rg)); log10(ρg[j] / (μ_abn * PC.mH)))
+                xs = range(log10(rg[3] / pc) + 0.1, log10(rg[end] / pc) - 0.1, length = 2000)
+                δj = parse(Float64, get(ENV, "DLNJOIN", "0.15"))
+                kbad = findfirst(x -> abs(lnh(x) - nfit(x)) > δj, xs)
+                xbest = kbad === nothing ? xs[end] : xs[max(kbad - 1, 1)]
+                dsl = (lnh(xbest + 0.05) - lnh(xbest - 0.05)) / 0.1 - (nfit(xbest + 0.05) - nfit(xbest - 0.05)) / 0.1
+                println("G8 automatic splice: log r_join = ", round(xbest, digits = 3), " (|Δ log n| ≤ $δj inside; slope mismatch ", round(dsl, digits = 2), ")")
+                rj = pc * 10^xbest
+            else
+                rj = pc * 10^parse(Float64, lj)
+            end
             k = searchsortedlast(rg, rj); rg = rg[1:k]; Mg = Mg[1:k]; ρg = ρg[1:k]
             fac = ρg[end] / nr(rg[end])
             while Mg[end] < 1.2M && rg[end] < 3e3pc

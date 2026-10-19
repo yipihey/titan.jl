@@ -1330,3 +1330,29 @@ cq2 = 1, θ = 0.55, stol 0.05). Position error = (r_s,num − r_s)/r_s from the 
 - ρ-based 10–90 % widths were not used: the numerical post-shock plateau is 5–10 % below the jump and not flat.
 - Step counts: l = cΔr needs 5–10× fewer steps than the tuned l ∝ r runs (ql1 case: ringing → 1.4e4–2.2e4 steps vs 1.5e3–1.9e3 spherical).
 - Use for the collapse: `AVZONE=2 julia popiii_m2c.jl …` (not yet run on the z = 19 cloud; c_q = 4/3·1·4 = 5.3 for c = 2).
+- G5 result, P100 `ra04`, `CHEM=netmodernli` (full detailed balance, Li), T_c [K] by log n_c, compared with the reference and CHEM=net:
+
+  | log n_c | 12 | 14 | 15 | 16 | 17 |
+  |---|---|---|---|---|---|
+  | reference (Saha above ρ_eq) | 1066 | 1749 | 2032 | 2196 | 2545 |
+  | CHEM=net | 1061 | 1800 | 2108 | 2213 | 2466 |
+  | CHEM=netmodernli | 1055 | 1741 | 2027 | 2197 | 2542 |
+
+  The detailed-balance network relaxes to equilibrium on its own and follows the Saha-switched reference within 0.5 %
+  from 1e14 to 1e17, with no ρ_eq switch. The RHFC02 network (PSS83 k5 not in detailed balance with k4) deviates by up
+  to 4 %. The rate pair, not the switch, sets the high-density track.
+
+### G8 automatic splice of the z = 19 cloud [run]
+`LRJOIN=auto` (default) sets r_join to the outermost radius inside which the hydrostatic interior stays within DLNJOIN of
+ABN02's read-off n(r) everywhere. A plain "best agreement" criterion is degenerate: the flat core agrees trivially.
+
+| DLNJOIN [dex] | log r_join [pc] | M_join [M☉] | slope mismatch |
+|---|---|---|---|
+| 0.05 | −0.86 | 0.3 | −0.17 |
+| 0.10 | −0.65 | 1.3 | −0.32 |
+| 0.15 (default) | 0.68 | 815 | −0.41 |
+
+The interior departs from the read-off by 0.10–0.15 dex between 0.2 and 5 pc, and beyond 5 pc it diverges, because the
+hydrostatic mass saturates. The default is the read-off accuracy of the figure (≈ 0.15 dex). It gives 4.8 pc,
+against 7.4 pc (LRJOIN=0.87) chosen by hand earlier. A numerical number can be set with LRJOIN=<log r>. Tom's profile
+data would remove the read-off uncertainty.
