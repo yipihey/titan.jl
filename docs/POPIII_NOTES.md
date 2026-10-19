@@ -1063,3 +1063,10 @@ interior and the read-off envelope agree best in ρ and slope), documented; and 
 Trbdf2.jl; H2Lines) in git worktrees; G3 → G4 → G5 in sequence (one engine); G6b after the collision data are found
 (search started); G7 after G6b; G8 any time. Finally rerun the reference collapses (P100, z = 19) with everything and
 redo the M3c regime map. Implementation of well-specified packages by subagents; design, review and verification here.
+
+### G0 Test suite [run]
+`julia/popiii_tests.jl [quick|full]`: each test a separate process, its output parsed for the deciding number; logs in
+`lib/popiii/tests/`, summary `lib/popiii/tests/summary.txt`. Quick tier (8 tests, 2 min 16 s on this Mac, all PASS):
+SOD 464 / SUBC 587 / SUPC 713 steps; static sphere exactly at rest; BE discrete equilibrium 7.3e-10; H2Lines thin limit
+1.000000 and homogeneous sphere 0.994–1.000; detailed-balance network = Saha (2217.9715 K both); one-zone f_H2 0.9707 at
+log ρ/m_H = 12.4. Full tier adds the dust collapse (arrival t/t_ff), BE Lane–Emden n = 120, LP after 8 decades.
