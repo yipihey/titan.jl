@@ -1207,3 +1207,28 @@ in time; the stages themselves are chemistry-free). Switch `INTEGRATOR=trbdf2` i
   below 1000 K, and inaccurate above that cut) gave H⁺ a three-body recombination time of 1e-9 s at 200 K. Each db pair
   now carries Tmin, the validity limit of its forward fit: k1 1e4 K, k14 3e3 K, Voronov Li 1e4 K. Below Tmin the reverse
   is extrapolated as a power law. The step at 35–200 K and n = 1e2–1e4 then behaves.
+
+### G6b H₂ statistical equilibrium [run]
+`julia/H2Levels.jl` (`load`, `populations(L, T, n_H, n_H2, n_He, n_Hp; β, Jbar, opr)`, `cooling(L, pops, n_H2; β)`, `coverage`, `lte`):
+the 63 levels v ≤ 2, J ≤ 20 (ExoMol RACPPK energies/g, 231 lines with A as in H2Lines), Cloudy 25.00 collision files as de-excitation
+k(u→l) [cm³ s⁻¹], excitation by detailed balance with the ExoMol energies (all rows checked u above l: 0 swapped, 0 duplicates).
+T-interpolation linear in log k vs log T, end values held outside the grid. Missing transitions: k = 0 (both ways). Radiative: A β + B J̄ (u→l),
+B_lu J̄ (l→u), defaults β = 1, J̄ = 0. Solver: GTH state reduction (≡ the linear solve with a normalisation row, but exact for the nearly
+decoupled ortho/para chains); 0.13 ms per call. Ortho↔para only through H (3 Sun & Dalgarno rows) and H⁺ (24 pairs); with no H/H⁺ the chains
+are decoupled and normalised 3:1 (`opr` forces any ratio and drops conversion). H₂ collider: n_H2 split ortho/para from the computed
+populations (fixed point, 1e-9). No electron collisions (no data).
+Coverage on the 63 levels (of 1953 pairs; levels linked; radiative lines with a collisional partner): H 844 (59/63; 211/231; not linked:
+(1,20), (2,18–20)); H₂-para 421 (J ≤ 16, v ≤ 2; 42/63; 135/231), H₂-ortho 361 (J ≤ 15; 39/63; 123/231) [LeBourlot 1999, 9 T points 100–6000 K];
+He (ORNL) 529 (63/63; 176/231; 1–10⁴ K); H⁺ 44 (v = 0, J ≤ 9; 10/63; 8/231; 3–6000 K). Levels without a partner for a collider get only radiative
+decay and the other colliders.
+Tests (`h2levels_test.jl`, 15 checks, 3 s; in `popiii_tests.jl full` as `h2levels`): (a) n_H = 1e12/1e14, β = 1: max |p/Boltzmann − 1| over levels
+with q > 1e-4 is 1.4e-7 (300, 1000 K), 3.5e-5 (3000 K; with 0.1 n_H of He all 63 levels, q > 1e-7: 1e-5); J̄ = B_ν(T) without collisions gives
+Boltzmann to 2e-15. The 63 levels hold 0.995 of the 302-level partition function at 3000 K (1.0000 at ≤ 1000 K), populations are normalised to the 63.
+(b) Λ/(n_H2 n_coll), n_coll = 1e-4, o:p = 3:1 fixed, vs GA08 Tables 1–6 (Table 8 gives the same): H₂ 0.89–1.16 (100–6000 K), He 1.05–1.16, H 0.95/0.98/0.95/0.91/0.79
+at 1000/1500/2000/4000/6000 K but 0.40 (100 K), 0.90 (200), **1.78 (300), 1.84 (500)**, 1.25 (700 K) — the Cloudy WGF07 file is about twice the GA08
+fits at 300–500 K (para J=0→2 and ortho 1→3 checked by hand against the file; GP98 is 4–6× GA08 there); H⁺ 0.15 (100 K) … 0.87 (6000 K)
+(Gerlich table v = 0, J ≤ 9, o↔p not included in this comparison). (c) Λ(n_H)/Λ_LTE(63 levels) vs 1/(1 + Λ_LTE^HM/(n_H Λ0^GP)): n_cr (ratio ½) ours
+1.5e4 / 6.6e4 / 9.3e3 cm⁻³ at 300/1000/3000 K vs 8.8e2 / 4.8e3 / 6.3e3 for cool_H2_thin; ours/GP at n_H = 1e3 … 1e4: 0.24, 0.32, 0.76; the GP/HM
+form reaches LTE too early at 300–1000 K (ours is 0.3× of it between n_H = 1e2 and 1e4) and agrees within 20 % at 3000 K; at n_H ≥ 1e7 both → 1.
+Low-density Λ0 ours/GP: 0.30 (300 K), 0.86 (1000), 1.15 (3000). (d) uniform β scales A: n_eff (Λ = ½ Λ_LTE(β), 1000 K) = 6.8e4 β cm⁻³ exactly
+(slope 1.000 over β = 1…1e-3); at n_H = 1e6 Λ/Λ_LTE(β) = 0.92 (β = 1) → 1.00 (β = 1e-3). Not yet used in the collapse drivers.
