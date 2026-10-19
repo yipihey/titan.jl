@@ -978,3 +978,24 @@ absorption-only (abs.) mean, S = B_ν.)
    boundary (step 5) is unchanged.
 8. To check: inside the hot core at the last snapshot F/F_D = 0.17–0.35 (vs 0.99–1.05 at log n_c 20.8) — steep
    gradients at the core/shock, few zones; resolution study needed.
+
+## M3d Closing the M3c open issues (19 Oct 2026)
+
+1. **H₂–H₂ CIA above 3000 K** [read-src + run]. Borysow, Jørgensen & Zheng (1997, A&A 324, 185) table `cia_h2h2.dat`
+   (A. Borysow's page, www.astro.ku.dk/~aborysow/programs/: "H2-H2, CIA data 1000-7000K, all bands"; 800–20 088 cm⁻¹;
+   `~/Projects/popiii_lit/CIA/borysow/`). Units cm⁻¹ amagat⁻² → cm⁵ by 1/n_L² (checked: ratio to HITRAN 0.8–1.2 at
+   1000–2000 K; 1.2–2.0 at 3000 K, largest in the roto-translational band — Borysow 1997 vs Abel et al. 2011).
+   `ContinuumOpacity.k_h2h2`: HITRAN to 3000 K; above, Borysow's T dependence scaled at each wavenumber to join HITRAN
+   continuously at 3000 K; below 800 cm⁻¹ HITRAN held at 3000 K; held above 7000 K.
+2. **Lithium** [design + run]. `PrimordialChem.ne_with_Li(n_H, T, n_e,H)`: Li ⇌ Li⁺ + e⁻ in Saha, Li/H = 4.15e-10.
+   x_e(H) → x_e(H + Li): 2e-24 → 3.9e-12 (1e12, 1300 K), 9e-22 → 1.9e-11 (1e14, 1500), 1.6e-16 → 2.8e-10 (1e16, 2000),
+   3.1e-11 → 4.5e-10 (1e18, 3000), 2.6e-9 → 3.0e-9 (1e20, 4000). In the network zones (≲ 1600 K, n ≲ 3e13) Li adds
+   ≲ 10 % to the network's own x_e (≈ 5e-11 at 1e12–1e13) — no Li reactions needed there; it matters for the
+   equilibrium electrons (H⁻ opacity) at 1700–3500 K. p, u unaffected (Li/H = 4e-10). Used by the post-processor and
+   by any continuum opacity call; the model's hydro does not use the continuum opacity yet (RA04 CIE).
+3. **Core F/F_D = 0.17–0.35 at log n_c 22.8 — explained, not resolution** [run]: the frequency grid stopped at 1e5 cm⁻¹,
+   while at T_c = 58 000 K the Planck peak is at ≈ 1.1e5 cm⁻¹: the formal flux missed ≈ 85 % of the spectrum while F_D
+   uses the full 16σT³ (the ratio was a uniform 0.15 across the smooth core, Δτ_R per zone 2e13). Grid now
+   10 cm⁻¹ … max(1e5, 25 kT_max/hc) (`popiii_regimes.fgrid`, `ContinuumOpacity.grid(; T)`): F/F_D = 0.97–1.06 across the
+   core (0.99 over most of it; Δτ_R per zone 1e12).
+4. **M3b line-transfer collapse with the corrected solver**: rerun as `_v2` (in progress).

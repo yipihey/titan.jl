@@ -5,10 +5,10 @@ Population III project, M3c: frequency-dependent continuum opacity of metal-free
 Planck and Rosseland means. Sources (data outside the repository, `~/Projects/popiii_lit/`):
 
 - **CIA** (collision-induced absorption), HITRAN (Karman et al. 2019 compilation; files `main/*_2011.cia`):
-  H₂–H₂ (200–3000 K, 20–10 000 cm⁻¹; Abel et al. 2011/2012), H₂–He (200–9900 K, 20–20 000 cm⁻¹; Abel et al. 2012),
+  H₂–H₂ (200–3000 K, 20–10 000 cm⁻¹; Abel et al. 2011/2012; above 3000 K Borysow et al. 1997, joined at 3000 K), H₂–He (200–9900 K, 20–20 000 cm⁻¹; Abel et al. 2012),
   H₂–H (1000–2500 K, 100–10 000 cm⁻¹; Gustafsson & Frommhold 2003). α_ν = k(ν, T) n₁ n₂ [cm⁻¹], k in cm⁵.
-  Outside the tabulated T range k is held at the nearest table temperature (flagged: H₂–H₂ above 3000 K, where RA04 used
-  Borysow et al. 2001 up to 7000 K — not in HITRAN main).
+  Outside the tabulated T ranges k is held at the nearest table temperature (H₂–H₂: Borysow et al. 1997 to 7000 K, see
+  `k_h2h2`).
 - **H⁻ bound–free**: John (1988, A&A 193, 189) fit to Wishart (1979): σ = 1e-18 λ³ (1/λ − 1/λ₀)^{3/2}
   Σ_{n=1}^{6} C_n (1/λ − 1/λ₀)^{(n−1)/2} cm², λ in μm, λ₀ = 1.6419 μm (coefficients as in the AHMIN routine of the
   "oracle" code and in RH); × n_H⁻ (1 − e^{−hν/kT}).
@@ -69,9 +69,40 @@ function kcia(t::CIA, σ, T)
 end
 
 const DIR = joinpath(homedir(), "Projects", "popiii_lit", "CIA")
+"""
+Borysow, Jørgensen & Zheng (1997, A&A 324, 185) H₂–H₂ CIA, 1000–7000 K (A. Borysow's distribution `cia_h2h2.dat`,
+800–20 088 cm⁻¹, 211 wavenumbers; units cm⁻¹ amagat⁻² → cm⁵ by 1/n_L², n_L = 2.6867811e19 cm⁻³ — checked against HITRAN:
+ratio 0.8–1.2 at 1000–2000 K, 1.2–2.0 at 3000 K).
+"""
+struct Borysow
+    σ::Vector{Float64}; T::Vector{Float64}; k::Matrix{Float64}     # k[iσ, iT] in cm⁵
+end
+function read_borysow(path = joinpath(DIR, "borysow", "cia_h2h2.dat"))
+    rows = [parse.(Float64, split(l)) for l in readlines(path) if occursin(r"^\s*[0-9]", l)]
+    nL = 2.6867811e19
+    Borysow([r[1] for r in rows], [1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0],
+            [rows[i][j+1] / nL^2 for i in eachindex(rows), j in 1:7])
+end
+function kbor(b::Borysow, σ, T)
+    (σ < b.σ[1] || σ > b.σ[end]) && return 0.0
+    i = clamp(searchsortedfirst(b.σ, σ), 2, length(b.σ)); w = (σ - b.σ[i-1]) / (b.σ[i] - b.σ[i-1])
+    Tc = clamp(T, b.T[1], b.T[end]); j = clamp(searchsortedfirst(b.T, Tc), 2, 7); v = (Tc - b.T[j-1]) / (b.T[j] - b.T[j-1])
+    kk(jj) = (1 - w) * b.k[i-1, jj] + w * b.k[i, jj]
+    (1 - v) * kk(j - 1) + v * kk(j)
+end
+"""
+H₂–H₂ CIA [cm⁵]: HITRAN up to 3000 K; above, Borysow's temperature dependence scaled at each wavenumber to join HITRAN
+continuously at 3000 K (k_H(σ, 3000) · k_B(σ, T)/k_B(σ, 3000)); below 800 cm⁻¹ (not in Borysow) HITRAN held at 3000 K.
+Above 7000 K held at 7000 K.
+"""
+function k_h2h2(t, σ, T)
+    T <= 3000 && return kcia(t.H2H2, σ, T)
+    kh = kcia(t.H2H2, σ, 3000.0); kb3 = kbor(t.BOR, σ, 3000.0)
+    kb3 > 0 ? kh * kbor(t.BOR, σ, T) / kb3 : kh
+end
 const TABS = Ref{Any}(nothing)
 tables() = (TABS[] === nothing && (TABS[] = (H2H2 = read_cia(joinpath(DIR, "H2-H2_2011.cia")),
-    H2He = read_cia(joinpath(DIR, "H2-He_2011.cia")), H2H = read_cia(joinpath(DIR, "H2-H_2011.cia")))); TABS[])
+    H2He = read_cia(joinpath(DIR, "H2-He_2011.cia")), H2H = read_cia(joinpath(DIR, "H2-H_2011.cia")), BOR = read_borysow())); TABS[])
 
 # ------------------------------------------------------------------ H⁻ and hydrogen
 const Cbf = (152.519, 49.534, -118.858, 92.536, -34.194, 4.982)
@@ -133,7 +164,7 @@ Continuum absorption (true absorption, stimulated emission included) and scatter
 """
 function alpha(ν, T; nH, nH2, nHe, nHp, ne, nHm)
     t = tables(); σ = ν / c; λμ = 1e4 / σ; stim = -expm1(-h * ν / (kB * T))
-    a_h2h2 = kcia(t.H2H2, σ, T) * nH2^2
+    a_h2h2 = k_h2h2(t, σ, T) * nH2^2
     a_h2he = kcia(t.H2He, σ, T) * nH2 * nHe
     a_h2h = kcia(t.H2H, σ, T) * nH2 * nH
     a_hmbf = σ_Hm_bf(λμ) * nHm * stim
@@ -147,15 +178,16 @@ end
 Bν(ν, T) = 2h * ν^3 / c^2 / expm1(h * ν / (kB * T))
 dBdT(ν, T) = (x = h * ν / (kB * T); em = exp(-x); 2h * ν^3 / c^2 * x * em / (T * (1 - em)^2))   # overflow-safe for x ≫ 1
 
-"Frequency grid [Hz] for means: log-uniform in wavenumber from 10 to 1e5 cm⁻¹ (resolves the CIA bands, H⁻ edge)."
-grid(; n = 4000) = [c * 10^x for x in range(1.0, 5.0, length = n)]
+"Frequency grid [Hz] for means: log-uniform in wavenumber from 10 cm⁻¹ to max(1e5, 25 kT/hc) (CIA bands, H⁻ edge; the
+Planck function of hot gas)."
+grid(; n = 4000, T = 0.0) = [c * 10^x for x in range(1.0, log10(max(1e5, 25kB * T / (h * c))), length = n)]
 
 """
     means(ρ, T; nH, nH2, nHe, nHp, ne, nHm, νs = grid()) -> (; κP, κR, κR_abs) [cm² g⁻¹]
 
 Planck mean of the absorption, Rosseland mean of the extinction (and of the absorption alone), trapezoid on νs.
 """
-function means(ρ, T; nH, nH2, nHe, nHp, ne, nHm, νs = grid())
+function means(ρ, T; nH, nH2, nHe, nHp, ne, nHm, νs = grid(; T))
     sP = 0.0; sB = 0.0; sR = 0.0; sRa = 0.0; sD = 0.0
     for i in 1:length(νs)-1
         ν = 0.5 * (νs[i] + νs[i+1]); dν = νs[i+1] - νs[i]

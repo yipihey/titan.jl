@@ -228,6 +228,26 @@ k5_db(T; tb = k4_pss) = tb(T) * K_H2(T)
 const me = 9.1093837e-28
 "Saha constant of H ⇌ H⁺ + e⁻: n_H⁺ n_e/n_H = (2π m_e k T/h²)^{3/2} e^{−13.6 eV/kT} (statistical weights 1·2/2) [cm⁻³]."
 K_ion(T) = (2π * me * kB * T / hP^2)^1.5 * exp(-χH / (kB * T))
+"⁷Li/H by number, SBBN (Coc et al. 2004), as Mayer & Duschl 2005 Table 1."
+const yLi = 4.15e-10
+"Saha constant of Li ⇌ Li⁺ + e⁻ (χ = 5.3917 eV; g(Li⁺) g(e)/g(Li) = 1·2/2) [cm⁻³]."
+K_Li(T) = (2π * me * kB * T / hP^2)^1.5 * exp(-5.3917eV / (kB * T))
+"""
+Total free-electron density [cm⁻³] with lithium: n_e = n_e,H + n_Li⁺, n_Li⁺ = n_Li K_Li/(K_Li + n_e) (Saha; collisional
+ionisation equilibrium is fast at the densities where it matters). Li supplies the electrons in metal-free gas below
+≈ 3500 K at high density (Mayer & Duschl 2005 §2.3; M3c: 15× H's at 3000 K, 1e18 cm⁻³); negligible for p and u
+(Li/H = 4e-10) and, at the network's temperatures (≲ 1600 K), below the network's own x_e.
+"""
+function ne_with_Li(nH, T, neH)
+    nLi = yLi * nH; K = K_Li(T); ne = neH
+    for _ in 1:60
+        ne_new = neH + nLi * K / (K + ne + 1e-300)
+        abs(ne_new - ne) <= 1e-12 * ne_new && return ne_new
+        ne = ne_new
+    end
+    ne
+end
+
 """
 Equilibrium composition at (ρ, T) (RHFC02 A1.2 for ρ ≥ ρ_eq, p ≤ 1e4 dyn cm⁻²: Saha equations): H₂ ⇌ 2H (K_H2) and
 H ⇌ H⁺ + e⁻ (K_ion); H⁻ and H₂⁺ set to 0; He neutral. x_H² n_H = K_H2 x_H₂, x_H⁺² n_H = K_ion x_H, x_H + x_H⁺ + 2x_H₂ = 1.
