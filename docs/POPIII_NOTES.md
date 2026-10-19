@@ -657,3 +657,23 @@ Cloud cut at M = 1000 M☉ (inside the T minimum, before the virial-shock heatin
 150 shells, central shell 3e-7 M☉. Gives R = 3.4 pc, ρ_c/ρ_edge = 9.5e3, central t_ff = 5.7e4 yr.
 **Asked Tom** for the actual profile data behind ABN02 Fig. 2 (spherically averaged n, T, v_r, f_H2, x_e vs M) —
 better than a figure read-off.
+
+**SCVH reader** `julia/SCVH.jl` [run]: parses both tables (63 isotherms each; log P and log ρ monotone on every
+isotherm), mixes H and He by the additive-volume rule (X = 0.75), inverts (ρ, T) → p by bisection in log P. Tables
+start at **log P = 4** (p = 1e4 dyn cm⁻²): consistent with RHFC02 using Saha below 1e4 and SCVH above 1e6. Against our
+Saha/ideal EOS: p agrees within 3 % up to n_H = 1e22 (1e19–1e22, 3000–2e4 K); SCVH dissociates earlier (X_H2 0.89 vs
+f_H2 0.94 at 1e19, 3000 K; 0.20 vs 0.27 at 1e20, 6000 K); at 1e23 cm⁻³ p is 21–23 % higher (non-ideal) and H is mostly
+pressure-ionised (X_H2 + X_H = 0.23 at 1e5 K vs Saha x_H⁺ = 0.30) — cf. RHFC02 §3.2.3 (n_H⁺/n_H ≈ 2 at stage 9).
+[interp] X_H2, X_H read as number concentrations relative to H (readme.doc not obtained). Not yet wired into the
+material (needed past n_c ≈ 1e18; with the U zero-point offset to u_chem, M2e).
+
+**Hydrostatic ABN02-like cloud** (`IC=abn02hs`): the read-off ABN02 profile (`IC=abn02`) is not in force balance in
+1D even with the dark matter: pressure/gravity = 2.5–5 at the core edge (0.03–0.2 pc), ≈ 1.2 outside 0.6 pc. Run
+`IC=abn02` (no DM, linear interpolation) expanded from the start and its centre cooled adiabatically to 49 K
+(Newton failure at 1.8e5 yr). ABN02's dark-matter density (Fig. 2A) equals the gas density near 1 pc: now included as
+a static external mass `TitanResidFast.EXTMASS[]` (M_DM(<r) read off Fig. 2A, monotone-cubic interpolation, slope −1
+continued inward of 0.45 pc). `abn02hs` keeps ABN02's n_c = 6.8e5, T(M), f_H2(M) and dark matter and integrates
+hydrostatic equilibrium outward to 1000 M☉ (at rest): pressure/gravity = 0.99 everywhere except the innermost shells
+(round-off of Δp); log n = 5.79 / 5.55 / 4.60 / 2.75 / −0.42 at log r(pc) = −1.57 / −1.08 / −0.59 / 0.06 / 0.87 vs
+ABN02 5.81 / 5.25 / 3.99 / 2.87 / 0.97; 1000 M☉ inside 3.0 pc (ABN02 read-off: 3.4 pc); ρ_c/ρ_edge = 1.2e4 — far
+beyond the Bonnor–Ebert limit, an unstable equilibrium.

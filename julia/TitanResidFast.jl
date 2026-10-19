@@ -111,6 +111,12 @@ zone with a constant external pressure PEXT[] outside (RHFC02 App. A2.3) instead
 (default) = TITAN's piston.
 """
 const PEXT = Ref(NaN)
+"""
+EXTMASS[] (Population III): static external mass distribution (e.g. the dark-matter halo of ABN02), a function
+r -> M_ext(< r) per steradian, added to the gas interior mass in the gravity terms (evaluated at the θ-centred radius;
+Float64 or Dual). `nothing` (default) = none.
+"""
+const EXTMASS = Ref{Any}(nothing)
 "u/r at interface k, with the regular limit at the centre."
 @inline uor(u, r, k, ngrs) = REGULAR_CENTRE[] && k == ngrs ? u[k+1] / r[k+1] : u[k] / r[k]
 const MEC2 = 8.1871057769e-7            # m_e c² [erg]
@@ -389,6 +395,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         u[k] = θ * un[k] + (1 - θ) * c.uo[k]
         fr[k] = θ * frn[k] + (1 - θ) * c.fro[k]
         xm[k] = isempty(XMINT[]) ? θ * (P.xmtot - xmen[k]) + (1 - θ) * c.xmo[k] : T(XMINT[][k])
+        EXTMASS[] === nothing || (xm[k] += EXTMASS[](r[k]))
         dmdt[k] = -(xmen[k] - c.xmeo[k]) / dt
         urel[k] = u[k] - (rn[k] - c.ro[k]) / dt
         rmu[k] = r[k]^mu; rmup1[k] = r[k]^(mu + 1)

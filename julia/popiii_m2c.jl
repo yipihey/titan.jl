@@ -14,6 +14,7 @@ include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "Prim
 include(joinpath(@__DIR__, "PopIIIMaterial.jl"))
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
+using ForwardDiff
 const Msun = 1.98847e33
 
 cool = isempty(ARGS) ? "ra04" : ARGS[1]; nsh = length(ARGS) > 1 ? parse(Int, ARGS[2]) : 100
@@ -40,7 +41,7 @@ q_of(M, n) = let lo = 1.0001, hi = 2.0
     for _ in 1:200; m_ = (lo + hi) / 2; f(m_) > 0 ? (hi = m_) : (lo = m_); end
     (lo + hi) / 2
 end
-if ic == "abn02"
+if ic in ("abn02", "abn02hs")
     # ABN02 (Abel, Bryan & Norman 2002, Science 295, 93; arXiv astro-ph/0112088) Fig. 2, profile "9 Myr later"
     # (red dotted with circles), read off the 400-dpi rendering [read-src, approximate ±0.05 dex]: particle number
     # density n(r) (panel A), T(M), H₂ mass fraction (panel C, lower curve), v_r(M) (panel E). ρ = n μ m_H, μ = 1.22.
@@ -50,10 +51,42 @@ if ic == "abn02"
     T_tab  = [252.0, 252.0, 229.0, 205.0, 164.0, 355.0, 1120.0, 1000.0]
     lf_tab = [-2.90, -2.90, -2.98, -3.11, -3.18, -3.37, -3.65, -4.0]
     v_tab  = [-0.03, -0.32, -0.49, -0.19, -0.81, -0.70, -1.73, -0.95]               # km/s
-    interp(x, xs, ys) = (x <= xs[1] ? ys[1] : x >= xs[end] ? ys[end] :
-        (j = searchsortedfirst(xs, x); ys[j-1] + (x - xs[j-1]) / (xs[j] - xs[j-1]) * (ys[j] - ys[j-1])))
+    # monotone cubic Hermite (Fritsch–Carlson) through the read-off points: no kinks (a piecewise-linear log n(r) put
+    # spurious pressure jumps of up to 40× gravity at the knots, M2e)
+    function pchip(xs, ys)
+        n = length(xs); d = diff(ys) ./ diff(xs); m = zeros(n)
+        m[1] = d[1]; m[n] = d[n-1]
+        for i in 2:n-1; m[i] = d[i-1] * d[i] <= 0 ? 0.0 : (d[i-1] + d[i]) / 2; end
+        for i in 1:n-1
+            d[i] == 0 && (m[i] = 0.0; m[i+1] = 0.0; continue)
+            a, b = m[i] / d[i], m[i+1] / d[i]; h = a^2 + b^2
+            h > 9 && (t = 3 / sqrt(h); m[i] = t * a * d[i]; m[i+1] = t * b * d[i])
+        end
+        x -> begin
+            x <= xs[1] && return ys[1] + m[1] * (x - xs[1]) * 0   # constant outside
+            x >= xs[n] && return ys[n] + m[n] * (x - xs[n])        # linear (log-log power law) beyond the last point
+            j = searchsortedlast(xs, x); h_ = xs[j+1] - xs[j]; t = (x - xs[j]) / h_
+            (2t^3 - 3t^2 + 1) * ys[j] + (t^3 - 2t^2 + t) * h_ * m[j] + (-2t^3 + 3t^2) * ys[j+1] + (t^3 - t^2) * h_ * m[j+1]
+        end
+    end
+    interp(x, xs, ys) = pchip(xs, ys)(x)
     pc = 3.0857e18; μ_abn = 1.22
-    nr(r) = 10^interp(log10(r / pc), lr_tab, ln_tab)
+    nfit = pchip(lr_tab, ln_tab); nr(r) = 10^nfit(log10(r / pc))
+    # dark matter (ABN02 Fig. 2A, the upper line between 1e-2 and 200 pc: DM density in GeV cm⁻³, read off) [read-src,
+    # approximate]; inside 0.45 pc continued with slope −1 (not legible under the gas curves)
+    lrd = [-2.0, -0.35, 0.06, 0.47, 0.87, 1.28, 1.60, 2.0]; lρd = [5.07, 3.42, 2.90, 2.68, 2.16, 1.49, 0.67, -0.59]
+    dmfit = pchip(lrd, lρd); GeV = 1.78266e-24
+    if get(ENV, "DM", "1") == "1"
+        rgd = [pc * 10^x for x in range(-4.0, 2.3, length = 20001)]; Mgd = zeros(length(rgd))
+        ρdm(r) = 10^dmfit(log10(r / pc)) * GeV
+        for j in 2:length(rgd)
+            rm = 0.5 * (rgd[j] + rgd[j-1]); Mgd[j] = Mgd[j-1] + 4π * rm^2 * ρdm(rm) * (rgd[j] - rgd[j-1])
+        end
+        Mgd .+= 4π / 3 * rgd[1]^3 * ρdm(rgd[1])
+        lrg = log10.(rgd); lMg = log10.(Mgd ./ 4π)                         # per steradian
+        TX.EXTMASS[] = r -> (x = log10(max(ForwardDiff.value(r), rgd[1])); j = clamp(searchsortedlast(lrg, x), 1, length(lrg) - 1);
+                             10^(lMg[j] + (x - lrg[j]) / (lrg[j+1] - lrg[j]) * (lMg[j+1] - lMg[j])) * one(r))
+    end
     # M(r) by integrating ρ(r) on a fine log grid
     rg = [pc * 10^x for x in range(-4.0, 1.5, length = 20001)]; Mg = zeros(length(rg))
     for j in 2:length(rg)
@@ -61,6 +94,36 @@ if ic == "abn02"
     end
     Mg .+= 4π / 3 * rg[1]^3 * nr(rg[1]) * μ_abn * PC.mH
     M = parse(Float64, get(ENV, "MCLOUD", "1000")) * Msun
+    if ic == "abn02hs"
+        # hydrostatic version: ABN02's central density, T(M) and dark matter; dP/dr = −ρ G (M_gas + M_DM)/r² with
+        # P = ρ c²(M), c² = k T(M)/(μ m_H): dρ/dr = −[ρ G M_tot/r² + ρ² 4π r² dc²/dM]/c². RK4 in ln r.
+        Tfit = pchip(lM_tab, T_tab); c2(m) = PC.kB * Tfit(log10(max(m / Msun, 1e-2))) / (μ_abn * PC.mH)
+        dc2dM(m) = (c2(m * 1.001) - c2(m / 1.001)) / (m * (1.001 - 1 / 1.001))
+        Mdm(r) = TX.EXTMASS[] === nothing ? 0.0 : 4π * TX.EXTMASS[](r)
+        function rhs_hs(r, ρ, m)
+            dm = 4π * r^2 * ρ
+            dρ = -(ρ * PC.G * (m + Mdm(r)) / r^2 + ρ * dm * dc2dM(m)) / c2(m)
+            (dρ, dm)
+        end
+        function integrate_hs(Mmax)
+            r = 1e-4 * pc; ρ = 10^ln_tab[1] * μ_abn * PC.mH; m = 4π / 3 * r^3 * ρ
+            rs = [0.0, r]; Ms = [0.0, m]; ρs = [ρ, ρ]
+            while m < Mmax
+                h = 0.002r
+                k1 = rhs_hs(r, ρ, m); k2 = rhs_hs(r + h / 2, ρ + h / 2 * k1[1], m + h / 2 * k1[2])
+                k3 = rhs_hs(r + h / 2, ρ + h / 2 * k2[1], m + h / 2 * k2[2]); k4 = rhs_hs(r + h, ρ + h * k3[1], m + h * k3[2])
+                ρ += h / 6 * (k1[1] + 2k2[1] + 2k3[1] + k4[1]); m += h / 6 * (k1[2] + 2k2[2] + 2k3[2] + k4[2]); r += h
+                push!(rs, r); push!(Ms, m); push!(ρs, ρ)
+            end
+            rs, Ms, ρs
+        end
+        global rg, Mg, ρg = integrate_hs(1.2M)
+        for x in (-1.57, -1.08, -0.59, 0.06, 0.87)        # compare with the ABN02 read-off
+            j = searchsortedfirst(rg, pc * 10^x); j <= length(rg) &&
+                println("hydrostatic vs ABN02: log r = $x  log n = ", round(log10(ρg[j] / (μ_abn * PC.mH)), digits = 2), "  (ABN02 ", round(nfit(x), digits = 2), ")")
+        end
+        println("hydrostatic: M = 1000 Msun at r = ", rg[searchsortedfirst(Mg, M)] / pc, " pc")
+    end
     q = q_of(M, nsh)
     mI = [0.0; cumsum([dm1 * q^(j - 1) for j in 1:nsh])]; mI[end] = M
     r_of_m(m) = m <= 0 ? 0.0 : (j = searchsortedfirst(Mg, m); j = clamp(j, 2, length(Mg));
@@ -70,7 +133,7 @@ if ic == "abn02"
     mz = [0.5 * (mI[j] + mI[j+1]) / Msun for j in 1:nsh]
     Tz = [interp(log10(m), lM_tab, T_tab) for m in mz]
     fz = [10^interp(log10(m), lM_tab, lf_tab) for m in mz]
-    uI = [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI]; uI[1] = 0.0
+    uI = ic == "abn02hs" ? zeros(nsh + 1) : [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI]; uI[1] = 0.0
     ρc = rho[1]; Tc0 = Tz[1]
     yz = [(1e-10 * 0 + 1e-7, 0.0, f / 2, 0.0) for f in fz]       # x_e ~ 1e-7 [assumed; ABN02 does not show it]
 else
@@ -108,6 +171,15 @@ TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
 PS.install_julia!(BlockSolver); TD.MSGIO[] = devnull
 a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre))
 TX.PEXT[] = TF.var(:pgn)[b]
+if get(ENV, "FORCECHECK", "0") == "1"           # initial force balance: −r²Δp / (G m m̄/r²) per interface
+    pg = TF.var(:pgn); dn = TF.var(:dn); rn = TF.var(:rn); dv = TF.var(:dvoln); xm = TX.XMINT[]
+    for k in a+1:4:b
+        mext = TX.EXTMASS[] === nothing ? 0.0 : TX.EXTMASS[](rn[k])
+        mb = 0.5 * (dn[k-1] * dv[k-1] + dn[k] * dv[k]); g = 4π * Z0.G * (xm[k] + mext) / rn[k]^2 * mb
+        pr("force k=%3d m=%.3e Msun r=%.3e pc  pressure/gravity = %.3f  T=%.1f n=%.3e\n", k, 4π * xm[k] / Msun, rn[k] / 3.0857e18,
+           -rn[k]^2 * (pg[k] - pg[k-1]) / g, TF.var(:tn)[k], dn[k] / (1.22 * PC.mH))
+    end
+end
 TF.setscalar!(:thet, parse(Float64, get(ENV, "THETA", "0.55")))   # 0.5 lets the centre ring (M2c)
 TC.DT_DYN[] = parse(Float64, get(ENV, "CDYN", "0.01"))
 tff = sqrt(3π / (32Z0.G * ρc))
