@@ -91,6 +91,28 @@ row (and in TITAN's combined row). The wall itself does not move (u = 0 there). 
 const INNER_SINK = Ref(false)
 "Sign of the inner-boundary mass flux in the mass row (see the MASS rows of residual!). Default true (fixed)."
 const FIX_PHIL0 = Ref(true)
+"""
+REGULAR_CENTRE[] (Population III, M1): interface ngrs is the centre, r(ngrs) = 0, u(ngrs) = 0 (inner wall, leibc = 1).
+The radius row of ngrs becomes the fixed-value row R = x (the multiplicative correction r·eˣ has ∂R/∂x = 0 at r = 0),
+and u/r at the centre takes its regular limit u(ngrs+1)/r(ngrs+1) (u ∝ r near the centre) in the viscosity and the
+(1 − 3f) energy terms. Default false.
+"""
+const REGULAR_CENTRE = Ref(false)
+"""
+XMINT[] (Lagrangian grid, lgrid = 3): interior mass per steradian of each interface, fixed in time, used for gravity
+instead of x_mtot − x_me. The exterior mass is known only to the Newton tolerance (δ ln x_me ≤ conv) times x_mtot,
+far more than the central shells' masses; on a Lagrangian grid the interior mass of an interface never changes.
+Empty (default) = TITAN's x_mtot − x_me.
+"""
+const XMINT = Ref(Float64[])
+"""
+PEXT[] (lgrid = 3, llobc = 1): free outer boundary. The outermost interface obeys the momentum equation of its half
+zone with a constant external pressure PEXT[] outside (RHFC02 App. A2.3) instead of the piston u = uextr. NaN
+(default) = TITAN's piston.
+"""
+const PEXT = Ref(NaN)
+"u/r at interface k, with the regular limit at the centre."
+@inline uor(u, r, k, ngrs) = REGULAR_CENTRE[] && k == ngrs ? u[k+1] / r[k+1] : u[k] / r[k]
 const MEC2 = 8.1871057769e-7            # m_e c² [erg]
 """
 Dual-energy switch, evaluated on the OLD (start-of-step) state and frozen during the Newton
@@ -363,7 +385,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         r[k] = θ * rn[k] + (1 - θ) * c.ro[k]
         u[k] = θ * un[k] + (1 - θ) * c.uo[k]
         fr[k] = θ * frn[k] + (1 - θ) * c.fro[k]
-        xm[k] = θ * (P.xmtot - xmen[k]) + (1 - θ) * c.xmo[k]
+        xm[k] = isempty(XMINT[]) ? θ * (P.xmtot - xmen[k]) + (1 - θ) * c.xmo[k] : T(XMINT[][k])
         dmdt[k] = -(xmen[k] - c.xmeo[k]) / dt
         urel[k] = u[k] - (rn[k] - c.ro[k]) / dt
         rmu[k] = r[k]^mu; rmup1[k] = r[k]^(mu + 1)
@@ -391,7 +413,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     # viscosity
     qf, dudr = W.qf, W.dudr; xmu4 = 0.25xmu
     @inbounds for k in ngrs:ngre
-        dudr[k] = (u[k+1] - u[k]) / (r[k+1] - r[k]) - xmu4 * (u[k+1] / r[k+1] + u[k] / r[k])
+        dudr[k] = (u[k+1] - u[k]) / (r[k+1] - r[k]) - xmu4 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
         ql = P.ql0 + P.ql1 * 0.5 * (r[k] + r[k+1])
         div = (rmu[k+1] * u[k+1] - rmu[k] * u[k]) / dvol[k]
         qv = decide(:vis, 0, k, val(div) < 0) ? div : zero(T)
@@ -485,6 +507,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
     end
+    REGULAR_CENTRE[] && (R[ir, kb(ngrs)] = X(ir, ngrs))
     k = ngrs - 1
     if P.leibc == 1; R[ir, kb(k)] = rn[k] - 2rn[k+1] + rn[k+2]
     elseif P.leibc == 2; R[ir, kb(k)] = rn[k] - rn[k+1] + P.delrl
@@ -504,6 +527,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     # should gain and every advective flux derived from dm_e/dt is off by 2r²·phil0. FIX_PHIL0[] = false restores 1.2.
     R[im, kb(ngrs)] = xmen[ngrs] - c.xmeo[ngrs] + (FIX_PHIL0[] ? -1 : 1) * rmu[ngrs] * P.phil0 * dt
     R[im, 1] = X(im, k0)
+    # Lagrangian with fixed interior masses: x_me is frozen (the continuity row with u_rel = 0 keeps every shell's
+    # mass). TITAN's row x_me(k−1) − x_me(k) = ρΔV takes the shell mass as a difference of exterior masses ~x_mtot,
+    # which loses log10(x_mtot/Δm) digits in the density of the central shells (1e-8 in a static sphere).
+    !isempty(XMINT[]) && @inbounds for k in ngrs:ngre+1; R[im, kb(k)] = X(im, k); end
     k = ngrs - 1
     if P.leibc == 1; R[im, kb(k)] = xmen[k] - 2xmen[k+1] + xmen[k+2]
     elseif P.leibc == 2; R[im, kb(k)] = -xmen[k] + xmen[k+1] + P.dl * dvoln[k]
@@ -545,6 +572,21 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         R[iu, kb(k)] = w
     end
     R[iu, kb(ngrs)] = X(iu, ngrs); R[iu, kb(ngre+1)] = X(iu, ngre + 1); R[iu, 1] = X(iu, k0)
+    if !isnan(PEXT[])
+        # free surface: the interior momentum row of interface ngre+1 with an empty zone outside (no mass, no
+        # viscous stress, pressure PEXT[]): half the mass of zone ngre, pressure jump PEXT − p(ngre)
+        (P.lgrid == 3 && P.llobc == 1) || error("PEXT needs lgrid = 3, llobc = 1")
+        k = ngre + 1
+        mk = 0.5 * d[k-1] * dvol[k-1]
+        r3m = ((r[k-1] + r[k]) / 2)^(1.5xmu)
+        w = (un[k] * dn[k-1] * dvoln[k-1] - c.uo[k] * c.do_[k-1] * c.dvolo[k-1]) / (2dt) +
+            0.5 * (dmdt[k-1] + dmdt[k]) * ub[k-1] +
+            rmu[k] * (PEXT[] - pg[k-1]) +
+            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk -
+            r[k]^(-0.5xmu) * r3m * qf[k-1]
+        c.lrad && (w -= avchi[k] * fr[k] / cc * mk)
+        R[iu, kb(k)] = w
+    end
     (P.leibc in (1, 2) || P.llibc == 1) || error("gasmom inner BC")
     (P.leobc < 3 || P.llobc == 1) || error("gasmom outer BC")
     k = ngrs - 1
@@ -593,7 +635,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     end
     # ---------------------------------------------------------------- GAS ENERGY
     @inbounds for k in ngrs:ngre
-        aur = 0.5 * (u[k+1] / r[k+1] + u[k] / r[k])
+        aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
         if c.etotal && !c.useint[k]
             w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k]
         elseif c.lrad && GASROW[]
@@ -649,7 +691,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     if c.lrad
         # ------------------------------------------------------------ RADIATION ENERGY
         @inbounds for k in ngrs:ngre
-            aur = 0.5 * (u[k+1] / r[k+1] + u[k] / r[k])
+            aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
             w = (ern[k] * dvoln[k] - c.ero[k] * c.dvolo[k]) / dt + rmu[k+1] * fr[k+1] - rmu[k] * fr[k] +
                 fedd[k] * er[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] +

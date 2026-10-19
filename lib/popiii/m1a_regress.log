@@ -1,0 +1,112 @@
+=== SOD: steps 463 vs reference 452 (+2.43%) ok
+  t = 0.1      r_shock    ref 1.675127       run 1.6751302      |Δ|/L = 3.19e-06 ok
+  t = 0.1      r_contact  ref 1.5926447      run 1.592647       |Δ|/L = 2.34e-06 ok
+  t = 0.1      r_head     ref 1.3693011      run 1.3713254      |Δ|/L = 2.02e-03 ok
+  t = 0.1      r_tail     ref 1.4989668      run 1.4982201      |Δ|/L = 7.47e-04 ok
+  t = 0.1      p_star     ref 0.30305158     run 0.30305084     rel = 2.45e-06 ok
+  t = 0.1      u_star     ref 0.92730009     run 0.92729925     rel = 9.06e-07 ok
+  t = 0.1      rho_2      ref 0.4260807      run 0.42609303     rel = 2.89e-05 ok
+  t = 0.1      rho_3      ref 0.26559331     run 0.2655927      rel = 2.30e-06 ok
+  t = 0.2      r_shock    ref 1.8503066      run 1.8503065      |Δ|/L = 5.21e-08 ok
+  t = 0.2      r_contact  ref 1.6854038      run 1.6854043      |Δ|/L = 4.64e-07 ok
+  t = 0.2      r_head     ref 1.2427716      run 1.2433591      |Δ|/L = 5.87e-04 ok
+  t = 0.2      r_tail     ref 1.494122       run 1.4945939      |Δ|/L = 4.72e-04 ok
+  t = 0.2      p_star     ref 0.30303589     run 0.30303667     rel = 2.58e-06 ok
+  t = 0.2      u_star     ref 0.92726189     run 0.92726738     rel = 5.92e-06 ok
+  t = 0.2      rho_2      ref 0.42605274     run 0.42601276     rel = 9.38e-05 ok
+  t = 0.2      rho_3      ref 0.26558718     run 0.26558714     rel = 1.73e-07 ok
+  t = 0.5      r_shock    ref 1.8154637      run 1.8155134      |Δ|/L = 4.97e-05 info (within tol)
+  t = 0.5      r_contact  ref 1.8152181      run 1.8152123      |Δ|/L = 5.79e-06 info (within tol)
+  t = 0.5      r_head     ref 1.044889       run 1.0449209      |Δ|/L = 3.19e-05 info (within tol)
+  t = 0.5      r_tail     ref 1.4969854      run 1.4980938      |Δ|/L = 1.11e-03 info (within tol)
+  t = 0.5      p_star     ref 0.81991566     run 0.81090289     rel = 1.10e-02 info (outside tol)
+  t = 0.5      u_star     ref 0.14686499     run 0.15337155     rel = 4.43e-02 info (outside tol)
+  t = 0.5      rho_2      ref 0.42612823     run 0.42612043     rel = 1.83e-05 info (within tol)
+  t = 0.5      rho_3      ref 0.83095388     run 0.827389       rel = 4.29e-03 info (within tol)
+=== SUBC: steps 586 vs reference 587 (-0.17%) ok
+  t = 5400     r_shock    ref 8.0428151e+11  run 8.0428151e+11  |Δ|/L = 1.76e-12 ok
+  t = 5400     width      ref 1.0415149e+09  run 1.0415149e+09  |Δ|/L = 1.93e-12 ok
+  t = 5400     rho_post   ref 2.6170973e-09  run 2.6170973e-09  rel = 1.90e-10 ok
+  t = 5400     rho_pre    ref 1.7369216e-09  run 1.7369216e-09  rel = 2.23e-10 ok
+  t = 5400     T_spike    ref 860.2048       run 860.2048       rel = 4.72e-14 ok
+  t = 5400     r_spike    ref 8.0426844e+11  run 8.0426844e+11  |Δ|/L = 3.52e-12 ok
+  t = 5400     Trad_shock ref 626.92434      run 626.92434      rel = 5.00e-12 ok
+  t = 5400     T_post     ref 848.52644      run 848.52644      rel = 9.14e-14 ok
+  t = 5400     Trad_post  ref 654.8984       run 654.8984       rel = 1.28e-12 ok
+  t = 5400     T_pre      ref 129.75331      run 129.75331      rel = 7.01e-12 ok
+  t = 5400     Trad_pre   ref 606.66465      run 606.66465      rel = 3.93e-12 ok
+  t = 5400     precursor  ref 23926712       run 23926712       |Δ|/L = 5.17e-12 ok
+  t = 1.7e+04  r_shock    ref 8.1381098e+11  run 8.1381098e+11  |Δ|/L = 8.45e-13 ok
+  t = 1.7e+04  width      ref 3.6109847e+09  run 3.6109847e+09  |Δ|/L = 6.96e-13 ok
+  t = 1.7e+04  rho_post   ref 2.456312e-09   run 2.456312e-09   rel = 1.00e-11 ok
+  t = 1.7e+04  rho_pre    ref 1.6216496e-09  run 1.6216496e-09  rel = 2.08e-12 ok
+  t = 1.7e+04  T_spike    ref 885.90811      run 885.90811      rel = 5.03e-13 ok
+  t = 1.7e+04  r_spike    ref 8.1379729e+11  run 8.1379729e+11  |Δ|/L = 7.78e-13 ok
+  t = 1.7e+04  Trad_shock ref 696.59814      run 696.59814      rel = 3.88e-14 ok
+  t = 1.7e+04  T_post     ref 861.76607      run 861.76607      rel = 6.89e-14 ok
+  t = 1.7e+04  Trad_post  ref 744.21673      run 744.21673      rel = 2.43e-12 ok
+  t = 1.7e+04  T_pre      ref 199.90304      run 199.90304      rel = 4.34e-14 ok
+  t = 1.7e+04  Trad_pre   ref 654.45255      run 654.45255      rel = 2.02e-13 ok
+  t = 1.7e+04  precursor  ref 4.457724e+08   run 4.457724e+08   |Δ|/L = 2.77e-12 ok
+  t = 3.8e+04  r_shock    ref 8.309415e+11   run 8.309415e+11   |Δ|/L = 9.00e-14 ok
+  t = 3.8e+04  width      ref 8.1414957e+09  run 8.1414957e+09  |Δ|/L = 3.28e-14 ok
+  t = 3.8e+04  rho_post   ref 2.4399069e-09  run 2.4399069e-09  rel = 3.37e-12 ok
+  t = 3.8e+04  rho_pre    ref 1.5982058e-09  run 1.5982058e-09  rel = 1.37e-12 ok
+  t = 3.8e+04  T_spike    ref 847.27208      run 847.27208      rel = 3.83e-13 ok
+  t = 3.8e+04  r_spike    ref 8.3092838e+11  run 8.3092838e+11  |Δ|/L = 7.50e-14 ok
+  t = 3.8e+04  Trad_shock ref 687.02717      run 687.02717      rel = 4.72e-14 ok
+  t = 3.8e+04  T_post     ref 819.45154      run 819.45154      rel = 3.52e-13 ok
+  t = 3.8e+04  Trad_post  ref 752.72441      run 752.72441      rel = 2.54e-13 ok
+  t = 3.8e+04  T_pre      ref 177.61049      run 177.61049      rel = 8.86e-13 ok
+  t = 3.8e+04  Trad_pre   ref 619.03658      run 619.03658      rel = 2.89e-13 ok
+  t = 3.8e+04  precursor  ref 3.5497436e+08  run 3.5497436e+08  |Δ|/L = 5.12e-13 ok
+  t = 6e+04    r_shock    ref 8.4867026e+11  run 8.4867026e+11  |Δ|/L = 3.85e-14 ok
+  t = 6e+04    width      ref 1.2670262e+10  run 1.2670262e+10  |Δ|/L = 4.82e-14 ok
+  t = 6e+04    rho_post   ref 2.5655681e-09  run 2.5655681e-09  rel = 2.38e-12 ok
+  t = 6e+04    rho_pre    ref 1.6799341e-09  run 1.6799341e-09  rel = 5.54e-13 ok
+  t = 6e+04    T_spike    ref 795.62237      run 795.62237      rel = 5.35e-13 ok
+  t = 6e+04    r_spike    ref 8.4865541e+11  run 8.4865541e+11  |Δ|/L = 3.85e-14 ok
+  t = 6e+04    Trad_shock ref 654.50815      run 654.50815      rel = 1.14e-13 ok
+  t = 6e+04    T_post     ref 771.97611      run 771.97611      rel = 3.22e-13 ok
+  t = 6e+04    Trad_post  ref 729.9638       run 729.9638       rel = 5.61e-14 ok
+  t = 6e+04    T_pre      ref 129.70146      run 129.70146      rel = 7.79e-13 ok
+  t = 6e+04    Trad_pre   ref 568.28337      run 568.28337      rel = 1.68e-13 ok
+  t = 6e+04    precursor  ref 32395523       run 32395523       |Δ|/L = 3.02e-15 ok
+=== SUPC: steps 712 vs reference 713 (-0.14%) ok
+  t = 4000     r_shock    ref 8.0911942e+11  run 8.0911942e+11  |Δ|/L = 6.22e-12 ok
+  t = 4000     width      ref 1.1194182e+09  run 1.1194182e+09  |Δ|/L = 5.26e-12 ok
+  t = 4000     rho_post   ref 3.3171182e-09  run 3.3171182e-09  rel = 4.52e-12 ok
+  t = 4000     rho_pre    ref 2.2223325e-09  run 2.2223325e-09  rel = 2.10e-13 ok
+  t = 4000     T_spike    ref 6206.7708      run 6206.7708      rel = 3.06e-12 ok
+  t = 4000     r_spike    ref 8.0912548e+11  run 8.0912548e+11  |Δ|/L = 6.22e-12 ok
+  t = 4000     Trad_shock ref 3924.1194      run 3924.1194      rel = 3.80e-13 ok
+  t = 4000     T_post     ref 3985.5503      run 3985.5503      rel = 1.42e-12 ok
+  t = 4000     Trad_post  ref 3825.9124      run 3825.9124      rel = 5.09e-13 ok
+  t = 4000     T_pre      ref 3843.0867      run 3843.0867      rel = 4.68e-13 ok
+  t = 4000     Trad_pre   ref 3845.6653      run 3845.6653      rel = 1.75e-13 ok
+  t = 4000     precursor  ref 1.844537e+10   run 1.844537e+10   |Δ|/L = 4.93e-12 ok
+  t = 7500     r_shock    ref 8.1729673e+11  run 8.1729673e+11  |Δ|/L = 9.04e-13 ok
+  t = 7500     width      ref 2.2967255e+09  run 2.2967255e+09  |Δ|/L = 4.37e-13 ok
+  t = 7500     rho_post   ref 3.3120439e-09  run 3.3120439e-09  rel = 1.05e-13 ok
+  t = 7500     rho_pre    ref 2.1936348e-09  run 2.1936348e-09  rel = 4.63e-13 ok
+  t = 7500     T_spike    ref 6362.9603      run 6362.9603      rel = 6.70e-13 ok
+  t = 7500     r_spike    ref 8.17303e+11    run 8.17303e+11    |Δ|/L = 9.04e-13 ok
+  t = 7500     Trad_shock ref 4295.7393      run 4295.7393      rel = 3.73e-14 ok
+  t = 7500     T_post     ref 4197.1846      run 4197.1846      rel = 2.67e-13 ok
+  t = 7500     Trad_post  ref 4194.3192      run 4194.3192      rel = 1.30e-15 ok
+  t = 7500     T_pre      ref 4204.9442      run 4204.9442      rel = 1.29e-13 ok
+  t = 7500     Trad_pre   ref 4212.3945      run 4212.3945      rel = 2.81e-15 ok
+  t = 7500     precursor  ref 2.791495e+10   run 2.791495e+10   |Δ|/L = 1.77e-12 ok
+  t = 1.3e+04  r_shock    ref 8.3029473e+11  run 8.3029473e+11  |Δ|/L = 5.97e-13 ok
+  t = 1.3e+04  width      ref 4.2947261e+09  run 4.2947261e+09  |Δ|/L = 4.50e-13 ok
+  t = 1.3e+04  rho_post   ref 3.3032037e-09  run 3.3032037e-09  rel = 1.29e-12 ok
+  t = 1.3e+04  rho_pre    ref 2.1671825e-09  run 2.1671825e-09  rel = 8.00e-13 ok
+  t = 1.3e+04  T_spike    ref 6483.8782      run 6483.8782      rel = 1.21e-12 ok
+  t = 1.3e+04  r_spike    ref 8.3030151e+11  run 8.3030151e+11  |Δ|/L = 3.33e-12 ok
+  t = 1.3e+04  Trad_shock ref 4633.8283      run 4633.8283      rel = 1.46e-13 ok
+  t = 1.3e+04  T_post     ref 4539.7203      run 4539.7203      rel = 1.79e-13 ok
+  t = 1.3e+04  Trad_post  ref 4542.1979      run 4542.1979      rel = 1.53e-13 ok
+  t = 1.3e+04  T_pre      ref 4549.372       run 4549.372       rel = 2.27e-13 ok
+  t = 1.3e+04  Trad_pre   ref 4552.1041      run 4552.1041      rel = 1.19e-13 ok
+  t = 1.3e+04  precursor  ref 3.7676599e+10  run 3.7676599e+10  |Δ|/L = 5.81e-13 ok
+ACCEPT

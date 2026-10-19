@@ -345,3 +345,52 @@ silicon (18 cores), ForwardDiff 1.4.6. Logs: `lib/popiii/m0_mac_{SOD,SUBC,SUPC}.
 SOD info sample at t = 0.5, p* 0.81090162 → 0.81090289, relative 1.6e-6). The change of Julia version (and of
 whatever package versions the cloud resolved; not recorded there) does not alter the verified paths.
 
+
+## M1a Regular centre, Lagrangian mass grid, self-gravity, free outer surface (19 Oct 2026) [run]
+
+Code (all behind switches, default off; SOD/SUBC/SUPC regression identical to M0.10, `lib/popiii/m1a_regress*.log`):
+- `TitanResidFast.REGULAR_CENTRE[]`: radius row of the centre interface is the fixed-value row R = x (M0.1 item 1);
+  u/r at the centre takes the regular limit u(ngrs+1)/r(ngrs+1) in the viscosity and the (1 − 3f) energy terms
+  (item 2). `TitanCore.timstp!` and `totnrg!` skip the 0/0 at r = 0 (items 3, 5: `relchg`, `mor`).
+- `TitanResidFast.XMINT[]` (Lagrangian, lgrid = 3): fixed interior mass per interface, used for gravity (item 7),
+  **and x_me frozen (mass rows R = x)**. Found by the static test: TITAN's mass row x_me(k−1) − x_me(k) = ρΔV takes the
+  shell mass as a difference of exterior masses ≈ x_mtot (= 1000 × cloud mass by default in `ProblemSetup`), which put
+  1e-8 relative noise into the central densities of a sphere at rest. On a Lagrangian grid the continuity row with
+  u_rel = 0 already keeps every shell's mass, so nothing is lost.
+- `TitanResidFast.PEXT[]` + `TitanCore.FREE_OUTER[]`: free outer surface (RHFC02 A2.3): the outermost interface obeys
+  the momentum equation of its half zone against a constant external pressure, instead of TITAN's piston (peq no longer
+  imposes ur/uextr). `ProblemSetup.build!(outer = :free, pext, selfgrav = true)`.
+- Item 4 (Eddington factors at r = 0) is not done: M1 is hydrodynamics only (neqn = 5).
+
+Tests, `julia/popiii_m1.jl` (logs `lib/popiii/m1_*.log`):
+
+1. **Static uniform sphere** (100 M☉, ρ = 1e-19, 300 K, 40 shells with Δm ratio 1.3, no gravity, p_ext = p): over 30
+   sound-crossing times, Δr, u, Δρ **exactly 0**, r(centre) = 0, no NaN. **PASS.** (Before freezing x_me: 1e-8.)
+2. **Pressure-free collapse** (100 M☉, ρ0 = 1e-19, 40 shells, ratio 1.2, p_ext = 0) against r = r0 cos²β, β + sin β cos β
+   = t(8πGρ0/3)^½, u = −(2Gm/r0)^½(1/x − 1)^½; worst shell, at the times the exact R/R0 crosses 0.5 / 0.1 / 0.03:
+
+   | θ | stol | T0 [K] | steps to R/R0 = 0.1 | |Δr/r| at 0.5 / 0.1 / 0.03 |
+   |---|---|---|---|---|
+   | 0.55 (TITAN) | 0.1 | 1e-3 | — (fails, 20 steps to 0.73 t_ff) | 9.3e-2 (at 0.35) |
+   | 0.55 | 0.01 | 1e-3 | 720 | 4.2e-3 / 6.3e-2 / 4.5e-1 |
+   | 0.55 | 0.001 | 1e-3 | 6940 | 4.6e-4 / 6.8e-3 / 4.4e-2 |
+   | 0.5 | 0.01 | 1e-3 | 700 | 4.2e-4 / 6.1e-3 / 4.0e-2 |
+   | 0.5 | 0.001 | 1e-3 | 6920 | 2.4e-4 / 5.2e-3 / 3.5e-2 |
+   | 0.5 | 0.001 | **1e-6** | 6920 | **1.1e-5 / 1.6e-4 / 1.0e-3** |
+
+   Same numbers with conv = 1e-9 (Newton tolerance not limiting) and with 80 shells (no spatial error: the solution is
+   homologous). The floor at T0 = 1e-3 K is the residual gas pressure (adiabatic heating makes p/ρ grow ∝ x⁻²), not a
+   scheme error. Arrival: R/R0 = 0.01 at t/t_ff = 0.999574, exact 0.99958. **PASS** (< 1 % in the collapse time; r(m, t)
+   to 1.6e-4 at R/R0 = 0.1 with θ = 0.5).
+
+**Findings.**
+- **θ = 0.55 (TITAN's default) makes the step first order**: error ≈ 7 stol at R/R0 = 0.1. θ = 0.5 is second order
+  (10× better at stol = 0.01). RHFC02's scheme is second order except the energy equation (A2.1). For the collapse
+  runs: θ = 0.5 or stol ≤ 1e-3, to be decided with the shock tests of M3 (θ > 0.5 damps).
+- **TITAN's stol control lets dt grow 10× per step** (tfac ≤ 10), which with stol = 0.1 takes the collapse to
+  0.73 t_ff in 20 steps. RHFC02 caps dt at the dynamical time C_dyn(r³/Gm)^½ and at 2 Δt_prev (A2.2). A dynamical-time
+  cap belongs in `timstp!` for the collapse (next).
+- After the shells reach the centre the run degenerates (shell crossing at r → 0; steps → 0): expected for dust.
+
+Next in M1: dynamical-time step cap; Bonnor–Ebert sphere (isothermal-like EOS) static for 10 sound-crossing times;
+Larson–Penston approach; energy ledger with self-gravity; quasi-star hydrostatic regression (P7.3).

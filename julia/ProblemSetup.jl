@@ -11,6 +11,9 @@ SUBC for radiation hydrodynamics (neqn = 7).
 
 - `rI` interfaces (n+1), `rho`, `T` zone values (n), `u` interface velocities (n+1); `Er` zones, `Fr` interfaces.
 - `geom` 0 planar, 2 spherical. `Mc` central point mass (g; spherical gravity on with the Z0 value of G).
+- `selfgrav`: gravity of the gas itself (spherical, G = Z0.G) without a point mass.
+- `outer = :free` (lgrid = 3 only): Lagrangian outer interface moving under the external pressure `pext`
+  (TitanResidFast.PEXT; llobc = 1).
 - `inner`/`outer` ∈ (:wall, :inflow): Eulerian zero-flux wall (le?bc = 1) or a fixed external state (le?bc = 2);
   `inflow = (rho, T, u)` gives that state for the outer boundary (u < 0 for inflow). Mass and gas-energy fluxes through
   the boundary follow from it: phir0 = ρu, phir2 = ρ u e_g(ρ, T).
@@ -29,7 +32,7 @@ const INIT = joinpath(@__DIR__, "..", "reference_runs", "init")
 function build!(; rI, rho, T, u, geom = 2, rad = false, Er = nothing, Fr = nothing, lum = nothing,
                 inner = :wall, outer = :wall, inflow = nothing, material = TM.Builtin(), gam = 5 / 3, gmu = 0.5,
                 Mc = 0.0, lgrid = 2, gridtau = 1e3, lady = (0, 2, 2), xscale = rI[end] - rI[1], av = (;), xmext = nothing,
-                convection = false, opac = nothing)
+                convection = false, opac = nothing, selfgrav = false, pext = NaN)
     n = length(rho); length(rI) == n + 1 && length(T) == n && length(u) == n + 1 || error("profile lengths")
     iseven(n) || error("ncell must be even")
     TF.load_state!(joinpath(INIT, rad ? "SUBC.tstate.gz" : "SOD.tstate.gz"))
@@ -41,12 +44,15 @@ function build!(; rI, rho, T, u, geom = 2, rad = false, Er = nothing, Fr = nothi
     mu = geom; s!(:lgeom, geom); s!(:mu, mu); s!(:mup1, mu + 1); s!(:mum1, mu - 1)
     s!(:xmu, mu); s!(:xmup1, mu + 1); s!(:xmum1, mu - 1); s!(:rxm1, 1 / (mu + 1))
     xmup1 = mu + 1.0
-    s!(:cgrav, Mc > 0 ? Z0.G : 0.0); s!(:g, 0.0)
+    s!(:cgrav, Mc > 0 || selfgrav ? Z0.G : 0.0); s!(:g, 0.0)
     rad && (s!(:cc, Z0.c); s!(:csigr, Z0.σSB); s!(:car, Z0.arad))
     s!(:leos, 2); s!(:gam, gam); s!(:gmu, gmu)
     opac === nothing || for (k, x) in pairs(opac); s!(k, x); end      # e.g. (lopac = 3, chif0 = …)
     s!(:lgrid, lgrid)
-    s!(:leibc, inner === :wall ? 1 : 2); s!(:leobc, outer === :wall ? 1 : 2); s!(:llibc, 0); s!(:llobc, 0)
+    outer === :free && lgrid != 3 && error("outer = :free needs lgrid = 3")
+    s!(:leibc, inner === :wall ? 1 : 2); s!(:leobc, outer === :wall ? 1 : outer === :free ? 0 : 2); s!(:llibc, 0)
+    s!(:llobc, outer === :free ? 1 : 0)
+    TX.PEXT[] = outer === :free ? pext : NaN; TC.FREE_OUTER[] = outer === :free
     for k in (:phil0, :phil1, :phil2, :phir0, :phir1, :phir2, :ul, :ur, :uextl, :uextr, :pextr); s!(k, 0.0); end
     for (k, x) in pairs(av); s!(k, x); end
     if rad

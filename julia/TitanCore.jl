@@ -27,6 +27,13 @@ vi(s::Symbol) = v(s)::Vector{Int32}
 
 "Real-exponent power. `PARITY[] = true` routes it to glibc libm (as the Fortran) for translation debugging."
 const PARITY = Ref(false)
+"""
+FREE_OUTER[] (Population III, M1): the outermost interface moves under its own momentum equation (TitanResidFast.PEXT):
+peq keeps its extrapolated velocity instead of imposing ur/uextr. Default false.
+"""
+const FREE_OUTER = Ref(false)
+"Relative change, 0 where the old value is 0 (the regular centre, r = 0)."
+@inline relchg(n, o) = o == 0.0 ? 0.0 : (n - o) / o
 rpow(x::Float64, y::Float64) = PARITY[] ? ccall((:pow, "libm.so.6"), Float64, (Float64, Float64), x, y) : x^y
 gi(s)::Int = Int(TD.g(s)); gf(s)::Float64 = Float64(TD.g(s))
 s!(s, x) = TD.s!(s, x)
@@ -119,7 +126,7 @@ function timstp!()
     if lhydr == 1
         ern, ero, frn, fro, frnom = lrad == 1 ? (vf(:ern), vf(:ero), vf(:frn), vf(:fro), vf(:frnom)) : (nothing, nothing, nothing, nothing, nothing)
         @inbounds for k in a:b+1
-            sx[k, ir] = (rn[k] - ro[k]) / ro[k]
+            sx[k, ir] = relchg(rn[k], ro[k])
             sx[k, im] = (xmen[k] - xmeo[k]) / xmeo[k]
             sx[k, id] = (dn[k] - do_[k]) / do_[k]
             sx[k, iu] = (un[k] - uo[k]) / unom[k]
@@ -385,7 +392,7 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     end
     # ---- boundary values of u and F
     leibc <= 2 && (un[a] = gf(:ul)); llibc == 1 && (un[a] = gf(:uextl))
-    leobc <= 2 && (un[b+1] = gf(:ur)); llobc == 1 && (un[b+1] = gf(:uextr))
+    FREE_OUTER[] || (leobc <= 2 && (un[b+1] = gf(:ur)); llobc == 1 && (un[b+1] = gf(:uextr)))
     if lrad
         frn, ern = vf(:frn), vf(:ern)
         cpi, cc, csigr, xmu = gf(:cpi), gf(:cc), gf(:csigr), gf(:xmu)
@@ -626,7 +633,7 @@ function totnrg!(io = nothing)
     @inbounds for k in a:b
         tescr[k] = dn[k] * dvoln[k] * (egrtn[k] + 0.25 * (un[k]^2 + un[k+1]^2) +
                    (0.5 - 0.25xmu) * g * (rn[k] + rn[k+1]) -
-                   xmu * cpi * cgrav * (xmn[k] / rn[k] + xmn[k+1] / rn[k+1])) - tescr0[k]
+                   xmu * cpi * cgrav * (mor(xmn[k], rn[k]) + mor(xmn[k+1], rn[k+1]))) - tescr0[k]
         tee += tescr[k]                                     # (TITAN: BLAS ssum, same order)
     end
     s!(:tee, tee)
@@ -636,7 +643,7 @@ function totnrg!(io = nothing)
     gi(:leobc) == 3 && (xmdot = d[b] * urel_ne)
     phil0 = gf(:phil0)
     bracket(k, kc) = egrt[kc] + 0.5 * (u[k]^2 - u0[k]^2) + g * (0.5 - 0.25xmu) * (r[k] - r0[k]) -
-                     cgrav * cpi * 2.0 * xmu * (xm[k] / r[k] - xm0[k] / r0[k])
+                     cgrav * cpi * 2.0 * xmu * (mor(xm[k], r[k]) - mor(xm0[k], r0[k]))
     tes = gf(:teso) + dt * rmu[b+1] * xmdot * bracket(b + 1, b)
     tes = tes - dt * rmu[a] * phil0 * bracket(a, a)
     tew = gf(:tewo) + dt * (rmu[b+1] * u[b+1] * (pg[b] + fedd[b] * er[b] + (2.0 / 3.0) * d[b] * et[b]) -
@@ -651,6 +658,8 @@ function totnrg!(io = nothing)
     end
     nothing
 end
+"m/r, 0 at the regular centre (r = 0, m = 0)."
+mor(m, r) = r == 0.0 ? 0.0 : m / r
 fmt(x, w, d) = lpad(replace(string(round(x; sigdigits = d + 1)), "e" => "E"), w)
 
 end # module
