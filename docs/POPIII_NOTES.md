@@ -570,7 +570,9 @@ SCVH95 yet). Driver `julia/popiii_m2c.jl cooling nshell` (env THETA, CDYN, NSTOP
 
 **Run** (provisional P100 set-up of M2b; 100 shells, central 3e-7 M☉, q = 1.197; RA04 local cooling = thick H₂ lines
 + CIE, i.e. RA04's own 1D test configuration; RHFC02 network throughout — this run predates the equilibrium switch;
-C_dyn = 0.01). Logs `lib/popiii/m2c_ra04_n100{,_th055}.log`.
+C_dyn = 0.01). Logs `lib/popiii/m2c_ra04_n100{,_th055}.log`. **Correction (M2d):** the θ = 0.55 run already had the
+Saha switch above ρ_eq = 5e-11 g cm⁻³ (the constructor's default), contrary to the sentence above; the θ = 0.5 run did
+not.
 
 - **θ = 0.5 fails**: the centre rings (n_c oscillating between 2.5e6 and 2e8, T_c spikes to 2400 K destroying the
   central H₂, f_H2 → 7e-5) for 1.2e5 steps, Δt down to 1e5–1e7 s, then a Newton failure (t = 3.47e5 yr). The time-step
@@ -587,8 +589,7 @@ C_dyn = 0.01). Logs `lib/popiii/m2c_ra04_n100{,_th055}.log`.
   | f_H2,c | 0.007 | 0.087 | 0.23 | 0.45 | 0.83 | 0.92 | 0.99 | 0.996 | 0.96 | 0.93 | 0.91 | 0.92 | 0.94 | 0.92 | 0.87 | 0.80 |
 
   **Agreement within ≈ 5 % from 1e8 to 1e16 cm⁻³** (ON98 read-off uncertainty ±0.05 dex ≈ 12 %). Above 1e16 this run is
-  10–20 % cooler: expected differences, not yet separated — (i) network kept instead of the equilibrium switch above
-  ρ_eq ≈ 3e13 cm⁻³ (PSS83 pair is 4× too molecular, M2a), (ii) RA04's local cooling instead of line + continuum
+  10–20 % cooler: expected differences, not yet separated — (i) [ruled out in M2d: the switch was on], (ii) RA04's local cooling instead of line + continuum
   transfer, (iii) ON98's own physics (its CIE/continuum and EOS).
 - The centre needs 1.15e6 yr to reach 1e8 (RHFC02 stage 1: 7.2e5 yr; ON98 (1): 5.7e5 yr): the provisional initial
   state (M2b) — the pre-collapse phase is not comparable until the IC question is settled.
@@ -596,3 +597,30 @@ C_dyn = 0.01). Logs `lib/popiii/m2c_ra04_n100{,_th055}.log`.
 **Next:** rerun with the equilibrium switch and the k5 variants (bracket); resolution (140 shells as P100/2, 200);
 radial profiles at the RHFC02 stages (Fig. 1 / RA05 Fig. 1.19 read-off); continue past 1e18 to core formation (needs
 SCVH95 for p ≥ 1e6 dyn cm⁻² — tables to obtain; Saha alone gives f_H2 = 0.12 at 2e4 K, 1e22 cm⁻³ vs RHFC02's ~0.05).
+
+## M2d Bracket: equilibrium switch, k5, resolution (19 Oct 2026) [run]
+
+Same set-up as M2c, θ = 0.55 (now the default of `popiii_m2c.jl`), RA04 local cooling; logs `lib/popiii/m2c_ra04_*`.
+
+| log n_c | ON98 | Saha switch, 100 shells | network PSS83, no switch | network k5_db, no switch | switch, 140 | switch, 200 |
+|---|---|---|---|---|---|---|
+| 8.4 | 428 | 412 | — | 412 | 383 | 388 |
+| 11.4 | 917 | 892 | — | 892 | 884 | 878 |
+| 12.9 | 1338 | 1309 | — | 1309 | 1302 | 1293 |
+| 14.9 | 1964 | 1965 | ≈ 2040 | 1966 | 1962 | 1959 |
+| 15.9 | 2218 | 2180 | 2247 | 2179 | 2176 | 2169 |
+| 16.9 | 2842 | 2418 | 2462 | 2418 | 2390 | 2404 |
+| 17.9 | 3682 | 2983 | 3140 | 2983 | 2979 | 2969 |
+
+- **The detailed-balance network reproduces Saha exactly**: k5_db without the switch is identical to the Saha switch
+  to all printed digits; direct test at n_H = 1e16, 2200 K: f_H2 = 0.46067 both ways, T = 2217.97 K both ways — a
+  consistency check of `k5_db`, `K_H2` and `y_saha` [run].
+- **PSS83's pair without the switch** (4× too molecular) is 2–5 % hotter above 1e14 (3140 vs 2983 K at 1e18).
+- **Resolution**: 100 / 140 / 200 shells agree within ≈ 2 % from 1e10 to 1e18 (≤ 7 % at 1e8.4, in the pre-collapse
+  phase, where the time to reach 1e8.4 also shifts: 1.15 / 1.20 / 1.22 Myr).
+- **The 10–20 % deficit against ON98 above 1e16 is not chemistry or resolution.** Remaining candidates: RA04's local
+  cooling (fitted to RHFC02, which itself is not ON98: ON98's CIE and continuum), the EOS (RHFC02's γ-weighted u_th vs
+  ON98's), and the read-off of ON98 Fig. 3a. Next: compare with RHFC02's own stages (Table 2: T_c = 3000 K at stage 4;
+  RA05 Fig. 1.19 read-off log n_c ≈ 17.9 at stage 4) — ours reaches 2983 K at log n_c = 17.9: **agrees with RHFC02**,
+  whereas ON98 has 3682 K there. So RA04's cooling reproduces R02, and R02 and ON98 differ by ≈ 20 % in T_c at 1e18
+  (RHFC02 claims "good agreement with ON98"; the difference is within the scale of their Fig. 7).

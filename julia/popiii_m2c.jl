@@ -55,20 +55,22 @@ rI = [a_ * ξ_of_m(m) for m in mI]; rI[1] = 0.0
 rho = [(mI[j+1] - mI[j]) / (4π / 3 * (rI[j+1]^3 - rI[j]^3)) for j in 1:nsh]
 Tz = [Tc0 * (ρ / ρc)^(2 / 3) for ρ in rho]
 y0 = (1e-10, 0.0, 2.5e-4, 0.0)
-mat = PM.PrimordialGas(fill(y0, 2000), PC.rates_rhfc02(), cf)
+k5s = get(ENV, "K5", "pss")
+k5f = k5s == "db" ? (T -> PC.k5_db(T)) : k5s == "ra04" ? PC.k5_ra04 : PC.k5_pss
+mat = PM.PrimordialGas(fill(y0, 2000), PC.rates_rhfc02(; k5 = k5f), cf, parse(Float64, get(ENV, "RHOEQ", "5e-11")))
 PS.build!(; rI, rho, T = Tz, u = zeros(nsh + 1), geom = 2, lgrid = 3, inner = :wall, outer = :free, pext = 0.0,
           selfgrav = true, material = mat)
 TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
 PS.install_julia!(BlockSolver); TD.MSGIO[] = devnull
 a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre))
 TX.PEXT[] = TF.var(:pgn)[b]
-TF.setscalar!(:thet, parse(Float64, get(ENV, "THETA", "0.5")))
+TF.setscalar!(:thet, parse(Float64, get(ENV, "THETA", "0.55")))   # 0.5 lets the centre ring (M2c)
 TC.DT_DYN[] = parse(Float64, get(ENV, "CDYN", "0.01"))
 tff = sqrt(3π / (32Z0.G * ρc))
 TF.setscalar!(:dtime, 1e-3tff); TF.setscalar!(:tmax, 1e3tff)
 pr("M2c collapse: cooling %s, %d shells (q = %.4f, dm1 = 3e-7 Msun), R = %.3e cm, rho_c/rho_edge = %.1f, T_edge = %.1f K, p_ext = %.3e\n",
    cool, nsh, q, rI[end], rho[1] / rho[end], Tz[end], TX.PEXT[])
-pr("theta = %.2f, C_dyn = %g, central t_ff0 = %.3e yr\n", TF.getscalar(:thet), TC.DT_DYN[], tff / 3.156e7)
+pr("theta = %.2f, C_dyn = %g, k5 = %s, rho_eq = %g, central t_ff0 = %.3e yr\n", TF.getscalar(:thet), TC.DT_DYN[], k5s, mat.ρeq, tff / 3.156e7)
 # ON98 Fig. 3a (run A), read off: (log n_c, log T_c)
 on98 = [(6.3, 2.40), (8.0, 2.60), (10.0, 2.75), (12.0, 3.05), (15.0, 3.30), (16.0, 3.35), (20.0, 3.80)]
 on98T(ln) = (j = findfirst(p -> p[1] >= ln, on98); j === nothing ? NaN : j == 1 ? 10^on98[1][2] :
