@@ -1100,3 +1100,24 @@ thin approximation overestimates a uniform sphere's line luminosity by ≈ (3/8)
 1 %-molecular core (2e4 K) in a cold infalling envelope (≤ 2000 K, ≤ 20 km/s): surface line luminosity per-line vs a
 reference with every zone in every span and 4000 bins: ratio 1.00000, max |ΔΛ/Λ| 2.5e-7 over the cooling zones, with
 ≤ 183 bins (0.3 s vs 6.4 s). Tests 1–4 unchanged.
+
+### G3 Reaction-network engine [run]
+`julia/ChemNet.jl` + `julia/ChemRates.jl`. Species with mass, charge, element content, energy zero E0 (relative to free
+nuclei + electrons) and internal partition function (electronic × nuclear spin × rotation × vibration: H₂ as K_H2; H with
+levels n ≤ 8; H₂⁺ approximate); equilibrium constants K for any reaction from these; reactions as data, `with_db`
+adds reverses k_rev = k_fwd/K; photo-processes from σ(ν, T) and a per-zone J_ν with Milne inverses (stimulated emission
+included); unknowns all species but H, Li (nuclei conservation) and e (charge); exact Jacobian (ForwardDiff); coupled
+chemistry + T step as before; `steady` (pseudo-transient continuation) for tests.
+
+Tests [run]:
+- **Reproduces PrimordialChem on the RHFC02 set**: dx/dt identical to all digits; u within 1.5e-7; one step at
+  (1e8, 600 K), (1e15, 2000 K): T and x_H₂ identical to all printed digits; (1e12, 1100 K, 2 % of H forming H₂ in the
+  step): 1748.1 vs 1740.3 K — D0(H₂) = 4.478 eV (spectroscopic, used for K) vs RHFC02's 4.48 eV.
+- **Modern set in a Planck field (J = B(T)) relaxes to equilibrium**: network/equilibrium for H₂/H, H⁺, H⁻ = 1.00000
+  (≥ 0.99997) at (1e14, 2000), (1e18, 3500), (1e20, 6000), (1e21, 1e4 K). Getting there exposed two non-general choices:
+  case-B recombination (one-way) → replaced by one Milne pair over H levels n ≤ 8 in Boltzmann ratio (total recombination
+  ≈ case A; Saha exact for J = B); the H₂⁺ channels → detailed balance for dissociative recombination and H⁻ + H⁺ → H₂⁺ + e.
+  **Remaining**: radiative association H + H⁺ → H₂⁺ + γ is one-way (its inverse, H₂⁺ photodissociation, needs σ(ν)
+  — to obtain, e.g. Stancil 1994 / Dunn 1968): deviations 2 % (H₂), 0.3 % (H⁺), 1 % (H⁻) at (1e16, 8000 K, 2 % ionised),
+  and x_H⁺ = 1e-21 instead of ~1e-43 at (1e10, 1000 K) (negligible in absolute terms).
+- Hydrogen photo-ionisation cross sections are Kramers (g = 1): order of magnitude — refine.
