@@ -1070,3 +1070,42 @@ redo the M3c regime map. Implementation of well-specified packages by subagents;
 SOD 464 / SUBC 587 / SUPC 713 steps; static sphere exactly at rest; BE discrete equilibrium 7.3e-10; H2Lines thin limit
 1.000000 and homogeneous sphere 0.994–1.000; detailed-balance network = Saha (2217.9715 K both); one-zone f_H2 0.9707 at
 log ρ/m_H = 12.4. Full tier adds the dust collapse (arrival t/t_ff), BE Lane–Emden n = 120, LP after 8 decades.
+
+### G1 Viscosity ∝ zone width [run]
+
+**Code.** `TitanResidFast.AV_ZONE` (`Ref(0.0)`): when > 0 the viscous length of zone k is l_k = AV_ZONE·(r[k+1] − r[k]) with
+the θ-centred radii (ForwardDiff-clean); ql0, ql1 then unused. Default 0 = old formula (regression 8/8 PASS, `popiii_tests.jl quick`).
+`TitanCore` only reads `qf` from the residual (no recomputation), nothing else to change. `popiii_m2c.jl`: env `AVZONE`
+(default 0 = keep ql1). Mapping to von Neumann–Richtmyer q ≈ c_q ρ (Δv)² (RHFC02/Ripamonti et al.: c_q = 4) — derived, not
+sourced: qf = cqvis·cq2·l²·ρ·(div u)(du/dr), l = cΔr ⇒ c_q ≈ cqvis·cq2·c² (cqvis = 4/3 ⇒ c² = 3/cq2 for c_q = 4, c ≈ 1.7).
+
+**Test** `julia/av_test.jl` (log `lib/popiii/tests/av_test.txt`). Noh problem, cold gas ρ0, u = −v0, γ = 5/3, wall at the
+centre/left, free outer boundary (Lagrangian, lgrid 3; planar wall at r = R0, spherical with REGULAR_CENTRE); exact shock
+speed v0/3, jump 4 (planar) / 64 (spherical). Grid: uniform dx = 0.004 R0 up to r0 = 0.3 R0, then Δr ×s per zone (s = 1
+uniform, 1.02, 1.05, 1.1, 1.2; n = 250 … 94). Measured when the shock is at 0.1 R0 (it has just entered the stretched
+part). wu = zones between the 10 % and 90 % points of u/u_pre; Δx_s/r = Δr/r of the zone at the shock. Old: l = ql1 r̄
+with ql1 tuned on the uniform grid (spherical 0.05, planar 0.0018 = 2 × the shocked-zone width); new: AV_ZONE = 2 (cq1 = 0,
+cq2 = 1, θ = 0.55, stol 0.05). Position error = (r_s,num − r_s)/r_s from the ρ half-jump.
+
+| geometry | s | Δr/r (shock) | wu, l ∝ r | pos err, l ∝ r | wu, l = 2Δr | pos err, l = 2Δr |
+|---|---|---|---|---|---|---|
+| planar | 1 | 0.016 | 1.80 | 0.2 % | 3.82 | 0.7 % |
+| planar | 1.02 | 0.023 | 1.64 | 0.9 % | 3.74 | 0.7 % |
+| planar | 1.05 | 0.035 | 1.69 | 2.3 % | 3.59 | 0.6 % |
+| planar | 1.1 | 0.045 | 0.68 | 1.4 % | 3.40 | −0.4 % |
+| planar | 1.2 | 0.088 | 1.63 | 9.8 % | 3.19 | −1.9 % |
+| spherical | 1 | 0.018 | 4.35 | 1.2 % | 3.82 | −0.3 % |
+| spherical | 1.02 | 0.027 | 3.00 | 1.3 % | 3.78 | 0.2 % |
+| spherical | 1.05 | 0.030 | 2.09 | 1.4 % | 3.70 | 1.0 % |
+| spherical | 1.1 | 0.041 | 1.52 | 2.3 % | 3.43 | 2.3 % |
+| spherical | 1.2 | 0.055 | 1.50 | 4.5 % | 2.46 | 3.5 % |
+
+- With l = 2Δr the shock is 3.2–3.8 zones wide for s ≤ 1.1 (planar through 1.2) and the position error stays ≲ 2 % (sph. 3.5 %
+  at s = 1.2); with l ∝ r the width falls 4.3 → 1.5 zones (spherical) as Δr/r grows — l no longer covers a zone, the shock
+  is a 1–2-zone jump (planar: 0.7–1.8, erratic; position error up to 10 %). Hence ql1 = 0.15 had to be retuned per grid.
+- Spherical, large s: l = cΔr acts also on the smooth converging pre-shock flow (div u = −2u/r ≠ 0) and slows it where
+  Δr/r is large (u/v0 = −0.86 at s = 1.1, plateau 0.67–0.84 of 64ρ0 at s = 1.1–1.2): keep Δr/r ≲ 0.05–0.1 in the infall region, or c < 2.
+  (The collapse grids have Δr/r ≈ 0.04–0.12.)
+- ρ-based 10–90 % widths were not used: the numerical post-shock plateau is 5–10 % below the jump and not flat.
+- Step counts: l = cΔr needs 5–10× fewer steps than the tuned l ∝ r runs (ql1 case: ringing → 1.4e4–2.2e4 steps vs 1.5e3–1.9e3 spherical).
+- Use for the collapse: `AVZONE=2 julia popiii_m2c.jl …` (not yet run on the z = 19 cloud; c_q = 4/3·1·4 = 5.3 for c = 2).

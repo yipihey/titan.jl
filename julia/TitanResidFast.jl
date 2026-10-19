@@ -112,6 +112,16 @@ zone with a constant external pressure PEXT[] outside (RHFC02 App. A2.3) instead
 """
 const PEXT = Ref(NaN)
 """
+AV_ZONE[] (G1): viscous length proportional to the local zone width. When > 0, zone k uses the length
+l_k = AV_ZONE[] × (r[k+1] − r[k]) (θ-centred radii, ForwardDiff-differentiable) instead of ql0 + ql1 r̄; ql0, ql1 are then
+ignored (cq1, cq2, cqvis still apply). On grids where Δr/r varies (geometric mass grids) l ∝ r does not follow the zone
+width; l ∝ Δr keeps the shock spread over the same number of zones. Mapping to the von Neumann–Richtmyer form
+q ≈ c_q ρ (Δv)² (Ripamonti et al. 2002 use c_q = 4): with qv = div u and l = c Δr the quadratic term is
+q = cqvis·cq2·l²·ρ·qv·(du/dr) ≈ cqvis·cq2·c²·ρ (Δr div u)², i.e. c_q ≈ cqvis·cq2·c² (cqvis = 4/3 in our states, so
+c_q = 4 needs c² ≈ 3/cq2). This mapping is derived here, not taken from the source. Default 0 = the old formula.
+"""
+const AV_ZONE = Ref(0.0)
+"""
 EXTMASS[] (Population III): static external mass distribution (e.g. the dark-matter halo of ABN02), a function
 r -> M_ext(< r) per steradian, added to the gas interior mass in the gravity terms (evaluated at the θ-centred radius;
 Float64 or Dual). `nothing` (default) = none.
@@ -424,7 +434,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     qf, dudr = W.qf, W.dudr; xmu4 = 0.25xmu
     @inbounds for k in ngrs:ngre
         dudr[k] = (u[k+1] - u[k]) / (r[k+1] - r[k]) - xmu4 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
-        ql = P.ql0 + P.ql1 * 0.5 * (r[k] + r[k+1])
+        ql = AV_ZONE[] > 0 ? AV_ZONE[] * (r[k+1] - r[k]) : P.ql0 + P.ql1 * 0.5 * (r[k] + r[k+1])
         div = (rmu[k+1] * u[k+1] - rmu[k] * u[k]) / dvol[k]
         qv = decide(:vis, 0, k, val(div) < 0) ? div : zero(T)
         qm = ql * (P.cq1 * as[k] - P.cq2 * ql * qv)

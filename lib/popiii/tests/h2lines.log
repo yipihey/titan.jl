@@ -1,0 +1,30 @@
+RHFC02 subset: 231 lines
+
+1. LTE emission per H2 molecule [erg/s]: ExoMol v<=2, J<=20 vs HM79 fit
+  T =    300 K: lines 9.4023e-24  HM79 9.9307e-24  ratio 0.947
+  T =   1000 K: lines 2.7257e-21  HM79 2.7718e-21  ratio 0.983
+  T =   2000 K: lines 4.7551e-20  HM79 4.8882e-20  ratio 0.973
+  T =   3000 K: lines 1.3997e-19  HM79 1.5420e-19  ratio 0.908
+  T =   5000 K: lines 3.3144e-19  HM79 4.5085e-19  ratio 0.735
+
+2. thin uniform sphere (R = 1e16 cm, T = 1000 K, n_H2 = 1e-3): L_transfer / (n_H2 V Σ f_u A hν)
+  n =  20, nbin =  30: ratio 1.000000   (Λ zone 1 / thin 1.000000)
+  n =  40, nbin =  30: ratio 1.000000   (Λ zone 1 / thin 1.000000)
+  n =  40, nbin =  60: ratio 1.000000   (Λ zone 1 / thin 1.000000)
+
+3. homogeneous sphere, line luminosities vs the analytic emergent flux (same frequency bins)
+  n_H2 = 1e+08, n =  40, nbin =  30: max τ_line = 2.58e-01, total L ratio 1.00006, worst line |ΔL/L| 8.912e-03
+  n_H2 = 1e+08, n =  80, nbin =  30: max τ_line = 2.58e-01, total L ratio 1.00012, worst line |ΔL/L| 8.912e-03
+  n_H2 = 1e+12, n =  80, nbin =  30: max τ_line = 2.58e+03, total L ratio 0.99586, worst line |ΔL/L| 1.004e-02
+  n_H2 = 1e+14, n =  80, nbin =  30: max τ_line = 2.58e+05, total L ratio 0.99415, worst line |ΔL/L| 1.034e-02
+  n_H2 = 1e+14, n = 160, nbin =  30: max τ_line = 2.58e+05, total L ratio 0.99722, worst line |ΔL/L| 1.034e-02
+  n_H2 = 1e+16, n = 160, nbin =  30: max τ_line = 2.58e+07, total L ratio 0.99672, worst line |ΔL/L| 1.051e-02
+  n_H2 = 1e+16, n = 160, nbin =  60: max τ_line = 2.61e+07, total L ratio 0.99670, worst line |ΔL/L| 1.052e-02
+
+4. grey diffusion limit: F/F_D at r = 0.3, 0.5, 0.7 R (χR = optical radius)
+  chi R = 1e+01 (Δτ per zone 1.2e-01), n =  80: F/F_D = 0.9622, 0.9529, 0.9362
+  chi R = 1e+02 (Δτ per zone 1.2e+00), n =  80: F/F_D = 0.9927, 0.9959, 0.9968
+  chi R = 1e+03 (Δτ per zone 1.2e+01), n =  80: F/F_D = 0.9926, 0.9961, 0.9973
+  chi R = 1e+03 (Δτ per zone 6.2e+00), n = 160: F/F_D = 0.9971, 0.9986, 0.9990
+  chi R = 1e+05 (Δτ per zone 1.2e+03), n =  80: F/F_D = 0.9926, 0.9961, 0.9973
+  chi R = 1e+05 (Δτ per zone 6.2e+02), n = 160: F/F_D = 0.9971, 0.9986, 0.9990

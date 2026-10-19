@@ -1,0 +1,3 @@
+static uniform sphere, n = 40, 11 steps (tmax) to t = 29.6 R/c_s; NaN: false
+max |Δr/r| = 0.00e+00, max |u|/c_s = 0.00e+00, max |Δρ/ρ| = 0.00e+00, r(centre) = 0
+PASS
