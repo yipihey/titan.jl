@@ -1070,3 +1070,24 @@ redo the M3c regime map. Implementation of well-specified packages by subagents;
 SOD 464 / SUBC 587 / SUPC 713 steps; static sphere exactly at rest; BE discrete equilibrium 7.3e-10; H2Lines thin limit
 1.000000 and homogeneous sphere 0.994–1.000; detailed-balance network = Saha (2217.9715 K both); one-zone f_H2 0.9707 at
 log ρ/m_H = 12.4. Full tier adds the dust collapse (arrival t/t_ff), BE Lane–Emden n = 120, LP after 8 decades.
+
+### M3d item 4: the line-transfer collapse with the corrected solver [run]
+`_v2` (log `lib/popiii/m2c_abn02z19_lines_n200_v2.log`, snapshots `snaps_abn02z19_lines_n200_v2.jls`), stopped by the 2-h
+background limit after core formation (step ≈ 9500, log n_c 22.9). Central track:
+
+| log n_c | lines, corrected (v2) | lines, constant-S (v1) | RA04 local fits | RHFC02 stage |
+|---|---|---|---|---|
+| 10 | 816 | 816 | 802 |  |
+| 12 | 1273 | 1273 | 1245 |  |
+| 14 | 1730 | 1731 | 1751 |  |
+| 16 | 2241 | 2241 | 2260 |  |
+| 17.9 | 3087 | 3090 | 3105 | 3000 (4) |
+| 19 | 3979 | - | 4006 |  |
+| 20.2 | 6495 | - | 6638 | 6500 (5) |
+| 21.2 | 15688 | - | 16103 | 15000 (6) |
+| 22.2 | 30500 | - | 31101 | 30000 (7) |
+| 22.9 | 62641 | - | 64642 |  |
+
+The solver fix changes the central track by ≤ 0.1 % (the constant-S error sat in line cooling that is negligible for the
+core's energy budget); line transfer and RA04's fits agree within 1–3 % through core formation, both on RHFC02's
+stages.
