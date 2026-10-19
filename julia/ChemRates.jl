@@ -74,11 +74,11 @@ function modern(; li = false)
     k(f) = (T, env) -> f(T)
     lst = [
         # collisional ionisation of H by e (Janev, AAZN97 k1) ⇌ three-body recombination (detailed balance)
-        (R("H + e → H+ + 2e (AAZN97 k1)", [:H, :e], [:Hp, :e, :e], k(PC.k1_aazn)), true),
+        (R("H + e → H+ + 2e (AAZN97 k1)", [:H, :e], [:Hp, :e, :e], k(PC.k1_aazn)), true, 1e4),      # Janev fit: Tmin = 1e4 K (see ChemNet.reverse_k)
         # H⁻ channels
         (R("H + H- → H2 + e (AAZN97 k8)", [:H, :Hm], [:H2, :e], k(PC.k8_aazn)), true),
         (R("H- + H+ → 2H (GA08 k5, Croft et al. 1999)", [:Hm, :Hp], [:H, :H], k(T -> 2.4e-6 / sqrt(T) * (1 + T / 20000))), true),
-        (R("H- + e → H + 2e (AAZN97 k14)", [:Hm, :e], [:H, :e, :e], k(T -> exp(sum(c * log(T / 11605)^(i - 1) for (i, c) in enumerate((-18.01849334, 2.3608522, -0.28274430, 1.62331664e-2, -3.36501203e-2, 1.17832978e-2, -1.65619470e-3, 1.06827520e-4, -2.63128581e-6)))))), true),
+        (R("H- + e → H + 2e (AAZN97 k14)", [:Hm, :e], [:H, :e, :e], k(T -> exp(sum(c * log(T / 11605)^(i - 1) for (i, c) in enumerate((-18.01849334, 2.3608522, -0.28274430, 1.62331664e-2, -3.36501203e-2, 1.17832978e-2, -1.65619470e-3, 1.06827520e-4, -2.63128581e-6)))))), true, 3e3),
         # H₂⁺ channels (AAZN97 numbering)
         # radiative association: its inverse is H₂⁺ photodissociation (needs σ(ν) — not yet available): one-way for now
         (R("H + H+ → H2+ + γ (GA08 k3)", [:H, :Hp], [:H2p], k(T -> (l = log10(clamp(T, 1.0, 32000.0)); 10^(-19.38 - 1.523l + 1.118l^2 - 0.1269l^3)))), false),
@@ -100,7 +100,7 @@ function modern(; li = false)
         # validity as printed in GP98 is doubtful (flagged in the extraction).
         push!(species, :Li, :Lip); push!(free, :Lip)
         lst_li = [
-            (R("Li + e → Li+ + 2e (Voronov 1997)", [:Li, :e], [:Lip, :e, :e], k(T -> voronov(T, 5.4, 0.0, 1.39e-7, 0.438, 0.41))), true),
+            (R("Li + e → Li+ + 2e (Voronov 1997)", [:Li, :e], [:Lip, :e, :e], k(T -> voronov(T, 5.4, 0.0, 1.39e-7, 0.438, 0.41))), true, 1e4),   # Voronov fits: E ≥ 1 eV
             (R("Li+ + H- → Li + H (GP98 Li3, Peart & Hayton 1994)", [:Lip, :Hm], [:Li, :H], k(T -> max(6.3e-6 / sqrt(T) - 7.6e-9 + 2.6e-10 * sqrt(T) + 2.7e-14 * T, 0.0))), true),
             (R("Li + H+ → Li+ + H + γ (GP98 Li8, Stancil & Zygelman 1996)", [:Li, :Hp], [:Lip, :H], k(T -> 1.7e-13 * T^-0.051 * exp(-T / 282000))), false),
         ]

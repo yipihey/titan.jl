@@ -1203,3 +1203,7 @@ in time; the stages themselves are chemistry-free). Switch `INTEGRATOR=trbdf2` i
   retried with Δ × 0.05, no backward-Euler fallback) vs 11 347 for θ = 0.55: about 2.3× the work (two solves per step).
   Quick tier of `popiii_tests.jl`: 8/8 PASS (BE 7.27e-10).
 **Default for the collapse runs: `INTEGRATOR=trbdf2`** (second order, no ringing, same track as θ = 0.55).
+- Fit validity in detailed balance: k_f/K amplifies any error of an endothermic fit by e^{ΔE/kT}. AAZN97 k1 (cut to 0
+  below 1000 K, and inaccurate above that cut) gave H⁺ a three-body recombination time of 1e-9 s at 200 K. Each db pair
+  now carries Tmin, the validity limit of its forward fit: k1 1e4 K, k14 3e3 K, Voronov Li 1e4 K. Below Tmin the reverse
+  is extrapolated as a power law. The step at 35–200 K and n = 1e2–1e4 then behaves.

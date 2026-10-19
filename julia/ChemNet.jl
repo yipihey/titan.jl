@@ -121,28 +121,33 @@ struct Network
     reactions::Vector{Reaction}
 end
 
-"Reaction list with detailed-balance reverses added for the entries flagged `db`."
+"""
+Reaction list with detailed-balance reverses added for the entries flagged `db`: entries (r, db) or (r, db, Tmin), Tmin
+the lower validity limit of r's fit (below it the reverse is extrapolated, see `reverse_k`).
+"""
 function with_db(list)
     out = Reaction[]
-    for (r, db) in list
+    for e in list
+        r, db = e[1], e[2]; Tmin = length(e) > 2 ? e[3] : 0.0
         push!(out, r)
-        db && push!(out, Reaction(r.name * " (reverse, detailed balance)", r.P, r.R, reverse_k(r)))
+        db && push!(out, Reaction(r.name * " (reverse, detailed balance)", r.P, r.R, reverse_k(r; Tmin)))
     end
     out
 end
 """
-k_r = k_f / K, formed in logarithms. An endothermic k_f (∝ e^{−ΔE/kT}) underflows below T_u ≈ ΔE/(700 k) (225 K for H
-ionisation); there k_r — the exothermic direction, a power law in T — is extrapolated from [T_u, 2T_u] as a power law.
+k_r = k_f / K, formed in logarithms. Below T_u = max(Tmin, T where k_f underflows or is cut off) k_r — the exothermic
+direction, close to a power law in T — is extrapolated from [T_u, 2T_u] as a power law. Tmin matters: k_f/K amplifies any
+error of an endothermic fit by e^{ΔE/kT} (AAZN97 k1 below 1e4 K gave three-body recombination of H⁺ in 1e-9 s at 200 K).
 """
-function reverse_k(r::Reaction)
+function reverse_k(r::Reaction; Tmin = 0.0)
     Tu = Ref(NaN)
     lnkr(T, env) = log(r.k(T, env)) - lnKeq(r.R, r.P, T)
     function k(T, env)
         kf = r.k(T, env)
-        kf > 1e-290 && return exp(log(kf) - lnKeq(r.R, r.P, T))
+        T >= Tmin && kf > 1e-290 && return exp(log(kf) - lnKeq(r.R, r.P, T))
         iszero(kf) || kf > 0 || return zero(T)                 # a fit that is ≤ 0 (clipped) stays 0
         if isnan(Tu[])
-            t = ForwardDiff.value(T); while r.k(t, env) <= 1e-290 && t < 1e6; t *= 1.05; end
+            t = max(Float64(Tmin), ForwardDiff.value(T)); while r.k(t, env) <= 1e-290 && t < 1e6; t *= 1.05; end
             Tu[] = t
         end
         Tu[] >= 1e6 && return zero(T)

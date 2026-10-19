@@ -314,6 +314,7 @@ try
     end)
 catch e
     pr("stopped: %s\n", sprint(showerror, e)[1:min(end, 400)])
+    get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
 close(io)
