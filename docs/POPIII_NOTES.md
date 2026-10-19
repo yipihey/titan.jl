@@ -624,3 +624,36 @@ Same set-up as M2c, θ = 0.55 (now the default of `popiii_m2c.jl`), RA04 local c
   RA05 Fig. 1.19 read-off log n_c ≈ 17.9 at stage 4) — ours reaches 2983 K at log n_c = 17.9: **agrees with RHFC02**,
   whereas ON98 has 3682 K there. So RA04's cooling reproduces R02, and R02 and ON98 differ by ≈ 20 % in T_c at 1e18
   (RHFC02 claims "good agreement with ON98"; the difference is within the scale of their Fig. 7).
+
+## M2e SCVH95 tables obtained; ABN02-like initial profiles (19 Oct 2026)
+
+**SCVH95 EOS tables.** The AAS CD-ROM volume 5 (Tom's pointer, aas.org/.../cdrom/volume5/doc/toc5.htm) lists them
+(`volume5/apjs/v99/p713/`: h_tab_i.dat, h_tab_p1.dat, h_tab_p2.dat, he_tab_i.dat, rho_crit.dat, read.f, readme.doc,
+table.doc), but aas.org sits behind a Cloudflare browser challenge (HTTP 403 for scripts and WebFetch), and the Wayback
+Machine has the listing pages (2026-01-31/02-01) but not the files. CDS (J/ApJS/99/713) is behind the same kind of
+challenge. **Copies taken from the YREC stellar-evolution code** (github.com/yreclab/yrec, `input/eos/scv/`):
+h_tab_i.dat and he_tab_i.dat, 391 230 bytes each, 63 isotherms log T = 2.10 … 7.06 (step 0.08), columns log P, X_H2,
+X_H, log ρ, log S, log U, then derivatives and ∇_ad, as in SCVH95. Check [run]: log T = 2.10, log P = 4.00 →
+log ρ = −5.7154 (pure H₂ ideal gas: −5.72); log U = 10.120 (ideal H₂, 5/2 kT per molecule: 1.3e10 erg/g, so U's zero is
+cold H₂ — the offset to our u_chem zero has to be applied). YREC has no licence file: the tables stay outside the
+repository, in `~/Projects/popiii_lit/SCVH95/` (sha256 below). Not obtained: h_tab_p1/p2 (variants across the
+plasma phase transition), rho_crit.dat, readme.doc (to confirm the column definitions against the original).
+```
+9b199919d995d8ca84d6aecc3b818aebb963d889a5c195e3ed55f2c26ecc5db0  h_tab_i.dat
+799034124a7574e1f396ad7bd2b054d55a3c9b90e32b38b0b5f9124f4c532a55  he_tab_i.dat
+```
+
+**Initial conditions (Tom, 19 Oct 2026):** "The initial densities for the 100 solar mass cloud must have been smaller.
+However best would be to use the spherical profiles similar to the ones found by Abel Bryan and Norman in 3D sims."
+New option `IC=abn02` in `popiii_m2c.jl`: ABN02 (Science 295, 93; arXiv:astro-ph/0112088) Fig. 2, profile "9 Myr
+later" (red dotted with circles), read off a 400-dpi rendering [read-src, approximate ±0.05 dex]:
+- n(r) (particle density; ρ = n μ m_H, μ = 1.22): log n = 5.83 (core, r < 0.027 pc), 5.40 at log r(pc) = −1.28,
+  5.25 at −1.08, 4.73 at −0.84, 3.99 at −0.59, 3.47 at −0.35, 2.87 at 0.06, 0.97 at 0.87 (slope ≈ −2.1 outside);
+- T(M): 252 K (M < 30 M☉), 229 at 100, 205 at 300, 164 at 1000 (minimum), 355 at 2500, 1120 at 5000 M☉;
+- H₂ mass fraction: 1.3e-3 (centre), 1.0e-3 at 100, 7.8e-4 at 300, 6.6e-4 at 1000, 4.3e-4 at 2500, 2.2e-4 at 5000;
+- v_r(M): −0.03 km/s (centre), −0.32 at 30, −0.49 at 100, −0.19 at 300, −0.81 at 1000, −0.70 at 2500 M☉;
+- x_e not shown in ABN02: 1e-7 assumed.
+Cloud cut at M = 1000 M☉ (inside the T minimum, before the virial-shock heating), free surface at the edge pressure;
+150 shells, central shell 3e-7 M☉. Gives R = 3.4 pc, ρ_c/ρ_edge = 9.5e3, central t_ff = 5.7e4 yr.
+**Asked Tom** for the actual profile data behind ABN02 Fig. 2 (spherically averaged n, T, v_r, f_H2, x_e vs M) —
+better than a figure read-off.
