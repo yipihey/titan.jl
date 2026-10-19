@@ -200,6 +200,9 @@ if yz !== nothing
     for j in 1:nsh; ystore[a0+j-1] = yz[j]; end
     for k in 1:a0-1; ystore[k] = yz[1]; end; for k in a0+nsh:length(ystore); ystore[k] = yz[end]; end
 end
+const IMPCOOL = get(ENV, "IMPCOOL", "1") == "1"                 # G7: transfer cooling implicit in T (linearised in ln T)
+const DTCOOL = parse(Float64, get(ENV, "DTCOOL", "1.0"))
+const NIMP = Ref(0)                                                  # steps with implicit line cooling
 const CHEM = get(ENV, "CHEM", "rhfc02")     # rhfc02: PrimordialGas (RHFC02 network, ρ_eq switch); net / netmodern / netmodernli: NetGas (G5)
 if CHEM == "rhfc02"
     global mat = PM.PrimordialGas(ystore, PC.rates_rhfc02(; k5 = k5f), cf, parse(Float64, get(ENV, "RHOEQ", "5e-11")), get(ENV, "EQEOS", "scvh") == "scvh")
@@ -208,7 +211,7 @@ else
     netw, phot = CHEM == "net" ? (ChemRates.rhfc02(; k5 = k5f), ChemNet.Photo[]) : ChemRates.modern(; li = CHEM == "netmodernli")
     tcmb = parse(Float64, get(ENV, "TCMB", "0"))
     Bν_(ν, T) = 2ChemNet.hP * ν^3 / ChemNet.c^2 / expm1(ChemNet.hP * ν / (ChemNet.kB * T))
-    envn = (Trad = tcmb, J = tcmb > 0 ? (ν -> Bν_(ν, tcmb)) : (ν -> 0.0))
+    envn = (Trad = tcmb, J = tcmb > 0 ? (ν -> Bν_(ν, tcmb)) : (ν -> 0.0), static = true)   # same J in every zone: tabulated photo-rates
     ytup(d) = (d[:Hp], d[:Hm], d[:H2], d[:H2p])
     coolnet = (ρ, T, d) -> cf(ρ, T, d === nothing ? PopIIIEqEOS.composition(ρ, T) : ytup(d))
     xinit(y) = [s === :Hp ? y[1] : s === :Hm ? y[2] : s === :H2 ? y[3] : s === :H2p ? y[4] : s === :Lip ? 0.0 : 0.0 for s in netw.free]
@@ -253,6 +256,30 @@ using Serialization
 const SNAPFILE = joinpath(TF.ROOT, "lib", "popiii", "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(get(ENV, "TAG", "")).jls")
 const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
 const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(ENV, "SNAPEVERY", "0"))
+# NLTE (line source functions): 1 = GP98/HM79 factor on S (old default), 0 = LTE, ep = statistical equilibrium with escape
+# probabilities (H2Levels), ali = statistical equilibrium coupled to the transfer (ALI, G6c), hyb = ALI every NALI steps
+# and EP × (ALI/EP per zone, from the last ALI) in between
+const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALIFAC = Ref{Vector{Float64}}(Float64[])
+NLTE in ("ep", "ali", "hyb") && include(joinpath(@__DIR__, "H2Levels.jl"))
+const HLV = NLTE in ("ep", "ali", "hyb") ? H2Levels.load() : nothing
+"Line cooling per zone (and Lr) for zone temperatures tt; step k (for NLTE=hyb)."
+function linecool(rr, uu, dd, tt, nh2, k)
+    if NLTE in ("ep", "ali", "hyb")
+        yc = [ycomp(a + j - 1) for j in 1:nsh]; nHn = dd ./ PC.μH
+        nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nsh], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nsh])
+        NLTE != "hyb" && return H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep)
+        Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep)
+        if k % NALI == 0 || length(ALIFAC[]) != nsh
+            Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali)
+            ALIFAC[] = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? Λa[j] / Λe[j] : 1.0 for j in 1:nsh]
+            return Λa, Lra, xa
+        end
+        return Λe .* ALIFAC[], Lr, x
+    end
+    # NLTE=1: source function × f = 1/(1 + Λ_LTE/(n_H Λ_0)) (the GP98/HM79 combination of PrimordialChem.cool_H2_thin)
+    fnl = [1 / (1 + PC.Λ_H2_LTE_HM(tt[j]) / max(PC.xH(ycomp(a + j - 1)) * dd[j] / PC.μH * PC.Λ_H2_0_GP(tt[j]), 1e-300)) for j in 1:nsh]
+    H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, fnlte = NLTE == "1" ? fnl : nothing)
+end
 const HLL = cool == "lines" ? H2Lines.load() : nothing; const NBIN = parse(Int, get(ENV, "NBIN", "30")); const LLINE = Ref(0.0)
 Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(ENV, "NSTOP", "1e18"))
 try
@@ -272,17 +299,25 @@ try
             # H₂ line transfer on the new state (RHFC02 A2.4); Λ held fixed over the next step; Δt ≤ 0.1 u ρ/|Λ| (A2.2)
             rr = TF.var(:rn)[a:b+1]; uu = TF.var(:un)[a:b+1]; dd = TF.var(:dn)[a:b]; tt = TF.var(:tn)[a:b]
             nh2 = [dd[j] / PC.μH * ycomp(a + j - 1)[3] for j in 1:nsh]
-            # non-LTE: source function × f = 1/(1 + Λ_LTE/(n_H Λ_0)) (the GP98/HM79 combination of PrimordialChem.cool_H2_thin)
-            fnl = [1 / (1 + PC.Λ_H2_LTE_HM(tt[j]) / max(PC.xH(ycomp(a + j - 1)) * dd[j] / PC.μH * PC.Λ_H2_0_GP(tt[j]), 1e-300)) for j in 1:nsh]
-            Λl, Lr, _ = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, fnlte = get(ENV, "NLTE", "1") == "1" ? fnl : nothing)
+            Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k)
             tcmin = Inf
             for j in 1:nsh
-                mat.Λext[a+j-1] = Λl[j]
+                mat.Λext[a+j-1] = Λl[j]; mat.Tref[a+j-1] = tt[j]; mat.slope[a+j-1] = 0.0
                 ue = TF.var(:egn)[a+j-1] + PC.UOFF_TH                 # thermal-ish energy scale (positive)
                 Λl[j] != 0 && (tcmin = min(tcmin, abs(ue * dd[j] / Λl[j])))
             end
+            # G7 (IMPCOOL=1, default): where the explicit cap Δt ≤ 0.1 t_cool would bind, the slope d ln Λ/d ln T from a
+            # second transfer call with all T × (1 + ε) makes Λ_j (T/T_j)^s implicit in the chemistry step, and the cap
+            # relaxes to Δt ≤ DTCOOL t_cool (default 1); otherwise Λ is held fixed (explicit, accurate there)
+            if IMPCOOL && 0.1tcmin < TF.getscalar(:dtime)
+                ε = 0.02; Λp, _, _ = linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1)
+                for j in 1:nsh
+                    Λl[j] != 0 && Λp[j] / Λl[j] > 0 && (mat.slope[a+j-1] = clamp(log(Λp[j] / Λl[j]) / log(1 + ε), -10.0, 30.0))
+                end
+                NIMP[] += 1
+            end
             LLINE[] = Lr[end]
-            TF.setscalar!(:dtime, min(TF.getscalar(:dtime), 0.1tcmin))
+            TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin))
         end
         if haskey(ENV, "PROFAT") && k in parse.(Int, split(ENV["PROFAT"], ","))
             rr = TF.var(:rn); uu = TF.var(:un); dd = TF.var(:dn); tt = TF.var(:tn)
@@ -316,5 +351,6 @@ catch e
     pr("stopped: %s\n", sprint(showerror, e)[1:min(end, 400)])
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
+IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
 close(io)

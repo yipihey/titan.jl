@@ -174,6 +174,27 @@ function photorates(p::Photo, T, env; n = 200)
     R, A
 end
 
+"""
+photorates through a table in log T (1–1e6 K, 0.005 dex, Catmull–Rom in ln R and ln α) when the radiation field is the same in
+every zone (`env.static == true`, e.g. the CMB or none); otherwise direct. Table vs direct ≤ 3e-3 at 20 K–9e5 K (H, H⁻, Li; J = B(54 K)); the larger differences, H⁻ α above 7e4 K, are the direct quadrature's own (n = 200 vs 800: 3 %).
+"""
+const PHTAB = IdDict{Any,Any}()
+function photorates_t(p::Photo, T, env)
+    (hasproperty(env, :static) && env.static) || return photorates(p, T, env)
+    tab = get!(PHTAB, (p, env)) do
+        lT = collect(0.0:0.005:6.0)
+        v = [photorates(p, 10^x, env) for x in lT]
+        (lT, [log(max(a[1], 1e-300)) for a in v], [log(max(a[2], 1e-300)) for a in v])
+    end
+    lT, lR, lA = tab; n = length(lT); x = clamp(log10(T), 0.0, 6.0); i = clamp(Int(floor(x / 0.005)) + 1, 2, n - 2); w = (x - lT[i]) / 0.005
+    function cr(f)                                                 # Catmull–Rom
+        p0, p1, p2, p3 = f[i-1], f[i], f[i+1], f[i+2]
+        p1 + 0.5w * (p2 - p0 + w * (2p0 - 5p1 + 4p2 - p3 + w * (3(p1 - p2) + p3 - p0)))
+    end
+    R = exp(cr(lR)); A = exp(cr(lA))
+    (R < 1e-290 ? 0.0 : R), A
+end
+
 # ------------------------------------------------------------------ composition
 "Eliminated species: H (H nuclei), Li (Li nuclei), e (charge); He fixed at y_He."
 function full(x, net)
@@ -189,33 +210,64 @@ function full(x, net)
 end
 μH() = mH * (1 + 4yHe)    # mass per H nucleus (Li negligible)
 
+"""
+Index form of a network (built once per Network, cached): species vector = net.species ∪ {He}; free-species positions;
+reactant/product index lists; element and charge coefficients for the eliminated H, Li, e.
+"""
+struct Compiled
+    sp::Vector{Symbol}; idx::Dict{Symbol,Int}; free::Vector{Int}
+    R::Vector{Vector{Int}}; P::Vector{Vector{Int}}
+    iH::Int; iLi::Int; ie::Int; iHe::Int
+    elH::Vector{Float64}; elLi::Vector{Float64}; q::Vector{Float64}       # per free species
+    cv::Vector{Function}; E0::Vector{Float64}; isH2::Vector{Bool}
+end
+const COMPILED = IdDict{Any,Compiled}()
+compiled(net) = get!(COMPILED, net) do
+    sp = unique(vcat(net.species, [:He])); idx = Dict(s => i for (i, s) in enumerate(sp))
+    fr = [idx[s] for s in net.free]
+    Compiled(sp, idx, fr, [[idx[s] for s in r.R] for r in net.reactions], [[idx[s] for s in r.P] for r in net.reactions],
+             get(idx, :H, 0), get(idx, :Li, 0), get(idx, :e, 0), idx[:He],
+             [s == :H ? 0.0 : Float64(SPECIES[s].el[1]) for s in net.free], [Float64(SPECIES[s].el[3]) for s in net.free],
+             [Float64(SPECIES[s].q) for s in net.free], [SPECIES[s].cv for s in sp], [SPECIES[s].E0 for s in sp], [s == :H2 for s in sp])
+end
+"Full composition as a vector over compiled(net).sp (same elimination as `full`)."
+function fullvec(x, c::Compiled)
+    v = zeros(eltype(x), length(c.sp))
+    for (i, j) in enumerate(c.free); v[j] = x[i]; end
+    v[c.iHe] = yHe
+    c.iH > 0 && (v[c.iH] = 1 - sum(c.elH[i] * x[i] for i in eachindex(x)))
+    c.iLi > 0 && (v[c.iLi] = yLi - sum(c.elLi[i] * x[i] for i in eachindex(x)))
+    c.ie > 0 && (v[c.ie] = sum(c.q[i] * x[i] for i in eachindex(x)))
+    v
+end
+
 "Internal energy per gram and pressure."
 function eos(ρ, T, x, net)
-    d = full(x, net); nH = ρ / μH()
+    c = compiled(net); v = fullvec(x, c); nH = ρ / μH()
     u = zero(T); N = zero(T)
-    for (s, xs) in d
-        sp = SPECIES[s]
-        u += xs * ((s == :H2 ? u_H2(T) : sp.cv(T)) * kB * T + sp.E0)
-        N += xs
+    for j in eachindex(v)
+        u += v[j] * ((c.isH2[j] ? u_H2(T) : c.cv[j](T)) * kB * T + c.E0[j])
+        N += v[j]
     end
     (u / μH(), N * nH * kB * T)
 end
 
 "dx/dt for the free species at H-nucleus density nH."
 function dxdt(x, nH, T, net, env, photo)
-    d = full(x, net); dd = Dict(s => zero(eltype(x)) for s in keys(d))
-    for r in net.reactions
-        k = r.k(T, env); rate = k * nH^(length(r.R) - 1)
-        for s in r.R; rate *= d[s]; end
-        for s in r.R; dd[s] -= rate; end
-        for s in r.P; dd[s] += rate; end
+    c = compiled(net); v = fullvec(x, c); dd = zeros(promote_type(eltype(x), typeof(T)), length(v))
+    for (ir, r) in enumerate(net.reactions)
+        Ri = c.R[ir]; rate = r.k(T, env) * nH^(length(Ri) - 1)
+        for j in Ri; rate *= v[j]; end
+        for j in Ri; dd[j] -= rate; end
+        for j in c.P[ir]; dd[j] += rate; end
     end
     for (p, R, α) in photo                          # precomputed per zone: photo-rate R, inverse coefficient α
-        rate = R * d[p.R]; for s in p.P; dd[s] += rate; end; dd[p.R] -= rate
-        inv_ = α * nH^(length(p.P) - 1); for s in p.P; inv_ *= d[s]; end    # per H nucleus: α n_H^(k−1) Π x
-        for s in p.P; dd[s] -= inv_; end; dd[p.R] += inv_
+        jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]
+        rate = R * v[jr]; for j in jp; dd[j] += rate; end; dd[jr] -= rate
+        inv_ = α * nH^(length(jp) - 1); for j in jp; inv_ *= v[j]; end    # per H nucleus: α n_H^(k−1) Π x
+        for j in jp; dd[j] -= inv_; end; dd[jr] += inv_
     end
-    [dd[s] for s in net.free]
+    dd[c.free]
 end
 
 """
@@ -225,9 +277,12 @@ Chemistry and temperature together over dt at fixed ρ and u (u − dt Λ/ρ wit
 """
 function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, tol = 1e-10, maxit = 60)
     nH = ρ / μH(); nf = length(net.free)
+    phT = Ref(NaN); phc = Ref{Any}(nothing)
     function resid(z, x0, h)
         x = z[1:nf]; T = exp(z[nf+1])
-        ph = [(p, photorates(p, ForwardDiff.value(T), env)...) for p in photos]   # photo-rates lagged in T (Float)
+        Tv = ForwardDiff.value(T)                    # photo-rates lagged in T (Float), cached per T value
+        Tv == phT[] || (phc[] = [(p, photorates_t(p, Tv, env)...) for p in photos]; phT[] = Tv)
+        ph = phc[]
         f = dxdt(x, nH, T, net, env, ph)
         r = x .- x0 .- h .* f
         ue = eos(ρ, T, x, net)[1] - u + (cooling === nothing ? zero(T) : h * cooling(ρ, T, full(x, net)) / ρ)

@@ -21,11 +21,28 @@ mutable struct PrimordialGas <: TM.Material
     cooling::Union{Nothing,Function}      # (ρ, T, y) -> Λ [erg cm⁻³ s⁻¹]
     ρeq::Float64                          # equilibrium chemistry above this density (RHFC02: 5e-11 g cm⁻³); Inf = never
     eqtable::Bool                         # true: equilibrium EOS from PopIIIEqEOS (Saha + SCVH95, RHFC02); false: Saha only
-    Λext::Vector{Float64}                 # per zone k: extra cooling [erg cm⁻³ s⁻¹] held fixed over the next step (line transfer)
+    Λext::Vector{Float64}                 # per zone k: extra cooling [erg cm⁻³ s⁻¹] (line transfer), evaluated at T = Tref
+    Tref::Vector{Float64}                 # G7: over the next step Λext × (T/Tref)^slope, implicit in T (see ext_cooling)
+    slope::Vector{Float64}                #     slope = d ln Λ/d ln T (0: Λext held fixed, explicit)
 end
-PrimordialGas(y, rates, cooling) = PrimordialGas(y, rates, cooling, 5e-11, false, zeros(length(y)))
-PrimordialGas(y, rates, cooling, ρeq) = PrimordialGas(y, rates, cooling, ρeq, false, zeros(length(y)))
-PrimordialGas(y, rates, cooling, ρeq, eqtable) = PrimordialGas(y, rates, cooling, ρeq, eqtable, zeros(length(y)))
+PrimordialGas(y, rates, cooling) = PrimordialGas(y, rates, cooling, 5e-11, false)
+PrimordialGas(y, rates, cooling, ρeq) = PrimordialGas(y, rates, cooling, ρeq, false)
+PrimordialGas(y, rates, cooling, ρeq, eqtable) = PrimordialGas(y, rates, cooling, ρeq, eqtable, zeros(length(y)), ones(length(y)), zeros(length(y)))
+
+"""
+G7: the transfer cooling Λ_k of zone k as a function of its own temperature over the step, Λ_k (T/T_ref)^s with
+s = d ln Λ_k/d ln T from the transfer (all zones perturbed together: the local response including the coupling to the
+neighbours). Inside the implicit chemistry–temperature step this makes the line cooling implicit (backward Euler in T,
+linearised in ln T) instead of explicit with Δt ≤ 0.1 uρ/Λ.
+"""
+ext_cooling(m, k) = (Λx = m.Λext[k]; Λx == 0 ? nothing :
+                     m.slope[k] == 0 ? ((T) -> Λx + zero(T)) : (Tr = m.Tref[k]; s = m.slope[k]; (T) -> Λx * (T / Tr)^s))
+"Cooling function for zone k: the material's own plus the transfer term."
+function zone_cooling(m, k)
+    f = ext_cooling(m, k)
+    f === nothing && return m.cooling
+    m.cooling === nothing ? ((ρ, T, y) -> f(T)) : ((ρ, T, y) -> m.cooling(ρ, T, y) + f(T))
+end
 
 @inline function TX.material_gas(m::PrimordialGas, ρ, T)
     if m.eqtable && ForwardDiff.value(ρ) >= m.ρeq
@@ -67,8 +84,7 @@ function chem!(m::PrimordialGas)
     dn, tn, egn = TM.v(:dn), TM.v(:tn), TM.v(:egn)
     dTmax = 0.0
     for k in a:b
-        Λx = m.Λext[k]
-        cool = Λx == 0 ? m.cooling : (m.cooling === nothing ? ((ρ, T, y) -> Λx) : ((ρ, T, y) -> m.cooling(ρ, T, y) + Λx))
+        cool = zone_cooling(m, k)
         y1, T1 = dn[k] >= m.ρeq ? (m.eqtable ? EQ.step(dn[k], egn[k], tn[k], dt; cooling = cool) :
                                              PC.step_equilibrium(dn[k], egn[k], tn[k], dt; cooling = cool)) :
                                   PC.step_coupled(m.y[k], dn[k], egn[k], tn[k], dt, m.rates; cooling = cool)
@@ -101,10 +117,10 @@ mutable struct NetGas <: TM.Material
     env::Any                             # (Trad, J)
     pswitch::Float64
     eqzone::Vector{Bool}                 # per zone: in the equilibrium (table) regime after the last chem! step
-    Λext::Vector{Float64}
+    Λext::Vector{Float64}; Tref::Vector{Float64}; slope::Vector{Float64}     # as PrimordialGas (G7)
 end
 NetGas(x, net, photos, cooling; env, pswitch = 1e4) =
-    NetGas(x, net, photos, cooling, env, pswitch, falses(length(x)), zeros(length(x)))
+    NetGas(x, net, photos, cooling, env, pswitch, falses(length(x)), zeros(length(x)), ones(length(x)), zeros(length(x)))
 
 import ..ChemNet
 const CNn = ChemNet
@@ -151,8 +167,7 @@ function chem!(m::NetGas)
     dn, tn, egn, pgn = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:pgn)
     dTmax = 0.0
     for k in a:b
-        Λx = m.Λext[k]
-        cool = Λx == 0 ? m.cooling : (m.cooling === nothing ? ((ρ, T, d) -> Λx) : ((ρ, T, d) -> m.cooling(ρ, T, d) + Λx))
+        cool = zone_cooling(m, k)
         if pgn[k] >= m.pswitch
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
             _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)

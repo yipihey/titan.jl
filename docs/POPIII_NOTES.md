@@ -1269,3 +1269,25 @@ formal solver, which now also returns the profile-weighted mean intensity J̄ pe
 - **Timing** (100 zones, that cloud, 4 threads): LTE path 0.19 s; ALI 1.5 s for 4 iterations + EP start (≈ 0.35 s per iteration; J̄ and Λ* roughly double the
   transfer cost); EP 0.08 s (no transfer).
 - Not done: coupling into the collapse drivers (`popiii_m2c.jl` unchanged); no electron collisions; maser zones (κ0 ≤ 0) treated as transparent.
+
+### G5b network speed
+- Network evaluation now uses an index form (`ChemNet.Compiled`, cached per Network) in place of Dicts.
+- Photo-rates are cached per Newton T value. When J is the same in every zone (`env.static`, the driver's CMB/none
+  field), they come from a log-T table (0.005 dex, Catmull–Rom); table vs direct ≤ 3e-3.
+- A modern+Li step drops from 23 ms to 0.45 ms per zone. The P100 netmodernli run takes ≈ 30 min, against ≈ 8 h before.
+
+### G7 implicit transfer cooling [run]
+- Λ_j from the transfer is applied over the next step as Λ_j (T/T_j)^s inside the implicit chemistry–temperature step
+  (`PopIIIMaterial.ext_cooling`). The slope s = d ln Λ_j/d ln T comes from a second transfer call with all T × 1.02.
+- The second call is made only when the explicit cap 0.1 t_cool would bind. The cap then relaxes to DTCOOL t_cool
+  (default 1). `IMPCOOL=0` restores the explicit scheme.
+- P100 `lines` to 1e13: T_c matches the explicit run within 0.2 %, with the same step count to within 0.05 %.
+- z = 19 `lines` to 1e9: identical, with 0 implicit steps. On these runs the cap never binds; dynamics and stol limit
+  Δt. G7 is therefore a robustness guarantee, not a speed-up.
+
+### Driver: NLTE modes for `lines`
+`NLTE=1` keeps the GP98/HM79 factor (default). The other modes:
+- `0`: LTE.
+- `ep`: H2Levels with escape probabilities.
+- `ali`: G6c, statistical equilibrium coupled to the transfer.
+- `hyb`: ALI every NALI steps (default 20), and EP × (ALI/EP per zone) in between.
