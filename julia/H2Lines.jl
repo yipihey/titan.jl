@@ -73,9 +73,14 @@ into account per segment).
 function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, τthin = 0.02, nbinmax = 200)
     n = length(T); @assert length(r) == n + 1
     vth = [sqrt(2kB * T[k] / mH2) for k in 1:n]
-    vspan = 3maximum(vth) + maximum(abs, u)
+    # span and bin width from the molecular zones (fraction of H nuclei in H₂ ≥ 0.1; μ_H = 2.2316e-24 g, metal free with
+    # n_He/n_H = 1/12): the hot, mostly dissociated core (f_H₂ ≈ 0.04 at T ~ 4e4 K, v_th ~ 17 km/s) would otherwise set the
+    # span and push the bins past the cap (M3d). Its lines are buried under the opaque continuum anyway.
+    act = [2nH2[k] * 2.2316e-24 / ρ[k] >= 0.1 for k in 1:n]
+    any(act) || (act = trues(n))
+    vspan = 3maximum(vth[act]) + maximum(abs, u)
     # bins no wider than half the narrowest thermal width (cold outer zones), at least nbin, at most nbinmax
-    nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth))) + 1, nbin, nbinmax)
+    nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth[act]))) + 1, nbin, nbinmax)
     xs = range(-vspan, vspan, length = nb)            # velocity offsets of the bin centres [cm/s]
     dv = step(xs)
     fn = fnlte === nothing ? ones(n) : fnlte          # non-LTE factor on the source function (upper-level depletion)
