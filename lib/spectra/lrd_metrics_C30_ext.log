@@ -1,0 +1,4 @@
+star alone (C30_bare)  jump at the edge  2.82, break ⟨f_ν⟩(4000–4100)/⟨f_ν⟩(3620–3720) =  1.56   L_bol = 1.329e+44 (continuum)   L_bol/λL_5100 = 1.37
+LTE infall             jump at the edge  2.82, break ⟨f_ν⟩(4000–4100)/⟨f_ν⟩(3620–3720) =  1.56   L_bol = 1.313e+44 (continuum)   L_bol/λL_5100 = 1.36
+non-LTE infall         jump at the edge  4.63, break ⟨f_ν⟩(4000–4100)/⟨f_ν⟩(3620–3720) =  1.65   L_bol = 9.140e+43 (continuum + 23 lines)   L_bol/λL_5100 = 1.39   L_bol/L(Hα) = 57.7
+line-power-weighted: ⟨τ_es outside⟩ = 0.81, ⟨T⟩ = 2832 K; τ_es outside 5R = 0.21, outside 12R = 0.05

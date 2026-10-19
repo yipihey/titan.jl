@@ -1,0 +1,40 @@
+Halpha θ_o =  0° i =  0°: peak   86.35 at   -25 km/s, min 1.000 at -2500 km/s, EW   -809.5 Å
+
+[585] signal 15: Terminated
+in expression starting at /home/claude/titan.jl/julia/axisym_lines.jl:36
+gc_sweep_page at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gc.c:1510
+gc_sweep_pool_page at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gc.c:1574 [inlined]
+gc_sweep_pool_parallel at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gc.c:1707
+gc_sweep_pool at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gc.c:1807 [inlined]
+_jl_gc_collect at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gc.c:3645
+ijl_gc_collect at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gc.c:3893
+maybe_collect at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gc.c:926 [inlined]
+jl_gc_pool_alloc_inner at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gc.c:1319
+ijl_gc_pool_alloc_instrumented at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gc.c:1377
+unknown function (ip: 0x7fa44e56515d)
+macro expansion at /home/claude/titan.jl/julia/axisym_lines.jl:71 [inlined]
+#93#threadsfor_fun#11 at ./threadingconstructs.jl:253
+#93#threadsfor_fun at ./threadingconstructs.jl:220 [inlined]
+#1 at ./threadingconstructs.jl:154
+unknown function (ip: 0x7fa44e5601af)
+jl_apply at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/julia.h:2157 [inlined]
+start_task at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/task.c:1202
+unknown function (ip: (nil))
+Allocations: 24227687972 (Pool: 24227687209; Big: 763); GC: 16969
+Halpha θ_o =  0° i =  0°: peak   86.35 at   -25 km/s, min 1.000 at -2500 km/s, EW   -809.5 Å
+Halpha θ_o = 30° i =  0°: peak   39.83 at   -25 km/s, min 1.000 at -2500 km/s, EW   -425.3 Å
+Halpha θ_o = 30° i = 45°: peak   73.54 at   -25 km/s, min 0.945 at  +175 km/s, EW   -641.7 Å
+Halpha θ_o = 30° i = 90°: peak   82.46 at   -25 km/s, min 1.000 at -2500 km/s, EW   -791.7 Å
+Halpha θ_o = 60° i =  0°: peak   69.35 at   -25 km/s, min 1.000 at -2500 km/s, EW   -724.4 Å
+Halpha θ_o = 60° i = 45°: peak   60.36 at    +0 km/s, min 0.873 at  -175 km/s, EW   -442.3 Å
+Halpha θ_o = 60° i = 90°: peak   60.94 at    +0 km/s, min 1.000 at -2500 km/s, EW   -622.4 Å
+Halpha θ_o = 90° i =  0°: peak   86.35 at   +25 km/s, min 1.000 at -2500 km/s, EW   -809.5 Å
+Hbeta  θ_o =  0° i =  0°: peak    8.24 at   -25 km/s, min 0.044 at  +175 km/s, EW    -72.0 Å
+Hbeta  θ_o = 30° i =  0°: peak    6.90 at   -25 km/s, min 0.044 at  -175 km/s, EW    -62.2 Å
+Hbeta  θ_o = 30° i = 45°: peak    7.75 at   -25 km/s, min 0.060 at  +175 km/s, EW    -61.8 Å
+Hbeta  θ_o = 30° i = 90°: peak    8.15 at   -25 km/s, min 0.044 at  +175 km/s, EW    -71.7 Å
+Hbeta  θ_o = 60° i =  0°: peak    7.86 at   -25 km/s, min 0.044 at  -175 km/s, EW    -70.4 Å
+Hbeta  θ_o = 60° i = 45°: peak    7.36 at    +0 km/s, min 0.067 at  -175 km/s, EW    -47.5 Å
+Hbeta  θ_o = 60° i = 90°: peak    7.56 at    +0 km/s, min 0.044 at  +175 km/s, EW    -67.6 Å
+Hbeta  θ_o = 90° i =  0°: peak    8.24 at   +25 km/s, min 0.044 at  -175 km/s, EW    -72.0 Å
+saved lib/spectra/axisym_W30_late_ext.jls

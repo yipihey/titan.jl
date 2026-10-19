@@ -19,4 +19,13 @@ TITAN runs themselves.
 | closed-form ionization | `closed_form.jl` (`CF_FUV=f` for the far-UV scaling) | @sec-sm-closed |
 | semi-analytic model | `analytic_infall.jl star=t0 temp=W30_late_ext trap=1 caseB=1 [fuv=f] out=…` (`trap=0`, `star=bb` for the variants) | @sec-sm-semi |
 | the model in LRD metrics (Balmer-break ratio, $L_{\rm bol}/L({\rm H\alpha})$, $L_{\rm bol}/\lambda L_{5100}$, τ outside the Hα region) | `lrd_metrics.jl W30_late_ext` | @sec-lrd |
-| figure data | `export_report_data.jl spectra …`, `… analytic`, `… qstar W30+W30d` | all |
+| Monte Carlo line profiles with electron scattering | `mc_escatter.jl W30_late_ext line=Halpha N=1000000 es=1 res=1` (`es=0`, `Te=1e4`, `Te=3e4`, `line=Hbeta`, `theta=45,60,90` for the variants); check against the ray profile: `mc_validate.jl W30_late_ext` | @sec-tests-es |
+| infall + outflow profiles | `axisym_lines.jl W30_late_ext` (θ_o = 0, 30, 60, 90°; i = 0, 45, 90°) | @sec-tests-axi |
+| Balmer series and the break | `balmer_series.jl W30_late_ext nmax=40 bhigh=b12` (`nmax=20`; `bhigh=lte windows=1`), bound for $n > 40$: `balmer_bound.jl` | @sec-tests-break |
+| TITAN run C30 (the cooler star) | `export_profile.jl 0.01 0` (steady model, in `steady/scripts`), then `qstar_run.jl setup` with `QS_NAME=C30` and the W30 settings, `relax`, continued as C30d and C30e | @sec-tests-cool |
+| C30 spectra | `spectra_run.jl C30e 9.5283e7 ext=1 rmax=4 n=400 lucy=0 out=C30_ext` (the W30 grid settings, no Unsöld–Lucy correction) and the same with `bare=1 out=C30_bare` | @sec-tests-cool |
+| C30 non-LTE | `nlte_run.jl C30_ext lucy=0 maxit=150 minit=100 out=C30_ext_c1`, then `init=C30_ext_c1 ng=5 maxit=60 minit=60`; then `nlte_summary.jl C30_ext R=1.3477e16`, `nlte_spectrum.jl C30_ext`, `LRD_STAR=C30_bare LRD_R=1.3477e16 lrd_metrics.jl C30_ext` | @sec-tests-cool |
+| C30 simple models | `CF_NLTE=C30_ext CF_STAR=C30_bare CF_TEFF=5890 CF_L=1.476e44 closed_form.jl`; `analytic_infall.jl star=C30_bare temp=C30_ext trap=1 caseB=1 teff=5890 L=1.476e44` | @sec-tests-cool |
+| He I λ10830 | `nlte_rates.jl NAME`, then `he10830.jl NAME` (`s3=3`, `xsec=0.5`) for NAME = W30_late_ext, C30_ext | @sec-tests-metals |
+| O I λ8446 estimate | `oi_bowen.jl W30_late_ext fO=0.01` | @sec-tests-metals |
+| figure data | `export_report_data.jl spectra …`, `… analytic`, `… qstar W30+W30d`, `… tests` | all |

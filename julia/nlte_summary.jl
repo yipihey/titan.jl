@@ -1,12 +1,13 @@
 # Summary numbers of a non-LTE solution (nlte_run.jl): column densities, Thomson depth, Hα source function, energy.
-#   julia --project=env nlte_summary.jl OUT        (lib/spectra/nlte_OUT.jls)
+#   julia --project=env nlte_summary.jl OUT [R=cm]   (lib/spectra/nlte_OUT.jls; R: the star's radius, the unit of r/R,
+#   default 8.4352e15 cm, run W30)
 include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "Spectrum.jl")); include(joinpath(@__DIR__, "NLTEH.jl"))
 using Serialization, Printf
 const NH = NLTEH; const Z0 = Z0Physics; const SP = Spectrum
 o = ARGS[1]
 d = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", "nlte_$o.jls"))
 sp = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", "$(d.name).jls"))
-R0 = 8.4352e15; r = d.r
+R0 = length(ARGS) > 1 ? parse(Float64, split(ARGS[2], "=")[2]) : 8.4352e15; r = d.r
 dr = [q < length(r) ? r[q+1] - r[q] : 0.0 for q in eachindex(r)]     # segment to the next point outward
 col(f) = sum(f(q) * dr[q] for q in eachindex(r))
 nHt(q) = d.nl[q].np + sum(d.nl[q].n)
@@ -14,7 +15,7 @@ s_lte(q) = Z0.saha(sp.atm.ρ[d.sel[q]], d.T[q])
 @printf("%s: cscale %.2g, caseB %s, X-rays %s\n", o, d.cscale, d.caseB, d.xray)
 @printf("  N_H %.3e; neutral N_H I: non-LTE %.3e, LTE %.3e\n", col(nHt), col(q -> sum(d.nl[q].n)), col(q -> s_lte(q).nH0))
 for (lo, hi) in ((0.99, 1.21), (1.21, 5.0), (5.0, 200.0))
-    m = findall(q -> lo <= r[q] / R0 < hi, eachindex(r))
+    m = findall(q -> lo <= r[q] / R0 < hi, eachindex(r)); isempty(m) && continue
     @printf("    r/R %5.2f–%6.1f: N_H I non-LTE %.3e, LTE %.3e (of N_H %.3e)\n", lo, hi, sum(sum(d.nl[q].n) * dr[q] for q in m),
             sum(s_lte(q).nH0 * dr[q] for q in m), sum(nHt(q) * dr[q] for q in m))
 end

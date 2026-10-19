@@ -50,7 +50,7 @@ for it in 1:60
     τs = 0.5 .* (τs .+ τn)
 end
 col(v) = sum(0.5 * (v[k] + v[k+1]) * (rs[k+1] - rs[k]) for k in 1:length(rs)-1)
-@printf("star (star_t0) at the surface: J(Lyα)/(2hν³/c²) ×g₂/g₁ = %.3e, Γ₂ = %.3e s⁻¹, Γ₃ = %.3e s⁻¹ (undiluted)\n", p2, G2, G3)
+@printf("star (%s) at the surface: J(Lyα)/(2hν³/c²) ×g₂/g₁ = %.3e, Γ₂ = %.3e s⁻¹, Γ₃ = %.3e s⁻¹ (undiluted)\n", get(ENV, "CF_STAR", "star_t0"), p2, G2, G3)
 @printf("%8s %7s %9s %9s\n", "r/R0", "T", "x closed", "x full")
 for xx in (1.0, 1.2, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0, 30.0, 50.0, 80.0, 115.0)
     k = argmin(abs.(rs ./ R0 .- xx)); @printf("%8.2f %7.0f %9.4f %9.4f\n", rs[k] / R0, Ts[k], x[k], xfull[k])

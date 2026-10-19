@@ -127,7 +127,7 @@ non-LTE infall's work (the bare star has 1.7). But the observers' blue window, 3
 the 3646 Å edge. Our spectrum has no Balmer lines above $n = 10$ to blanket that region, so the window catches the
 unabsorbed side and the ratio comes out at 1.35. In a real spectrum the merging high Balmer lines and the instrumental
 resolution fill this gap. Which value to compare needs a spectrum computed with the full Balmer series
-**[computed; interpretation]**.
+**[computed; interpretation]**. With the series included, the ratio becomes 3.6–4.3 (@sec-tests-break).
 
 ## What agrees
 
@@ -152,12 +152,14 @@ resolution fill this gap. Which value to compare needs a spectrum computed with 
 
 - **The wings.** This is the clearest tension.
   - Our profiles do not include electron scattering, and adding it would not obviously produce the observed wings.
+    (@sec-tests-es computes it: the wings have the observed width but are blue-sided.)
   - Hα forms mostly beyond $5R$, where only $\tau_{\rm es} \approx 1$ remains outside it (power-weighted mean), and
     the gas there is at about 2000 K.
   - Electrons that cold have a thermal speed $\sqrt{2kT/m_e} \approx 250$ km s$^{-1}$, against 550 km s$^{-1}$ at
     $10^4$ K, the low end of what the wing fits assume (our arithmetic).
   - Symmetric wings 1000–1600 km s$^{-1}$ wide would need the line to form inside a hotter, thicker scattering layer
-    **[estimate]**.
+    **[estimate]**. The Monte Carlo of @sec-tests-es corrects this estimate: the infall's bulk motion, not the electron
+    temperature, gives wings of that width, but only on the blue side.
 - **Hα absorption.** Observed Hα absorbers are common and mostly blueshifted, that is, outflowing. In the model the infall in front
   of the star does absorb Hα, since beyond $1.2R$ its source function is below the star's intensity. But the
   emission of the whole envelope fills that in, and nothing flows out.
@@ -172,13 +174,20 @@ resolution fill this gap. Which value to compare needs a spectrum computed with 
 
 ## What would decide it
 
-1. **Electron-scattering wings computed in the model.** Scatter the line photons in the actual infall (temperature,
-   ionization and Thomson depth along each ray) and compare the wing shape and its symmetry with @rusakov2025 and
-   @matthee2026.
-2. **A cooler quasi-star.** Repeat the calculation for a later, $\approx 5000$ K stage, where the far-UV excess that
-   ionizes the infall should be weaker (@sec-sm).
-3. **The full Balmer series**, so that the break can be measured the way observers measure it.
-4. **Infall plus outflow.** The observed absorbers are mostly blueshifted. A star fed at the equator that loses gas at
-   the poles would show both signatures, depending on the viewing angle. This needs a two-dimensional model.
-5. **Helium and metals.** He I λ10830 absorption and O I λ8446 (pumped by Lyβ) are direct probes of the same far-UV
-   pumping that ionizes our infall. They are the natural next lines to compute.
+Five calculations would sharpen this comparison:
+
+1. electron-scattering wings computed in the model;
+2. a cooler quasi-star;
+3. the full Balmer series, for the break as observers measure it;
+4. infall plus outflow;
+5. helium and metals (He I λ10830, O I λ8446).
+
+@sec-tests does all five. In short:
+
+- The infall's electrons make wings of the observed width, but blue-sided; outflow over about half the sky makes them
+  symmetric.
+- The break, measured as observers do, is 3.6–4.3.
+- A cooler star moves the decrement and the absorbers towards the data and Hα away from it.
+- There is no He I λ10830 absorption.
+
+The table above is the model before those tests.

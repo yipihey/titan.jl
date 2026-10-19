@@ -26,9 +26,15 @@ the infall seen against the star. The Paschen and Brackett lines are strong, Ly�
 line core and Thomson-thick, dust-free cocoon of the LRDs seen by JWST, and it is X-ray weak, though perhaps not weak
 enough. It lacks their symmetric electron-scattering wings and their mostly blueshifted Hα absorption, and its
 photosphere is about 2300 K too hot
-(@sec-lrd).
+(@sec-lrd). Five further tests (@sec-tests) show the following.
 
-**The book in five chapters.**
+- Electron scattering in the infall makes wings of the observed width, but one-sided. An outflow over half the sky
+  makes them symmetric.
+- The Balmer break, measured as observers do, is 3.6–4.3.
+- A cooler (5890 K) quasi-star has a redder, more absorbed spectrum, with weaker Hα.
+- Neither star produces He I λ10830 absorption.
+
+**The book in six chapters.**
 
 1. The full non-LTE calculation on the TITAN run (@sec-nlte).
 2. What LTE would have said, and why it is wrong here (@sec-lte).
@@ -36,6 +42,8 @@ photosphere is about 2300 K too hot
    which ingredients matter (@sec-sm).
 4. The whole emission spectrum, line by line and band by band, and what produces each part (@sec-spec).
 5. The Little Red Dots: what JWST spectra show, and where this model agrees and where it does not (@sec-lrd).
+6. Five tests that could decide the comparison: electron-scattering wings, infall plus outflow, the Balmer break with
+   the full series, a cooler star, and helium and oxygen (@sec-tests).
 
 ::: {.callout-note title="How to read the status of a statement"}
 **[computed]**: output of the code in the repository, reproducible with the commands in @sec-exp.

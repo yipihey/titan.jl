@@ -1,0 +1,15 @@
+C30_ext Halpha: es=1 res=1; 400000 photons: escaped 0.934, absorbed by the star 0.066; 1.86 electron scatterings and 0.37 line resonances per photon
+  emitted (net) line power 2.113e+42 erg/s, escaping 1.975e+42; profile: peak at +10 km/s, FWHM 280 km/s, centroid -303 km/s
+  exponential wing scale (600–2500 km/s): blue 884, red 306 km/s (exponential FWHM 2 ln2 W: 1225, 424); fraction beyond ±1000 km/s: blue 0.128, red 0.014
+saved lib/spectra/mc_C30_ext_Halpha_es1_res1.jls
+
+real	4m7.210s
+user	3m55.928s
+sys	0m0.735s
+C30_ext Halpha: es=1 res=1; 400000 photons: escaped 0.931, absorbed by the star 0.069; 2.10 electron scatterings and 1.73 line resonances per photon
+  emitted (net) line power 2.113e+42 erg/s, escaping 1.968e+42; profile: peak at -10 km/s, FWHM 220 km/s, centroid -9 km/s
+  exponential wing scale (600–2500 km/s): blue 649, red 654 km/s (exponential FWHM 2 ln2 W: 900, 906); fraction beyond ±1000 km/s: blue 0.072, red 0.070
+  inclination  0–30°: FWHM 100 km/s, centroid -87 km/s, beyond ±1000 km/s: blue 0.104, red 0.070
+  inclination 30–60°: FWHM 140 km/s, centroid -29 km/s, beyond ±1000 km/s: blue 0.076, red 0.065
+  inclination 60–90°: FWHM 220 km/s, centroid +21 km/s, beyond ±1000 km/s: blue 0.062, red 0.073
+saved lib/spectra/mc_C30_ext_Halpha_es1_res1_th60.jls

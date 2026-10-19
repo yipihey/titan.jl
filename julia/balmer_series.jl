@@ -2,7 +2,7 @@
 # integration through the infall with all Balmer lines at once (their opacities and source functions added at every
 # point, so that overlapping lines are treated correctly), on a fine wavelength grid from 3550 to 4150 Å, on top of the
 # non-LTE continuum (which already contains the Balmer-continuum absorption and the jump at 3646 Å).
-#   Z0_TABLE=ext TITAN_NOLIB=1 julia -t 2 --project=env balmer_series.jl NAME [nmax=40] [bhigh=b12|lte] [dv=15]
+#   Z0_TABLE=ext TITAN_NOLIB=1 julia -t 2 --project=env balmer_series.jl NAME [nmax=40] [bhigh=b12|lte] [dv=15] [windows=1]
 # Populations: n ≤ 12 from the non-LTE solution; for 12 < n ≤ nmax, n_n = b_n n_p n_e Φ_n(T) with b_n = b_12 (bhigh=b12)
 # or b_n = 1 (bhigh=lte), which brackets the unknown upper levels (they matter only for the line source functions; the
 # opacity is set by n = 2). Line profiles: Gaussian, thermal + ξ = 10 km/s, in the free-fall velocity field.
@@ -14,7 +14,8 @@ const SP = Spectrum; const Z0 = Z0Physics; const NH = NLTEH
 name = ARGS[1]
 opt = Dict(Symbol(split(a, "=")[1]) => split(a, "=")[2] for a in ARGS[2:end])
 nmax = parse(Int, get(opt, :nmax, "40")); bhigh = get(opt, :bhigh, "b12"); dv = parse(Float64, get(opt, :dv, "15")) * 1e5
-tag = "n$(nmax)_$bhigh"
+wonly = get(opt, :windows, "0") == "1"     # windows=1: only the two break windows (±20 Å), full resolution; no smoothing
+tag = "n$(nmax)_$bhigh" * (wonly ? "_win" : "")
 d = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", "$name.jls"))
 dn = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", "nlte_$name.jls"))
 S = deserialize(joinpath(@__DIR__, "..", "lib", "qs_runs", "$(d.run)_relax_snaps.jls"))
@@ -63,6 +64,7 @@ RAYZ = map(1:length(R)) do j
 end
 # wavelength grid (vacuum), uniform in ln λ
 λs = exp.(range(log(3550.0), log(4150.0), step = dv / c))
+wonly && (λs = filter(λ -> 3600 <= λ <= 3740 || 3980 <= λ <= 4120, λs))
 # continuum: emergent intensity I(p) at a set of frequencies across the range (a pair straddling the edge), interpolated
 λedge = 1e8 / (109677.58 / 4)
 λc = sort(vcat(collect(range(3550.0, λedge - 1.0, length = 12)), collect(range(λedge + 1.0, 4150.0, length = 24))))
@@ -116,13 +118,13 @@ function smooth(y, Rp)
 end
 win(y, a, b) = (sel = (λs .>= a) .& (λs .<= b); sum(y[sel]) / count(sel))
 brk(y) = win(y, 4000, 4100) / win(y, 3620, 3720)
-L100 = smooth(Lnu, 100); L30 = smooth(Lnu, 30); Lc100 = smooth(Lc, 100)
+L100, L30, Lc100 = wonly ? (fill(NaN, length(λs)), fill(NaN, length(λs)), fill(NaN, length(λs))) : (smooth(Lnu, 100), smooth(Lnu, 30), smooth(Lc, 100))
 @printf("%s, Balmer lines to n = %d, upper levels above 12: %s\n", name, nmax, bhigh)
 @printf("break ⟨f_ν⟩(4000–4100)/⟨f_ν⟩(3620–3720): continuum only %.2f (R=100: %.2f); with the Balmer series %.2f, R=100 %.2f, R=30 %.2f\n",
         brk(Lc), brk(Lc100), brk(Lnu), brk(L100), brk(L30))
 @printf("jump at the edge (continuum, 3640 vs 3652 Å): %.2f\n", Lc[argmin(abs.(λs .- 3652))] / Lc[argmin(abs.(λs .- 3640))])
 for λ in (3600, 3640, 3660, 3680, 3700, 3720, 3750, 3800, 3900, 4050)
-    k = argmin(abs.(λs .- λ)); @printf("  λ %5d Å: L_ν/L_ν,cont %.3f (R=100: %.3f)\n", λ, Lnu[k] / Lc[k], L100[k] / Lc100[k])
+    k = argmin(abs.(λs .- λ)); abs(λs[k] - λ) > 1 && continue; @printf("  λ %5d Å: L_ν/L_ν,cont %.3f (R=100: %.3f)\n", λ, Lnu[k] / Lc[k], L100[k] / Lc100[k])
 end
 serialize(joinpath(@__DIR__, "..", "lib", "spectra", "balmer_$(name)_$tag.jls"), (λ = λs, Lnu = Lnu, Lc = Lc, L100 = L100, L30 = L30,
           brk = (cont = brk(Lc), cont100 = brk(Lc100), full = brk(Lnu), R100 = brk(L100), R30 = brk(L30)), nmax = nmax, bhigh = bhigh))

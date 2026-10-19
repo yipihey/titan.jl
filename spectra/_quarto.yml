@@ -30,6 +30,7 @@ book:
     - 03-simple-model.qmd
     - 04-spectrum.qmd
     - 05-lrds.qmd
+    - 06-tests.qmd
     - references.qmd
   appendices:
     - experiments.qmd

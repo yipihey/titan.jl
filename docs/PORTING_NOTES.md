@@ -1701,3 +1701,23 @@ Chapter sections `sec-infall-wide` (ch. 7) and `sec-spec-full`, `sec-spec-wide` 
   - Verification: independent pass; corrections applied (warmer-than-assumed 15–20 %, drift direction, 0.99 radius,
     beyond-30 R reliance, ratio wording).
   - Inverted (X-ray artifact) points: 14, at r/R 0.99030–0.99128 (A220: 4, 0.99030–0.99088): same layer, finer grid.
+
+### P7.11 The five tests of the second book [run]
+
+- **Monte Carlo electron scattering** (`mc_escatter.jl`): 1e6 Hα photons in the W30 non-LTE infall; 3.37 Thomson
+  scatterings per photon (Hβ 6.71). Hα: FWHM 320 km/s, centroid −423 km/s, blue wing e-folding 1023 km/s, red 333; 17 %
+  beyond −1000 km/s. Without electrons it reproduces the ray profile (`mc_validate.jl`: FWHM 320 vs 360, centroid −44 vs
+  −93, L1 0.21). Outflow cones: θ_o = 45° centroid −202; θ_o = 60° symmetric (W 746/749 km/s) at every inclination.
+- **Axisymmetric profiles** (`axisym_lines.jl`, restructured so that the flow-independent ray quantities are computed
+  once per ray; azimuth mirror symmetry; resumable with `resume=1`): Hα EW −425 to −810 Å over θ_o, i; the absorber is
+  blueshifted when the line of sight runs inside a cone.
+- **Balmer series** (`balmer_series.jl`, `windows=1` for the break windows only): break 3.58 (n ≤ 40, b_12), 3.43 at
+  R = 100, 3.00 at R = 30; continuum only 1.27; bound for higher n 4.31 (4.63 black).
+- **C30** (cooler star): TITAN to 9.5e7 s (C30 → C30d → C30e; time step collapsed to 1–20 s at the end); T_eff ≈ 5890 K.
+  Non-LTE without Lucy, 102 + 60 passes (checkpoints every 10 passes, `nlte_OUT_chk.jls`, because of container restarts):
+  lines 1.695e42, continuum 8.85e43, 0.59 L_TITAN. x_H 0.46 / 0.11 / 0.03 at ≈ 4 / 12 / 30 R_C30; N_H I 3.2e24; Thomson
+  2.6. Hα EW −164 Å, trough 0.12 at +160 km/s; Hα/Hβ 7.89; Paβ/Hα 0.22.
+- **He I λ10830** (`he10830.jl`): N(2³S) 1.6e13 (W30), 3.7e14 cm⁻² (C30); emission in both (EW −9, −18 Å).
+- **O I λ8446** (`oi_bowen.jl`): 6e41 erg/s for f_O = 0.01, solar O/H, overlap 0.5 (estimate, ∝ f_O).
+- Tool fixes: `nlte_summary.jl` takes `R=` (star radius); `lrd_metrics.jl` takes `LRD_STAR`, `LRD_R`; `closed_form.jl`
+  prints the star used; `nlte_run.jl` checkpoints.

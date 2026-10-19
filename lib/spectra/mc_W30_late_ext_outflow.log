@@ -16,3 +16,10 @@ W30_late_ext Halpha: es=1 res=1; 1000000 photons: escaped 0.973, absorbed by the
   inclination  0–30°: FWHM 280 km/s, centroid -77 km/s, beyond ±1000 km/s: blue 0.100, red 0.080
   inclination 30–60°: FWHM 160 km/s, centroid -24 km/s, beyond ±1000 km/s: blue 0.079, red 0.073
   inclination 60–90°: FWHM 280 km/s, centroid +21 km/s, beyond ±1000 km/s: blue 0.072, red 0.078
+W30_late_ext Halpha: es=1 res=1; 1000000 photons: escaped 0.974, absorbed by the star 0.026; 3.54 electron scatterings and 0.88 line resonances per photon
+  emitted (net) line power 1.107e+43 erg/s, escaping 1.078e+43; profile: peak at +10 km/s, FWHM 300 km/s, centroid -336 km/s
+  exponential wing scale (600–2500 km/s): blue 944, red 523 km/s (exponential FWHM 2 ln2 W: 1309, 725); fraction beyond ±1000 km/s: blue 0.151, red 0.021
+  inclination  0–30°: FWHM 640 km/s, centroid -481 km/s, beyond ±1000 km/s: blue 0.205, red 0.024
+  inclination 30–60°: FWHM 300 km/s, centroid -344 km/s, beyond ±1000 km/s: blue 0.152, red 0.020
+  inclination 60–90°: FWHM 280 km/s, centroid -303 km/s, beyond ±1000 km/s: blue 0.139, red 0.020
+saved lib/spectra/mc_W30_late_ext_Halpha_es1_res1_th30.jls

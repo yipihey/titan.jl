@@ -141,6 +141,8 @@ for it in 1:maxit
     push!(hist, maxch)
     @printf("it %2d: max |Δn_p/n_p|, |Δn₂/n₂| = %.2e   ∫L_ν = %.4e erg/s, + lines %.3e   (%.0f s)\n", it, maxch, Ltot, Lline, time() - t0)
     flush(stdout)
+    # checkpoint every 10 passes (container restarts): restart with init=OUT_chk
+    it % 10 == 0 && serialize(joinpath(@__DIR__, "..", "lib", "spectra", "nlte_$(out)_chk.jls"), (sel = sel, nl = nl[sel], Tstar = atm.T, it = it))
     maxch < 1e-3 && it >= minit && break
 end
 # summary along the infall

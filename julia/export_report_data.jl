@@ -132,14 +132,17 @@ elseif mode == "tests"
                          ("Halpha_es1_res1_Te1e4", "Hα, electrons at 10⁴ K"), ("Halpha_es1_res1_Te3e4", "Hα, electrons at 3×10⁴ K"),
                          ("Halpha_es1_res1_th90", "Hα, electron scattering, pure outflow"), ("Halpha_es1_res1_th45", "Hα, infall + outflow cones θ_o = 45°"),
                          ("Halpha_es1_res1_th60", "Hα, infall + outflow cones θ_o = 60°"), ("Hbeta_es0_res1", "Hβ, no electron scattering"),
-                         ("Hbeta_es1_res1", "Hβ, electron scattering, infall"))
-        f = sp("mc_W30_late_ext_$tag.jls"); isfile(f) || continue
+                         ("Hbeta_es1_res1", "Hβ, electron scattering, infall"), ("Halpha_es1_res1_th30", "Hα, infall + outflow cones θ_o = 30°"),
+                         ("C30:Halpha_es1_res1", "C30 (5890 K): Hα, electron scattering, infall"),
+                         ("C30:Halpha_es1_res1_th60", "C30 (5890 K): Hα, infall + outflow cones θ_o = 60°"))
+        nm, tg = occursin(":", tag) ? ("C30_ext", split(tag, ":")[2]) : ("W30_late_ext", tag)
+        f = sp("mc_$(nm)_$tg.jls"); isfile(f) || continue
         m = deserialize(f)
         push!(mc, (tag = tag, label = label, V = m.V, prof = m.prof, profi = haskey(m, :profi) && m.θo > 0 ? m.profi : [],
                    fwhm = m.fwhm, Wb = m.Wb, Wr = m.Wr, centroid = m.centroid, stats = m.stats))
     end
     bal = []
-    for tag in ("n40_b12", "n40_lte", "n80_b12")
+    for tag in ("n40_b12", "n40_lte", "n40_lte_win", "n80_b12")
         f = sp("balmer_W30_late_ext_$tag.jls"); isfile(f) || continue
         b = deserialize(f); k = 1:3:length(b.λ)
         push!(bal, (tag = tag, lam = b.λ[k], Lnu = b.Lnu[k], Lc = b.Lc[k], L100 = b.L100[k], L30 = b.L30[k], brk = b.brk))
@@ -150,7 +153,23 @@ elseif mode == "tests"
         f = sp("he10830_$(n)_s31.0_x1.0.jls"); isfile(f) || continue
         h = deserialize(f); push!(he, (name = n, v = h.v, F = h.F, EW = h.EW, N3 = h.N3))
     end
-    writejs("tests.json", (mc = mc, balmer = bal, axisym = ax, he = he))
+    # the cooler star C30 beside W30: spectra (with the lines of nlte_spectrum.jl where available) and the ionization
+    # of the infall against r in units of each star's own radius
+    cool = []
+    for (n, lab, Rs) in (("star_t0", "W30 star before infall (T_eff 7310 K)", 8.4352e15), ("W30_late_ext_nlte", "W30, fed, non-LTE", 8.4352e15),
+                         ("C30_bare", "C30 star alone (T_eff 5890 K)", 1.3477e16), ("C30_ext_nlte", "C30, fed, non-LTE", 1.3477e16))
+        f = sp("$n.jls"); isfile(f) || continue
+        d = deserialize(f); lsf = sp("linespec_$(replace(n, "_nlte" => "")).jls")
+        lam, nuLnu = if endswith(n, "_nlte") && isfile(lsf)
+            ls = deserialize(lsf); (ls.λ, ls.νLν)
+        else
+            (2.99792458e18 ./ d.ν, d.ν .* d.L)
+        end
+        k = findall(x -> 800 <= x <= 30000, lam); k = k[1:max(1, length(k) ÷ 3000):end]
+        xs = haskey(d, :xH) ? d.xH : Float64[]
+        push!(cool, (name = n, label = lab, lam = lam[k], nuLnu = nuLnu[k], r = d.atm.r ./ Rs, xH = xs))
+    end
+    writejs("tests.json", (mc = mc, balmer = bal, axisym = ax, he = he, cool = cool))
 elseif mode == "analytic"
     # the simple models of the infall's hydrogen (analytic_infall.jl, closed_form.jl) against the full non-LTE solution
     # of W30 → analytic.json: profiles for the second book's "analytic" panel, and the constants of the closed form

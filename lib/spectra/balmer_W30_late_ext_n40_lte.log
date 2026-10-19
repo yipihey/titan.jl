@@ -1,0 +1,17 @@
+
+[2602] signal 15: Terminated
+in expression starting at /home/claude/titan.jl/julia/balmer_series.jl:81
+jl_to_typeof at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/julia.h:775 [inlined]
+sig_match_fast at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gf.c:2967 [inlined]
+sig_match_fast at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gf.c:2958 [inlined]
+jl_lookup_generic_ at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gf.c:3047 [inlined]
+ijl_apply_generic at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/gf.c:3121
+macro expansion at /home/claude/titan.jl/julia/balmer_series.jl:90 [inlined]
+#93#threadsfor_fun#29 at ./threadingconstructs.jl:253
+#93#threadsfor_fun at ./threadingconstructs.jl:220 [inlined]
+#1 at ./threadingconstructs.jl:154
+unknown function (ip: 0x7f4cf3d6c71f)
+jl_apply at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/julia.h:2157 [inlined]
+start_task at /cache/build/tester-amdci5-12/julialang/julia-release-1-dot-11/src/task.c:1202
+unknown function (ip: (nil))
+Allocations: 200709848420 (Pool: 200709847658; Big: 762); GC: 56455

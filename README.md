@@ -25,6 +25,10 @@ P7.10: a wide-domain run with the outer boundary at 30 R (W30; `QS_XSCALE`, `MLT
 A220's and whose outer infall is close to dilute radiative equilibrium; the full non-LTE hydrogen line spectrum
 (`nlte_spectrum.jl`, 23 lines, Balmer decrement 5.1) with a per-line energy check (`nlte_linepower.jl`). Non-LTE on
 W30 reproduces the A220 results within the iteration drift: inside 30 R the assumed infall was adequate.
+P7.11: the tests of the second book (`spectra/`, chapter 6): Monte Carlo electron scattering of the lines
+(`mc_escatter.jl`), infall plus polar outflow (`axisym_lines.jl`), the Balmer series near the limit (`balmer_series.jl`),
+a cooler quasi-star (TITAN run C30, f_BH = 0.01, T_eff ≈ 5890 K), and He I λ10830 and O I λ8446 (`he10830.jl`,
+`oi_bowen.jl`).
 
 ## Status (Phase 6)
 
