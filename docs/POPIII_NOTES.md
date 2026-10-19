@@ -862,3 +862,41 @@ luminosity 1.8e33 erg/s (n_c = 1e4) → 2.7e34 (1e8) → 4.2e36 (1e12) → 6.5e3
   does not come from the line cooling; it stays with the continuum (RA04's CIE fit vs ON98's continuum treatment), the
   EOS, or the ON98 read-off. Our track agrees with RHFC02's stage 4 (3000 K).
 - Cost: 8303 steps in < 2 h with 16 threads (most steps have few thick lines).
+
+## M3c From non-equilibrium emission to Rosseland diffusion: tools (Tom's question, 19 Oct 2026)
+
+**Question (Tom):** "Can we understand the complete transition from full non equilibrium emission to when Rosseland
+means are justified?" Approach: four regime boundaries that need not coincide — (1) H₂ level populations non-LTE → LTE
+(n vs n_crit), (2) chemistry non-equilibrium → equilibrium (t_chem vs t_ff), (3) lines thin → trapped, (4) continuum
+thin → thick → diffusive; Rosseland means need (4) **including the windows** (κ_R is a harmonic mean dominated by the
+most transparent frequencies) and thermalisation (J_ν ≈ B_ν: effective depth √(τ_a(τ_a+τ_s)) > 1, not τ_ext > 1).
+Measured directly on the collapse: frequency-resolved flux vs the Rosseland diffusion flux at every shell and time.
+
+**Code.**
+- `julia/ContinuumOpacity.jl`: κ_ν(ρ, T, composition) — HITRAN CIA H₂–H₂ (200–3000 K, held above), H₂–He (200–9900 K),
+  H₂–H (1000–2500 K) [`~/Projects/popiii_lit/CIA/`]; H⁻ bound–free and free–free, John (1988) fits [coefficients
+  cross-checked in three independent codes: oracle `ahmin.f`, RH `hydrogen.c`, NEMESIS `hmin_ff.f`; spot values
+  σ_bf(0.85 μm) = 3.99e-17 cm², the known peak ≈ 4e-17]; hydrogenic H bf/ff (Kramers, g = 1); Rayleigh H₂ (RH: Victor &
+  Dalgarno 1969, Tarafdar & Vardya 1973) and H (Dalgarno 1962 [memory, unverified]); Thomson. Planck mean (absorption)
+  and Rosseland means (extinction; absorption only). Mayer & Duschl 2005 (MNRAS 358, 614, arXiv:astro-ph/0411613) for
+  comparison of the means (their tables not obtained yet).
+- `popiii_m2c.jl` SNAPS=1 (SNAPEVERY): profiles saved every 0.25 dex of n_c (and every N steps) to
+  `lib/popiii/snaps_*.jls`.
+- `julia/popiii_regimes.jl SNAPFILE [every]`: per snapshot and shell: n/n_crit, t_3b/t_ff, equilibrium flag, max
+  line-centre depth to the surface (231 lines), τ_P, τ_R, τ_R,abs to the surface, f_win = share of ∫∂B/∂T dν at
+  frequencies where the thermalisation depth < 1, and F/F_D: frequency-resolved formal solution (tangent rays,
+  S = B_ν; scattering as absorption / absorption only as brackets) over the Rosseland diffusion flux.
+
+**First means, equilibrium composition, continuum only [run]** (cm² g⁻¹):
+
+| n_H | T | κ_P | κ_R (extinction) | κ_R (absorption) |
+|---|---|---|---|---|
+| 1e14 | 1500 | 4.5e-8 | 1.2e-9 | 6.1e-17 |
+| 1e16 | 2000 | 5.0e-6 | 7.4e-6 | 2.8e-11 |
+| 1e18 | 3000 | 3.4e-4 | 5.6e-5 | 2.1e-6 |
+| 1e20 | 4000 | 2.3e-2 | 3.1e-3 | 2.7e-3 |
+| 1e21 | 6000 | 6.4 | 4.9 | 4.3 |
+
+Windows between the CIA bands dominate the absorption Rosseland mean up to ≈ 1e18 (10⁸ below κ_P at 1e14); there the
+extinction mean is set by Rayleigh scattering — photons in the windows scatter but are barely absorbed (not
+thermalised). The spectrum fills in with H⁻ at ≳ 1e20, 4000–6000 K: κ_P/κ_R → 7 → 1.3 and absorption ≈ extinction.
