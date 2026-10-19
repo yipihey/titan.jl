@@ -33,12 +33,16 @@ wν = [i == 1 ? 0.5(ν[2] - ν[1]) : i == length(ν) ? 0.5(ν[end] - ν[end-1]) 
 base = SP.Opac(atm)
 # Unsöld–Lucy target and zones (as spectra_run.jl: from 0.95 R to zone kc − 2, TITAN's L_rad + L_conv)
 dolucy = get(opt, :lucy, "1") == "1"
-Lz = [0.5 * (s.Lrad[k] + s.Lconv[k] + s.Lrad[k+1] + s.Lconv[k+1]) for k in eachindex(s.d)]
+# ltarget=rad: the radiative luminosity alone (L_rad) as the target; default TITAN's total L_rad + L_conv. The transfer
+# carries only radiation, so where convection carries flux (the cooler star) the total would heat the zones wrongly.
+cv = get(opt, :ltarget, "tot") == "rad" ? 0.0 : 1.0
+Lz = [0.5 * (s.Lrad[k] + cv * s.Lconv[k] + s.Lrad[k+1] + cv * s.Lconv[k+1]) for k in eachindex(s.d)]
 Ltarget = [z > 0 ? Lz[z] : s.Lrad[end] for z in atm.zone]
 # ldr=x (in R): leave out the zones within x·R below the bottom of the cooling layer, as spectra_run.jl ldr=… (needed for
 # the 300-zone W30 grid; without it the correction hit its clamp there and the emergent L fell to 0.75 L_TITAN in a test)
 ldr = parse(Float64, get(opt, :ldr, "0")) * R0
-lsel = findall(j -> 0 < atm.zone[j] <= d.kc - 2 && atm.r[j] >= 0.95R0 && atm.r[j] <= s.r[d.kc+1] - ldr, eachindex(atm.r))
+lrmin = parse(Float64, get(opt, :lrmin, "0.95")) * R0          # as spectra_run.jl lrmin=…
+lsel = findall(j -> 0 < atm.zone[j] <= d.kc - 2 && atm.r[j] >= lrmin && atm.r[j] <= s.r[d.kc+1] - ldr, eachindex(atm.r))
 _, R = SP.rays(atm.r; ncore = 12); R = SP.weights!(atm, R)
 # start: LTE (Saha–Boltzmann) populations
 nl = Any[nothing for _ in eachindex(atm.r)]

@@ -9,6 +9,7 @@ import { mountBench } from './panels/bench.js';
 import { mountQstar } from './panels/qstar.js';
 import { mountSpec } from './panels/spec.js';
 import { mountAnalytic } from './panels/analytic.js';
+import { mountTests } from './panels/tests.js';
 
 const MOUNT = {
   micro: (el, S) => mountMicro(el, S),
@@ -17,6 +18,7 @@ const MOUNT = {
   branches: (el, S) => mountBranches(el, S),
   bench: (el, S) => mountBench(el, S),
   qstar: (el, S) => mountQstar(el, S, () => {}, { run: el.dataset.run }),
+  tests: (el, S) => mountTests(el, S, () => {}, { view: el.dataset.view }),
   analytic: (el, S) => mountAnalytic(el, S, () => {}, { view: el.dataset.view }),
   spec: (el, S) => { if (el.dataset.view) S.sview = el.dataset.view; if (el.dataset.compare) S.spec2 = el.dataset.compare; if (el.dataset.xax) S.sxax = el.dataset.xax; return mountSpec(el, S, () => {}, { spec: el.dataset.spec }); },
 };

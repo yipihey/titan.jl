@@ -31,6 +31,10 @@ export function makeDefaults() {
     afuv: 1,          // analytic: factor on the star's far UV in the closed form
     atrap: 1,         // analytic: 1 = Thomson trapping in the closed form
     alog: 0,          // analytic: log y axis
+    tview: 'mc',      // tests (second book): mc | mcincl | balmer | axisym | he
+    tmcall: 0,        // tests: show all Monte Carlo runs
+    tbal: 'n40_b12',  // tests: Balmer-series run
+    tline: 'Halpha',  // tests: line of the axisymmetric profiles
   };
 }
 
@@ -59,6 +63,10 @@ const SCHEMA = [
   ['afuv', 'afu', 'num', [1e-3, 10]],
   ['atrap', 'atr', 'int', [0, 1]],
   ['alog', 'alg', 'int', [0, 1]],
+  ['tview', 'tv', 'enum', ['mc', 'mcincl', 'balmer', 'axisym', 'he']],
+  ['tmcall', 'tma', 'int', [0, 1]],
+  ['tbal', 'tb', 'enum', ['n40_b12', 'n40_lte', 'n80_b12']],
+  ['tline', 'tl', 'enum', ['Halpha', 'Hbeta']],
 ];
 export const HASH_KEYS = SCHEMA.map((e) => e[1]);
 

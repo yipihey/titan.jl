@@ -1,0 +1,14 @@
+W30_late_ext, Balmer lines to n = 40, upper levels above 12: b12
+break ⟨f_ν⟩(4000–4100)/⟨f_ν⟩(3620–3720): continuum only 1.27 (R=100: 1.28); with the Balmer series 3.58, R=100 3.43, R=30 3.00
+jump at the edge (continuum, 3640 vs 3652 Å): 5.13
+  λ  3600 Å: L_ν/L_ν,cont 1.000 (R=100: 0.998)
+  λ  3640 Å: L_ν/L_ν,cont 1.000 (R=100: 0.644)
+  λ  3660 Å: L_ν/L_ν,cont 0.192 (R=100: 0.353)
+  λ  3680 Å: L_ν/L_ν,cont 0.180 (R=100: 0.246)
+  λ  3700 Å: L_ν/L_ν,cont 0.316 (R=100: 0.333)
+  λ  3720 Å: L_ν/L_ν,cont 0.359 (R=100: 0.473)
+  λ  3750 Å: L_ν/L_ν,cont 0.711 (R=100: 0.653)
+  λ  3800 Å: L_ν/L_ν,cont 0.725 (R=100: 0.830)
+  λ  3900 Å: L_ν/L_ν,cont 0.928 (R=100: 0.928)
+  λ  4050 Å: L_ν/L_ν,cont 1.000 (R=100: 1.004)
+saved lib/spectra/balmer_W30_late_ext_n40_b12.jls

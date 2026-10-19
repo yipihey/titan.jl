@@ -34,7 +34,10 @@ noshock && (ksh = length(s.d))
 # bottom of the hot post-shock cooling layer: the last zone below the shock with T < 1e4 K. The cooling layer is
 # heated by the shock, not in radiative equilibrium, so it is excluded from the Unsöld–Lucy correction.
 kc = noshock ? length(s.d) : something(findlast(k -> k < ksh && s.T[k] < 1e4, 1:length(s.d)), ksh)
-Lz = [0.5 * (s.Lrad[k] + s.Lconv[k] + s.Lrad[k+1] + s.Lconv[k+1]) for k in eachindex(s.d)]   # TITAN L at zone centres
+# ltarget=rad: the radiative luminosity alone (L_rad) as the target; default TITAN's total L_rad + L_conv. The transfer
+# carries only radiation, so where convection carries flux (the cooler star) the total would heat the zones wrongly.
+cv = get(opt, :ltarget, "tot") == "rad" ? 0.0 : 1.0
+Lz = [0.5 * (s.Lrad[k] + cv * s.Lconv[k] + s.Lrad[k+1] + cv * s.Lconv[k+1]) for k in eachindex(s.d)]   # TITAN L at zone centres
 Ltarget = [z > 0 ? Lz[z] : s.Lrad[end] for z in atm.zone]
 # hotion=1: the post-shock cooling layer (and any shock-heated zone above it) at T > 2e4 K is treated as fully
 # ionised plasma (free–free and Thomson only) instead of in LTE (a test of how much its bound–free opacity matters).
@@ -64,7 +67,9 @@ println("zones treated as fully ionised: ", count(atm.ion), " (hot layer ", coun
 # wide-domain grid (W30) the bottom of the layer is resolved by zones of 1e-8 R, so two zones are a far thinner slice
 # than on A220 (5e-6 R) and the correction there hits its ±30 % clamp; ldr = 5e-6 leaves out the same slice as ltop = 2 on A220.
 ldr = parse(Float64, get(opt, :ldr, "0")) * 8.4352e15
-sel = findall(j -> 0 < atm.zone[j] <= kc - get_lucytop(opt) && atm.r[j] >= 0.95 * 8.4352e15 && atm.r[j] <= s.r[kc+1] - ldr, eachindex(atm.r))
+# lrmin=x (in units of 8.4352e15 cm, default 0.95): inner edge of the corrected zones (for another star, 0.95 of its radius)
+lrmin = parse(Float64, get(opt, :lrmin, "0.95")) * 8.4352e15
+sel = findall(j -> 0 < atm.zone[j] <= kc - get_lucytop(opt) && atm.r[j] >= lrmin && atm.r[j] <= s.r[kc+1] - ldr, eachindex(atm.r))
 # re=1 (experimental, does not converge for the A220 snapshot: the 1000 K extension is far from equilibrium with the
 # stellar light and the 30 % per-pass clamp binds for all 20 passes): the infall is brought to local radiative equilibrium with the
 # non-grey field instead of keeping TITAN's (grey) temperatures and the assumed T ∝ r^-1/2 of the extension

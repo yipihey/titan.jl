@@ -1,0 +1,5 @@
+zones treated as fully ionised: 0 (hot layer 0)
+shock zone 198 (r/R = 1.56391), cooling layer down to zone 151; Lucy on 88 zones
+ALI iterations: median 9, max 77; direct solutions: 99
+C30e t=9.5283e+07: 366 points (60 in extension), 422 frequencies in 94 s; ∫L_ν dν = 1.3131e+44 erg/s, TITAN L_rad(out) = 1.5184e+44 (ratio 0.8648), Ṁ = 3.189 Msun/yr
+saved lib/spectra/C30_ext.jls

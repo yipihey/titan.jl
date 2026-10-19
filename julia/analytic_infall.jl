@@ -25,7 +25,8 @@ star = get(opt, :star, "bb")
 Iν = if star == "bb"
     [SP.Bν(x, Teff) for x in ν]
 else                                                      # emergent spectrum of the star alone, as a surface intensity
-    d0 = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", "star_t0.jls"))
+    # star=t0: the TITAN star without infall (star_t0); any other NAME: the spectrum lib/spectra/NAME.jls (e.g. C30_bare)
+    d0 = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", (star == "t0" ? "star_t0" : star) * ".jls"))
     Lt = [exp(SP_interp) for SP_interp in (begin
         i = clamp(searchsortedlast(d0.ν, x), 1, length(d0.ν) - 1); t = (log(x) - log(d0.ν[i])) / (log(d0.ν[i+1]) - log(d0.ν[i]))
         log(max(d0.L[i], 1e-300)) * (1 - t) + log(max(d0.L[i+1], 1e-300)) * t end for x in ν)]

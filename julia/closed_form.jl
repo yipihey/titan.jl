@@ -11,9 +11,12 @@
 include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "Spectrum.jl")); include(joinpath(@__DIR__, "NLTEH.jl"))
 using Serialization, Printf
 const SP = Spectrum; const Z0 = Z0Physics; const NH = NLTEH
-dn = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", "nlte_W30_late_ext.jls"))
-d0 = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", "star_t0.jls"))
-R0 = 8.4352e15; M = 1e6 * Z0.Msun; Mdot = 3Z0.Msun / Z0.yr; Teff = 7310.0; L = 1.4204e44; X = 0.76
+# CF_NLTE=NAME (default W30_late_ext): the non-LTE solution compared with (its radii and temperatures); CF_STAR=NAME
+# (default star_t0): the stellar spectrum; CF_TEFF, CF_L: the star's T_eff and L (they set its radius)
+cfn = get(ENV, "CF_NLTE", "W30_late_ext")
+dn = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", "nlte_$cfn.jls"))
+d0 = deserialize(joinpath(@__DIR__, "..", "lib", "spectra", get(ENV, "CF_STAR", "star_t0") * ".jls"))
+R0 = 8.4352e15; M = 1e6 * Z0.Msun; Mdot = 3Z0.Msun / Z0.yr; Teff = parse(Float64, get(ENV, "CF_TEFF", "7310")); L = parse(Float64, get(ENV, "CF_L", "1.4204e44")); X = 0.76
 Rst = sqrt(L / (4π * Z0.σSB * Teff^4)); W(r) = 0.5 * (1 - sqrt(max(1 - (Rst / r)^2, 0.0)))
 Ltot0 = sum(0.5 * (d0.L[i] + d0.L[i+1]) * (d0.ν[i+1] - d0.ν[i]) for i in 1:length(d0.ν)-1)
 Iν(ν) = (i = clamp(searchsortedlast(d0.ν, ν), 1, length(d0.ν) - 1); t = (log(ν) - log(d0.ν[i])) / (log(d0.ν[i+1]) - log(d0.ν[i]));
@@ -54,4 +57,4 @@ for xx in (1.0, 1.2, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0, 30.0, 50.0, 80.0, 115.0)
 end
 @printf("neutral column: closed %.3e, full %.3e cm⁻²; Thomson depth: closed %.3f, full %.3f\n",
         col((1 .- x) .* nH), col((1 .- xfull) .* nH), col(x .* nH .* 6.6524e-25), col([st.ne for st in dn.nl] .* 6.6524e-25))
-fuv == 1 && serialize(joinpath(@__DIR__, "..", "lib", "spectra", "closedform_W30.jls"), (r = rs, T = Ts, x = x, xfull = xfull, p2 = p2, p3 = p3, G2 = G2, G3 = G3))
+fuv == 1 && serialize(joinpath(@__DIR__, "..", "lib", "spectra", cfn == "W30_late_ext" ? "closedform_W30.jls" : "closedform_$cfn.jls"), (r = rs, T = Ts, x = x, xfull = xfull, p2 = p2, p3 = p3, G2 = G2, G3 = G3))

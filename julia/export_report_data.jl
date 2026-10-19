@@ -5,6 +5,7 @@
 #   Z0_TABLE=ext julia --project=env export_report_data.jl spectra NAME...   emergent spectra lib/spectra/NAME.jls (spectra_run.jl)
 #                                                     → spectra.json, with band luminosities
 #   Z0_TABLE=ext julia --project=env export_report_data.jl analytic   simple models vs the W30 non-LTE solution → analytic.json
+#   julia --project=env export_report_data.jl tests   Monte Carlo, Balmer series, axisymmetric, He I results → tests.json
 using Serialization, Printf
 include(joinpath(@__DIR__, "Metrics.jl")); using .Metrics
 const OUT = joinpath(@__DIR__, "..", "report", "app", "data"); mkpath(OUT)
@@ -121,6 +122,35 @@ elseif mode == "qstar"
         snaps = [(t = s.t, r = s.r, u = s.u, rho = s.d, T = s.T, pg = s.pg, Er = s.er, Lrad = s.Lrad ./ hdr[:L], Lconv = s.Lconv ./ hdr[:L])
                  for s in snaps[idx]])
     writejs(out, hist === nothing ? prof : merge(prof, (hist = hist,)))
+elseif mode == "tests"
+    # the decisive tests of the second book (chapter "Testing the comparison") → tests.json: Monte Carlo line profiles
+    # (mc_escatter.jl), the Balmer-limit region (balmer_series.jl), axisymmetric profiles (axisym_lines.jl), He I λ10830
+    # (he10830.jl); missing inputs are skipped
+    sp(n) = joinpath(@__DIR__, "..", "lib", "spectra", n)
+    mc = []
+    for (tag, label) in (("Halpha_es0_res1", "Hα, no electron scattering"), ("Halpha_es1_res1", "Hα, electron scattering, infall"),
+                         ("Halpha_es1_res1_Te1e4", "Hα, electrons at 10⁴ K"), ("Halpha_es1_res1_Te3e4", "Hα, electrons at 3×10⁴ K"),
+                         ("Halpha_es1_res1_th90", "Hα, electron scattering, pure outflow"), ("Halpha_es1_res1_th45", "Hα, infall + outflow cones θ_o = 45°"),
+                         ("Halpha_es1_res1_th60", "Hα, infall + outflow cones θ_o = 60°"), ("Hbeta_es0_res1", "Hβ, no electron scattering"),
+                         ("Hbeta_es1_res1", "Hβ, electron scattering, infall"))
+        f = sp("mc_W30_late_ext_$tag.jls"); isfile(f) || continue
+        m = deserialize(f)
+        push!(mc, (tag = tag, label = label, V = m.V, prof = m.prof, profi = haskey(m, :profi) && m.θo > 0 ? m.profi : [],
+                   fwhm = m.fwhm, Wb = m.Wb, Wr = m.Wr, centroid = m.centroid, stats = m.stats))
+    end
+    bal = []
+    for tag in ("n40_b12", "n40_lte", "n80_b12")
+        f = sp("balmer_W30_late_ext_$tag.jls"); isfile(f) || continue
+        b = deserialize(f); k = 1:3:length(b.λ)
+        push!(bal, (tag = tag, lam = b.λ[k], Lnu = b.Lnu[k], Lc = b.Lc[k], L100 = b.L100[k], L30 = b.L30[k], brk = b.brk))
+    end
+    ax = isfile(sp("axisym_W30_late_ext.jls")) ? [(line = x.line, theta = x.θo, incl = x.incl, v = x.v, F = x.F, EW = x.EW) for x in deserialize(sp("axisym_W30_late_ext.jls"))] : []
+    he = []
+    for n in ("W30_late_ext", "C30_ext")
+        f = sp("he10830_$(n)_s31.0_x1.0.jls"); isfile(f) || continue
+        h = deserialize(f); push!(he, (name = n, v = h.v, F = h.F, EW = h.EW, N3 = h.N3))
+    end
+    writejs("tests.json", (mc = mc, balmer = bal, axisym = ax, he = he))
 elseif mode == "analytic"
     # the simple models of the infall's hydrogen (analytic_infall.jl, closed_form.jl) against the full non-LTE solution
     # of W30 → analytic.json: profiles for the second book's "analytic" panel, and the constants of the closed form
