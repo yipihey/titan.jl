@@ -1232,3 +1232,40 @@ fits at 300–500 K (para J=0→2 and ortho 1→3 checked by hand against the fi
 form reaches LTE too early at 300–1000 K (ours is 0.3× of it between n_H = 1e2 and 1e4) and agrees within 20 % at 3000 K; at n_H ≥ 1e7 both → 1.
 Low-density Λ0 ours/GP: 0.30 (300 K), 0.86 (1000), 1.15 (3000). (d) uniform β scales A: n_eff (Λ = ½ Λ_LTE(β), 1000 K) = 6.8e4 β cm⁻³ exactly
 (slope 1.000 over β = 1…1e-3); at n_H = 1e6 Λ/Λ_LTE(β) = 0.92 (β = 1) → 1.00 (β = 1e-3). Not yet used in the collapse drivers.
+
+### G6c Non-LTE H₂ lines coupled to the transfer (ALI) [run]
+`H2Lines.cooling(…; nlte = (LV = H2Levels.load(), nH, nHe, nHp), nlte_mode = :ali | :ep, nlte_tol = 1e-3, nlte_maxit, nlte_init = :ep | :thin,
+nlte_lambda = :diag | :none)`; default (`nlte = nothing`) is the old path, unchanged. H2Levels' 231 lines are H2Lines' 231 lines in the same
+order (checked at every call: ν from the 63 energies, A, g of both levels). Per zone: populations (63 fractions × n_H2) from `H2Levels.populations`;
+κ0 = (hν/4π)(n_l B_lu − n_u B_ul) (stimulated emission included), S = n_u A/(n_l B_lu − n_u B_ul) = (2hν³/c²)/(g_u n_l/(g_l n_u) − 1); same tangent-ray
+formal solver, which now also returns the profile-weighted mean intensity J̄ per zone (J = ½∫(I_in + I_out)dμ at the interfaces with the comoving profile
+φ(v ∓ μu) of the adjacent zone, trapezoid in μ over the rays; zone = mean of its two interfaces).
+- **Diagonal operator**: in the short-characteristics step the coefficient of the exit-node source is ψ(Δτ) = w0 − w1/Δτ. Λ* at a node = mean over
+  directions of ψ for the segment arriving at it (inward rays through the zone outside, outward through the zone inside), accumulated with the same μ
+  quadrature and profile weights as J̄; zone Λ* = mean of its two nodes. (Local operator, not the exact diagonal, which needs n unit-source solves.)
+  ALI step (Rybicki & Hummer): net rate = n_u A (1 − Λ*) − (n_l B_lu − n_u B_ul)(J̄_fs − Λ*S_old), linear in n, i.e. `populations(…; β = 1 − Λ*,
+  Jbar = max(J̄_fs − Λ*S_old, 0))`: one SE solve per zone per iteration. Start: EP populations (a few iterations, counted in `LAST.nep`) or thin (`:thin`).
+  Converged when max relative change of populations (those > 1e-6) < `nlte_tol`; `LAST[]` has `iters`, `nep`, `converged`, `hist`, `Λrate`, `pops`.
+  Lines with radial line-centre τ < 2·tol: thin emission from the actual n_u, J̄ = 0. Cooling returned = −∇·F of the last formal solution (as the LTE path).
+- **EP** (`:ep`): β per line and zone = profile average of ½[E₂(τ_out φ̂) + E₂(τ_in φ̂)] (τ_out radially to the surface, τ_in through the centre) or the
+  Sobolev (1 − e^{−τ_S})/τ_S with τ_S = κ0 c/(ν0 max(|du/dr|, |u/r|)), the larger of the two; fixed point on β (about 3–5 SE sweeps); cooling Σ n_u A β hν.
+  (My first EP, (1 − e^{−τ})/τ with τ the depth to the surface, was 1.8–3.4× high in the thick limit: log divergence from the surface layers.)
+- **Tests 6–8** (`h2lines_test.jl`; 1–5 unchanged; 10/10 G6c checks): (6) n_H = 1e14, n_H2 = 5e13, 1000 K, 105 thick lines: L_ALI/L_LTE = 1.00000, 1 iteration.
+  (7) n_H = 1e2/1e3/1e4 thin: L/(V n_H2 Σ n_u A hν)(β = 1 populations) = 1.000000 for ALI and EP (the LTE-thin emission is 72/16/4.6× higher at these densities).
+  (8) homogeneous spheres, 1000 K, n_H2 = n_H/2, 30 zones (EP, fnlte, LTE luminosity ratios to ALI):
+
+  | n_H, R | n_H2 R | LTE τ_max (thick lines) | EP/ALI | fnlte/ALI | LTE/ALI | ALI it. (EP start) | thin start | plain Λ to 1e-6 |
+  |---|---|---|---|---|---|---|---|---|
+  | 1e4, 1e22 | 5e25 | 13 (48) | 0.83 | 2.37 | 3.51 | 16 (5) | 17 | 40 (L/L_ALI 0.9996) |
+  | 1e5, 3e21 | 1.5e26 | 39 (74) | 0.77 | 1.22 | 1.28 | 6 (4) | 8 | 16 (0.9998) |
+  | 1e6, 1e21 | 5e26 | 131 (86) | 0.75 | 1.02 | 1.03 | 3 (3) | 4 | 6 (1.0000) |
+
+  ALI history at 1e4: 3.1e-1 … 8.2e-4, convergence factor ≈ 0.7 per iteration (zone Δτ < 1 for the strong lines: the local operator is weak; plain Λ
+  to 1e-3 needs ~21 iterations at similar τ, so ALI gains little here); thin and EP starts give the same L (< 1e-3). The old fnlte factor (HM79/GP98 form) is 2.4× high at
+  n_H = 1e4 and reaches the ALI answer only at n_H ≳ 1e6 (the 63-level n_cr at 1000 K is 6.6e4, G6b). EP is 17–25 % low.
+  **Rate-based vs flux-based cooling** Σ[n_u A − (n_l B_lu − n_u B_ul)J̄]hν vs −∇·F: 1.022 / 1.054 / 1.203 (30 zones); at n_H = 1e5: 1.054 / 1.018 / 1.006 (30/60/120 zones),
+  L_ALI 1.826 / 1.840 / 1.845e48 (0.7 % over 4×). In LTE-like thick zones the rate form is a cancellation (J̄ ≈ S); the flux form is returned.
+  Infalling cloud (n_H 1e7 … 1e4, 600–1400 K, ≤ 10 km/s, 75 thick lines): EP/ALI 0.93, LTE/ALI 1.21, 4 ALI iterations.
+- **Timing** (100 zones, that cloud, 4 threads): LTE path 0.19 s; ALI 1.5 s for 4 iterations + EP start (≈ 0.35 s per iteration; J̄ and Λ* roughly double the
+  transfer cost); EP 0.08 s (no transfer).
+- Not done: coupling into the collapse drivers (`popiii_m2c.jl` unchanged); no electron collisions; maser zones (κ0 ≤ 0) treated as transparent.
