@@ -98,37 +98,111 @@ Needed for primordial chemistry:
 6. **Conservation to round-off.** H nuclei and charge (and D, He) enforced by construction (eliminate one species per
    conservation law, or project), checked every step.
 
-## M0.3 Specification of the RHFC02 calculation (to extract) — status: NOT EXTRACTED
+## M0.3 Specification of the RHFC02 calculation — status: EXTRACTED (19 Oct 2026) [read-src]
 
-Source unreachable (M0.0). The table lists what has to come out of the paper; the right-hand column is a lead only.
+Source: Ripamonti E., Haardt F., Ferrara A., Colpi M., 2002, MNRAS 334, 401–418, "Radiation from the first forming
+stars", DOI 10.1046/j.1365-8711.2002.05516.x (Crossref, checked), arXiv:astro-ph/0107095v2. Page numbers below are
+those of the arXiv v2 preprint (39 pp.); equation, table and figure numbers are the paper's. Local copy (not in the
+repository): `~/Projects/popiii_lit/RHFC02/`.
 
-| item | needed | lead (not usable as a fact) |
+| item | RHFC02 says | where |
 |---|---|---|
-| bibliographic | authors, title, journal, vol, pages, DOI, arXiv | [snippet] "Radiation from the first forming stars", MNRAS 334, 401 (2002), arXiv:astro-ph/0107095; DOI 10.1046/j.1365-8711.2002.05516.x [prompt] |
-| method | Lagrangian/Eulerian, zone count, time integration, artificial viscosity | [snippet] "spherically symmetric hydrodynamical scheme including radiative transfer and primordial chemistry" |
-| initial conditions | profile (ρ, T, u, x_H₂, x_e), total mass, radius, central density; whether several ICs (incl. from 3D cosmological runs) | [snippet] several initial configurations, including ones taken from 3D cosmological simulations |
-| chemistry | species, reactions, rate sources; three-body rate; collisional dissociation; heating per reaction | — |
-| H₂ thin cooling | which cooling function / level populations | — |
-| H₂ line transfer | method (frequency-dependent? escape probability?), number of lines, line profile, velocity field | — |
-| CIE | included? which fit or data | — |
-| continuum opacities | sources (H⁻, CIA, Rayleigh, e⁻), mean or frequency-dependent | — |
-| EOS | γ(T), H₂ internal degrees of freedom, ortho/para, dissociation energy | — |
-| boundaries | inner (r = 0), outer (pressure, fixed radius, free) | — |
-| stopping criterion, validity | why the run ends; reliability limits | [prompt] RA05: reliable only for M_core ≲ 0.1 M☉ |
-| outputs | 10 stages of Fig. 1.19 (ρ, u, T, x_H₂ vs enclosed mass); times/central densities of the stages | — |
-| core | n at core formation, initial core mass, accretion rate | [prompt] n ≳ 1e21 cm⁻³, ~3e-3 M☉, 0.01–0.1 M☉/yr; [snippet] core grows from ~3e-3 to ~4.5e-2 M☉ "in about 0.30 years" (text garbled or exact; check) |
-| luminosity | L(t) | [snippet] L rises slowly to ~1e36 erg/s during the self-similar phase, mostly H₂ IR lines; collapse of the centre takes 1e5–1e6 yr |
+| hydro scheme | 1D **Lagrangian**, explicit finite differences; Eqs. (A1)–(A3) in M_r with radiative force f_rad = (1/c)∫κ_ν F_ν dν; discretised as Thoul & Weinberg 1995 (TW95) Eqs. 9–13, 15; "second order in space and time" | §2.1 Eqs. 2–3; App. A1.1, A2.1 |
+| artificial viscosity | q ∝ ρ Δv² where shells would interpenetrate (Bowers & Wilson 1991; TW95), c_q = 4. Shocks spread over several shells; "inaccurate when dealing with strong shocks" | Eq. A4; A2.1; §3.2.2 |
+| energy equation | from TW95 Eq. 14; the chemical term makes u(T) implicit, solved by **bisection**, so **first order in time** | A2.1 |
+| time step | min of: 2Δt_prev; C_dyn (G r³/M_r)^½; C_Cour Δr/c_s; C_cool uρ/(Γ−Λ); C_cross Δr/Δv; with C_dyn = 1, C_Cour = 0.2, C_cool = 0.1, C_cross = 0.05; a posteriori ΔT/T ≤ 0.5 % per step | A2.2 |
+| boundaries | centre: r = 0, M_0 = 0, v_in = 0; outside: constant pressure beyond the outermost shell | A2.3 |
+| zoning | **100 Lagrangian shells** (P100/2: 140), massive outside, light inside: in P100 outer shells ≳ 1 M☉, central shell **3e-7 M☉**. P100/2's extra 40 shells refine −3 ≲ log M_r ≲ −1 (where the shock forms). The mass distribution law is not given | §3.1 p. 7 |
+| initial conditions | at rest; constant f_H2; hydrostatic with polytropic index 5/3 (P) or isothermal (I); N1500 from ABN00. f_e = 1e-10. He: n_He/n_H = 1/12 (X = 0.75, Y = 0.25) | §3.1, Table 1; A1.2 |
+| runs (Table 1) | ρ_0,c in m_H cm⁻³, T_0,c, f_H2: P100 2.6e6, 270 K, 5e-4 (cf. ON98 A,B); P100/2 same, 140 shells; P1000 2.3e4, 246, 5e-4; P10 3.5e8, 249, 5e-3 (cf. ON98 C); I100 7.8e7, 300, 5e-4; I1000 1.1e7, 300, 5e-4; N1500 2.0e6, 440, 5e-4. Cloud radius is **not stated** (follows from hydrostatic + M_tot + outer pressure, also not stated) | Table 1 p. 7 |
+| chemistry | species H⁰, H⁺, H⁻, H₂, H₂⁺, He⁰, He⁺, He⁺⁺, e⁻ (9); **no D**. Reactions (Table A1): H⁺+e→H+γ (AANZ98 k2, **case A**), H+e→H⁻+γ (k7), H+H⁻→H₂+e (k8), H+e→H⁺+2e (k1) from "AANZ98"; **3-body H+H+H→H₂+H (PSS83 k4)**, H₂+H→3H (k5), H+H+H₂→2H₂ (k6), H₂+H₂→2H+H₂ (k7), H+H→H⁺+H+e (k9) from Palla, Salpeter & Stahler 1983. No H₂⁺ channel listed although H₂⁺ is a species | Table A1 p. 29; A1.2 |
+| chemistry switch | for ρ ≳ ρ_eq = **5e-11 g cm⁻³** switch to **equilibrium** chemistry: Saha for p ≤ 1e4 dyn cm⁻², SCVH95 tables for p ≥ 1e6, interpolated in between | A1.2 pp. 29–30 |
+| EOS | ideal (p ≤ 1e4): p = nkT; u = u_th + u_chem, u_th = N_tot kT/(γ_ad − 1), u_chem = −N_tot Σ y_i χ_i; γ_ad a weighted mean: 5/3 monatomic, 7/5 for H₂⁺, and for H₂ **1/(γ−1) = 5/2 + x² eˣ/(eˣ−1)², x = 6100 K/T** (from ON98: rotation fully excited + vibration). Non-ideal (p ≥ 1e6): p(ρ,T), u(ρ,T) from **Saumon, Chabrier & Van Horn 1995** (SCVH95), interpolated between | A1.3 Eqs. A5–A9 |
+| H₂ lines | levels **v = 0–2, J = 0–20**, all quadrupole-allowed transitions; A-values **Turner, Kirby-Docken & Dalgarno 1977**; **LTE populations**; α_ν from Eq. A11; **Gaussian profile, 30 frequency bins**, thermal broadening and bulk-velocity **Doppler shifts**; optically thin approximation where line absorption depth < 0.1. No separate thin cooling function | A1.4; A2.4 Eq. A11 |
+| transfer method | tangent rays (Hummer & Rybicki 1971; ON98), 1 + 2i angles at the outer radius r_i of shell i; cooling Λ_rad,i = [L(r_i) − L(r_{i−1})]/[(4π/3)(r_i³ − r_{i−1}³)] | A2.4 Eq. A10 |
+| when transfer starts | radiative transfer from stage 1 (Table 2 "Start Rad. Trans."); continuum from **T > 1000 K** | Table 2; A1.4; §3.3.1 |
+| continuum | **grey**, LTE source function; **Planck mean of Lenzuni, Chernoff & Salpeter 1991** (Z = 0) for 1000 < T < 7000 K; **Rosseland mean of Rogers & Iglesias 1992** for T > 7000 K; **diffusion approximation** (Eq. A12) when τ > 4 in a single shell. **No separate CIE cooling term**: CIA enters only through Lenzuni's Planck mean (to check in Lenzuni 1991 that their mean includes H₂–H₂ CIA) | A1.4; A2.4 Eq. A12 |
+| freezing (accretion) | after core formation, a shell is frozen (v = 0, all else fixed) if v/v_ff < 1e-3, T > 5e4 K and ≥ 5 shells inside the shell of maximum infall. Core radius shrinkage then neglected (innermost 10 shells: 1.6e10 → 1.0e10 cm between stages 8 and 9 in the full run); shock position differs by ≃ 4 % | §3.2.4 p. 13 |
+| stopping | **T_c ≃ 1e5 K** (stage 9): ρ_c ≃ **0.3 g cm⁻³**, Courant time ≲ 300 s | §3.2.3 p. 12 |
+| stages (Table 2, "run P100"; Fig. 1 caption says **P100/2**) | stage: T_c [K], Δt [yr] (since previous), t_f − t_i [yr] (to the end): 0: 270, —, 740000 (IC); 1: 450, 720000, 20000 (start RT); 2: 650, 19000, 930; 3: 1500, 920, 9.6; 4: 3000, 9.2, 0.40 (H₂ dissociating); 5: 6500, 0.060, 0.34; 6: 15000, 0.005, 0.34 (core forming); 7: 30000, 0.002, 0.34 (core formed); 8: 65000, 0.011, 0.33; 9: 100000, 0.33, — (final). Central densities per stage are **not tabulated** (only in Figs. 1, 2, 7) | Table 2 p. 9 |
+| collapse | Larson–Penston-like, ρ ∝ r^−α, **α ≃ 2.2**; self-similarity ends between stages 6 and 7. 3-body H₂ formation from n ≳ 1e8 cm⁻³ (stage 1); H₂ formation heating dominates Γ_ad for T ≲ 1550 K; dissociation (4.48 eV/molecule) above 1550 K; line cooling dominates for T ≲ 1800 K, continuum above; centre nearly adiabatic for T ≳ 2350 K; f_H2 ≃ 5 % at stage 6 (T_c ~ 15000 K) | §3.2, §3.2.1 |
+| optical depth | point A (τ = 1, Figs. 2, 7) and B (core formation); at T_c ≃ 2000 K only ≃ 0.02 of the line flux escapes locally; stage 2: 14 lines with τ > 0.1; T_c = 1000 K: 42 lines (half τ > 1) | §3.3.1 |
+| core | core = mass inside the radius where infall < **0.1 v_ff**, v_ff = (2GM_r/r)^½. At formation (P100, Table 3): M = 6e30 g (≈ **3e-3 M☉**), R = 1e11 cm, T_c = 2e4 K, ρ_c = **1e-2 g cm⁻³**, f_H2 ≲ 0.03. Initial core mass ≈ M_Jeans(T_B, n_B) and ≈ the minimum of M_Jeans(T_c, n_c) (Fig. 12). Pressure ionisation: at stage 9 n_H⁺/n_H ~ 2 | §3.2.2, §3.4.1, Table 3 |
+| accretion | core grows from ~0.3e-2 to ~4.5e-2 M☉ in ~0.30 yr: **Ṁ ~ 0.14 M☉/yr**; fit M_*(t) = 9.2e-2 M☉ (t/yr + 0.0063)^0.657 (Eq. 5) vs ON98 M_*(t) = 0.11 M☉ ((t − t_cf)/yr)^0.73 (Eq. 4); P100 reaches ~0.3 M☉ in ~6 yr (frozen-shell run, "indicative") | §3.2.4 Eqs. 4–5, Fig. 6; §3.4.2 |
+| luminosity | lines dominate; at τ_c = 1: lines 1.06e36, continuum 7.5e35, total 1.81e36 erg/s (Table 4, run P100/2); continuum photosphere at ≃ 2300–2400 K; full line list Table B1 at T_c = 650, 1000, 1500 K and τ_c = 1 | §3.3, Table 4, Table B1 |
+| radiation force | negligible: κ < 0.05 κ_es everywhere before core formation; removing f_rad changes nothing | §3.3.3 |
+| validity | shock treatment approximate (artificial viscosity; transition region of H⁰ possibly numerical); results after the first 0.34 yr of the frozen run "indicative"; stated comparison: "good agreement with ON98" for P100, P100/2, P10 | §3.2, §3.2.4 |
 
-## M0.4 Specification of the Ripamonti & Abel (2004) CIE treatment (to extract) — status: NOT EXTRACTED
+**Reference-list entries to verify in M0.3b** (as printed in RHFC02): AANZ98 is listed as "Abel T., Anninos P.,
+Norman M. L., Zhang Y. 1998, ApJ, 518" — incomplete; the rates k1, k2, k7, k8 are those of Abel, Anninos, Zhang &
+Norman 1997 (New Astron. 2, 181) [memory] and/or Anninos et al. 1997; to resolve. PSS83 = ApJ 271, 632; Lenzuni,
+Chernoff & Salpeter 1991, ApJS 76, 759; Rogers & Iglesias 1992, ApJS 79, 507; Turner, Kirby-Docken & Dalgarno 1977,
+ApJS 35, 281; TW95 = ApJ 442, 480; ON98 = ApJ 508, 141; Omukai 2000, ApJ 534, 809; L69 = MNRAS 145, 271; Penston
+1969, MNRAS 144, 425; Hunter 1977, ApJ 218, 834. **SCVH95 is cited in the text but missing from the reference list**
+(Saumon, Chabrier & Van Horn 1995, ApJS 99, 713 [memory]).
 
-| item | needed | lead |
+**Consequences for the plan [design].**
+1. **Two gaps M0.6 did not list:** (a) a non-ideal EOS + equilibrium composition table (SCVH95) for p ≥ 1e6 dyn cm⁻²
+   (stage ≳ 6), with Saha below; (b) frequency-resolved H₂ line transfer (≈ 300 lines × 30 bins, Doppler-shifted,
+   tangent rays) feeding a **local cooling rate** Λ_rad,i, not a grey E_r. In TITAN terms the lines are a
+   *nonlocal source term* in the gas-energy row, computed by a formal solution per step (operator split, as RHFC02
+   effectively do with an explicit scheme); only the continuum is TITAN's grey E_r.
+2. **"Faithful" mode = RHFC02's switches**: equilibrium chemistry above 5e-11 g cm⁻³; continuum only above 1000 K;
+   Lenzuni Planck / Rogers–Iglesias Rosseland; LTE line populations; PSS83 3-body rates; case-A recombination.
+   **No separate CIE term** — the CIE physics of RA04 is the "modern" switch (M2b), and Lenzuni's mean is the
+   faithful one (Lenzuni 1991 tables needed).
+3. **Lagrangian with 100–140 shells** reproduces their resolution; the shell-mass law must be chosen by us (central
+   shell 3e-7 M☉ of 100 M☉; outer shells ≳ 1 M☉) and documented. Their result has ~2 shells per decade of M_r: our
+   resolution study (M1 test matrix) will show what that resolution misses.
+4. **Comparison data available:** Table 2 (T_c and times per stage), Table 3 (core at formation), Eqs. 4–5 (core
+   growth), Table 4 / B1 (luminosities), Figs. 1, 2, 6, 7 (to digitise for ρ, v, T, f_H2 profiles and the n_c–T_c
+   track). The cloud's outer pressure and radius are not given: the P-runs are defined by (M_tot, ρ_0,c, T_0,c,
+   polytrope 5/3 in hydrostatic equilibrium), which fixes the profile up to the truncation radius — to be chosen and
+   stated.
+5. The Table 2 / Fig. 1 run label conflict (P100 vs P100/2) stays open; Table 4 is P100/2.
+
+## M0.4 Specification of the Ripamonti & Abel (2004) treatment — status: EXTRACTED (19 Oct 2026) [read-src]
+
+Source: Ripamonti E., Abel T., 2004, MNRAS 348, 1019–1034, "Fragmentation and the formation of primordial
+protostars: the possible role of collision-induced emission", DOI 10.1111/j.1365-2966.2004.07422.x (Crossref,
+checked), arXiv:astro-ph/0311355v1. Pages are the preprint's (1–17). Full extraction with every formula verbatim:
+`~/Projects/popiii_lit/RA04/extraction.md` (extracted by a subagent from text + PDF; the items below marked ✓ I
+checked against the text myself; the others are to be re-read before entering code).
+
+| item | RA04 says | where |
 |---|---|---|
-| bibliographic | | [snippet] arXiv:astro-ph/0311355 (Nov 2003); MNRAS 348, 1019, DOI 10.1111/j.1365-2966.2004.07422.x [prompt] |
-| H₂ line cooling thin→thick approximation | functional form, the optical-depth variable, validity range | [snippet] "new analytic approximations for H₂ cooling bridging the optically thin and thick regimes" |
-| CIE cooling | fit, data source, range | [prompt] review Eq. 1.29: L_CIE ≈ 0.072 ρ T⁴ X f_H₂ erg g⁻¹ s⁻¹, 400–7000 K |
-| CIE optical depth | escape factor and its τ estimate | — |
-| instabilities | linear growth rates (3-body at 1e8–1e11 cm⁻³; CIE at ≳1e13–1e14) | [snippet] neither leads to fragmentation; the CIE one is "as weak as" the low-density one |
-| 1D test of simplified transfer | set-up, comparison quantities, outcome | [snippet, citing review] the 1D model becomes optically thick to CIE at n_H ≈ 1e16 cm⁻³ |
+| thin H₂ lines | Hollenbach & McKee 1979 LTE fit (as GP98's high-density limit): L = (X f_H2/m_H) H(T₃), T₃ = T/1000 K, H = 9.5e-22 T₃^3.76/(1+0.12 T₃^2.1) e^{−(0.13/T₃)³} + 3e-24 e^{−0.51/T₃} + 6.7e-19 e^{−5.86/T₃} + 1.6e-18 e^{−11.7/T₃} erg s⁻¹ (per molecule). X = 0.75 | Eqs. 6–7 p. 4 ✓ |
+| **factor 2** | Eq. 6 has X f_H2/m_H, Eq. 8 (line sum) has X f_H2/(2 m_H) for the same quantity; with f_H2 = fraction of H nuclei in H₂, molecules per gram = X f_H2/(2 m_H), so Eq. 6 is 2× too large as printed. Which one their code used: to decide against their Fig. 1 | Eqs. 6, 8 p. 4 ✓ |
+| thick lines (used) | **L_thick = L_thin · min(1, (n/n₀)^−β), β = 0.45, n₀ = 8e9 cm⁻³** (ρ₀ = 1.34e-14 g cm⁻³), n = ρ/m_H; "usable to n ~ 1e16" if the collapse stays roughly spherical. (A full per-line model, Eqs. 9–21 with ξ = 0.20, is derived but the 1D test uses Eq. 22.) Eqs. 36, A1 print max[…] where min is meant | Eq. 22 p. 9 ✓ (min) |
+| CIE data | H₂–H₂ Borysow 2002 (400–1000 K), Borysow et al. 2001 (1000–7000 K); H₂–He Jørgensen et al. 2000; H₂–H Gustafsson & Frommhold 2003; H–He Gustafsson & Frommhold 2001. Complete only for 1500–2500 K; extended to 400–7000 K by keeping each pair's ratio to H₂–H₂ fixed | Table 1 p. 3 |
+| CIE fit | L_CIE ≈ A_CIE ρ T^α X f_H2, **A = 0.072 erg cm³ g⁻² s⁻¹ K⁻⁴, α = 4**; valid f_H2 ≈ 1 (roughly to 0.5); He and H pairs folded into A; used for 400–3000 K | Eq. 5 p. 4 ✓ (form) |
+| CIE optical depth | L_CIE (1 − e^{−τ_c})/τ_c, **τ_c = (ρ/3.3e-8 g cm⁻³)^2.8**, an empirical fit to RHFC02's continuum optical depth (not from an opacity), with A lowered to 0.054 to match RHFC02; "good fit up to n ≳ 1e19". τ_c = 1 at n ≈ 2e16 cm⁻³ [computed] | §3.3 p. 14; Eq. A1 |
+| chemistry (analytic model) | dF/dt = n_f[2 n_p k₄ (1−f)² − k₅ f], n_f = n_p(1 − 15f/16), n_p = ρX/m_H; k₄ = 5.5e-29/T cm⁶ s⁻¹ (PSS83); k₅ = 2.2e-9 T^0.2 e^{−51800/T}(1 − e^{−6000/T}) cm³ s⁻¹ (PSS83 modified to Martin et al. 1996); χ_H2 = 4.48 eV | Eqs. 29–33 p. 11 |
+| instability | criterion C < 0 (from Omukai & Yoshii 2003; A, B coefficients only there). Along RHFC02's path: 3-body instability at n ≲ 2e10, t_growth/t_ff ≳ 7; CIE instability ~1.3e14–9e14 cm⁻³, t_growth/t_ff ≳ 20 (read from Fig. 9). Conclusion: fragmentation unlikely | §4, Eq. 28, Figs. 7–9 |
+| 1D test | RHFC02's Lagrangian code with the transfer replaced by the local cooling of Eq. 36 (thin-corrected lines Eq. 22 + CIE with escape factor); "virtually indistinguishable" from the full code in the n–T and n–v tracks of four shells and profiles at T_c = 700, 1000, 1600, 2200, 6000 K. ICs = RHFC02's | p. 9, Figs. 4–5 |
+
+Other printing problems flagged in the extraction (affect only the unused per-line model or the appendix): Boltzmann
+factors printed e^{+E/kT}; n vs n_p in Eq. 29 vs A9/33; a sign in Eq. A12; missing s⁻¹ in A1.
+
+**Consequence [design].** RA04's 1D test gives a **cheap local-cooling configuration that reproduces RHFC02's
+collapse to T_c ≈ 6000 K**: thin HM79 lines × min(1, (n/8e9)^−0.45) + CIE × escape factor. This is the natural first
+target for M2/M3 before full line transfer: it needs no transfer at all, and RA04 Figs. 4–5 provide the comparison.
+The factor-2 question must be settled first (reproduce RA04 Fig. 1).
+
+### M0.4b Ripamonti & Abel (2005) review [read-src]
+
+arXiv:astro-ph/0507130v1, chapter 1 of a SIGRAV school volume; the book is not named in the text (believed: *Joint
+Evolution of Black Holes and Galaxies*, eds. Colpi, Gorini, Haardt & Moschella 2006 [memory], to check on ADS).
+Extraction: `~/Projects/popiii_lit/RA05/extraction.md`.
+- H₂ cooling Eqs. 1.22–1.24 (Λ = Λ_LTE/[1 + Λ_LTE/(n_H Λ_n→0)], HM79 LTE, GP98 low-density polynomial). CIE Eq. 1.29
+  = RA04 Eq. 5. Three-body: k = 5.5e-29 T⁻¹ (PSS83) and k/8 for H₂ as third body, the only source cited. Table 1.1
+  (19 reactions) has unit misprints; rates are to come from the primary sources.
+- **Fig. 1.19 is RHFC02's Fig. 1.** No stage times; central densities read off the figure [read-src, approximate]:
+  log n_c ≈ 6.4, 8.4, 10.2, 13.6, 17.9, 20.2, 21.2, 22.2, 23.0, 23.3 for stages 0–9; peak infall ≈ 18 km/s; core edge
+  ≈ 3e-3 M☉ (stage 7) and ≈ 0.06 M☉ (stage 9). Outer edge of the plot ≈ 100 M☉.
+- Core at n ≳ 1e21 cm⁻³, M_core,0 ~ 3e-3 M☉, Ṁ 0.01–0.1 M☉/yr declining ∝ t^−0.3. Validity, verbatim (p. 40): "they
+  do not properly trace the internal structure of the core, so their results cannot be trusted except in the very
+  initial stages of accretion (say, when Mcore ≲ 0.1M⊙)."
 
 ## M0.5 ChemistryKernels.jl (yipihey, local clone) [read]
 
@@ -229,6 +303,9 @@ thin/thick comparison along their track; reproduction of RA04's 1D simplified-tr
 - Next: M0.3/M0.4 extraction from the papers, then M1.
 - On the Mac: Julia 1.10.4 as pinned in `julia/env/Manifest.toml` (juliaup: `juliaup add 1.10.4`), then
   `cd julia && julia +1.10.4 --project=env -e 'using Pkg; Pkg.instantiate()'`.
+- **Superseded (Tom, 19 Oct 2026): on the Mac the work uses the current Julia, 1.12.6** (juliaup default), not
+  1.10.4. `julia/env/Manifest.toml` is git-ignored (`.gitignore` l. 19), so "pinned" only ever meant the cloud
+  container's local Manifest. `Pkg.instantiate()` resolves ForwardDiff 1.4.6, StaticArrays 1.9.23. Baseline: M0.10.
 
 ## M0.9 Baseline of the verified paths in this environment [run]
 
@@ -252,3 +329,19 @@ Logs: `lib/popiii/m0_baseline_{SOD,SUBC,SUPC}.log`, `lib/popiii/m0_baseline_regr
   never used for acceptance: positions agree to ≤ 1.1e-3 L, but p* differs by 1.1 % and u* by 4.4 % from the
   reference. Kept as information; the P6 run's values at t = 0.5 were not stored, so it is unknown whether this is new.
 - The quasi-star hydrostatic test (P7.3) was not rerun: M0 changes no code. It is part of the M1 regression set.
+
+## M0.10 Baseline on the Mac, Julia 1.12.6 [run]
+
+Same commands as M0.9 (`-t 1`, the three runs in parallel as separate processes), branch `popiii` @ a40acbd, Apple
+silicon (18 cores), ForwardDiff 1.4.6. Logs: `lib/popiii/m0_mac_{SOD,SUBC,SUPC}.log`, `lib/popiii/m0_mac_regress.log`.
+
+| problem | steps (Mac, 1.12.6) | steps (cloud, 1.10.4) | tier (c) | ms/step (steady) |
+|---|---|---|---|---|
+| SUPC | 713 | 713 | ACCEPT | 1.8 |
+| SUBC | 587 | 587 | ACCEPT | 2.0 |
+| SOD | 464 | 464 | ACCEPT | 1.0 |
+
+`popiii_regress.jl`: ACCEPT. Against the cloud log, the only differences are in the last printed digits (largest:
+SOD info sample at t = 0.5, p* 0.81090162 → 0.81090289, relative 1.6e-6). The change of Julia version (and of
+whatever package versions the cloud resolved; not recorded there) does not alter the verified paths.
+
