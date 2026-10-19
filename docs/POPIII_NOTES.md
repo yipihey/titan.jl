@@ -532,3 +532,29 @@ centre (ρ/m_H = 2.6e6, 270 K, f_H₂ = 5e-4, f_e = 1e-10):
 split chemistry with `step_coupled` per shell after each hydro step, as M0.2 (A), u kept by the energy row); the
 1D collapse of P100 with thin / RA04 local cooling (RA04's own 1D test) against RHFC02's stage table; then the
 continuum (Lenzuni Planck mean, faithful) and line transfer (M3). Saha equilibrium switch at ρ_eq.
+
+### M2b Initial conditions of RHFC02 / ON98 — open question [read-src + computed]
+
+ON98 (Omukai & Nishi 1998, ApJ 508, 141, arXiv:astro-ph/9811308; local copy `~/Projects/popiii_lit/ON98/`) §3.1:
+"hydrostatic equilibrium clouds with adiabatic stratification ... ρ = ρ_c θ_n^n, n = 1/(γ_ad − 1) ... p = Kρ^γad, where
+K is a free parameter fixed by giving the number density at half mass radius n_h and the total mass M. These clouds
+are cut off at the radius r_s where the density falls off 10⁻³ from the central value." Table 2: run A M = 10² M☉,
+n_h = 1e6, y_H2 = 5e-4, y_e = 1e-10, N = 250 zones, Δr_{i+1}/Δr_i = 1.01; run B the same with N = 100 (ratio 1.05);
+run C 10 M☉, 1e8, 5e-3; run D 1 M☉, 1e10, 0.45; run E as A with y_H2 = 0, y_e = 1e-8. RHFC02 P100 ≙ ON98 A/B.
+
+**The numbers do not describe a hydrostatic cloud at ~250 K [computed]**: an n = 1.5 polytrope with ρ_c/m_H = 2.6e6 and
+T_c = 270 K (μ ≈ 1.22) has M = 4πρ_c a³ ξ₁²|θ'| = 0.10 M☉; the Jeans mass at 1e6 cm⁻³, 300 K is ≈ 0.3 M☉. Holding
+100 M☉ hydrostatically at that central density needs T_c ~ 2e4 K. Yet ON98 Fig. 3a (run A) starts at log n_c ≈ 6.3,
+T_c ≈ 250 K, and the central collapse to stage 1 takes 5.7e5 yr (ON98 Fig. 1 caption) / 7.2e5 yr (RHFC02 Table 2),
+≈ 20 central free-fall times — quasi-static, as stated. ON98 also gives t_ff = 3.2e5 yr "at the center ... initially",
+which corresponds to n_c ≈ 2e4, not ≳ 1e6. **To ask Tom** (co-author of RA04/RA05; may know R02's set-up): how were
+the P/I runs' T profiles and outer pressure chosen?
+
+**Reference track, ON98 Fig. 3a (run A), read off the figure [read-src, approximate ±0.05 dex]:** log T_c ≈ 2.40 at
+log n_c 6.3; 2.6 at 8; 2.75 at 10; 3.05 at 12; 3.3 at 15; 3.35 at 16; 3.8 at 20; 4.0 at 21.5; 5.1 at 24.
+
+**Provisional set-up for the 1D runs [design, to be replaced when answered]:** density shape of an n = 1.5 polytrope
+(ρ_c/m_H = 2.6e6, truncated at ρ = 1e-3 ρ_c) scaled in radius to M = 100 M☉; T = 270 K × (ρ/ρ_c)^{2/3}; at rest;
+f_H2 = 5e-4, x_e = 1e-10; external pressure = p at the edge. Not hydrostatic (≈ 100 Jeans masses): the collapse will be
+faster than R02's early phase; the comparison is meaningful only after the self-similar phase is reached
+(RHFC02 §3.2.5: tracks converge for n_c > 1e14 regardless of IC; ON98 Fig. 3a: runs A, C, D converge by 1e12–1e14).
