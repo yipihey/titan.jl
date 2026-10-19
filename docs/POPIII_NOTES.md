@@ -768,3 +768,42 @@ C_dyn = 0.01; log `lib/popiii/m2c_abn02z19_ra04_n200.log`): smooth, 7843 steps t
 - Peak infall at n_c = 1e18: −6.4 km/s at m ≈ 0.05 M☉.
 - The 1e4 M☉ envelope (out to 58 pc, falling in at ≲ 2.6 km/s) is in the grid for the later stages (accretion,
   radiation of the protostar/main-sequence star into the envelope — M4/M5).
+
+## M3a SCVH95 in the gas physics; collapse to core formation (19 Oct 2026) [run]
+
+**Code.** `julia/PopIIIEqEOS.jl`: the equilibrium EOS for ρ ≥ ρ_eq as RHFC02 A1.2–A1.3 — Saha + ideal gas
+(`eos_rhfc02` with `y_saha`) for p ≤ 1e4 dyn cm⁻², SCVH95 (`SCVH.jl`) for p ≥ 1e6, blended with a smoothstep weight in
+log p (the form of the weight is ours). Tabulated once on a 271 × 216 grid (log ρ −12…1.5, log T 1.7…6.0; SCVH weight
+> 0 at 33 598 nodes, = 1 at 25 685) and cached outside the repository (`~/Projects/popiii_lit/SCVH95/eqeos_table.jls`);
+interpolated bicubically (Catmull–Rom) in (log ρ, log T), so ForwardDiff Duals pass: dp/dT by AD = finite difference to
+1e-6. Energy zero: SCVH's U is zero for cold H₂ (+ neutral He); ours for free p + e: u = U_SCVH − (χ_H + χ_H₂/2)/μ_H
+[checked where both are ideal: agreement 0.04–10 %; the 9–10 % at 2000–3000 K is SCVH's real H₂ partition function and
+earlier dissociation vs RHFC02's γ_ad formula — hence the blend]. SCVH composition read as number fractions among H
+particles: f_H₂ = 2X_H₂/(1 + X_H₂), x_H⁺ = (1 − X_H₂ − X_H)/(1 + X_H₂) [interp]. `PrimordialGas(…; eqtable)`: zones with
+ρ ≥ ρ_eq take p, u from the table inside the hydro Newton (composition in equilibrium at the current (ρ, T), so the
+Newton sees the dissociation/ionisation softening) and `PopIIIEqEOS.step` (T at fixed u − dt Λ/ρ) after the step.
+`y_saha` fixed at low T (K_H2 underflow → x_H₂ from conservation).
+
+**Run** `IC=abn02z19 TCMB=54.5 NSTOP=1e25 TSTOP=1e5` (EQEOS=scvh default), 200 shells, RA04 local cooling (beyond its
+calibrated range above ≈ 1e19 cm⁻³, but the core is opaque there and the escape factors switch the cooling off),
+θ = 0.55, C_dyn = 0.01, AV ql1 = 0.15. Log `lib/popiii/m2c_abn02z19_ra04_n200_scvh.log`. Stopped by the 2-h background
+limit at step ≈ 68 500, in the post-core phase (Δt ≈ 40 s).
+
+| log n_c | T_c, Saha+SCVH95 | f_H2 | T_c, Saha only (M2g) | RHFC02 stage: T_c (log n_c from RA05 Fig. 1.19 read-off) |
+|---|---|---|---|---|
+| 16.0 | 2260 | 0.872 | 2260.5 |  |
+| 17.0 | 2506 | 0.875 | 2506.0 |  |
+| 17.9 | 3105 | 0.732 | 3065.3 | 3000 K, stage 4 (H₂ dissociating) |
+| 19.0 | 4006 | 0.558 | - |  |
+| 20.2 | 6638 | 0.242 | - | 6500 K, stage 5 |
+| 21.2 | 16103 | 0.0427 | - | 15000 K, stage 6 (core forming) |
+| 22.2 | 31101 | 0.042 | - | 30000 K, stage 7 (core formed) |
+| 23.0 | 64642 | 0.0251 | - | 65000 K, stage 8 |
+
+- **The central track goes through RHFC02's stages 4–8 within 2–7 %** in T_c at RHFC02's (read-off) central
+  densities: dissociation thermostat → core formation at log n_c ≈ 21–22, T_c ≈ 1.5–3e4 K; central f_H2 ≈ 0.04 at
+  stage 6–7 (RHFC02: "≃ 5 %", with SCVH95). Identical to the Saha-only run up to 1e17 (p < 1e4 there).
+- Late state (step 68 500): n_c ≈ 1.3e23 cm⁻³, T_c ≈ 9e4 K (peaked at 9.3e4 and slowly bouncing), accretion shock at
+  m ≈ 0.022 M☉, r ≈ 6e11 cm, infall −21 km/s in front of it (RHFC02: shock "∼ 15 km/s → 2 km/s", smeared).
+- Not yet measured (no profiles saved): core mass by RHFC02's definition (infall < 0.1 v_ff), its growth and Ṁ —
+  next run saves snapshots. Performance: ≈ 35 000 steps/h post-core (Δt ≈ 40 s by stol/C_dyn in the core).

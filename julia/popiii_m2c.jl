@@ -11,6 +11,7 @@ include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "Julia
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
 include(joinpath(@__DIR__, "TitanCore.jl")); include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "TitanMaterials.jl"))
 include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "PrimordialChem.jl"))
+include(joinpath(@__DIR__, "SCVH.jl")); include(joinpath(@__DIR__, "PopIIIEqEOS.jl"))
 include(joinpath(@__DIR__, "PopIIIMaterial.jl"))
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
@@ -194,7 +195,7 @@ if yz !== nothing
     for j in 1:nsh; ystore[a0+j-1] = yz[j]; end
     for k in 1:a0-1; ystore[k] = yz[1]; end; for k in a0+nsh:length(ystore); ystore[k] = yz[end]; end
 end
-mat = PM.PrimordialGas(ystore, PC.rates_rhfc02(; k5 = k5f), cf, parse(Float64, get(ENV, "RHOEQ", "5e-11")))
+mat = PM.PrimordialGas(ystore, PC.rates_rhfc02(; k5 = k5f), cf, parse(Float64, get(ENV, "RHOEQ", "5e-11")), get(ENV, "EQEOS", "scvh") == "scvh")
 # artificial viscosity: viscous length l = ql1 r ≈ 2 Δr (the SOD state's ql0 = 1e-4 cm is zero at these scales, M2g);
 # Δr/r ≈ 0.04 (core) … 0.12 (envelope) on the geometric mass grid; quadratic term only (cq2), as PORTING_NOTES P7
 av = (ql0 = 0.0, ql1 = parse(Float64, get(ENV, "AVQL1", "0.15")), cq1 = 0.0, cq2 = parse(Float64, get(ENV, "AVCQ2", "1.0")))
@@ -219,7 +220,7 @@ tff = sqrt(3π / (32Z0.G * ρc))
 TF.setscalar!(:dtime, 1e-3tff); TF.setscalar!(:tmax, 1e3tff)
 pr("M2c collapse [IC %s]: cooling %s, %d shells (q = %.4f, dm1 = 3e-7 Msun), R = %.3e cm, rho_c/rho_edge = %.1f, T_edge = %.1f K, p_ext = %.3e\n",
    ic, cool, nsh, q, rI[end], rho[1] / rho[end], Tz[end], TX.PEXT[])
-pr("theta = %.2f, C_dyn = %g, k5 = %s, rho_eq = %g, AV ql1 = %g cq2 = %g, central t_ff0 = %.3e yr\n", TF.getscalar(:thet), TC.DT_DYN[], k5s, mat.ρeq, av.ql1, av.cq2, tff / 3.156e7)
+pr("theta = %.2f, C_dyn = %g, k5 = %s, rho_eq = %g, eq EOS = %s, AV ql1 = %g cq2 = %g, central t_ff0 = %.3e yr\n", TF.getscalar(:thet), TC.DT_DYN[], k5s, mat.ρeq, mat.eqtable ? "Saha+SCVH95 table" : "Saha", av.ql1, av.cq2, tff / 3.156e7)
 # ON98 Fig. 3a (run A), read off: (log n_c, log T_c)
 on98 = [(6.3, 2.40), (8.0, 2.60), (10.0, 2.75), (12.0, 3.05), (15.0, 3.30), (16.0, 3.35), (20.0, 3.80)]
 on98T(ln) = (j = findfirst(p -> p[1] >= ln, on98); j === nothing ? NaN : j == 1 ? 10^on98[1][2] :

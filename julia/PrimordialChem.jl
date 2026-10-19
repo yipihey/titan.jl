@@ -234,11 +234,13 @@ Solved for x_H by bisection (monotone). Returns y = (x_H⁺, 0, x_H₂, 0).
 """
 function y_saha(ρ, T)
     nH = ρ / μH; A = K_H2(T) / nH; B = K_ion(T) / nH
+    A == 0 && return (0.0, 0.0, 0.5, 0.0)                 # cold: fully molecular
     g(x) = x + sqrt(B * x) + 2x^2 / A - 1                 # x = x_H
     lo, hi = 0.0, 1.0
     for _ in 1:200; m = (lo + hi) / 2; g(m) > 0 ? (hi = m) : (lo = m); end
     x = (lo + hi) / 2
-    (sqrt(B * x), 0.0, x^2 / A, 0.0)
+    xp = sqrt(B * x)
+    (xp, 0.0, max(1 - x - xp, 0.0) / 2, 0.0)        # x_H₂ from conservation (x²/A underflows when K_H2 → 0 at low T)
 end
 """
 Equilibrium-chemistry step at fixed ρ and u over dt (RHFC02 above ρ_eq): find T with u(ρ, T, y_saha(ρ, T)) =

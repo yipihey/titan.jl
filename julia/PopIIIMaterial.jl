@@ -10,19 +10,26 @@ Hydrodynamics only for now (no opacities: neqn = 5).
 """
 module PopIIIMaterial
 
-import ..TitanDriver, ..TitanResidFast, ..TitanMaterials, ..TitanCore, ..PrimordialChem
+import ..TitanDriver, ..TitanResidFast, ..TitanMaterials, ..TitanCore, ..PrimordialChem, ..PopIIIEqEOS
+using ForwardDiff
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const TM = TitanMaterials; const TC = TitanCore
-const PC = PrimordialChem
+const PC = PrimordialChem; const EQ = PopIIIEqEOS
 
 mutable struct PrimordialGas <: TM.Material
     y::Vector{NTuple{4,Float64}}          # per zone index k (length mgr)
     rates::Function                       # T -> named tuple of rate coefficients
     cooling::Union{Nothing,Function}      # (ρ, T, y) -> Λ [erg cm⁻³ s⁻¹]
-    ρeq::Float64                          # equilibrium chemistry (Saha) above this density (RHFC02: 5e-11 g cm⁻³); Inf = never
+    ρeq::Float64                          # equilibrium chemistry above this density (RHFC02: 5e-11 g cm⁻³); Inf = never
+    eqtable::Bool                         # true: equilibrium EOS from PopIIIEqEOS (Saha + SCVH95, RHFC02); false: Saha only
 end
-PrimordialGas(y, rates, cooling) = PrimordialGas(y, rates, cooling, 5e-11)
+PrimordialGas(y, rates, cooling) = PrimordialGas(y, rates, cooling, 5e-11, false)
+PrimordialGas(y, rates, cooling, ρeq) = PrimordialGas(y, rates, cooling, ρeq, false)
 
 @inline function TX.material_gas(m::PrimordialGas, ρ, T)
+    if m.eqtable && ForwardDiff.value(ρ) >= m.ρeq
+        u, p = EQ.eos(ρ, T)                 # composition in equilibrium at (ρ, T): differentiated through by the Newton
+        return p, u, sqrt(5.0 / 3.0 * p / ρ)
+    end
     y = m.y[TX.ZONE[]]
     u, p = PC.eos_rhfc02(ρ, T, y)
     # a_s enters only the artificial viscosity: γ ≈ 5/3 estimate
@@ -58,7 +65,8 @@ function chem!(m::PrimordialGas)
     dn, tn, egn = TM.v(:dn), TM.v(:tn), TM.v(:egn)
     dTmax = 0.0
     for k in a:b
-        y1, T1 = dn[k] >= m.ρeq ? PC.step_equilibrium(dn[k], egn[k], tn[k], dt; cooling = m.cooling) :
+        y1, T1 = dn[k] >= m.ρeq ? (m.eqtable ? EQ.step(dn[k], egn[k], tn[k], dt; cooling = m.cooling) :
+                                             PC.step_equilibrium(dn[k], egn[k], tn[k], dt; cooling = m.cooling)) :
                                   PC.step_coupled(m.y[k], dn[k], egn[k], tn[k], dt, m.rates; cooling = m.cooling)
         dTmax = max(dTmax, abs(T1 / tn[k] - 1))
         m.y[k] = y1; tn[k] = T1
