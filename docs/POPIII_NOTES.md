@@ -1070,3 +1070,38 @@ redo the M3c regime map. Implementation of well-specified packages by subagents;
 SOD 464 / SUBC 587 / SUPC 713 steps; static sphere exactly at rest; BE discrete equilibrium 7.3e-10; H2Lines thin limit
 1.000000 and homogeneous sphere 0.994–1.000; detailed-balance network = Saha (2217.9715 K both); one-zone f_H2 0.9707 at
 log ρ/m_H = 12.4. Full tier adds the dust collapse (arrival t/t_ff), BE Lane–Emden n = 120, LP after 8 decades.
+
+### G2 TR-BDF2 on the Lagrangian collapse [run]
+`Trbdf2.jl` now runs on lgrid = 3 (Eulerian path unchanged; `qstar_run.jl` with `QS_TRBDF2=1` still runs, 60 steps, no
+failures). Changes: (i) the BDF2 stage's old state y* also holds the radii, r* = r_γ + B(r_γ − r_n), and the old zone
+volumes recomputed from r* (ρ* = m*/dV*; m* = m for a Lagrangian zone), `ro` and `dvolo` are saved/restored; (ii) with
+`FREE_OUTER`/PEXT the outer interface velocity is combined with the mass of the outer half zone; (iii) **y* is written
+A y_γ − B y_n = y_γ + B(y_γ − y_n)**: the first form gives a frozen x_me (1e47) a round-off of 1e31, hence dm/dt ≠ 0 and
+a spurious advective energy flux — the static BE sphere then moved by 3.7e-4 (instead of 7e-10) in the first three
+steps. REGULAR_CENTRE, XMINT (A − B = 1), EXTMASS, DT_DYN need nothing: they read no old-state array, and timstp sees y_n
+because the old arrays are restored after the step. `PM.chem!` runs after the full step on y_{n+1} (first-order split
+in time; the stages themselves are chemistry-free). Switch `INTEGRATOR=trbdf2` in `popiii_m1.jl`, `popiii_m2c.jl`.
+- **Dust collapse** (T0 = 1e-6, stol 0.1, 40 shells; worst-shell |Δr/r| at exact R/R0 = 0.5 / 0.1 / 0.03; log interpolated
+  between the 20-step prints; logs `m1_dust_trbdf2_cdyn*`):
+
+  | C_dyn | steps to 0.1 | 0.5 | 0.1 | 0.03 |
+  |---|---|---|---|---|
+  | 0.03 | ~96 | 2.5e-4 | 5.9e-3 | 3.8e-2 |
+  | 0.01 | ~260 | 3.0e-5 | 6.7e-4 | 4.4e-3 |
+  | 0.003 | ~860 | 2.7e-6 | 6.1e-5 | 4.0e-4 |
+
+  Order in C_dyn 1.97 (0.03 → 0.01) and 1.98 (0.01 → 0.003) at 0.1. θ = 0.5 (M1b) had 2.6e-3 at C_dyn 0.01: 4× less error
+  at the same step count (two Newton solves per step). No stage failures, no backward-Euler fallback. Energy drift
+  |dE|/|W| 7e-6 (C_dyn 0.003).
+- **BE discrete, n = 60**: 7.3e-10 / 1.3e-10 (θ: 7.3e-10), 1735 steps. **LP, n = 200**: max 4πGρr²/c_s² = 4.66 / 5.92 /
+  6.94 / 7.68, min u/c_s = −0.99 / −1.73 / −2.27 / −2.64 at 2/4/6/8 decades: identical to M1b (θ = 0.55) to the printed
+  digits; energy drift over 8 decades 6.7e-7 (θ = 0.55: 5.9e-5; θ = 0.5: 1.3e-6).
+- **P100 collapse** (`ra04 100`, THETA unset, C_dyn 0.01, current code incl. Saha + SCVH95 above ρ_eq; logs
+  `m2c_ra04_n100_trbdf2` vs `_th055ctl`, the θ = 0.55 control with the same code): no ringing. Before the collapse both
+  integrators show a ≤ 0.1 dex breathing of the core (log n_c 6.43 → 6.55 → 6.52 → 6.57), from 6.7 on n_c rises
+  monotonically (the θ = 0.5 run swung 2.5e6 ↔ 2e8). T_c at log n_c = 7.9 / 9.9 / 11.9: TR-BDF2 369.5 / 560.1 / 994.7 K,
+  θ = 0.55 369.6 / 560.0 / 994.3 (≤ 0.1 %); the older `m2c_ra04_n100_eq.log` 367.7 (7.90) / 561.5 / 1002.3 (≤ 1 %,
+  earlier code). t(n_c = 1e12) 1.2046e6 vs 1.2047e6 yr. TR-BDF2: 12 987 steps (89 TR and 184 BDF stage failures, each
+  retried with Δ × 0.05, no backward-Euler fallback) vs 11 347 for θ = 0.55: about 2.3× the work (two solves per step).
+  Quick tier of `popiii_tests.jl`: 8/8 PASS (BE 7.27e-10).
+**Default for the collapse runs: `INTEGRATOR=trbdf2`** (second order, no ringing, same track as θ = 0.55).
