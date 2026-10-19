@@ -97,19 +97,20 @@ end
 
 """
 Chemistry and temperature together over dt at fixed ρ and fixed internal energy u (thermal + chemical): unknowns y and
-ln T; residuals y − y0 − dt·dydt(y, n_H, k(T)) and (u(ρ, T, y) − u)/u_s, u_s = k T/μ_H. Damped Newton (abundances, x_H,
+ln T; residuals y − y0 − dt·dydt(y, n_H, k(T)) and (u(ρ, T, y) − u + dt Λ(ρ, T, y)/ρ)/u_s, u_s = k T/μ_H (`cooling`
+= Λ [erg cm⁻³ s⁻¹], optional, backward Euler). Damped Newton (abundances, x_H,
 x_e ≥ 0), recursive interval halving on failure. The binding energy released or absorbed by the reactions changes T
 inside the same solve: no splitting error between chemistry and heating (dissociation at T ≳ 2000 K is limited by
 the thermal energy available, which an operator split with rates at a fixed T overshoots).
 Returns (y, T).
 """
-function step_coupled(y0, ρ, u, T0, dt, rates; eos = eos_rhfc02, tol = 1e-10, maxit = 60)
+function step_coupled(y0, ρ, u, T0, dt, rates; eos = eos_rhfc02, cooling = nothing, tol = 1e-10, maxit = 60)
     nH = ρ / μH
     function resid(z, y0, h)
         y = (z[1], z[2], z[3], z[4]); T = exp(z[5])
         f = dydt(y, nH, rates(T))
         [y[1] - y0[1] - h * f[1], y[2] - y0[2] - h * f[2], y[3] - y0[3] - h * f[3], y[4] - y0[4] - h * f[4],
-         (eos(ρ, T, y)[1] - u) / (kB * T / μH)]
+         (eos(ρ, T, y)[1] - u + (cooling === nothing ? 0.0 : h * cooling(ρ, T, y) / ρ)) / (kB * T / μH)]
     end
     function attempt(y0, T0, h)
         z = [y0[1], y0[2], y0[3], y0[4], log(T0)]
@@ -221,6 +222,36 @@ function K_H2(T)
 end
 "Dissociation rate in detailed balance with a formation rate `tb` (default PSS83 k4): k5 = k4 K_H₂ [cm³ s⁻¹]."
 k5_db(T; tb = k4_pss) = tb(T) * K_H2(T)
+
+const me = 9.1093837e-28
+"Saha constant of H ⇌ H⁺ + e⁻: n_H⁺ n_e/n_H = (2π m_e k T/h²)^{3/2} e^{−13.6 eV/kT} (statistical weights 1·2/2) [cm⁻³]."
+K_ion(T) = (2π * me * kB * T / hP^2)^1.5 * exp(-χH / (kB * T))
+"""
+Equilibrium composition at (ρ, T) (RHFC02 A1.2 for ρ ≥ ρ_eq, p ≤ 1e4 dyn cm⁻²: Saha equations): H₂ ⇌ 2H (K_H2) and
+H ⇌ H⁺ + e⁻ (K_ion); H⁻ and H₂⁺ set to 0; He neutral. x_H² n_H = K_H2 x_H₂, x_H⁺² n_H = K_ion x_H, x_H + x_H⁺ + 2x_H₂ = 1.
+Solved for x_H by bisection (monotone). Returns y = (x_H⁺, 0, x_H₂, 0).
+**Not yet:** SCVH95 tables for p ≥ 1e6 dyn cm⁻² (pressure ionisation, non-ideal effects).
+"""
+function y_saha(ρ, T)
+    nH = ρ / μH; A = K_H2(T) / nH; B = K_ion(T) / nH
+    g(x) = x + sqrt(B * x) + 2x^2 / A - 1                 # x = x_H
+    lo, hi = 0.0, 1.0
+    for _ in 1:200; m = (lo + hi) / 2; g(m) > 0 ? (hi = m) : (lo = m); end
+    x = (lo + hi) / 2
+    (sqrt(B * x), 0.0, x^2 / A, 0.0)
+end
+"""
+Equilibrium-chemistry step at fixed ρ and u over dt (RHFC02 above ρ_eq): find T with u(ρ, T, y_saha(ρ, T)) =
+u − dt Λ(ρ, T, y)/ρ (bisection in ln T). Returns (y, T).
+"""
+function step_equilibrium(ρ, u, T0, dt; eos = eos_rhfc02, cooling = nothing)
+    F(T) = (y = y_saha(ρ, T); eos(ρ, T, y)[1] - u + (cooling === nothing ? 0.0 : dt * cooling(ρ, T, y) / ρ))
+    lo, hi = T0 / 1.5, T0 * 1.5
+    while F(lo) > 0; lo /= 1.5; lo < 1.0 && error("step_equilibrium: no bracket below"); end
+    while F(hi) < 0; hi *= 1.5; hi > 1e9 && error("step_equilibrium: no bracket above"); end
+    for _ in 1:200; m = sqrt(lo * hi); F(m) > 0 ? (hi = m) : (lo = m); hi / lo - 1 < 1e-13 && break; end
+    T = sqrt(lo * hi); (y_saha(ρ, T), T)
+end
 
 """
 RHFC02 Table A1 ("faithful"): AAZN97 k1, k2 (case A), k7, k8; PSS83 k4, k5, k6 = k4/8, k7 = k5/8, k9. No H₂⁺ and no

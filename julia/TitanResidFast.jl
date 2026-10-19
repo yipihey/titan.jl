@@ -260,6 +260,8 @@ Otherwise a material object for which `material_gas(m, ρ, T) -> (p_gas, e_gas, 
 `material_opac(m, ρ, T) -> (χ_flux, κ_E, κ_P)` have methods (see TitanMaterials); ρ, T may be Duals.
 """
 const MATERIAL = Ref{Any}(nothing)
+"Zone index of the current material call (set by `_material!` and by the fills), for materials with a composition per zone."
+const ZONE = Ref(0)
 function material_gas end
 "`material_gasne(m, ρ, T) -> (p_gas, e_gas, a_s, n_e)`; default: material_gas and n_e = 0 (no Compton exchange)."
 material_gasne(m, ρ, T) = (material_gas(m, ρ, T)..., zero(ρ))
@@ -327,6 +329,7 @@ function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
             c.lrad && (chifn[k] = zero(dn[k]); xken[k] = zero(dn[k]); xkpn[k] = zero(dn[k]); plfn[k] = zero(dn[k]); egrn[k] = zero(dn[k]))
             continue
         end
+        ZONE[] = k
         if COMPTON[]
             pg, eg, as_, ne = material_gasne(m, dn[k], tn[k]); W.xnen[k] = ne
         else

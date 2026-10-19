@@ -558,3 +558,41 @@ log n_c 6.3; 2.6 at 8; 2.75 at 10; 3.05 at 12; 3.3 at 15; 3.35 at 16; 3.8 at 20;
 f_H2 = 5e-4, x_e = 1e-10; external pressure = p at the edge. Not hydrostatic (≈ 100 Jeans masses): the collapse will be
 faster than R02's early phase; the comparison is meaningful only after the self-similar phase is reached
 (RHFC02 §3.2.5: tracks converge for n_c > 1e14 regardless of IC; ON98 Fig. 3a: runs A, C, D converge by 1e12–1e14).
+
+## M2c First 1D collapse with chemistry in TITAN (19 Oct 2026) [run]
+
+**Code.** `julia/PopIIIMaterial.jl`: material `PrimordialGas` (composition per zone `y[k]`, RHFC02 EOS via
+`PrimordialChem.eos_rhfc02`; e_g includes the binding energies). `TitanResidFast.ZONE[]` gives the material the zone
+index of each call (set in `_material!` and the fills). After every converged hydro step, `chem!` advances chemistry +
+cooling + T in each zone at fixed (ρ, e_g) over the step (`step_coupled` with implicit cooling) — operator split,
+M0.2 (A); above `ρeq` (RHFC02: 5e-11 g cm⁻³) `step_equilibrium` (Saha, `y_saha`: H₂ ⇌ 2H with K_H2, H ⇌ H⁺ + e⁻; no
+SCVH95 yet). Driver `julia/popiii_m2c.jl cooling nshell` (env THETA, CDYN, NSTOP, TSTOP, DTDIAG).
+
+**Run** (provisional P100 set-up of M2b; 100 shells, central 3e-7 M☉, q = 1.197; RA04 local cooling = thick H₂ lines
++ CIE, i.e. RA04's own 1D test configuration; RHFC02 network throughout — this run predates the equilibrium switch;
+C_dyn = 0.01). Logs `lib/popiii/m2c_ra04_n100{,_th055}.log`.
+
+- **θ = 0.5 fails**: the centre rings (n_c oscillating between 2.5e6 and 2e8, T_c spikes to 2400 K destroying the
+  central H₂, f_H2 → 7e-5) for 1.2e5 steps, Δt down to 1e5–1e7 s, then a Newton failure (t = 3.47e5 yr). The time-step
+  limiter is u in the central zones (DTDIAG). θ = 0.5 has no numerical damping; the non-equilibrium start excites
+  acoustic oscillations of the light central shells that never decay. **Use θ = 0.55 (TITAN's default) for the
+  collapse** (M1's preference for 0.5 was for smooth flows; revisit with an explicit damping alternative if the first
+  order in time matters, M1a: error ≈ 7 stol).
+- **θ = 0.55**: smooth collapse, 13 348 steps to n_c = 1e18 (stop). Central track vs ON98 Fig. 3a (run A, read off):
+
+  | log n_c | 8.4 | 9.4 | 9.9 | 10.4 | 11.4 | 11.9 | 12.9 | 13.4 | 14.4 | 14.9 | 15.4 | 15.9 | 16.4 | 16.9 | 17.4 | 17.9 |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | T_c here [K] | 407 | 487 | 562 | 679 | 892 | 1002 | 1309 | 1537 | 1823 | 1965 | 2090 | 2180 | 2222 | 2418 | 2680 | 2983 |
+  | ON98 [K] | 428 | 508 | 554 | 649 | 917 | 1090 | 1338 | 1473 | 1784 | 1964 | 2093 | 2218 | 2496 | 2842 | 3232 | 3682 |
+  | f_H2,c | 0.007 | 0.087 | 0.23 | 0.45 | 0.83 | 0.92 | 0.99 | 0.996 | 0.96 | 0.93 | 0.91 | 0.92 | 0.94 | 0.92 | 0.87 | 0.80 |
+
+  **Agreement within ≈ 5 % from 1e8 to 1e16 cm⁻³** (ON98 read-off uncertainty ±0.05 dex ≈ 12 %). Above 1e16 this run is
+  10–20 % cooler: expected differences, not yet separated — (i) network kept instead of the equilibrium switch above
+  ρ_eq ≈ 3e13 cm⁻³ (PSS83 pair is 4× too molecular, M2a), (ii) RA04's local cooling instead of line + continuum
+  transfer, (iii) ON98's own physics (its CIE/continuum and EOS).
+- The centre needs 1.15e6 yr to reach 1e8 (RHFC02 stage 1: 7.2e5 yr; ON98 (1): 5.7e5 yr): the provisional initial
+  state (M2b) — the pre-collapse phase is not comparable until the IC question is settled.
+
+**Next:** rerun with the equilibrium switch and the k5 variants (bracket); resolution (140 shells as P100/2, 200);
+radial profiles at the RHFC02 stages (Fig. 1 / RA05 Fig. 1.19 read-off); continue past 1e18 to core formation (needs
+SCVH95 for p ≥ 1e6 dyn cm⁻² — tables to obtain; Saha alone gives f_H2 = 0.12 at 2e4 K, 1e22 cm⁻³ vs RHFC02's ~0.05).
