@@ -23,3 +23,5 @@ lib/p6_runs/
 lib/qs_runs/
 lib/popiii/tests/
 lib/popiii/*_test.log
+lib/popiii/tests/
+lib/popiii/*_test.log
