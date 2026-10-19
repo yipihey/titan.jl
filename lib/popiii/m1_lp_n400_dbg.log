@@ -1,0 +1,607 @@
+Larson-Penston: BE xi_max = 6.50, M = 1625 Msun, n = 400, q = 1.050, dm_1/M = 1.67e-10, T x 0.90, theta = 0.55, C_dyn = 0.01
+  dbg      1 t/t_ff0 = 0.000100 dt = 1.151e+09  min u/cs = -0.0002 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 9.924e-09 at k = 2
+  dbg      2 t/t_ff0 = 0.000273 dt = 2.623e+09  min u/cs = -0.0005 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 2.704e-08 at k = 2
+  dbg      3 t/t_ff0 = 0.000668 dt = 6.859e+09  min u/cs = -0.0011 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 6.581e-08 at k = 2
+  dbg      4 t/t_ff0 = 0.001701 dt = 1.921e+10  min u/cs = -0.0028 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.674e-07 at k = 2
+  dbg      5 t/t_ff0 = 0.004592 dt = 5.569e+10  min u/cs = -0.0076 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 4.521e-07 at k = 2
+  dbg      6 t/t_ff0 = 0.012975 dt = 5.980e+10  min u/cs = -0.0215 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.277e-06 at k = 2
+  dbg      7 t/t_ff0 = 0.021977 dt = 5.980e+10  min u/cs = -0.0362 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 2.163e-06 at k = 2
+  dbg      8 t/t_ff0 = 0.030979 dt = 5.980e+10  min u/cs = -0.0506 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 3.049e-06 at k = 2
+  dbg      9 t/t_ff0 = 0.039980 dt = 5.979e+10  min u/cs = -0.0645 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 3.934e-06 at k = 2
+  dbg     10 t/t_ff0 = 0.048981 dt = 5.979e+10  min u/cs = -0.0778 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 4.818e-06 at k = 2
+  dbg     11 t/t_ff0 = 0.057981 dt = 5.978e+10  min u/cs = -0.0905 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 5.701e-06 at k = 2
+  dbg     12 t/t_ff0 = 0.066981 dt = 5.978e+10  min u/cs = -0.1023 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 6.584e-06 at k = 2
+  dbg     13 t/t_ff0 = 0.075979 dt = 5.977e+10  min u/cs = -0.1133 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 7.465e-06 at k = 2
+  dbg     14 t/t_ff0 = 0.084976 dt = 5.976e+10  min u/cs = -0.1232 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 8.345e-06 at k = 2
+  dbg     15 t/t_ff0 = 0.093972 dt = 5.975e+10  min u/cs = -0.1321 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 9.223e-06 at k = 2
+  dbg     16 t/t_ff0 = 0.102967 dt = 5.974e+10  min u/cs = -0.1399 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.010e-05 at k = 2
+  dbg     17 t/t_ff0 = 0.111960 dt = 5.973e+10  min u/cs = -0.1465 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.098e-05 at k = 2
+  dbg     18 t/t_ff0 = 0.120952 dt = 5.972e+10  min u/cs = -0.1518 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.185e-05 at k = 2
+  dbg     19 t/t_ff0 = 0.129942 dt = 5.971e+10  min u/cs = -0.1559 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.272e-05 at k = 2
+  dbg     20 t/t_ff0 = 0.138930 dt = 5.969e+10  min u/cs = -0.1587 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.359e-05 at k = 2
+  dbg     21 t/t_ff0 = 0.147916 dt = 5.968e+10  min u/cs = -0.1602 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.446e-05 at k = 2
+  dbg     22 t/t_ff0 = 0.156900 dt = 5.966e+10  min u/cs = -0.1605 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.532e-05 at k = 2
+  dbg     23 t/t_ff0 = 0.165882 dt = 5.965e+10  min u/cs = -0.1597 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.618e-05 at k = 2
+  dbg     24 t/t_ff0 = 0.174861 dt = 5.963e+10  min u/cs = -0.1578 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.704e-05 at k = 2
+  dbg     25 t/t_ff0 = 0.183838 dt = 5.961e+10  min u/cs = -0.1548 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.790e-05 at k = 2
+  dbg     26 t/t_ff0 = 0.192812 dt = 5.960e+10  min u/cs = -0.1509 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.875e-05 at k = 2
+  dbg     27 t/t_ff0 = 0.201783 dt = 5.958e+10  min u/cs = -0.1463 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 1.960e-05 at k = 2
+  dbg     28 t/t_ff0 = 0.210751 dt = 5.956e+10  min u/cs = -0.1410 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 2.045e-05 at k = 2
+  dbg     29 t/t_ff0 = 0.219717 dt = 5.953e+10  min u/cs = -0.1352 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 2.129e-05 at k = 2
+  dbg     30 t/t_ff0 = 0.228679 dt = 5.951e+10  min u/cs = -0.1290 at k = 401 (m/M = 1.00e+00)  max |Δ²u|/cs = 2.213e-05 at k = 2
+  dbg     31 t/t_ff0 = 0.237638 dt = 5.949e+10  min u/cs = -0.1232 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 2.297e-05 at k = 2
+  dbg     32 t/t_ff0 = 0.246593 dt = 5.947e+10  min u/cs = -0.1298 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 2.380e-05 at k = 2
+  dbg     33 t/t_ff0 = 0.255545 dt = 5.944e+10  min u/cs = -0.1358 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 2.463e-05 at k = 2
+  dbg     34 t/t_ff0 = 0.264493 dt = 5.942e+10  min u/cs = -0.1413 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 2.545e-05 at k = 2
+  dbg     35 t/t_ff0 = 0.273438 dt = 5.939e+10  min u/cs = -0.1460 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 2.627e-05 at k = 2
+  dbg     36 t/t_ff0 = 0.282378 dt = 5.936e+10  min u/cs = -0.1501 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 2.709e-05 at k = 2
+  dbg     37 t/t_ff0 = 0.291315 dt = 5.934e+10  min u/cs = -0.1534 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 2.791e-05 at k = 2
+  dbg     38 t/t_ff0 = 0.300247 dt = 5.931e+10  min u/cs = -0.1559 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 2.871e-05 at k = 2
+  dbg     39 t/t_ff0 = 0.309175 dt = 5.928e+10  min u/cs = -0.1575 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 2.952e-05 at k = 2
+  dbg     40 t/t_ff0 = 0.318099 dt = 5.925e+10  min u/cs = -0.1584 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 3.032e-05 at k = 2
+  dbg     41 t/t_ff0 = 0.327018 dt = 5.922e+10  min u/cs = -0.1584 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 3.111e-05 at k = 2
+  dbg     42 t/t_ff0 = 0.335932 dt = 5.919e+10  min u/cs = -0.1577 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 3.190e-05 at k = 2
+  dbg     43 t/t_ff0 = 0.344842 dt = 5.915e+10  min u/cs = -0.1563 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 3.269e-05 at k = 2
+  dbg     44 t/t_ff0 = 0.353747 dt = 5.912e+10  min u/cs = -0.1542 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 3.347e-05 at k = 2
+  dbg     45 t/t_ff0 = 0.362647 dt = 5.909e+10  min u/cs = -0.1515 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 3.425e-05 at k = 2
+  dbg     46 t/t_ff0 = 0.371542 dt = 5.905e+10  min u/cs = -0.1483 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 3.502e-05 at k = 2
+  dbg     47 t/t_ff0 = 0.380431 dt = 5.902e+10  min u/cs = -0.1447 at k = 400 (m/M = 9.52e-01)  max |Δ²u|/cs = 3.579e-05 at k = 2
+  dbg     48 t/t_ff0 = 0.389316 dt = 5.898e+10  min u/cs = -0.1417 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 3.655e-05 at k = 2
+  dbg     49 t/t_ff0 = 0.398195 dt = 5.895e+10  min u/cs = -0.1467 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 3.731e-05 at k = 2
+  dbg     50 t/t_ff0 = 0.407068 dt = 5.891e+10  min u/cs = -0.1513 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 3.806e-05 at k = 2
+  dbg     51 t/t_ff0 = 0.415936 dt = 5.887e+10  min u/cs = -0.1554 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 3.881e-05 at k = 2
+  dbg     52 t/t_ff0 = 0.424798 dt = 5.883e+10  min u/cs = -0.1588 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 3.955e-05 at k = 2
+  dbg     53 t/t_ff0 = 0.433654 dt = 5.879e+10  min u/cs = -0.1616 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 4.029e-05 at k = 2
+  dbg     54 t/t_ff0 = 0.442504 dt = 5.875e+10  min u/cs = -0.1638 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 4.102e-05 at k = 2
+  dbg     55 t/t_ff0 = 0.451349 dt = 5.871e+10  min u/cs = -0.1653 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 4.175e-05 at k = 2
+  dbg     56 t/t_ff0 = 0.460187 dt = 5.867e+10  min u/cs = -0.1661 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 4.247e-05 at k = 2
+  dbg     57 t/t_ff0 = 0.469018 dt = 5.863e+10  min u/cs = -0.1663 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 4.325e-05 at k = 381
+  dbg     58 t/t_ff0 = 0.477844 dt = 5.858e+10  min u/cs = -0.1658 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 4.417e-05 at k = 381
+  dbg     59 t/t_ff0 = 0.486663 dt = 5.854e+10  min u/cs = -0.1647 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 4.510e-05 at k = 381
+  dbg     60 t/t_ff0 = 0.495475 dt = 5.850e+10  min u/cs = -0.1631 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 4.604e-05 at k = 381
+  dbg     61 t/t_ff0 = 0.504281 dt = 5.845e+10  min u/cs = -0.1610 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 4.698e-05 at k = 381
+  dbg     62 t/t_ff0 = 0.513079 dt = 5.840e+10  min u/cs = -0.1584 at k = 399 (m/M = 9.07e-01)  max |Δ²u|/cs = 4.793e-05 at k = 381
+  dbg     63 t/t_ff0 = 0.521872 dt = 5.836e+10  min u/cs = -0.1557 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 4.888e-05 at k = 381
+  dbg     64 t/t_ff0 = 0.530657 dt = 5.831e+10  min u/cs = -0.1601 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 4.984e-05 at k = 381
+  dbg     65 t/t_ff0 = 0.539435 dt = 5.826e+10  min u/cs = -0.1640 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 5.080e-05 at k = 381
+  dbg     66 t/t_ff0 = 0.548206 dt = 5.822e+10  min u/cs = -0.1674 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 5.177e-05 at k = 381
+  dbg     67 t/t_ff0 = 0.556969 dt = 5.817e+10  min u/cs = -0.1703 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 5.274e-05 at k = 381
+  dbg     68 t/t_ff0 = 0.565726 dt = 5.812e+10  min u/cs = -0.1726 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 5.372e-05 at k = 381
+  dbg     69 t/t_ff0 = 0.574475 dt = 5.807e+10  min u/cs = -0.1743 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 5.470e-05 at k = 381
+  dbg     70 t/t_ff0 = 0.583216 dt = 5.802e+10  min u/cs = -0.1755 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 5.569e-05 at k = 381
+  dbg     71 t/t_ff0 = 0.591950 dt = 5.797e+10  min u/cs = -0.1760 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 5.669e-05 at k = 381
+  dbg     72 t/t_ff0 = 0.600677 dt = 5.792e+10  min u/cs = -0.1759 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 5.769e-05 at k = 381
+  dbg     73 t/t_ff0 = 0.609395 dt = 5.786e+10  min u/cs = -0.1754 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 5.869e-05 at k = 381
+  dbg     74 t/t_ff0 = 0.618106 dt = 5.781e+10  min u/cs = -0.1742 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 5.970e-05 at k = 381
+  dbg     75 t/t_ff0 = 0.626809 dt = 5.776e+10  min u/cs = -0.1726 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 6.072e-05 at k = 381
+  dbg     76 t/t_ff0 = 0.635503 dt = 5.770e+10  min u/cs = -0.1706 at k = 398 (m/M = 8.64e-01)  max |Δ²u|/cs = 6.174e-05 at k = 381
+  dbg     77 t/t_ff0 = 0.644190 dt = 5.765e+10  min u/cs = -0.1695 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 6.277e-05 at k = 381
+  dbg     78 t/t_ff0 = 0.652869 dt = 5.760e+10  min u/cs = -0.1734 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 6.380e-05 at k = 381
+  dbg     79 t/t_ff0 = 0.661539 dt = 5.754e+10  min u/cs = -0.1769 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 6.484e-05 at k = 381
+  dbg     80 t/t_ff0 = 0.670201 dt = 5.749e+10  min u/cs = -0.1798 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 6.588e-05 at k = 381
+  dbg     81 t/t_ff0 = 0.678855 dt = 5.743e+10  min u/cs = -0.1823 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 6.693e-05 at k = 381
+  dbg     82 t/t_ff0 = 0.687500 dt = 5.737e+10  min u/cs = -0.1842 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 6.798e-05 at k = 381
+  dbg     83 t/t_ff0 = 0.696136 dt = 5.731e+10  min u/cs = -0.1855 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 6.904e-05 at k = 381
+  dbg     84 t/t_ff0 = 0.704764 dt = 5.726e+10  min u/cs = -0.1863 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 7.010e-05 at k = 381
+  dbg     85 t/t_ff0 = 0.713384 dt = 5.720e+10  min u/cs = -0.1866 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 7.117e-05 at k = 381
+  dbg     86 t/t_ff0 = 0.721994 dt = 5.714e+10  min u/cs = -0.1863 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 7.224e-05 at k = 381
+  dbg     87 t/t_ff0 = 0.730596 dt = 5.708e+10  min u/cs = -0.1856 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 7.332e-05 at k = 381
+  dbg     88 t/t_ff0 = 0.739189 dt = 5.702e+10  min u/cs = -0.1844 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 7.441e-05 at k = 381
+  dbg     89 t/t_ff0 = 0.747772 dt = 5.696e+10  min u/cs = -0.1828 at k = 397 (m/M = 8.23e-01)  max |Δ²u|/cs = 7.549e-05 at k = 381
+  dbg     90 t/t_ff0 = 0.756347 dt = 5.690e+10  min u/cs = -0.1825 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 7.659e-05 at k = 381
+  dbg     91 t/t_ff0 = 0.764913 dt = 5.684e+10  min u/cs = -0.1861 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 7.769e-05 at k = 381
+  dbg     92 t/t_ff0 = 0.773469 dt = 5.678e+10  min u/cs = -0.1892 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 7.879e-05 at k = 381
+  dbg     93 t/t_ff0 = 0.782017 dt = 5.672e+10  min u/cs = -0.1919 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 7.989e-05 at k = 381
+  dbg     94 t/t_ff0 = 0.790555 dt = 5.665e+10  min u/cs = -0.1940 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 8.101e-05 at k = 381
+  dbg     95 t/t_ff0 = 0.799083 dt = 5.659e+10  min u/cs = -0.1957 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 8.212e-05 at k = 381
+  dbg     96 t/t_ff0 = 0.807603 dt = 5.653e+10  min u/cs = -0.1968 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 8.324e-05 at k = 381
+  dbg     97 t/t_ff0 = 0.816112 dt = 5.647e+10  min u/cs = -0.1974 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 8.437e-05 at k = 381
+  dbg     98 t/t_ff0 = 0.824612 dt = 5.640e+10  min u/cs = -0.1975 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 8.549e-05 at k = 381
+  dbg     99 t/t_ff0 = 0.833103 dt = 5.634e+10  min u/cs = -0.1972 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 8.663e-05 at k = 381
+  dbg    100 t/t_ff0 = 0.841584 dt = 5.627e+10  min u/cs = -0.1964 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 8.776e-05 at k = 381
+  dbg    101 t/t_ff0 = 0.850055 dt = 5.621e+10  min u/cs = -0.1951 at k = 396 (m/M = 7.84e-01)  max |Δ²u|/cs = 8.890e-05 at k = 381
+  dbg    102 t/t_ff0 = 0.858516 dt = 5.614e+10  min u/cs = -0.1944 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 9.005e-05 at k = 381
+  dbg    103 t/t_ff0 = 0.866968 dt = 5.608e+10  min u/cs = -0.1979 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 9.119e-05 at k = 381
+  dbg    104 t/t_ff0 = 0.875410 dt = 5.601e+10  min u/cs = -0.2009 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 9.234e-05 at k = 381
+  dbg    105 t/t_ff0 = 0.883841 dt = 5.594e+10  min u/cs = -0.2034 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 9.349e-05 at k = 381
+  dbg    106 t/t_ff0 = 0.892263 dt = 5.588e+10  min u/cs = -0.2054 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 9.465e-05 at k = 381
+  dbg    107 t/t_ff0 = 0.900675 dt = 5.581e+10  min u/cs = -0.2070 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 9.581e-05 at k = 381
+  dbg    108 t/t_ff0 = 0.909076 dt = 5.574e+10  min u/cs = -0.2081 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 9.697e-05 at k = 381
+  dbg    109 t/t_ff0 = 0.917467 dt = 5.567e+10  min u/cs = -0.2087 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 9.813e-05 at k = 381
+  dbg    110 t/t_ff0 = 0.925848 dt = 5.561e+10  min u/cs = -0.2088 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 9.929e-05 at k = 381
+  dbg    111 t/t_ff0 = 0.934219 dt = 5.554e+10  min u/cs = -0.2085 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 1.005e-04 at k = 381
+  dbg    112 t/t_ff0 = 0.942580 dt = 5.547e+10  min u/cs = -0.2077 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 1.016e-04 at k = 381
+  dbg    113 t/t_ff0 = 0.950930 dt = 5.540e+10  min u/cs = -0.2066 at k = 395 (m/M = 7.46e-01)  max |Δ²u|/cs = 1.028e-04 at k = 381
+  dbg    114 t/t_ff0 = 0.959270 dt = 5.533e+10  min u/cs = -0.2084 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.039e-04 at k = 381
+  dbg    115 t/t_ff0 = 0.967599 dt = 5.526e+10  min u/cs = -0.2115 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.051e-04 at k = 381
+  dbg    116 t/t_ff0 = 0.975918 dt = 5.519e+10  min u/cs = -0.2141 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.063e-04 at k = 381
+  dbg    117 t/t_ff0 = 0.984226 dt = 5.512e+10  min u/cs = -0.2163 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.074e-04 at k = 381
+  dbg    118 t/t_ff0 = 0.992523 dt = 5.505e+10  min u/cs = -0.2180 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.086e-04 at k = 381
+  dbg    119 t/t_ff0 = 1.000810 dt = 5.498e+10  min u/cs = -0.2192 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.097e-04 at k = 381
+  dbg    120 t/t_ff0 = 1.009086 dt = 5.491e+10  min u/cs = -0.2199 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.108e-04 at k = 381
+  dbg    121 t/t_ff0 = 1.017352 dt = 5.483e+10  min u/cs = -0.2202 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.119e-04 at k = 381
+  dbg    122 t/t_ff0 = 1.025606 dt = 5.476e+10  min u/cs = -0.2201 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.130e-04 at k = 381
+  dbg    123 t/t_ff0 = 1.033850 dt = 5.469e+10  min u/cs = -0.2195 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.141e-04 at k = 381
+  dbg    124 t/t_ff0 = 1.042083 dt = 5.462e+10  min u/cs = -0.2186 at k = 394 (m/M = 7.11e-01)  max |Δ²u|/cs = 1.152e-04 at k = 381
+  dbg    125 t/t_ff0 = 1.050305 dt = 5.454e+10  min u/cs = -0.2208 at k = 393 (m/M = 6.77e-01)  max |Δ²u|/cs = 1.162e-04 at k = 381
+  dbg    126 t/t_ff0 = 1.058516 dt = 5.447e+10  min u/cs = -0.2237 at k = 393 (m/M = 6.77e-01)  max |Δ²u|/cs = 1.172e-04 at k = 381
+  dbg    127 t/t_ff0 = 1.066715 dt = 5.440e+10  min u/cs = -0.2262 at k = 393 (m/M = 6.77e-01)  max |Δ²u|/cs = 1.181e-04 at k = 381
+  dbg    128 t/t_ff0 = 1.074904 dt = 5.432e+10  min u/cs = -0.2282 at k = 393 (m/M = 6.77e-01)  max |Δ²u|/cs = 1.190e-04 at k = 381
+  dbg    129 t/t_ff0 = 1.083082 dt = 5.425e+10  min u/cs = -0.2297 at k = 393 (m/M = 6.77e-01)  max |Δ²u|/cs = 1.199e-04 at k = 381
+  dbg    130 t/t_ff0 = 1.091249 dt = 5.418e+10  min u/cs = -0.2308 at k = 393 (m/M = 6.77e-01)  max |Δ²u|/cs = 1.206e-04 at k = 381
+  dbg    131 t/t_ff0 = 1.099404 dt = 5.410e+10  min u/cs = -0.2315 at k = 393 (m/M = 6.77e-01)  max |Δ²u|/cs = 1.213e-04 at k = 381
+  dbg    132 t/t_ff0 = 1.107548 dt = 5.403e+10  min u/cs = -0.2317 at k = 393 (m/M = 6.77e-01)  max |Δ²u|/cs = 1.219e-04 at k = 381
+  dbg    133 t/t_ff0 = 1.115681 dt = 5.395e+10  min u/cs = -0.2315 at k = 393 (m/M = 6.77e-01)  max |Δ²u|/cs = 1.223e-04 at k = 381
+  dbg    134 t/t_ff0 = 1.123803 dt = 5.388e+10  min u/cs = -0.2309 at k = 393 (m/M = 6.77e-01)  max |Δ²u|/cs = 1.226e-04 at k = 381
+  dbg    135 t/t_ff0 = 1.131913 dt = 5.380e+10  min u/cs = -0.2315 at k = 392 (m/M = 6.45e-01)  max |Δ²u|/cs = 1.228e-04 at k = 381
+  dbg    136 t/t_ff0 = 1.140012 dt = 5.372e+10  min u/cs = -0.2345 at k = 392 (m/M = 6.45e-01)  max |Δ²u|/cs = 1.228e-04 at k = 381
+  dbg    137 t/t_ff0 = 1.148100 dt = 5.365e+10  min u/cs = -0.2370 at k = 392 (m/M = 6.45e-01)  max |Δ²u|/cs = 1.225e-04 at k = 381
+  dbg    138 t/t_ff0 = 1.156176 dt = 5.357e+10  min u/cs = -0.2391 at k = 392 (m/M = 6.45e-01)  max |Δ²u|/cs = 1.220e-04 at k = 381
+  dbg    139 t/t_ff0 = 1.164241 dt = 5.350e+10  min u/cs = -0.2408 at k = 392 (m/M = 6.45e-01)  max |Δ²u|/cs = 1.212e-04 at k = 381
+  dbg    140 t/t_ff0 = 1.172294 dt = 5.342e+10  min u/cs = -0.2420 at k = 392 (m/M = 6.45e-01)  max |Δ²u|/cs = 1.207e-04 at k = 380
+  dbg    141 t/t_ff0 = 1.180335 dt = 5.334e+10  min u/cs = -0.2427 at k = 392 (m/M = 6.45e-01)  max |Δ²u|/cs = 1.207e-04 at k = 380
+  dbg    142 t/t_ff0 = 1.188365 dt = 5.326e+10  min u/cs = -0.2431 at k = 392 (m/M = 6.45e-01)  max |Δ²u|/cs = 1.206e-04 at k = 380
+  dbg    143 t/t_ff0 = 1.196383 dt = 5.319e+10  min u/cs = -0.2430 at k = 392 (m/M = 6.45e-01)  max |Δ²u|/cs = 1.202e-04 at k = 380
+  dbg    144 t/t_ff0 = 1.204390 dt = 5.311e+10  min u/cs = -0.2426 at k = 392 (m/M = 6.45e-01)  max |Δ²u|/cs = 1.197e-04 at k = 380
+  dbg    145 t/t_ff0 = 1.212385 dt = 5.303e+10  min u/cs = -0.2434 at k = 391 (m/M = 6.14e-01)  max |Δ²u|/cs = 1.188e-04 at k = 380
+  dbg    146 t/t_ff0 = 1.220368 dt = 5.295e+10  min u/cs = -0.2463 at k = 391 (m/M = 6.14e-01)  max |Δ²u|/cs = 1.176e-04 at k = 380
+  dbg    147 t/t_ff0 = 1.228339 dt = 5.287e+10  min u/cs = -0.2487 at k = 391 (m/M = 6.14e-01)  max |Δ²u|/cs = 1.166e-04 at k = 379
+  dbg    148 t/t_ff0 = 1.236299 dt = 5.280e+10  min u/cs = -0.2507 at k = 391 (m/M = 6.14e-01)  max |Δ²u|/cs = 1.163e-04 at k = 379
+  dbg    149 t/t_ff0 = 1.244247 dt = 5.272e+10  min u/cs = -0.2523 at k = 391 (m/M = 6.14e-01)  max |Δ²u|/cs = 1.158e-04 at k = 379
+  dbg    150 t/t_ff0 = 1.252183 dt = 5.264e+10  min u/cs = -0.2534 at k = 391 (m/M = 6.14e-01)  max |Δ²u|/cs = 1.151e-04 at k = 379
+  dbg    151 t/t_ff0 = 1.260107 dt = 5.256e+10  min u/cs = -0.2541 at k = 391 (m/M = 6.14e-01)  max |Δ²u|/cs = 1.141e-04 at k = 379
+  dbg    152 t/t_ff0 = 1.268019 dt = 5.248e+10  min u/cs = -0.2544 at k = 391 (m/M = 6.14e-01)  max |Δ²u|/cs = 1.128e-04 at k = 379
+  dbg    153 t/t_ff0 = 1.275919 dt = 5.240e+10  min u/cs = -0.2543 at k = 391 (m/M = 6.14e-01)  max |Δ²u|/cs = 1.111e-04 at k = 379
+  dbg    154 t/t_ff0 = 1.283807 dt = 5.232e+10  min u/cs = -0.2539 at k = 391 (m/M = 6.14e-01)  max |Δ²u|/cs = 1.101e-04 at k = 378
+  dbg    155 t/t_ff0 = 1.291683 dt = 5.224e+10  min u/cs = -0.2563 at k = 390 (m/M = 5.85e-01)  max |Δ²u|/cs = 1.094e-04 at k = 378
+  dbg    156 t/t_ff0 = 1.299547 dt = 5.216e+10  min u/cs = -0.2588 at k = 390 (m/M = 5.85e-01)  max |Δ²u|/cs = 1.084e-04 at k = 378
+  dbg    157 t/t_ff0 = 1.307399 dt = 5.208e+10  min u/cs = -0.2610 at k = 390 (m/M = 5.85e-01)  max |Δ²u|/cs = 1.072e-04 at k = 378
+  dbg    158 t/t_ff0 = 1.315239 dt = 5.200e+10  min u/cs = -0.2627 at k = 390 (m/M = 5.85e-01)  max |Δ²u|/cs = 1.057e-04 at k = 378
+  dbg    159 t/t_ff0 = 1.323066 dt = 5.192e+10  min u/cs = -0.2640 at k = 390 (m/M = 5.85e-01)  max |Δ²u|/cs = 1.039e-04 at k = 378
+  dbg    160 t/t_ff0 = 1.330882 dt = 5.184e+10  min u/cs = -0.2648 at k = 390 (m/M = 5.85e-01)  max |Δ²u|/cs = 1.101e-04 at k = 381
+  dbg    161 t/t_ff0 = 1.338685 dt = 5.175e+10  min u/cs = -0.2653 at k = 390 (m/M = 5.85e-01)  max |Δ²u|/cs = 1.440e-04 at k = 381
+  dbg    162 t/t_ff0 = 1.346476 dt = 5.167e+10  min u/cs = -0.2654 at k = 390 (m/M = 5.85e-01)  max |Δ²u|/cs = 1.818e-04 at k = 381
+  dbg    163 t/t_ff0 = 1.354254 dt = 5.159e+10  min u/cs = -0.2652 at k = 390 (m/M = 5.85e-01)  max |Δ²u|/cs = 2.240e-04 at k = 381
+  dbg    164 t/t_ff0 = 1.362021 dt = 5.151e+10  min u/cs = -0.2670 at k = 389 (m/M = 5.57e-01)  max |Δ²u|/cs = 2.708e-04 at k = 381
+  dbg    165 t/t_ff0 = 1.369775 dt = 5.143e+10  min u/cs = -0.2695 at k = 389 (m/M = 5.57e-01)  max |Δ²u|/cs = 3.227e-04 at k = 381
+  dbg    166 t/t_ff0 = 1.377516 dt = 5.134e+10  min u/cs = -0.2716 at k = 389 (m/M = 5.57e-01)  max |Δ²u|/cs = 3.801e-04 at k = 381
+  dbg    167 t/t_ff0 = 1.385246 dt = 5.126e+10  min u/cs = -0.2733 at k = 389 (m/M = 5.57e-01)  max |Δ²u|/cs = 4.435e-04 at k = 381
+  dbg    168 t/t_ff0 = 1.392962 dt = 5.118e+10  min u/cs = -0.2746 at k = 389 (m/M = 5.57e-01)  max |Δ²u|/cs = 5.134e-04 at k = 381
+  dbg    169 t/t_ff0 = 1.400667 dt = 5.110e+10  min u/cs = -0.2755 at k = 389 (m/M = 5.57e-01)  max |Δ²u|/cs = 5.902e-04 at k = 381
+  dbg    170 t/t_ff0 = 1.408359 dt = 5.101e+10  min u/cs = -0.2760 at k = 389 (m/M = 5.57e-01)  max |Δ²u|/cs = 6.745e-04 at k = 381
+  dbg    171 t/t_ff0 = 1.416038 dt = 5.093e+10  min u/cs = -0.2761 at k = 389 (m/M = 5.57e-01)  max |Δ²u|/cs = 7.670e-04 at k = 381
+  dbg    172 t/t_ff0 = 1.423705 dt = 5.085e+10  min u/cs = -0.2759 at k = 389 (m/M = 5.57e-01)  max |Δ²u|/cs = 8.680e-04 at k = 381
+  dbg    173 t/t_ff0 = 1.431359 dt = 5.076e+10  min u/cs = -0.2782 at k = 388 (m/M = 5.30e-01)  max |Δ²u|/cs = 9.784e-04 at k = 381
+  dbg    174 t/t_ff0 = 1.439001 dt = 5.068e+10  min u/cs = -0.2806 at k = 388 (m/M = 5.30e-01)  max |Δ²u|/cs = 1.099e-03 at k = 381
+  dbg    175 t/t_ff0 = 1.446630 dt = 5.060e+10  min u/cs = -0.2825 at k = 388 (m/M = 5.30e-01)  max |Δ²u|/cs = 1.229e-03 at k = 381
+  dbg    176 t/t_ff0 = 1.454247 dt = 5.051e+10  min u/cs = -0.2840 at k = 388 (m/M = 5.30e-01)  max |Δ²u|/cs = 1.371e-03 at k = 381
+  dbg    177 t/t_ff0 = 1.461850 dt = 5.043e+10  min u/cs = -0.2852 at k = 388 (m/M = 5.30e-01)  max |Δ²u|/cs = 1.525e-03 at k = 381
+  dbg    178 t/t_ff0 = 1.469441 dt = 5.034e+10  min u/cs = -0.2859 at k = 388 (m/M = 5.30e-01)  max |Δ²u|/cs = 1.691e-03 at k = 381
+  dbg    179 t/t_ff0 = 1.477020 dt = 5.026e+10  min u/cs = -0.2863 at k = 388 (m/M = 5.30e-01)  max |Δ²u|/cs = 1.870e-03 at k = 381
+  dbg    180 t/t_ff0 = 1.484585 dt = 5.017e+10  min u/cs = -0.2863 at k = 388 (m/M = 5.30e-01)  max |Δ²u|/cs = 2.063e-03 at k = 381
+  dbg    181 t/t_ff0 = 1.492138 dt = 5.009e+10  min u/cs = -0.2872 at k = 387 (m/M = 5.05e-01)  max |Δ²u|/cs = 2.270e-03 at k = 381
+  dbg    182 t/t_ff0 = 1.499678 dt = 5.000e+10  min u/cs = -0.2896 at k = 387 (m/M = 5.05e-01)  max |Δ²u|/cs = 2.492e-03 at k = 381
+  dbg    183 t/t_ff0 = 1.507205 dt = 4.992e+10  min u/cs = -0.2917 at k = 387 (m/M = 5.05e-01)  max |Δ²u|/cs = 2.728e-03 at k = 381
+  dbg    184 t/t_ff0 = 1.514720 dt = 4.983e+10  min u/cs = -0.2933 at k = 387 (m/M = 5.05e-01)  max |Δ²u|/cs = 2.980e-03 at k = 381
+  dbg    185 t/t_ff0 = 1.522221 dt = 4.975e+10  min u/cs = -0.2946 at k = 387 (m/M = 5.05e-01)  max |Δ²u|/cs = 3.247e-03 at k = 381
+  dbg    186 t/t_ff0 = 1.529710 dt = 4.966e+10  min u/cs = -0.2954 at k = 387 (m/M = 5.05e-01)  max |Δ²u|/cs = 3.529e-03 at k = 381
+  dbg    187 t/t_ff0 = 1.537185 dt = 4.957e+10  min u/cs = -0.2959 at k = 387 (m/M = 5.05e-01)  max |Δ²u|/cs = 3.826e-03 at k = 381
+  dbg    188 t/t_ff0 = 1.544648 dt = 4.949e+10  min u/cs = -0.2960 at k = 387 (m/M = 5.05e-01)  max |Δ²u|/cs = 4.137e-03 at k = 381
+  dbg    189 t/t_ff0 = 1.552098 dt = 4.940e+10  min u/cs = -0.2964 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.460e-03 at k = 381
+  dbg    190 t/t_ff0 = 1.559534 dt = 4.931e+10  min u/cs = -0.2988 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.794e-03 at k = 381
+  dbg    191 t/t_ff0 = 1.566958 dt = 4.923e+10  min u/cs = -0.3008 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 5.137e-03 at k = 381
+  dbg    192 t/t_ff0 = 1.574369 dt = 4.914e+10  min u/cs = -0.3025 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 5.486e-03 at k = 381
+  dbg    193 t/t_ff0 = 1.581766 dt = 4.905e+10  min u/cs = -0.3037 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 5.837e-03 at k = 381
+  dbg    194 t/t_ff0 = 1.589151 dt = 4.897e+10  min u/cs = -0.3045 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 6.184e-03 at k = 381
+  dbg    195 t/t_ff0 = 1.596522 dt = 4.888e+10  min u/cs = -0.3050 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 6.524e-03 at k = 381
+  dbg    196 t/t_ff0 = 1.603880 dt = 4.879e+10  min u/cs = -0.3051 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 6.848e-03 at k = 381
+  dbg    197 t/t_ff0 = 1.611225 dt = 4.870e+10  min u/cs = -0.3058 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 7.148e-03 at k = 381
+  dbg    198 t/t_ff0 = 1.618557 dt = 4.862e+10  min u/cs = -0.3081 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 7.416e-03 at k = 381
+  dbg    199 t/t_ff0 = 1.625876 dt = 4.853e+10  min u/cs = -0.3099 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 7.640e-03 at k = 381
+  dbg    200 t/t_ff0 = 1.633181 dt = 4.844e+10  min u/cs = -0.3114 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 7.809e-03 at k = 381
+  dbg    201 t/t_ff0 = 1.640473 dt = 4.835e+10  min u/cs = -0.3124 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 7.909e-03 at k = 381
+  dbg    202 t/t_ff0 = 1.647752 dt = 4.826e+10  min u/cs = -0.3131 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 7.926e-03 at k = 381
+  dbg    203 t/t_ff0 = 1.655017 dt = 4.818e+10  min u/cs = -0.3135 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 7.845e-03 at k = 381
+  dbg    204 t/t_ff0 = 1.662270 dt = 4.809e+10  min u/cs = -0.3135 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 7.651e-03 at k = 381
+  dbg    205 t/t_ff0 = 1.669508 dt = 4.800e+10  min u/cs = -0.3151 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 7.328e-03 at k = 381
+  dbg    206 t/t_ff0 = 1.676734 dt = 4.791e+10  min u/cs = -0.3171 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 7.304e-03 at k = 380
+  dbg    207 t/t_ff0 = 1.683946 dt = 4.782e+10  min u/cs = -0.3187 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 7.432e-03 at k = 380
+  dbg    208 t/t_ff0 = 1.691145 dt = 4.773e+10  min u/cs = -0.3199 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 7.488e-03 at k = 380
+  dbg    209 t/t_ff0 = 1.698330 dt = 4.764e+10  min u/cs = -0.3207 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 7.456e-03 at k = 380
+  dbg    210 t/t_ff0 = 1.705501 dt = 4.755e+10  min u/cs = -0.3212 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 7.323e-03 at k = 380
+  dbg    211 t/t_ff0 = 1.712660 dt = 4.746e+10  min u/cs = -0.3213 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 7.072e-03 at k = 380
+  dbg    212 t/t_ff0 = 1.719804 dt = 4.737e+10  min u/cs = -0.3221 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 6.871e-03 at k = 379
+  dbg    213 t/t_ff0 = 1.726936 dt = 4.728e+10  min u/cs = -0.3242 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.009e-03 at k = 379
+  dbg    214 t/t_ff0 = 1.734053 dt = 4.719e+10  min u/cs = -0.3258 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.081e-03 at k = 379
+  dbg    215 t/t_ff0 = 1.741157 dt = 4.710e+10  min u/cs = -0.3270 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.073e-03 at k = 379
+  dbg    216 t/t_ff0 = 1.748248 dt = 4.701e+10  min u/cs = -0.3278 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 6.970e-03 at k = 379
+  dbg    217 t/t_ff0 = 1.755325 dt = 4.692e+10  min u/cs = -0.3283 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.890e-03 at k = 381
+  dbg    218 t/t_ff0 = 1.762388 dt = 4.683e+10  min u/cs = -0.3285 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 9.599e-03 at k = 381
+  dbg    219 t/t_ff0 = 1.769438 dt = 4.674e+10  min u/cs = -0.3291 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 1.120e-02 at k = 381
+  dbg    220 t/t_ff0 = 1.776474 dt = 4.665e+10  min u/cs = -0.3310 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 1.264e-02 at k = 381
+  dbg    221 t/t_ff0 = 1.783496 dt = 4.656e+10  min u/cs = -0.3326 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 1.387e-02 at k = 381
+  dbg    222 t/t_ff0 = 1.790504 dt = 4.647e+10  min u/cs = -0.3337 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 1.487e-02 at k = 381
+  dbg    223 t/t_ff0 = 1.797499 dt = 4.637e+10  min u/cs = -0.3345 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 1.561e-02 at k = 381
+  dbg    224 t/t_ff0 = 1.804480 dt = 4.628e+10  min u/cs = -0.3349 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 1.606e-02 at k = 381
+  dbg    225 t/t_ff0 = 1.811448 dt = 4.619e+10  min u/cs = -0.3350 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 1.622e-02 at k = 381
+  dbg    226 t/t_ff0 = 1.818401 dt = 4.610e+10  min u/cs = -0.3360 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 1.611e-02 at k = 381
+  dbg    227 t/t_ff0 = 1.825341 dt = 4.601e+10  min u/cs = -0.3377 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 1.573e-02 at k = 381
+  dbg    228 t/t_ff0 = 1.832267 dt = 4.592e+10  min u/cs = -0.3391 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 1.512e-02 at k = 381
+  dbg    229 t/t_ff0 = 1.839179 dt = 4.582e+10  min u/cs = -0.3400 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 1.451e-02 at k = 380
+  dbg    230 t/t_ff0 = 1.846077 dt = 4.573e+10  min u/cs = -0.3407 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 1.499e-02 at k = 380
+  dbg    231 t/t_ff0 = 1.852961 dt = 4.564e+10  min u/cs = -0.3410 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 1.519e-02 at k = 380
+  dbg    232 t/t_ff0 = 1.859831 dt = 4.555e+10  min u/cs = -0.3410 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 1.512e-02 at k = 380
+  dbg    233 t/t_ff0 = 1.866688 dt = 4.545e+10  min u/cs = -0.3426 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 1.480e-02 at k = 380
+  dbg    234 t/t_ff0 = 1.873530 dt = 4.536e+10  min u/cs = -0.3441 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 1.424e-02 at k = 380
+  dbg    235 t/t_ff0 = 1.880359 dt = 4.527e+10  min u/cs = -0.3452 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 1.365e-02 at k = 379
+  dbg    236 t/t_ff0 = 1.887173 dt = 4.518e+10  min u/cs = -0.3459 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 1.409e-02 at k = 379
+  dbg    237 t/t_ff0 = 1.893974 dt = 4.508e+10  min u/cs = -0.3463 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 1.427e-02 at k = 379
+  dbg    238 t/t_ff0 = 1.900760 dt = 4.499e+10  min u/cs = -0.3464 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 1.418e-02 at k = 379
+  dbg    239 t/t_ff0 = 1.907533 dt = 4.490e+10  min u/cs = -0.3474 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 1.385e-02 at k = 379
+  dbg    240 t/t_ff0 = 1.914291 dt = 4.480e+10  min u/cs = -0.3489 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 1.330e-02 at k = 379
+  dbg    241 t/t_ff0 = 1.921036 dt = 4.471e+10  min u/cs = -0.3500 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 1.296e-02 at k = 378
+  dbg    242 t/t_ff0 = 1.927766 dt = 4.461e+10  min u/cs = -0.3507 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 1.332e-02 at k = 378
+  dbg    243 t/t_ff0 = 1.934482 dt = 4.452e+10  min u/cs = -0.3512 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 1.342e-02 at k = 378
+  dbg    244 t/t_ff0 = 1.941184 dt = 4.443e+10  min u/cs = -0.3513 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 1.326e-02 at k = 378
+  dbg    245 t/t_ff0 = 1.947872 dt = 4.433e+10  min u/cs = -0.3520 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 1.288e-02 at k = 378
+  dbg    246 t/t_ff0 = 1.954546 dt = 4.424e+10  min u/cs = -0.3535 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 1.230e-02 at k = 378
+  dbg    247 t/t_ff0 = 1.961206 dt = 4.414e+10  min u/cs = -0.3545 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 1.240e-02 at k = 377
+  dbg    248 t/t_ff0 = 1.967851 dt = 4.405e+10  min u/cs = -0.3553 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 1.262e-02 at k = 377
+  dbg    249 t/t_ff0 = 1.974482 dt = 4.396e+10  min u/cs = -0.3557 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 1.260e-02 at k = 377
+  dbg    250 t/t_ff0 = 1.981099 dt = 4.386e+10  min u/cs = -0.3558 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 1.234e-02 at k = 377
+  dbg    251 t/t_ff0 = 1.987702 dt = 4.377e+10  min u/cs = -0.3566 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 1.186e-02 at k = 377
+  dbg    252 t/t_ff0 = 1.994290 dt = 4.367e+10  min u/cs = -0.3579 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 1.158e-02 at k = 376
+  dbg    253 t/t_ff0 = 2.000865 dt = 4.358e+10  min u/cs = -0.3589 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 1.187e-02 at k = 376
+  dbg    254 t/t_ff0 = 2.007425 dt = 4.348e+10  min u/cs = -0.3595 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 1.192e-02 at k = 376
+  dbg    255 t/t_ff0 = 2.013970 dt = 4.339e+10  min u/cs = -0.3598 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 1.174e-02 at k = 376
+  dbg    256 t/t_ff0 = 2.020502 dt = 4.329e+10  min u/cs = -0.3598 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 1.134e-02 at k = 376
+  dbg    257 t/t_ff0 = 2.027019 dt = 4.320e+10  min u/cs = -0.3611 at k = 376 (m/M = 2.95e-01)  max |Δ²u|/cs = 1.089e-02 at k = 375
+  dbg    258 t/t_ff0 = 2.033521 dt = 4.310e+10  min u/cs = -0.3622 at k = 376 (m/M = 2.95e-01)  max |Δ²u|/cs = 1.120e-02 at k = 375
+  dbg    259 t/t_ff0 = 2.040009 dt = 4.301e+10  min u/cs = -0.3629 at k = 376 (m/M = 2.95e-01)  max |Δ²u|/cs = 1.128e-02 at k = 375
+  dbg    260 t/t_ff0 = 2.046483 dt = 4.291e+10  min u/cs = -0.3634 at k = 376 (m/M = 2.95e-01)  max |Δ²u|/cs = 1.113e-02 at k = 375
+  dbg    261 t/t_ff0 = 2.052943 dt = 4.281e+10  min u/cs = -0.3636 at k = 376 (m/M = 2.95e-01)  max |Δ²u|/cs = 1.076e-02 at k = 375
+  dbg    262 t/t_ff0 = 2.059388 dt = 4.272e+10  min u/cs = -0.3641 at k = 375 (m/M = 2.81e-01)  max |Δ²u|/cs = 1.032e-02 at k = 374
+  dbg    263 t/t_ff0 = 2.065819 dt = 4.262e+10  min u/cs = -0.3653 at k = 375 (m/M = 2.81e-01)  max |Δ²u|/cs = 1.062e-02 at k = 374
+  dbg    264 t/t_ff0 = 2.072235 dt = 4.253e+10  min u/cs = -0.3662 at k = 375 (m/M = 2.81e-01)  max |Δ²u|/cs = 1.068e-02 at k = 374
+  dbg    265 t/t_ff0 = 2.078637 dt = 4.243e+10  min u/cs = -0.3667 at k = 375 (m/M = 2.81e-01)  max |Δ²u|/cs = 1.052e-02 at k = 374
+  dbg    266 t/t_ff0 = 2.085024 dt = 4.233e+10  min u/cs = -0.3669 at k = 375 (m/M = 2.81e-01)  max |Δ²u|/cs = 1.016e-02 at k = 374
+  dbg    267 t/t_ff0 = 2.091397 dt = 4.224e+10  min u/cs = -0.3670 at k = 374 (m/M = 2.68e-01)  max |Δ²u|/cs = 9.867e-03 at k = 373
+  dbg    268 t/t_ff0 = 2.097755 dt = 4.214e+10  min u/cs = -0.3683 at k = 374 (m/M = 2.68e-01)  max |Δ²u|/cs = 1.011e-02 at k = 373
+  dbg    269 t/t_ff0 = 2.104099 dt = 4.204e+10  min u/cs = -0.3692 at k = 374 (m/M = 2.68e-01)  max |Δ²u|/cs = 1.012e-02 at k = 373
+  dbg    270 t/t_ff0 = 2.110428 dt = 4.195e+10  min u/cs = -0.3698 at k = 374 (m/M = 2.68e-01)  max |Δ²u|/cs = 9.911e-03 at k = 373
+  dbg    271 t/t_ff0 = 2.116743 dt = 4.185e+10  min u/cs = -0.3701 at k = 374 (m/M = 2.68e-01)  max |Δ²u|/cs = 9.517e-03 at k = 373
+  dbg    272 t/t_ff0 = 2.123043 dt = 4.176e+10  min u/cs = -0.3701 at k = 374 (m/M = 2.68e-01)  max |Δ²u|/cs = 9.487e-03 at k = 372
+  dbg    273 t/t_ff0 = 2.129329 dt = 4.166e+10  min u/cs = -0.3712 at k = 373 (m/M = 2.55e-01)  max |Δ²u|/cs = 9.634e-03 at k = 372
+  dbg    274 t/t_ff0 = 2.135600 dt = 4.156e+10  min u/cs = -0.3721 at k = 373 (m/M = 2.55e-01)  max |Δ²u|/cs = 9.559e-03 at k = 372
+  dbg    275 t/t_ff0 = 2.141857 dt = 4.146e+10  min u/cs = -0.3727 at k = 373 (m/M = 2.55e-01)  max |Δ²u|/cs = 9.283e-03 at k = 372
+  dbg    276 t/t_ff0 = 2.148098 dt = 4.137e+10  min u/cs = -0.3729 at k = 373 (m/M = 2.55e-01)  max |Δ²u|/cs = 8.886e-03 at k = 371
+  dbg    277 t/t_ff0 = 2.154326 dt = 4.127e+10  min u/cs = -0.3730 at k = 372 (m/M = 2.43e-01)  max |Δ²u|/cs = 9.133e-03 at k = 371
+  dbg    278 t/t_ff0 = 2.160538 dt = 4.117e+10  min u/cs = -0.3741 at k = 372 (m/M = 2.43e-01)  max |Δ²u|/cs = 9.157e-03 at k = 371
+  dbg    279 t/t_ff0 = 2.166736 dt = 4.108e+10  min u/cs = -0.3749 at k = 372 (m/M = 2.43e-01)  max |Δ²u|/cs = 8.973e-03 at k = 371
+  dbg    280 t/t_ff0 = 2.172920 dt = 4.098e+10  min u/cs = -0.3754 at k = 372 (m/M = 2.43e-01)  max |Δ²u|/cs = 8.607e-03 at k = 371
+  dbg    281 t/t_ff0 = 2.179088 dt = 4.088e+10  min u/cs = -0.3756 at k = 372 (m/M = 2.43e-01)  max |Δ²u|/cs = 8.655e-03 at k = 370
+  dbg    282 t/t_ff0 = 2.185242 dt = 4.078e+10  min u/cs = -0.3759 at k = 371 (m/M = 2.31e-01)  max |Δ²u|/cs = 8.746e-03 at k = 370
+  dbg    283 t/t_ff0 = 2.191382 dt = 4.069e+10  min u/cs = -0.3769 at k = 371 (m/M = 2.31e-01)  max |Δ²u|/cs = 8.626e-03 at k = 370
+  dbg    284 t/t_ff0 = 2.197506 dt = 4.059e+10  min u/cs = -0.3776 at k = 371 (m/M = 2.31e-01)  max |Δ²u|/cs = 8.318e-03 at k = 370
+  dbg    285 t/t_ff0 = 2.203616 dt = 4.049e+10  min u/cs = -0.3783 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 8.226e-03 at k = 369
+  dbg    286 t/t_ff0 = 2.209712 dt = 4.039e+10  min u/cs = -0.3792 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 8.351e-03 at k = 369
+  dbg    287 t/t_ff0 = 2.215792 dt = 4.029e+10  min u/cs = -0.3800 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 8.267e-03 at k = 369
+  dbg    288 t/t_ff0 = 2.221858 dt = 4.020e+10  min u/cs = -0.3813 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.993e-03 at k = 369
+  dbg    289 t/t_ff0 = 2.227909 dt = 4.010e+10  min u/cs = -0.3828 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.856e-03 at k = 368
+  dbg    290 t/t_ff0 = 2.233945 dt = 4.000e+10  min u/cs = -0.3842 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.986e-03 at k = 368
+  dbg    291 t/t_ff0 = 2.239966 dt = 3.990e+10  min u/cs = -0.3855 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.909e-03 at k = 368
+  dbg    292 t/t_ff0 = 2.245973 dt = 3.980e+10  min u/cs = -0.3867 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.644e-03 at k = 368
+  dbg    293 t/t_ff0 = 2.251965 dt = 3.970e+10  min u/cs = -0.3879 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.543e-03 at k = 367
+  dbg    294 t/t_ff0 = 2.257942 dt = 3.961e+10  min u/cs = -0.3889 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.650e-03 at k = 367
+  dbg    295 t/t_ff0 = 2.263904 dt = 3.951e+10  min u/cs = -0.3898 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.554e-03 at k = 367
+  dbg    296 t/t_ff0 = 2.269851 dt = 3.941e+10  min u/cs = -0.3906 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 7.277e-03 at k = 367
+  dbg    297 t/t_ff0 = 2.275784 dt = 3.931e+10  min u/cs = -0.3919 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 7.273e-03 at k = 366
+  dbg    298 t/t_ff0 = 2.281702 dt = 3.921e+10  min u/cs = -0.3934 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 7.333e-03 at k = 366
+  dbg    299 t/t_ff0 = 2.287604 dt = 3.911e+10  min u/cs = -0.3948 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 7.196e-03 at k = 366
+  dbg    300 t/t_ff0 = 2.293492 dt = 3.901e+10  min u/cs = -0.3960 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 6.886e-03 at k = 366
+  dbg    301 t/t_ff0 = 2.299365 dt = 3.892e+10  min u/cs = -0.3972 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 7.027e-03 at k = 365
+  dbg    302 t/t_ff0 = 2.305224 dt = 3.882e+10  min u/cs = -0.3983 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 7.018e-03 at k = 365
+  dbg    303 t/t_ff0 = 2.311067 dt = 3.872e+10  min u/cs = -0.3993 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 6.820e-03 at k = 365
+  dbg    304 t/t_ff0 = 2.316895 dt = 3.862e+10  min u/cs = -0.4002 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 6.676e-03 at k = 364
+  dbg    305 t/t_ff0 = 2.322709 dt = 3.852e+10  min u/cs = -0.4011 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 6.778e-03 at k = 364
+  dbg    306 t/t_ff0 = 2.328507 dt = 3.842e+10  min u/cs = -0.4026 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 6.681e-03 at k = 364
+  dbg    307 t/t_ff0 = 2.334291 dt = 3.832e+10  min u/cs = -0.4040 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 6.409e-03 at k = 364
+  dbg    308 t/t_ff0 = 2.340060 dt = 3.822e+10  min u/cs = -0.4053 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 6.508e-03 at k = 363
+  dbg    309 t/t_ff0 = 2.345813 dt = 3.812e+10  min u/cs = -0.4065 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 6.496e-03 at k = 363
+  dbg    310 t/t_ff0 = 2.351552 dt = 3.802e+10  min u/cs = -0.4076 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 6.298e-03 at k = 363
+  dbg    311 t/t_ff0 = 2.357276 dt = 3.792e+10  min u/cs = -0.4087 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 6.234e-03 at k = 362
+  dbg    312 t/t_ff0 = 2.362985 dt = 3.782e+10  min u/cs = -0.4096 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 6.288e-03 at k = 362
+  dbg    313 t/t_ff0 = 2.368679 dt = 3.772e+10  min u/cs = -0.4105 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 6.149e-03 at k = 362
+  dbg    314 t/t_ff0 = 2.374358 dt = 3.762e+10  min u/cs = -0.4118 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 5.975e-03 at k = 361
+  dbg    315 t/t_ff0 = 2.380022 dt = 3.753e+10  min u/cs = -0.4132 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 6.076e-03 at k = 361
+  dbg    316 t/t_ff0 = 2.385671 dt = 3.743e+10  min u/cs = -0.4145 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 5.980e-03 at k = 361
+  dbg    317 t/t_ff0 = 2.391305 dt = 3.733e+10  min u/cs = -0.4158 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 5.742e-03 at k = 360
+  dbg    318 t/t_ff0 = 2.396923 dt = 3.723e+10  min u/cs = -0.4169 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 5.871e-03 at k = 360
+  dbg    319 t/t_ff0 = 2.402527 dt = 3.713e+10  min u/cs = -0.4180 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 5.801e-03 at k = 360
+  dbg    320 t/t_ff0 = 2.408116 dt = 3.703e+10  min u/cs = -0.4190 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 5.557e-03 at k = 360
+  dbg    321 t/t_ff0 = 2.413690 dt = 3.693e+10  min u/cs = -0.4200 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 5.680e-03 at k = 359
+  dbg    322 t/t_ff0 = 2.419249 dt = 3.683e+10  min u/cs = -0.4212 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 5.618e-03 at k = 359
+  dbg    323 t/t_ff0 = 2.424793 dt = 3.673e+10  min u/cs = -0.4226 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 5.382e-03 at k = 359
+  dbg    324 t/t_ff0 = 2.430321 dt = 3.663e+10  min u/cs = -0.4239 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 5.503e-03 at k = 358
+  dbg    325 t/t_ff0 = 2.435835 dt = 3.653e+10  min u/cs = -0.4251 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 5.434e-03 at k = 358
+  dbg    326 t/t_ff0 = 2.441334 dt = 3.643e+10  min u/cs = -0.4263 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 5.236e-03 at k = 357
+  dbg    327 t/t_ff0 = 2.446817 dt = 3.633e+10  min u/cs = -0.4274 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 5.339e-03 at k = 357
+  dbg    328 t/t_ff0 = 2.452286 dt = 3.623e+10  min u/cs = -0.4284 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 5.245e-03 at k = 357
+  dbg    329 t/t_ff0 = 2.457739 dt = 3.613e+10  min u/cs = -0.4294 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 5.119e-03 at k = 356
+  dbg    330 t/t_ff0 = 2.463178 dt = 3.603e+10  min u/cs = -0.4306 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 5.179e-03 at k = 356
+  dbg    331 t/t_ff0 = 2.468601 dt = 3.593e+10  min u/cs = -0.4320 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 5.048e-03 at k = 356
+  dbg    332 t/t_ff0 = 2.474009 dt = 3.583e+10  min u/cs = -0.4333 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 5.012e-03 at k = 355
+  dbg    333 t/t_ff0 = 2.479402 dt = 3.573e+10  min u/cs = -0.4346 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 5.014e-03 at k = 355
+  dbg    334 t/t_ff0 = 2.484780 dt = 3.563e+10  min u/cs = -0.4357 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 4.832e-03 at k = 355
+  dbg    335 t/t_ff0 = 2.490143 dt = 3.553e+10  min u/cs = -0.4369 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 4.899e-03 at k = 354
+  dbg    336 t/t_ff0 = 2.495491 dt = 3.542e+10  min u/cs = -0.4379 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 4.831e-03 at k = 354
+  dbg    337 t/t_ff0 = 2.500824 dt = 3.532e+10  min u/cs = -0.4389 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 4.721e-03 at k = 353
+  dbg    338 t/t_ff0 = 2.506141 dt = 3.522e+10  min u/cs = -0.4403 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 4.764e-03 at k = 353
+  dbg    339 t/t_ff0 = 2.511444 dt = 3.512e+10  min u/cs = -0.4416 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 4.616e-03 at k = 353
+  dbg    340 t/t_ff0 = 2.516731 dt = 3.502e+10  min u/cs = -0.4431 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.648e-03 at k = 352
+  dbg    341 t/t_ff0 = 2.522004 dt = 3.492e+10  min u/cs = -0.4448 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.590e-03 at k = 352
+  dbg    342 t/t_ff0 = 2.527261 dt = 3.482e+10  min u/cs = -0.4465 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.497e-03 at k = 351
+  dbg    343 t/t_ff0 = 2.532503 dt = 3.472e+10  min u/cs = -0.4482 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.525e-03 at k = 351
+  dbg    344 t/t_ff0 = 2.537730 dt = 3.462e+10  min u/cs = -0.4498 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.362e-03 at k = 351
+  dbg    345 t/t_ff0 = 2.542942 dt = 3.452e+10  min u/cs = -0.4513 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.432e-03 at k = 350
+  dbg    346 t/t_ff0 = 2.548139 dt = 3.442e+10  min u/cs = -0.4529 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.334e-03 at k = 350
+  dbg    347 t/t_ff0 = 2.553320 dt = 3.432e+10  min u/cs = -0.4543 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.323e-03 at k = 349
+  dbg    348 t/t_ff0 = 2.558487 dt = 3.422e+10  min u/cs = -0.4558 at k = 386 (m/M = 4.81e-01)  max |Δ²u|/cs = 4.282e-03 at k = 349
+  dbg    349 t/t_ff0 = 2.563638 dt = 3.412e+10  min u/cs = -0.4573 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 4.207e-03 at k = 348
+  dbg    350 t/t_ff0 = 2.568774 dt = 3.402e+10  min u/cs = -0.4592 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 4.215e-03 at k = 348
+  dbg    351 t/t_ff0 = 2.573895 dt = 3.392e+10  min u/cs = -0.4611 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 4.093e-03 at k = 347
+  dbg    352 t/t_ff0 = 2.579001 dt = 3.382e+10  min u/cs = -0.4629 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 4.140e-03 at k = 347
+  dbg    353 t/t_ff0 = 2.584092 dt = 3.372e+10  min u/cs = -0.4647 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 3.988e-03 at k = 347
+  dbg    354 t/t_ff0 = 2.589168 dt = 3.362e+10  min u/cs = -0.4665 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 4.062e-03 at k = 346
+  dbg    355 t/t_ff0 = 2.594228 dt = 3.352e+10  min u/cs = -0.4682 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 3.932e-03 at k = 346
+  dbg    356 t/t_ff0 = 2.599274 dt = 3.342e+10  min u/cs = -0.4698 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 3.985e-03 at k = 345
+  dbg    357 t/t_ff0 = 2.604304 dt = 3.332e+10  min u/cs = -0.4715 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 3.867e-03 at k = 345
+  dbg    358 t/t_ff0 = 2.609319 dt = 3.321e+10  min u/cs = -0.4731 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 3.911e-03 at k = 344
+  dbg    359 t/t_ff0 = 2.614319 dt = 3.311e+10  min u/cs = -0.4746 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 3.795e-03 at k = 344
+  dbg    360 t/t_ff0 = 2.619304 dt = 3.301e+10  min u/cs = -0.4762 at k = 385 (m/M = 4.58e-01)  max |Δ²u|/cs = 3.840e-03 at k = 343
+  dbg    361 t/t_ff0 = 2.624274 dt = 3.291e+10  min u/cs = -0.4778 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.717e-03 at k = 343
+  dbg    362 t/t_ff0 = 2.629228 dt = 3.281e+10  min u/cs = -0.4798 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.772e-03 at k = 342
+  dbg    363 t/t_ff0 = 2.634168 dt = 3.271e+10  min u/cs = -0.4817 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.655e-03 at k = 341
+  dbg    364 t/t_ff0 = 2.639092 dt = 3.261e+10  min u/cs = -0.4836 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.702e-03 at k = 341
+  dbg    365 t/t_ff0 = 2.644001 dt = 3.251e+10  min u/cs = -0.4854 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.620e-03 at k = 340
+  dbg    366 t/t_ff0 = 2.648895 dt = 3.241e+10  min u/cs = -0.4872 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.628e-03 at k = 340
+  dbg    367 t/t_ff0 = 2.653774 dt = 3.231e+10  min u/cs = -0.4890 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.586e-03 at k = 339
+  dbg    368 t/t_ff0 = 2.658638 dt = 3.221e+10  min u/cs = -0.4907 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.544e-03 at k = 339
+  dbg    369 t/t_ff0 = 2.663487 dt = 3.211e+10  min u/cs = -0.4924 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.544e-03 at k = 338
+  dbg    370 t/t_ff0 = 2.668320 dt = 3.201e+10  min u/cs = -0.4941 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.445e-03 at k = 338
+  dbg    371 t/t_ff0 = 2.673139 dt = 3.191e+10  min u/cs = -0.4958 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.488e-03 at k = 337
+  dbg    372 t/t_ff0 = 2.677942 dt = 3.181e+10  min u/cs = -0.4974 at k = 384 (m/M = 4.36e-01)  max |Δ²u|/cs = 3.426e-03 at k = 336
+  dbg    373 t/t_ff0 = 2.682730 dt = 3.171e+10  min u/cs = -0.4993 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.407e-03 at k = 336
+  dbg    374 t/t_ff0 = 2.687503 dt = 3.161e+10  min u/cs = -0.5013 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.403e-03 at k = 335
+  dbg    375 t/t_ff0 = 2.692261 dt = 3.151e+10  min u/cs = -0.5032 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.310e-03 at k = 334
+  dbg    376 t/t_ff0 = 2.697004 dt = 3.140e+10  min u/cs = -0.5052 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.343e-03 at k = 334
+  dbg    377 t/t_ff0 = 2.701731 dt = 3.130e+10  min u/cs = -0.5071 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.318e-03 at k = 333
+  dbg    378 t/t_ff0 = 2.706444 dt = 3.120e+10  min u/cs = -0.5090 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.237e-03 at k = 333
+  dbg    379 t/t_ff0 = 2.711141 dt = 3.110e+10  min u/cs = -0.5108 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.271e-03 at k = 332
+  dbg    380 t/t_ff0 = 2.715823 dt = 3.100e+10  min u/cs = -0.5126 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.245e-03 at k = 331
+  dbg    381 t/t_ff0 = 2.720490 dt = 3.090e+10  min u/cs = -0.5144 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.163e-03 at k = 330
+  dbg    382 t/t_ff0 = 2.725142 dt = 3.080e+10  min u/cs = -0.5162 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.194e-03 at k = 330
+  dbg    383 t/t_ff0 = 2.729779 dt = 3.070e+10  min u/cs = -0.5179 at k = 383 (m/M = 4.16e-01)  max |Δ²u|/cs = 3.184e-03 at k = 329
+  dbg    384 t/t_ff0 = 2.734400 dt = 3.060e+10  min u/cs = -0.5198 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.131e-03 at k = 328
+  dbg    385 t/t_ff0 = 2.739006 dt = 3.050e+10  min u/cs = -0.5219 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.103e-03 at k = 328
+  dbg    386 t/t_ff0 = 2.743597 dt = 3.040e+10  min u/cs = -0.5239 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.116e-03 at k = 327
+  dbg    387 t/t_ff0 = 2.748173 dt = 3.029e+10  min u/cs = -0.5260 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.098e-03 at k = 326
+  dbg    388 t/t_ff0 = 2.752733 dt = 3.019e+10  min u/cs = -0.5280 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.054e-03 at k = 325
+  dbg    389 t/t_ff0 = 2.757279 dt = 3.009e+10  min u/cs = -0.5299 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.087e-03 at k = 381
+  dbg    390 t/t_ff0 = 2.761808 dt = 2.999e+10  min u/cs = -0.5319 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.220e-03 at k = 381
+  dbg    391 t/t_ff0 = 2.766323 dt = 2.989e+10  min u/cs = -0.5338 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.339e-03 at k = 381
+  dbg    392 t/t_ff0 = 2.770822 dt = 2.979e+10  min u/cs = -0.5357 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.443e-03 at k = 381
+  dbg    393 t/t_ff0 = 2.775306 dt = 2.968e+10  min u/cs = -0.5376 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.531e-03 at k = 381
+  dbg    394 t/t_ff0 = 2.779775 dt = 2.958e+10  min u/cs = -0.5395 at k = 382 (m/M = 3.96e-01)  max |Δ²u|/cs = 3.604e-03 at k = 381
+  dbg    395 t/t_ff0 = 2.784228 dt = 2.948e+10  min u/cs = -0.5414 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.661e-03 at k = 381
+  dbg    396 t/t_ff0 = 2.788666 dt = 2.938e+10  min u/cs = -0.5436 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.703e-03 at k = 381
+  dbg    397 t/t_ff0 = 2.793088 dt = 2.927e+10  min u/cs = -0.5457 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.730e-03 at k = 381
+  dbg    398 t/t_ff0 = 2.797494 dt = 2.917e+10  min u/cs = -0.5479 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.742e-03 at k = 381
+  dbg    399 t/t_ff0 = 2.801885 dt = 2.906e+10  min u/cs = -0.5500 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.740e-03 at k = 381
+  dbg    400 t/t_ff0 = 2.806261 dt = 2.896e+10  min u/cs = -0.5521 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.724e-03 at k = 381
+  dbg    401 t/t_ff0 = 2.810620 dt = 2.881e+10  min u/cs = -0.5541 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.695e-03 at k = 381
+  dbg    402 t/t_ff0 = 2.814957 dt = 2.859e+10  min u/cs = -0.5562 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.654e-03 at k = 381
+  dbg    403 t/t_ff0 = 2.819261 dt = 2.837e+10  min u/cs = -0.5582 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.601e-03 at k = 381
+  dbg    404 t/t_ff0 = 2.823531 dt = 2.815e+10  min u/cs = -0.5602 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.538e-03 at k = 381
+  dbg    405 t/t_ff0 = 2.827768 dt = 2.793e+10  min u/cs = -0.5622 at k = 381 (m/M = 3.77e-01)  max |Δ²u|/cs = 3.466e-03 at k = 381
+  dbg    406 t/t_ff0 = 2.831972 dt = 2.770e+10  min u/cs = -0.5641 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.384e-03 at k = 381
+  dbg    407 t/t_ff0 = 2.836142 dt = 2.748e+10  min u/cs = -0.5664 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.363e-03 at k = 380
+  dbg    408 t/t_ff0 = 2.840280 dt = 2.726e+10  min u/cs = -0.5686 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.373e-03 at k = 380
+  dbg    409 t/t_ff0 = 2.844384 dt = 2.704e+10  min u/cs = -0.5708 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.372e-03 at k = 380
+  dbg    410 t/t_ff0 = 2.848454 dt = 2.682e+10  min u/cs = -0.5729 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.361e-03 at k = 380
+  dbg    411 t/t_ff0 = 2.852492 dt = 2.660e+10  min u/cs = -0.5751 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.339e-03 at k = 380
+  dbg    412 t/t_ff0 = 2.856496 dt = 2.638e+10  min u/cs = -0.5772 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.307e-03 at k = 380
+  dbg    413 t/t_ff0 = 2.860467 dt = 2.616e+10  min u/cs = -0.5792 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.267e-03 at k = 380
+  dbg    414 t/t_ff0 = 2.864404 dt = 2.594e+10  min u/cs = -0.5813 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.219e-03 at k = 380
+  dbg    415 t/t_ff0 = 2.868309 dt = 2.571e+10  min u/cs = -0.5833 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.164e-03 at k = 380
+  dbg    416 t/t_ff0 = 2.872179 dt = 2.549e+10  min u/cs = -0.5853 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.101e-03 at k = 380
+  dbg    417 t/t_ff0 = 2.876017 dt = 2.527e+10  min u/cs = -0.5873 at k = 380 (m/M = 3.59e-01)  max |Δ²u|/cs = 3.038e-03 at k = 379
+  dbg    418 t/t_ff0 = 2.879821 dt = 2.505e+10  min u/cs = -0.5895 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 3.049e-03 at k = 379
+  dbg    419 t/t_ff0 = 2.883591 dt = 2.482e+10  min u/cs = -0.5917 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 3.050e-03 at k = 379
+  dbg    420 t/t_ff0 = 2.887327 dt = 2.460e+10  min u/cs = -0.5939 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 3.044e-03 at k = 379
+  dbg    421 t/t_ff0 = 2.891030 dt = 2.437e+10  min u/cs = -0.5960 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 3.030e-03 at k = 379
+  dbg    422 t/t_ff0 = 2.894699 dt = 2.415e+10  min u/cs = -0.5982 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 3.008e-03 at k = 379
+  dbg    423 t/t_ff0 = 2.898334 dt = 2.392e+10  min u/cs = -0.6003 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 2.980e-03 at k = 379
+  dbg    424 t/t_ff0 = 2.901935 dt = 2.369e+10  min u/cs = -0.6024 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 2.945e-03 at k = 379
+  dbg    425 t/t_ff0 = 2.905502 dt = 2.346e+10  min u/cs = -0.6045 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 2.905e-03 at k = 379
+  dbg    426 t/t_ff0 = 2.909034 dt = 2.324e+10  min u/cs = -0.6065 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 2.859e-03 at k = 379
+  dbg    427 t/t_ff0 = 2.912532 dt = 2.300e+10  min u/cs = -0.6085 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 2.809e-03 at k = 379
+  dbg    428 t/t_ff0 = 2.915995 dt = 2.277e+10  min u/cs = -0.6105 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 2.801e-03 at k = 279
+  dbg    429 t/t_ff0 = 2.919423 dt = 2.254e+10  min u/cs = -0.6125 at k = 379 (m/M = 3.42e-01)  max |Δ²u|/cs = 2.811e-03 at k = 277
+  dbg    430 t/t_ff0 = 2.922816 dt = 2.230e+10  min u/cs = -0.6147 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.809e-03 at k = 275
+  dbg    431 t/t_ff0 = 2.926173 dt = 2.207e+10  min u/cs = -0.6169 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.802e-03 at k = 273
+  dbg    432 t/t_ff0 = 2.929495 dt = 2.183e+10  min u/cs = -0.6190 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.812e-03 at k = 272
+  dbg    433 t/t_ff0 = 2.932781 dt = 2.159e+10  min u/cs = -0.6212 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.828e-03 at k = 270
+  dbg    434 t/t_ff0 = 2.936030 dt = 2.134e+10  min u/cs = -0.6233 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.838e-03 at k = 268
+  dbg    435 t/t_ff0 = 2.939243 dt = 2.110e+10  min u/cs = -0.6253 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.843e-03 at k = 265
+  dbg    436 t/t_ff0 = 2.942418 dt = 2.085e+10  min u/cs = -0.6274 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.871e-03 at k = 263
+  dbg    437 t/t_ff0 = 2.945556 dt = 2.059e+10  min u/cs = -0.6294 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.897e-03 at k = 261
+  dbg    438 t/t_ff0 = 2.948656 dt = 2.034e+10  min u/cs = -0.6314 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.907e-03 at k = 259
+  dbg    439 t/t_ff0 = 2.951718 dt = 2.007e+10  min u/cs = -0.6334 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.901e-03 at k = 256
+  dbg    440 t/t_ff0 = 2.954740 dt = 1.981e+10  min u/cs = -0.6354 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.936e-03 at k = 254
+  dbg    441 t/t_ff0 = 2.957722 dt = 1.954e+10  min u/cs = -0.6373 at k = 378 (m/M = 3.26e-01)  max |Δ²u|/cs = 2.930e-03 at k = 251
+  dbg    442 t/t_ff0 = 2.960663 dt = 1.926e+10  min u/cs = -0.6393 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 2.953e-03 at k = 249
+  dbg    443 t/t_ff0 = 2.963563 dt = 1.890e+10  min u/cs = -0.6414 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 2.971e-03 at k = 246
+  dbg    444 t/t_ff0 = 2.966409 dt = 1.757e+10  min u/cs = -0.6434 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 2.980e-03 at k = 243
+  dbg    445 t/t_ff0 = 2.969053 dt = 1.591e+10  min u/cs = -0.6453 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 2.988e-03 at k = 240
+  dbg    446 t/t_ff0 = 2.971448 dt = 1.461e+10  min u/cs = -0.6470 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 2.991e-03 at k = 237
+  dbg    447 t/t_ff0 = 2.973647 dt = 1.370e+10  min u/cs = -0.6486 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 3.010e-03 at k = 235
+  dbg    448 t/t_ff0 = 2.975709 dt = 1.289e+10  min u/cs = -0.6501 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 3.047e-03 at k = 232
+  dbg    449 t/t_ff0 = 2.977650 dt = 1.204e+10  min u/cs = -0.6515 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 3.081e-03 at k = 229
+  dbg    450 t/t_ff0 = 2.979463 dt = 1.119e+10  min u/cs = -0.6528 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 3.113e-03 at k = 226
+  dbg    451 t/t_ff0 = 2.981147 dt = 1.037e+10  min u/cs = -0.6540 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 3.158e-03 at k = 224
+  dbg    452 t/t_ff0 = 2.982709 dt = 9.659e+09  min u/cs = -0.6552 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 3.232e-03 at k = 221
+  dbg    453 t/t_ff0 = 2.984163 dt = 9.029e+09  min u/cs = -0.6562 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 3.292e-03 at k = 218
+  dbg    454 t/t_ff0 = 2.985522 dt = 8.421e+09  min u/cs = -0.6572 at k = 377 (m/M = 3.10e-01)  max |Δ²u|/cs = 3.370e-03 at k = 216
+  dbg    455 t/t_ff0 = 2.986789 dt = 7.853e+09  min u/cs = -0.6665 at k = 219 (m/M = 1.39e-04)  max |Δ²u|/cs = 3.471e-03 at k = 213
+  dbg    456 t/t_ff0 = 2.987972 dt = 7.309e+09  min u/cs = -0.6758 at k = 217 (m/M = 1.26e-04)  max |Δ²u|/cs = 3.556e-03 at k = 211
+  dbg    457 t/t_ff0 = 2.989072 dt = 6.812e+09  min u/cs = -0.6851 at k = 214 (m/M = 1.09e-04)  max |Δ²u|/cs = 3.694e-03 at k = 208
+  dbg    458 t/t_ff0 = 2.990097 dt = 6.363e+09  min u/cs = -0.6945 at k = 212 (m/M = 9.89e-05)  max |Δ²u|/cs = 3.811e-03 at k = 206
+  dbg    459 t/t_ff0 = 2.991055 dt = 5.931e+09  min u/cs = -0.7038 at k = 210 (m/M = 8.97e-05)  max |Δ²u|/cs = 3.967e-03 at k = 203
+  dbg    460 t/t_ff0 = 2.991948 dt = 5.529e+09  min u/cs = -0.7130 at k = 207 (m/M = 7.75e-05)  max |Δ²u|/cs = 4.143e-03 at k = 201
+  dbg    461 t/t_ff0 = 2.992780 dt = 5.166e+09  min u/cs = -0.7223 at k = 205 (m/M = 7.03e-05)  max |Δ²u|/cs = 4.304e-03 at k = 199
+  dbg    462 t/t_ff0 = 2.993558 dt = 4.833e+09  min u/cs = -0.7315 at k = 203 (m/M = 6.38e-05)  max |Δ²u|/cs = 4.512e-03 at k = 196
+  dbg    463 t/t_ff0 = 2.994285 dt = 4.509e+09  min u/cs = -0.7407 at k = 201 (m/M = 5.78e-05)  max |Δ²u|/cs = 4.765e-03 at k = 194
+  dbg    464 t/t_ff0 = 2.994964 dt = 4.199e+09  min u/cs = -0.7497 at k = 199 (m/M = 5.24e-05)  max |Δ²u|/cs = 5.029e-03 at k = 192
+  dbg    465 t/t_ff0 = 2.995596 dt = 3.918e+09  min u/cs = -0.7587 at k = 197 (m/M = 4.76e-05)  max |Δ²u|/cs = 5.315e-03 at k = 190
+  dbg    466 t/t_ff0 = 2.996186 dt = 3.665e+09  min u/cs = -0.7676 at k = 195 (m/M = 4.31e-05)  max |Δ²u|/cs = 5.632e-03 at k = 188
+  dbg    467 t/t_ff0 = 2.996738 dt = 3.428e+09  min u/cs = -0.7765 at k = 193 (m/M = 3.91e-05)  max |Δ²u|/cs = 5.990e-03 at k = 186
+  dbg    468 t/t_ff0 = 2.997254 dt = 3.192e+09  min u/cs = -0.7853 at k = 191 (m/M = 3.55e-05)  max |Δ²u|/cs = 6.390e-03 at k = 184
+  dbg    469 t/t_ff0 = 2.997734 dt = 2.970e+09  min u/cs = -0.7941 at k = 189 (m/M = 3.22e-05)  max |Δ²u|/cs = 6.829e-03 at k = 182
+  dbg    470 t/t_ff0 = 2.998182 dt = 2.777e+09  min u/cs = -0.8026 at k = 187 (m/M = 2.92e-05)  max |Δ²u|/cs = 7.279e-03 at k = 180
+  dbg    471 t/t_ff0 = 2.998600 dt = 2.607e+09  min u/cs = -0.8111 at k = 185 (m/M = 2.65e-05)  max |Δ²u|/cs = 7.754e-03 at k = 179
+  dbg    472 t/t_ff0 = 2.998992 dt = 2.430e+09  min u/cs = -0.8193 at k = 183 (m/M = 2.40e-05)  max |Δ²u|/cs = 8.471e-03 at k = 177
+  dbg    473 t/t_ff0 = 2.999358 dt = 2.275e+09  min u/cs = -0.8276 at k = 182 (m/M = 2.29e-05)  max |Δ²u|/cs = 9.144e-03 at k = 175
+  dbg    474 t/t_ff0 = 2.999700 dt = 2.117e+09  min u/cs = -0.8357 at k = 180 (m/M = 2.08e-05)  max |Δ²u|/cs = 9.803e-03 at k = 174
+  dbg    475 t/t_ff0 = 3.000019 dt = 1.987e+09  min u/cs = -0.8435 at k = 178 (m/M = 1.88e-05)  max |Δ²u|/cs = 1.080e-02 at k = 172
+  dbg    476 t/t_ff0 = 3.000318 dt = 1.850e+09  min u/cs = -0.8514 at k = 177 (m/M = 1.79e-05)  max |Δ²u|/cs = 1.156e-02 at k = 171
+step     476 t/t_ff0 = 3.00031823  log rho_c/rho_c0 = 1.00  dt = 1.850e+09 s  T_c = 270.62
+  dbg    477 t/t_ff0 = 3.000597 dt = 1.723e+09  min u/cs = -0.8589 at k = 175 (m/M = 1.63e-05)  max |Δ²u|/cs = 1.279e-02 at k = 169
+  dbg    478 t/t_ff0 = 3.000856 dt = 1.624e+09  min u/cs = -0.8664 at k = 174 (m/M = 1.55e-05)  max |Δ²u|/cs = 1.399e-02 at k = 168
+  dbg    479 t/t_ff0 = 3.001101 dt = 1.517e+09  min u/cs = -0.8736 at k = 172 (m/M = 1.40e-05)  max |Δ²u|/cs = 1.489e-02 at k = 167
+  dbg    480 t/t_ff0 = 3.001329 dt = 1.405e+09  min u/cs = -0.8809 at k = 171 (m/M = 1.34e-05)  max |Δ²u|/cs = 1.676e-02 at k = 165
+  dbg    481 t/t_ff0 = 3.001541 dt = 1.306e+09  min u/cs = -0.8877 at k = 170 (m/M = 1.27e-05)  max |Δ²u|/cs = 1.863e-02 at k = 164
+  dbg    482 t/t_ff0 = 3.001737 dt = 1.224e+09  min u/cs = -0.8943 at k = 169 (m/M = 1.21e-05)  max |Δ²u|/cs = 2.050e-02 at k = 163
+  dbg    483 t/t_ff0 = 3.001921 dt = 1.149e+09  min u/cs = -0.9009 at k = 167 (m/M = 1.10e-05)  max |Δ²u|/cs = 2.250e-02 at k = 162
+  dbg    484 t/t_ff0 = 3.002094 dt = 1.074e+09  min u/cs = -0.9072 at k = 166 (m/M = 1.05e-05)  max |Δ²u|/cs = 2.475e-02 at k = 161
+  dbg    485 t/t_ff0 = 3.002256 dt = 1.001e+09  min u/cs = -0.9134 at k = 165 (m/M = 9.98e-06)  max |Δ²u|/cs = 2.738e-02 at k = 160
+  dbg    486 t/t_ff0 = 3.002407 dt = 9.345e+08  min u/cs = -0.9193 at k = 164 (m/M = 9.51e-06)  max |Δ²u|/cs = 3.049e-02 at k = 159
+    k  150 r 1.462506e+16 u/cs  -0.30390 rho 1.365958e-18 T 270.7071 qf 4.659e-48 dm/dm- 1.0500
+    k  151 r 1.483337e+16 u/cs  -0.32659 rho 1.402589e-18 T 270.7143 qf 7.291e-48 dm/dm- 1.0500
+    k  152 r 1.504049e+16 u/cs  -0.35491 rho 1.450414e-18 T 270.7234 qf 1.233e-47 dm/dm- 1.0500
+    k  153 r 1.524512e+16 u/cs  -0.39145 rho 1.515398e-18 T 270.7353 qf 2.267e-47 dm/dm- 1.0500
+    k  154 r 1.544538e+16 u/cs  -0.44003 rho 1.606788e-18 T 270.7512 qf 4.459e-47 dm/dm- 1.0500
+    k  155 r 1.563870e+16 u/cs  -0.50529 rho 1.736492e-18 T 270.7723 qf 8.849e-47 dm/dm- 1.0500
+    k  156 r 1.582205e+16 u/cs  -0.58997 rho 1.912206e-18 T 270.7985 qf 1.573e-46 dm/dm- 1.0500
+    k  157 r 1.599301e+16 u/cs  -0.68852 rho 2.120778e-18 T 270.8268 qf 2.116e-46 dm/dm- 1.0500
+    k  158 r 1.615156e+16 u/cs  -0.78285 rho 2.318725e-18 T 270.8511 qf 1.823e-46 dm/dm- 1.0500
+    k  159 r 1.630096e+16 u/cs  -0.85248 rho 2.461802e-18 T 270.8673 qf 9.187e-47 dm/dm- 1.0500
+    k  160 r 1.644605e+16 u/cs  -0.89163 rho 2.544277e-18 T 270.8763 qf 2.724e-47 dm/dm- 1.0500
+    k  161 r 1.659089e+16 u/cs  -0.90925 rho 2.588786e-18 T 270.8810 qf 3.706e-48 dm/dm- 1.0500
+    k  162 r 1.673776e+16 u/cs  -0.91624 rho 2.615994e-18 T 270.8838 qf -2.430e-48 dm/dm- 1.0500
+    k  163 r 1.688768e+16 u/cs  -0.91879 rho 2.635706e-18 T 270.8859 qf -4.019e-48 dm/dm- 1.0500
+    k  164 r 1.704113e+16 u/cs  -0.91927 rho 2.651336e-18 T 270.8875 qf -4.520e-48 dm/dm- 1.0500
+    k  165 r 1.719842e+16 u/cs  -0.91846 rho 2.664064e-18 T 270.8888 qf -4.699e-48 dm/dm- 1.0500
+    k  166 r 1.735976e+16 u/cs  -0.91670 rho 2.674456e-18 T 270.8898 qf -4.743e-48 dm/dm- 1.0500
+--- final: t/t_ff0 = 3.002407, rho_c/rho_c0 = 1.0689e+01
+      r [cm]          m/M 4piG rho r^2/cs^2      u/c_s
+  2.4705e+14   1.6721e-10         0.0000    -0.0052
+  8.3879e+14   9.2392e-10         0.0000    -0.0093
+  1.0739e+15   1.8437e-09         0.0000    -0.0117
+  1.2653e+15   2.9617e-09         0.0001    -0.0137
+  1.4394e+15   4.3206e-09         0.0001    -0.0155
+  1.6062e+15   5.9725e-09         0.0001    -0.0173
+  1.7712e+15   7.9802e-09         0.0001    -0.0191
+  1.9374e+15   1.0421e-08         0.0002    -0.0209
+  2.1072e+15   1.3387e-08         0.0002    -0.0227
+  2.2824e+15   1.6993e-08         0.0002    -0.0246
+  2.4645e+15   2.1376e-08         0.0002    -0.0266
+  2.6547e+15   2.6703e-08         0.0003    -0.0287
+  2.8542e+15   3.3178e-08         0.0003    -0.0309
+  3.0642e+15   4.1049e-08         0.0004    -0.0332
+  3.2858e+15   5.0616e-08         0.0004    -0.0357
+  3.5201e+15   6.2244e-08         0.0005    -0.0383
+  3.7683e+15   7.6379e-08         0.0006    -0.0412
+  4.0314e+15   9.3560e-08         0.0007    -0.0442
+  4.3107e+15   1.1444e-07         0.0007    -0.0474
+  4.6074e+15   1.3983e-07         0.0009    -0.0509
+  4.9227e+15   1.7068e-07         0.0010    -0.0547
+  5.2580e+15   2.0819e-07         0.0011    -0.0587
+  5.6146e+15   2.5377e-07         0.0013    -0.0631
+  5.9941e+15   3.0918e-07         0.0015    -0.0679
+  6.3978e+15   3.7653e-07         0.0017    -0.0732
+  6.8273e+15   4.5840e-07         0.0019    -0.0789
+  7.2842e+15   5.5791e-07         0.0022    -0.0852
+  7.7703e+15   6.7886e-07         0.0025    -0.0922
+  8.2870e+15   8.2588e-07         0.0028    -0.1000
+  8.8362e+15   1.0046e-06         0.0033    -0.1088
+  9.4194e+15   1.2218e-06         0.0037    -0.1189
+  1.0038e+16   1.4858e-06         0.0043    -0.1304
+  1.0694e+16   1.8067e-06         0.0049    -0.1440
+  1.1388e+16   2.1968e-06         0.0056    -0.1602
+  1.2120e+16   2.6710e-06         0.0065    -0.1804
+  1.2889e+16   3.2473e-06         0.0076    -0.2067
+  1.3693e+16   3.9479e-06         0.0088    -0.2436
+  1.4521e+16   4.7994e-06         0.0105    -0.3039
+  1.5345e+16   5.8344e-06         0.0133    -0.4400
+  1.6072e+16   7.0924e-06         0.0205    -0.7828
+  1.6664e+16   8.6216e-06         0.0269    -0.9162
+  1.7279e+16   1.0480e-05         0.0297    -0.9167
+  1.7960e+16   1.2740e-05         0.0325    -0.9032
+  1.8718e+16   1.5486e-05         0.0354    -0.8831
+  1.9564e+16   1.8824e-05         0.0386    -0.8594
+  2.0507e+16   2.2881e-05         0.0421    -0.8332
+  2.1557e+16   2.7813e-05         0.0460    -0.8056
+  2.2722e+16   3.3808e-05         0.0504    -0.7773
+  2.4014e+16   4.1094e-05         0.0553    -0.7489
+  2.5443e+16   4.9951e-05         0.0609    -0.7208
+  2.7020e+16   6.0716e-05         0.0672    -0.6934
+  2.8755e+16   7.3802e-05         0.0742    -0.6669
+  3.0661e+16   8.9707e-05         0.0823    -0.6417
+  3.2750e+16   1.0904e-04         0.0913    -0.6177
+  3.5036e+16   1.3254e-04         0.1015    -0.5950
+  3.7532e+16   1.6110e-04         0.1130    -0.5735
+  4.0256e+16   1.9582e-04         0.1260    -0.5533
+  4.3223e+16   2.3803e-04         0.1407    -0.5344
+  4.6452e+16   2.8932e-04         0.1572    -0.5168
+  4.9963e+16   3.5167e-04         0.1758    -0.5003
+  5.3777e+16   4.2746e-04         0.1968    -0.4851
+  5.7918e+16   5.1958e-04         0.2204    -0.4711
+  6.2410e+16   6.3156e-04         0.2470    -0.4583
+  6.7281e+16   7.6766e-04         0.2770    -0.4467
+  7.2560e+16   9.3310e-04         0.3107    -0.4362
+  7.8281e+16   1.1342e-03         0.3486    -0.4268
+  8.4477e+16   1.3786e-03         0.3912    -0.4185
+  9.1189e+16   1.6757e-03         0.4390    -0.4113
+  9.8458e+16   2.0368e-03         0.4927    -0.4051
+  1.0633e+17   2.4758e-03         0.5528    -0.4001
+  1.1486e+17   3.0094e-03         0.6202    -0.3961
+  1.2411e+17   3.6579e-03         0.6954    -0.3932
+  1.3413e+17   4.4462e-03         0.7794    -0.3913
+  1.4501e+17   5.4044e-03         0.8728    -0.3905
+  1.5681e+17   6.5690e-03         0.9766    -0.3908
+  1.6965e+17   7.9847e-03         1.0916    -0.3922
+  1.8362e+17   9.7055e-03         1.2184    -0.3947
+  1.9884e+17   1.1797e-02         1.3579    -0.3985
+  2.1545e+17   1.4339e-02         1.5107    -0.4035
+  2.3362e+17   1.7430e-02         1.6773    -0.4101
+  2.5354e+17   2.1186e-02         1.8581    -0.4183
+  2.7542e+17   2.5751e-02         2.0535    -0.4286
+  2.9951e+17   3.1301e-02         2.2640    -0.4414
+  3.2611e+17   3.8047e-02         2.4905    -0.4577
+  3.5552e+17   4.6246e-02         2.7347    -0.4785
+  3.8810e+17   5.6212e-02         2.9987    -0.5051
+  4.2426e+17   6.8326e-02         3.2802    -0.5368
+  4.6456e+17   8.3051e-02         3.5604    -0.5684
+  5.1005e+17   1.0095e-01         3.8030    -0.5924
+  5.6234e+17   1.2270e-01         3.9830    -0.6070
+  6.2357e+17   1.4915e-01         4.1012    -0.6157
+  6.9635e+17   1.8129e-01         4.1723    -0.6245
+  7.8358e+17   2.2036e-01         4.2226    -0.6404
+  8.8843e+17   2.6785e-01         4.2631    -0.6638
+  1.0160e+18   3.2557e-01         4.1921    -0.6672
+  1.1769e+18   3.9573e-01         3.9899    -0.6501
+  1.3820e+18   4.8102e-01         3.8162    -0.6428
+  1.6466e+18   5.8468e-01         3.5226    -0.5964
+  1.9959e+18   7.1068e-01         3.2445    -0.5405
+  2.4638e+18   8.6384e-01         2.9215    -0.4454

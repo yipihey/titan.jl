@@ -32,6 +32,13 @@ FREE_OUTER[] (Population III, M1): the outermost interface moves under its own m
 peq keeps its extrapolated velocity instead of imposing ur/uextr. Default false.
 """
 const FREE_OUTER = Ref(false)
+"""
+DT_DYN[] (Population III, M1): cap the time step at DT_DYN[] × min over interfaces of the dynamical time
+(r³/Gm)^½ (RHFC02 App. A2.2, there C_dyn = 1), m the interior mass. 0 (default) = TITAN's control only.
+Needs gravity (cgrav > 0). TITAN's own control (stol) limits relative changes per step and lets dt grow 10× per
+step; in a free-fall collapse that is far too coarse (M1a).
+"""
+const DT_DYN = Ref(0.0)
 "Relative change, 0 where the old value is 0 (the regular centre, r = 0)."
 @inline relchg(n, o) = o == 0.0 ? 0.0 : (n - o) / o
 rpow(x::Float64, y::Float64) = PARITY[] ? ccall((:pow, "libm.so.6"), Float64, (Float64, Float64), x, y) : x^y
@@ -160,8 +167,16 @@ function timstp!()
     phi1 = x > 1.0 ? sqrt(x) : x^2
     phi2 = max(0.3, min(3.0, phi1))
     tfac = max(0.1, min(10.0, sqrt(gf(:tfac) * phi2)))
+    dt0 = gf(:dtime); dtn = tfac * dt0
+    if DT_DYN[] > 0 && gf(:cgrav) > 0
+        G4π = gf(:cgrav) * 4π; rn, xmn = vf(:rn), vf(:xmn); tdyn = Inf
+        @inbounds for k in a:b+1
+            (rn[k] > 0 && xmn[k] > 0) && (tdyn = min(tdyn, sqrt(rn[k]^3 / (G4π * xmn[k]))))
+        end
+        dtn = min(dtn, DT_DYN[] * tdyn); tfac = dtn / dt0
+    end
     s!(:tfac, tfac)
-    s!(:dtime, tfac * gf(:dtime))
+    s!(:dtime, dtn)
     nothing
 end
 

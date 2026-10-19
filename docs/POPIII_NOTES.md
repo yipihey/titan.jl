@@ -394,3 +394,80 @@ Tests, `julia/popiii_m1.jl` (logs `lib/popiii/m1_*.log`):
 
 Next in M1: dynamical-time step cap; Bonnor–Ebert sphere (isothermal-like EOS) static for 10 sound-crossing times;
 Larson–Penston approach; energy ledger with self-gravity; quasi-star hydrostatic regression (P7.3).
+
+## M1b Time-step cap, Bonnor–Ebert, Larson–Penston, energy, quasi-star regression (19 Oct 2026) [run]
+
+**Dynamical-time cap** `TitanCore.DT_DYN[]` (RHFC02 A2.2): Δt ≤ C_dyn min_k (r_k³/G m_k)^½, default 0 (off).
+Pressure-free collapse (T0 = 1e-6 K, stol = 0.1 so the cap alone controls Δt), worst-shell |Δr/r| at exact R/R0 =
+0.5 / 0.1 / 0.03 (logs `m1_dust_cdyn*`):
+
+| θ | C_dyn | steps to R/R0 = 0.1 | error |
+|---|---|---|---|
+| 0.5 | 0.1 | ~100 | 7.3e-3 / 1.5e-1 / 5.1e-1 |
+| 0.5 | 0.03 | ~100 | 1.8e-3 / 1.8e-2 / 1.1e-1 |
+| 0.5 | 0.01 | ~280 | 9.6e-5 / 2.6e-3 / 1.4e-2 |
+| 0.5 | 0.003 | ~860 | 6.4e-6 / 1.5e-4 / 1.0e-3 |
+| 0.55 | 0.01 | ~280 | 2.6e-3 / 5.1e-2 / 3.0e-1 |
+
+Order ≈ 1.75 in C_dyn with θ = 0.5 (first order with θ = 0.55). C_dyn = 0.003 matches the stol = 1e-3 run (M1a) with
+8× fewer steps. Step numbers are at 20-step print resolution.
+
+**Bonnor–Ebert sphere** (`popiii_m1.jl be n variant`, ξ_max = 3, γ = 1.001, 300 K, ρ_c = 1e-19, 477 M☉, free surface
+at the pressure that holds the outer half shell, θ = 0.55, C_dyn = 0.01, 10 sound-crossing times):
+- `discrete` (radii marched so that TITAN's momentum rows vanish at rest): |Δρ/ρ| = 7.3e-10, |u|/c_s = 1.3e-10. **PASS.**
+- `le` (zone densities sampled from the Lane–Emden solution; measures the discretisation of hydrostatic equilibrium):
+
+  | n | 30 | 60 | 120 | 240 |
+  |---|---|---|---|---|
+  | max |Δρ/ρ| | 8.0e-3 | 2.0e-3 | 5.1e-4 | 1.3e-4 |
+  | max |u|/c_s | 1.0e-3 | 2.5e-4 | 6.3e-5 | 1.6e-5 |
+
+  Second order. The criterion (< 1e-3) holds from n = 120. **PASS** (n ≥ 120).
+
+**Larson–Penston reference, computed** (`julia/lp_selfsimilar.jl`) [computed]. Shu's similarity equations with
+x = r/(c_s t) < 0; regular centre v = 2x/3, α = α0. The sonic point is a **node**: every α0 below 1.7212 reaches the
+sonic line with both numerators vanishing, and the asymptotes vary continuously with α0 (α0 = 1.60 → αx² = 9.23,
+v = −3.39; 1.72 → 8.54, −3.18). Hunter (1977, first page, ADS scan) says so: "an infinity of other similarity
+solutions". A first bisection on "which numerator vanishes first" found only the edge of that family (α0 = 1.7212) —
+recorded so that nobody repeats it. **LP is the member analytic at the node**: the curves arrive with slope
+v' → 1/|x*| plus a non-analytic term C|Δx|^{λ−1} that dominates near x*; LP has C = 0 (sign change of v' − 1/|x*|
+at fixed small distance from the sonic line, independent of the distance 1e-4…1e-6):
+**α0 = 1.66582, x* = −2.34112, α x² → 8.838, v → −3.274** (at x = −1e5). [memory, unverified]: Hunter 1977 / Larson
+1969 give 1.667, 2.33, 8.86, −3.28; agreement 0.3 %. The rest of Hunter 1977 was not reachable (ADS page scans: access
+denied); to be checked against his table when available.
+
+**Larson–Penston approach** (`popiii_m1.jl lp n`, BE sphere ξ_max = 6.5, 1625 M☉, γ = 1.001, collapse started by
+T × 0.9 and p_ext × 0.9, geometric mass grid, θ = 0.55, C_dyn = 0.01). Peak of 4πGρr²/c_s² and minimum of u/c_s,
+and α_c = 4πGρ_c(t0 − t)² from the local slope of ρ_c^{−1/2}(t):
+
+| log ρ_c/ρ_c0 | 2 | 4 | 6 | 8 | 10 | 12 | LP |
+|---|---|---|---|---|---|---|---|
+| max 4πGρr²/c_s² | 4.66 | 5.92 | 6.93 | 7.68 | 8.19 | 8.53 | 8.838 |
+| min u/c_s | −0.99 | −1.73 | −2.27 | −2.64 | −2.88 | −3.04 | −3.274 |
+| α_c (between decades) | 5.1 | 2.8 | 2.15 | 1.88 | 1.82 | 1.76 | 1.666 |
+
+- Independent of resolution and time step to ~2e-3 at 8 decades: n = 200 (q 1.1 and 1.05), 400 (q 1.05), 300 with
+  Δm_1/M = 4e-14; C_dyn = 0.01 vs 0.003 (agree to 1e-3).
+- The approach is monotone and slow, as Hunter (1977) found ("none of the collapses studied showed any strong tendency
+  to a similarity solution"; LP the best description near core formation). **PASS** as "monotone approach to the
+  computed LP values, numerically converged"; the gap at 12 decades (3.5 % in ρr², 7 % in u) is physical.
+- **Set-up trap found:** lowering T without lowering p_ext drives an 11 % pressure step inward from the surface; it
+  steepens into a converging shock that only the finest grid (n = 400, q = 1.05) resolves, and wrecked that run.
+
+**Energy.** `energy()` in `popiii_m1.jl`: K (interface half-masses), U, W = −Σ G m_k m̄_k/r_k (the potential of the
+momentum row's gravity term), p_ext V. Relative drift (E − E0)/|W|:
+- dust (θ = 0.5, C_dyn = 0.003) to R/R0 = 0.01, where K ≈ |W|: 2.1e-5;
+- LP over 8 decades: 5.9e-5 (θ = 0.55), **1.3e-6 (θ = 0.5)**.
+
+**Quasi-star hydrostatic regression (P7.3)**: `QS_SINK_M0=0 qstar_run.jl relax 3e9 2000`, compared with
+`qstar_compare.jl` against `qs_profile_f0.1_md0.csv` (`lib/popiii/m1_qstar_compare.txt`). Interior rows (r ≤ 0.98 R)
+differ from the stored table `reference_runs/qstar_hydrostatic_compare.txt` by ≤ 2e-4 in ΔT/T, ≤ 7e-4 in Δρ/ρ, ≤ 5e-4
+in L_c/L. **PASS.** Notes: (i) after 2000 steps this run is at t = 2.8895e7 s, the stored one at 2.8146e7 s (2.7 %;
+not investigated: a different time-step history, e.g. the clock/energy fixes, or stol); (ii) P7.3's prose says
+|Δρ/ρ| ≤ 1 % and L_c within 0.002, its own table has 0.0136 (0.961 R) and 0.0027 (0.73 R); (iii) `qstar_run.jl`
+failed on any shock-free run (`shellmass()` summed over an empty range, from the later infall work); fixed (`init = 0`).
+
+**M1 status: done** for the hydrodynamic part (regular centre, self-gravity, Lagrangian mass grid, free surface,
+dynamical time step), with all tests passing. Left for later: Eddington factors with r = 0 (M0.1 item 4; needed with
+radiation, M2b/M3); the adaptive grid with interior mass (M4).
+**Default for the collapse runs: θ = 0.5, C_dyn ≤ 0.01** (to revisit with shocks in M3).

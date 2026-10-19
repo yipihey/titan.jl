@@ -1,0 +1,11 @@
+Bonnor-Ebert xi_max = 3.000, n = 30, variant le, M = 477 Msun, R = 1.6360e+18 cm, rho_c/rho_edge = 2.788, p_ext = 8.6197e-10, theta = 0.55, C_dyn = 0.01
+step    200 t/t_sc = 1.142  max|Δρ/ρ| = 6.190e-03  max|u|/c_s = 9.290e-04
+step    400 t/t_sc = 2.293  max|Δρ/ρ| = 7.621e-03  max|u|/c_s = 9.581e-04
+step    600 t/t_sc = 3.446  max|Δρ/ρ| = 7.621e-03  max|u|/c_s = 9.826e-04
+step    800 t/t_sc = 4.597  max|Δρ/ρ| = 8.013e-03  max|u|/c_s = 9.977e-04
+step   1000 t/t_sc = 5.750  max|Δρ/ρ| = 8.013e-03  max|u|/c_s = 9.977e-04
+step   1200 t/t_sc = 6.901  max|Δρ/ρ| = 8.013e-03  max|u|/c_s = 9.977e-04
+step   1400 t/t_sc = 8.053  max|Δρ/ρ| = 8.013e-03  max|u|/c_s = 9.977e-04
+step   1600 t/t_sc = 9.206  max|Δρ/ρ| = 8.013e-03  max|u|/c_s = 9.977e-04
+1739 steps (tmax) to t = 10.01 t_sc; max |Δρ/ρ| = 8.013e-03, max |u|/c_s = 9.977e-04, NaN false
+FAIL (criterion: < 1e-3 both)

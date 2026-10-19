@@ -112,7 +112,7 @@ elseif mode == "relax"
     function shellmass()
         a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre)); rn = TF.var(:rn); dn = TF.var(:dn); un = TF.var(:un)
         ks = argmin([un[k+1] - un[k] for k in a:b]) + a - 1          # shock: largest outward velocity drop
-        sum(4π / 3 * (rn[k+1]^3 - rn[k]^3) * dn[k] for k in a:ks-1)
+        sum((4π / 3 * (rn[k+1]^3 - rn[k]^3) * dn[k] for k in a:ks-1); init = 0.0)   # 0 without a shock (hydrostatic)
     end
     Ms0 = get(ENV, "QS_SINK_M0", "") == "" ? shellmass() : parse(Float64, ENV["QS_SINK_M0"])
     sinkMdot = Ref(0.0)

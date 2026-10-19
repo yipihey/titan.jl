@@ -1,0 +1,24 @@
+step     1 t = 1.0000e+03 s  dt = 5.477e+02  max|u|/cs = 1.473e-05  L/L0: min 0.9491 max 1.3661 (interior)  Lconv/L max 0.195
+step     2 t = 1.5477e+03 s  dt = 4.210e+02  max|u|/cs = 2.008e-05  L/L0: min 0.9515 max 1.3482 (interior)  Lconv/L max 0.195
+step     3 t = 1.9687e+03 s  dt = 4.287e+02  max|u|/cs = 2.120e-05  L/L0: min 0.9515 max 1.3272 (interior)  Lconv/L max 0.195
+step   100 t = 6.3632e+06 s  dt = 3.590e+04  max|u|/cs = 1.378e+00  L/L0: min 0.9842 max 1.0084 (interior)  Lconv/L max 0.201
+step   200 t = 9.5758e+06 s  dt = 2.889e+04  max|u|/cs = 1.191e+00  L/L0: min 0.9861 max 1.0148 (interior)  Lconv/L max 0.202
+step   300 t = 1.2459e+07 s  dt = 2.945e+04  max|u|/cs = 9.488e-01  L/L0: min 0.9892 max 1.0109 (interior)  Lconv/L max 0.203
+step   400 t = 1.5351e+07 s  dt = 2.908e+04  max|u|/cs = 1.025e+00  L/L0: min 0.9879 max 1.0085 (interior)  Lconv/L max 0.203
+step   500 t = 1.9573e+07 s  dt = 4.003e+05  max|u|/cs = 1.349e-01  L/L0: min 0.9919 max 1.0061 (interior)  Lconv/L max 0.203
+step   600 t = 2.1779e+07 s  dt = 1.396e+03  max|u|/cs = 4.940e-01  L/L0: min 0.9928 max 1.0086 (interior)  Lconv/L max 0.203
+step   700 t = 2.2662e+07 s  dt = 2.878e+03  max|u|/cs = 5.739e-01  L/L0: min 0.9939 max 1.0117 (interior)  Lconv/L max 0.203
+step   800 t = 2.3598e+07 s  dt = 1.049e+04  max|u|/cs = 7.019e-01  L/L0: min 0.9942 max 1.0104 (interior)  Lconv/L max 0.203
+step   900 t = 2.4325e+07 s  dt = 2.801e+03  max|u|/cs = 6.469e-01  L/L0: min 0.9941 max 1.0092 (interior)  Lconv/L max 0.203
+step  1000 t = 2.5010e+07 s  dt = 2.044e+04  max|u|/cs = 5.900e-01  L/L0: min 0.9940 max 1.0092 (interior)  Lconv/L max 0.203
+step  1100 t = 2.5521e+07 s  dt = 1.215e+03  max|u|/cs = 5.490e-01  L/L0: min 0.9935 max 1.0089 (interior)  Lconv/L max 0.203
+step  1200 t = 2.6097e+07 s  dt = 1.933e+04  max|u|/cs = 5.066e-01  L/L0: min 0.9932 max 1.0090 (interior)  Lconv/L max 0.203
+step  1300 t = 2.6484e+07 s  dt = 1.471e+03  max|u|/cs = 4.809e-01  L/L0: min 0.9933 max 1.0085 (interior)  Lconv/L max 0.203
+step  1400 t = 2.6947e+07 s  dt = 3.777e+04  max|u|/cs = 4.534e-01  L/L0: min 0.9938 max 1.0083 (interior)  Lconv/L max 0.203
+step  1500 t = 2.7331e+07 s  dt = 1.211e+03  max|u|/cs = 4.333e-01  L/L0: min 0.9940 max 1.0083 (interior)  Lconv/L max 0.203
+step  1600 t = 2.7635e+07 s  dt = 1.494e+04  max|u|/cs = 4.190e-01  L/L0: min 0.9941 max 1.0080 (interior)  Lconv/L max 0.203
+step  1700 t = 2.7938e+07 s  dt = 1.072e+04  max|u|/cs = 4.056e-01  L/L0: min 0.9935 max 1.0075 (interior)  Lconv/L max 0.203
+step  1800 t = 2.8298e+07 s  dt = 4.418e+04  max|u|/cs = 3.902e-01  L/L0: min 0.9922 max 1.0077 (interior)  Lconv/L max 0.203
+step  1900 t = 2.8599e+07 s  dt = 2.855e+03  max|u|/cs = 3.768e-01  L/L0: min 0.9909 max 1.0076 (interior)  Lconv/L max 0.203
+step  2000 t = 2.8895e+07 s  dt = 3.974e+03  max|u|/cs = 3.616e-01  L/L0: min 0.9888 max 1.0074 (interior)  Lconv/L max 0.203
+relax: 2000 steps (maxsteps) in 100.4 s, t = 2.8895e+07 s
