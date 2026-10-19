@@ -127,7 +127,7 @@ non-LTE infall's work (the bare star has 1.7). But the observers' blue window, 3
 the 3646 Å edge. Our spectrum has no Balmer lines above $n = 10$ to blanket that region, so the window catches the
 unabsorbed side and the ratio comes out at 1.35. In a real spectrum the merging high Balmer lines and the instrumental
 resolution fill this gap. Which value to compare needs a spectrum computed with the full Balmer series
-**[computed; interpretation]**. With the series included, the ratio becomes 3.6–4.3 (@sec-tests-break).
+**[computed; interpretation]**. With the series included, the ratio becomes about 2–4, depending on the populations of the high levels (@sec-tests-break).
 
 ## What agrees
 
@@ -184,10 +184,11 @@ Five calculations would sharpen this comparison:
 
 @sec-tests does all five. In short:
 
-- The infall's electrons make wings of the observed width, but blue-sided; outflow over about half the sky makes them
-  symmetric.
-- The break, measured as observers do, is 3.6–4.3.
-- A cooler star moves the decrement and the absorbers towards the data and Hα away from it.
-- There is no He I λ10830 absorption.
+- The infall's electrons make wings of the observed width, but blue-sided. Outflow over about half the sky makes them
+  symmetric, but then only half of the views show blueshifted absorbers.
+- The break, measured as observers do, is about 2–4 (3.4 at PRISM resolution in one bracket).
+- A cooler star moves the decrement and Paβ/Hα towards the data, gains a strong redshifted Hα absorber, and moves Hα
+  strength away from the data.
+- There is no blueshifted He I λ10830 absorption.
 
 The table above is the model before those tests.

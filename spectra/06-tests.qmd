@@ -1,7 +1,7 @@
 # Five tests {#sec-tests}
 
-@sec-lrd ended with five calculations that would decide whether a fed quasi-star can be a Little Red Dot. This
-chapter does them, each as far as the tools allow:
+@sec-lrd ended with five calculations that would sharpen the comparison of a fed quasi-star with the Little Red
+Dots. This chapter does them, each as far as the tools allow, in this order:
 
 1. Electron scattering of the lines in the actual infall, by Monte Carlo (@sec-tests-es).
 2. Infall at the equator with outflow at the poles (@sec-tests-axi).
@@ -10,12 +10,13 @@ chapter does them, each as far as the tools allow:
 5. He I λ10830 and O I λ8446 (@sec-tests-metals).
 
 None of them is a fit. They use the same TITAN run W30 and its non-LTE solution as the earlier chapters, except
-test 4, which is a new run. Each section says what is computed and what is assumed. @sec-tests-summary collects
+test 4 and the parts of tests 1 and 5 repeated for it, which use a new run. Each section says what is computed and what is assumed. @sec-tests-summary collects
 the results.
 
 ## Electron-scattering wings {#sec-tests-es}
 
-**The calculation.** `julia/mc_escatter.jl` follows $10^6$ Hα photons through the infall of the non-LTE solution.
+**The calculation.** `julia/mc_escatter.jl` follows $10^6$ Hα photons ($4\times10^5$ for the cooler star of @sec-tests-cool) through the
+infall of the non-LTE solution.
 
 - *Emission.* Photons are emitted where the solution's net Sobolev line power is positive, in proportion to it. Their
   directions are weighted by the local escape probability, and their frequencies are the comoving line centre plus a
@@ -26,9 +27,11 @@ the results.
   probability $1 - e^{-\tau(\mu)}$. There is no destruction, so this is an upper limit on line trapping.
 - *Boundaries.* Photons that reach the star are absorbed; photons beyond the outer edge escape.
 
-Without electrons, the code reproduces the ray-integrated profile of @sec-nlte to the level that its simplified
-emission allows: FWHM 320 against 360 km s$^{-1}$, centroid −44 against −93 km s$^{-1}$ (`mc_validate.jl`)
-**[tested]**.
+Without electrons, the code agrees with the ray-integrated profile of @sec-nlte in width but not in detail: FWHM 320
+against 360 km s$^{-1}$ (on the binning of `mc_validate.jl`; 340 on the binning of the table below), centroid −44
+against −93 km s$^{-1}$, and a distance of 0.21 between the normalized shapes (0 = identical, 2 = disjoint). The
+emission of the Monte Carlo is simplified (escape-weighted, at the comoving line centre), so this is a check of the
+order of magnitude, not of the profile shape **[tested]**.
 
 | run | e⁻ scatterings per photon | FWHM [km s⁻¹] | centroid [km s⁻¹] | wing scale $W$ blue / red [km s⁻¹] | flux beyond −1000 / +1000 km s⁻¹ |
 |---|---|---|---|---|---|
@@ -58,7 +61,8 @@ only partly. Even at $3\times10^4$ K the blue wing is 1.6 times wider than the r
 scatters twice as often, and gets a blue wing 1.7 times as broad. Hα and Hβ therefore have different profiles, as in
 the "Rosetta Stone" [@brazzini2025] **[computed; interpretation]**.
 
-The observed wings are symmetric. Pure infall cannot make them; @sec-tests-axi shows what an outflow adds.
+The observed wings are symmetric. Pure infall does not make them, at least for electron temperatures up to
+$3\times10^4$ K; @sec-tests-axi shows what an outflow adds.
 
 ## Infall plus outflow {#sec-tests-axi}
 
@@ -86,7 +90,7 @@ Hα and Hβ profiles along rays at inclinations $i$ (the angle between the line 
 
 | $\theta_o$ | $i$ | Hα EW [Å] | Hβ EW [Å] | absorption trough against the star |
 |---|---|---|---|---|
-| 0 (infall) | — | −810 | −72 | redshifted, +175 km s$^{-1}$ (Hβ to 4 % of the continuum) |
+| 0 (infall) | — | −810 | −72 | redshifted, +175 km s$^{-1}$ (Hβ to 4 % of the continuum; 3 % at +160 km s$^{-1}$ in @sec-nlte, a different code and velocity grid) |
 | 30° | 0 | −425 | −62 | **blueshifted**, −175 km s$^{-1}$ |
 | 30° | 45° | −642 | −62 | redshifted |
 | 30° | 90° | −792 | −72 | redshifted |
@@ -108,9 +112,11 @@ need outflow over most of the sky, $\theta_o \approx 80°$, with the inflow conf
 **What it does to the wings.** In the Monte Carlo the asymmetry of the electron-scattering wings follows the balance
 of the two flows. Pure outflow mirrors pure infall (centroid +423 km s$^{-1}$, red wing). With cones of
 $\theta_o = 30°$ and $45°$ the profile is still blue-heavy (centroids −336 and −202 km s$^{-1}$; 15 % and 12 % of
-the flux beyond −1000 km s$^{-1}$, against 2 % and 4 % beyond +1000 km s$^{-1}$). With $\theta_o = 60°$, where the two flows each fill half the sky, the wings become symmetric:
-e-folding velocities 746 and 749 km s$^{-1}$, 7.8 % and 7.6 % of the flux beyond ∓1000 km s$^{-1}$, centroid
-−7 km s$^{-1}$. The symmetry holds within 0.03 in these fractions at every inclination **[computed]**.
+the flux beyond −1000 km s$^{-1}$, against 2 % and 4 % beyond +1000 km s$^{-1}$). With $\theta_o = 60°$, where the
+two flows each fill half the sky, the wings become symmetric: e-folding velocities 746 and 749 km s$^{-1}$, 7.8 % and
+7.6 % of the flux beyond ∓1000 km s$^{-1}$, centroid −7 km s$^{-1}$. The symmetry holds within 0.03 in these
+fractions at every inclination. With $\theta_o = 80°$ the outflow dominates and the wings turn red-heavy (centroid
++300 km s$^{-1}$; 3 % beyond −1000 and 15 % beyond +1000 km s$^{-1}$) **[computed]**.
 
 ```{=html}
 <div class="qd-widget" data-widget="tests" data-view="mcincl"></div>
@@ -118,21 +124,25 @@ e-folding velocities 746 and 749 km s$^{-1}$, 7.8 % and 7.6 % of the flux beyond
 
 **Caveats.**
 
-- *The equivalent widths vary* from −425 to −810 Å with geometry. That comes from photons emitted in one flow being
-  absorbed in the other at the same line-of-sight velocity, which the spherical source functions do not know about. The
-  numbers are therefore indicative only.
+- *The equivalent widths vary* from −425 to −810 Å with geometry. We read this as photons emitted in one flow being
+  absorbed in the other at the same line-of-sight velocity, which the spherical source functions do not know about
+  **[interpretation]**. The numbers are therefore indicative only.
 - *The outflow is not a model.* It has the free-fall speed, the infall's density and its ionization. A real wind
   would be accelerated by radiation pressure on electrons at $L/L_{\rm Edd} \approx 1$, with its own density and
   temperature.
 
-The test shows something narrower: a flow pattern that symmetrizes the wings also produces mostly blueshifted
-absorbers. Whether a fed quasi-star drives such a flow is a question for two-dimensional radiation hydrodynamics
-**[interpretation]**.
+**A tension.** In this kinematic model the two observations ask for different flows. Symmetric wings need
+$\theta_o \approx 60°$, and then only half of all observers see a blueshifted absorber. The observed 80 % of
+blueshifted absorbers needs $\theta_o \approx 80°$, and then the wings are red-heavy **[computed]**. Something
+between the two, or a flow whose speed and density differ between the inflow and the outflow, might satisfy both; we
+have not found such a case. Whether a fed quasi-star drives any such flow is a question for two-dimensional radiation
+hydrodynamics **[interpretation]**.
 
 ## The Balmer break as observers measure it {#sec-tests-break}
 
 In @sec-lrd the break ratio $\langle f_\nu\rangle(4000$–4100 Å$)/\langle f_\nu\rangle(3620$–3720 Å$)$ came out at
-1.35, although the continuum drops by a factor 5.5 at the edge. The blue window lies mostly redward of the 3646 Å
+1.35, although the continuum drops by a factor 5.5 at the edge (on the continuum code's frequency grid; on the
+15 km s$^{-1}$ grid used here the same continuum gives 1.27 and 5.1). The blue window lies mostly redward of the 3646 Å
 edge, where our spectrum had no lines above $n = 10$.
 
 **The calculation.** `julia/balmer_series.jl` integrates rays through the infall with all Balmer lines from Hα to
@@ -140,8 +150,9 @@ $n = 40$ at once, their opacities and source functions added at every point, so 
 correctly. The wavelength grid runs from 3550 to 4150 Å in steps of 15 km s$^{-1}$, on top of the non-LTE continuum.
 
 - *Populations.* Levels up to $n = 12$ come from the non-LTE solution. Higher levels take the departure coefficient
-  of $n = 12$ (`bhigh=b12`) or LTE (`bhigh=lte`), which brackets them. They matter only for the line source
-  functions; the opacity is set by $n = 2$.
+  of $n = 12$ (`bhigh=b12`) or LTE (`bhigh=lte`), which we take as a bracket. They matter only for the line source
+  functions; the opacity is set by $n = 2$. The LTE case was run on the two break windows only (`windows=1`), at
+  full resolution.
 - *Line profiles.* Gaussian, thermal plus 10 km s$^{-1}$ microturbulence, with no Stark broadening and no
   dissolution of high levels.
 - *Resolution.* The spectrum is smoothed to resolving powers of 100 and 30, like a NIRSpec PRISM spectrum.
@@ -150,18 +161,30 @@ correctly. The wavelength grid runs from 3550 to 4150 Å in steps of 15 km s$^{-
 <div class="qd-widget" data-widget="tests" data-view="balmer"></div>
 ```
 
-<!-- BALMER-TABLE -->
+| upper levels ($n > 12$) | break, lines to $n = 40$ | $R = 100$ | $R = 30$ | with lines above $n = 40$ (bound) |
+|---|---|---|---|---|
+| $b_n = b_{12}$ | 3.58 | 3.43 | 3.00 | ≤ 4.31 (4.63 if black) |
+| LTE | 2.24 | — | — | ≤ 2.55 (2.65 if black) |
+| continuum only | 1.27 | 1.28 | — | — |
+
+: The break $\langle f_\nu\rangle(4000$–4100 Å$)/\langle f_\nu\rangle(3620$–3720 Å$)$ of the W30 non-LTE solution with
+the Balmer series **[computed]**. The bound sets the strip between the edge and the $n = 40$ line to the depth reached
+next to it (0.18 of the continuum) or to zero (`balmer_bound.jl`). {#tbl-tests-break}
 
 **Result.** The high Balmer lines, optically thick in the infall's $n = 2$ population, blanket the region just
 redward of the edge. Between 3660 and 3700 Å the flux falls to 18–32 % of the continuum. The observers' break rises
-from 1.27 to 3.6 with lines to $n = 40$ (3.4 at $R = 100$, 3.0 at $R = 30$) **[computed]**. Lines above $n = 40$
-fall between the edge and 3656 Å. Even if that strip were black, the break could rise no further than 4.6, and to 4.3
-if it is absorbed as deeply as the strip next to it (`balmer_bound.jl`) **[computed bound]**. A run with lines to
-$n = 20$ gave 2.0, so the convergence in $n$ matters.
+from 1.27 to 3.6 with lines to $n = 40$ (3.4 at $R = 100$, 3.0 at $R = 30$) when the high levels take $b_{12}$, and
+to 2.2 when they are in LTE, which raises the line source functions and fills the lines in **[computed]**. Lines
+above $n = 40$ fall between the edge and 3656 Å and could add at most to 4.3 and 2.6 in the two cases
+**[computed bound]**.
 
-The model's break, 3.6–4.3, sits at the top of the range of most LRDs (none to about 3.5) and below the two extremes,
-6.9 and 7.7 (@sec-lrd). The infall makes it, through the same $n = 2$ population that its far-UV pumping maintains.
-The break is mostly not the jump in the continuum but the merging high series **[computed; interpretation]**.
+The model's break is therefore about 2–4 at full resolution, and 3.4 at the resolution of a PRISM spectrum in the
+$b_{12}$ case. That is within the range of most LRDs (none to about 3.5) and below the two extremes, 6.9 and 7.7
+(@sec-lrd). The unknown populations of the high levels are now the largest uncertainty. In the model the infall
+makes the break, through the same $n = 2$ population that its far-UV pumping maintains, and mostly through the
+merging high series rather than the jump in the continuum. One caveat: our photosphere has no Balmer lines of its
+own (it is computed without line opacity), so whatever the star itself would add is missing
+**[computed; interpretation]**.
 
 ## A cooler quasi-star {#sec-tests-cool}
 
@@ -171,24 +194,27 @@ It is 1.6 times larger ($R = 1.35\times10^{16}$ cm) and cooler (5760 K). TITAN r
 $3\,M_\odot\,{\rm yr}^{-1}$ from $30R$, with the same grid and physics.
 
 - *Length of the run.* It ran for $9.5\times10^7$ s, shorter than W30, because its time step collapsed to seconds near
-  the end. Over the last $2\times10^7$ s the photosphere moved by less than $10^{-3}R$.
-- *The fed photosphere.* $r_{\rm ph} = 0.977R$, $T_{\rm eff} \approx 5890$ K, $L \approx 1.04$ times the star's own
+  the end. Between $7.5\times10^7$ and $9.5\times10^7$ s the photosphere moved by $1.3\times10^{-4}R$
+  (`qstar_analyze.jl`, logs `lib/qs_runs/C30*_analyze.log`).
+- *The fed photosphere.* $r_{\rm ph} = 0.977R$, $T_{\rm eff} = 5880$–5900 K, $L = 1.04$–1.05 times the star's own
   luminosity **[computed]**.
 
 The non-LTE calculation is the one of @sec-nlte, with one difference that matters.
 
-- *No Unsöld–Lucy correction.* The C30 photosphere sits on the hydrogen recombination front, where the temperature
-  falls from 12600 to 5900 K over three zones. There the continuum code's flux is 0.2–0.5 of TITAN's, and the
-  correction diverged.
-- *Energy is not conserved.* Without the correction, light that the infall sends back into the star is absorbed at
-  fixed temperature. The emergent luminosity is $9.0\times10^{43}$ erg s$^{-1}$, 59 % of TITAN's
-  $1.52\times10^{44}$; the bare star alone already gives 88 %.
-- *Consequence.* Absolute line luminosities below are therefore underestimates. Equivalent widths, ratios and the
-  ionization structure are less affected. The ionization is cross-checked by the simple model, which uses the bare
-  star's spectrum and has no such loss **[computed; caveat]**.
+- *No Unsöld–Lucy correction.* The C30 photosphere sits on the hydrogen recombination front, where TITAN's
+  temperature falls from 12600 to 5900 K across seven zones within $2\times10^{-5}R$
+  (`lib/spectra/C30_photosphere_T.log`). There the continuum code's flux did not match TITAN's, and the correction
+  diverged in every variant we tried.
+- *Energy is not conserved.* The emergent luminosity is $9.0\times10^{43}$ erg s$^{-1}$, 59 % of TITAN's
+  $1.52\times10^{44}$. The bare star's spectrum alone gives 88 %, so the infall adds a further loss of about a third
+  ($1 - 9.0/13.3$). We think the cause is light that the infall sends back into the star being absorbed at fixed
+  temperature, which the correction would have re-emitted **[interpretation]**.
+- *Consequence.* Absolute luminosities below are underestimates. How much the equivalent widths and line ratios are
+  affected is not tested. The ionization structure is cross-checked by the simple model, which uses the bare star's
+  spectrum and has no such loss **[computed; caveat]**.
 
-Convergence: 162 passes, the last ones changing populations by $< 4\times10^{-4}$ and the line power by 0.3 % over
-ten passes.
+Convergence: 162 passes. In the last ten, populations changed by 3–7 × 10⁻⁴ per pass and the line power by 0.3 %
+in all.
 
 **A much weaker far UV.** The far-UV excess that ionizes the W30 infall comes from the line-free zero-metal
 photosphere (@sec-sm-mechanism). At 5890 K it is far smaller.
@@ -212,7 +238,7 @@ photosphere (@sec-sm-mechanism). At 5890 K it is far smaller.
 | neutral column [cm⁻²] | $8.5\times10^{23}$ | $3.2\times10^{24}$ |
 | Thomson depth | 5.4 | 2.6 |
 | Hα EW [Å] / $L$(Hα) [erg s⁻¹] | −805 / $9.0\times10^{42}$ | −164 / $1.6\times10^{42}$ |
-| Hα absorption against the star | filled in | to 12 % of the continuum at +160 km s$^{-1}$ |
+| Hα absorption against the star | filled in | to 12 % of the continuum at +160 km s$^{-1}$ (`linespec_troughs.log`) |
 | Hβ EW [Å] | −73 | −15 (trough 3.5 % at +240 km s$^{-1}$) |
 | Hα/Hβ | 5.3 | 7.9 |
 | Paβ/Hα, Lyα/Hα | 0.12, 0.054 | 0.22, 0.022 |
@@ -231,8 +257,8 @@ and 45 % at worst beyond, where it is a few per cent. The far-UV pumping that th
 
 **What changes against the LRDs.**
 
-- *Closer to the data:* the photosphere (5890 K against ≈ 5000 K observed), the Balmer decrement (7.9, the median of
-  @matthee2026), Paβ/Hα (0.22, against 0.35 in the Rosetta Stone), and a strong, redshifted Hα absorption trough, the
+- *Closer to the data:* the photosphere (5890 K against ≈ 5000 K observed), the Balmer decrement (7.9, close to the
+  median of 7.8 in @matthee2026), Paβ/Hα (0.22, against 0.35 in the Rosetta Stone), and a strong, redshifted Hα absorption trough, the
   "inflowing absorber" seen in the reddest LRDs [@matthee2026].
 - *Further from the data:* Hα is five times weaker relative to the continuum. $L_{\rm bol}/L({\rm H\alpha})$ is 58
   even with the luminosity deficit (observed 11–30), and the Thomson-thick cocoon thins to 2.6.
@@ -275,13 +301,14 @@ $1.6\times10^{13}$ cm$^{-2}$, and the λ10830 Sobolev depth is about 0.01 outsid
 emission (EW −9 Å), with no absorption. Tripling the recombination rate into 2³S, or halving its photoionization
 cross-section, raises the column to $3$–$5\times10^{13}$ cm$^{-2}$ and still gives emission **[computed]**.
 
-In the cooler star the 2³S level is photoionized 20 to 35 times more slowly, and the column is 23 times larger
+In the cooler star the 2³S level is photoionized about 20–35 times more slowly, and the column is 23 times larger
 (part of it in the hot gas at the shock). The line is still in emission **[computed]**.
 
 LRDs show He I λ10830 absorption (@sec-lrd). In this model the far UV that ionizes hydrogen does not reach helium,
 so λ10830 absorption needs a source of helium-ionizing photons that the model lacks: hotter gas, an accretion source,
-or metal-line opacity changing the photosphere **[interpretation]**. This is a clear discriminant. A fed quasi-star
-with only stellar and shock radiation should not absorb in λ10830.
+or metal-line opacity changing the photosphere. If that holds beyond our approximate three-state atom, λ10830 is a
+discriminant: in this model a fed quasi-star with only stellar and shock radiation does not absorb in λ10830, apart
+from a weak redshifted dip in the cooler star **[interpretation]**.
 
 ### O I λ8446
 
@@ -303,16 +330,17 @@ that the Lyβ trapped in the infall is ample to make O I λ8446 strong if the ga
 
 | question | result | status |
 |---|---|---|
-| Do the infall's electrons make the observed wings? | They make exponential wings of the observed width (exponential FWHM ≈ 1400 km s$^{-1}$, 17 % of Hα beyond 1000 km s$^{-1}$), but only on the blue side. A converging flow cannot make symmetric wings. | **[computed]** |
-| Can outflow fix the symmetry? | Polar outflow over about half the sky ($\theta_o \approx 60°$) makes the wings symmetric at every inclination. Wider cones also make most absorbers blueshifted, as observed. The outflow is kinematic, not computed. | **[computed]**, model assumption |
-| Is the Balmer break observable? | Yes. With the full series the observers' ratio is 3.6–4.3 (3.4 at $R = 100$), within the LRD range and set by the merging high Balmer lines of the infall's $n=2$ gas. | **[computed]**, bracket |
-| What does a cooler star change? | At 5890 K the far UV is 3 to 40 times weaker, the infall stays mostly neutral and Hα is five times weaker. The decrement (7.9), Paβ/Hα and a strong redshifted Hα absorber move towards the data; $L_{\rm bol}/L({\rm H\alpha})$ moves away. | **[computed]**, energy deficit noted |
-| Helium and oxygen? | No λ10830 absorption in either star: there are too few helium-ionizing photons. Lyβ trapping is ample for strong O I λ8446 if metals are present. | **[computed]**, **[estimate]** |
+| Do the infall's electrons make the observed wings? | They make exponential wings of the observed width (exponential FWHM ≈ 1400 km s$^{-1}$, 17 % of Hα beyond 1000 km s$^{-1}$), but only on the blue side. The converging flow does not make symmetric wings (tested to $T_e = 3\times10^4$ K). | **[computed]** |
+| Can outflow fix the symmetry? | Polar outflow over about half the sky ($\theta_o \approx 60°$) makes the wings symmetric at every inclination, but then only half of all views show blueshifted absorbers. Cones wide enough for the observed 80 % ($\theta_o \approx 80°$) make the wings red-heavy. The outflow is kinematic, not computed. | **[computed]**, model assumption |
+| Is the Balmer break observable? | Yes. With the full series the observers' ratio is about 2–4 at full resolution (3.4 at $R = 100$ for $b_n = b_{12}$), within the range of most LRDs and set by the merging high Balmer lines of the infall's $n=2$ gas. The populations of the high levels are the main uncertainty. | **[computed]**, bracket |
+| What does a cooler star change? | At 5890 K the far-UV excess over a blackbody is 3–45 times smaller (and the blackbody itself much fainter there), the infall stays mostly neutral and Hα is five times weaker. The decrement (7.9) and Paβ/Hα move towards the data, and a strong redshifted Hα absorber appears, like the inflowing minority of observed absorbers; $L_{\rm bol}/L({\rm H\alpha})$ moves away. | **[computed]**, energy deficit noted |
+| Helium and oxygen? | No blueshifted λ10830 absorption in either star (only a 3 % redshifted dip in the cooler one): there are too few helium-ionizing photons. Lyβ trapping is ample for strong O I λ8446 if metals are present. | **[computed]**, **[estimate]** |
 
 : The five tests in brief. {#tbl-tests-summary}
 
-Taken together: a fed quasi-star reproduces the Balmer break and, given an outflow, the line wings and most absorbers. Its
-Hα strength and its temperature pull in opposite directions between our two stars. It fails on He I λ10830, which
+Taken together: a fed quasi-star reproduces the Balmer break within its uncertainty. Given an outflow it can make
+either symmetric wings or mostly blueshifted absorbers, but in our kinematic model not both at once. Its Hα strength
+and its temperature pull in opposite directions between our two stars. It fails on He I λ10830 absorption, which
 needs ionizing photons that neither the star nor the shock supply. The next decisive step is a two-dimensional
 radiation-hydrodynamics run with inflow and outflow. Metals in the photosphere would also change the far UV, which
 controls everything here **[interpretation]**.

@@ -76,7 +76,8 @@ export async function mountTests(host, S, onChange = () => {}, opts = {}) {
       });
       ctl.push(select(bar2, { label: 'plot', options: [{ value: 'sed', label: 'spectrum νL_ν [erg/s] vs λ [Å]' }, { value: 'x', label: 'ionized fraction x_H vs r / R_star' }], value: q, onChange: (v) => { S.tcool = v; plot.resetView(); draw(); } }));
       if (q === 'sed') { xlabel = 'λ [Å] (vacuum)'; ylog = true; xlim = [900, 25000]; }
-      const ylim = q === 'sed' ? [1e40, 3e44] : [1e-3, 1.2]; else { xlabel = 'r / R (each star its own R)'; ylog = true; }
+      else { xlabel = 'r / R (each star its own R)'; ylog = true; }
+      const ylim = q === 'sed' ? [1e40, 3e44] : [1e-3, 1.2];
       plot.setAxes({ xlabel, ylabel: q === 'sed' ? 'νL_ν [erg/s]' : 'x_H', xlog: true, ylog, xlim, ylim, title: '' });
       plot.setSeries(series); plot.draw();
       note.innerHTML = 'Dashed: the stars alone. Solid: fed, with non-LTE hydrogen in the infall (lines included where computed). The C30 non-LTE solution has no Unsöld–Lucy correction and loses 41 % of TITAN\'s luminosity (see the book).';
@@ -85,6 +86,7 @@ export async function mountTests(host, S, onChange = () => {}, opts = {}) {
     } else {
       D.he.forEach((x, i) => series.push({ x: x.v, y: x.F, label: `${x.name}: EW ${fmt(x.EW, 3)} Å, N(2³S) ${fmt(x.N3, 2)} cm⁻²`, color: PALETTE[i] }));
       xlim = [-2500, 2500];
+      txt = 'EW &lt; 0: net emission (positive = absorption). N(2³S): radial column of the metastable level.';
     }
     plot.setAxes({ xlabel, ylabel: VIEWS[S.tview], xlog: false, ylog, xlim, title: '' });
     plot.setSeries(series);

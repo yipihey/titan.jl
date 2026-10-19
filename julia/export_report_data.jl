@@ -132,7 +132,7 @@ elseif mode == "tests"
                          ("Halpha_es1_res1_Te1e4", "Hα, electrons at 10⁴ K"), ("Halpha_es1_res1_Te3e4", "Hα, electrons at 3×10⁴ K"),
                          ("Halpha_es1_res1_th90", "Hα, electron scattering, pure outflow"), ("Halpha_es1_res1_th45", "Hα, infall + outflow cones θ_o = 45°"),
                          ("Halpha_es1_res1_th60", "Hα, infall + outflow cones θ_o = 60°"), ("Hbeta_es0_res1", "Hβ, no electron scattering"),
-                         ("Hbeta_es1_res1", "Hβ, electron scattering, infall"), ("Halpha_es1_res1_th30", "Hα, infall + outflow cones θ_o = 30°"),
+                         ("Hbeta_es1_res1", "Hβ, electron scattering, infall"), ("Halpha_es1_res1_th30", "Hα, infall + outflow cones θ_o = 30°"), ("Halpha_es1_res1_th80", "Hα, infall + outflow cones θ_o = 80°"),
                          ("C30:Halpha_es1_res1", "C30 (5890 K): Hα, electron scattering, infall"),
                          ("C30:Halpha_es1_res1_th60", "C30 (5890 K): Hα, infall + outflow cones θ_o = 60°"))
         nm, tg = occursin(":", tag) ? ("C30_ext", split(tag, ":")[2]) : ("W30_late_ext", tag)

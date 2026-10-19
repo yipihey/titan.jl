@@ -29,10 +29,10 @@ photosphere is about 2300 K too hot
 (@sec-lrd). Five further tests (@sec-tests) show the following.
 
 - Electron scattering in the infall makes wings of the observed width, but one-sided. An outflow over half the sky
-  makes them symmetric.
-- The Balmer break, measured as observers do, is 3.6–4.3.
+  makes them symmetric, though not together with mostly blueshifted absorbers.
+- The Balmer break, measured as observers do, is about 2–4.
 - A cooler (5890 K) quasi-star has a redder, more absorbed spectrum, with weaker Hα.
-- Neither star produces He I λ10830 absorption.
+- Neither star produces blueshifted He I λ10830 absorption.
 
 **The book in six chapters.**
 
