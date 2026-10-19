@@ -220,6 +220,16 @@ thin/thick comparison along their track; reproduction of RA04's 1D simplified-tr
 4. The third book: `popiii/` at the repository top level, published under `/popiii/` like `spectra/`?
 5. Grid: Lagrangian mass grid for the collapse (M1–M3), adaptive with interior mass for accretion (M4)?
 
+### Answers (Tom, 19 Oct 2026)
+- Literature hosts opened in the environment settings (not yet effective in the cloud container at the time of
+  writing: still refused); the work moves to Tom's Mac, where they are reachable.
+- Agreed: neutral He (as CIA partner) first, D/HD later; RHFC02's line transfer and CIE fits AND modern data, as
+  switches (reproduce first, then modernise); third book `popiii/` at top level, published under `/popiii/` like
+  `spectra/`; Lagrangian mass grid for the collapse (M1–M3), adaptive grid with interior mass for accretion (M4).
+- Next: M0.3/M0.4 extraction from the papers, then M1.
+- On the Mac: Julia 1.10.4 as pinned in `julia/env/Manifest.toml` (juliaup: `juliaup add 1.10.4`), then
+  `cd julia && julia +1.10.4 --project=env -e 'using Pkg; Pkg.instantiate()'`.
+
 ## M0.9 Baseline of the verified paths in this environment [run]
 
 Before any change, on branch `popiii` = `titan-port` @ 67d89d3, Julia 1.10.4 (conda-forge build), 1 thread:
