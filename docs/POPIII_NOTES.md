@@ -931,3 +931,50 @@ supplies the electrons below ≈ 3500 K (15× H's at 3000 K, ≫ at 1500–2000 
 underestimated in the 1e16–1e19 window regime. Mayer & Duschl 2005 (Table 1: ⁷Li/H = (4.15 ± 0.45)e-10, SBBN, Coc et
 al. 2004; §2.3: "Lithium providing free electrons at comparably low temperatures (T ≈ 800…3000 K). These enhance the
 H⁻ … abundance in the high-density limit"). `popiii_regimes.jl` LI=1 (default) adds Li ⇌ Li⁺ + e⁻ in Saha.
+
+### M3c result: the transition map [run]
+
+`popiii_regimes.jl` (corrected solver) on the 83 snapshots of the z = 19 line-transfer collapse
+(`lib/popiii/snaps_abn02z19_lines_n200_snap.jls`, log n_c = 3.1 … 22.8; output `lib/popiii/m3c_regimes_{li,noli}.txt`).
+Following the **central gas** (m ≈ 1e-3 M☉) as n_c rises, with Li electrons:
+
+| log n_c | T | n/n_crit | t_3b/t_ff | τ_line,max | τ_P | τ_R | τ_R,abs | f_win | F/F_D (ext.) | F/F_D (abs.) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 3.9 | 148 | 8.6 | 4e9 | 5e-6 | 8e-9 | 3e-8 | 3e-15 | 1.00 | ~0 | ~0 |
+| 7.9 | 640 | 3e4 | 2e4 | 9e-4 | 3e-9 | 1e-7 | 8e-14 | 1.00 | 9e-14 | 3e-18 |
+| 9.9 | 818 | 2e6 | 25 | 0.16 | 9e-9 | 2e-6 | 1e-11 | 1.00 | ~0 | ~0 |
+| 10.9 | 1019 | 7e6 | 2.9 | 4.6 | 3e-8 | 6e-6 | 9e-10 | 1.00 | 9e-10 | 2e-13 |
+| 12.9 | 1543 | 1e7 | 4.2 | 140 | 5e-6 | 2e-4 | 3e-6 | 1.00 | 5e-6 | 7e-9 |
+| 14.0 | 1746 | 3e8 | 0.025 (eq.) | 460 | 2e-4 | 3e-3 | 3e-5 | 1.00 | 2e-4 | 3e-6 |
+| 15.0 | 2021 | 8e9 | 2e-4 | 1.3e3 | 5e-3 | 0.035 | 1e-3 | 1.00 | 0.015 | 0.002 |
+| 16.0 | 2252 | 1e11 | 4e-6 | 3.6e3 | 0.15 | 0.46 | 0.025 | 1.00 | 1.7 | 1.2 |
+| 17.0 | 2485 | 9e11 | 2e-7 | 9.4e3 | 3.2 | 3.8 | 0.36 | 0.12 | 1.21 | 3.2 |
+| 18.0 | 3023 | 2e13 | 2e-9 | 2.3e4 | 71 | 46 | 26 | 0 | **0.998** | 3.9 |
+| 19.0 | 3762 | 3e14 | 5e-11 | 4.7e4 | 1.7e3 | 1.2e3 | 1.0e3 | 0 | **0.995** | 2.9 |
+| 20.1 | 4836 | 3e15 | 2e-12 | 8e4 | 7.5e5 | 6.2e5 | 6.1e5 | 0 | **1.01** | **1.03** |
+| 21.1 | 8916 | 7e16 | 3e-14 | 1.1e5 | 4.7e9 | 2.1e9 | 1.4e9 | 0 | 1.15 | 1.59 |
+
+(τ: radial depth from the shell to the surface; f_win: share of ∫∂B/∂T dν at frequencies with thermalisation depth
+√(τ_a(τ_a+τ_s)) < 1; F/F_D: frequency-resolved flux over the Rosseland diffusion flux with the extinction (ext.) or
+absorption-only (abs.) mean, S = B_ν.)
+
+**The sequence (central gas):**
+1. **H₂ level populations LTE** already at n ≳ 1e3–1e4 (n/n_crit = 9 at 6e3 cm⁻³, 150 K): the z = 19 start is just
+   above n_crit; below that only the outer envelope (n/n_crit = 0.2 at 1e3 M☉) is non-LTE.
+2. **Lines thick** at the centre from n_c ≈ 3e10 (τ_line,max = 1); at 1 M☉ from ≈ 1e11 (τ 26 there by 1e12).
+3. **Chemistry**: three-body formation faster than free fall (t_3b/t_ff < 1) from ≈ 1e11–1e13; equilibrium switch at
+   ρ_eq (log n 13.8).
+4. **Continuum** (all-frequency, not lines): τ_R = 1 at n_c ≈ 2e16, τ_R,abs = 1 at ≈ 1e17; windows thermalised
+   (f_win → 0) by ≈ 3e17.
+5. **Rosseland diffusion justified (F/F_D = 1 within 1 %) from n_c ≈ 1e18 (3000 K) with the extinction mean**; between
+   1e16 and 1e19 the window extinction is mostly Rayleigh scattering, so the absorption-only mean underestimates the
+   opacity (F/F_D(abs) = 3–4); **with the absorption mean only from ≈ 1e20 (H⁻ fills the spectrum, 4800 K)**.
+6. **Only the core region becomes diffusive**: at the last snapshot (log n_c 22.8) the continuum photosphere (τ_R = 1)
+   is at m ≈ 0.02–0.03 M☉, T ≈ 2400 K — RHFC02: "continuum photosphere … ≃ 2300–2400 K". Outside, the molecular envelope
+   (1 M☉ at 1e12, lines τ ≈ 26, continuum τ_R = 3e-5) and everything beyond never become continuum-thick: the line
+   transfer is needed there for the whole evolution.
+7. **Lithium**: changes the absorption Rosseland depth by 100–400× at n_c = 1e15–1e17 (τ_R,abs 1.1e-3 vs 7e-6 at 1e15;
+   0.36 vs 9e-4 at 1e17) and brings F/F_D(abs) closer to 1 at 1e18–1e19 (3.9/2.9 vs 6.4/9.7 without Li); the extinction
+   boundary (step 5) is unchanged.
+8. To check: inside the hot core at the last snapshot F/F_D = 0.17–0.35 (vs 0.99–1.05 at log n_c 20.8) — steep
+   gradients at the core/shock, few zones; resolution study needed.
