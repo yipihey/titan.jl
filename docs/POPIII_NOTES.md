@@ -1507,3 +1507,93 @@ unless stated):
 - F/F_D (extinction) rises smoothly: 0.41 at 1e17.3, 0.56 at 1e18, 0.68 at 1e18.8 and 0.81 at 1e19.8, consistent with
   P100. Rosseland diffusion is good to ≈ 20 % from ≈ 1e19.5.
 - The noisy 1.2–2.5 of the earlier regime map came from the oscillation.
+
+---
+## S Plan: deuterium burning, nuclear network, through the main sequence (Tom, 20 Oct 2026)
+
+**Goal.** Follow the protostar born in the collapse (P100, z = 19) through deuterium burning and Kelvin–Helmholtz
+contraction onto the main sequence and through hydrogen burning. This also gives the luminosity and spectrum of the
+radiating star for the envelope-feedback problem.
+
+**What TITAN already has** (PORTING_NOTES phase 7):
+- Radiation hydrodynamics: E_r and F_r with Eddington factors, Compton exchange.
+- MLT convective flux in the energy equation.
+- Dorfi–Drury adaptive grid (lgrid = 1, used for the quasi-star accretion shock), an inner mass sink, TR-BDF2.
+- The Z = 0 Saha EOS and opacity (Z0Physics). Opacity table log T 3.3–8.0; EOS without degeneracy, valid below
+  ρ ≈ 1e-2 g cm⁻³; continuum opacity with no bound–bound lines.
+
+**What is missing:**
+- A nuclear network.
+- EOS and opacity for stellar interiors: degenerate and relativistic electrons, ρ up to ~1e3 g cm⁻³, T up to ~1e9 K,
+  composition-dependent.
+- Composition that evolves per zone, with mixing in convective regions.
+- Isolated-star validation runs.
+- The accretion phase.
+
+### S0 Literature and data
+1. Validation tables:
+   - Pop III ZAMS: Bromm, Kudritzki & Loeb 2001; Marigo et al. 2001; Schaerer 2002; Ekström et al. 2008.
+   - Accreting Pop III protostars: Stahler, Palla & Salpeter 1986; Omukai & Palla 2001, 2003; Hosokawa & Omukai 2009.
+   - Deuterium burning: Stahler 1988.
+2. Nuclear rates: JINA REACLIB, for the pp chains, CNO I–II, 3α, and D(p,γ), D(d,n), D(d,p).
+3. Screening: Chugunov, DeWitt & Yakovlev 2007, plus the weak-screening limit.
+4. OPAL GN93 Z = 0 tables, and a reference EOS (Timmes & Swesty Helmholtz) for testing.
+
+### S1 Nuclear network (`NucNet.jl`)
+- **Species:** p, D, ³He, ⁴He, ⁷Li, ⁷Be, ⁸B, ¹²C, ¹³C, ¹³N, ¹⁴N, ¹⁵N, ¹⁵O, ¹⁶O, ¹⁷O, ¹⁷F, ¹⁸O, ¹⁸F, ¹⁹F.
+- **Inputs:** REACLIB rates, including the weak decays.
+- **Energy release:** Q minus the mean neutrino energy per reaction.
+- **Solver:** an implicit step coupled to T at fixed ρ and u, the same structure as `ChemNet.step`.
+- **Tests:**
+  - pp-chain ε at solar-centre conditions;
+  - CNO equilibrium ratios and ε_CNO;
+  - 3α against NACRE/CF88;
+  - ε_D against Stahler 1988's fit;
+  - a one-zone Pop III core at 1.2e8 K, where 3α builds ¹²C to X_C ~ 1e-9 and CNO then takes over (Marigo et al.
+    2001).
+
+### S2 Stellar EOS
+- **Physics:** ions ideal; electrons at arbitrary degeneracy and relativity (Fermi–Dirac integrals); a smooth join to
+  the Saha region of Z0Physics; radiation stays in E_r.
+- **Inputs:** composition (X, Y, Z_CNO) per zone.
+- **Required:** AD-ready, thermodynamically consistent.
+- **Tests:** against the Helmholtz EOS, plus consistency identities.
+
+### S3 Stellar opacity
+- **Tables:** OPAL Z = 0 (log T 3.75–8.7) as a function of X; our ContinuumOpacity below 1e4 K (H₂ CIA, H⁻, Li).
+- **High T:** electron scattering with the Buchler–Yueh correction; conduction where it matters.
+- **Output:** Rosseland and Planck means.
+- **Tests:** continuity across the blends, and against published values.
+
+### S4 Composition and burning in TITAN
+- A per-zone nuclear abundance vector, with the material's EOS and opacity depending on it.
+- ε_nuc in the energy residual, implicit in T with the abundances lagged. The composition is then updated by the S1 step.
+- Convective mixing: an implicit diffusion step for the abundances, with D from the MLT velocity × mixing length.
+- **Tests:** energy conservation including nuclear energy; a mixing test on a convective core.
+
+### S5 Isolated Pop III stars (validation of S1–S4 together)
+- Masses 1, 15 and 100 M☉: from a pre-main-sequence polytrope through the ZAMS to hydrogen exhaustion.
+- Quasi-static evolution with large implicit steps; photosphere boundary condition from TITAN's radiation transfer.
+- **Compare:** L, T_eff, R, T_c, ρ_c and the main-sequence lifetime against Marigo et al. 2001, Schaerer 2002, Ekström
+  et al. 2008 and Bromm et al. 2001.
+
+### S6 The accreting protostar from the collapse
+- Continue P100 and z = 19 through the second collapse (H₂ dissociation, then H ionisation) into the accretion phase.
+- The adaptive grid resolves the accretion shock and its radiative precursor (as in quasi-star P7.6).
+- Deuterium burning, the luminosity wave, Kelvin–Helmholtz contraction, and arrival on the ZAMS.
+- **Compare:** R*(M*) and L*(M*) against Omukai & Palla 2003 and Hosokawa & Omukai 2009, at their accretion rates and
+  at the rate our envelope delivers.
+
+### S7 Feedback on the envelope (later)
+- UV from the star (H ionisation, Lyman–Werner H₂ photodissociation) and radiation pressure.
+- Needs frequency-dependent continuum transfer that feeds ChemNet's photo processes, with J_ν per zone.
+
+### Order
+1. S0 first.
+2. S1, S2 and S3 in parallel; they are separate modules.
+3. S4 after S1.
+4. S5 after S1–S4.
+5. S6 after S5.
+6. S7 last.
+
+Every item adds its tests to `popiii_tests.jl`.
