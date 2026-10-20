@@ -53,6 +53,10 @@ tests = Test[
          o -> (occursin("ALL PASS", o), grab(r"(ALL PASS|FAILED)[^\n]*", o))),
     Test("stellaropacity", julia(joinpath(J, "stellaropacity_test.jl"); t = 4), "full",
          o -> (occursin("ALL PASS", o), grab(r"(ALL PASS|FAILED)[^\n]*", o) * "; " * grab(r"opal_grid_points[^\n]*max[^\n]*", o))),
+    # --- S1 nuclear network (needs the REACLIB file in ~/Projects/popiii_lit/reaclib, see docs/POPIII_NOTES.md) -------------
+    Test("nucnet", julia(joinpath(J, "nucnet_test.jl"); t = 4), "full",
+         o -> (nf = count(r"\[FAIL\]", o) ; np = count(r"\[PASS\]", o);
+               (occursin("ALL PASS", o), @sprintf("%d checks pass, %d fail", np, nf)))),
     Test("chem_saha_db", julia("-e", """include("$(joinpath(J, "PrimordialChem.jl"))"); const PC = PrimordialChem
         ρ = 1e16 * PC.μH; T = 2200.0; y = (1e-11, 1e-18, 0.46, 0.0); u = PC.eos_rhfc02(ρ, T, y)[1]
         a = PC.step_coupled(y, ρ, u, T, 1e6, PC.rates_rhfc02(; k5 = T -> PC.k5_db(T))); b = PC.step_equilibrium(ρ, u, T, 1e6)

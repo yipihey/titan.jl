@@ -1717,3 +1717,41 @@ code, `ContinuumOpacity.means`, gives 2.60e-2, so that entry looks stale). Li el
 **Open.** MD05 and Lenzuni et al. 1991 numerical tables not obtained (MD05's are electronic only), so no comparison. Planck mean without
 lines above 4000 K. He Rayleigh cross section from memory. OPAL's last nodes in the hot rows (logT 8.5, log R −1) drop by 0.25 dex and cause
 curvature at 8.5–8.7. The M3c/regime τ's are column integrals; the check was done on local κ.
+### S1 Nuclear network (NucNet) [run]
+Files: `julia/NucNet.jl`, `julia/nucnet_test.jl` (45 checks, ~1 min), `popiii_tests.jl` entry `nucnet` (full tier; quick unchanged).
+- **Data** (not in the repo): `~/Projects/popiii_lit/reaclib/reaclib_default2_20250330` = JINA REACLIB snapshot 2025-03-30 as shipped
+  in pynucastro (release 3.1.0), sha256 24e1f37c…ba862; provenance/licence in the README there (pynucastro BSD-3; REACLIB cite Cyburt+ 2010).
+  Override path with `ENV["NUCNET_REACLIB"]`.
+- **Network**: 19 species (p, d, 3He, 4He, 7Li, 7Be, 8B, 12C, 13C, 13N, 14N, 15N, 15O, 16O, 17O, 17F, 18O, 18F, 19F), 31 reactions: pp, pep,
+  d(p,γ), 3He(3He,2p), 3He(α,γ), 7Be EC, 7Li(p,α), 7Be(p,γ), 8B decay, hep, d(d,n)3He and d(d,p)t, d(3He,p)α, CNO I/II
+  (+ 18F(p,α)15O), 3α, 12C(α,γ). All non-reverse REACLIB sets of a reaction summed. No reverse rates (Q ≥ 1.94 MeV for p-captures,
+  e^{-Q/kT} ≤ 1e-4 at T9 ≤ 0.3; none near equilibrium). d(d,n): neutron assumed captured at once (n+p→d), net d+p→3He (Q 5.4935);
+  d(d,p)t with t→3He lumped (Q 4.0513 incl. t decay, ⟨E_ν⟩ 0.0129). REACLIB 'ec' sets (7Be EC, p+p+e⁻) are per unit n_e:
+  λ_eff = λ ρ Y_e (7Be: REACLIB 1.414e-9 vs Bahcall/CF88 formula 1.400e-9 at 1.57e7 K; τ(7Be) = 82 d at the solar centre).
+- **Energy**: ε = N_A Σ (Q − ⟨E_ν⟩) rate; ⟨E_ν⟩ [MeV] (Bahcall 1989, Kippenhahn–Weigert): pp 0.265, pep 1.442, 7Be 0.814, 8B 6.71, 13N 0.707,
+  15O 0.997, 17F 0.999, 18F 0.382, hep 9.628. REACLIB Q vs AME2020 mass excesses: max |ΔQ| = 1.3 keV over all reactions.
+- **Screening**: `:chugunov` (Chugunov–DeWitt–Yakovlev 2007 eqs. 19/21, multi-component Z1Z2/z̃ form of Yakovlev+ 2006 as in pynucastro,
+  re-implemented), `:weak` (Salpeter 1954), `:none`. 3α: two sequential screens (α+α, α+8Be). Composition lagged within a substep.
+- **Integrators**: `burn(Y0,ρ,T,dt)` backward Euler, analytic Jacobian (= ForwardDiff to round-off), positivity damping, recursive halving;
+  returns time-averaged ε, ε_ν, ε by group (pp, d, cno, he) and integrated event counts. `burn_coupled(Y0,ρ,u,T0,dt,eos_u)` Newton on (Y, ln T) with
+  the ForwardDiff Jacobian, initial guess from the fixed-T solution, u_eos(ρ,T,Y) − u − dt ε = 0 (to 1e-12). `evolve` (adaptive), `steady`
+  (pseudo-transient, `frozen` species). Abundances below 1e-16 mol/g are clamped, not damped (LU noise at cond ~1e23).
+- **Tests** (numbers):
+  - a. Solar centre (1.57e7 K, ρ 150, X 0.34): ε_pp = 15.49 (3He equilibrium X3 = 7.5e-6, reached within 4.6 Gyr), ε_CNO = 1.00 (relaxed 4.6 Gyr)
+    / 2.45 (full CNO equilibrium), ε = 16.5; ε_ν/ε_tot = 3.5 %; 3He held at ×0.1/0.5/2 of equilibrium: ε_pp 6.3/9.8/31.5. Screening ε_pp: Chugunov
+    15.49, Salpeter 16.06, none 14.23 (pp factor 1.029 vs 1.050). pep/pp = 3.5e-3 (Bahcall–May 2.8e-3), 8B/pp 1.2e-3.
+  - b. CNO equilibrium: 12C/13C = 3.29 at 2e7 and 3e7 K (= λ13/λ12 of REACLIB, flat 3.27–3.29 over T9 0.015–0.05; below the 3.5–4 of
+    older fits), 14N 97/98 % of CNO; ε_CNO / Kippenhahn–Weigert (18.65, 8.24e25 g X_CNO X ρ T9^-2/3 exp(−15.231 T9^-1/3 − (T9/0.8)²)) = 0.69, 0.64.
+  - c. 3α REACLIB (fy05) / CF88: 0.966 (T9 0.1), 0.984 (0.2), 1.003 (0.3). NACRE (Angulo 1999) table values were not available offline; not compared.
+  - d. ε_D (d(p,γ), ρ = 1, D/H = 2.5e-5) vs Stahler 1988 eq. 48 (4.19e7 f [D/H] ρ T6^11.8): X = 0.70: ratio 0.968, 1.014, 0.680 at T6 = 0.8, 1, 1.5;
+    X = 0.75: 1.114, 1.167, 0.782 (ε ∝ X²). Effective index 11.24 over 0.8–1.5 (fit 11.8, so the fit overshoots above T6 ≈ 1.2).
+    τ_D = 1.7e6, 4.0e4, 2.8e3, 3.6e2, 34, 2.2, 0.068 yr at T6 = 0.6, 0.8, 1, 1.2, 1.5, 2, 3 (X = 0.7, ρ = 1). At D/H = 2.5e-5 and T6 = 1.5, d(d,n)/d(d,p)
+    destroy 4 % of D within one d(p,γ) e-folding.
+  - e. Pop III one-zone (ρ = 30; X = 0.75, D/H 2.5e-5, 3He/H 1e-5, 7Li/H 4.7e-10): X(12C) = 1e-11/1e-10/1e-9 at t = 1.3e4/8.4e4/1.6e5 yr (1.2e8 K),
+    5.6e6/1.1e7/2.0e7 yr (1.0e8 K), 93/9.0e2/4.3e3 yr (1.4e8 K). ε_CNO = ε_pp when X(CNO) = 2.4e-11 (X12 6e-13, t = 810 yr) at 1.2e8 K, 1.1e-10 (X12 2.2e-12,
+    2.3e6 yr) at 1.0e8 K, 6.8e-12 at 1.4e8 K; these agree with the KW equilibrium estimate (1.7e-11, 6.7e-11, 5.6e-12) within a factor 1.6 and are independent of ρ
+    (ε_pp and ε_CNO both ∝ ρ). X_CNO ~ 1e-9 (Ezer & Cameron) therefore needs T_c ≲ 8e7 K; at ρ = 30 and 8e7 K H is exhausted before CNO catches up
+    (max ε_CNO/ε_pp = 0.16). H lasts 4e5 yr at 1.2e8 K (ρ = 30).
+  - f. ΣA·Y − 1 ≤ 5e-15 in every run; Σ_r ΔZ_r N_r = Δ(ΣZY) to 1e-15 (weak events = e⁺ emitted/e⁻ captured); ∫(ε+ε_ν)dt vs −N_A Σ ΔY·M(AME2020): 2e-5–5e-5.
+    Coupled: u_eos(new) − u − dt ε = 5e-12 relative; ε agrees with fixed-T to 0.4 % at ΔT/T = 3e-4; dt = 1e12 s at 1.2e8 K, ρ = 30 is a thermal runaway (T × 3.2).
+  - g. burn: 20 µs per call (1 substep, 19 species); burn_coupled 176 µs; rates_k (31 reactions, screening) 4.7 µs.
