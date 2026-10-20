@@ -1382,3 +1382,40 @@ implicit transfer cooling.
 - F/F_D (extinction) is 0.63, 0.86 and 0.80–0.83 at log n = 18.2, 19.0 and 19.8–20.0. Diffusion with the extinction
   Rosseland mean is good to ≈ 20 % from 1e19.
 - The equilibrium table (pressure switch) takes over the centre at log n ≈ 17.3.
+
+### G2b TR-BDF2 stage failures in the infalling envelope [run]
+Problem: z = 19 cloud (`IC=abn02z19 TCMB=54.5 lines 200`, 500 steps): TR-BDF2 reached 0.7 Myr, θ = 0.55 4.9 Myr; 23 TR and
+51 BDF stage failures in 501 steps, each cut Δ × 0.05 (timstp then also damps the regrowth: Δ cycles 2e10 → 4e11 over ~8 steps).
+- **Diagnosis** (temporary instrumentation of `newton!`: per-iteration dmax and the zone/variable of each maximum, dense
+  re-solve of the 1000 × 1000 Newton system, scans of the first iteration over Δ and θ). Not a bug in y* (|y* − y_γ| ≤ 0.1 %), not
+  a convergence-test problem, not negative ρ/T. The failing stages start with a first Newton step of relative size 1e2–1e8 in
+  T, ρ, r at zones 85–135 (far from the envelope that limits Δ; the residual itself is ≤ 3e-3 of the row scale, in zones
+  186–188), which the 10 % damping (dtol) turns into 12–40 iterations (niter = 10; niter = 20 does not help). The block system
+  has cond ≈ 1e19–1e20 (row-equilibrated) at all steps, good and bad: any initial guess that is off in a soft direction is
+  amplified (dense LAPACK solve of the same system gives the same garbage, so it is the system, not matslv).
+  **The same state fails for θ = 0.55 and backward Euler too if Newton starts from `reset` (new := old, no predictor)**
+  (θ = 0.55: 5/5 failures, 10 iterations with dmax 7e3; the BE fallback likewise, hence be_fallback 0), and converges in
+  3 iterations (first dmax 4e-3) as soon as the radii/x_me are extrapolated, r = r_old + (dr/dt)Δ (variants: reset +
+  extrapolation of r, x_me only: 5/5 converge; reset + ghost/derived refresh only: 5/5 fail). TITAN's step.f always starts a step with
+  `peq`, i.e. with that extrapolation; zones in the envelope move u Δ ~ their width per step (that is what limits Δ). The
+  TR-BDF2 code lacked it in three places: (i) the BDF stage starts at y_γ, not at the extrapolated y_γ + C2Δ·(dr/dt);
+  (ii) the BE fallback and the Δ-cut restarts use `reset` only; (iii) `peq` at the start of the step extrapolates over Δ
+  where the TR stage covers γΔ (1.7 × overshoot). Ablation (z = 19, 501 steps): BDF predictor only: fail_tr 38, fail_bdf 0;
+  TR extrapolation over γΔ only: fail_tr 0, fail_bdf 40; neither: 38 + 2; both: 0 + 0. (With a predictor the BE fallback
+  also works: be_fallback 38–40 plus 10 sticky BE steps each, so those runs are partly first order.)
+- **Fix** (`TitanCore.predict!`, the second half of peq split out: grid extrapolation, boundary values, ghost/derived
+  quantities; `peq!` bit-identical, SOD/SUBC/SUPC step counts unchanged): `Trbdf2.step!` calls `peq` with dtime = γΔ (restoring
+  Δ afterwards), `predict!(halve = false)` before the BDF stage, after `reset` in the BE fallback, in the sticky-BE restart and
+  after the Δ × TFAC cut (the latter with the γ factor for the next TR stage). The solution of a converged step is unchanged
+  (initial guess only); TFAC, the tfac memory and the convergence test are untouched.
+- **Results.** z = 19, 501 steps (`m2c_abn02z19_lines_n200_g2b.log`): fail_tr 0, fail_bdf 0, be_fallback 0; t = 4.931 Myr,
+  T_c 172.9 K at log n_c 3.708 vs θ = 0.55 (`..._theta.log`) 4.932 Myr, 172.9 K, 3.707 (before: 0.7 Myr, 23 + 51 failures).
+  P100 (`lines 100`, `m2c_lines_n100_g2b_full.log`, to n = 1e18): 12 944 steps, 0 stage failures (final reference run: 15 794
+  steps, 72 + 293 failures); T_c at equal log n_c vs `m2c_lines_n100_final.log` at 7.9 / 8.9 / 9.9 / 10.9 / 11.9:
+  366.2 / 417.5 / 573.7 / 803.0 / 1053.6 K vs 363.5 / 415.9 / 570.6 / 796.4 / 1038.5 K (+0.7, +0.4, +0.5, +0.8, +1.5 %; t(11.9)
+  1.2907e6 vs 1.2981e6 yr, the 3000-step prefix `m2c_lines_n100_g2b.log` 0 failures). G2 dust-collapse order (T0 = 1e-6,
+  C_dyn 0.03 / 0.01 / 0.003, `m1_dust_g2b_cdyn*.log`): worst-shell errors at R/R0 = 0.1 5.87e-3 / 6.74e-4 / 6.05e-5, identical
+  to G2, order 1.97 and 2.00; steps 175 / 427 / 1412, 0 failures. BE discrete n = 60 7.35e-10 (`m1_be_g2b.log`), LP n = 200
+  (`m1_lp_g2b.log`) byte-identical to `m1_lp_trbdf2.log`; `popiii_tests.jl quick` 8/8 PASS.
+- Note: the G2 table needs `T0=1e-6`; at the default T0 = 1e-3 of `popiii_m1.jl dust` (also for the unmodified code) the error floors at
+  ~2e-4 for C_dyn ≤ 0.01 (pressure).
