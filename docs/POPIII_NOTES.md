@@ -1356,3 +1356,29 @@ The interior departs from the read-off by 0.10–0.15 dex between 0.2 and 5 pc, 
 hydrostatic mass saturates. The default is the read-off accuracy of the figure (≈ 0.15 dex). It gives 4.8 pc,
 against 7.4 pc (LRJOIN=0.87) chosen by hand earlier. A numerical number can be set with LRJOIN=<log r>. Tom's profile
 data would remove the read-off uncertainty.
+
+### Final P100 reference run (all generalisations on) [run]
+**Set-up:**
+```
+INTEGRATOR=trbdf2 AVZONE=2 CHEM=netmodernli NLTE=hyb SNAPS=1 NSTOP=1e21 popiii_m2c.jl lines 100
+```
+This is TR-BDF2, viscosity ∝ zone width, the detailed-balance network with Li, non-LTE H₂ lines (ALI, hybrid), and
+implicit transfer cooling.
+- **Integration:** 15 794 steps. There were 72 TR and 293 BDF stage retries and no backward-Euler fallback; implicit
+  line cooling was never needed.
+- **T_c [K] by log n_c:**
+
+  | log n_c | 8.1 | 10.2 | 12.0 | 14.2 | 16.2 | 18.2 | 20.2 |
+  |---|---|---|---|---|---|---|---|
+  | T_c | 372 | 627 | 1069 | 1715 | 2158 | 3160 | 5942 |
+  | ON98 | 407 | 596 | 1126 | 1701 | 2338 | 3924 | — |
+
+  The run stays within 1–5 % of the earlier tracks.
+
+**Regime map** (`popiii_regimes.jl`, central shell; `lib/popiii/regimes_p100_final.txt`), against M3c:
+- The centre's H₂ lines become thick (τ_line = 1) at log n ≈ 9.9.
+- τ_R = 1 at log n ≈ 16.3, as in M3c.
+- The windows are thermalised (f_win = 0) by log n ≈ 16.7, slightly earlier than M3c's 17.5.
+- F/F_D (extinction) is 0.63, 0.86 and 0.80–0.83 at log n = 18.2, 19.0 and 19.8–20.0. Diffusion with the extinction
+  Rosseland mean is good to ≈ 20 % from 1e19.
+- The equilibrium table (pressure switch) takes over the centre at log n ≈ 17.3.
