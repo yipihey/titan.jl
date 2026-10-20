@@ -1,0 +1,23 @@
+M2c collapse [IC abn02z19]: cooling lines, 200 shells (q = 1.1167, dm1 = 3e-7 Msun), R = 1.682e+20 cm, rho_c/rho_edge = 6203.1, T_edge = 989.5 K, p_ext = 2.450e-14
+theta = 0.55, C_dyn = 0.01, k5 = pss, chemistry netmodernli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 1.391e+06 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+    317    3.388 3.5046e+06     155.0     251.2  1.075e-03     -1.850  1.72e-03  2.96e+11  L_lines 9.311e+32  bins 0, thick lines 0
+    419    3.638 4.3473e+06     182.8     251.2  1.112e-03     -1.796  3.49e-03  2.22e+11  L_lines 1.713e+33  bins 0, thick lines 0
+    500    3.703 4.8917e+06     166.9     251.2  1.140e-03     -1.731  2.52e-03  2.06e+11  L_lines 2.026e+33  bins 0, thick lines 0
+    827    3.886 6.8295e+06     146.4     251.2  1.207e-03     -1.613  1.14e-03  1.67e+11  L_lines 2.290e+33  bins 0, thick lines 0
+   1000    3.999 7.6857e+06     146.8     251.2  1.232e-03     -1.498  1.10e-03  1.46e+11  L_lines 2.236e+33  bins 0, thick lines 0
+   1240    4.137 8.7143e+06     146.6     251.2  1.262e-03     -1.285  9.86e-04  1.25e+11  L_lines 2.158e+33  bins 0, thick lines 0
+   1500    4.277 9.6641e+06     147.7     251.2  1.289e-03     -1.332  8.92e-04  1.06e+11  L_lines 2.053e+33  bins 0, thick lines 0
+   1707    4.387 1.0319e+07     149.6     251.2  1.308e-03     -1.203  8.45e-04  9.37e+10  L_lines 1.983e+33  bins 0, thick lines 0
+   2000    4.543 1.1115e+07     154.0     251.2  1.334e-03     -0.904  8.09e-04  7.83e+10  L_lines 1.939e+33  bins 0, thick lines 0
+   2171    4.637 1.1517e+07     157.4     251.2  1.348e-03     -0.760  8.01e-04  7.02e+10  L_lines 1.937e+33  bins 0, thick lines 0
+   2500    4.826 1.2177e+07     166.0     251.2  1.375e-03     -0.418  8.02e-04  5.65e+10  L_lines 1.963e+33  bins 0, thick lines 0
+   2601    4.886 1.2351e+07     169.3     251.2  1.383e-03     -0.314  8.06e-04  5.27e+10  L_lines 1.978e+33  bins 0, thick lines 0
+   2989    5.137 1.2916e+07     184.7     251.2  1.417e-03     -0.320  8.32e-04  3.95e+10  L_lines 2.069e+33  bins 0, thick lines 0
+   3000    5.144 1.2929e+07     185.2     251.2  1.418e-03     -0.320  8.33e-04  3.92e+10  L_lines 2.073e+33  bins 0, thick lines 0
+   3335    5.387 1.3293e+07     203.6     251.2  1.450e-03     -0.333  8.77e-04  2.96e+10  L_lines 2.216e+33  bins 0, thick lines 0
+   3500    5.517 1.3437e+07     214.9     251.2  1.468e-03     -0.349  9.11e-04  2.55e+10  L_lines 2.320e+33  bins 0, thick lines 0
+   3644    5.637 1.3546e+07     226.3     251.2  1.484e-03     -0.365  9.48e-04  2.22e+10  L_lines 2.435e+33  bins 0, thick lines 0
+   3921    5.886 1.3716e+07     252.7     251.2  1.521e-03     -0.401  1.03e-03  1.67e+10  L_lines 2.749e+33  bins 0, thick lines 0
+   4000    5.963 1.3756e+07     261.6     251.2  1.533e-03     -0.414  1.06e-03  1.53e+10  L_lines 2.868e+33  bins 0, thick lines 0
+implicit line cooling on 0 steps

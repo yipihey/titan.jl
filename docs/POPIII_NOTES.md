@@ -1413,3 +1413,17 @@ IC=abn02z19 TCMB=54.5 AVZONE=2 CHEM=netmodernli NLTE=hyb SNAPS=1 NSTOP=1e21 popi
 - The windows are thermalised by ≈ 17.
 - F/F_D (extinction) is 1.2–1.5 at ≥ 1e19, against 0.8 for P100. The central temperature gradient is almost flat, which
   makes the ratio noisy, so Rosseland diffusion is good to 20–50 % there.
+- **Attribution of the slower contraction.** Each run below changes one setting relative to the final run; t is the
+  time to n_c = 1e5:
+
+  | run | t(1e5) [Myr] |
+  |---|---|
+  | final (NLTE=hyb, automatic splice at 4.8 pc) | 20.3 |
+  | NLTE=1 (old GP98/HM79 factor), else as final | 12.9 |
+  | LRJOIN=0.87 (old splice at 7.4 pc), else as final | 21.6 |
+  | v2 (old everything: RHFC02 chemistry, NLTE=1, 7.4 pc, ql1 viscosity) | 14.6 |
+
+  The H₂ level populations account for the whole delay, a factor of 1.6. The old factor reaches LTE too early, which
+  overestimates the cooling of the cloud at n ≈ 1e3–1e5. The splice changes the time by only 6 %, and the remaining
+  differences from v2 (chemistry, viscosity) by about 12 %. The minimum core temperature changes little (142 K against
+  147 K).
