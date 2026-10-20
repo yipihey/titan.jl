@@ -1650,3 +1650,58 @@ branch has no degeneracy and no molecules (H₂ below ≈3500 K), metals are neu
 0.0074 kT per ion to join the Γ < 1 fit continuously. (4) Pair plasma: η is ill-conditioned when n₊ ≫ n_net (rel. error up to 1e-5 in η; p, e, s unaffected); 55 µs.
 (5) `StellarGas` opacity is a placeholder (S3). The Helmholtz download (untrusted) lives in `~/Projects/popiii_lit/helmholtz/` (README there; not in the repo);
 test section D is skipped if absent.
+### S3 Stellar opacity [run]
+**Code.** `julia/StellarOpacity.jl` (run time: table + AD-ready interpolation + analytic high-T model), `StellarOpacityLow.jl`
+(own low-T means, general-X equilibrium), `stellaropacity_build.jl` / `stellaropacity_data.jl` (builder, parsers; 40 s on 4
+threads), `stellaropacity_test.jl` (14 checks, "full" tier entry `stellaropacity`), table `julia/stellar/kaptable_stellar.bin.gz`
+(3.5 MB), build log `lib/popiii/s3_stellaropacity_build.log`.
+API: `kappa_R(ρ,T,X)` (with conduction), `kappa_R_rad`, `kappa_cond`, `kappa_P`, `kappas`, `log_kappa_R(lT,lR,X)`, `in_table`, `coverage`.
+κ_R 0.35 µs, with gradient in (ρ,T,X) 0.7 µs.
+
+**Provenance** (`~/Projects/popiii_lit/opal/README.md`; nothing downloaded is in the repository). OPAL GN93hz (Iglesias & Rogers 1996),
+Z = 0 tables X = 0, .1, .2, .35, .5, .7, .8, .9, .95, 1, from MESA's copy (opalopacity.llnl.gov unreachable from the sandbox; sha256 in
+README). Cassisi et al. 2007 conduction tables from MESA. Entries logT = 8.7, logR ≤ −7 of OPAL are placeholders (identical in all
+tables, −0.668/−0.931/−1.004 vs ≈ −1.017) and are masked.
+
+**Coverage.** Grid log T 1.5–9.5 (Δ0.025) × log R −15…+5 (Δ0.25) × the 10 X nodes; Catmull–Rom bicubic in (log T, log R) on log κ, PCHIP
+in X (monotone, C¹). X ∈ [0, 1]; Y = 1 − X, Z_CNO = 0. Region by log T (X = 0.7 node counts: OPAL data 26 %, own means 29 %,
+extended 41 %, blends 3 %):
+- 1.5–3.8: own continuum means (CIA, H⁻, Rayleigh H₂/H/He, Thomson) in chemical + Saha equilibrium for general X, with Li electrons (same
+  Saha chemistry as `PrimordialChem.y_saha`: f_H₂ agrees to 1e-6 at X = 0.75). No H₂ or atomic lines. HITRAN CIA held at 200 K below it.
+  X ≲ 0.05: not reliable (no He opacity beyond Rayleigh: OPAL − own = +0.4…+2.6 dex at X = 0).
+- 3.8–4.1: log κ blend (smoothstep) own ↔ OPAL.
+- 4.1–8.7, log R −8…+1: OPAL exactly (|Δ| ≤ 7e-15 at 11 520 nodes). Outside OPAL's R range or its hot high-R corner: extended OPAL (flag 2).
+  log T 4.1–5.5 beyond log R = 1: linear in log R with OPAL's last slope (clamped to [0, 1.2]); below log R = −8 saturating
+  extension. From 5.5 to 6.5 the extension changes smoothly to the high-T model anchored to OPAL (κ_high + Δ, Δ = OPAL − κ_high held
+  at the last valid node of each row, and for T > 8.7 at the 8.7 row). Quality there is an extrapolation: do not trust it above ~log R = 3.
+- Conduction (all T, switched on over log ρ −6…−5 and log T 4…5): 1/κ = 1/κ_rad + w_c/κ_cond, κ_cond = 16σT³/(3ρK) with Cassisi's K,
+  1/K = X/K_H + Y/K_He. Negligible except in degenerate matter: at ρ = 150, T = 1.5e7 (solar centre) κ_cond/κ_rad = 1000; a He core
+  at ρ = 1e6, 1e7 K has κ_rad 390, κ_cond 6e-5 (conduction decides). During Pop III hydrogen burning ρ_c ≲ 1e2–1e3: irrelevant.
+- Planck mean: own means below 3.8; blend over 3.8–4.1; above, the Z0Physics continuum Planck mean for general X (Saha H/He, bound-free,
+  free-free with g = 1, H⁻), times the free-free Pauli factor above 1e6 K. **No lines** (a lower bound at 10⁴–10⁵ K, where lines raise κ_P
+  by a factor of a few), agrees with the Z0Physics table at X = 0.76 to ≤ 0.3 % for log R ≤ −4, log T 4.5–7.
+
+**High-T model** (`kappa_high`): κ_es = 0.2(1+X) f_T D with f_T = 1/(1+(T/4.5e8)^0.95) (Buchler–Yueh/Paczyński form; exponent refitted from
+0.86 to OPAL's R = 1e-8 column, 1 % over 1e6–3e8 K), D = 1/(1+2.7e11ρ/T²) (Paczyński degeneracy), plus free–free 3.68e22 g(T)(1+X)ρT^-3.5/
+(1+22.2·2.7e11ρ/T²)^0.366 with g(T) quadratic in log T: **empirical** 5-parameter fit to OPAL (rms 0.063 dex, log T 6.8–8.5, log R ≥ −3).
+Itoh's relativistic free–free and Cassisi-style degenerate scattering were not used (fits not at hand). OPAL − κ_high at X = 0.7:
+≤ 0.01 dex for log R ≤ −4 everywhere; log T 7: −0.07…+0.03 (R −1…−3); 8.0: +0.02 (R −1); 8.7: +0.03 (R −2.5), +0.135 (R −1.5, relativistic
+degenerate edge). Beyond log T 8.7 the offset Δ is held; pair production (T ≳ 3e9) not modelled.
+
+**Mismatches.** OPAL − own means (log10 κ_R), X = 0.7, over the 19 OPAL columns: mean/max +0.015/+0.04 at log T 3.80, +0.043/+0.08 at 3.90,
++0.079/+0.19 at 4.00, +0.119/+0.36 at 4.10 (own means lack H lines). X = 0.1…1 similar. κ_OPAL/κ_Z0(table, continuum only), X = 0.76, median
+(range) over log R −8…1: log T 4.0: 1.14 (1.0–1.4); 4.5: 3.6 (1–17); 5.0: 2.5 (1–8); 5.5: 1.33 (1–5.5); 6.0: 1.00 (0.76–1.28); 6.5: 0.98 (0.53–0.99);
+7.0: 0.97 (0.49–0.99); 8.0: 0.81 (0.41–4.3); the < 1 values at large R are electron degeneracy that Z0Physics lacks.
+
+**Tests** (all PASS): OPAL nodes 7e-15; reference (7.0,−3,0.7) = −0.412 etc. equal raw; off-node vs OPAL's Hermite 2e-3 dex max; gradient
+jumps across edges and blend knots ≤ 2e-6 (log T), 5e-9 (log R), 1.3e-6 (X); AD vs FD 7e-9; κ→0.2(1+X)f_T within 2 %; own means vs
+`ContinuumOpacity.means` on the same composition: κ_P 1e-5, κ_R 0.5 % (He Rayleigh); table vs direct at the M3c points (n_H 1e14–1e21,
+1500–6000 K, X = 0.75) ≤ 0.2 %; fine-grid interpolation error in the molecular regime rms 0.003, max 0.027 dex (steep Li-ionisation onset).
+**M3c numbers.** Recomputing the M3c table (no Li) with the new solver gives κ_P/κ_R = 4.49e-8/1.17e-9, 4.97e-6/7.45e-6, 3.35e-4/5.62e-5,
+2.60e-2/3.17e-3, 6.38/4.94 for (n_H, T) = (1e14, 1500) … (1e21, 6000); the M3c table has κ_P = 2.3e-2 at (1e20, 4000) (13 % lower; the
+code, `ContinuumOpacity.means`, gives 2.60e-2, so that entry looks stale). Li electrons matter: at (1e14, 1500) κ_R(ext) is 3.0e-7 with Li,
+1.2e-9 without (the M3c table is the Li-free case).
+
+**Open.** MD05 and Lenzuni et al. 1991 numerical tables not obtained (MD05's are electronic only), so no comparison. Planck mean without
+lines above 4000 K. He Rayleigh cross section from memory. OPAL's last nodes in the hot rows (logT 8.5, log R −1) drop by 0.25 dex and cause
+curvature at 8.5–8.7. The M3c/regime τ's are column integrals; the check was done on local κ.
