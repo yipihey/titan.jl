@@ -17,9 +17,10 @@ include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
 using ForwardDiff
-# INTEGRATOR=trbdf2: second-order L-stable TR-BDF2 (Trbdf2.jl, G2) instead of TITAN's theta scheme
+# INTEGRATOR=trbdf2 (default) | theta: second-order L-stable TR-BDF2 (Trbdf2.jl, G2) or TITAN's theta scheme
 include(joinpath(@__DIR__, "Trbdf2.jl"))
-get(ENV, "INTEGRATOR", "theta") == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
+# default since G2b: θ = 0.55 lets the z = 19 core oscillate at 1e11–1e13 (three-body heating phase) where TR-BDF2 is smooth
+get(ENV, "INTEGRATOR", "trbdf2") == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
 const Msun = 1.98847e33
 
 cool = isempty(ARGS) ? "ra04" : ARGS[1]; nsh = length(ARGS) > 1 ? parse(Int, ARGS[2]) : 100
@@ -215,8 +216,9 @@ if yz !== nothing
     for j in 1:nsh; ystore[a0+j-1] = yz[j]; end
     for k in 1:a0-1; ystore[k] = yz[1]; end; for k in a0+nsh:length(ystore); ystore[k] = yz[end]; end
 end
-const IMPCOOL = get(ENV, "IMPCOOL", "1") == "1"                 # G7: transfer cooling implicit in T (linearised in ln T)
+const IMPCOOL = get(ENV, "IMPCOOL", "1") in ("1", "2")               # G7: transfer cooling implicit in T (linearised in ln T)
 const DTCOOL = parse(Float64, get(ENV, "DTCOOL", "1.0"))
+const IMPALWAYS = get(ENV, "IMPCOOL", "1") == "2"                  # IMPCOOL=2: slope every step
 const NIMP = Ref(0)                                                  # steps with implicit line cooling
 const CHEM = get(ENV, "CHEM", "rhfc02")     # rhfc02: PrimordialGas (RHFC02 network, ρ_eq switch); net / netmodern / netmodernli: NetGas (G5)
 if CHEM == "rhfc02"
@@ -274,8 +276,8 @@ const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
 const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(ENV, "SNAPEVERY", "0"))
 # NLTE (line source functions): 1 = GP98/HM79 factor on S (old default), 0 = LTE, ep = statistical equilibrium with escape
 # probabilities (H2Levels), ali = statistical equilibrium coupled to the transfer (ALI, G6c), hyb = ALI every NALI steps
-# and EP × (ALI/EP per zone, from the last ALI) in between
-const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALIFAC = Ref{Vector{Float64}}(Float64[])
+# and EP × (ALI/EP per zone, from the last ALI) in between, the interval adaptive (see linecool)
+const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALIFAC = Ref{Vector{Float64}}(Float64[]); const ALILAST = Ref(-10^9); const ALIINT = Ref(1); const NALICALL = Ref(0)
 NLTE in ("ep", "ali", "hyb") && include(joinpath(@__DIR__, "H2Levels.jl"))
 const HLV = NLTE in ("ep", "ali", "hyb") ? H2Levels.load() : nothing
 "Line cooling per zone (and Lr) for zone temperatures tt; step k (for NLTE=hyb)."
@@ -285,9 +287,16 @@ function linecool(rr, uu, dd, tt, nh2, k)
         nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nsh], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nsh])
         NLTE != "hyb" && return H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep)
         Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep)
-        if k % NALI == 0 || length(ALIFAC[]) != nsh
+        # ALI refresh interval adaptive (≤ NALI): halved when the ALI/EP factor moved by > 5 % since the last refresh,
+        # doubled when < 1 % — a factor frozen while the lines turn thick jumps at the refresh and kicks the core
+        if k >= 0 && (k - ALILAST[] >= ALIINT[] || length(ALIFAC[]) != nsh)
             Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali)
-            ALIFAC[] = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? Λa[j] / Λe[j] : 1.0 for j in 1:nsh]
+            fnew = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? Λa[j] / Λe[j] : 1.0 for j in 1:nsh]
+            if length(ALIFAC[]) == nsh
+                δ = maximum(abs.(log.(fnew ./ ALIFAC[])))
+                ALIINT[] = δ > 0.05 ? max(1, ALIINT[] ÷ 2) : δ < 0.01 ? min(NALI, 2ALIINT[]) : ALIINT[]
+            end
+            ALIFAC[] = fnew; ALILAST[] = k; NALICALL[] += 1
             return Λa, Lra, xa
         end
         return Λe .* ALIFAC[], Lr, x
@@ -325,7 +334,7 @@ try
             # G7 (IMPCOOL=1, default): where the explicit cap Δt ≤ 0.1 t_cool would bind, the slope d ln Λ/d ln T from a
             # second transfer call with all T × (1 + ε) makes Λ_j (T/T_j)^s implicit in the chemistry step, and the cap
             # relaxes to Δt ≤ DTCOOL t_cool (default 1); otherwise Λ is held fixed (explicit, accurate there)
-            if IMPCOOL && 0.1tcmin < TF.getscalar(:dtime)
+            if IMPCOOL && (IMPALWAYS || 0.1tcmin < TF.getscalar(:dtime))
                 ε = 0.02; Λp, _, _ = linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1)
                 for j in 1:nsh
                     Λl[j] != 0 && Λp[j] / Λl[j] > 0 && (mat.slope[a+j-1] = clamp(log(Λp[j] / Λl[j]) / log(1 + ε), -10.0, 30.0))
@@ -368,5 +377,6 @@ catch e
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
+NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
 close(io)

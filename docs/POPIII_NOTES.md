@@ -1464,3 +1464,46 @@ Problem: z = 19 cloud (`IC=abn02z19 TCMB=54.5 lines 200`, 500 steps): TR-BDF2 re
   (`m1_lp_g2b.log`) byte-identical to `m1_lp_trbdf2.log`; `popiii_tests.jl quick` 8/8 PASS.
 - Note: the G2 table needs `T0=1e-6`; at the default T0 = 1e-3 of `popiii_m1.jl dust` (also for the unmodified code) the error floors at
   ~2e-4 for C_dyn ≤ 0.01 (pressure).
+
+### Core oscillation in the z = 19 run at 1e11–1e13: numerical; fixed [run]
+**Symptom.** The "Final z = 19" run (θ-scheme, NLTE=hyb) and its TR-BDF2 repeat were non-monotone in n_c between 1e11
+and 1e13: n_c fell back by up to 0.8 dex, T_c swung by about 40 %, and T was ragged from shell to shell by ±15 %. The
+per-shell line cooling Λ_j/n_H₂ was ragged by factors of 2–10. Diagnosis, one change at a time (z = 19, 200 shells
+unless stated):
+
+| variant | oscillates |
+|---|---|
+| NLTE=1 (old factor) | no |
+| θ + NLTE=ep / CHEM=rhfc02 / AVZONE=0 / LRJOIN=0.87 / IMPCOOL=2 (implicit cooling every step) | yes, in every case |
+| TR-BDF2 + NLTE=ep at 100, 200 and 400 shells | no; the three tracks agree within ≈ 5 % |
+| TR-BDF2 + NLTE=hyb at 100 and 200 shells | yes |
+
+- Field's isobaric criterion holds: d(Λ − Γ_3b)/d ln T at constant P is +7 to +27 Λ. So this is not a local thermal
+  instability.
+- Three-body formation heating is comparable to the line cooling there, Γ/Λ = 0.8–4. That makes the core sensitive,
+  but it doesn't by itself oscillate.
+
+**Causes** (both numerical):
+1. The weakly damped θ = 0.55 scheme amplifies the core's response.
+2. The hybrid scheme's ALI/EP factor was frozen for 20 steps while the lines turned thick. The ratio changes by up to
+   2× in that time, so each refresh jumped and kicked the core.
+
+**Fixes** (general):
+- `popiii_m2c.jl` now uses TR-BDF2 by default; `INTEGRATOR=theta` restores the old scheme.
+- The hybrid refresh interval is adaptive. It is halved when the factor moved by more than 5 % since the last refresh
+  and doubled, up to NALI, when it moved by less than 1 %. The z = 19 run made 2038 ALI calls in 9742 steps.
+
+**Rerun** `m2c_abn02z19_lines_n200_final2.log`, with all generalisations. This replaces the "Final z = 19" run.
+- 9742 steps, with 1 BDF retry recovered by backward Euler. It is monotone.
+
+| log n_c | 6 | 8 | 10 | 11 | 12 | 13 | 14 | 16 | 18 | 19 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| T_c [K] | 260 | 628 | 824 | 1061 | 1314 | 1551 | 1796 | 2271 | 3262 | 4279 |
+
+**Regime map** (`regimes_z19_final2.txt`):
+- The central lines are thick from 1e10.4.
+- τ_R = 1 at 1e16.3.
+- The windows are thermalised by 1e17.
+- F/F_D (extinction) rises smoothly: 0.41 at 1e17.3, 0.56 at 1e18, 0.68 at 1e18.8 and 0.81 at 1e19.8, consistent with
+  P100. Rosseland diffusion is good to ≈ 20 % from ≈ 1e19.5.
+- The noisy 1.2–2.5 of the earlier regime map came from the oscillation.
