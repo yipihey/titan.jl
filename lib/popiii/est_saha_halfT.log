@@ -1,0 +1,9 @@
+# half-dissociation T (x_H2 = 2nH2/nHt = 0.5) and half-ionisation T vs n_H(tot)
+n_H=1e10  rho= 2.20e-14  T_half_diss=   1584 K  T_half_ion=    6040 K
+n_H=1e12  rho= 2.20e-12  T_half_diss=   1839 K  T_half_ion=    7233 K
+n_H=1e14  rho= 2.20e-10  T_half_diss=   2192 K  T_half_ion=    9006 K
+n_H=1e16  rho= 2.20e-08  T_half_diss=   2708 K  T_half_ion=   11822 K
+n_H=1e18  rho= 2.20e-06  T_half_diss=   3555 K  T_half_ion=   17009 K
+n_H=1e20  rho= 2.20e-04  T_half_diss=   5170 K  T_half_ion=   28856 K
+n_H=1e22  rho= 2.20e-02  T_half_diss=   9659 K  T_half_ion=   71538 K
+n_H=1e24  rho= 2.20e+00  T_half_diss=  99311 K  T_half_ion=  316228 K
