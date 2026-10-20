@@ -11,6 +11,13 @@ One step of size Δ from y_n:
    residual reads the old state only through conserved combinations (mass m = ρ dV, m e_g, m(e_g + E/ρ), E dV,
    mass-weighted momentum, the flux-row inertia F·2M/(ρ₋+ρ₊), the exterior mass coordinate), so y* is formed on those
    and written back into the old arrays (do, ego, egro, ero, uo, fro, xmeo). Terms with weight 1 − θ vanish at θ = 1.
+Newton's initial guess of every solve is the grid extrapolated with the grid velocities over the stage (TitanCore.predict!,
+the second half of peq: r = r_old + (dr/dt) dt, x_me likewise, ghost zones, derived quantities), also after a reset and for
+the backward-Euler fallback. Without it the BDF stage and the fallback start from y_γ resp. y_n: with zones moving
+u Δ ~ their width (the Δ-limiting infall envelope), Newton's first step is garbage (relative T changes of 1e2–1e6 in
+distant zones through a block system with condition number 1e19), damped to 10 % per iteration, and the stage fails;
+the θ-scheme never sees this because step.f starts every step with peq. peq itself is called with dtime = γΔ so that the
+TR stage is extrapolated over γΔ, not Δ.
 After the step the old arrays are restored to y_n, so TITAN's step-size control (timstp) and the energy ledger see the
 whole step Δ. If either stage fails, the same Δ is retried with backward Euler (FALLBACK_BE); only if that fails too is
 the step restarted from y_n with Δ × TFAC[]. Steps taken that way are first order (counted in STATS[:be_fallback]).
@@ -120,7 +127,10 @@ end
 "Drop-in for TitanDriver.step! (TR-BDF2)."
 function step!()
     Int(g(:lgrid)) in (2, 3) || error("Trbdf2: lgrid = 2 or 3 only")
+    # peq extrapolates the grid over dtime: that is the TR stage (γΔ), not the whole step (BE_LEFT > 0: backward Euler over Δ)
+    Δ0 = g(:dtime); BE_LEFT[] > 0 || s!(:dtime, γ * Δ0)
     r(:peq)
+    s!(:dtime, BE_LEFT[] > 0 ? g(:dtime) : g(:dtime) / γ); s!(:timen, g(:timeo) + g(:dtime))   # peq may have halved dtime
     θ0 = g(:thet); t0 = g(:timeo)
     save!()
     s!(:jtry, 1); s!(:jback, 0)
@@ -133,7 +143,7 @@ function step!()
             if ok; STATS[:be_sticky] = get(STATS, :be_sticky, 0) + 1; break; end
             restore!(); TD.msg(1)
             s!(:tfac, TFAC[]); s!(:dtime, TFAC[] * Δ); s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)
-            r(:reset); s!(:timen, t0 + g(:dtime)); continue
+            r(:reset); s!(:timen, t0 + g(:dtime)); TitanCore.predict!(; halve = false); continue
         end
         s!(:thet, 0.5); s!(:dtime, γ * Δ); s!(:timen, t0 + γ * Δ)
         ok = newton!()
@@ -142,6 +152,7 @@ function step!()
         else
             if bdf_old!()
                 s!(:thet, 1.0); s!(:dtime, C2 * Δ); s!(:timen, t0 + Δ)
+                TitanCore.predict!(; halve = false)       # initial guess y* + C2 Δ f from the grid velocities
                 ok = newton!()
                 ok || (STATS[:fail_bdf] += 1)
             else
@@ -151,14 +162,14 @@ function step!()
         restore!(); s!(:thet, θ0); s!(:dtime, Δ); s!(:timen, t0 + Δ)
         ok && break
         if FALLBACK_BE[]          # same Δ with backward Euler from y_n before cutting the step
-            r(:reset); s!(:thet, 1.0); s!(:timen, t0 + Δ)
+            r(:reset); s!(:thet, 1.0); s!(:timen, t0 + Δ); TitanCore.predict!(; halve = false)
             ok = newton!(); s!(:thet, θ0)
             ok && (STATS[:be_fallback] += 1; BE_LEFT[] = STICKY[]; break)
         end
         TD.msg(1)
         s!(:tfac, TFAC[]); s!(:dtime, TFAC[] * Δ)
         s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)
-        r(:reset); s!(:timen, t0 + g(:dtime))
+        r(:reset); s!(:timen, t0 + g(:dtime)); TitanCore.predict!(; halve = false, dtscale = γ)   # next: the TR stage
     end
     STATS[:steps] += 1
     r(:totnrg)

@@ -1,0 +1,11 @@
+M2c collapse [IC abn02z19]: cooling lines, 200 shells (q = 1.1167, dm1 = 3e-7 Msun), R = 1.682e+20 cm, rho_c/rho_edge = 6203.1, T_edge = 989.5 K, p_ext = 2.450e-14
+theta = 0.55, C_dyn = 0.01, k5 = pss, chemistry rhfc02, rho_eq = 5e-11, eq EOS Saha+SCVH95, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 1.391e+06 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+    333    3.387 3.6786e+06     156.2     251.2  9.342e-04     -1.873  1.72e-03  2.96e+11  L_lines 1.093e+33  bins 0, thick lines 0
+        dt limit: u in zone 158 (rel. change -2.30e-02, stol/smax = 11.98)
+    411    3.637 4.3538e+06     199.6     251.2  9.486e-04     -1.838  3.81e-03  2.22e+11  L_lines 1.792e+33  bins 0, thick lines 0
+        dt limit: u in zone 2 (rel. change 3.46e-02, stol/smax = 6.40)
+    500    3.708 4.9313e+06     172.9     251.2  9.679e-04     -1.760  2.78e-03  2.05e+11  L_lines 2.106e+33  bins 0, thick lines 0
+        dt limit: u in zone 166 (rel. change 1.63e+00, stol/smax = 44.13)
+implicit line cooling on 0 steps
+integrator TR-BDF2, statistics Dict(:fail_tr => 0, :fail_bdf => 0, :steps => 501, :be_fallback => 0)
