@@ -119,6 +119,10 @@ function maxdel!()
 end
 
 # ------------------------------------------------------------------ timstp (timstp.f)
+"S4: when the velocity extrapolation of peq would make the grid non-monotonic, start Newton from the old grid instead of halving dtime (default false: TITAN)."
+const STATIC_FALLBACK = Ref(false)
+"S4: functions `() -> dt_max` consulted at the end of timstp! (e.g. the composition criterion of StarMaterial). Empty = TITAN's rule."
+const DT_HOOKS = Function[]
 function timstp!()
     a, b = gi(:ngrs), gi(:ngre); neqn = gi(:neqn)
     lhydr, lrad, ltur = gi(:lhydr), gi(:lrad), gi(:ltur)
@@ -174,6 +178,10 @@ function timstp!()
             (rn[k] > 0 && xmn[k] > 0) && (tdyn = min(tdyn, sqrt(rn[k]^3 / (G4π * xmn[k]))))
         end
         dtn = min(dtn, DT_DYN[] * tdyn); tfac = dtn / dt0
+    end
+    for h in DT_HOOKS                      # S4: material time-step criteria (composition change, ...): h() -> dt cap [s]
+        cap = h()
+        cap < dtn && (dtn = max(cap, 1e-3 * dt0); tfac = dtn / dt0)
     end
     s!(:tfac, tfac)
     s!(:dtime, dtn)
@@ -414,6 +422,10 @@ function predict!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[](), halve::B
             (rn[k+1] <= rn[k] || xmen[k+1] > xmen[k]) && (mono = false; break)
         end
         mono && break
+        if STATIC_FALLBACK[]            # S4: quasi-static runs with dt ≫ zone crossing time: use the old grid as the initial guess
+            @inbounds for k in a:b+1; rn[k] = ro[k]; xmen[k] = xmeo[k]; end
+            break
+        end
         if halve
             s!(:tfac, 0.5); s!(:dtime, 0.5 * gf(:dtime)); s!(:timen, gf(:timeo) + gf(:dtime))
         else

@@ -64,6 +64,13 @@ tests = Test[
          o -> (a = num(r"Tdb=([\d.e+-]+)", o); b = num(r"Tsaha=([\d.e+-]+)", o); (abs(a / b - 1) < 1e-6, @sprintf("detailed-balance network T = %.4f K vs Saha %.4f K", a, b)))),
     Test("onezone_ra04", env(julia(joinpath(J, "popiii_m2_onezone.jl"), "ra04", "pss"), "NMAX" => "1e14"), "quick",
          o -> (f = num(r"\n +12\.\d+ +12\.\d+ +[\d.]+ +([\d.e+-]+)", o); (0.95 < f < 1.0, @sprintf("f_H2 at log ρ/m_H ≈ 12.4: %.4f (M2a: 0.971)", f)))),
+    # --- S4 composition and burning in TITAN (run all with `julia --project=env s4_test.jl`) ---------------------------
+    Test("s4_a_regression", env(julia(joinpath(J, "s4_a.jl"); t = 2), "TITAN_NOLIB" => "1"), "full",
+         o -> (occursin("bit-identical: true", o) && occursin("\nPASS", o), grab(r"\d+ steps, t = [^\n]*", o))),
+    Test("s4_b_closedbox", env(julia(joinpath(J, "s4_b.jl"); t = 2), "TITAN_NOLIB" => "1", "EFRAC" => "0.01"), "full",
+         o -> (occursin("PASS energy", o) && occursin("PASS sequence", o) && occursin("PASS time-step", o), grab(r"max over steps \|ΔE[^\n]*", o))),
+    Test("s4_c_mixing", env(julia(joinpath(J, "s4_c.jl")), "TITAN_NOLIB" => "1"), "full",
+         o -> (occursin("\nPASS", o), grab(r"fully mixed[^\n]*", o))),
 ]
 
 sel = filter(t -> tier == "full" || t.tier == "quick", tests)

@@ -1755,3 +1755,55 @@ Files: `julia/NucNet.jl`, `julia/nucnet_test.jl` (45 checks, ~1 min), `popiii_te
   - f. ΣA·Y − 1 ≤ 5e-15 in every run; Σ_r ΔZ_r N_r = Δ(ΣZY) to 1e-15 (weak events = e⁺ emitted/e⁻ captured); ∫(ε+ε_ν)dt vs −N_A Σ ΔY·M(AME2020): 2e-5–5e-5.
     Coupled: u_eos(new) − u − dt ε = 5e-12 relative; ε agrees with fixed-T to 0.4 % at ΔT/T = 3e-4; dt = 1e12 s at 1.2e8 K, ρ = 30 is a thermal runaway (T × 3.2).
   - g. burn: 20 µs per call (1 substep, 19 species); burn_coupled 176 µs; rates_k (31 reactions, screening) 4.7 µs.
+
+### S4 Composition and burning in TITAN [run]
+Files: `julia/StarMaterial.jl` (`StarGas`), edits in `TitanResidFast.jl` (source hook, `step_diag`, MLT v and ℓ side outputs) and `TitanCore.jl`
+(`DT_HOOKS`, `STATIC_FALLBACK`); tests `s4_test.jl` (driver; a, b, c), `s4_a.jl`, `s4_b.jl`, `s4_c.jl`, star `s4_star.jl` + `s4_d.jl`; entries `s4_*` in
+`popiii_tests.jl` (full tier). Quick tier 8/8 PASS after the edits. Logs: `lib/popiii/s4_test_{a,b_efrac0.05,b_efrac0.01,c}.log`, `lib/popiii/s4_d_100Msun.log`.
+- **Material.** `StarGas`: Y[19, zone] (mol/g, NucNet order). EOS composition: X = Y_p + 2Y_d, Y_He = 3Y(³He) + 4Y(⁴He) + 7Y(⁷Li, ⁷Be) + 8Y(⁸B), Z = rest (C:N:O by
+  `zmix`); Z < 1e-18 set to 0 (3α makes 1e-240 of ¹²C and `StellarEOS` then returns NaN derivatives). Gas-only p, e, n_e from `StellarEOS`; κ_R(ρ,T,X_H) with
+  conduction and κ_P from `StellarOpacity` (`opac = :z0` = the old table). `kcap` (optional, soft cap of κ at ~Γ < 1, see S5 hand-over).
+- **ε in the residual.** Hook `has_source(m)` / `material_source(m, ρ, T)` [erg g⁻¹ s⁻¹, net of ν]. Subtracted as −ε ρ ΔV (ρ, ΔV at the θ-level) in all four
+  energy rows (combined gas+rad, GASROW gas row, total-energy row, pure gas), θ-weighted: θ ε(ρ_n,T_n) + (1−θ) ε(ρ_o,T_o), the old term from the start-of-step state in
+  `context()` (like Compton). Y of the zone fixed during Newton (lagged); ε differentiated by ForwardDiff through `NucNet.rates_k` (Dual-safe as is; the screening
+  plasma uses Float64 ρ and the lagged Y, so ∂ln f_scr/∂ρ is not in the Jacobian). 3 µs Float64, 5 µs with 2 partials per zone. No source → no code path changes
+  (quick tier identical step counts 464/587/713).
+- **burn!(m)** after each converged step (`output` callback, as `chem!`): per zone `NucNet.burn` at fixed ρ and T_n (`burnT = :end`; `:theta` = θT_n + (1−θ)T_o), dt = timen − timeo.
+  Energy: the residual injected E_inj = Δt·4π·(ε_θ ρΔV) (read back from the Float64 residual, `TX.step_diag`), the network released E_bur = Δt ε_burn·m (Σ_r N_A(Q_r − ⟨E_ν⟩_r) nev_r exactly);
+  e ← e + (E_bur − E_inj)/m at fixed ρ, T re-solved from the EOS with the new Y (Newton, 1e-12). Total energy (gas + cumulative release) conserved to that tolerance (below);
+  `ledger` keeps ΣE_inj, ΣE_bur, Σ|E_bur − E_inj|/Σ|E_bur| (size of the splitting correction), max T re-solve error.
+- **mix!(m)** after burn!: implicit conservative diffusion of all 19 species on the Lagrangian mass grid, ∂Y/∂t = ∂/∂m[(4πr²ρ)² D ∂Y/∂m], D = vℓ/3 at interfaces with
+  F_conv > 0 (MLT weight > 0), v = ℓ(gδ/8H_P)^½ ζ (Kippenhahn–Weigert mean velocity; ζ² = ∇ − ∇′ is the same ζ as in F_conv = ρc_P T (gδ)^½ ℓ² ζ³/(4√2 H_P^{3/2}), ℓ = αH_P). v, ℓ, F_conv come from
+  `step_diag` evaluated on the converged state before burn!. One Thomas factorisation for all species, solved for δY with two refinement sweeps (conservation to 1e-16).
+  Composition change at fixed zone energy e: T re-solved (zone energies unchanged, so energy conservation is exact; ΔT/T ≤ 1.4e-11 in the star test).
+  Caveat: deep in the core ∇ − ∇′ ~ 1e-9 and ζ, hence v, is determined only to a factor ~2 by a Newton state converged to `conv`; mixing is insensitive when t_mix ≪ Δt.
+- **Time step.** `TC.DT_HOOKS` (consulted at the end of `timstp!`) returns min(post-step cap, predicted cap): dt ≤ dX_max/|dX_H/dt| (dX_max = 1e-3, rate averaged over each mixed region),
+  dt ≤ f_e e/ε, dt ≤ f_e e/max_i(|dY_i/dt| Q_i N_A MeV) with Q = main-channel energy per nucleus of p, D, ³He, ⁴He(3α), ⁷Li (catalysts and short-lived intermediates have Q = 0: with
+  their binding energies (tried) the criterion is dominated by ¹⁵O/¹⁵N/¹⁴N quasi-equilibria); mix!/burn! apply the net (burn + mixing) ΔX_H of the step at once. f_e = 0.05 (closed box), 0.5 (star: thermal feedback is implicit).
+- **Test a (no burning).** `StarGas(opac = :z0, nuc = false)` vs `StellarGas`, 25 steps of the 100 M☉ rad-hydro star (40 zones, MLT): r, ρ, T, E_r, F_r, u, p, e **bit-identical** (max rel. diff 0). PASS.
+- **Test b (closed box, spherical shell with walls, ρ = 1, T = 1e6 K, D/H = 2.5e-5, X = 0.7, 4 zones).** D burns, T 1.0 → 1.454e6 K. TITAN steps vs `NucNet.burn_coupled` with the same dt sequence:
+  max|ΔT/T| 4.3e-3 (f_e = 0.05, 28 steps) / 2.1e-4 (0.01, 97 steps); vs a 40-substep reference: 4.3e-2 / 9.4e-3 (∝ f_e, first order in dt).
+  Energy: |ΔE_gas − ∫ε dm dt|/ΔE = 4e-13 / 1.5e-11, max over steps relative to E_0 1.8e-13 / 6.6e-12 (limit 1e-10); T re-solve ≤ 1.3e-13 / 8.5e-13; splitting correction Σ|E_bur − E_inj|/ΣE_bur 17 % / 5 %.
+  Rest-mass check: N_A Σ ΔY_i B_i (AME2020) / net release = 0.9991 (REACLIB vs mass table Q + ν losses). PASS.
+- **Test c (mixing).** c1 synthetic 60-zone grid, convective zones 15–35 (step ΔX_H = 0.2): Σ Y dm conserved to ≤ 1.4e-16 in every case, radiative zones changed by exactly 0, spread/step after 3 / 10 / 30
+  turnover times ℓ/v (200 substeps) 0.105 / 3e-4 / 5e-11 (one backward-Euler step: 0.35 / 0.13 / 0.048, first-order in dt/t_mix). c2 in the 100 M☉ star (below): core ∫dr/v = 9.4e-2 yr,
+  step of 0.1 in X_H over the inner half of the core: spread/step 0.099 / 3.8e-3 / 3.9e-8 after 1 / 3 / 10 core crossing times, species masses of the whole star conserved to 7e-16, the 40 radiative zones above the core exactly unchanged, |Δe|/e ≤ 1.4e-11. PASS.
+- **Test d (100 M☉, X = 0.75, Z = 0).** Start: Eddington standard model (n = 3 polytrope, β = 0.5807, μ = 0.5926) of R = 6.5 R☉ (T_c 1.04e8), 140 zones (80 log-spaced in exterior mass fraction 0.3 → 1e-10), regular centre,
+  free surface, MLT α = 1.5, StarGas with burning on after step 150 (the first 150 steps relax the polytrope's dynamical imbalance, 1e-5 yr), θ = 1, stol 0.4, dt growth ×1.3 when the step changed < 60 % and Newton took ≤ 9 iterations
+  (`s4_d.jl`, 294 s on 4 threads for 503 steps to 1.1e5 yr). The star contracts for ~5e3 yr (T_c overshoots to 1.49e8), 3α makes X_CNO(centre) = 6e-13 / 1.8e-11 / 1.3e-10 at t = 7.4e2 / 1.9e3 / 3.1e3 yr, ε_CNO/ε = 0.013 / 0.41 / 0.90
+  (S1: ε_CNO = ε_pp at X_CNO = 2.4e-11 at 1.2e8 K), the convective core grows to M_cc/M = 0.826 (r = 2.23 R☉) by 1.6e4 yr and stays. Numbers:
+
+  | t [yr] | R [R☉] | log L | log T_eff | T_c [1e8 K] | ρ_c | L_nuc/L | X_c | X_CNO,c |
+  |---|---|---|---|---|---|---|---|---|
+  | 2.5e4 | 4.26 | 6.129 | 4.979 | 1.34 | 45.4 | 1.18 | 0.7463 | 7.5e-10 |
+  | 1.1e5 | 4.47 | 6.134 | 4.970 | 1.26 | 40.6 | 1.13 | 0.7317 | 1.3e-9 |
+
+  Schaerer 2002 (100–120 M☉ ZAMS): log L 6.1–6.24, log T_eff ≈ 4.97: agreed. L_surface = 5.21e39 erg/s vs ∫ε dm = 5.90e39: L_nuc/L = 1.13–1.18 does not tend to 1: the star expands (R 4.2 → 4.5 R☉ in 1e5 yr, H burning) and the
+  excess feeds the expansion (≈ 6 % of L from the virial estimate); L itself is flat to 0.3 % after 1.5e4 yr (≈ 1.5 t_KH). Ledger over the run: ΣE_inj/ΣE_bur = 1.076, Σ|E_bur − E_inj|/Σ|E_bur| = 0.16 (dt = 400 yr ≫ the CNO
+  catalyst equilibration time, so the lagged-Y heating differs from the burned energy; corrected exactly by burn!), T re-solve error 1e-12. 1D numerics: T_c wanders ±3 % (1.26–1.31e8) on steps of 400 yr.
+- **Handed over to S5 / open.** (1) The initial polytrope is not in discrete hydrostatic equilibrium (surface layers, L from the Eddington model): burning must be switched on after ~1e-5 yr of relaxation, otherwise Newton fails
+  in step 2; `TC.STATIC_FALLBACK[] = true` is needed when dt·u exceeds the zone width (peq's extrapolation halves dt otherwise). (2) Z = 0 OPAL κ_R reaches 1.08 at 1.5e5 K in the
+  skin (0.1 % of M): Γ > 1 accelerates the 24 outermost zones outward at 100s km/s and pins dt at 1 s; `kcap = 0.74` (soft cap, Γ ≤ 0.8) was used. This hides a real issue of 1D VMS envelopes.
+  (3) The first MLT interface at the centre gives a large F_conv (g → 0, ℓ = αH_P ≫ r); diagnostic L_conv in the inner 5 % of the profile exceeds L (Newton tolerance on near-adiabatic ζ³), harmless for the energy balance but not
+  usable as a profile. (4) T_c = 1.26–1.34e8 K at ρ_c 41–45 was not compared with a published model (no tables at hand). (5) `burn!` supports the θ-scheme only (TR-BDF2 stages would need per-stage injection bookkeeping).
+  (6) f_e = 0.5 in the star is a choice; the energy cap is not a stability criterion of the implicit hydro. (7) ~0.6 s per step at 140 zones, dt ≈ 400 yr: main-sequence evolution (3e6 yr) is ~1e4 steps.

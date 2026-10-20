@@ -149,6 +149,7 @@ v(s) = TF.var(s)
 function context(; etotal::Bool = ETOTAL[], ηsw::Float64 = ETASW[], dt = nothing)
     ngrs = gi(:ngrs); ngre = gi(:ngre); neqn = gi(:neqn); lrad = gi(:lrad) == 1; mgr = TF.MGR
     lrad && compton_old!(ngrs, ngre)
+    source_old!(ngrs, ngre)
     (gi(:ltur) == 0 && gi(:lhydr) == 1) || error("TitanResidFast: lhydr=1, ltur=0 only")
     MATERIAL[] === nothing && gi(:leos) != 2 && error("leos must be 2 (or install a material)")
     MATERIAL[] === nothing && lrad && !(gi(:lopac) in (3, 4)) && error("lopac must be 3 or 4 (or install a material)")
@@ -216,7 +217,7 @@ end
 const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn, :xken, :xkpn, :plfn,
     :egrn, :r, :u, :fr, :xm, :dmdt, :urel, :rmu, :rmup1, :d, :pg, :eg, :as, :er, :egr, :chif, :xke,
     :xkp, :plf, :dvol, :dvoln, :avchi, :qf, :dudr, :db, :dsn, :fl, :ub, :usn, :flu, :fle, :egb, :egsn,
-    :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen)
+    :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv)
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
     xnuo::Vector{Float64}
@@ -302,6 +303,27 @@ function compton_old!(ngrs, ngre)
     end
 end
 function material_opac end
+"""
+Nuclear (or other volumetric) energy source of a material, S4. `has_source(m)` (default false) switches it on;
+`material_source(m, ρ, T) -> ε` [erg g⁻¹ s⁻¹, net of neutrino losses; ρ, T may be Duals; composition of zone `ZONE[]`,
+held fixed during the Newton iteration] is added to the energy row of every formulation (combined gas+radiation, GASROW
+gas row, total-energy row, pure-gas row) as −ε·ρ·ΔV, θ-weighted between the new level (implicit in T and ρ) and the old
+level (`SRCO`, evaluated by `context()` on the start-of-step state), like the Compton exchange. Nothing is added, and no code path
+changes, for materials without a source.
+"""
+has_source(m) = false
+material_source(m, ρ, T) = zero(T)
+"ε of the old (start-of-step) state per zone, filled by `context()` when the material has a source."
+const SRCO = Ref(Float64[])
+function source_old!(ngrs, ngre)
+    m = MATERIAL[]; buf = get!(() -> zeros(TF.MGR), BUFS, :srco)::Vector{Float64}; fill!(buf, 0.0); SRCO[] = buf
+    (m !== nothing && has_source(m)) || return
+    dO, tO = v(:do), v(:to)
+    @inbounds for k in ngrs:ngre
+        (dO[k] > 0 && tO[k] > 0) || continue
+        ZONE[] = k; buf[k] = material_source(m, dO[k], tO[k])
+    end
+end
 "`material_thermo(m, ρ, T) -> (∇_ad, c_P, δ)` of gas + equilibrium radiation (Float64), for the MLT flux."
 function material_thermo end
 """
@@ -340,9 +362,10 @@ const MLT_NOINFALL = Ref(false)
 "Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
 function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
+    hassrc = has_source(m)
     @inbounds for k in k0:ngre+2
         if !(ForwardDiff.value(dn[k]) > 0 && ForwardDiff.value(tn[k]) > 0)   # unused ghost zones (e.g. ngrs-2)
-            pgn[k] = zero(dn[k]); egn[k] = zero(dn[k]); asn[k] = zero(dn[k])
+            pgn[k] = zero(dn[k]); egn[k] = zero(dn[k]); asn[k] = zero(dn[k]); hassrc && (W.snuc[k] = zero(dn[k]))
             c.lrad && (chifn[k] = zero(dn[k]); xken[k] = zero(dn[k]); xkpn[k] = zero(dn[k]); plfn[k] = zero(dn[k]); egrn[k] = zero(dn[k]))
             continue
         end
@@ -353,6 +376,7 @@ function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
             pg, eg, as_ = material_gas(m, dn[k], tn[k])
         end
         pgn[k] = pg; egn[k] = eg; asn[k] = as_
+        hassrc && (W.snuc[k] = material_source(m, dn[k], tn[k]))
         if c.lrad
             χ, κE, κP = material_opac(m, dn[k], tn[k])
             chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
@@ -616,7 +640,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     R[iu, kb(k)] = P.leobc == 1 ? un[k-2] + un[k] : P.leobc == 3 ? -un[k-1] + un[k] : X(iu, k)
     # ---------------------------------------------------------------- MLT convective flux (Phase 7)
     fcv = W.fcv
-    @inbounds for k in ngrs:ngre+1; fcv[k] = zero(T); end
+    @inbounds for k in ngrs:ngre+1; fcv[k] = zero(T); W.vcv[k] = zero(T); W.lcv[k] = zero(T); end
     if c.conv
         nadv, cpv, δv, κv = c.cv; cvw = BUFS[:cvw]::Vector{Float64}
         arad = 4P.csigr / cc
@@ -653,19 +677,24 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             U = 3arad * cc * Ti^3 / (cpk * ρi^2 * κk * l^2) * sqrt(8HP / (gk * δk))
             ζ = sqrt(U^2 + sup) - U
             fcv[k] = wτ * ρi * cpk * Ti * sqrt(gk * δk) * l^2 * ζ^3 / (4sqrt(2.0) * HP * sqrt(HP))
+            W.vcv[k] = l * sqrt(gk * δk / (8HP)) * ζ; W.lcv[k] = l       # KW eq. 7.x: v̄ = ℓ (gδ/8H_P)^½ (∇−∇')^½, ζ² = ∇−∇'
         end
     end
     # ---------------------------------------------------------------- GAS ENERGY
+    hassrc = MATERIAL[] !== nothing && has_source(MATERIAL[]); srco = SRCO[]
     @inbounds for k in ngrs:ngre
         aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
+        # S4: nuclear source ε ρ ΔV (erg s⁻¹ per steradian), θ-weighted new/old; subtracted in every variant below
+        src = hassrc ? (θ * W.snuc[k] + (1 - θ) * srco[k]) * d[k] * dvol[k] : zero(T)
+        hassrc && (W.srcw[k] = src)
         if c.etotal && !c.useint[k]
-            w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k]
+            w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
         elseif c.lrad && GASROW[]
             egbg = W.egbg
             w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
                 dfe[k+1] + dfe[k] + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
                 pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k] -
-                (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k]
+                (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k] - src
             if k == ngrs
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
@@ -679,7 +708,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 rmu[k+1] * fr[k+1] - rmu[k] * fr[k] - dfe[k+1] + dfe[k] +
                 rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
                 (pg[k] + er[k] * fedd[k]) * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
-                (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] + qf[k] * dudr[k] * dvol[k]
+                (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] + qf[k] * dudr[k] * dvol[k] - src
             if k == ngrs
                 w += -dmdt[k+1] * egb[k+1] - (P.phil2 + er[k] * urel[k]) * rmu[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
@@ -692,7 +721,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         else
             w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
                 dfe[k+1] + dfe[k] + pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k] +
-                rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k]
+                rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
             if k == ngrs
                 w += -dmdt[k+1] * egb[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
@@ -824,6 +853,20 @@ function energy_imbalance(dt)
     dE = sum(E(k) - Eo(k) for k in c.ngrs:c.ngre)
     (; dE, Enew = sum(E(k) for k in c.ngrs:c.ngre), fin = eflux(c.ngrs, c, W, Float64) * dt,
        fout = eflux(c.ngre + 1, c, W, Float64) * dt, imb)
+end
+
+"""
+    step_diag(dt) -> (; srcw, fcv, vcv, lcv)
+
+Right after a converged step (old arrays = start of step): one Float64 residual evaluation at the converged state (as
+`energy_imbalance`) returning per zone/interface (copies) the source power srcw = ε_θ ρ ΔV [erg s⁻¹ per steradian] that the
+energy row injected, and the MLT flux F_conv (weight included), mean convective velocity v and mixing length ℓ of each interface.
+"""
+function step_diag(dt)
+    c = context(; dt)
+    R = zeros(c.neqn, c.nb); ws = getws(Float64, c.mgr)
+    residual!(R, ws, c, zeros(c.neqn * c.nb)); W = ws.a
+    (; srcw = copy(W.srcw), fcv = copy(W.fcv), vcv = copy(W.vcv), lcv = copy(W.lcv))
 end
 
 # ------------------------------------------------------------------ assembly

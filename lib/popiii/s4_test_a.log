@@ -1,0 +1,10 @@
+  rn   max rel. diff 0.000e+00
+  dn   max rel. diff 0.000e+00
+  tn   max rel. diff 0.000e+00
+  ern  max rel. diff 0.000e+00
+  frn  max rel. diff 0.000e+00
+  un   max rel. diff 0.000e+00
+  pgn  max rel. diff 0.000e+00
+  egn  max rel. diff 0.000e+00
+25 steps, t = 1.508776e+03 s (both: 1.508776e+03); bit-identical: true; max relative difference 0.00e+00
+PASS

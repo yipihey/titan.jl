@@ -1,0 +1,10 @@
+steps = 28  t_end = 3.5220101348632627e12 s
+T0 = 1e+06 K, rho = 1, D/H = 2.50e-05; T_end TITAN 1454107.044758 K, burn_coupled chain 1454106.948473, fine ref 1453942.414421; Y_D(end)/Y_D(0): 0.00000 0.00000 0.00000
+TITAN vs same-dt burn_coupled chain: max|ΔT/T| 4.33e-03, max|ΔY_D/Y_D| 2.01e-02
+TITAN vs fine reference (40 substeps): max|ΔT/T| 4.31e-02, max|ΔY_D/Y_D| 1.19e-01;  (chain vs fine: 4.66e-02, 1.36e-01)
+energy: ΔE_gas = 3.36848653e+44 erg, ∫ε dm dt (NucNet) = 3.36848653e+44;  |ΔE − release|/release = 4.23e-13;  E_gas/E0 − 1 = 0.4328
+max over steps |ΔE − release|/E0 = 1.83e-13;  ledger: Einj 3.856632e+44 Ebur 3.368487e+44 splitting correction Σ|Ebur−Einj|/Σ|Ebur| 1.70e-01, resid(max) 1.30e-13, 28 steps
+mass-defect check: N_A Σ ΔY_i B_i = 9.181913e+13 erg/g vs net release 9.190479e+13 erg/g (+ neutrinos): ratio 0.99907
+PASS energy
+PASS sequence (TITAN vs burn_coupled, same dt: < 2 efrac)
+PASS time-step error (T vs fine reference < 2 efrac)

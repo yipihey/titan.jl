@@ -1,0 +1,13 @@
+turnover time l/v = 1.111e+05 s (region width 2.1 l)
+  T = 1 t_turn     1 step(s): conservation 1.35e-16; spread of X_H in the convective region / initial step = 6.615e-01; max change in radiative zones = 0.0e+00
+  T = 1 t_turn   200 step(s): conservation 0.00e+00; spread of X_H in the convective region / initial step = 5.677e-01; max change in radiative zones = 0.0e+00
+  T = 3 t_turn     1 step(s): conservation 1.35e-16; spread of X_H in the convective region / initial step = 3.531e-01; max change in radiative zones = 0.0e+00
+  T = 3 t_turn   200 step(s): conservation 1.20e-16; spread of X_H in the convective region / initial step = 1.050e-01; max change in radiative zones = 0.0e+00
+  T = 10 t_turn    1 step(s): conservation 1.35e-16; spread of X_H in the convective region / initial step = 1.332e-01; max change in radiative zones = 0.0e+00
+  T = 10 t_turn  200 step(s): conservation 0.00e+00; spread of X_H in the convective region / initial step = 3.142e-04; max change in radiative zones = 0.0e+00
+  T = 30 t_turn    1 step(s): conservation 1.35e-16; spread of X_H in the convective region / initial step = 4.788e-02; max change in radiative zones = 0.0e+00
+  T = 30 t_turn  200 step(s): conservation 1.35e-16; spread of X_H in the convective region / initial step = 4.628e-11; max change in radiative zones = 0.0e+00
+  T = 100 t_turn   1 step(s): conservation 1.35e-16; spread of X_H in the convective region / initial step = 1.477e-02; max change in radiative zones = 0.0e+00
+  T = 100 t_turn 200 step(s): conservation 0.00e+00; spread of X_H in the convective region / initial step = 5.551e-16; max change in radiative zones = 0.0e+00
+fully mixed X_H = 0.6343621605 vs mass-weighted initial mean over the region 0.6343776715
+PASS
