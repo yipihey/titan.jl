@@ -1597,3 +1597,56 @@ radiating star for the envelope-feedback problem.
 6. S7 last.
 
 Every item adds its tests to `popiii_tests.jl`.
+
+### S2 Stellar EOS [run]
+
+Files: `julia/StellarEOS.jl` (module StellarEOS), `julia/StellarMaterial.jl` (`StellarGas <: TitanMaterials.Material`), `julia/stellareos_test.jl`
+(27 checks, ALL PASS; `full`-tier entry `stellareos`). One-line change in `TitanResidFast` (sets `ZONE[] = k` in the two MLT-coefficient
+loops so `material_thermo` sees the zone's composition). Validity: ρ 1e-12–1e4, T 3e3–3e9 K (below ≈2.5e3 K Z0Physics' Saha underflows);
+20000 random (ρ, T, X, Y, Z) points: all finite, χρ, c_V, Γ1 > 0.
+
+**Method.** Gas only (radiation: `Prad`, `erad`, `srad` separately; `eos(...; radiation=true)` gives ∇ad, c_P of gas + aT⁴).
+Two branches, each a full (p, e, s) per gram at (ρ, T), generic in the number type:
+- S (Saha): Z0Physics' LTE H/He gas with arbitrary (X, Y) (`Z0.Comp`; Z0Physics unchanged); metals are neutral ideal atoms.
+- E (fully ionised): ideal bare ions H, He, C, N, O (Sackur–Tetrode, g = 1 as Z0Physics) + electrons/positrons from
+  F_k(η, θ) = ∫ x^k (1 + θx/2)^{1/2}/(e^{x−η}+1) dx, θ = kT/mc²: n = A0 θ^{3/2}(F½ + θF3/2), P = (2/3)A0 mc² θ^{5/2}(F3/2 + θF5/2/2),
+  E_kin = A0 mc² θ^{5/2}(F3/2 + θF5/2); positrons at η₊ = −η − 2/θ with 2mc² n₊ added to e (pairs included when e^{η₊} > 1e-20);
+  YS89 uniform-background Coulomb (the Timmes–Swesty fit; one ion species, Z̄ = n_e/n_i; the two fits joined C² over Γ = 0.6–1.7).
+  Energy zero = neutral atoms (E includes the ionisation energy of all ions). η from charge neutrality: Float64 safeguarded Newton,
+  then 1–2 Newton steps in the caller's number type (steps follow the Dual nesting depth: exact through 2^k − 1 derivatives, as in Z0Physics);
+  ∂F/∂η comes free from the quadrature.
+- F_k quadrature: η < 48: composite 16-point Gauss–Legendre on x ∈ [0, max(η,0)+46] (first panel in √x, panels ≤ 5 wide); η ≥ 48: edge form
+  F = ∫₀^η g dx + ∫₀^46 [g(η+u) − g(η−u)]/(e^u+1) du (first term Gauss–Legendre in t; geometric panels when ultra-relativistic).
+  Max rel. error 2.9e-15 over 180 (η, θ, k) (η −40…1e4, θ 1e-5…5) vs an independent tanh-sinh; analytic ∂F/∂η vs AD 2e-15.
+  Electron–positron gas vs momentum-space integration: 1e-12 (11 points up to 3e9 K, ρ 1e4).
+- Join: blend of the FREE ENERGY, f = (1−w) f_S + w f_E, w = 1 − (1−w_T)(1−w_ρ), w_T = smootherstep(log T; 5.3→5.9), w_ρ =
+  smootherstep(log ρ; −1→0.7) (crude pressure ionisation: full ionisation + degeneracy for ρ ≳ 0.1–5). From p = ρ²∂f/∂ρ, s = −∂f/∂T:
+  p = (1−w)p_S + w p_E + ρΔf ∂w/∂lnρ, s = (1−w)s_S + w s_E − (Δf/T) ∂w/∂lnT, e = (1−w)e_S + w e_E − Δf ∂w/∂lnT, Δf = f_E − f_S.
+  Exact Maxwell consistency; f ∈ C², so Γ1 and ∇ad are continuous. At w = 0 identical to Z0Physics' gas (0.0 difference in p, e).
+  Branches differ by Δp/p = −3.7e-4 (T = 1e6, ρ = 1e-3) and −1.2e-3 (T = 10^5.6).
+API: `eos(ρ, T; X, Y, Z, zmix, pairs, coulomb, radiation, comp)` → P, e, s, cV, χρ, χT, Γ1, ∇ad, δ, cP, cs, ne, η (+ dPdρ, dPdT, dedρ);
+`gas_pe(ρ, T; …)` → (p, e); `rho_PT(P, T; …)` (round trip 3e-15; (∂lnρ/∂lnP)·χρ − 1 = 8e-16); `StellarGas(mgr; X, Y, Z)`, `setcomp!(m, k, X, Y, Z)`,
+`ghosts!(m)`. `StellarGas` opacity = Z0 table placeholder until S3; sound speed for the AV = 5/3 estimate.
+
+**Tests (numbers).**
+- Maxwell ∂e/∂ρ|T = (p − T∂p/∂T)/ρ²: 4e-14 max; c_V vs T∂s/∂T: 2e-11 (725 points, log ρ −10…4, log T 3.5…9.5, Z = 1e-3). AD vs FD Jacobian 1.3e-7 (FD-limited); nested dΓ1/dlnT 9e-8.
+- Limits: ideal-gas P to 1e-12; Chandrasekhar T = 0 (ρ 1…1e10, T = 10 K): 7.8e-8 at ρ = 1 (thermal), 1e-11…1e-16 above; NR P/P_NR = 1 − 5x²/14 and ER P/P_ER = 1 − 1/x² reproduced.
+- vs Helmholtz (A = 1.3, Z = 1, E branch, Coulomb on both; 660 comparable points; 7 where Helmholtz's bomb-proofing removed its Coulomb term skipped),
+  max rel. diff P / e / s / Γ1: hot non-pair (log T 6–9, log ρ ≥ −4) 2.4e-5 / 3.8e-5 / 1.2e-3 / 7.9e-4; dense (log ρ ≥ 1, log T ≥ 6) 1.1e-5 / 1.4e-5 / 1.2e-3 / 5.6e-5;
+  cool dense (log T 4–6, log ρ ≥ 0) 2.1e-5 / 5.0e-5 / 1.3e-2 / 4.0e-5; pair region (log T ≥ 7, log ρ ≤ −6) 2.7e-5 / 1.9e-2 / 8.5e-4 / 1.9e-1.
+  The larger e, s, Γ1 differences are Helmholtz's table (≈10 nodes/dex in T): against exact momentum integrals its e is off by 1.3e-2
+  at (log ρ, log T) = (−8.5, 8.25) and 5.5e-4 at (−10, 8.5); ours agrees to 1e-12.
+- Blend: the largest step jump of Γ1 and ∇ad halves with the step on 6 scans (log T 5.0–6.2 at ρ = 1e-6, 1e-4, 1e-2; log ρ −2…1.2 at T = 1e4, 1e5, 1e6).
+- Pop III points (X = .76, Y = .24; η_e, Γ1, ∇ad, gas only): (100, 3e7): −2.70, 1.6625, 0.3982; (30, 1.2e8): −6.03, 1.6502, 0.3940;
+  (1e-3, 1e6): −9.12, 1.6666, 0.3998; (1e-6, 3e4): −10.86, 1.5303, 0.3301. Electrons are non-degenerate even at these Pop III ZAMS centre points
+  (η_e < 0); degeneracy matters only for ρ ≳ 1e3 at 3e7 K. With radiation: (100, 3e7) Γ1 = 1.6549, ∇ad = 0.3927, β = 0.995; (30, 1.2e8) Γ1 = 1.4216, ∇ad = 0.2590, β = 0.491.
+- Coulomb size (Γ_ion): (100, 3e7) 0.038: Δp/p = −9.5e-4, Δe/e = −1.9e-3; (30, 1.2e8) 0.006: −7e-5; (1, 1e6) 0.245: −1.4e-2, −2.6e-2.
+- Speed (µs/call, one thread): Saha 1.7, hot 3.6–4.9, central 4.2, degenerate 2.3, pair plasma (3e9 K) 53; (p, e) + AD Jacobian 2.3–7.3 (pairs 56); full `eos` 2–7.
+
+**Limits / problems.** (1) Pressure ionisation is a switch, not physics: in the transition (log ρ −0.5…0.5, log T 4…5.5) ∇ad reaches 0.66
+(Γ1, χρ, c_V stay > 0); irrelevant inside stars and envelopes (T > 1e5 or ρ < 1e-5 there) but wrong for brown-dwarf-like cold dense gas. (2) The Saha
+branch has no degeneracy and no molecules (H₂ below ≈3500 K), metals are neutral; the E branch has no partial ionisation of He/metals below ≈3e5 K.
+(3) Coulomb: one ion species with Z̄ (no linear mixing), no electron screening for non-degenerate electrons, YS89 fits only; the Γ ≥ 1 fit is shifted by
+0.0074 kT per ion to join the Γ < 1 fit continuously. (4) Pair plasma: η is ill-conditioned when n₊ ≫ n_net (rel. error up to 1e-5 in η; p, e, s unaffected); 55 µs.
+(5) `StellarGas` opacity is a placeholder (S3). The Helmholtz download (untrusted) lives in `~/Projects/popiii_lit/helmholtz/` (README there; not in the repo);
+test section D is skipped if absent.

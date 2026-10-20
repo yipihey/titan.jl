@@ -190,6 +190,7 @@ function convcoef(ngrs, ngre, base)
     MLT_AD[] || @inbounds for k in ngrs+1:ngre       # lagged coefficients (not needed when MLT_AD)
         ρi = 0.5 * (base[k-1, 3] + base[k, 3]); Ti = 0.5 * (base[k-1, 5] + base[k, 5])
         (ρi > 0 && Ti > 0) || continue          # unphysical iterate: no MLT (the step will be rejected)
+        ZONE[] = k                                   # composition of the zone above the interface
         nad, cp, δ = material_thermo(m, ρi, Ti)
         cv[1][k] = nad; cv[2][k] = cp; cv[3][k] = δ; cv[4][k] = material_opac(m, ρi, Ti)[1]
     end
@@ -640,6 +641,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             abs(ForwardDiff.value(lp)) < 1e-12 && continue
             ∇ = log(tn[k] / tn[k-1]) / lp
             if MLT_AD[]                              # coefficients on the current state, differentiated
+                ZONE[] = k
                 th = material_thermo(MATERIAL[], ρi, Ti); nad, cpk, δk = th
                 κk = material_opac(MATERIAL[], ρi, Ti)[1]
             else                                     # lagged: from the Newton iterate, constant in the Jacobian
