@@ -1382,3 +1382,34 @@ implicit transfer cooling.
 - F/F_D (extinction) is 0.63, 0.86 and 0.80–0.83 at log n = 18.2, 19.0 and 19.8–20.0. Diffusion with the extinction
   Rosseland mean is good to ≈ 20 % from 1e19.
 - The equilibrium table (pressure switch) takes over the centre at log n ≈ 17.3.
+
+### Final z = 19 reference run (all generalisations except TR-BDF2) [run]
+**Set-up:**
+```
+IC=abn02z19 TCMB=54.5 AVZONE=2 CHEM=netmodernli NLTE=hyb SNAPS=1 NSTOP=1e21 popiii_m2c.jl lines 200
+```
+- Integrator: the θ-scheme. TR-BDF2's stages fail in the infalling envelope (see G2b).
+- Splice: automatic, at 4.8 pc, with M_join = 815 M☉.
+- The run took 12 773 steps and stopped at T_c = 5618 K, n_c ≈ 8e19.
+
+**Contraction phase:**
+- 1e5 is reached at 20.3 Myr, against 14.6 Myr in v2; runaway collapse follows 1.2 Myr later.
+- The slower contraction comes from the H₂ non-LTE populations (statistical equilibrium plus ALI). The old GP98/HM79
+  factor overestimates line cooling by up to 2.4× at n ≈ 1e4 (G6c). The new splice also changes the envelope.
+- These two contributions have not been separated yet.
+
+**T_c [K] by log n_c:**
+
+| log n_c | 6.1 | 7.1 | 8.1 | 9.1 | 10.1 | 11.1 | 12.1 | 13.1 | 14.1 | 15.1 | 16.1 | 17.1 | 18.1 | 19.1 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| T_c | 260 | 420 | 629 | 754 | 829 | 1197 | 1239 | 1339 | 1769 | 2055 | 2250 | 2583 | 3240 | 4228 |
+
+- The warm core runs hotter than ON98 and P100 at 1e7–1e11, by up to 43 % at 1e11.
+- From 1e13 it joins the common track: within 4 % of ON98 up to 1e16, and within 3 % of P100 at 1e18.
+
+**Regime map** (central shell; `lib/popiii/regimes_z19_final.txt`):
+- The H₂ lines become thick at log n ≈ 10.3.
+- τ_R = 1 at ≈ 16.2.
+- The windows are thermalised by ≈ 17.
+- F/F_D (extinction) is 1.2–1.5 at ≥ 1e19, against 0.8 for P100. The central temperature gradient is almost flat, which
+  makes the ratio noisy, so Rosseland diffusion is good to 20–50 % there.
