@@ -1584,9 +1584,21 @@ radiating star for the envelope-feedback problem.
 - **Compare:** R*(M*) and L*(M*) against Omukai & Palla 2003 and Hosokawa & Omukai 2009, at their accretion rates and
   at the rate our envelope delivers.
 
+**Further S6 references:**
+- Omukai, Hosokawa & Yoshida 2010: spherical collapse followed by a protostar, Z = 0.
+- Hosokawa et al. 2011 and 2012 (Tom): Pop III.1 vs III.2 R*(M*) and Ṁ(M*). R* peaks at t_KH = t_acc (≈ 6–9 M☉);
+  ZAMS at ≈ 40 M☉ (III.1) and ≈ 17 M☉ (III.2). Summary in `~/Projects/popiii_lit/stellar/validation.md`.
+
 ### S7 Feedback on the envelope (later)
 - UV from the star (H ionisation, Lyman–Werner H₂ photodissociation) and radiation pressure.
 - Needs frequency-dependent continuum transfer that feeds ChemNet's photo processes, with J_ν per zone.
+
+### S8 Deuterium chemistry and HD cooling (optional; matters for Pop III.2)
+- The D/HD network of Hosokawa et al. 2012 (Table 1: Galli & Palla 1998, Stancil et al. 1998, Wang & Stancil 2002,
+  Wolcott-Green & Haiman 2011), in ChemNet with detailed balance.
+- HD rotational cooling.
+- HD matters where the gas cools below ≈ 150 K, e.g. relic H II regions. Our P100 and z = 19 clouds stay above
+  ≈ 140–200 K, so it is not needed there. It would carry the D abundance the protostar later burns.
 
 ### Order
 1. S0 first.
