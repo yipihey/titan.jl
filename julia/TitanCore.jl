@@ -378,12 +378,25 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     lrad && for (o, n) in ((:ero, :ern), (:fro, :frn)); copyto!(view(vf(o), a-1:b+2), view(vf(n), a-1:b+2)); end
     for (o, n) in (lrad ? PEQ_OLD2_RH : PEQ_OLD2_H); copyto!(view(vf(o), a-1:b+1), view(vf(n), a-1:b+1)); end
     lrad && copyto!(view(vf(:avchio), a:b+1), view(vf(:avchin), a:b+1))
+    predict!(; eos!, opac!)
+end
+
+"""
+Second half of peq: the initial guess of a Newton solve for the time level `timeo + dtime` from the old state: radii and
+mass coordinates extrapolated with the grid velocities (rn = ro + drdt·dt, with TITAN's halving of dtime when the grid
+would become non-monotonic), boundary values, ghost zones, derived and time-centred quantities. Needs the old arrays
+(ro, xmeo, ...) and drdt, dmdt to be set. `halve = false` (TR-BDF2 stages, whose dtime is tied to the stage) halves only
+the extrapolation interval and leaves dtime and timen alone; `dtscale` scales the extrapolation interval (γ for the
+TR stage of a step of size dtime).
+"""
+function predict!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[](), halve::Bool = true, dtscale::Float64 = 1.0)
+    a, b = gi(:ngrs), gi(:ngre); lrad = gi(:lrad) == 1
     # ---- extrapolate radii and masses to the new time level (with TITAN's halving retry)
     rn, xmen, ro, xmeo, un = vf(:rn), vf(:xmen), vf(:ro), vf(:xmeo), vf(:un)
     drdt, dmdt = vf(:drdt), vf(:dmdt)
     mu = gi(:mu)
     leibc, llibc, leobc, llobc = gi(:leibc), gi(:llibc), gi(:leobc), gi(:llobc)
-    jext = 1; nnext = gi(:next); s!(:jext, jext)
+    jext = 1; nnext = gi(:next); s!(:jext, jext); dtfac = 1.0
     while true
         leibc > 0 && (drdt[a] = 0.0)
         leibc > 0 && (dmdt[a] = -rn[a]^mu * gf(:phil0))
@@ -391,7 +404,7 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
         leobc < 3 && (dmdt[b+1] = -rn[b+1]^mu * gf(:phir0))
         llibc > 0 && (drdt[a] = un[a]; dmdt[a] = 0.0)
         llobc > 0 && (drdt[b+1] = un[b+1]; dmdt[b+1] = 0.0)
-        dt = gf(:dtime)
+        dt = gf(:dtime) * dtscale * dtfac
         @inbounds for k in a:b+1
             rn[k] = ro[k] + drdt[k] * dt
             xmen[k] = xmeo[k] - dmdt[k] * dt
@@ -401,7 +414,11 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
             (rn[k+1] <= rn[k] || xmen[k+1] > xmen[k]) && (mono = false; break)
         end
         mono && break
-        s!(:tfac, 0.5); s!(:dtime, 0.5 * gf(:dtime)); s!(:timen, gf(:timeo) + gf(:dtime))
+        if halve
+            s!(:tfac, 0.5); s!(:dtime, 0.5 * gf(:dtime)); s!(:timen, gf(:timeo) + gf(:dtime))
+        else
+            dtfac *= 0.5
+        end
         jext += 1; s!(:jext, jext)
         jext <= nnext || error("peq: grid extrapolation nonmonotonic after $nnext attempts")
     end

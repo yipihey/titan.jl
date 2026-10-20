@@ -999,3 +999,468 @@ absorption-only (abs.) mean, S = B_ν.)
    10 cm⁻¹ … max(1e5, 25 kT_max/hc) (`popiii_regimes.fgrid`, `ContinuumOpacity.grid(; T)`): F/F_D = 0.97–1.06 across the
    core (0.99 over most of it; Δτ_R per zone 1e12).
 4. **M3b line-transfer collapse with the corrected solver**: rerun as `_v2` (in progress).
+   Regime analysis rerun with the scaled grid (`lib/popiii/m3c_regimes_li.txt` replaced): unchanged below log n_c ≈ 20
+   (the grid already covered the spectrum); central F/F_D (extinction) at log n_c = 22.1: 0.996 (was 0.80); last snapshot
+   (22.8): 0.99 (was 0.17). Remaining: 1.15 (extinction) / 1.7 (absorption) at log n_c = 21.1, during core formation,
+   where dissociation and the onset of ionisation make κ_ν vary steeply within single zones — a transition zone, not a
+   regime boundary.
+
+## G Generalisation plan (Tom, 19 Oct 2026: "We want to implement all. Please plan ahead.")
+
+Audit (19 Oct): several fixes were tuned to this problem. Replace each by a general method; keep the old behaviour as a
+switch where it is the faithful-RHFC02 choice. Every item ends with a test that fails on the old method or proves the
+general one, a notes section, a commit.
+
+**G0 Test suite** `julia/popiii_tests.jl`: one entry point running every acceptance test so far (SOD/SUBC/SUPC
+regression, quasi-star P7.3; M1 static sphere, dust, BE, LP; M2 conservation, Saha consistency, one-zone; H2Lines thin /
+homogeneous sphere / grey diffusion), each PASS/FAIL with its number. Run after every G item.
+
+**G1 Artificial viscosity ∝ local zone width** (replaces ql1 = 0.15 tuned to Δr/r of one grid). Option in
+TitanResidFast: viscous length l_k = c_l·Δr_k (θ-centred). Map to RHFC02's q ∝ c_q ρ Δv² (c_q = 4). Tests: spherical
+Noh/Sod on uniform and geometric grids (stretch 1.02–1.2): shock width in zones and post-shock error independent of the
+stretch with l ∝ Δr, not with l ∝ r; regression unchanged when off.
+
+**G2 TR-BDF2 for the collapse** (replaces θ = 0.55). `Trbdf2.jl` (2nd order, L-stable; verified on the Eulerian grid)
+on the Lagrangian grid with REGULAR_CENTRE, XMINT, PEXT, EXTMASS; chemistry split after each full step. Tests: dust
+collapse convergence order (expect ≈ 2 in C_dyn), BE static, LP converged values; z = 19 collapse without the θ = 0.5
+ringing; T_c track vs θ = 0.55 at converged Δt.
+
+**G3 Reaction-network engine** (replaces the hand-coded 4-unknown network). Reactions as data (reactants, products,
+rate function, energy); unknowns = all species; conservation of H, He, Li nuclei and charge by elimination; Jacobian by
+ForwardDiff; coupled implicit chemistry + T step (as now). Rate sets: RHFC02 faithful; modern (AAZN97/GA08 incl. H₂⁺
+channels, H⁻ + H⁺, collisional detachment); **detailed-balance pairing** — each reverse rate from the forward one and the
+equilibrium constant (partition functions), incl. three-body recombination H⁺ + 2e and three-body H⁻ attachment — so
+the network's own equilibrium is Saha/K exactly.
+
+**G4 H⁻ and Li from rate balance with J_ν** (replaces Saha-only H⁻ and Li). H⁻: radiative attachment / photodetachment
+(Milne-consistent with John 1988 σ_ν, J_ν supplied per zone), associative detachment + inverse, collisional detachment
++ inverse, mutual neutralisation. Li: Li, Li⁺ (+ Li⁻, LiH if the sources support them): collisional and photo-
+ionisation, radiative + three-body recombination, charge exchange with H⁺ — rates from GP98's Li network (local) and
+primary sources. J_ν: CMB by default, the transfer solution when available. Tests: J = B → Saha for H⁻ and Li; x_e(Li)
+vs Mayer & Duschl 2005 Fig. 1 (POP III vs Li-free); one-zone tracks unchanged at low density.
+
+**G5 Timescale-based equilibrium** (replaces ρ_eq = 5e-11). Per zone: equilibrium when the network's slowest
+relaxation time (smallest eigenvalue of its Jacobian) < ε Δt, or where the gas is non-ideal (p ≥ 1e4 dyn cm⁻², where
+SCVH applies; blend as now). With G3's detailed balance the switch is continuous. Tests: no T jump at the switch;
+collapse track vs the ρ_eq run.
+
+**G6 Line transfer: per-line frequency grids and non-LTE populations** (replaces the f_H₂ ≥ 0.1 span cut and the
+GP98-factor non-LTE). (a) Per line: span and bin width from the zones carrying ≥ 99.9 % of that line's emissivity and
+opacity; thin-line shortcut controlled by a stated tolerance. (b) Non-LTE level populations: statistical equilibrium of
+the 63 levels with collisional rates (H–H₂, H₂–H₂, He–H₂, e–H₂ state-to-state data — to obtain: BASECOL / Flower's
+CCP7 (unreachable so far) / Cloudy's data files) and radiative rates with J̄ from the transfer — first with local escape
+probabilities (multilevel LVG), then accelerated Λ-iteration (Rybicki & Hummer 1991) with the short-characteristics
+solver. Tests: LTE limit at high n; thin low-density limit vs the GP98/GA08 cooling fits; two-level analytic cases
+(escape probability, thermalisation length); ALI convergence.
+
+**G7 Implicit line cooling** (replaces explicit Λ with Δt ≤ 0.1 uρ/Λ): linearise Λ_k in T_k (local derivative from the
+transfer's source-function dependence) inside the coupled chemistry/T step. Test: the collapse with the cooling cap off.
+
+**G8 Initial-condition construction**: splice radius of the ABN02 cloud chosen automatically (where the hydrostatic
+interior and the read-off envelope agree best in ρ and slope), documented; and Tom's profile data when available.
+
+**Order and parallelism.** G0 first. Then G1, G2, G6a in parallel (separate files: TitanResidFast/ProblemSetup;
+Trbdf2.jl; H2Lines) in git worktrees; G3 → G4 → G5 in sequence (one engine); G6b after the collision data are found
+(search started); G7 after G6b; G8 any time. Finally rerun the reference collapses (P100, z = 19) with everything and
+redo the M3c regime map. Implementation of well-specified packages by subagents; design, review and verification here.
+
+### G0 Test suite [run]
+`julia/popiii_tests.jl [quick|full]`: each test a separate process, its output parsed for the deciding number; logs in
+`lib/popiii/tests/`, summary `lib/popiii/tests/summary.txt`. Quick tier (8 tests, 2 min 16 s on this Mac, all PASS):
+SOD 464 / SUBC 587 / SUPC 713 steps; static sphere exactly at rest; BE discrete equilibrium 7.3e-10; H2Lines thin limit
+1.000000 and homogeneous sphere 0.994–1.000; detailed-balance network = Saha (2217.9715 K both); one-zone f_H2 0.9707 at
+log ρ/m_H = 12.4. Full tier adds the dust collapse (arrival t/t_ff), BE Lane–Emden n = 120, LP after 8 decades.
+
+### M3d item 4: the line-transfer collapse with the corrected solver [run]
+`_v2` (log `lib/popiii/m2c_abn02z19_lines_n200_v2.log`, snapshots `snaps_abn02z19_lines_n200_v2.jls`), stopped by the 2-h
+background limit after core formation (step ≈ 9500, log n_c 22.9). Central track:
+
+| log n_c | lines, corrected (v2) | lines, constant-S (v1) | RA04 local fits | RHFC02 stage |
+|---|---|---|---|---|
+| 10 | 816 | 816 | 802 |  |
+| 12 | 1273 | 1273 | 1245 |  |
+| 14 | 1730 | 1731 | 1751 |  |
+| 16 | 2241 | 2241 | 2260 |  |
+| 17.9 | 3087 | 3090 | 3105 | 3000 (4) |
+| 19 | 3979 | - | 4006 |  |
+| 20.2 | 6495 | - | 6638 | 6500 (5) |
+| 21.2 | 15688 | - | 16103 | 15000 (6) |
+| 22.2 | 30500 | - | 31101 | 30000 (7) |
+| 22.9 | 62641 | - | 64642 |  |
+
+The solver fix changes the central track by ≤ 0.1 % (the constant-S error sat in line cooling that is negligible for the
+core's energy budget); line transfer and RA04's fits agree within 1–3 % through core formation, both on RHFC02's
+stages.
+
+### G6a Per-line frequency grids [run]
+`H2Lines.cooling(…; tol = 0.01, cover = 0.999)`: per line, the zones carrying 99.9 % of that line's emission
+(n_u A hν ΔV) or of its line-centre opacity column set the span ±(3 v_th + |u|) and the bin width (≤ ½ their smallest
+v_th; 30 ≤ bins ≤ 200). Replaces the f_H₂ ≥ 0.1 cut and its hard-coded μ_H. Thin shortcut by tolerance: τ_c < 2 tol (the
+thin approximation overestimates a uniform sphere's line luminosity by ≈ (3/8)τ_c). Test 5 (h2lines_test.jl): hot,
+1 %-molecular core (2e4 K) in a cold infalling envelope (≤ 2000 K, ≤ 20 km/s): surface line luminosity per-line vs a
+reference with every zone in every span and 4000 bins: ratio 1.00000, max |ΔΛ/Λ| 2.5e-7 over the cooling zones, with
+≤ 183 bins (0.3 s vs 6.4 s). Tests 1–4 unchanged.
+
+### G3 Reaction-network engine [run]
+`julia/ChemNet.jl` + `julia/ChemRates.jl`. Species with mass, charge, element content, energy zero E0 (relative to free
+nuclei + electrons) and internal partition function (electronic × nuclear spin × rotation × vibration: H₂ as K_H2; H with
+levels n ≤ 8; H₂⁺ approximate); equilibrium constants K for any reaction from these; reactions as data, `with_db`
+adds reverses k_rev = k_fwd/K; photo-processes from σ(ν, T) and a per-zone J_ν with Milne inverses (stimulated emission
+included); unknowns all species but H, Li (nuclei conservation) and e (charge); exact Jacobian (ForwardDiff); coupled
+chemistry + T step as before; `steady` (pseudo-transient continuation) for tests.
+
+Tests [run]:
+- **Reproduces PrimordialChem on the RHFC02 set**: dx/dt identical to all digits; u within 1.5e-7; one step at
+  (1e8, 600 K), (1e15, 2000 K): T and x_H₂ identical to all printed digits; (1e12, 1100 K, 2 % of H forming H₂ in the
+  step): 1748.1 vs 1740.3 K — D0(H₂) = 4.478 eV (spectroscopic, used for K) vs RHFC02's 4.48 eV.
+- **Modern set in a Planck field (J = B(T)) relaxes to equilibrium**: network/equilibrium for H₂/H, H⁺, H⁻ = 1.00000
+  (≥ 0.99997) at (1e14, 2000), (1e18, 3500), (1e20, 6000), (1e21, 1e4 K). Getting there exposed two non-general choices:
+  case-B recombination (one-way) → replaced by one Milne pair over H levels n ≤ 8 in Boltzmann ratio (total recombination
+  ≈ case A; Saha exact for J = B); the H₂⁺ channels → detailed balance for dissociative recombination and H⁻ + H⁺ → H₂⁺ + e.
+  **Remaining**: radiative association H + H⁺ → H₂⁺ + γ is one-way (its inverse, H₂⁺ photodissociation, needs σ(ν)
+  — to obtain, e.g. Stancil 1994 / Dunn 1968): deviations 2 % (H₂), 0.3 % (H⁺), 1 % (H⁻) at (1e16, 8000 K, 2 % ionised),
+  and x_H⁺ = 1e-21 instead of ~1e-43 at (1e10, 1000 K) (negligible in absolute terms).
+- Hydrogen photo-ionisation cross sections are Kramers (g = 1): order of magnitude — refine.
+
+### G4 Lithium and photo-pairs in the network [run]
+Data: Li rates from GP98 Table 4 (subagent extraction `~/Projects/popiii_lit/rates_li_extraction.md`: 26 reactions;
+photo-processes only as CMB rates, no σ(ν)); **Verner et al. 1996 photo-ionisation fits** (D. A. Verner's phfit2.f v2,
+copy in FAC `ionis/phfit2.f`: H I PH2 (0.4298 eV, 5.475e4 Mb, 32.88, 2.963), Li I PH2 (3.107 eV, 62.45 Mb, 15.01, 4.895),
+threshold 5.392 eV; `~/Projects/popiii_lit/verner/`); **Voronov 1997** collisional ionisation (Li I: 5.4 eV, P 0, A
+1.39e-7, X 0.438, K 0.41; AMUSE/SPHRAY and FAC copies).
+Network (`ChemRates.modern(; li = true)`): Li + e ⇌ Li⁺ + 2e (Voronov, detailed balance), Li⁺ + H⁻ ⇌ Li + H (GP98 Li3,
+Peart & Hayton 1994; d.b.), Li + H⁺ → Li⁺ + H + γ (GP98 Li8, one-way), Li(levels) + γ ⇌ Li⁺ + e (Milne). GP98 Li7
+(charge exchange, Kimura et al.) left out: direction/validity doubtful in GP98's table. Li⁻, LiH, LiH⁺: not yet.
+**Levels**: H (n ≤ 15, Boltzmann) and Li I (2s + quantum-defect levels n ≤ 15, l ≤ 3; 2p 1.81 eV vs 1.848 measured)
+in both the partition functions and the photo-cross sections (ground states Verner, excited hydrogenic/Kramers) — the
+Milne total recombination then reaches: H 0.60 / 0.86 / 1.00 of case A (AAZN97 k2) at 1e3 / 3e3 / 1e4 K; Li 0.59 / 0.72 /
+0.80 of GP98 Li1 (Verner & Ferland 1996). The shortfall at low T is recombination to n > 15 and the Gaunt-factor-1
+excited-level cross sections → **next: Hummer & Mihalas (1988) occupation probabilities** (level dissolution with
+density, consistently in Z and σ) and exact hydrogenic σ_n; the n ≤ 15 cut-off is harmless below ≈ 1.5e4 K (Z_H = 2.08;
+SCVH95 takes over in the dense hot core).
+**Equilibrium test** (J = B(T), steady state by pseudo-transient continuation — rewritten to accept only converged
+steps after it stalled at 1e21 cm⁻³): network/equilibrium = 1.0000 for H₂, H⁺, H⁻ and Li⁺ at (1e14, 2000), (1e18, 3500),
+(1e20, 6000), (1e21, 1e4 K). Remaining deviations from the one-way radiative association H + H⁺ → H₂⁺ + γ: H⁺ 3.4× at
+(1e16, 2000 K) where x_H⁺ ~ 1e-22, 0.3–2 % at (1e16, 8000 K). Li electrons with the network self-consistent: at (1e18,
+3000 K) x_e = 4.16e-10 (vs 4.45e-10 from PrimordialChem.ne_with_Li, which adds Li⁺ to an unchanged H⁺: the extra
+electrons suppress H⁺ 13×).
+
+### G5 network chemistry in the collapse [run]
+`PopIIIMaterial.NetGas`: ChemNet network (`ChemNet.step`, coupled with T and cooling) per zone; the Saha+SCVH table
+(`PopIIIEqEOS`) where the ideal-gas pressure ≥ PSWITCH (default 1e4 dyn cm⁻², RHFC02's EOS validity) — a criterion on
+the EOS, not a tuned ρ_eq. Driver: `CHEM=rhfc02 | net | netmodern | netmodernli` in popiii_m2c.jl (default rhfc02 unchanged).
+- P100 `ra04`, `CHEM=net` (RHFC02 network in ChemNet) vs the reference `m2c_ra04_n100_eq.log` (PrimordialGas, ρ_eq = 5e-11):
+
+  | log n_c | 8 | 10 | 12 | 14 | 16 | 17 |
+  |---|---|---|---|---|---|---|
+  | T_c ref / net [K] | 390 / 374 | 621 / 608 | 1066 / 1061 | 1749 / 1800 | 2196 / 2213 | 2545 / 2466 |
+  | f_H2 ref / net | 3.8e-3 / 3.7e-3 | 0.331 / 0.325 | 0.951 / 0.951 | 0.968 / 0.975 | 0.934 / 0.963 | 0.893 / 0.919 |
+
+  Above 1e14 the network stays out of equilibrium up to the pressure switch (n_c ≈ 5e16), so f_H2 is higher than the
+  reference's Saha by up to 3 %. At the switch, T_c dips by 0.07 % and max dT/T is ≈ 5e-2 for ≈ 40 steps: a mild kick, no jump.
+- `CHEM=netmodernli` first died at step 0 with NaN: below ≈ 200 K, K(H → H⁺ + e) and K(Li → Li⁺ + e) underflow to 0, so
+  the detailed-balance reverses k_f/K and the Milne α = A/K became 0/0. Fixed in general:
+  - `ChemNet.lnKeq`.
+  - Reverses are formed in logarithms. Below the underflow temperature of an endothermic fit (T_u ≈ ΔE/700k), the
+    exothermic reverse is extrapolated as a power law from [T_u, 2T_u].
+  - `Photo` is now a list of levels (E_x, g, E_th, σ(ν)) with the electronic partition function. The Milne integral is
+    done per level with the Boltzmann factor and 1/K in one exponent.
+  - All rates are finite at 35 K. With J = B, R/(αK) = 1 ± 1e-15 for H⁻, H and Li at 100 K–1e4 K.
+  - The per-level frequency grids raise H's Milne total over case A from 0.60/0.86/1.00 to 0.81/0.91/0.95 at 1e3/3e3/1e4 K.
+    At 35 K it is 0.26 (n ≤ 15 truncation; the Hummer–Mihalas follow-up).
+
+### G2 TR-BDF2 on the Lagrangian collapse [run]
+`Trbdf2.jl` now runs on lgrid = 3 (Eulerian path unchanged; `qstar_run.jl` with `QS_TRBDF2=1` still runs, 60 steps, no
+failures). Changes: (i) the BDF2 stage's old state y* also holds the radii, r* = r_γ + B(r_γ − r_n), and the old zone
+volumes recomputed from r* (ρ* = m*/dV*; m* = m for a Lagrangian zone), `ro` and `dvolo` are saved/restored; (ii) with
+`FREE_OUTER`/PEXT the outer interface velocity is combined with the mass of the outer half zone; (iii) **y* is written
+A y_γ − B y_n = y_γ + B(y_γ − y_n)**: the first form gives a frozen x_me (1e47) a round-off of 1e31, hence dm/dt ≠ 0 and
+a spurious advective energy flux — the static BE sphere then moved by 3.7e-4 (instead of 7e-10) in the first three
+steps. REGULAR_CENTRE, XMINT (A − B = 1), EXTMASS, DT_DYN need nothing: they read no old-state array, and timstp sees y_n
+because the old arrays are restored after the step. `PM.chem!` runs after the full step on y_{n+1} (first-order split
+in time; the stages themselves are chemistry-free). Switch `INTEGRATOR=trbdf2` in `popiii_m1.jl`, `popiii_m2c.jl`.
+- **Dust collapse** (T0 = 1e-6, stol 0.1, 40 shells; worst-shell |Δr/r| at exact R/R0 = 0.5 / 0.1 / 0.03; log interpolated
+  between the 20-step prints; logs `m1_dust_trbdf2_cdyn*`):
+
+  | C_dyn | steps to 0.1 | 0.5 | 0.1 | 0.03 |
+  |---|---|---|---|---|
+  | 0.03 | ~96 | 2.5e-4 | 5.9e-3 | 3.8e-2 |
+  | 0.01 | ~260 | 3.0e-5 | 6.7e-4 | 4.4e-3 |
+  | 0.003 | ~860 | 2.7e-6 | 6.1e-5 | 4.0e-4 |
+
+  Order in C_dyn 1.97 (0.03 → 0.01) and 1.98 (0.01 → 0.003) at 0.1. θ = 0.5 (M1b) had 2.6e-3 at C_dyn 0.01: 4× less error
+  at the same step count (two Newton solves per step). No stage failures, no backward-Euler fallback. Energy drift
+  |dE|/|W| 7e-6 (C_dyn 0.003).
+- **BE discrete, n = 60**: 7.3e-10 / 1.3e-10 (θ: 7.3e-10), 1735 steps. **LP, n = 200**: max 4πGρr²/c_s² = 4.66 / 5.92 /
+  6.94 / 7.68, min u/c_s = −0.99 / −1.73 / −2.27 / −2.64 at 2/4/6/8 decades: identical to M1b (θ = 0.55) to the printed
+  digits; energy drift over 8 decades 6.7e-7 (θ = 0.55: 5.9e-5; θ = 0.5: 1.3e-6).
+- **P100 collapse** (`ra04 100`, THETA unset, C_dyn 0.01, current code incl. Saha + SCVH95 above ρ_eq; logs
+  `m2c_ra04_n100_trbdf2` vs `_th055ctl`, the θ = 0.55 control with the same code): no ringing. Before the collapse both
+  integrators show a ≤ 0.1 dex breathing of the core (log n_c 6.43 → 6.55 → 6.52 → 6.57), from 6.7 on n_c rises
+  monotonically (the θ = 0.5 run swung 2.5e6 ↔ 2e8). T_c at log n_c = 7.9 / 9.9 / 11.9: TR-BDF2 369.5 / 560.1 / 994.7 K,
+  θ = 0.55 369.6 / 560.0 / 994.3 (≤ 0.1 %); the older `m2c_ra04_n100_eq.log` 367.7 (7.90) / 561.5 / 1002.3 (≤ 1 %,
+  earlier code). t(n_c = 1e12) 1.2046e6 vs 1.2047e6 yr. TR-BDF2: 12 987 steps (89 TR and 184 BDF stage failures, each
+  retried with Δ × 0.05, no backward-Euler fallback) vs 11 347 for θ = 0.55: about 2.3× the work (two solves per step).
+  Quick tier of `popiii_tests.jl`: 8/8 PASS (BE 7.27e-10).
+**Default for the collapse runs: `INTEGRATOR=trbdf2`** (second order, no ringing, same track as θ = 0.55).
+- Fit validity in detailed balance: k_f/K amplifies any error of an endothermic fit by e^{ΔE/kT}. AAZN97 k1 (cut to 0
+  below 1000 K, and inaccurate above that cut) gave H⁺ a three-body recombination time of 1e-9 s at 200 K. Each db pair
+  now carries Tmin, the validity limit of its forward fit: k1 1e4 K, k14 3e3 K, Voronov Li 1e4 K. Below Tmin the reverse
+  is extrapolated as a power law. The step at 35–200 K and n = 1e2–1e4 then behaves.
+
+### G6b H₂ statistical equilibrium [run]
+`julia/H2Levels.jl` (`load`, `populations(L, T, n_H, n_H2, n_He, n_Hp; β, Jbar, opr)`, `cooling(L, pops, n_H2; β)`, `coverage`, `lte`):
+the 63 levels v ≤ 2, J ≤ 20 (ExoMol RACPPK energies/g, 231 lines with A as in H2Lines), Cloudy 25.00 collision files as de-excitation
+k(u→l) [cm³ s⁻¹], excitation by detailed balance with the ExoMol energies (all rows checked u above l: 0 swapped, 0 duplicates).
+T-interpolation linear in log k vs log T, end values held outside the grid. Missing transitions: k = 0 (both ways). Radiative: A β + B J̄ (u→l),
+B_lu J̄ (l→u), defaults β = 1, J̄ = 0. Solver: GTH state reduction (≡ the linear solve with a normalisation row, but exact for the nearly
+decoupled ortho/para chains); 0.13 ms per call. Ortho↔para only through H (3 Sun & Dalgarno rows) and H⁺ (24 pairs); with no H/H⁺ the chains
+are decoupled and normalised 3:1 (`opr` forces any ratio and drops conversion). H₂ collider: n_H2 split ortho/para from the computed
+populations (fixed point, 1e-9). No electron collisions (no data).
+Coverage on the 63 levels (of 1953 pairs; levels linked; radiative lines with a collisional partner): H 844 (59/63; 211/231; not linked:
+(1,20), (2,18–20)); H₂-para 421 (J ≤ 16, v ≤ 2; 42/63; 135/231), H₂-ortho 361 (J ≤ 15; 39/63; 123/231) [LeBourlot 1999, 9 T points 100–6000 K];
+He (ORNL) 529 (63/63; 176/231; 1–10⁴ K); H⁺ 44 (v = 0, J ≤ 9; 10/63; 8/231; 3–6000 K). Levels without a partner for a collider get only radiative
+decay and the other colliders.
+Tests (`h2levels_test.jl`, 15 checks, 3 s; in `popiii_tests.jl full` as `h2levels`): (a) n_H = 1e12/1e14, β = 1: max |p/Boltzmann − 1| over levels
+with q > 1e-4 is 1.4e-7 (300, 1000 K), 3.5e-5 (3000 K; with 0.1 n_H of He all 63 levels, q > 1e-7: 1e-5); J̄ = B_ν(T) without collisions gives
+Boltzmann to 2e-15. The 63 levels hold 0.995 of the 302-level partition function at 3000 K (1.0000 at ≤ 1000 K), populations are normalised to the 63.
+(b) Λ/(n_H2 n_coll), n_coll = 1e-4, o:p = 3:1 fixed, vs GA08 Tables 1–6 (Table 8 gives the same): H₂ 0.89–1.16 (100–6000 K), He 1.05–1.16, H 0.95/0.98/0.95/0.91/0.79
+at 1000/1500/2000/4000/6000 K but 0.40 (100 K), 0.90 (200), **1.78 (300), 1.84 (500)**, 1.25 (700 K) — the Cloudy WGF07 file is about twice the GA08
+fits at 300–500 K (para J=0→2 and ortho 1→3 checked by hand against the file; GP98 is 4–6× GA08 there); H⁺ 0.15 (100 K) … 0.87 (6000 K)
+(Gerlich table v = 0, J ≤ 9, o↔p not included in this comparison). (c) Λ(n_H)/Λ_LTE(63 levels) vs 1/(1 + Λ_LTE^HM/(n_H Λ0^GP)): n_cr (ratio ½) ours
+1.5e4 / 6.6e4 / 9.3e3 cm⁻³ at 300/1000/3000 K vs 8.8e2 / 4.8e3 / 6.3e3 for cool_H2_thin; ours/GP at n_H = 1e3 … 1e4: 0.24, 0.32, 0.76; the GP/HM
+form reaches LTE too early at 300–1000 K (ours is 0.3× of it between n_H = 1e2 and 1e4) and agrees within 20 % at 3000 K; at n_H ≥ 1e7 both → 1.
+Low-density Λ0 ours/GP: 0.30 (300 K), 0.86 (1000), 1.15 (3000). (d) uniform β scales A: n_eff (Λ = ½ Λ_LTE(β), 1000 K) = 6.8e4 β cm⁻³ exactly
+(slope 1.000 over β = 1…1e-3); at n_H = 1e6 Λ/Λ_LTE(β) = 0.92 (β = 1) → 1.00 (β = 1e-3). Not yet used in the collapse drivers.
+
+### G6c Non-LTE H₂ lines coupled to the transfer (ALI) [run]
+`H2Lines.cooling(…; nlte = (LV = H2Levels.load(), nH, nHe, nHp), nlte_mode = :ali | :ep, nlte_tol = 1e-3, nlte_maxit, nlte_init = :ep | :thin,
+nlte_lambda = :diag | :none)`; default (`nlte = nothing`) is the old path, unchanged. H2Levels' 231 lines are H2Lines' 231 lines in the same
+order (checked at every call: ν from the 63 energies, A, g of both levels). Per zone: populations (63 fractions × n_H2) from `H2Levels.populations`;
+κ0 = (hν/4π)(n_l B_lu − n_u B_ul) (stimulated emission included), S = n_u A/(n_l B_lu − n_u B_ul) = (2hν³/c²)/(g_u n_l/(g_l n_u) − 1); same tangent-ray
+formal solver, which now also returns the profile-weighted mean intensity J̄ per zone (J = ½∫(I_in + I_out)dμ at the interfaces with the comoving profile
+φ(v ∓ μu) of the adjacent zone, trapezoid in μ over the rays; zone = mean of its two interfaces).
+- **Diagonal operator**: in the short-characteristics step the coefficient of the exit-node source is ψ(Δτ) = w0 − w1/Δτ. Λ* at a node = mean over
+  directions of ψ for the segment arriving at it (inward rays through the zone outside, outward through the zone inside), accumulated with the same μ
+  quadrature and profile weights as J̄; zone Λ* = mean of its two nodes. (Local operator, not the exact diagonal, which needs n unit-source solves.)
+  ALI step (Rybicki & Hummer): net rate = n_u A (1 − Λ*) − (n_l B_lu − n_u B_ul)(J̄_fs − Λ*S_old), linear in n, i.e. `populations(…; β = 1 − Λ*,
+  Jbar = max(J̄_fs − Λ*S_old, 0))`: one SE solve per zone per iteration. Start: EP populations (a few iterations, counted in `LAST.nep`) or thin (`:thin`).
+  Converged when max relative change of populations (those > 1e-6) < `nlte_tol`; `LAST[]` has `iters`, `nep`, `converged`, `hist`, `Λrate`, `pops`.
+  Lines with radial line-centre τ < 2·tol: thin emission from the actual n_u, J̄ = 0. Cooling returned = −∇·F of the last formal solution (as the LTE path).
+- **EP** (`:ep`): β per line and zone = profile average of ½[E₂(τ_out φ̂) + E₂(τ_in φ̂)] (τ_out radially to the surface, τ_in through the centre) or the
+  Sobolev (1 − e^{−τ_S})/τ_S with τ_S = κ0 c/(ν0 max(|du/dr|, |u/r|)), the larger of the two; fixed point on β (about 3–5 SE sweeps); cooling Σ n_u A β hν.
+  (My first EP, (1 − e^{−τ})/τ with τ the depth to the surface, was 1.8–3.4× high in the thick limit: log divergence from the surface layers.)
+- **Tests 6–8** (`h2lines_test.jl`; 1–5 unchanged; 10/10 G6c checks): (6) n_H = 1e14, n_H2 = 5e13, 1000 K, 105 thick lines: L_ALI/L_LTE = 1.00000, 1 iteration.
+  (7) n_H = 1e2/1e3/1e4 thin: L/(V n_H2 Σ n_u A hν)(β = 1 populations) = 1.000000 for ALI and EP (the LTE-thin emission is 72/16/4.6× higher at these densities).
+  (8) homogeneous spheres, 1000 K, n_H2 = n_H/2, 30 zones (EP, fnlte, LTE luminosity ratios to ALI):
+
+  | n_H, R | n_H2 R | LTE τ_max (thick lines) | EP/ALI | fnlte/ALI | LTE/ALI | ALI it. (EP start) | thin start | plain Λ to 1e-6 |
+  |---|---|---|---|---|---|---|---|---|
+  | 1e4, 1e22 | 5e25 | 13 (48) | 0.83 | 2.37 | 3.51 | 16 (5) | 17 | 40 (L/L_ALI 0.9996) |
+  | 1e5, 3e21 | 1.5e26 | 39 (74) | 0.77 | 1.22 | 1.28 | 6 (4) | 8 | 16 (0.9998) |
+  | 1e6, 1e21 | 5e26 | 131 (86) | 0.75 | 1.02 | 1.03 | 3 (3) | 4 | 6 (1.0000) |
+
+  ALI history at 1e4: 3.1e-1 … 8.2e-4, convergence factor ≈ 0.7 per iteration (zone Δτ < 1 for the strong lines: the local operator is weak; plain Λ
+  to 1e-3 needs ~21 iterations at similar τ, so ALI gains little here); thin and EP starts give the same L (< 1e-3). The old fnlte factor (HM79/GP98 form) is 2.4× high at
+  n_H = 1e4 and reaches the ALI answer only at n_H ≳ 1e6 (the 63-level n_cr at 1000 K is 6.6e4, G6b). EP is 17–25 % low.
+  **Rate-based vs flux-based cooling** Σ[n_u A − (n_l B_lu − n_u B_ul)J̄]hν vs −∇·F: 1.022 / 1.054 / 1.203 (30 zones); at n_H = 1e5: 1.054 / 1.018 / 1.006 (30/60/120 zones),
+  L_ALI 1.826 / 1.840 / 1.845e48 (0.7 % over 4×). In LTE-like thick zones the rate form is a cancellation (J̄ ≈ S); the flux form is returned.
+  Infalling cloud (n_H 1e7 … 1e4, 600–1400 K, ≤ 10 km/s, 75 thick lines): EP/ALI 0.93, LTE/ALI 1.21, 4 ALI iterations.
+- **Timing** (100 zones, that cloud, 4 threads): LTE path 0.19 s; ALI 1.5 s for 4 iterations + EP start (≈ 0.35 s per iteration; J̄ and Λ* roughly double the
+  transfer cost); EP 0.08 s (no transfer).
+- Not done: coupling into the collapse drivers (`popiii_m2c.jl` unchanged); no electron collisions; maser zones (κ0 ≤ 0) treated as transparent.
+
+### G5b network speed
+- Network evaluation now uses an index form (`ChemNet.Compiled`, cached per Network) in place of Dicts.
+- Photo-rates are cached per Newton T value. When J is the same in every zone (`env.static`, the driver's CMB/none
+  field), they come from a log-T table (0.005 dex, Catmull–Rom); table vs direct ≤ 3e-3.
+- A modern+Li step drops from 23 ms to 0.45 ms per zone. The P100 netmodernli run takes ≈ 30 min, against ≈ 8 h before.
+
+### G7 implicit transfer cooling [run]
+- Λ_j from the transfer is applied over the next step as Λ_j (T/T_j)^s inside the implicit chemistry–temperature step
+  (`PopIIIMaterial.ext_cooling`). The slope s = d ln Λ_j/d ln T comes from a second transfer call with all T × 1.02.
+- The second call is made only when the explicit cap 0.1 t_cool would bind. The cap then relaxes to DTCOOL t_cool
+  (default 1). `IMPCOOL=0` restores the explicit scheme.
+- P100 `lines` to 1e13: T_c matches the explicit run within 0.2 %, with the same step count to within 0.05 %.
+- z = 19 `lines` to 1e9: identical, with 0 implicit steps. On these runs the cap never binds; dynamics and stol limit
+  Δt. G7 is therefore a robustness guarantee, not a speed-up.
+
+### Driver: NLTE modes for `lines`
+`NLTE=1` keeps the GP98/HM79 factor (default). The other modes:
+- `0`: LTE.
+- `ep`: H2Levels with escape probabilities.
+- `ali`: G6c, statistical equilibrium coupled to the transfer.
+- `hyb`: ALI every NALI steps (default 20), and EP × (ALI/EP per zone) in between.
+
+### G1 Viscosity ∝ zone width [run]
+
+**Code.** `TitanResidFast.AV_ZONE` (`Ref(0.0)`): when > 0 the viscous length of zone k is l_k = AV_ZONE·(r[k+1] − r[k]) with
+the θ-centred radii (ForwardDiff-clean); ql0, ql1 then unused. Default 0 = old formula (regression 8/8 PASS, `popiii_tests.jl quick`).
+`TitanCore` only reads `qf` from the residual (no recomputation), nothing else to change. `popiii_m2c.jl`: env `AVZONE`
+(default 0 = keep ql1). Mapping to von Neumann–Richtmyer q ≈ c_q ρ (Δv)² (RHFC02/Ripamonti et al.: c_q = 4) — derived, not
+sourced: qf = cqvis·cq2·l²·ρ·(div u)(du/dr), l = cΔr ⇒ c_q ≈ cqvis·cq2·c² (cqvis = 4/3 ⇒ c² = 3/cq2 for c_q = 4, c ≈ 1.7).
+
+**Test** `julia/av_test.jl` (log `lib/popiii/tests/av_test.txt`). Noh problem, cold gas ρ0, u = −v0, γ = 5/3, wall at the
+centre/left, free outer boundary (Lagrangian, lgrid 3; planar wall at r = R0, spherical with REGULAR_CENTRE); exact shock
+speed v0/3, jump 4 (planar) / 64 (spherical). Grid: uniform dx = 0.004 R0 up to r0 = 0.3 R0, then Δr ×s per zone (s = 1
+uniform, 1.02, 1.05, 1.1, 1.2; n = 250 … 94). Measured when the shock is at 0.1 R0 (it has just entered the stretched
+part). wu = zones between the 10 % and 90 % points of u/u_pre; Δx_s/r = Δr/r of the zone at the shock. Old: l = ql1 r̄
+with ql1 tuned on the uniform grid (spherical 0.05, planar 0.0018 = 2 × the shocked-zone width); new: AV_ZONE = 2 (cq1 = 0,
+cq2 = 1, θ = 0.55, stol 0.05). Position error = (r_s,num − r_s)/r_s from the ρ half-jump.
+
+| geometry | s | Δr/r (shock) | wu, l ∝ r | pos err, l ∝ r | wu, l = 2Δr | pos err, l = 2Δr |
+|---|---|---|---|---|---|---|
+| planar | 1 | 0.016 | 1.80 | 0.2 % | 3.82 | 0.7 % |
+| planar | 1.02 | 0.023 | 1.64 | 0.9 % | 3.74 | 0.7 % |
+| planar | 1.05 | 0.035 | 1.69 | 2.3 % | 3.59 | 0.6 % |
+| planar | 1.1 | 0.045 | 0.68 | 1.4 % | 3.40 | −0.4 % |
+| planar | 1.2 | 0.088 | 1.63 | 9.8 % | 3.19 | −1.9 % |
+| spherical | 1 | 0.018 | 4.35 | 1.2 % | 3.82 | −0.3 % |
+| spherical | 1.02 | 0.027 | 3.00 | 1.3 % | 3.78 | 0.2 % |
+| spherical | 1.05 | 0.030 | 2.09 | 1.4 % | 3.70 | 1.0 % |
+| spherical | 1.1 | 0.041 | 1.52 | 2.3 % | 3.43 | 2.3 % |
+| spherical | 1.2 | 0.055 | 1.50 | 4.5 % | 2.46 | 3.5 % |
+
+- With l = 2Δr the shock is 3.2–3.8 zones wide for s ≤ 1.1 (planar through 1.2) and the position error stays ≲ 2 % (sph. 3.5 %
+  at s = 1.2); with l ∝ r the width falls 4.3 → 1.5 zones (spherical) as Δr/r grows — l no longer covers a zone, the shock
+  is a 1–2-zone jump (planar: 0.7–1.8, erratic; position error up to 10 %). Hence ql1 = 0.15 had to be retuned per grid.
+- Spherical, large s: l = cΔr acts also on the smooth converging pre-shock flow (div u = −2u/r ≠ 0) and slows it where
+  Δr/r is large (u/v0 = −0.86 at s = 1.1, plateau 0.67–0.84 of 64ρ0 at s = 1.1–1.2): keep Δr/r ≲ 0.05–0.1 in the infall region, or c < 2.
+  (The collapse grids have Δr/r ≈ 0.04–0.12.)
+- ρ-based 10–90 % widths were not used: the numerical post-shock plateau is 5–10 % below the jump and not flat.
+- Step counts: l = cΔr needs 5–10× fewer steps than the tuned l ∝ r runs (ql1 case: ringing → 1.4e4–2.2e4 steps vs 1.5e3–1.9e3 spherical).
+- Use for the collapse: `AVZONE=2 julia popiii_m2c.jl …` (not yet run on the z = 19 cloud; c_q = 4/3·1·4 = 5.3 for c = 2).
+- G5 result, P100 `ra04`, `CHEM=netmodernli` (full detailed balance, Li), T_c [K] by log n_c, compared with the reference and CHEM=net:
+
+  | log n_c | 12 | 14 | 15 | 16 | 17 |
+  |---|---|---|---|---|---|
+  | reference (Saha above ρ_eq) | 1066 | 1749 | 2032 | 2196 | 2545 |
+  | CHEM=net | 1061 | 1800 | 2108 | 2213 | 2466 |
+  | CHEM=netmodernli | 1055 | 1741 | 2027 | 2197 | 2542 |
+
+  The detailed-balance network relaxes to equilibrium on its own and follows the Saha-switched reference within 0.5 %
+  from 1e14 to 1e17, with no ρ_eq switch. The RHFC02 network (PSS83 k5 not in detailed balance with k4) deviates by up
+  to 4 %. The rate pair, not the switch, sets the high-density track.
+
+### G8 automatic splice of the z = 19 cloud [run]
+`LRJOIN=auto` (default) sets r_join to the outermost radius inside which the hydrostatic interior stays within DLNJOIN of
+ABN02's read-off n(r) everywhere. A plain "best agreement" criterion is degenerate: the flat core agrees trivially.
+
+| DLNJOIN [dex] | log r_join [pc] | M_join [M☉] | slope mismatch |
+|---|---|---|---|
+| 0.05 | −0.86 | 0.3 | −0.17 |
+| 0.10 | −0.65 | 1.3 | −0.32 |
+| 0.15 (default) | 0.68 | 815 | −0.41 |
+
+The interior departs from the read-off by 0.10–0.15 dex between 0.2 and 5 pc, and beyond 5 pc it diverges, because the
+hydrostatic mass saturates. The default is the read-off accuracy of the figure (≈ 0.15 dex). It gives 4.8 pc,
+against 7.4 pc (LRJOIN=0.87) chosen by hand earlier. A numerical number can be set with LRJOIN=<log r>. Tom's profile
+data would remove the read-off uncertainty.
+
+### Final P100 reference run (all generalisations on) [run]
+**Set-up:**
+```
+INTEGRATOR=trbdf2 AVZONE=2 CHEM=netmodernli NLTE=hyb SNAPS=1 NSTOP=1e21 popiii_m2c.jl lines 100
+```
+This is TR-BDF2, viscosity ∝ zone width, the detailed-balance network with Li, non-LTE H₂ lines (ALI, hybrid), and
+implicit transfer cooling.
+- **Integration:** 15 794 steps. There were 72 TR and 293 BDF stage retries and no backward-Euler fallback; implicit
+  line cooling was never needed.
+- **T_c [K] by log n_c:**
+
+  | log n_c | 8.1 | 10.2 | 12.0 | 14.2 | 16.2 | 18.2 | 20.2 |
+  |---|---|---|---|---|---|---|---|
+  | T_c | 372 | 627 | 1069 | 1715 | 2158 | 3160 | 5942 |
+  | ON98 | 407 | 596 | 1126 | 1701 | 2338 | 3924 | — |
+
+  The run stays within 1–5 % of the earlier tracks.
+
+**Regime map** (`popiii_regimes.jl`, central shell; `lib/popiii/regimes_p100_final.txt`), against M3c:
+- The centre's H₂ lines become thick (τ_line = 1) at log n ≈ 9.9.
+- τ_R = 1 at log n ≈ 16.3, as in M3c.
+- The windows are thermalised (f_win = 0) by log n ≈ 16.7, slightly earlier than M3c's 17.5.
+- F/F_D (extinction) is 0.63, 0.86 and 0.80–0.83 at log n = 18.2, 19.0 and 19.8–20.0. Diffusion with the extinction
+  Rosseland mean is good to ≈ 20 % from 1e19.
+- The equilibrium table (pressure switch) takes over the centre at log n ≈ 17.3.
+
+### Final z = 19 reference run (all generalisations except TR-BDF2) [run]
+**Set-up:**
+```
+IC=abn02z19 TCMB=54.5 AVZONE=2 CHEM=netmodernli NLTE=hyb SNAPS=1 NSTOP=1e21 popiii_m2c.jl lines 200
+```
+- Integrator: the θ-scheme. TR-BDF2's stages fail in the infalling envelope (see G2b).
+- Splice: automatic, at 4.8 pc, with M_join = 815 M☉.
+- The run took 12 773 steps and stopped at T_c = 5618 K, n_c ≈ 8e19.
+
+**Contraction phase:**
+- 1e5 is reached at 20.3 Myr, against 14.6 Myr in v2; runaway collapse follows 1.2 Myr later.
+- The slower contraction comes from the H₂ non-LTE populations (statistical equilibrium plus ALI). The old GP98/HM79
+  factor overestimates line cooling by up to 2.4× at n ≈ 1e4 (G6c). The new splice also changes the envelope.
+- These two contributions have not been separated yet.
+
+**T_c [K] by log n_c:**
+
+| log n_c | 6.1 | 7.1 | 8.1 | 9.1 | 10.1 | 11.1 | 12.1 | 13.1 | 14.1 | 15.1 | 16.1 | 17.1 | 18.1 | 19.1 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| T_c | 260 | 420 | 629 | 754 | 829 | 1197 | 1239 | 1339 | 1769 | 2055 | 2250 | 2583 | 3240 | 4228 |
+
+- The warm core runs hotter than ON98 and P100 at 1e7–1e11, by up to 43 % at 1e11.
+- From 1e13 it joins the common track: within 4 % of ON98 up to 1e16, and within 3 % of P100 at 1e18.
+
+**Regime map** (central shell; `lib/popiii/regimes_z19_final.txt`):
+- The H₂ lines become thick at log n ≈ 10.3.
+- τ_R = 1 at ≈ 16.2.
+- The windows are thermalised by ≈ 17.
+- F/F_D (extinction) is 1.2–1.5 at ≥ 1e19, against 0.8 for P100. The central temperature gradient is almost flat, which
+  makes the ratio noisy, so Rosseland diffusion is good to 20–50 % there.
+- **Attribution of the slower contraction.** Each run below changes one setting relative to the final run; t is the
+  time to n_c = 1e5:
+
+  | run | t(1e5) [Myr] |
+  |---|---|
+  | final (NLTE=hyb, automatic splice at 4.8 pc) | 20.3 |
+  | NLTE=1 (old GP98/HM79 factor), else as final | 12.9 |
+  | LRJOIN=0.87 (old splice at 7.4 pc), else as final | 21.6 |
+  | v2 (old everything: RHFC02 chemistry, NLTE=1, 7.4 pc, ql1 viscosity) | 14.6 |
+
+  The H₂ level populations account for the whole delay, a factor of 1.6. The old factor reaches LTE too early, which
+  overestimates the cooling of the cloud at n ≈ 1e3–1e5. The splice changes the time by only 6 %, and the remaining
+  differences from v2 (chemistry, viscosity) by about 12 %. The minimum core temperature changes little (142 K against
+  147 K).
+
+### G2b TR-BDF2 stage failures in the infalling envelope [run]
+Problem: z = 19 cloud (`IC=abn02z19 TCMB=54.5 lines 200`, 500 steps): TR-BDF2 reached 0.7 Myr, θ = 0.55 4.9 Myr; 23 TR and
+51 BDF stage failures in 501 steps, each cut Δ × 0.05 (timstp then also damps the regrowth: Δ cycles 2e10 → 4e11 over ~8 steps).
+- **Diagnosis** (temporary instrumentation of `newton!`: per-iteration dmax and the zone/variable of each maximum, dense
+  re-solve of the 1000 × 1000 Newton system, scans of the first iteration over Δ and θ). Not a bug in y* (|y* − y_γ| ≤ 0.1 %), not
+  a convergence-test problem, not negative ρ/T. The failing stages start with a first Newton step of relative size 1e2–1e8 in
+  T, ρ, r at zones 85–135 (far from the envelope that limits Δ; the residual itself is ≤ 3e-3 of the row scale, in zones
+  186–188), which the 10 % damping (dtol) turns into 12–40 iterations (niter = 10; niter = 20 does not help). The block system
+  has cond ≈ 1e19–1e20 (row-equilibrated) at all steps, good and bad: any initial guess that is off in a soft direction is
+  amplified (dense LAPACK solve of the same system gives the same garbage, so it is the system, not matslv).
+  **The same state fails for θ = 0.55 and backward Euler too if Newton starts from `reset` (new := old, no predictor)**
+  (θ = 0.55: 5/5 failures, 10 iterations with dmax 7e3; the BE fallback likewise, hence be_fallback 0), and converges in
+  3 iterations (first dmax 4e-3) as soon as the radii/x_me are extrapolated, r = r_old + (dr/dt)Δ (variants: reset +
+  extrapolation of r, x_me only: 5/5 converge; reset + ghost/derived refresh only: 5/5 fail). TITAN's step.f always starts a step with
+  `peq`, i.e. with that extrapolation; zones in the envelope move u Δ ~ their width per step (that is what limits Δ). The
+  TR-BDF2 code lacked it in three places: (i) the BDF stage starts at y_γ, not at the extrapolated y_γ + C2Δ·(dr/dt);
+  (ii) the BE fallback and the Δ-cut restarts use `reset` only; (iii) `peq` at the start of the step extrapolates over Δ
+  where the TR stage covers γΔ (1.7 × overshoot). Ablation (z = 19, 501 steps): BDF predictor only: fail_tr 38, fail_bdf 0;
+  TR extrapolation over γΔ only: fail_tr 0, fail_bdf 40; neither: 38 + 2; both: 0 + 0. (With a predictor the BE fallback
+  also works: be_fallback 38–40 plus 10 sticky BE steps each, so those runs are partly first order.)
+- **Fix** (`TitanCore.predict!`, the second half of peq split out: grid extrapolation, boundary values, ghost/derived
+  quantities; `peq!` bit-identical, SOD/SUBC/SUPC step counts unchanged): `Trbdf2.step!` calls `peq` with dtime = γΔ (restoring
+  Δ afterwards), `predict!(halve = false)` before the BDF stage, after `reset` in the BE fallback, in the sticky-BE restart and
+  after the Δ × TFAC cut (the latter with the γ factor for the next TR stage). The solution of a converged step is unchanged
+  (initial guess only); TFAC, the tfac memory and the convergence test are untouched.
+- **Results.** z = 19, 501 steps (`m2c_abn02z19_lines_n200_g2b.log`): fail_tr 0, fail_bdf 0, be_fallback 0; t = 4.931 Myr,
+  T_c 172.9 K at log n_c 3.708 vs θ = 0.55 (`..._theta.log`) 4.932 Myr, 172.9 K, 3.707 (before: 0.7 Myr, 23 + 51 failures).
+  P100 (`lines 100`, `m2c_lines_n100_g2b_full.log`, to n = 1e18): 12 944 steps, 0 stage failures (final reference run: 15 794
+  steps, 72 + 293 failures); T_c at equal log n_c vs `m2c_lines_n100_final.log` at 7.9 / 8.9 / 9.9 / 10.9 / 11.9:
+  366.2 / 417.5 / 573.7 / 803.0 / 1053.6 K vs 363.5 / 415.9 / 570.6 / 796.4 / 1038.5 K (+0.7, +0.4, +0.5, +0.8, +1.5 %; t(11.9)
+  1.2907e6 vs 1.2981e6 yr, the 3000-step prefix `m2c_lines_n100_g2b.log` 0 failures). G2 dust-collapse order (T0 = 1e-6,
+  C_dyn 0.03 / 0.01 / 0.003, `m1_dust_g2b_cdyn*.log`): worst-shell errors at R/R0 = 0.1 5.87e-3 / 6.74e-4 / 6.05e-5, identical
+  to G2, order 1.97 and 2.00; steps 175 / 427 / 1412, 0 failures. BE discrete n = 60 7.35e-10 (`m1_be_g2b.log`), LP n = 200
+  (`m1_lp_g2b.log`) byte-identical to `m1_lp_trbdf2.log`; `popiii_tests.jl quick` 8/8 PASS.
+- Note: the G2 table needs `T0=1e-6`; at the default T0 = 1e-3 of `popiii_m1.jl dust` (also for the unmodified code) the error floors at
+  ~2e-4 for C_dyn ≤ 0.01 (pressure).

@@ -12,10 +12,14 @@ include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "Bl
 include(joinpath(@__DIR__, "TitanCore.jl")); include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "TitanMaterials.jl"))
 include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "PrimordialChem.jl"))
 include(joinpath(@__DIR__, "SCVH.jl")); include(joinpath(@__DIR__, "PopIIIEqEOS.jl"))
+include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl"))
 include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2Lines.jl"))
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
 using ForwardDiff
+# INTEGRATOR=trbdf2: second-order L-stable TR-BDF2 (Trbdf2.jl, G2) instead of TITAN's theta scheme
+include(joinpath(@__DIR__, "Trbdf2.jl"))
+get(ENV, "INTEGRATOR", "theta") == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
 const Msun = 1.98847e33
 
 cool = isempty(ARGS) ? "ra04" : ARGS[1]; nsh = length(ARGS) > 1 ? parse(Int, ARGS[2]) : 100
@@ -138,7 +142,22 @@ if ic in ("abn02", "abn02hs", "abn02z19")
             # outside r_join the gas is not static in ABN02 (virial-shock heating, infall −0.4…−2.6 km/s): splice the
             # read-off n(r) on continuously at r_join (default 10^0.87 = 7.4 pc, where the two agree within 0.12 dex) and
             # integrate the mass outward; velocities there from v(M) (zero inside)
-            rj = pc * 10^parse(Float64, get(ENV, "LRJOIN", "0.87"))
+            # G8: r_join automatic (LRJOIN=auto, default): the outermost radius inside which the hydrostatic interior stays
+            # within DLNJOIN (default 0.15 dex, the read-off accuracy of ABN02 Fig. 2) of ABN02's read-off n(r) everywhere ("best agreement" alone is degenerate: in
+            # the flat core both agree trivially); the slope mismatch there is printed
+            lj = get(ENV, "LRJOIN", "auto")
+            if lj == "auto"
+                lnh(x) = (j = clamp(searchsortedfirst(rg, pc * 10^x), 2, length(rg)); log10(ρg[j] / (μ_abn * PC.mH)))
+                xs = range(log10(rg[3] / pc) + 0.1, log10(rg[end] / pc) - 0.1, length = 2000)
+                δj = parse(Float64, get(ENV, "DLNJOIN", "0.15"))
+                kbad = findfirst(x -> abs(lnh(x) - nfit(x)) > δj, xs)
+                xbest = kbad === nothing ? xs[end] : xs[max(kbad - 1, 1)]
+                dsl = (lnh(xbest + 0.05) - lnh(xbest - 0.05)) / 0.1 - (nfit(xbest + 0.05) - nfit(xbest - 0.05)) / 0.1
+                println("G8 automatic splice: log r_join = ", round(xbest, digits = 3), " (|Δ log n| ≤ $δj inside; slope mismatch ", round(dsl, digits = 2), ")")
+                rj = pc * 10^xbest
+            else
+                rj = pc * 10^parse(Float64, lj)
+            end
             k = searchsortedlast(rg, rj); rg = rg[1:k]; Mg = Mg[1:k]; ρg = ρg[1:k]
             fac = ρg[end] / nr(rg[end])
             while Mg[end] < 1.2M && rg[end] < 3e3pc
@@ -196,12 +215,33 @@ if yz !== nothing
     for j in 1:nsh; ystore[a0+j-1] = yz[j]; end
     for k in 1:a0-1; ystore[k] = yz[1]; end; for k in a0+nsh:length(ystore); ystore[k] = yz[end]; end
 end
-mat = PM.PrimordialGas(ystore, PC.rates_rhfc02(; k5 = k5f), cf, parse(Float64, get(ENV, "RHOEQ", "5e-11")), get(ENV, "EQEOS", "scvh") == "scvh")
+const IMPCOOL = get(ENV, "IMPCOOL", "1") == "1"                 # G7: transfer cooling implicit in T (linearised in ln T)
+const DTCOOL = parse(Float64, get(ENV, "DTCOOL", "1.0"))
+const NIMP = Ref(0)                                                  # steps with implicit line cooling
+const CHEM = get(ENV, "CHEM", "rhfc02")     # rhfc02: PrimordialGas (RHFC02 network, ρ_eq switch); net / netmodern / netmodernli: NetGas (G5)
+if CHEM == "rhfc02"
+    global mat = PM.PrimordialGas(ystore, PC.rates_rhfc02(; k5 = k5f), cf, parse(Float64, get(ENV, "RHOEQ", "5e-11")), get(ENV, "EQEOS", "scvh") == "scvh")
+else
+    # G5: ChemNet network; equilibrium table where the ideal-gas pressure ≥ PSWITCH (EOS validity, RHFC02's 1e4 dyn cm⁻²)
+    netw, phot = CHEM == "net" ? (ChemRates.rhfc02(; k5 = k5f), ChemNet.Photo[]) : ChemRates.modern(; li = CHEM == "netmodernli")
+    tcmb = parse(Float64, get(ENV, "TCMB", "0"))
+    Bν_(ν, T) = 2ChemNet.hP * ν^3 / ChemNet.c^2 / expm1(ChemNet.hP * ν / (ChemNet.kB * T))
+    envn = (Trad = tcmb, J = tcmb > 0 ? (ν -> Bν_(ν, tcmb)) : (ν -> 0.0), static = true)   # same J in every zone: tabulated photo-rates
+    ytup(d) = (d[:Hp], d[:Hm], d[:H2], d[:H2p])
+    coolnet = (ρ, T, d) -> cf(ρ, T, d === nothing ? PopIIIEqEOS.composition(ρ, T) : ytup(d))
+    xinit(y) = [s === :Hp ? y[1] : s === :Hm ? y[2] : s === :H2 ? y[3] : s === :H2p ? y[4] : s === :Lip ? 0.0 : 0.0 for s in netw.free]
+    global mat = PM.NetGas([xinit(y) for y in ystore], netw, phot, coolnet; env = envn, pswitch = parse(Float64, get(ENV, "PSWITCH", "1e4")))
+end
+"Composition of zone k as the PrimordialChem tuple (x_H⁺, x_H⁻, x_H₂, x_H₂⁺), for either material."
+ycomp(k) = mat isa PM.NetGas ? (d = ChemNet.full(mat.x[k], mat.net); (d[:Hp], d[:Hm], d[:H2], d[:H2p])) : mat.y[k]
+"Equilibrium-regime flag of zone k."
+eqflag(k) = mat isa PM.NetGas ? mat.eqzone[k] : TF.var(:dn)[k] >= mat.ρeq
 # artificial viscosity: viscous length l = ql1 r ≈ 2 Δr (the SOD state's ql0 = 1e-4 cm is zero at these scales, M2g);
 # Δr/r ≈ 0.04 (core) … 0.12 (envelope) on the geometric mass grid; quadratic term only (cq2), as PORTING_NOTES P7
 av = (ql0 = 0.0, ql1 = parse(Float64, get(ENV, "AVQL1", "0.15")), cq1 = 0.0, cq2 = parse(Float64, get(ENV, "AVCQ2", "1.0")))
 PS.build!(; rI, rho, T = Tz, u = uI, geom = 2, lgrid = 3, inner = :wall, outer = :free, pext = 0.0,
           selfgrav = true, material = mat, av)
+TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))    # G1: viscous length = AVZONE × zone width (0 = ql1 r̄ above)
 TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
 PS.install_julia!(BlockSolver); TD.MSGIO[] = devnull
 a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre))
@@ -221,7 +261,7 @@ tff = sqrt(3π / (32Z0.G * ρc))
 TF.setscalar!(:dtime, 1e-3tff); TF.setscalar!(:tmax, 1e3tff)
 pr("M2c collapse [IC %s]: cooling %s, %d shells (q = %.4f, dm1 = 3e-7 Msun), R = %.3e cm, rho_c/rho_edge = %.1f, T_edge = %.1f K, p_ext = %.3e\n",
    ic, cool, nsh, q, rI[end], rho[1] / rho[end], Tz[end], TX.PEXT[])
-pr("theta = %.2f, C_dyn = %g, k5 = %s, rho_eq = %g, eq EOS = %s, AV ql1 = %g cq2 = %g, central t_ff0 = %.3e yr\n", TF.getscalar(:thet), TC.DT_DYN[], k5s, mat.ρeq, mat.eqtable ? "Saha+SCVH95 table" : "Saha", av.ql1, av.cq2, tff / 3.156e7)
+pr("theta = %.2f, C_dyn = %g, k5 = %s, chemistry %s, %s, AV ql1 = %g cq2 = %g, central t_ff0 = %.3e yr\n", TF.getscalar(:thet), TC.DT_DYN[], k5s, CHEM, mat isa PM.NetGas ? @sprintf("equilibrium table where p ≥ %g", mat.pswitch) : @sprintf("rho_eq = %g, eq EOS %s", mat.ρeq, mat.eqtable ? "Saha+SCVH95" : "Saha"), av.ql1, av.cq2, tff / 3.156e7)
 # ON98 Fig. 3a (run A), read off: (log n_c, log T_c)
 on98 = [(6.3, 2.40), (8.0, 2.60), (10.0, 2.75), (12.0, 3.05), (15.0, 3.30), (16.0, 3.35), (20.0, 3.80)]
 on98T(ln) = (j = findfirst(p -> p[1] >= ln, on98); j === nothing ? NaN : j == 1 ? 10^on98[1][2] :
@@ -232,6 +272,30 @@ using Serialization
 const SNAPFILE = joinpath(TF.ROOT, "lib", "popiii", "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(get(ENV, "TAG", "")).jls")
 const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
 const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(ENV, "SNAPEVERY", "0"))
+# NLTE (line source functions): 1 = GP98/HM79 factor on S (old default), 0 = LTE, ep = statistical equilibrium with escape
+# probabilities (H2Levels), ali = statistical equilibrium coupled to the transfer (ALI, G6c), hyb = ALI every NALI steps
+# and EP × (ALI/EP per zone, from the last ALI) in between
+const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALIFAC = Ref{Vector{Float64}}(Float64[])
+NLTE in ("ep", "ali", "hyb") && include(joinpath(@__DIR__, "H2Levels.jl"))
+const HLV = NLTE in ("ep", "ali", "hyb") ? H2Levels.load() : nothing
+"Line cooling per zone (and Lr) for zone temperatures tt; step k (for NLTE=hyb)."
+function linecool(rr, uu, dd, tt, nh2, k)
+    if NLTE in ("ep", "ali", "hyb")
+        yc = [ycomp(a + j - 1) for j in 1:nsh]; nHn = dd ./ PC.μH
+        nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nsh], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nsh])
+        NLTE != "hyb" && return H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep)
+        Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep)
+        if k % NALI == 0 || length(ALIFAC[]) != nsh
+            Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali)
+            ALIFAC[] = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? Λa[j] / Λe[j] : 1.0 for j in 1:nsh]
+            return Λa, Lra, xa
+        end
+        return Λe .* ALIFAC[], Lr, x
+    end
+    # NLTE=1: source function × f = 1/(1 + Λ_LTE/(n_H Λ_0)) (the GP98/HM79 combination of PrimordialChem.cool_H2_thin)
+    fnl = [1 / (1 + PC.Λ_H2_LTE_HM(tt[j]) / max(PC.xH(ycomp(a + j - 1)) * dd[j] / PC.μH * PC.Λ_H2_0_GP(tt[j]), 1e-300)) for j in 1:nsh]
+    H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, fnlte = NLTE == "1" ? fnl : nothing)
+end
 const HLL = cool == "lines" ? H2Lines.load() : nothing; const NBIN = parse(Int, get(ENV, "NBIN", "30")); const LLINE = Ref(0.0)
 Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(ENV, "NSTOP", "1e18"))
 try
@@ -241,8 +305,8 @@ try
             lnc = log10(TF.var(:dn)[a] / PC.mH)
             if lnc >= SNAPNEXT[] || (SNAPEVERY > 0 && k % SNAPEVERY == 0)
                 push!(SNAPS, (; step = k, t = TF.getscalar(:timen), r = TF.var(:rn)[a:b+1], u = TF.var(:un)[a:b+1],
-                    ρ = TF.var(:dn)[a:b], T = TF.var(:tn)[a:b], e = TF.var(:egn)[a:b], y = [mat.y[a+j-1] for j in 1:nsh],
-                    m = 4π .* TX.XMINT[][a:b+1], Λext = copy(mat.Λext[a:b]), eq = [TF.var(:dn)[a+j-1] >= mat.ρeq for j in 1:nsh]))
+                    ρ = TF.var(:dn)[a:b], T = TF.var(:tn)[a:b], e = TF.var(:egn)[a:b], y = [ycomp(a + j - 1) for j in 1:nsh],
+                    m = 4π .* TX.XMINT[][a:b+1], Λext = copy(mat.Λext[a:b]), eq = [eqflag(a + j - 1) for j in 1:nsh]))
                 lnc >= SNAPNEXT[] && (SNAPNEXT[] = lnc + 0.25)
                 serialize(SNAPFILE, SNAPS)
             end
@@ -250,18 +314,26 @@ try
         if cool == "lines"
             # H₂ line transfer on the new state (RHFC02 A2.4); Λ held fixed over the next step; Δt ≤ 0.1 u ρ/|Λ| (A2.2)
             rr = TF.var(:rn)[a:b+1]; uu = TF.var(:un)[a:b+1]; dd = TF.var(:dn)[a:b]; tt = TF.var(:tn)[a:b]
-            nh2 = [dd[j] / PC.μH * mat.y[a+j-1][3] for j in 1:nsh]
-            # non-LTE: source function × f = 1/(1 + Λ_LTE/(n_H Λ_0)) (the GP98/HM79 combination of PrimordialChem.cool_H2_thin)
-            fnl = [1 / (1 + PC.Λ_H2_LTE_HM(tt[j]) / max(PC.xH(mat.y[a+j-1]) * dd[j] / PC.μH * PC.Λ_H2_0_GP(tt[j]), 1e-300)) for j in 1:nsh]
-            Λl, Lr, _ = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, fnlte = get(ENV, "NLTE", "1") == "1" ? fnl : nothing)
+            nh2 = [dd[j] / PC.μH * ycomp(a + j - 1)[3] for j in 1:nsh]
+            Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k)
             tcmin = Inf
             for j in 1:nsh
-                mat.Λext[a+j-1] = Λl[j]
+                mat.Λext[a+j-1] = Λl[j]; mat.Tref[a+j-1] = tt[j]; mat.slope[a+j-1] = 0.0
                 ue = TF.var(:egn)[a+j-1] + PC.UOFF_TH                 # thermal-ish energy scale (positive)
                 Λl[j] != 0 && (tcmin = min(tcmin, abs(ue * dd[j] / Λl[j])))
             end
+            # G7 (IMPCOOL=1, default): where the explicit cap Δt ≤ 0.1 t_cool would bind, the slope d ln Λ/d ln T from a
+            # second transfer call with all T × (1 + ε) makes Λ_j (T/T_j)^s implicit in the chemistry step, and the cap
+            # relaxes to Δt ≤ DTCOOL t_cool (default 1); otherwise Λ is held fixed (explicit, accurate there)
+            if IMPCOOL && 0.1tcmin < TF.getscalar(:dtime)
+                ε = 0.02; Λp, _, _ = linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1)
+                for j in 1:nsh
+                    Λl[j] != 0 && Λp[j] / Λl[j] > 0 && (mat.slope[a+j-1] = clamp(log(Λp[j] / Λl[j]) / log(1 + ε), -10.0, 30.0))
+                end
+                NIMP[] += 1
+            end
             LLINE[] = Lr[end]
-            TF.setscalar!(:dtime, min(TF.getscalar(:dtime), 0.1tcmin))
+            TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin))
         end
         if haskey(ENV, "PROFAT") && k in parse.(Int, split(ENV["PROFAT"], ","))
             rr = TF.var(:rn); uu = TF.var(:un); dd = TF.var(:dn); tt = TF.var(:tn)
@@ -269,14 +341,14 @@ try
             for j in 1:8:nsh
                 kk = a + j - 1
                 pr("    j %3d m %.3e r %.3e pc  n %.3e  T %7.1f  u %7.3f km/s  f_H2 %.2e\n", j, 4π * TX.XMINT[][kk+1] / Msun, rr[kk+1] / 3.0857e18,
-                   dd[kk] / (1.22 * PC.mH), tt[kk], uu[kk+1] / 1e5, 2mat.y[kk][3])
+                   dd[kk] / (1.22 * PC.mH), tt[kk], uu[kk+1] / 1e5, 2ycomp(kk)[3])
             end
         end
         ρc_ = TF.var(:dn)[a]; Tc_ = TF.var(:tn)[a]; ln = log10(ρc_ / PC.mH)
         if ln >= nextln[] || k % 500 == 0
             umin = minimum(TF.var(:un)[a:b+1]) / 1e5
             pr("%7d %8.3f %10.4e %9.1f %9.1f %10.3e %10.3f %9.2e %9.2e%s\n", k, ln, TF.getscalar(:timen) / 3.156e7, Tc_, on98T(ln),
-               2mat.y[a][3], umin, dT, TF.getscalar(:dtime), cool == "lines" ? @sprintf("  L_lines %.3e  bins %d, thick lines %d", LLINE[], H2Lines.LAST[].nbins, H2Lines.LAST[].nthick) : "")
+               2ycomp(a)[3], umin, dT, TF.getscalar(:dtime), cool == "lines" ? @sprintf("  L_lines %.3e  bins %d, thick lines %d", LLINE[], H2Lines.LAST[].nbins, H2Lines.LAST[].nthick) : "")
             ln >= nextln[] && (nextln[] += 0.25)
             if get(ENV, "UDIAG", "0") == "1"            # where the fastest infall is
                 uu = TF.var(:un)[a:b+1]; ku = argmin(uu); rr = TF.var(:rn)[a:b+1]
@@ -293,5 +365,8 @@ try
     end)
 catch e
     pr("stopped: %s\n", sprint(showerror, e)[1:min(end, 400)])
+    get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
+IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
+TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
 close(io)

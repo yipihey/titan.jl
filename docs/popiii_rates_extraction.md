@@ -39,6 +39,29 @@ Compiled 2026-10-19 for the RHFC02-faithful chemistry module. No code was writte
 
 ## 0. Status of PSS83
 
+### 0a. Verified from the scan (2026-10-19)
+Tom supplied the full ADS scan (pp. 632–641), kept in `~/Projects/popiii_lit/PSS83/scan/`. Table 1 on p. 634 was read
+from a 300 dpi render (`table1.png`). The [OCR-unverified] readings below are now **[paper]**:
+
+| # | reaction | rate (as printed) | reference |
+|---|---|---|---|
+| k1 | H⁺ + e⁻ → H + hν | 1.88×10⁻¹⁰ T^−0.644 cm³ s⁻¹ | Spitzer 1956; Hutchins 1976 |
+| k2 | H + e⁻ → H⁻ + hν | 1.83×10⁻¹⁸ **T** cm³ s⁻¹ (exponent 1; RA05's T^0.88 is not PSS83's) | Doughty & Fraser 1964; Hutchins 1976 |
+| k3 | H + H⁻ → H₂ + e⁻ | 1.35×10⁻⁹ cm³ s⁻¹ | Schmeltekopf et al. 1967 |
+| k4 | H+H+H → H₂+H | 5.5×10⁻²⁹ T⁻¹ cm⁶ s⁻¹ | Jacobs et al. 1967 |
+| k5 | H₂+H → 3H | 6.5×10⁻⁷ T^−1/2 exp(−52 000/T)[1 − exp(−6000/T)] **cm³** s⁻¹ (RA05's cm⁶ is a typo) | Jacobs et al. 1967 |
+| k6, k7 | with H₂ as third body | k4/8, k5/8 | Jacobs et al. 1967 |
+| k8 | H + e⁻ → H⁺ + 2e⁻ | 5.8×10⁻¹¹ T^1/2 exp(−158 000/T) cm³ s⁻¹ | Lotz 1967 |
+| k9 | H + H → H⁺ + e⁻ + H | 1.7×10⁻⁴ k8 | Drawin 1969 |
+
+PrimordialChem's k4_pss, k5_pss and k9_pss agree with the scan exactly. k1, k2, k3 are not used: AAZN97 k2, k7 and k8
+are used instead.
+
+Also confirmed on pp. 633–635:
+- H₂ levels: v = 0–2, J ≤ 20, with ortho:para fixed at 3:1.
+- Thick lines use the escape prescription of eq. (6).
+- The basic model starts at T₀ = 100 K, n₀ = 2.9 cm⁻³, f_H₂ = 6.3×10⁻⁶ and f_e = 2.8×10⁻⁵.
+
 The brief says PSS83 is not available. The local file `/Users/tabel/Projects/popiii_lit/PSS83/full.pdf` (identical to `try.pdf`) has **one image page**, ApJ 271, p. 632: abstract and introduction, with no rates.
 
 However, its hidden text layer is the ADS OCR of **all of pp. 632–641**. `pdftotext -layout full.pdf -` shows Table 1 on p. 634.
@@ -134,7 +157,7 @@ Text: "accurate for temperatures from 1K to 10⁹ K".
 
 **Other sources for case A**
 - **GA08 k13,A** [paper, GA08 p. 24, Table A1, ref. 13 = Ferland et al. 1992]: `k13,A = 1.269×10⁻¹³ (315614/T)^1.503 [1.0 + (604625/T)^0.470]^−1.923`. Agrees with AAZN97 k2 to within 1–3% over 100–3×10⁴ K [num].
-- **RA05 Table 1.1 k1** [paper, RA05 p. 22], attributed to T97: `k1 ≃ 1.88×10⁻¹⁰ T^−0.644 cm³ s⁻¹`. This is 12% above AAZN97 at 100 K, 20% at 10⁴ K and 33% at 3×10⁴ K [num]. PSS83 k1 also begins "1.88×10…" [OCR-unverified].
+- **RA05 Table 1.1 k1** [paper, RA05 p. 22], attributed to T97: `k1 ≃ 1.88×10⁻¹⁰ T^−0.644 cm³ s⁻¹`. This is 12% above AAZN97 at 100 K, 20% at 10⁴ K and 33% at 3×10⁴ K [num]. PSS83 k1 is the same, 1.88×10⁻¹⁰ T^−0.644 [paper, scan §0a].
 - **GP98 H1** [paper, GP98 p. 2]: GP98 uses the cosmological effective rate `R_c2 = 8.76×10⁻¹¹ (1+z)^−0.58 cm³ s⁻¹` (recombination to excited states, Grachev & Dubrovich 1991). It is not a function of T and is not a substitute.
 
 ### A.3 H + e⁻ → H⁻ + γ (AAZN97 k7) [paper, AAZN97 p. 25, Table 2 (7); text p. 7]
@@ -152,7 +175,7 @@ Text accuracy claims: "within a few percent for 1K < T < 100K, about one percent
 **Other sources**
 - **GA08 k1** [paper, GA08 p. 24, ref. 1 = Wishart 1979]: `k1 = dex[−17.845 + 0.762 log T + 0.1523 (log T)² − 0.03274 (log T)³]` for T ≤ 6000 K; `= dex[−16.4199 + 0.1998 (log T)² − 5.447×10⁻³ (log T)⁴ + 4.0415×10⁻⁵ (log T)⁶]` for T > 6000 K. Algebraically the same as AAZN97, since log10(1.429e-18) = −17.845.
 - **GP98 H3** [paper, GP98 p. 3]: `1.4×10⁻¹⁸ Tg^0.928 exp(−Tg/16200)` (fit to de Jong 1972). Within about 6% below 3000 K and 10–12% above at 6000–10⁴ K [num].
-- **RA05 k2** [paper, p. 22] and PSS83 k2 [OCR-unverified]: `1.83×10⁻¹⁸ T^0.88`. Close below 1000 K; 1.4× at 6000 K and 1.7× at 10⁴ K [num].
+- **RA05 k2** [paper, p. 22]: `1.83×10⁻¹⁸ T^0.88`. PSS83 k2 [paper, scan §0a] is `1.83×10⁻¹⁸ T` (exponent 1). Close below 1000 K; 1.4× at 6000 K and 1.7× at 10⁴ K [num].
 
 ### A.4 H + H⁻ → H₂ + e⁻ (AAZN97 k8) [paper, AAZN97 p. 25, Table 2 (8); text p. 7]
 
@@ -169,7 +192,7 @@ The text says "about 10% higher than the constant values given by Bieniek (1980)
 **Other sources**
 - **GP98 H5** [paper, p. 3]: 1.5×10⁻⁹ (Tg ≤ 300); 4.0×10⁻⁹ Tg^−0.17 (Tg > 300) (LDZ = Launay et al. 1991). GP98 p. 3 comments that "Abel et al. (1997) favor a rate increasing with temperature for T > 1000 K".
 - **GA08 k2** [paper, p. 3, eqs. 5–7]: default 1.3×10⁻⁹ (Schmeltekopf et al. 1967). Bounds are 5.0×10⁻⁹ and 0.65×10⁻⁹ (Glover, Savin & Jappsen 2006).
-- **RA05 k3** [paper, p. 22]: 1.3×10⁻⁹. **PSS83 k3** [OCR-unverified]: 1.35×10⁻⁹.
+- **RA05 k3** [paper, p. 22]: 1.3×10⁻⁹. **PSS83 k3** [paper, scan §0a]: 1.35×10⁻⁹.
 
 ### A.5 H + e⁻ → H⁺ + 2e⁻ (AAZN97 k1) [paper, AAZN97 p. 24, Table 1 (1); text p. 6]
 
@@ -182,7 +205,7 @@ Text: "For temperatures below 1000K ∼ 0.086eV we take it to be zero since it i
 
 **Other sources**
 - **GA08 k12**: the same fit [paper, p. 24, ref. 12].
-- **RA05 k12** [paper, p. 22] and PSS83 k8 [OCR-unverified]: `5.8×10⁻¹¹ T^(1/2) e^(−158000/T) cm³ s⁻¹` (Lotz 1967). This is 0.19–0.003× AAZN97 at 3000–5000 K (both negligible there) and 1.1–1.35× at 10⁴–2×10⁴ K [num].
+- **RA05 k12** [paper, p. 22] and PSS83 k8 [paper, scan §0a]: `5.8×10⁻¹¹ T^(1/2) e^(−158000/T) cm³ s⁻¹` (Lotz 1967). This is 0.19–0.003× AAZN97 at 3000–5000 K (both negligible there) and 1.1–1.35× at 10⁴–2×10⁴ K [num].
 
 ### A.6 H + H + H → H₂ + H (PSS83 k4)
 

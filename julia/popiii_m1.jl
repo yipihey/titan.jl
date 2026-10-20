@@ -10,6 +10,9 @@ include(joinpath(@__DIR__, "TitanCore.jl")); include(joinpath(@__DIR__, "Z0Physi
 include(joinpath(@__DIR__, "ProblemSetup.jl"))
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const Z0 = Z0Physics
+# INTEGRATOR=trbdf2: second-order L-stable TR-BDF2 (Trbdf2.jl, G2) instead of TITAN's theta scheme
+include(joinpath(@__DIR__, "Trbdf2.jl"))
+get(ENV, "INTEGRATOR", "theta") == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
 const Msun = 1.98847e33
 
 """
@@ -266,4 +269,5 @@ elseif which == "lp"
     end
     profile(slast[], "final")
 end
+TD.STEPFN[] === Trbdf2.step! && out("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
 close(logio)

@@ -1,0 +1,12 @@
+M2c collapse [IC p100]: cooling lines, 100 shells (q = 1.1972, dm1 = 3e-7 Msun), R = 3.975e+17 cm, rho_c/rho_edge = 21.4, T_edge = 35.0 K, p_ext = 4.765e-10
+theta = 0.55, C_dyn = 0.01, k5 = pss, chemistry rhfc02, rho_eq = 5e-11, eq EOS Saha+SCVH95, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 3.191e+04 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+    500    6.518 1.3559e+05     281.3     266.5  5.088e-04     -0.185  2.35e-04  8.05e+09  L_lines 3.272e+31  bins 0, thick lines 0
+   1000    6.523 2.6324e+05     256.4     266.9  5.194e-04     -0.236  1.78e-04  8.00e+09  L_lines 2.300e+31  bins 0, thick lines 0
+   1278    6.665 3.2908e+05     300.9     277.3  5.267e-04     -0.065  2.51e-04  6.80e+09  L_lines 4.529e+31  bins 0, thick lines 0
+   1500    6.635 3.7782e+05     273.4     275.0  5.336e-04     -0.015  1.95e-04  7.04e+09  L_lines 3.224e+31  bins 0, thick lines 0
+   2000    6.690 4.8582e+05     271.0     279.2  5.506e-04     -0.154  1.83e-04  6.60e+09  L_lines 3.235e+31  bins 0, thick lines 0
+   2500    6.787 5.8219e+05     283.1     286.6  5.734e-04     -0.062  1.96e-04  5.91e+09  L_lines 4.305e+31  bins 0, thick lines 0
+   3000    6.856 6.7322e+05     286.5     292.0  6.008e-04     -0.187  1.95e-04  5.46e+09  L_lines 4.765e+31  bins 0, thick lines 0
+implicit line cooling on 0 steps
+integrator TR-BDF2, statistics Dict(:fail_tr => 0, :fail_bdf => 0, :steps => 3000, :be_fallback => 0)
