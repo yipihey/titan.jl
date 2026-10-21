@@ -1807,3 +1807,80 @@ Files: `julia/StarMaterial.jl` (`StarGas`), edits in `TitanResidFast.jl` (source
   (3) The first MLT interface at the centre gives a large F_conv (g → 0, ℓ = αH_P ≫ r); diagnostic L_conv in the inner 5 % of the profile exceeds L (Newton tolerance on near-adiabatic ζ³), harmless for the energy balance but not
   usable as a profile. (4) T_c = 1.26–1.34e8 K at ρ_c 41–45 was not compared with a published model (no tables at hand). (5) `burn!` supports the θ-scheme only (TR-BDF2 stages would need per-stage injection bookkeeping).
   (6) f_e = 0.5 in the star is a choice; the energy cap is not a stability criterion of the implicit hydro. (7) ~0.6 s per step at 140 zones, dt ≈ 400 yr: main-sequence evolution (3e6 yr) is ~1e4 steps.
+
+### S5 Isolated Pop III stars [run]
+Files: `julia/s5_run.jl` (driver: build → relaxation → evolution with ledger, step control, step rejection, checkpoint/restart; options in its header), `s5_b.jl` (closed box,
+TR-BDF2), `StarMaterial.jl` (`install_stage_hook!`, `burn_zone`, `solve_step!`, `install_state_predictor!`, `mix!(capmix, bridge, tmax)`, `REGION_CAP`), `TitanResidFast.jl`
+(`stage_diag`, `MLT_RCAP`, `MLT_HSDISC`, ∇/∇_ad side outputs), `TitanCore.jl` (`EXTRAP_FRAC`, `DT_RULE`, `PEQ_HOOK`, `PRED_LAGRHO`), `TitanDriver.jl` (`STAGE_HOOK`, `FULL_DT`, `FAIL_TFAC`),
+`Trbdf2.jl` (hooks), `s4_star.jl` (grid and surface fixes). Tests `s5_b`, `s5_zams15` in `popiii_tests.jl` (full tier; `POPIII_SERIAL=1` runs them one process at a time); quick tier 8/8 PASS,
+S4 tests a, b, c PASS. Logs `lib/popiii/s5_*.log`, `s5_p100e.csv`, `s5_p15e.csv`. All runs `TITAN_NOLIB=1`, Z = 0, X = 0.75, D/H = 2.5e-5, ³He/H = 1e-5, α_MLT = 1.5, 140 zones
+(60 log-spaced in the exterior mass fraction from 0.05 to 1e-12), κ not capped.
+
+**1. Energy budget.** *Diagnosis.* Ledger per step: E_inj booked from the residual, E_bur from the network, Φ_out dt, E_tot = E_int + E_rad + E_kin + E_grav (E_grav = −Σ G m_k M_k/r_k, M_k = ½(Δm_{k−1} + Δm_k)).
+The global ledger already closed in S4 (burn! conserves by construction); what failed was the *distribution* of the heating. S4 coupling reproduced (`s5_diag_s4coupling.log`: ε(T_n; Y_lag) in the residual, network at T_n, E_bur − E_inj added at fixed ρ after the step, BE):
+ΣE_inj/ΣE_bur = 1.066 and Σ|E_bur − E_inj|/ΣE_bur = 6.3 % (S4: 16 %), L_nuc(∫ε dm of the end state)/L = 1.12 (S4: 1.13–1.18), but not because of the hydro step: T_c after the hydro step = 1.2414e8 K,
+after burn! = 1.2692e8 K (+2.2 %, ±1 % scatter with the dt jumps; ε ∝ T^18 ⇒ L_nuc ±30 %: the "T_c wander"). Cause: the central zone releases 1.03–1.32× ε(T_n, Y_old)Δt (1.11 at Δt = 450 yr: ε grows 7 % per 100 yr while the
+CNO self-production is unfinished, plus the T history), the cool outer-core zones (T = 5–7e7 K) release 5–20× less (³He, D and the CNO catalysts relax within the step), the net correction heats the core and cools the rim after the step.
+*Fix* (general): (a) `STAGE_HOOK` books E_inj and Φ_out after every converged implicit solve with the weights of the scheme (TR-BDF2: A = 1/(γ(2−γ)) on stage 1, 1 on stage 2, Aγ + (1−γ)/(2−γ) = 1), so `burn!`
+works with θ-steps, both TR-BDF2 stages and the BE fallback; (b) the network is integrated along the T/ρ history of the step (ln-interpolated through T_o, [T_γ], T_n, ≤ 6 segments); (c) `solve_step!` iterates a per-zone factor
+f_k on ε in the residual, f_k ← E_bur,k/(E_inj,k/f_k) (f ∈ [1e-3, 1e2], predictor 1 + fslope Δ), restoring a snapshot between iterations, until Σ|E_bur − E_inj| ≤ 3e-3 ΣE_bur *and* no zone's mismatch exceeds 1e-3 of its own energy
+(with the sum criterion alone the central zones, 1e-4 of the release, were corrected by up to 5 % of their energy: T_c dips of 5 % after the step); the implicit T-dependence of the heating stays in the Jacobian, only its level follows the network.
+*Result*: closed box with TR-BDF2 (`s5_b.jl`): |ΔE_gas − release|/release = 2e-11, per-step mismatch 4e-4 mean / 8e-4 max (30 steps; S4: 28 steps, 5–17 %). Stars: see the table (cumulative closure
+(ΔE_tot − (ΣE_bur − ∫Φ_out dt))/Σ|E_bur| ≤ 4e-4 after the first 1e4 yr (final 4.7e-5 at 100 M☉, 2.4e-5 at 15 M☉), per-step hydro-step energy error ≤ 1e-3; T_c(after burn!) = T_c(hydro step) to 1e-4; ⟨L_surface⟩/⟨L_nuc⟩ over the MS = 0.9970 (100 M☉), 0.9967 (15 M☉), i.e. gravothermal 0.3 %, the remainder is the gravothermal term).
+
+**2. Start-up.** A discrete hydrostatic model was tried first (outward recursion in TITAN's own momentum row for the n = 3 closure T(ρ), shooting on ρ_c): no discrete equilibrium exists on a 140-zone grid with ΔlnP = 0.3–0.5 per
+envelope zone (the pressure reaches 0 at 1 % exterior mass for every ρ_c: the discrete star holds less mass than the continuous polytrope; K would have to be adapted as well), so it was dropped. Instead the initial model is built without the
+S4 defects and relaxed dynamically with burning off: backward Euler (dissipative), dt = 1.5×/step up to 3 t_dyn, until t > 30 t_dyn and max|u|/c_s < 1e-3 (49–73 steps; 100 M☉: 3.3e4 s, 15 M☉: 4.4e4 s), then burning from the first
+evolution step (dt0 = 3e3 s, no delayed burning). Defects of the S4 model, all in `s4_star.jl`: (i) the Lane–Emden table (RK4, h = 2e-4) cannot resolve the last 1e-9 of the mass, the outermost two interfaces collapsed onto R (2e-6 R apart,
+ρ 1000× that of the neighbours): now r = R − δ*(q/q*)^{1/4} for q < 1e-7 (n = 3 surface law); (ii) T → 0 / Tfloor at the surface made the flux boundary condition F = c g_R E_b inconsistent with the interior flux by 10³ (the surface zone, m = 1e-10 M,
+cools in 0.03 s): T⁴ = T_poly⁴ + ½T_eff⁴ (grey-atmosphere constant); (iii) PS.build!'s exterior-mass offset x_m,e = 10³ M made the surface zones' mass differences round-off (the extrapolated grid failed the monotonicity test spuriously).
+
+**3. Surface.** The S4 "super-Eddington skin" was defects (i)/(ii), not physics. After the fixes Γ = κ(L + L_conv)/(4πcGm) in the envelope peaks at 0.61 (X_c = 0.745) and 0.70 (X_c = 0.5) at T = 1.0–1.1e5 K (κ_max = 0.53–0.59, the He II
+bump; the S4 value κ = 1.08 belonged to the squeezed surface zones); globally Γ_e = 0.35. No cap is needed (kcap = Inf), nothing is inflated (R = 4.3 → 7.9 R☉ is the evolution off the ZAMS). What remains is numerical: the top zones
+(m_ext < 1e-9 M) sit on the steep κ(T) rise at Γ_top = 0.5, so ρ_top ∝ (1 − Γ_top) is hypersensitive and Newton diverges there (density corrections ×3–10) when Δt ≳ 5e2–1e3 yr; this sets the largest usable Δt (1e3 yr at 100 M☉).
+Thinner surface zones are better (330-step test runs, `s5_t*.log`): 3e-10 and 3e-11 of M: no start / failure at step 130; 3e-12: failure at step 185; 1e-12, 3e-13, 1e-13: no failure.
+
+**4. Step control (replaces `STATIC_FALLBACK` and the ×1.3 forced growth).** *Why `STATIC_FALLBACK` was needed*: `peq` extrapolates every interface with the grid velocity of the last step, r = r_old + ṙ Δt; for Δt ≫ the zone crossing
+time the noise velocities (1e-3 … 1 cm/s) move the thin outer zones by more than their width, the grid becomes non-monotonic and `peq` halved Δt down to 1 s. *Why the ×1.3 was needed*: TITAN's `timstp` (stol on r, m, ρ, T, E_r) would allow ×3 per step here
+(measured smax = 1e-4 … 7e-3 against stol 0.3); after a Newton failure it sets tfac = 0.05 (Δt ÷ 20) and regrows only through sqrt(tfac·φ): the forced growth was a hand brake against the failures at Δt ≳ 1e3 yr, not an accuracy rule. *Replacement*
+(all off by default for the other problems): `EXTRAP_FRAC` limits the grid extrapolation of an interface to a fraction (0.3) of its smaller adjacent zone, `PRED_LAGRHO` sets ρ_new = ρ_old ΔV_old/ΔV_new (continuity satisfied at the initial guess),
+`PEQ_HOOK` extrapolates T, E_r in time; `DT_RULE` replaces the stol rule by Δt_new = Δt·clamp(0.9·0.03/max|Δ ln T, ρ, r|, 0.5, 1.6) (the 3 % is not what limits Δt: TOL = 0.03, 0.01, 0.003 give log L identical to 4 digits, R within 3e-4 and X_c within 4e-5 over 2e4 yr at
+X_c = 0.49), composition caps (`DT_HOOKS`: dX_H ≤ 4e-3 from the rates averaged over the mixed regions, ΔE ≤ 5 e/ε), growth ≤ 1.15 for 12 steps after a failure, Δt × 0.5 (not 0.05) after a Newton failure (`FAIL_TFAC`); `robust_step!` repeats a
+step with Δt × 0.3 from the saved state if Newton fails, if the source/network mismatch exceeds 2e-2 (zone-wise 5e-3) or if the converged state is not the neighbour of the old one (max|Δ ln T|, |Δ ln ρ| > 0.15 outside the skin).
+
+**5. Centre MLT.** The first interface of the regular centre was wrong for three reasons. (a) `MLT_HS` measures ∇ against the hydrostatic Δln P = −Δr/H_P with Δr = ½(r_{k+1} − r_{k−1}), but zone 1 is a sphere: the distance of the zone-centre
+pressures is 2× smaller, the ratio actual/hydrostatic fell into the blending range (¼, ¾), and the blend weight (a constant in the Jacobian) spoiled ∇ and made Newton converge linearly (factor ⅓/iteration in the central variables); `MLT_HSDISC` takes TITAN's
+own momentum balance, Δln P = −g M_k/(r_k² P̄). (b) ℓ = αH_P with H_P = P/ρg → ∞ at r → 0 is 24 R☉ at the first interface of a 4 R☉ star: `MLT_RCAP` uses ℓ = α(H_P⁻² + r⁻²)^{-1/2}. (c) in the deep core ∇ − ∇_ad ~ 1e-7 and F ∝ (∇ − ∇_ad)^{3/2}:
+Newton's tolerance 1e-5 leaves ∇ − ∇_ad uncertain at the 1e-3…1e-6 level, so L_conv(r) is noise (15 M☉ ZAMS core: L_conv/L_nuc(<r) = 7, 0.4, 5, 15 at the first four interfaces); `CONV` = 1e-7…1e-8 gives a smooth profile at the same cost.
+Result: 15 M☉ ZAMS (CONV 1e-8): L_conv(1)/L_conv(2) = 0.487 (r³ law 0.471), ∇ − ∇_ad = 1.8e-6 … 3e-7 monotonic; 100 M☉ (CONV 1e-5): 0.494; L_conv/L_nuc(<r) = 1.7, 1.6, 1.6, 1.55 (the excess is the gravothermal term of the core).
+(The (∇ − ∇_ad)^{3/2} law is also why Newton takes 8–16 iterations per step with a convective core against 4 without MLT (measured); a linear continuation below ∇ − ∇_ad = 1e-5 did not reduce it and was removed.)
+
+**6. Convective core: what limits the main-sequence runs.** Two numerical problems appeared once the runs lasted 1e3 steps; both are the intermittent switching of the convective flux (zero for ∇ ≤ ∇_ad, its derivative zero as well): (i) a step in which the
+innermost interfaces are not convective leaves the core unmixed for one step, the next mixing step moves X_H by 0.1 per zone, the `dX_H` cap (net change incl. mixing) then cut Δt to 1e-6 yr, which kept the core unmixed (a death spiral at X_c = 0.60 in the first 15 M☉ run and at X_c = 0.71 in the first 100 M☉
+run): mixing no longer limits Δt (`capmix = false`, `REGION_CAP`: only the region-averaged burning rate does); (ii) re-solving T at fixed e for a large composition change (the boundary of a growing/receding core moves over a zone: ΔX_H = 0.2) shifted T of that zone by 10–20 %
+(rejected steps, spurious solutions): partial mixing (`tmax` = 2 %: only the fraction of the change that keeps |Δ ln T| ≤ 2 % is mixed per step), contiguity of the convective region (`bridge` = 4: gaps of ≤ 4 interfaces are filled, a core is extended to the centre).
+**7. Open points.** (a) 1 M☉ not done: the relaxation does not converge (max|u|/c_s ≈ 8 at the surface); the cool envelope needs its own treatment. (b) Newton cost: 12.7 (100 M☉) / 18 (15 M☉) iterations per step on average (max 25 = NITER),
+Δt ≲ 2.7e3 yr at 100 M☉ (median 330 yr, 5.9e3 steps), median 5e3 yr at 15 M☉; wall 3.2 h (100 M☉, last segment, 4 threads) and 1.2 h (15 M☉). (c) TR-BDF2 works with the coupling (closed box; 15 M☉ first segments; 100 M☉ test `s5_tF.log`: 753 steps, closure 1.9e-5, R and L within ~1 % of BE) but its TR stage fails often in the
+near-adiabatic 100 M☉ core (230 failures, about half the steps fall back to BE), so the production runs used θ = 1 (BE). (d) The 100 M☉ run is a chain of restarts from checkpoints across code versions (`s5_p100.log` → `c` → `d` → `e`, restarts at about
+1.5e6 and 1.8-2.0e6 yr); the first segment still had the per-zone dX cap and no bridging/partial mixing; `s5_p100e.csv` carries the whole series (restored from the checkpoint aux), the last segment ran with the final code. 15 M☉ likewise (`s5_p15.log`, `s5_p15b.log` = the core-flicker spiral, `s5_p15e.log`).
+(e) Convective boundary: pure Schwarzschild criterion with ∇_ad, no overshoot or semiconvection; the core boundary flickers at the Newton-tolerance level (handled by `bridge`), and τ_H is sensitive to it. (f) Mass loss and rotation are off. (g) The ZAMS luminosity of the 15 M☉ model is +0.04 dex above Schaerer.
+(h) The last CSV row of each run is the X_c < 1e-3 hand-over; its L_nuc/L (0.94, 0.81) is the burn-out transient, not the MS budget.
+
+**Validation** (X = 0.75, Y = 0.25, Z = 0; ZAMS-1 = first state in thermal equilibrium, |L_surf/L_nuc - 1| < 2 % over 10 steps; at 100 M☉ the CNO is still building there, values at X_c = 0.745 in brackets; log L in L☉, R in R☉, T_c in K, ρ_c in g cm⁻³):
+
+| quantity | 100 M☉ TITAN | 100 M☉ Schaerer (interp. 80/120) | 15 M☉ TITAN | 15 M☉ Schaerer |
+|---|---|---|---|---|
+| log L | 6.174 (6.128) | ≈ 6.11 | 4.368 | 4.324 |
+| log Teff | 4.980 (4.977) | ≈ 4.976 | 4.770 | 4.759 |
+| R | 4.46 (4.28) | | 1.47 | |
+| T_c | 1.334e8 (1.281e8) | | 9.94e7 | |
+| ρ_c | 51.2 (44.8) | | 165.0 | |
+| M_cc/M | 0.61 (0.78) | | 0.25 | |
+| τ_H [yr], X_c < 1e-3 | 3.018e6 (3.026e6 from t = 0) | 2.74e6 (Marigo 2.95e6) | 9.95e6 (1.003e7 from t = 0) | 1.04e7 (Marigo 1.13e7) |
+| τ_H vs Marigo / Schaerer | +2.3 % / +10 % | | -12 % / -4 % | |
+
+Marigo 2001 Fig. 3 (T_c-ρ_c, read from the figure): the 100 M☉ post-CNO point (log ρ_c = 1.65, log T_c = 8.1) lies at the top of lines a/b; 15 M☉ (2.22, 8.00) near line a.
+CNO self-production, 100 M☉ (t; X_CNO,c; ε_CNO/ε; T_c): 1e3 yr 1.5e-12, 0.04, 1.13e8; 3e3 yr 1.3e-10, 0.90, 1.275e8; 1e4 yr 4.4e-10, 0.94, 1.328e8 (peak); 3e4 yr 7.7e-10, 0.91, 1.28e8; 1e6 yr 3.6e-9, 0.98, 1.19e8. 15 M☉ (pp phase first): 1e5 yr 1.5e-12, 0.011; 3e5 yr 8.2e-12, 0.06; 1e6 yr 5.2e-11, 0.32; X_c = 0.6 2.8e-10, 0.74; X_c = 0.3 1.9e-9, 0.975; X_c = 0.1 6.3e-9, 0.998.
+Evolution, 100 M☉ (X_c; t [yr]; R; log L; log Teff; T_c [1e8 K]): 0.745; 3.2e4; 4.28; 6.128; 4.977; 1.281 | 0.5; 1.38e6; 6.06; 6.234; 4.928; 1.190 | 0.3; 2.19e6; 9.2; 6.309; 4.856; 1.194 | 0.1; 2.78e6; 21.9; 6.367; 4.682; 1.225 | 1e-3; 3.026e6; 76.7; 6.406; 4.420; 1.382.
+15 M☉: 0.745; 1.09e5; 1.47; 4.362; 4.769; 0.994 | 0.5; 4.76e6; 1.87; 4.486; 4.747; 1.009 | 0.3; 7.52e6; 2.40; 4.577; 4.715; 1.017 | 0.1; 9.34e6; 3.23; 4.650; 4.669; 1.048 | 1e-3; 1.003e7; 3.56; 4.700; 4.661; 1.230.
+Ledger: cumulative closure 4.7e-5 (100 M☉; max 4e-4 after 1e4 yr) / 2.4e-5 (15 M☉); MS ⟨L_surf⟩/⟨L_nuc⟩ 0.9970 / 0.9967. Steps, last segment incl. 53/49 relaxation: 3375 / 1524, wall 1.16e4 s / 4.4e3 s (4 threads); whole 100 M☉ chain 5.9e3 steps.

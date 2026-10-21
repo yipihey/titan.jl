@@ -27,7 +27,7 @@ S4: `StarGas`, the TITAN material for a star whose composition is evolved: per-z
 * S5 (consistent coupling, TR-BDF2): `install_stage_hook!` books, at every converged implicit solve (θ-step, TR stage, BDF stage, BE fallback), the
   energy injected by the residual's source and lost through the boundary with the weights of the scheme; `burn!` integrates the network along
   the T/ρ history of the step (`burnT = :path`; E_inj of every stage is known, so TR-BDF2 needs no special case); `solve_step!` iterates a per-zone
-  level factor f_k on ε in the residual (state restored from a snapshot between iterations) until Σ|E_bur − E_inj| ≲ 3e-3 ΣE_bur and no zone's mismatch exceeds 2e-4 of its own energy (the central zones release 1e-4 of the total: a sum criterion alone left 5 % T_c excursions after the post-step correction). Without a stage
+  level factor f_k on ε in the residual (state restored from a snapshot between iterations) until Σ|E_bur − E_inj| ≲ 3e-3 ΣE_bur and no zone's mismatch exceeds `ztol` of its own energy (default 2e-4, the star runs 3e-3, i.e. ΔT/T ≲ 0.2 %; the central zones release 1e-4 of the total, a sum criterion alone left 5 % T_c excursions after the post-step correction). Without a stage
   hook `burn!` behaves as in S4 (E_inj from `step_diag`, constant T_n, f = 1), which the S4 tests rely on.
 * Time-step control: after burn!, `m.dtcap` = Δt min(dX_max/max_k|ΔX_H|, f_e e/max_{i,k}|ΔY_i|Q_i N_A MeV, ...), consulted by
   `TitanCore.timstp!` through `TitanCore.DT_HOOKS` and also applied at once to `dtime` (timstp! runs before burn!).

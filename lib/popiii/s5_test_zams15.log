@@ -1,0 +1,18 @@
+S5 star: M = 15.0 Msun, X = 0.750, R0 = 2.200 Rsun, n = 140 (env 60, qsplit 0.05), integrator trbdf2, theta 1.00, alpha_MLT 1.50, tol 0.03, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = 0.9362, rho_c = 107.608, T_c = 7.4149e+07 K
+== relaxation of the initial model (burning off, dt = 1.3x per step up to 3 t_dyn = 4.03e+03 s, t_dyn = 1.34e+03 s)
+relax     1 t=2.5000e-01 s dt=2.500e-01 s R=2.2000 logL=4.5505 logTeff=4.72775 Tc=7.4002e+07 rho_c=107.000 max|u|/cs=8.61e-03 iter=24
+relax     2 t=6.2500e-01 s dt=3.750e-01 s R=2.2000 logL=3.9001 logTeff=4.56513 Tc=7.4002e+07 rho_c=107.000 max|u|/cs=1.75e-02 iter=11
+relax     3 t=1.1875e+00 s dt=5.625e-01 s R=2.2000 logL=3.5698 logTeff=4.48257 Tc=7.4002e+07 rho_c=107.000 max|u|/cs=2.58e-02 iter=7
+relaxed at step 49: t = 4.564e+04 s = 34.1 t_dyn, max|u|/c_s = 9.32e-04
+start of evolution: R = 2.1968 Rsun, log L = 4.4132, log Teff = 4.69374, Tc = 7.4908e+07, rho_c = 109.424, L_nuc(X0)/L = 0.0168
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+   100 1.0074e+04 6.219e+02   1.9129   4.5025   4.74610   0.84202  133.3161   3.0409   0.74951  0.00000  6.21e-16   9 1 |   5.5e-05  3.07e-04  5.47e-05  0.0000 2.345e+05
+-- ZAMS (L_surface/<L_nuc> = 1.0188 over the last 10 steps): t = 8.9058e+04 yr, R = 1.4651 Rsun, log L = 4.3630, log Teff = 4.76915, T_c = 9.9325e+07 K, rho_c = 164.336, X_c = 0.74601, M_cc/M = 0.2661, X_CNO,c = 1.28e-12
+stopping 10 steps after the ZAMS
+final: t = 1.7635e+05 yr, R = 1.4689 Rsun, log L = 4.3643, log Teff = 4.76889, T_c = 9.94589e+07 K, rho_c = 164.3057, L_nuc/L = 1.0512, X_c = 0.74147, M_cc/M = 0.2661; 154 steps (49 relax), 345.1 s wall
+ledger: sum E_bur = 4.5604e+50 erg, sum Fout dt = 5.2983e+50, E_tot change = -7.3789e+49; closure (dE - (Ebur - Fout))/sum|Ebur| = -4.789e-07; splitting correction sum|Ebur-Einj|/sum|Ebur| = 7.524e-04; hydro-step energy error sum|err|/sum|Ebur| = 7.074e-06
+ZAMS: t = 8.9058e+04 yr, R = 1.4651 Rsun, log L = 4.3630, log Teff = 4.76915, T_c = 9.9325e+07 K, rho_c = 164.336, X_c = 0.74601, M_cc/M = 0.2661, X_CNO,c = 1.28e-12 (step 144)
+H-burning lifetime from the ZAMS to X_c = 7.4e-01: tau_H = 8.7295e+04 yr (1.7635e+05 yr from the start of the evolution)
+centre MLT: L_conv/L_nuc(<r) [Lsun] at the first 4 interfaces: 1.396e+01/5.264e+01  2.932e+01/1.108e+02  4.622e+01/1.753e+02  6.483e+01/2.467e+02;  L_conv(1)/L_conv(2) = 0.476 (r^3 law: 0.471)
+integrator stats: Dict(:fail_tr => 28, :fail_bdf => 1, :steps => 169, :be_fallback => 0)

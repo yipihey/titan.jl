@@ -1,0 +1,8 @@
+integrator trbdf2: steps = 30  t_end = 3.8881515020841323e12 s; solve_step! iterations per step: mean 2.1333333333333333, max 3
+T0 = 1e+06 K, rho = 1, D/H = 2.50e-05; T_end TITAN 1454161.647716 K, fine reference 1453942.321342; Y_D(end)/Y_D(0): 0.00000 0.00000
+TITAN vs fine reference (40 substeps/step): max|ΔT/T| 2.51e-02, max|ΔY_D/Y_D| 8.03e-02
+energy: ΔE_gas = 3.36889118e+44 erg, release (NucNet) = 3.36889118e+44;  |ΔE − release|/release = 2.38e-11; max over steps |ΔE − release|/E0 = 1.03e-11
+splitting: mean per-step Σ|E_bur − E_inj|/ΣE_bur = 3.92e-04 (max 8.08e-04); cumulative Σ|Ebur−Einj|/Σ|Ebur| = 5.56e-04
+PASS energy
+PASS time-step error (T vs fine reference < 2 efrac)
+PASS coupling (residual heating = network release to 5e-3 per step)

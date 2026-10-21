@@ -1,0 +1,12 @@
+S5 star: M = 100.0 Msun, X = 0.750, R0 = 6.500 Rsun, n = 140 (env 60, qsplit 0.05), integrator theta, theta 1.00, alpha_MLT 1.50, tol 0.003, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = 0.5807, rho_c = 27.815, T_c = 1.0377e+08 K
+restarted from conv0 at step 1653, t = 1.41670e+06 yr
+start of evolution: R = 6.1490 Rsun, log L = 6.2368, log Teff = 4.92612, Tc = 1.1915e+08, rho_c = 33.216, L_nuc(X0)/L = 0.9790
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+TEND reached
+final: t = 1.4369e+06 yr, R = 6.1933 Rsun, log L = 6.2382, log Teff = 4.92491, T_c = 1.19271e+08 K, rho_c = 33.1249, L_nuc/L = 0.9746, X_c = 0.48562, M_cc/M = 0.6935; 87 steps (53 relax), 148.5 s wall
+ledger: sum E_bur = 2.6105e+53 erg, sum Fout dt = 2.6092e+53, E_tot change = 1.5334e+50; closure (dE - (Ebur - Fout))/sum|Ebur| = 8.713e-05; splitting correction sum|Ebur-Einj|/sum|Ebur| = 1.370e-03; hydro-step energy error sum|err|/sum|Ebur| = 8.713e-05
+ZAMS: t = 7.8945e+03 yr, R = 4.4879 Rsun, log L = 6.1764, log Teff = 4.97941, T_c = 1.3362e+08 K, rho_c = 51.537, X_c = 0.74896, M_cc/M = 0.5738, X_CNO,c = 4.01e-10 (step 133)
+H-burning lifetime from the ZAMS to X_c = 4.9e-01: tau_H = 1.4290e+06 yr (1.4369e+06 yr from the start of the evolution)
+centre MLT: L_conv/L_nuc(<r) [Lsun] at the first 4 interfaces: 1.127e+04/1.067e+04  2.349e+04/2.226e+04  3.680e+04/3.492e+04  5.131e+04/4.874e+04;  L_conv(1)/L_conv(2) = 0.480 (r^3 law: 0.470)
+integrator stats: theta

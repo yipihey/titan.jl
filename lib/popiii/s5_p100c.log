@@ -1,0 +1,16 @@
+S5 star: M = 100.0 Msun, X = 0.750, R0 = 6.500 Rsun, n = 140 (env 60, qsplit 0.05), integrator theta, theta 1.00, alpha_MLT 1.50, tol 0.03, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = 0.5807, rho_c = 27.815, T_c = 1.0377e+08 K
+restarted from p100k at step 1853, t = 1.57074e+06 yr
+start of evolution: R = 6.5162 Rsun, log L = 6.2486, log Teff = 4.91647, Tc = 1.1915e+08, rho_c = 32.804, L_nuc(X0)/L = 0.9807
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+   step rejected: source/network mismatch 0.031 after 4 iterations at dt = 4.721e+02 yr, retry with dt x 0.3
+   step rejected: max relative change 0.153 (T, zone 1) > 0.15 at dt = 2.833e+02 yr, retry with dt x 0.3
+   step accepted although the relative change is 0.152 (T, zone 1): independent of dt (bifurcation / state-intrinsic)
+   100 1.5975e+06 8.546e+01   6.5953   6.2505   4.91434   1.18826   32.5932   0.9945   0.44612  0.67643  5.67e-09   9 2 |   7.9e-05  1.37e-03  7.86e-05  0.9902 4.998e+03
+   200 1.6758e+06 9.899e+02   6.8052   6.2563   4.90899   1.18848   32.5478   0.9979   0.42554  0.65933  6.12e-09  16 3 |   7.6e-05  1.37e-03  7.57e-05  0.9921 4.545e+03
+   step rejected: max relative change 0.238 (T, zone 1) > 0.15 at dt = 1.782e+02 yr, retry with dt x 0.3
+   step rejected: max relative change 0.237 (T, zone 1) > 0.15 at dt = 1.069e+02 yr, retry with dt x 0.3
+   step accepted although the relative change is 0.236 (T, zone 1): independent of dt (bifurcation / state-intrinsic)
+   300 1.7464e+06 3.208e+01   7.0388   6.2615   4.90296   1.17934   33.3720   0.9932   0.40673  0.00000  6.54e-09  13 2 |   7.4e-05  1.40e-03  7.42e-05  0.9977 6.245e+03
+   400 1.8055e+06 4.222e+02   7.2240   6.2662   4.89850   1.18897   32.3275   0.9967   0.39043  0.64223  6.97e-09  11 3 |   7.2e-05  1.41e-03  7.21e-05  0.9940 4.314e+03
+   500 1.8706e+06 1.550e+02   7.4579   6.2710   4.89277   1.18957   32.2227   0.9967   0.37203  0.62513  7.46e-09  10 2 |   7.0e-05  1.42e-03  7.01e-05  0.9951 4.208e+03

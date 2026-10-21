@@ -1,0 +1,33 @@
+S5 star: M = 100.0 Msun, X = 0.750, R0 = 6.500 Rsun, n = 140 (env 60, qsplit 0.05), integrator theta, theta 1.00, alpha_MLT 1.50, tol 0.03, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = 0.5807, rho_c = 27.815, T_c = 1.0377e+08 K
+restarted from p100m at step 453, t = 1.83454e+06 yr
+start of evolution: R = 7.3276 Rsun, log L = 6.2685, log Teff = 4.89597, Tc = 1.1891e+08, rho_c = 32.307, L_nuc(X0)/L = 0.9711
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+   step rejected: source/network mismatch 0.002 (zone-wise 1.1e-02 of the zone energy) after 5 iterations at dt = 7.147e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.005 (zone-wise 1.3e-02 of the zone energy) after 5 iterations at dt = 5.033e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.008 (zone-wise 8.5e-02 of the zone energy) after 5 iterations at dt = 1.324e+03 yr, retry with dt x 0.3
+   100 1.8699e+06 1.271e+03   7.4534   6.2710   4.89289   1.18810   32.1832   0.9970   0.37269  0.65933  7.44e-09   9 5 |   7.0e-05  1.40e-03  6.96e-05  0.9937 3.996e+03
+   step rejected: source/network mismatch 0.003 (zone-wise 2.6e-02 of the zone energy) after 5 iterations at dt = 1.028e+03 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.005 (zone-wise 3.3e-02 of the zone energy) after 5 iterations at dt = 8.134e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.004 (zone-wise 3.5e-02 of the zone energy) after 5 iterations at dt = 1.201e+03 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.003 (zone-wise 2.7e-02 of the zone energy) after 5 iterations at dt = 1.045e+03 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.005 (zone-wise 5.6e-02 of the zone energy) after 5 iterations at dt = 1.205e+03 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.004 (zone-wise 2.3e-02 of the zone energy) after 5 iterations at dt = 6.632e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.003 (zone-wise 1.1e-02 of the zone energy) after 5 iterations at dt = 4.561e+02 yr, retry with dt x 0.3
+   200 1.9192e+06 2.737e+02   7.6659   6.2753   4.88786   1.19073   32.2390   0.9970   0.35854  0.62513  7.84e-09  12 2 |   6.8e-05  1.38e-03  6.76e-05  0.9955 4.036e+03
+   step rejected: source/network mismatch 0.004 (zone-wise 3.9e-02 of the zone energy) after 5 iterations at dt = 1.239e+03 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.003 (zone-wise 2.6e-02 of the zone energy) after 5 iterations at dt = 1.004e+03 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.004 (zone-wise 2.1e-02 of the zone energy) after 5 iterations at dt = 6.351e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.003 (zone-wise 1.5e-02 of the zone energy) after 5 iterations at dt = 5.725e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.006 (zone-wise 4.8e-02 of the zone energy) after 5 iterations at dt = 9.496e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.004 (zone-wise 4.5e-02 of the zone energy) after 5 iterations at dt = 1.306e+03 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.009 (zone-wise 1.7e-01 of the zone energy) after 5 iterations at dt = 2.066e+03 yr, retry with dt x 0.3
+   300 1.9749e+06 3.861e+02   7.9020   6.2794   4.88232   1.19005   32.1864   0.9973   0.34242  0.62513  8.32e-09  12 5 |   6.5e-05  1.35e-03  6.54e-05  0.9958 3.882e+03
+   step rejected: source/network mismatch 0.004 (zone-wise 3.6e-02 of the zone energy) after 5 iterations at dt = 9.336e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.005 (zone-wise 6.2e-02 of the zone energy) after 5 iterations at dt = 1.512e+03 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.003 (zone-wise 1.1e-02 of the zone energy) after 5 iterations at dt = 4.362e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.005 (zone-wise 3.0e-02 of the zone energy) after 5 iterations at dt = 7.408e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.002 (zone-wise 1.1e-02 of the zone energy) after 5 iterations at dt = 6.369e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.005 (zone-wise 4.5e-02 of the zone energy) after 5 iterations at dt = 1.056e+03 yr, retry with dt x 0.3
+   400 2.0220e+06 7.712e+02   8.1301   6.2832   4.87707   1.19155   32.1699   0.9970   0.32825  0.60803  8.77e-09  16 5 |   6.4e-05  1.33e-03  6.37e-05  0.9965 3.700e+03
+   step rejected: source/network mismatch 0.004 (zone-wise 3.0e-02 of the zone energy) after 5 iterations at dt = 7.213e+02 yr, retry with dt x 0.3

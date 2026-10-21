@@ -1,0 +1,40 @@
+S5 star: M = 100.0 Msun, X = 0.750, R0 = 6.500 Rsun, n = 140 (env 60, qsplit 0.05), integrator trbdf2, theta 1.00, alpha_MLT 1.50, tol 0.03, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = 0.5807, rho_c = 27.815, T_c = 1.0377e+08 K
+== relaxation of the initial model (burning off, dt = 1.3x per step up to 3 t_dyn = 7.92e+03 s, t_dyn = 2.64e+03 s)
+relax     1 t=5.0000e-02 s dt=5.000e-02 s R=6.5000 logL=6.2264 logTeff=4.91147 Tc=1.0357e+08 rho_c=27.658 max|u|/cs=5.54e-04 iter=8
+relax     2 t=1.2500e-01 s dt=7.500e-02 s R=6.5000 logL=5.9351 logTeff=4.83863 Tc=1.0357e+08 rho_c=27.658 max|u|/cs=1.37e-03 iter=5
+relax     3 t=2.3750e-01 s dt=1.125e-01 s R=6.5000 logL=5.6200 logTeff=4.75987 Tc=1.0357e+08 rho_c=27.658 max|u|/cs=2.50e-03 iter=5
+relax    10 t=5.6665e+00 s dt=1.922e+00 s R=6.5000 logL=5.7949 logTeff=4.80359 Tc=1.0356e+08 rho_c=27.658 max|u|/cs=5.38e-02 iter=6
+relax    20 t=3.3243e+02 s dt=1.108e+02 s R=6.5080 logL=6.1072 logTeff=4.88141 Tc=1.0376e+08 rho_c=27.794 max|u|/cs=1.21e+00 iter=20
+relax    30 t=1.2746e+03 s dt=3.196e+02 s R=6.5264 logL=6.1385 logTeff=4.88861 Tc=1.0454e+08 rho_c=28.348 max|u|/cs=6.28e-01 iter=7
+relax    40 t=8.5377e+03 s dt=4.607e+01 s R=6.4787 logL=6.1684 logTeff=4.89769 Tc=1.0485e+08 rho_c=28.567 max|u|/cs=5.30e-01 iter=4
+relax    50 t=9.4627e+03 s dt=1.328e+02 s R=6.5059 logL=6.1568 logTeff=4.89387 Tc=1.0479e+08 rho_c=28.521 max|u|/cs=4.79e-01 iter=6
+relax    60 t=1.9916e+04 s dt=3.830e+02 s R=6.4793 logL=6.1720 logTeff=4.89856 Tc=1.0491e+08 rho_c=28.610 max|u|/cs=3.32e-02 iter=5
+relax    70 t=6.2056e+04 s dt=7.887e+03 s R=6.4829 logL=6.1792 logTeff=4.90025 Tc=1.0491e+08 rho_c=28.612 max|u|/cs=1.13e-03 iter=4
+relaxed at step 73: t = 8.572e+04 s = 32.6 t_dyn, max|u|/c_s = 8.01e-04
+start of evolution: R = 6.4841 Rsun, log L = 6.1809, log Teff = 4.90063, Tc = 1.0491e+08, rho_c = 28.612, L_nuc(X0)/L = 0.0010
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+    80 1.2677e-02 6.388e-03   6.4902   6.1881   4.90221   1.04913   28.6117  74.9858   0.75000  0.00000  2.61e-18   4 2 |  -8.6e-05  1.44e-09  1.55e-06  0.0000 2.023e+05
+    90 1.3083e+01 6.542e+00   6.5190   6.2039   4.90520   1.05014   28.6910  59.9073   0.75000  0.00000  2.75e-15   4 2 |   8.2e-05  3.00e-08  8.17e-05  0.0000 2.016e+05
+   100 7.3350e+02 8.667e+01   6.1435   6.2063   4.91869   1.10598   33.3129  52.5216   0.74998  0.00000  5.96e-13   7 1 |   1.4e-02  5.72e-04  1.41e-02  0.0123 1.579e+05
+   110 1.6630e+03 9.828e+01   5.7009   6.2033   4.93418   1.17727   39.8807  38.8515   0.74995  0.00000  9.77e-12   7 1 |   1.2e-02  3.85e-04  1.20e-02  0.2548 9.396e+04
+   120 2.7160e+03 1.113e+02   5.2862   6.2013   4.95008   1.25755   47.8258  24.4332   0.74983  0.00272  1.16e-10   7 2 |   9.5e-03  4.90e-04  9.48e-03  0.8729 1.033e+04
+   130 3.9681e+03 1.449e+02   4.9090   6.1990   4.96559   1.33641   55.1044   5.2920   0.74968  0.11597  2.03e-10   9 2 |   3.1e-03  2.16e-04  3.14e-03  0.9550 2.292e+03
+   140 6.3663e+03 3.238e+02   4.6036   6.1860   4.97629   1.34250   53.0003   1.1454   0.74921  0.47124  3.52e-10  10 3 |   4.1e-04  5.06e-04  4.35e-04  0.9680 1.689e+03
+-- ZAMS (L_surface/<L_nuc> = 1.0103 over the last 10 steps): t = 7.7352e+03 yr, R = 4.4900 Rsun, log L = 6.1769, log Teff = 4.97944, T_c = 1.3361e+08 K, rho_c = 51.681, X_c = 0.74901, M_cc/M = 0.5909, X_CNO,c = 3.89e-10
+   150 1.0126e+04 4.392e+02   4.3350   6.1596   4.98273   1.32596   50.0726   0.9812   0.74866  0.71062  4.48e-10   8 3 |   1.6e-04  8.80e-04  1.77e-04  0.9320 1.323e+03
+   step rejected: max relative change 0.680 > 0.15 at dt = 8.059e-02 yr, retry with dt x 0.3
+   step rejected: max relative change 0.680 > 0.15 at dt = 4.835e-01 yr, retry with dt x 0.3
+   step rejected: max relative change 0.680 > 0.15 at dt = 1.451e-01 yr, retry with dt x 0.3
+   step rejected: max relative change 0.680 > 0.15 at dt = 8.703e-01 yr, retry with dt x 0.3
+   step rejected: max relative change 0.680 > 0.15 at dt = 2.611e-01 yr, retry with dt x 0.3
+   step rejected: max relative change 0.680 > 0.15 at dt = 7.833e-02 yr, retry with dt x 0.3
+   step rejected: max relative change 0.680 > 0.15 at dt = 4.700e-01 yr, retry with dt x 0.3
+   step rejected: max relative change 0.680 > 0.15 at dt = 1.410e-01 yr, retry with dt x 0.3
+STOPPED at step 158: robust_step!: 8 attempts failed
+final: t = 1.5296e+04 yr, R = 4.2537 Rsun, log L = 6.1300, log Teff = 4.97944, T_c = 1.28913e+08 K, rho_c = 45.6441, L_nuc/L = 0.9075, X_c = 0.74779, M_cc/M = 0.7790; 158 steps (73 relax), 309.9 s wall
+ledger: sum E_bur = 2.0932e+51 erg, sum Fout dt = 2.7608e+51, E_tot change = -6.6325e+50; closure (dE - (Ebur - Fout))/sum|Ebur| = 2.079e-03; splitting correction sum|Ebur-Einj|/sum|Ebur| = 2.818e-02; hydro-step energy error sum|err|/sum|Ebur| = 1.452e-04
+ZAMS: t = 7.7352e+03 yr, R = 4.4900 Rsun, log L = 6.1769, log Teff = 4.97944, T_c = 1.3361e+08 K, rho_c = 51.681, X_c = 0.74901, M_cc/M = 0.5909, X_CNO,c = 3.89e-10 (step 144)
+H-burning lifetime from the ZAMS to X_c = 7.5e-01: tau_H = 7.5609e+03 yr (1.5296e+04 yr from the start of the evolution)
+centre MLT: L_conv/L_nuc(<r) [Lsun] at the first 4 interfaces: 7.889e+03/6.660e+03  1.641e+04/1.392e+04  2.567e+04/2.185e+04  3.574e+04/3.054e+04;  L_conv(1)/L_conv(2) = 0.481 (r^3 law: 0.470)
+integrator stats: Dict(:fail_tr => 9, :fail_bdf => 0, :be_sticky => 34, :steps => 196, :be_fallback => 7)

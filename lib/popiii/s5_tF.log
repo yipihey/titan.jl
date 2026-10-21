@@ -1,0 +1,41 @@
+S5 star: M = 100.0 Msun, X = 0.750, R0 = 6.500 Rsun, n = 140 (env 60, qsplit 0.05), integrator trbdf2, theta 1.00, alpha_MLT 1.50, tol 0.03, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = 0.5807, rho_c = 27.815, T_c = 1.0377e+08 K
+== relaxation of the initial model (burning off, dt = 1.3x per step up to 3 t_dyn = 7.92e+03 s, t_dyn = 2.64e+03 s)
+relax     1 t=1.0000e+00 s dt=1.000e+00 s R=6.5000 logL=5.5758 logTeff=4.74883 Tc=1.0357e+08 rho_c=27.658 max|u|/cs=8.95e-03 iter=25
+relax     2 t=2.5000e+00 s dt=1.500e+00 s R=6.5000 logL=5.5184 logTeff=4.73448 Tc=1.0356e+08 rho_c=27.658 max|u|/cs=2.39e-02 iter=13
+relax     3 t=4.7500e+00 s dt=2.250e+00 s R=6.5000 logL=5.7316 logTeff=4.78776 Tc=1.0356e+08 rho_c=27.658 max|u|/cs=3.98e-02 iter=9
+relax    50 t=6.0382e+04 s dt=7.894e+03 s R=6.4869 logL=6.1793 logTeff=4.90012 Tc=1.0491e+08 rho_c=28.610 max|u|/cs=1.19e-03 iter=4
+relaxed at step 53: t = 8.407e+04 s = 31.9 t_dyn, max|u|/c_s = 8.30e-04
+start of evolution: R = 6.4881 Rsun, log L = 6.1810, log Teff = 4.90052, Tc = 1.0491e+08, rho_c = 28.610, L_nuc(X0)/L = 0.0010
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+   100 1.7703e+03 9.951e+01   5.6560   6.2031   4.93584   1.18546   40.6810  37.4322   0.74995  0.00000  1.31e-11   6 1 |   1.1e-02  4.74e-04  1.12e-02  0.3264 8.370e+04
+-- ZAMS (L_surface/<L_nuc> = 1.0092 over the last 10 steps): t = 7.7617e+03 yr, R = 4.4887 Rsun, log L = 6.1768, log Teff = 4.97946, T_c = 1.3359e+08 K, rho_c = 51.644, X_c = 0.74900, M_cc/M = 0.5909, X_CNO,c = 3.91e-10
+   150 1.6735e+04 3.406e+02   4.2086   6.1291   4.98153   1.30290   47.1847   0.9559   0.74762  0.77902  5.72e-10  11 3 |   1.6e-04  1.18e-03  1.73e-04  0.8932 1.487e+03
+   step rejected: source/network mismatch 0.148 after 4 iterations at dt = 9.450e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.084 after 4 iterations at dt = 4.562e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.068 after 4 iterations at dt = 5.115e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.047 after 4 iterations at dt = 6.420e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.040 after 4 iterations at dt = 6.198e+02 yr, retry with dt x 0.3
+   200 4.8999e+04 3.719e+02   4.3444   6.1295   4.97475   1.26654   43.2485   0.9896   0.74214  0.77902  9.28e-10   9 3 |   7.2e-05  1.55e-03  8.08e-05  0.9092 1.807e+03
+   step rejected: source/network mismatch 0.040 after 4 iterations at dt = 7.576e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.027 after 4 iterations at dt = 1.341e+03 yr, retry with dt x 0.3
+   250 9.6895e+04 3.179e+02   4.4397   6.1318   4.97061   1.24694   41.2423   0.9974   0.73383  0.77902  1.19e-09  11 2 |   4.8e-05  1.65e-03  5.23e-05  0.9164 1.722e+03
+   300 1.4872e+05 1.605e+03   4.5186   6.1345   4.96744   1.23472   39.7721   0.9938   0.72509  0.81321  1.37e-09  20 4 |   3.6e-05  1.49e-03  3.87e-05  0.9186 1.589e+03
+   350 1.9709e+05 1.603e+03   4.5741   6.1384   4.96576   1.23514   39.2028   0.9967   0.71690  0.79611  1.52e-09   9 4 |   3.3e-05  1.65e-03  3.55e-05  0.9363 1.673e+03
+   400 2.5158e+05 6.599e+02   4.6390   6.1420   4.96363   1.22383   38.5721   0.9974   0.70758  0.79611  1.66e-09   6 2 |   3.0e-05  1.59e-03  3.19e-05  0.9471 1.743e+03
+   450 3.1939e+05 1.655e+03   4.7147   6.1466   4.96124   1.21024   37.8236   0.9975   0.69539  0.76192  1.84e-09  10 1 |   2.5e-05  1.54e-03  2.65e-05  0.9403 1.665e+03
+   step rejected: source/network mismatch 0.020 after 4 iterations at dt = 6.474e+02 yr, retry with dt x 0.3
+   500 3.8016e+05 8.007e+02   4.7837   6.1509   4.95918   1.21168   37.2735   0.9963   0.68484  0.76192  1.98e-09  10 2 |   2.4e-05  1.59e-03  2.48e-05  0.9435 1.702e+03
+   step rejected: source/network mismatch 0.043 after 4 iterations at dt = 4.055e+02 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.030 after 4 iterations at dt = 1.621e+03 yr, retry with dt x 0.3
+   550 4.3424e+05 1.956e+02   4.8404   6.1552   4.95768   1.21145   37.0052   0.9979   0.67521  0.74482  2.11e-09  11 2 |   2.2e-05  1.52e-03  2.32e-05  0.9544 1.715e+03
+   600 4.8911e+05 7.911e+02   4.9031   6.1587   4.95578   1.20782   36.5859   0.9971   0.66498  0.74482  2.24e-09  17 3 |   2.1e-05  1.50e-03  2.20e-05  0.9558 1.691e+03
+   650 5.2965e+05 7.654e+02   5.0030   6.1719   4.95469   1.21026   36.6424   1.0200   0.66054  0.72772  2.27e-09   8 2 |   2.0e-05  1.48e-03  2.12e-05  0.9627 1.644e+03
+   700 5.8910e+05 1.573e+03   4.9974   6.1678   4.95390   1.20067   36.1330   0.9960   0.64913  0.74482  2.42e-09  20 2 |   2.0e-05  1.47e-03  2.11e-05  0.9585 1.565e+03
+   750 6.5262e+05 1.557e+03   5.0676   6.1731   4.95220   1.20668   35.9329   0.9975   0.63769  0.74482  2.57e-09  10 2 |   1.9e-05  1.44e-03  2.01e-05  0.9615 1.597e+03
+final: t = 6.5559e+05 yr, R = 5.0744 Rsun, log L = 6.1731, log Teff = 4.95190, T_c = 1.20378e+08 K, rho_c = 35.8203, L_nuc/L = 1.0072, X_c = 0.63710, M_cc/M = 0.7448; 753 steps (53 relax), 2579.7 s wall
+ledger: sum E_bur = 1.1152e+53 erg, sum Fout dt = 1.1173e+53, E_tot change = -2.0883e+50; closure (dE - (Ebur - Fout))/sum|Ebur| = 1.939e-05; splitting correction sum|Ebur-Einj|/sum|Ebur| = 1.440e-03; hydro-step energy error sum|err|/sum|Ebur| = 2.005e-05
+ZAMS: t = 7.7617e+03 yr, R = 4.4887 Rsun, log L = 6.1768, log Teff = 4.97946, T_c = 1.3359e+08 K, rho_c = 51.644, X_c = 0.74900, M_cc/M = 0.5909, X_CNO,c = 3.91e-10 (step 133)
+H-burning lifetime from the ZAMS to X_c = 6.4e-01: tau_H = 6.4783e+05 yr (6.5559e+05 yr from the start of the evolution)
+centre MLT: L_conv/L_nuc(<r) [Lsun] at the first 4 interfaces: 8.895e+03/9.025e+03  1.857e+04/1.886e+04  2.911e+04/2.963e+04  4.063e+04/4.141e+04;  L_conv(1)/L_conv(2) = 0.479 (r^3 law: 0.470)
+integrator stats: Dict(:fail_tr => 230, :fail_bdf => 78, :be_sticky => 594, :steps => 1677, :be_fallback => 83)

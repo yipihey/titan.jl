@@ -1,0 +1,43 @@
+S5 star: M = 100.0 Msun, X = 0.750, R0 = 6.500 Rsun, n = 140 (env 60, qsplit 0.05), integrator theta, theta 1.00, alpha_MLT 1.50, tol 0.03, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = 0.5807, rho_c = 27.815, T_c = 1.0377e+08 K
+== relaxation of the initial model (burning off, dt = 1.3x per step up to 3 t_dyn = 7.92e+03 s, t_dyn = 2.64e+03 s)
+relax     1 t=5.0000e-02 s dt=5.000e-02 s R=6.5000 logL=6.2264 logTeff=4.91147 Tc=1.0357e+08 rho_c=27.658 max|u|/cs=5.54e-04 iter=8
+relax     2 t=1.2500e-01 s dt=7.500e-02 s R=6.5000 logL=5.9351 logTeff=4.83863 Tc=1.0357e+08 rho_c=27.658 max|u|/cs=1.37e-03 iter=5
+relax     3 t=2.3750e-01 s dt=1.125e-01 s R=6.5000 logL=5.6200 logTeff=4.75987 Tc=1.0357e+08 rho_c=27.658 max|u|/cs=2.50e-03 iter=5
+relax    10 t=5.6665e+00 s dt=1.922e+00 s R=6.5000 logL=5.7949 logTeff=4.80359 Tc=1.0356e+08 rho_c=27.658 max|u|/cs=5.38e-02 iter=6
+relax    20 t=3.3243e+02 s dt=1.108e+02 s R=6.5080 logL=6.1072 logTeff=4.88141 Tc=1.0376e+08 rho_c=27.794 max|u|/cs=1.21e+00 iter=20
+relax    30 t=1.2746e+03 s dt=3.196e+02 s R=6.5264 logL=6.1385 logTeff=4.88861 Tc=1.0454e+08 rho_c=28.348 max|u|/cs=6.28e-01 iter=7
+relax    40 t=8.5377e+03 s dt=4.607e+01 s R=6.4787 logL=6.1684 logTeff=4.89769 Tc=1.0485e+08 rho_c=28.567 max|u|/cs=5.30e-01 iter=4
+relax    50 t=9.4627e+03 s dt=1.328e+02 s R=6.5059 logL=6.1568 logTeff=4.89387 Tc=1.0479e+08 rho_c=28.521 max|u|/cs=4.79e-01 iter=6
+relax    60 t=1.9916e+04 s dt=3.830e+02 s R=6.4793 logL=6.1720 logTeff=4.89856 Tc=1.0491e+08 rho_c=28.610 max|u|/cs=3.32e-02 iter=5
+relax    70 t=6.2056e+04 s dt=7.887e+03 s R=6.4829 logL=6.1792 logTeff=4.90025 Tc=1.0491e+08 rho_c=28.612 max|u|/cs=1.13e-03 iter=4
+relaxed at step 73: t = 8.572e+04 s = 32.6 t_dyn, max|u|/c_s = 8.01e-04
+start of evolution: R = 6.4841 Rsun, log L = 6.1809, log Teff = 4.90063, Tc = 1.0491e+08, rho_c = 28.612, L_nuc(X0)/L = 0.0010
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+    80 1.2677e-02 6.388e-03   6.4898   6.1876   4.90212   1.04913   28.6117  75.0594   0.75000  0.00000  2.61e-18   6 2 |   2.4e-05  3.78e-11  1.09e-04  0.0000 2.023e+05
+    90 1.3083e+01 6.542e+00   6.5177   6.2035   4.90516   1.05014   28.6909  59.9511   0.75000  0.00000  2.75e-15   8 2 |   6.8e-02  9.24e-09  6.81e-02  0.0000 2.016e+05
+   100 7.5356e+02 8.912e+01   6.1411   6.2062   4.91877   1.10628   33.3357  52.4341   0.74998  0.00000  6.20e-13   8 1 |   1.1e+00  4.84e-04  1.09e+00  0.0128 1.576e+05
+   110 1.7044e+03 1.005e+02   5.6985   6.2033   4.93427   1.17757   39.9018  38.7625   0.74995  0.00000  1.01e-11   8 1 |   9.3e-01  3.74e-04  9.29e-01  0.2622 9.305e+04
+   120 2.7814e+03 1.139e+02   5.2840   6.2012   4.95016   1.25778   47.8204  24.2698   0.74983  0.00347  1.15e-10  10 2 |   7.2e-01  4.75e-04  7.19e-01  0.8721 9.967e+03
+   130 4.0627e+03 1.483e+02   4.9071   6.1989   4.96564   1.33617   55.0192   5.1858   0.74966  0.11597  2.08e-10  11 2 |   2.5e-01  1.38e-04  2.50e-01  0.9559 2.238e+03
+   140 6.4984e+03 3.350e+02   4.6019   6.1857   4.97629   1.34348   52.8582   1.1414   0.74919  0.47124  3.53e-10  16 2 |   3.7e-02  9.36e-05  3.66e-02  0.9682 1.713e+03
+-- ZAMS (L_surface/<L_nuc> = 1.0134 over the last 10 steps): t = 7.8077e+03 yr, R = 4.4918 Rsun, log L = 6.1771, log Teff = 4.97939, T_c = 1.3374e+08 K, rho_c = 51.727, X_c = 0.74899, M_cc/M = 0.5738, X_CNO,c = 3.94e-10
+   150 9.3141e+03 3.929e+01   4.3867   6.1665   4.98188   1.33138   50.7626   0.9936   0.74879  0.65933  4.27e-10   8 2 |   1.8e-02  6.97e-04  1.76e-02  0.9485 2.628e+02
+   160 1.2372e+04 6.254e+01   4.2494   6.1449   4.98338   1.31872   49.0367   0.9601   0.74835  0.77902  4.93e-10  10 2 |   1.1e-02  6.24e-04  1.15e-02  0.9178 5.901e+02
+   170 1.4744e+04 2.835e+02   4.2155   6.1340   4.98240   1.30894   47.8686   0.9468   0.74793  0.77902  5.55e-10  12 2 |   9.4e-03  1.47e-03  9.40e-03  0.8946 7.784e+03
+   180 1.8659e+04 4.344e+01   4.2336   6.1283   4.98004   1.29391   46.2275   0.9468   0.74730  0.79611  6.14e-10   8 2 |   7.3e-03  1.24e-03  7.33e-03  0.8746 1.136e+02
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 74, t = 6.453396829848): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 74, t = 6.453396829188): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 74, t = 6.453396828990): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 74, t = 6.453396828930): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 74, t = 6.453396828912): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 74, t = 6.453396828907): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 74, t = 6.453396828905): retry with dt x 0.3
+   step rejected: max relative change 1.169 > 0.15 at dt = 1.308e-08 yr, retry with dt x 0.3
+STOPPED at step 185: robust_step!: 8 attempts failed
+final: t = 2.0450e+04 yr, R = 4.2266 Rsun, log L = 6.1284, log Teff = 4.98043, T_c = 1.68936e+08 K, rho_c = 46.5094, L_nuc/L = 1.5929, X_c = 0.74693, M_cc/M = 0.7790; 185 steps (73 relax), 323.2 s wall
+ledger: sum E_bur = 2.9595e+51 erg, sum Fout dt = 3.5985e+51, E_tot change = -6.1976e+50; closure (dE - (Ebur - Fout))/sum|Ebur| = 6.501e-03; splitting correction sum|Ebur-Einj|/sum|Ebur| = 2.360e-02; hydro-step energy error sum|err|/sum|Ebur| = 6.501e-03
+ZAMS: t = 7.8077e+03 yr, R = 4.4918 Rsun, log L = 6.1771, log Teff = 4.97939, T_c = 1.3374e+08 K, rho_c = 51.727, X_c = 0.74899, M_cc/M = 0.5738, X_CNO,c = 3.94e-10 (step 144)
+H-burning lifetime from the ZAMS to X_c = 7.5e-01: tau_H = 1.2642e+04 yr (2.0450e+04 yr from the start of the evolution)
+centre MLT: L_conv/L_nuc(<r) [Lsun] at the first 4 interfaces: 1.647e+04/2.288e+05  3.289e+04/3.507e+05  4.969e+04/4.311e+05  6.705e+04/4.904e+05;  L_conv(1)/L_conv(2) = 0.501 (r^3 law: 0.470)
+integrator stats: theta
