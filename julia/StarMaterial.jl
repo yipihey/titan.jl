@@ -123,17 +123,29 @@ function ghosts!(m::StarGas)
     for k in b+1:min(b + 2, size(m.Y, 2)); m.Y[:, k] .= m.Y[:, b]; end
 end
 
+"""
+S6a: `TFLOOR[]` (default 0 = off): the gas EOS/opacity/thermodynamics are evaluated at T for T ≥ TFLOOR and at TFLOOR + 0.05 (T − TFLOOR) below. The Saha branch of `StellarEOS` and the opacity tables end near 3e3 K;
+the optically thin top layers of an accreting protostar (gas decoupled from the 4600 K radiation field: κ_P(T_gas) → 0) cooled below it and Newton fell off the tables (NaN).
+"""
+const TFLOOR = Ref(0.0)
+@inline tfl(T) = TFLOOR[] > 0 && T < TFLOOR[] ? TFLOOR[] + 0.05 * (T - TFLOOR[]) : T       # continuous, slope 0.05 below the floor (a flat floor makes the energy row singular in T)
 @inline function TX.material_gas(m::StarGas, ρ, T)
+    T = tfl(T)
     g = SE.gas_state(ρ, T, zonecomp(m); pairs = m.pairs, coulomb = m.coulomb)
     return g.p, g.e, sqrt(5.0 / 3.0 * g.p / ρ)
 end
 @inline function TX.material_gasne(m::StarGas, ρ, T)
+    T = tfl(T)
     g = SE.gas_state(ρ, T, zonecomp(m); pairs = m.pairs, coulomb = m.coulomb)
     return g.p, g.e, sqrt(5.0 / 3.0 * g.p / ρ), g.ne
 end
 "C¹ soft cap: identity below 0.7c, saturating to c above."
 @inline softcap(κ, c) = isinf(c) ? κ : (κ <= 0.7c ? κ : c - 0.3c * exp(-(κ - 0.7c) / (0.3c)))
+"S6a: opacities are evaluated at max(T, TFLOOR_OPAC[]) (default 0 = off): the tables end at 3e3 K and extrapolate to garbage below (cold gas in the thin atmosphere of an accreting protostar)."
+const TFLOOR_OPAC = Ref(0.0)
 @inline function TX.material_opac(m::StarGas, ρ, T)
+    T = tfl(T)
+    TFLOOR_OPAC[] > 0 && T < TFLOOR_OPAC[] && (T = TFLOOR_OPAC[] + 0 * T)
     if m.opac === :z0
         κR = Z0.kap(m.tab, ρ, T)
         m.grey && return κR, κR, κR
@@ -147,6 +159,7 @@ end
     return κR, κP, κP
 end
 function TX.material_thermo(m::StarGas, ρ, T)
+    T = tfl(T)
     st = SE.eos(ρ, T; comp = zonecomp(m), pairs = m.pairs, coulomb = m.coulomb, radiation = true)
     return st.∇ad, st.cP, st.δ
 end
@@ -201,6 +214,12 @@ refresh!() = TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]()
 # ----------------------------------------------------------------------------------------------- T from e
 "T such that e_gas(ρ, T; comp) = e (Newton in ln T with c_V, safeguarded). Returns (T, relative error of e)."
 function T_of_e(ρ, e, T0, comp; pairs = true, coulomb = true)
+    TFLOOR[] > 0 && T0 < TFLOOR[] && (T0 = TFLOOR[] + 0.05 * (T0 - TFLOOR[]))      # (TFLOOR: the EOS argument is T_eff = tfl(T); solved for T_eff, mapped back below)
+    T, err = _T_of_e(ρ, e, T0, comp; pairs, coulomb)
+    TFLOOR[] > 0 && T < TFLOOR[] && (T = TFLOOR[] + (T - TFLOOR[]) / 0.05)
+    T, err
+end
+function _T_of_e(ρ, e, T0, comp; pairs = true, coulomb = true)
     T = T0; lo = 0.0; hi = Inf
     err = Inf
     for it in 1:40
@@ -597,6 +616,189 @@ function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd =
     tt = Inf
     for j in 2:n; k = a + j - 1; Di[j] > 0 && (tt = min(tt, sd.lcv[k] / sd.vcv[k])); end
     (; cons, nconv = count(>(0), Di), Dmax = maximum(Di), t_turn = tt, dEmax)
+end
+
+# ----------------------------------------------------------------------------------------------- S6a: composition advection
+"""
+    advect_composition!(Y, M, δ, Yin; order = 2) -> (; M = M′, cfl)   (Y is updated in place)
+
+Conservative transport of the abundances `Y[i, j]` (mol/g, zones j = 1..n of old mass `M[j]`) through a mass grid whose interfaces move
+relative to the matter (the adaptive grid, lgrid = 1; or the Lagrangian grid of a star whose mass interfaces are re-set). Interface j
+(j = 1..n+1) lies below zone j; `δ[j]` is the change of the mass interior to it over the step. δ[j] > 0: mass δ[j] crosses from zone j into
+zone j−1 (δ[1] > 0 leaves through the inner boundary: not allowed when it would need material, δ[1] < 0 is an error); δ[n+1] > 0 is mass
+entering from outside with abundances `Yin`. New zone masses M′[j] = M[j] + δ[j+1] − δ[j].
+Upwind (donor-cell, `order = 1`) or second order (`order = 2`): the donated slab of a zone has the mean abundance of a linear
+reconstruction whose slope is the central difference of the neighbouring zones, scaled by ONE factor θ per zone (Barth–Jespersen over all species,
+so that Σ A_i Y_i = 1 is preserved exactly, a common factor times a linear combination) such that the reconstruction stays within the neighbouring
+zones' values at both zone edges (monotone, Y ≥ 0). Σ_j M_j Y_ij changes only by the inflow: conservation to round-off. Requires |δ| ≤ the donor's mass
+(CFL ≤ 1); returns M′ and the largest ratio |δ|/M_donor (`cfl`) in the NamedTuple.
+"""
+function advect_composition1!(Y::AbstractMatrix, M::AbstractVector, δ::AbstractVector, Yin::AbstractVector; order = 2)
+    ns, n = size(Y); length(M) == n && length(δ) == n + 1 || error("advect_composition!: sizes")
+    δ[1] < -1e-14 * M[1] && error("advect_composition!: material would have to enter through the inner boundary (δ[1] = $(δ[1]))")
+    # slopes d Y/d m per zone, with a common limiter θ_j
+    σ = zeros(ns, n); θ = ones(n)
+    if order >= 2 && n >= 3
+        for j in 2:n-1
+            dm = 0.5 * (M[j-1] + M[j]) + 0.5 * (M[j] + M[j+1])          # distance (in mass) between the centres of the neighbours
+            th = 1.0
+            for i in 1:ns
+                s = (Y[i, j+1] - Y[i, j-1]) / dm
+                s == 0 && continue
+                lo = min(Y[i, j-1], Y[i, j], Y[i, j+1]); hi = max(Y[i, j-1], Y[i, j], Y[i, j+1])
+                d = 0.5 * M[j] * s                                       # change from the centre to either edge
+                d > 0 ? (th = min(th, (hi - Y[i, j]) / d, (Y[i, j] - lo) / d)) : (th = min(th, (lo - Y[i, j]) / d, (Y[i, j] - hi) / d))
+            end
+            th = clamp(th, 0.0, 1.0); θ[j] = th
+            for i in 1:ns; σ[i, j] = th * (Y[i, j+1] - Y[i, j-1]) / dm; end
+        end
+    end
+    Yn = zeros(ns, n); Mn = zeros(n); cfl = 0.0
+    F = zeros(ns, n + 1)                   # amount of species crossing interface j downward (mol): δ[j] × slab abundance
+    for jf in 1:n+1
+        d = δ[jf]; d == 0 && continue
+        if d > 0
+            if jf == n + 1; F[:, jf] .= d .* Yin
+            else
+                M[jf] > 0 || error("advect_composition!: empty donor")
+                cfl = max(cfl, d / M[jf])
+                for i in 1:ns; F[i, jf] = d * (Y[i, jf] - σ[i, jf] * (M[jf] - d) / 2); end
+            end
+        else
+            jd = jf - 1                    # donor below the interface (for jf = n+1: outflow through the outer boundary)
+            cfl = max(cfl, -d / M[jd])
+            for i in 1:ns; F[i, jf] = d * (Y[i, jd] + σ[i, jd] * (M[jd] + d) / 2); end     # d < 0: slab of mass |d| at the top of zone jd
+        end
+    end
+    for j in 1:n
+        Mn[j] = M[j] + δ[j+1] - δ[j]
+        Mn[j] > 0 || error("advect_composition!: zone $j empties (M = $(M[j]), δ_below = $(δ[j]), δ_above = $(δ[j+1]))")
+        for i in 1:ns; Yn[i, j] = (M[j] * Y[i, j] + F[i, j+1] - F[i, j]) / Mn[j]; end
+    end
+    Y .= Yn
+    (; M = Mn, cfl)
+end
+
+
+"""
+    advect_composition_down!(Y, M, δ, Yin; order = 2, cmax = 0.5) -> (; M, cfl)
+
+Same transport as `advect_composition1!` for a grid whose interior masses only GROW (δ[j] ≥ 0: matter flows downward through every interface, as in the self-similar
+accretion grid), for ANY CFL number: interfaces whose donor would give away more than `cmax` of its mass use the new abundances of the donor (backward-Euler upwind),
+the others the explicit second-order flux of `advect_composition1!`. Sweeping from the top zone down, zone j has M′_j = M_j + δ_{j+1} − δ_j and
+M′_j Y′_j = M_j Y_j + F_{j+1} − F_j with F_j = δ_j Y′_j (implicit) or δ_j Y_face,j (explicit), i.e. an implicit interface gives Y′_j = (M_j Y_j + F_{j+1})/(M_j + δ_{j+1}).
+Unconditionally positive; Σ M Y changes only by the inflow δ[n+1] Yin.
+"""
+function advect_composition_down!(Y::AbstractMatrix, M::AbstractVector, δ::AbstractVector, Yin::AbstractVector; order = 2, cmax = 0.5)
+    ns, n = size(Y); length(M) == n && length(δ) == n + 1 || error("advect_composition_down!: sizes")
+    all(>=(-1e-14 * maximum(M)), δ) || error("advect_composition_down!: needs δ ≥ 0")
+    δ[1] > 1e-14 * M[1] && error("advect_composition_down!: δ[1] must be 0 (regular centre)")
+    σ = zeros(ns, n)
+    if order >= 2 && n >= 3
+        for j in 2:n-1
+            dm = 0.5 * (M[j-1] + M[j]) + 0.5 * (M[j] + M[j+1]); th = 1.0
+            for i in 1:ns
+                s = (Y[i, j+1] - Y[i, j-1]) / dm; s == 0 && continue
+                lo = min(Y[i, j-1], Y[i, j], Y[i, j+1]); hi = max(Y[i, j-1], Y[i, j], Y[i, j+1]); d = 0.5 * M[j] * s
+                d > 0 ? (th = min(th, (hi - Y[i, j]) / d, (Y[i, j] - lo) / d)) : (th = min(th, (lo - Y[i, j]) / d, (Y[i, j] - hi) / d))
+            end
+            th = clamp(th, 0.0, 1.0)
+            for i in 1:ns; σ[i, j] = th * (Y[i, j+1] - Y[i, j-1]) / dm; end
+        end
+    end
+    Yn = zeros(ns, n); Mn = zeros(n); cfl = 0.0
+    Fin = δ[n+1] .* Yin                      # flux through the top interface (inflow)
+    for j in n:-1:1
+        Mn[j] = M[j] + δ[j+1] - δ[j]
+        Mn[j] > 0 || error("advect_composition_down!: zone $j empties")
+        d = max(δ[j], 0.0); c = d / M[j]; cfl = max(cfl, c)
+        if j == 1 || d == 0
+            for i in 1:ns; Yn[i, j] = (M[j] * Y[i, j] + Fin[i]) / Mn[j]; end
+            j > 1 || (Fin = zeros(ns))
+            d == 0 && j > 1 && (Fin = zeros(ns))
+        elseif c > cmax          # implicit upwind interface
+            for i in 1:ns; Yn[i, j] = (M[j] * Y[i, j] + Fin[i]) / (M[j] + δ[j+1]); end
+            Fin = d .* Yn[:, j]
+        else                      # explicit second-order flux
+            Fex = [d * (Y[i, j] - σ[i, j] * (M[j] - d) / 2) for i in 1:ns]
+            for i in 1:ns; Yn[i, j] = (M[j] * Y[i, j] + Fin[i] - Fex[i]) / Mn[j]; end
+            Fin = Fex
+        end
+    end
+    Y .= Yn
+    (; M = Mn, cfl)
+end
+
+"""
+    advect_composition!(Y, M, δ, Yin; order = 2, cflmax = 0.5) -> (; M, cfl, nsub)
+
+`advect_composition1!` in `nsub = ceil(cfl/cflmax)` equal substeps (interface masses interpolated linearly in time), so that no donor gives away more than
+`cflmax` of its mass at a time (the adaptive grid can move an interface through several thin zones in one implicit step).
+"""
+function advect_composition!(Y::AbstractMatrix, M::AbstractVector, δ::AbstractVector, Yin::AbstractVector; order = 2, cflmax = 0.5)
+    n = size(Y, 2)
+    if all(>=(-1e-14 * maximum(M)), δ) && abs(δ[1]) <= 1e-14 * M[1]
+        r = advect_composition_down!(Y, M, δ, Yin; order, cmax = cflmax)
+        return (; M = r.M, cfl = r.cfl, nsub = 1)
+    end
+    c = 0.0
+    for jf in 1:n+1
+        d = δ[jf]; d == 0 && continue
+        jd = d > 0 ? min(jf, n) : max(jf - 1, 1)
+        c = max(c, abs(d) / M[jd])
+    end
+    # (the donor masses change during the substeps; the estimate is refined by checking the last substep)
+    nsub = max(1, ceil(Int, c / cflmax))
+    Mc = copy(M); cfl = 0.0
+    for isub in 1:nsub
+        r = advect_composition1!(Y, Mc, δ ./ nsub, Yin; order); Mc = r.M; cfl = max(cfl, r.cfl)
+    end
+    (; M = Mc, cfl, nsub)
+end
+
+"""
+    advect!(m::StarGas, xme_start; xin = nothing, order = 2, fac = nothing)
+
+Transport `m.Y` of the zones ngrs..ngre through the grid motion of the step just taken (lgrid = 1): the interior mass of interface k is
+xmtot − xmen[k] (per steradian); `xme_start` are the exterior masses `xmen[ngrs:ngre+1]` and `M_start` the zone masses 4π ρ ΔV (per steradian × 4π)
+at the START of the step (saved by the caller). Inflow through the outer interface (leobc = 2) carries `xin` (default: the initial abundances in `m.Yin`).
+Then T of every changed zone is re-solved at fixed ρ and gas energy e (as `mix!`), and the EOS/opacity refreshed. Returns (cons, cfl, dTmax):
+cons = max_i |Δ(Σ M Y_i) − inflow| / Σ M Y_i.
+"""
+function advect!(m::StarGas, xme_start::AbstractVector, M_start::AbstractVector; xin = nothing, order = 2, fac = nothing)
+    a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
+    dn, tn, egn, dvoln, xmen = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:dvoln), TM.v(:xmen)
+    n = b - a + 1
+    δ = [-(xmen[k] - xme_start[k-a+1]) * 4π for k in a:b+1]            # mass (g) gained by the interior of interface k
+    if fac !== nothing        # prescribed self-similar grid (ALE_MDOT): delta_k = f m_k exactly (the difference of two x_me of size x_mtot has no significant places left for f below 1e-12)
+        xmtot = TF.getscalar(:xmtot)
+        δ = [k == a ? 0.0 : (xmtot - xme_start[k-a+1]) * 4π * fac * (isempty(TD.ALE_PSI[]) || k > b ? 1.0 : TD.ALE_PSI[][k]) for k in a:b+1]
+    end
+    # zone masses from the same interface masses (Δ x_me), so that M′_j = M_j + δ_{j+1} − δ_j holds identically: ρΔV of the Newton solution differs from Δx_me by the
+    # converged residual of the mass row (≈1e-10 relative to x_mtot), which for a surface zone of 1e-7 M is a visible fraction of its mass
+    M_start = [4π * (xme_start[j] - xme_start[j+1]) for j in 1:n]
+    Ysub = m.Y[:, a:b]
+    Yin = xin === nothing ? Ysub[:, n] : xin
+    tot0 = [sum(M_start[j] * Ysub[i, j] for j in 1:n) for i in 1:NS]
+    infl = δ[n+1] .* Yin
+    r = advect_composition!(Ysub, copy(M_start), δ, Yin; order)
+    tot1 = [sum(r.M[j] * Ysub[i, j] for j in 1:n) for i in 1:NS]
+    ref = maximum(tot0 .* NN.AA)       # species whose mass is below 1e-9 of the largest are excluded (trace species: the round-off of the largest zones dominates their relative error)
+    cons = maximum(abs(tot1[i] - tot0[i] - infl[i]) / max(tot0[i], 1e-300) for i in 1:NS if tot0[i] * NN.AA[i] > 1e-9 * ref; init = 0.0)
+    dT = 0.0
+    for j in 1:n
+        k = a + j - 1
+        any(Ysub[:, j] .!= m.Y[:, k]) || continue
+        big = maximum(abs(Ysub[i, j] - m.Y[i, k]) / max(abs(m.Y[i, k]), 1e-30) for i in 1:NS if m.Y[i, k] > 1e-12; init = 0.0) > 1e-10      # (a round-off change of Y needs no re-solve of T)
+        m.Y[:, k] .= Ysub[:, j]
+        big || continue
+        Tn, _ = T_of_e(dn[k], egn[k], tn[k], zonecomp(m, k); pairs = m.pairs, coulomb = m.coulomb)
+        dT = max(dT, abs(Tn / tn[k] - 1)); tn[k] = Tn
+    end
+    ghosts!(m)
+    tn[a-1] = tn[a]; tn[b+1] = tn[b]; tn[b+2] = tn[b]
+    refresh!()
+    (; cons, cfl = r.cfl, dTmax = dT, nsub = r.nsub)
 end
 
 # ----------------------------------------------------------------------------------------------- diagnostics

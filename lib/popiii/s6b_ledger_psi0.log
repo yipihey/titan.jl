@@ -1,0 +1,37 @@
+restarted from pA_auto0 at step 3000
+S6b start: M* = 52.5765 Msun, R* = 1570.20 Rsun, Mdot = 1.100e-03 Msun/yr, 120 zones, T_s(precursor) = 3451 K, tau_prec = 0.00, P_ram = 5.224e+00, accretion true
+   LEDGER4: gravity work from Lagrangian displacement 1355703.679 Lsun vs sum F u = 903085.278 Lsun
+   LEDGER3: sum_k G m_k/r_k F_k = 1.339e+06 Lsun, sum_k G m_k M_k/(r_k) Mdot/M = 1.459e+05 Lsun
+   LEDGER2 dt=4.525e+09 s M=52.734 R=1573.5 E_int=4.982e+50 E_kin=1.270e+39 W=-8.159e+50 erg; dE_int=4.798e+48 dW=-7.588e+48
+   LEDGER2 3001: dE_int+dE_kin=277003.715  Einj-Fout+Wgrav=277003.720 (Wgrav=903085.278) -> resid -0.004 ; dW=-438046.938 vs -Wgrav-Ebind=-904242.374 -> resid 466195.435 [Lsun]
+   LEDGER 3001: dE/dt=-161043.223 Einj/dt=5302.180 Fout/dt=631383.738 Ebind/dt=1157.096 err/dt=466195.431 [Lsun]; L*=631390.0 Mdot*ein=6.29 Mdot*P/rho=4.19
+   LEDGER4: gravity work from Lagrangian displacement 1450500.315 Lsun vs sum F u = 856727.749 Lsun
+   LEDGER3: sum_k G m_k/r_k F_k = 1.339e+06 Lsun, sum_k G m_k M_k/(r_k) Mdot/M = 1.459e+05 Lsun
+   LEDGER2 dt=1.000e+08 s M=52.738 R=1574.1 E_int=4.983e+50 E_kin=7.791e+38 W=-8.160e+50 erg; dE_int=9.467e+46 dW=-1.489e+47
+   LEDGER2 3002: dE_int+dE_kin=247304.323  Einj-Fout+Wgrav=247304.328 (Wgrav=856727.749) -> resid -0.005 ; dW=-388848.164 vs -Wgrav-Ebind=-857885.173 -> resid 469037.009 [Lsun]
+   LEDGER 3002: dE/dt=-141543.841 Einj/dt=21445.059 Fout/dt=630868.480 Ebind/dt=1157.424 err/dt=469037.005 [Lsun]; L*=630874.7 Mdot*ein=6.29 Mdot*P/rho=4.19
+   LEDGER4: gravity work from Lagrangian displacement 1461868.166 Lsun vs sum F u = 867700.756 Lsun
+   LEDGER3: sum_k G m_k/r_k F_k = 1.340e+06 Lsun, sum_k G m_k M_k/(r_k) Mdot/M = 1.459e+05 Lsun
+   LEDGER2 dt=1.000e+08 s M=52.741 R=1574.4 E_int=4.984e+50 E_kin=7.939e+38 W=-8.162e+50 erg; dE_int=9.653e+46 dW=-1.537e+47
+   LEDGER2 3003: dE_int+dE_kin=252162.153  Einj-Fout+Wgrav=252162.157 (Wgrav=867700.756) -> resid -0.004 ; dW=-401604.099 vs -Wgrav-Ebind=-868857.925 -> resid 467253.826 [Lsun]
+   LEDGER 3003: dE/dt=-149441.946 Einj/dt=15516.226 Fout/dt=631054.824 Ebind/dt=1157.169 err/dt=467253.822 [Lsun]; L*=631061.1 Mdot*ein=6.28 Mdot*P/rho=4.19
+   LEDGER4: gravity work from Lagrangian displacement 1476212.766 Lsun vs sum F u = 881756.971 Lsun
+   LEDGER3: sum_k G m_k/r_k F_k = 1.340e+06 Lsun, sum_k G m_k M_k/(r_k) Mdot/M = 1.459e+05 Lsun
+   LEDGER2 dt=1.000e+08 s M=52.745 R=1574.5 E_int=4.985e+50 E_kin=1.059e+39 W=-8.163e+50 erg; dE_int=1.004e+47 dW=-1.595e+47
+   LEDGER2 3004: dE_int+dE_kin=262307.220  Einj-Fout+Wgrav=262307.224 (Wgrav=881756.971) -> resid -0.005 ; dW=-416659.234 vs -Wgrav-Ebind=-882914.082 -> resid 466254.848 [Lsun]
+   LEDGER 3004: dE/dt=-154352.015 Einj/dt=11847.444 Fout/dt=631297.191 Ebind/dt=1157.111 err/dt=466254.843 [Lsun]; L*=631303.5 Mdot*ein=6.28 Mdot*P/rho=4.19
+   LEDGER4: gravity work from Lagrangian displacement 1482798.823 Lsun vs sum F u = 886067.616 Lsun
+   LEDGER3: sum_k G m_k/r_k F_k = 1.340e+06 Lsun, sum_k G m_k M_k/(r_k) Mdot/M = 1.459e+05 Lsun
+   LEDGER2 dt=5.000e+07 s M=52.746 R=1574.6 E_int=4.985e+50 E_kin=1.006e+39 W=-8.164e+50 erg; dE_int=5.080e+46 dW=-8.062e+46
+   LEDGER2 3005: dE_int+dE_kin=265426.531  Einj-Fout+Wgrav=265426.535 (Wgrav=886067.616) -> resid -0.004 ; dW=-421217.984 vs -Wgrav-Ebind=-887224.727 -> resid 466006.743 [Lsun]
+   LEDGER 3005: dE/dt=-155791.453 Einj/dt=10647.110 Fout/dt=631288.190 Ebind/dt=1157.111 err/dt=466006.739 [Lsun]; L*=631294.4 Mdot*ein=6.28 Mdot*P/rho=4.19
+   LEDGER4: gravity work from Lagrangian displacement 1485373.539 Lsun vs sum F u = 887308.722 Lsun
+   LEDGER3: sum_k G m_k/r_k F_k = 1.340e+06 Lsun, sum_k G m_k M_k/(r_k) Mdot/M = 1.459e+05 Lsun
+   LEDGER2 dt=2.000e+07 s M=52.747 R=1574.6 E_int=4.985e+50 E_kin=9.782e+38 W=-8.165e+50 erg; dE_int=2.039e+46 dW=-3.235e+46
+   LEDGER2 3006: dE_int+dE_kin=266285.306  Einj-Fout+Wgrav=266285.310 (Wgrav=887308.722) -> resid -0.004 ; dW=-422531.713 vs -Wgrav-Ebind=-888465.816 -> resid 465934.104 [Lsun]
+   LEDGER 3006: dE/dt=-156246.407 Einj/dt=10265.669 Fout/dt=631289.081 Ebind/dt=1157.094 err/dt=465934.100 [Lsun]; L*=631295.3 Mdot*ein=6.28 Mdot*P/rho=4.19
+summary: steps 3006 (failed attempts 0), t = 4.77545e+04 yr, M = 52.747145 Msun, R = 1574.603 Rsun
+mass accretion check: (M - M0)/(Mdot t) = 1.00000000 (expected 1)
+composition advection: max |change of species mass - inflow|/mass = 9.35e-16; accreted-gas abundances kept in the top zone: X_H(top) = 0.75000 (inflow 0.75000)
+energy ledger: cumulative sum|err|/sum|terms| = 7.302e-01 (accretion off: ~1e-3)
+wall 65.3 s

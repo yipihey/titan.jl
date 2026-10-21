@@ -1884,3 +1884,78 @@ CNO self-production, 100 M☉ (t; X_CNO,c; ε_CNO/ε; T_c): 1e3 yr 1.5e-12, 0.04
 Evolution, 100 M☉ (X_c; t [yr]; R; log L; log Teff; T_c [1e8 K]): 0.745; 3.2e4; 4.28; 6.128; 4.977; 1.281 | 0.5; 1.38e6; 6.06; 6.234; 4.928; 1.190 | 0.3; 2.19e6; 9.2; 6.309; 4.856; 1.194 | 0.1; 2.78e6; 21.9; 6.367; 4.682; 1.225 | 1e-3; 3.026e6; 76.7; 6.406; 4.420; 1.382.
 15 M☉: 0.745; 1.09e5; 1.47; 4.362; 4.769; 0.994 | 0.5; 4.76e6; 1.87; 4.486; 4.747; 1.009 | 0.3; 7.52e6; 2.40; 4.577; 4.715; 1.017 | 0.1; 9.34e6; 3.23; 4.650; 4.669; 1.048 | 1e-3; 1.003e7; 3.56; 4.700; 4.661; 1.230.
 Ledger: cumulative closure 4.7e-5 (100 M☉; max 4e-4 after 1e4 yr) / 2.4e-5 (15 M☉); MS ⟨L_surf⟩/⟨L_nuc⟩ 0.9970 / 0.9967. Steps, last segment incl. 53/49 relaxation: 3375 / 1524, wall 1.16e4 s / 4.4e3 s (4 threads); whole 100 M☉ chain 5.9e3 steps.
+
+
+### S6a Accreting Pop III protostar [run]
+Files: `julia/s6b_run.jl` (driver, options in its header), `s6b_setup.jl` (embryo, SPS/OP03-type boundary conditions `precursor`), `s6_star.jl` (isentropic embryo), `s6_setup.jl`, `s6_run.jl` (approach A probe),
+`s6_advect_test.jl`, `s6_analyze.jl`, `s6_profsum.jl`, `s6_kappa_cmp.jl`; `StarMaterial.jl` (`advect_composition!`, `advect!`, `TFLOOR_OPAC`), `TitanResidFast.jl` (`ALE_MDOT`, `inflow_mass/egas`, `PEXT_HOOK`, `XIMR_HOOK`,
+`MLT_WOLD`, `MLT_HSAD`, `ABSORB_TRAD`), `TitanCore.jl` (`NEWTON_LIM`, ALE predictor), `TitanDriver.jl` (`ALE_MDOT`, `ALE_PSI`). All new switches default off; quick tier 8/8 PASS; full tier gains `s6_advect`, `s6b_early`.
+Logs: `lib/popiii/s6_a3.log`, `s6_v1.log`, `s6_v2.log` (approach A), `s6b_pA.log/.csv/_analysis.txt/_profsum.txt/_prof_*.csv` (Ṁ_fid/4 production), `s6b_pN80.*` (80 zones), `s6b_pB.log` (Ṁ_fid), `s6_advect_test.log`.
+All runs `TITAN_NOLIB=1`, Z = 0, X = 0.75, D/H = 2.5e-5, ³He/H = 1e-5 (the accreted gas: `accreted_Y`), α_MLT = 1.5, backward Euler.
+
+**1. Approach.** (A) was built and tried, then dropped for (B); S6b will need (A) in some form (see 7).
+*(A) shock in the domain.* `s6_setup.jl`: isentropic star (regular centre) + free-fall inflow region (ρ = Ṁ/4πr²v_ff, Lucy T) to 4 R*, lgrid = 1 (Dorfi–Drury, weights ln m, ln ρ, ln T), `leobc = 2`, E_r/F_r, StarGas.
+Composition advection (`StarMaterial.advect_composition!`: conservative donor-cell/PLM in mass, one Barth–Jespersen limiter per zone so Σ A Y = 1 is kept, substeps for CFL > 0.5, implicit upwind sweep when all fluxes point one way) is tested in `s6_advect_test.jl`:
+(1) random grid motion with inflow: Σ M Y_i conserved to 1.1e-15, Σ A Y − 1 = 4e-15, Y ≥ 0; (2) matter step through a drifting grid (c = 0.15, 200 steps): L1 error 4.0 (1st order) → 1.2 (2nd order) zone masses, width 0.9 zone; (3) stationary grid = identity;
+(4) displacements of 3 zone masses per step: 6 substeps, 7e-16; (5) self-similar growth ×2.2 with donor CFL up to 2.5e5 (surface zones): 3.6e-16, step smeared over 1.7 zone masses. PASS (`s6_advect_test.log`). `advect!` applies it to the TITAN state (x_me before/after).
+Result of the probe: the run works (relaxation, shock, composition conserved to 1e-15 per step) but dt cannot grow. Baseline (τ_grid = 1e7 s, 170 zones: 100 star, 70 infall zones): dt = 24 s at t = 1e3 s, then 2–9 s up to t = 6.4e3 s, 1100 steps (`s6_a3.log`);
+with the grid active (τ_grid = 1e3 s, 110 infall zones) dt = 5e-5 s at t = 0.09 s after 400 steps (`s6_v1.log`), τ_grid = 1e5 s: 0.02 s at t = 5 s (`s6_v2.log`). Needed: 1e7–1e9 s. Newton at the shock zone (id corrections ±0.2…5) fails at 1.6× dt, and the
+adaptive grid moves interfaces by 10–35 zone masses per step. A cure would need a stationary-shock solver; the accretion time (1e3–1e5 yr) divided by this dt is 1e6–1e9 steps. Not pursued further.
+*(B) used: Lagrangian star with a prescribed self-similar mass grid, SPS86/OP03-type surface conditions.* TITAN lgrid = 3 with free outer boundary (S4/S5 machinery), but the grid row of interface k is not kinematic: x_me,k = x_mtot − (x_mtot − x_me,k^old)(1 + ṀΔt/M)
+(`ALE_MDOT`): m_k ∝ M(t), N fixed, relative resolution fixed. Matter flows through the zones (mass fluxes dm/dt of the existing advection terms), the surface zone gains Ṁ/4π through the outer boundary (`inflow_mass`: a constant, not r²φ_r0: the surface zone
+holds 1e-7 of what flows through it per unit M, so the inflow must not depend on the iterate's radius). Composition: `advect!` with δ_k = (m_k)(ṀΔt/M) after burn!/mix!. x_me offset: after each step shifted so that the surface x_me = 1e-5 M/4π (precision of the thin zones), raised by 1.5 ṀΔt/4π during a step.
+
+**2. Boundary conditions (surface = shock = R*; `update_bc!`, every step, lagged except where stated).**
+(i) Momentum: P_ext = Ṁ v_ff(R)/(4πR²) (post-shock gas pressure = ram pressure), as a function of the iterate's radius (`PEXT_HOOK`, in the Jacobian). (ii) Radiation: the incident radiation of the free-fall precursor, F = c g (E_b − E_s) with E_s = a T_s⁴, Lucy's T⁴ = T_eff⁴(W + ¾τ) with
+L_tot = L* + G M Ṁ/R*, ρ_ff(r), τ = Rosseland depth of the Z = 0 StellarOpacity from infinity, T floor 2.5e3 K (`precursor`); L* from the interface 15 below the surface (the surface flux is the stiff response to this condition); E_s damped (geometric mean with the last value, change ≤ 15 %/step) and E_s(R) tabulated on 13 radii ±6 % and interpolated in ln R inside the Newton iteration
+(`XIMR_HOOK`; without it the opacity cliff made the surface hunt: T_s jumps 10–20 kK between steps, dt ≈ 1e-4 t_acc). (iii) Energy: the accreted gas enters with the specific internal energy of the post-shock state (P_ram, T_s), "cold accretion": the shock energy G M Ṁ/R* leaves as L_acc (not reduced by the retained enthalpy, ≲ 10 %);
+(entering with the top zone's own e made the top zone cool to 300 K: its gas is not coupled to the 4600 K field, κ_P(T_gas) → 0). (iv) Absorption of the radiation at T_rad: κ_E = κ(ρ, max(T, T_rad)) (`ABSORB_TRAD`) and opacities evaluated at ≥ 3000 K (`TFLOOR_OPAC`: the tables end there).
+L_acc, the photosphere r_ph, T_eff,ph (Lucy photosphere of the precursor, dilution included) and S_ion (black body of T_eff,ph, r_ph) are diagnostics. D, ³He are supplied with every accreted gram.
+
+**3. Embryo and start.** Isentrope (∇ = ∇_ad, StellarEOS, X = 0.75) with T_c = 1e5 K, ρ_c = 5e-4 g cm⁻³ integrated outwards until P = P_ram: M = 0.2174 M☉, R = 22.76 R☉ (T_s = 9.4e3 K), i.e. R ≈ OP03's value at this mass; the embryo is NOT OP03's 0.01 M☉ (their transient is forgotten by 0.1 M☉; ours by ≈ 0.3).
+120 zones (70 interior zones geometric in mass, ratio 1.12, to q = 0.05; 50 envelope zones log-spaced in q to 3e-7; q = exterior mass fraction), regular centre. Relaxation with accretion and burning off, dt ×1.5/step up to 3 t_dyn: 180 steps, 22.6 t_dyn (t_dyn = 3.7e5 s), max|u|/c_s = 5.3e-4; R* → 22.3 R☉.
+
+**4. What limited dt, and the fixes (all switches in the header of `s6b_run.jl`).** dt = 0.1 s at start, needed ≥ 1e7 s. Found one after the other by `TRACE`/`SCAN` (Newton corrections per variable and zone, residual along the Newton direction):
+(a) MLT: the blend weight of `MLT_HS` (pressure-gradient ratio in the nearly isobaric skin below the ram-pressure boundary) was a constant in the Jacobian: Newton 2-cycled with ±1e-2 in E_r, T at the top zones for dt ≥ 0.2 s → differentiated (`MLT_HSAD`, dt ×100).
+(b) Surface zone: entering with its own e made it cool to 300 K (outside the tables: NaN, singular matrices) → post-shock state as inflow (see 2); `ABSORB_TRAD`, `TFLOOR_OPAC`; a temperature floor on the EOS (`TFLOOR`) was tried and abandoned (a flat floor makes the energy row singular in T, slope 0.05 lets T run away).
+(c) Inflow ∝ r(θ)²φ_r0 made the surface zone (mass ∼ 1e-7 of what flows through it) lose its mass: the constant −Ṁ/4π (`inflow_mass`); the exterior-mass offset must exceed the mass accreted in a step (`prep_xmext!`), the Newton tolerance 1e-7.
+(d) Surface condition hunting: L*, R, E_s(R) lagged by a step → limit cycle (dt ≈ 1e-4 t_acc): L* taken deep (15 interfaces), E_s damped and ramped, E_s(R) and P_ram(R) inside the iteration (`XIMR_HOOK`, `PEXT_HOOK`).
+(e) Step control: dt = min(1.6 dt, 0.9 TOL dt/max|Δ ln T, ρ, r|) over the zones with q > 1e-5 (`NSKIP`: the optically thin top zones follow the boundary conditions at once), accreted mass per step ≤ 3e-3 M; relaxation phase as S5.
+(f) the composition advection of the surface zones (donor CFL up to 3e4) needs the implicit sweep; the mass of a surface zone is Δx_me, not ρΔV (converged only to 1e-3 of it).
+Typical run (Ṁ_fid/4, 120 zones, TOL 0.05): 3118 steps from 0.217 to 70 M☉, 1777 s wall on one core, no failed Newton attempt, 69 steps rejected by the source/network test, dt = 7.6e5 s (0.3 yr) at 0.2 M☉ → 1.4e9 s (45 yr) at 20 M☉.
+
+**5. Runs and results, Ṁ = Ṁ_fid/4 = 1.1e-3 M☉/yr** (X = 0.75, 0.217 → 70 M☉; columns of the CSV: R*, L* (interior, base of the surface layers), L_acc = G M Ṁ/R*, T_eff (precursor photosphere), T_c, ρ_c, T_max and m(T_max), L_D, L_pp, L_CNO, f_D, t_KH, t_acc, S_ion).
+`pA` = mesh m_k ∝ M for all k (120 zones, TOL 0.05; 3118 steps, 1777 s on one core, no failed Newton attempt, 69 steps rejected by the source test); `pH3` = hybrid mesh (Lagrangian interior, ψ(q) smooth from 0 at q = 0.9 to 1 at q = 1e-4; 2601 steps, 1248 s, TOL 0.1);
+`pN80` = 80 zones, TOL 0.15, to 12 M☉. Convergence: pA and pN80 agree to 1–2 % in R*, T_c, T_max, f_D at 0.3–10 M☉ (R*(8 M☉) = 256 vs 250 R☉, R*(10) 371 vs 365, L*(8) 1.88e4 vs 1.86e4).
+Validation (OP03 numbers read from Figs. 1, 2, 4 of OP03, curves for Ṁ_fid/4; SPS86 eq. 21; the OP03 curves start at 0.01 M☉, ours at 0.22 M☉):
+
+| quantity | OP03 / SPS86 | pA (all interfaces) | pH3 (hybrid mesh) |
+|---|---|---|---|
+| d ln R*/d ln M, 0.5–3 M☉ | 0.27 (SPS86 eq. 21) | 0.263 | 0.279 |
+| R*(0.5 / 1 / 3 M☉) | ≈ 20 / 25–30 / 40 R☉ (Fig. 1) | 19.7 / 23.5 / 31.6 | 20.1 / 24.4 / 33.3 |
+| L* at 1–3 M☉ | 0.1–0.5 L☉ (Fig. 4 top) | 0.03–20 (flickers by 10²) | 150–450 |
+| luminosity wave | L* ↑ at ≈ 3.5–4 M☉ (0.5 → 20 → 1e3 at 5–6 M☉) | L* > 100 at 3.6, > 1e3 at 5.9, > 1e4 at 7.1 M☉ | already 4e2 at 3; > 1e3 at 5.5, > 1e4 at 7.2 |
+| surface convection zone at the wave | ≈ 20 % in mass | 24 % (m/M 0.757–1) at 1 and 3 M☉; 15 % at 8 | 7 % at 3 M☉; 2.5 % at 8 |
+| T_max off-centre, m/M | ≈ 0.1 (maintained through phase I) | 0.146 (3), 0.131 (4), 0.093 (6), 0.066 (8 M☉) | 0.151, 0.138, 0.105, 0.075 |
+| D burning | active near 3 M☉ (ε_D > 0.1 L*/M*) at Ṁ_fid/4, L_D small, hardly any D consumed | L_D/L* ≤ 1.3e-3, f_D = 0.998 (6), 0.975 (8), 0.85 (10 M☉); T_max = 7.6e5 K at 3 M☉: no episode at 3 M☉, D burning from ≈ 5 M☉ | the same (f_D 0.974 at 8, 0.73 at 10) |
+| R* peak, then KH contraction | peak 100–140 R☉ at 8–10 M☉, falls to 4 R☉ at 40 M☉, L* ∝ M³, R* ∝ Ṁ/M² | **not reproduced**: 256 (8), 371 (10), 610 (15), 1045 (30), 1900 R☉ (70); T_eff,ph 4100 K; L* ∝ M^1.5; t_KH/t_acc = 0.06 (8) → 0.01 | the same: 218 (8), 320 (10), 531 (15), 1500 R☉ (70); L* ∝ M^1.4 |
+| H burning / ZAMS, S_ion | CNO ignition at ≈ 40 M☉, ZAMS ≈ 50 M☉, S_ion 1e48–49 | **not reached**: T_c = 5e7 (50), 7.7e7 K (60 M☉), L_pp, L_CNO ≈ 0; S_ion(70 M☉) = 3.6e37 | T_c 8.2e7 K (60); S_ion 5e39 |
+
+Convective zones (pA, m/M): 1 M☉ core 0–0.14 and surface 0.76–1; 3 M☉ core 0–0.04, surface 0.76–1; 8 M☉ core 0–0.011, surface 0.85–1; 20–40 M☉ no core, envelope 0.68–1.0; the core of the 70 M☉ star is radiative, T_c = 8e7 K, ρ_c = 55–100 g cm⁻³ (log files `s6b_pA_profsum.txt`, `s6b_pH3_profsum.txt`, structure dumps `s6b_p*_prof_*.csv`).
+So phase I is reproduced (R*(M) law, luminosity wave at 3.5–6 M☉, surface convection, off-centre T_max, small D burning), phases II–III are not: after the wave the star swells without limit as a convective envelope + compact core (red-supergiant-like, T_eff,ph = 4100–4800 K) and does not contract to the ZAMS.
+The swelling does not depend on the mesh (all-interface vs hybrid), the zone number (80/120), the tolerance (0.05–0.15). Not tested: α_MLT, the boundary conditions' entropy, the embryo.
+
+**6. Energy ledger and the Ṁ_fid run (both unresolved).** *Ledger.* Per step: ΔE_tot (int + kin + grav, Gauss quadrature of W = −G∫m dm/r) against E_inj − F_out − G M δm/R (nuclear heating, boundary flux including the inflow enthalpy and the surface work, binding energy of the new mass at R*; `LEDGER=1`).
+Accretion off (Lagrangian, same star at 6.4 M☉): 0.2 L☉ in 2e3 (1e-4). Accretion on: step error 5–8 % of the terms at 0.2–2 M☉, 0.7 at ≥ 10 M☉, cumulative 0.07 (pA), 0.76 (pH3, hybrid mesh too; `s6b_pA.log`, `s6b_pH3.log`). Dissection at the 52.6 M☉ state of pA (`s6b_ledger_psi0.log`): ΔE_int + ΔE_kin closes with the work of gravity Σ F_k u_k Δt to 4e-3 L☉
+(the thermal and kinetic equations are exactly consistent), but the potential energy decreases by 4.4e5 L☉ while the gravity work is 9.0e5 L☉ → +4.7e5 L☉ of spurious energy (75 % of L*): proportional to Ṁ (2.5e5 / 4.7e5 / 9.8e5 L☉ for Ṁ = 0.5 / 1 / 2 × 1.1e-3), independent of Δt (1e8 vs 4.5e9 s) and of the zone number, ≈ Ṁ G M/R_core, i.e. the potential energy released if the accreted mass fell into the core.
+With a Lagrangian interior (ψ = 0 for q > 0.3, `s6b_ledger_psi1.log`) the first steps close to 3–6e3 L☉ but it rises step by step; a long run with a smooth ψ(q) (pH3) does not close either. The L* of the all-interface mesh (0.01–20 L☉ at 0.3–3 M☉) and of the hybrid mesh (150–450 L☉) differ by 10²–10³ while R*, T_c agree to 3 %:
+L* of phase I and everything after the wave must be taken as unvalidated until the ledger closes.
+*Ṁ_fid.* The precursor of the flow is optically thick once the gas ionises (τ_prec 400–1400, T_s = 2.8–4.3e4 K): E_s(R) is a cliff, the surface thermostat breaks down at t = 1.48 yr, R = 27.4 R☉, M = 0.223 M☉ (dt → 1e-2 s; `s6b_pB.log` all-interface mesh, `s6b_pHB.log` hybrid mesh, 2200 steps); not followed further.
+The same states with the thin-precursor condition would be wrong (L_acc = 1.1e3 L☉ at R = 27 R☉ gives T_eff = 6100 K, i.e. above the ionisation cliff).
+
+**7. Open points for S6b.**
+1. Energy accounting of the accreting mesh (above): a conservative treatment of the gravitational potential of the mass that moves through the mesh (or MESA-style Lagrangian zones added at the surface, which needs the remap of the envelope; the ALE rows and the composition advection are ready) must come first.
+2. (A) needs a stationary-shock solver (the dt ceiling of the adaptive grid is 1e-5…1 s, needed 1e7 s) or the infall region in a frame where the shock is at rest; S6b's Ṁ(t) from the collapse enters `ALE_MDOT`/`inflow_mass` as a function of t, the infalling gas state (ρ_ff, T, E_s) from the collapse run replaces `precursor`.
+3. Surface physics of the post-shock layer: entropy of the settled gas (here (P_ram, T_s(Lucy)), at R = 600 R☉ P_ram = 8 dyn cm⁻²), α_MLT, T_eff,ph = 4100–4800 K vs the 7000+ K of OP03's compact stars, L_acc not reduced by the retained enthalpy (≲ 12 %), no H₂ below 3e3 K and opacities frozen at 3000 K, Z = 0 κ_R of S3 equals the P7 table (`s6_kappa_cmp.jl`: ≤ 10 % at 3500–2e4 K), no independent check against Lenzuni et al. 1991.
+4. Embryo: 0.22 M☉ isentrope vs OP03's 0.01 M☉ low-entropy core; relaxed over 22 t_dyn; the early L* (45 L☉ at the start) depends on it.
+5. Numerics worth keeping: `MLT_HSAD`, `MLT_WOLD`, `NEWTON_LIM`, `inflow_mass`, `prep_xmext!`, NSKIP step control, `XIMR_HOOK`/`PEXT_HOOK`; TR-BDF2 is not used with the ALE rows (θ = 1).

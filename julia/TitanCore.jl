@@ -207,6 +207,12 @@ end
 
 # ------------------------------------------------------------------ update (updateh.f / updaterh.f)
 """
+S6a: `NEWTON_LIM[]` (default Inf = TITAN): the Newton correction is scaled by one factor so that no zone's relative change of ρ, T or E_r exceeds NEWTON_LIM in
+one iteration (damped Newton). In the top zones of an accreting protostar (T ≈ 5000 K, H ionisation, κ_R changing by orders of magnitude) the first iterate of a
+step overshot to T < 3000 K (outside the EOS/opacity tables: NaN) for dt ≳ 100 s.
+"""
+const NEWTON_LIM = Ref(Inf)
+"""
 update!(; eos!, opac!): apply the Newton correction and refresh all derived and
 time-centred quantities. `eos!`/`opac!` default to the routines installed in the
 driver (Fortran via ccall, or the Julia hooks).
@@ -220,6 +226,11 @@ function update!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     ern, frn, frnom = vf(:ern), vf(:frn), vf(:frnom)
     mu = gi(:mu); mup1 = gi(:mup1); mum1 = gi(:mum1)
     xmup1, rxm1 = gf(:xmup1), gf(:rxm1)
+    if NEWTON_LIM[] < Inf
+        mx = 0.0
+        @inbounds for k in a:b; mx = max(mx, abs(rhs[id, k]), abs(rhs[it, k]), lrad ? abs(rhs[ie, k]) : 0.0); end
+        mx > NEWTON_LIM[] && @inbounds for k in a-1:b+2, i in 1:size(rhs, 1); rhs[i, k] *= NEWTON_LIM[] / mx; end
+    end
     @inbounds for k in a:b+1
         rn[k] = (1.0 + rhs[ir, k]) * rn[k]
         xmen[k] = (1.0 + rhs[im, k]) * xmen[k]
@@ -469,6 +480,17 @@ function predict!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[](), halve::B
             kbad = findfirst(k -> rn[k+1] <= rn[k] || xmen[k+1] > xmen[k] * (1 + 100eps()), a:b)
             kb = kbad === nothing ? 0 : a + kbad - 1
             error("peq: grid extrapolation nonmonotonic after $nnext attempts (first bad interface $kb: ro $(ro[kb]) $(ro[kb+1]) rn $(rn[kb]) $(rn[kb+1]) drdt $(drdt[kb]) $(drdt[kb+1]) xmeo $(xmeo[kb]) $(xmeo[kb+1]) xmen $(xmen[kb]) $(xmen[kb+1]) dmdt $(dmdt[kb]) $(dmdt[kb+1]))")
+        end
+    end
+    # ---- S6a: prescribed self-similar mass grid (TitanResidFast.ALE_MDOT): masses at the end of the step known; density from the zone mass and volume
+    if TD.ALE_MDOT[] != 0 && gi(:lgrid) == 3
+        xmtot = gf(:xmtot); dtp = gf(:dtime) * dtscale
+        fac = 1 + TD.ALE_MDOT[] * dtp / (4π * (xmtot - xmeo[b+1]))
+        @inbounds for k in a+1:b+1; xmen[k] = xmtot - (xmtot - xmeo[k]) * (1 + (isempty(TD.ALE_PSI[]) || k > b ? 1.0 : TD.ALE_PSI[][k]) * (fac - 1)); end
+        dn_ = vf(:dn); mu1 = gi(:mu) + 1; xmup1 = gf(:xmup1)
+        @inbounds for k in a:b
+            dvn = (rn[k+1]^mu1 - rn[k]^mu1) / xmup1
+            dvn > 0 && xmen[k] > xmen[k+1] && (dn_[k] = (xmen[k] - xmen[k+1]) / dvn)
         end
     end
     # ---- S5: Lagrangian grid: density consistent with the extrapolated radii (continuity row satisfied at the initial guess)

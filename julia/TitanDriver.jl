@@ -92,6 +92,10 @@ const STAGE_HOOK = Ref{Any}(nothing)
 const FULL_DT = Ref(0.0)
 "Factor on dtime after a Newton failure in `step!` (TITAN: 0.05; S5 star runs: 0.5, so that dt hovers near the largest step Newton can take instead of dropping 20×)."
 const FAIL_TFAC = Ref(5.0e-2)
+"S6a: accretion rate [g/s] of the prescribed self-similar mass grid (see TitanResidFast.ALE_MDOT; 0 = off). Lives here so that TitanCore and TitanResidFast share it."
+const ALE_MDOT = Ref(0.0)
+"S6a: per-interface weights ψ_k ∈ [0,1] of the prescribed mass grid (index k of the interface; empty = all 1): m_k(t+Δt) = m_k (1 + ψ_k Ṁ Δt/M). ψ_k = 0: Lagrangian interface."
+const ALE_PSI = Ref(Float64[])
 "Julia version of subroutine step (step.f), same control flow and arithmetic."
 function step!()
     r(:peq)

@@ -1,0 +1,7 @@
+(1) random motion, inflow, 300 steps: max CFL 0.15, max |Δ(Σ M Y_i) − inflow|/Σ M Y_i = 1.07e-15, max |Σ A Y − 1| = 4.00e-15, min Y = 0.00e+00
+(2) step profile, order 1: L1 error 4.018 (units of zone mass), Σ x(1−x) = 2.84 zones, CFL 0.15, ΣM X_H = 90.000000 (inflow-corrected exact 90.000000)
+(2) step profile, order 2: L1 error 1.239 (units of zone mass), Σ x(1−x) = 0.87 zones, CFL 0.15, ΣM X_H = 90.000000 (inflow-corrected exact 90.000000)
+(3) stationary grid: identity true
+(4) large motion: CFL (last substep) 0.49, 6 substeps, conservation 6.70e-16, min Y 0.0e+00, |ΣAY−1| 8.9e-16
+(5) self-similar growth ×2.22 in 100 steps: max donor CFL 2.5e+05, conservation 3.58e-16, min Y 0.0e+00, L1 error of the matter step 5.552e-02 (mass units; zone mass at the step 1.500e-02)
+PASS

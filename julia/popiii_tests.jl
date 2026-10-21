@@ -30,6 +30,17 @@ function check_s5_zams15(o)
     (ok, @sprintf("ZAMS log L %.3f (Schaerer02 4.324), log Teff %.4f (4.759); ledger closure %.1e; relaxed max|u|/c_s %.1e; L_conv(1)/L_conv(2) %.2f", logL, logT, clos, urel, cm))
 end
 
+"S6a early accretion: relaxation to max|u|/c_s < 2e-3, then 120 steps of accretion; mass, composition advection and failure checks."
+function check_s6b_early(o)
+    rel = num(r"relaxed at step \d+: [^\n]*max\|u\|/c_s = ([\d.e+-]+)", o)
+    macc = num(r"mass accretion check: \(M - M0\)/\(Mdot t\) = ([\d.]+)", o)
+    cons = num(r"max \|change of species mass - inflow\|/mass = ([\d.e+-]+)", o)
+    fail = num(r"failed attempts (\d+)\)", o)
+    stopped = occursin("STOPPED", o)
+    ok = !stopped && rel < 2e-3 && abs(macc - 1) < 5e-3 && cons < 1e-12
+    (ok, @sprintf("relaxed max|u|/c_s %.1e; (M-M0)/(Mdot t) = %.5f; advection conservation %.1e; failed attempts %d%s", rel, macc, cons, Int(fail), stopped ? "; STOPPED" : ""))
+end
+
 tests = Test[
     # --- regression of the verified TITAN paths (PORTING_NOTES P6, M0.9) --------------------------------------
     Test("regress_SOD", env(julia(joinpath(J, "phase6_run.jl"), "pure", "SOD"), "Z0_TABLE" => "ext", "TITAN_NOLIB" => "1"), "quick",
@@ -89,6 +100,11 @@ tests = Test[
     Test("s5_zams15", env(julia(joinpath(J, "s5_run.jl"); t = 4), "TITAN_NOLIB" => "1", "M" => "15", "R0" => "2.2", "MFLOOR" => "1e-12", "INT" => "trbdf2",
                           "CONV" => "1e-8", "EFRAC" => "5", "DXMAX" => "4e-3", "STOPZAMS" => "1", "MAXSTEPS" => "600", "EVERY" => "100", "OUT" => "test_zams15"), "full",
          check_s5_zams15),
+    # --- S6a accreting protostar: composition advection through a moving mass grid; early accretion segment ----------------------
+    Test("s6_advect", env(julia(joinpath(J, "s6_advect_test.jl")), "TITAN_NOLIB" => "1"), "full",
+         o -> (occursin("\nPASS", o), grab(r"\(5\) self-similar[^\n]*", o))),
+    Test("s6b_early", env(julia(joinpath(J, "s6b_run.jl"); t = 4), "TITAN_NOLIB" => "1", "MAXSTEPS" => "120", "RELAXSTEPS" => "320", "EVERY" => "100", "OUT" => "test_early"), "full",
+         check_s6b_early),
 ]
 
 sel = filter(t -> tier == "full" || t.tier == "quick", tests)

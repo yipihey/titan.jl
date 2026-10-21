@@ -106,11 +106,33 @@ Empty (default) = TITAN's x_mtot − x_me.
 """
 const XMINT = Ref(Float64[])
 """
+ALE_MDOT[] (S6a, lgrid = 3 with a free outer boundary, XMINT empty): accretion rate Ṁ [g/s] of a star whose mass grid is PRESCRIBED to be self-similar,
+m_k(t+Δt) = m_k(t)·(1 + ṀΔt/M(t)) for every interface but the centre (and the free surface, whose mass follows from the top zone's continuity row with the inflow
+phir0 = −Ṁ/(4πR²)): the grid row of interface k is x_me,k − [x_mtot − (x_mtot − x_me,k^old)(1 + ṀΔt/M)] = 0 instead of the Lagrangian kinematic row.
+The relative motion of matter and interfaces gives the mass fluxes dm/dt of the advection terms (fl, fle, flu), so accreted mass enters at the surface and flows
+through the zones, whose masses grow ∝ M; the relative resolution is fixed. 0 (default) = off (Lagrangian).
+"""
+const ALE_MDOT = TD.ALE_MDOT
+"""
+Inflow through the free outer boundary: mass rate per steradian `rmu φ_r0` and gas internal-energy rate `rmu φ_r2`. With ALE_MDOT ≠ 0 the mass rate is the constant −Ṁ/4π (and the
+energy rate −Ṁ/4π · e_in with e_in = φ_r2/φ_r0) instead of r(θ)² φ_r0: the surface zone of an accreting star holds 1e-7 of the mass that flows through it per unit of M (it is the
+small difference of the inflow and the outflow through its lower interface), so the inflow must not depend on the radius of the iterate (r² changes by 1e-3 per step).
+"""
+@inline inflow_mass(P, rmu) = ALE_MDOT[] != 0 ? -ALE_MDOT[] / (4π) : rmu * P.phir0
+@inline inflow_egas(P, rmu) = ALE_MDOT[] != 0 ? -ALE_MDOT[] / (4π) * (P.phir0 != 0 ? P.phir2 / P.phir0 : 0.0) : rmu * P.phir2
+"""
 PEXT[] (lgrid = 3, llobc = 1): free outer boundary. The outermost interface obeys the momentum equation of its half
 zone with a constant external pressure PEXT[] outside (RHFC02 App. A2.3) instead of the piston u = uextr. NaN
 (default) = TITAN's piston.
 """
 const PEXT = Ref(NaN)
+"""
+S6a: `PEXT_HOOK[] = r -> P_ext(r)` and `XIMR_HOOK[] = r -> ximr(r)` (default `nothing`): the external pressure and the incident-radiation parameter of the free outer boundary as
+functions of the (θ-centred / current) radius of the surface, differentiated in the Jacobian. An accreting protostar's boundary conditions depend on its radius (ram pressure ∝ R^−2.5,
+the radiation field of the optically thick precursor through the opacity cliff: T_s(R) is steep); evaluated one step late they made the surface hunt (dt ≤ 1e-4 of the accretion time).
+"""
+const PEXT_HOOK = Ref{Any}(nothing)
+const XIMR_HOOK = Ref{Any}(nothing)
 """
 AV_ZONE[] (G1): viscous length proportional to the local zone width. When > 0, zone k uses the length
 l_k = AV_ZONE[] × (r[k+1] − r[k]) (θ-centred radii, ForwardDiff-differentiable) instead of ql0 + ql1 r̄; ql0, ql1 are then
@@ -178,11 +200,25 @@ function context(; etotal::Bool = ETOTAL[], ηsw::Float64 = ETASW[], dt = nothin
         v(:erso), v(:frso), v(:pgo), v(:aso), v(:chifo), v(:xkeo),
         v(:xkpo), v(:plfo), v(:dvolo), v(:xmo), v(:fedd), v(:bri),
         (la = v(:lady); lb = get!(() -> zeros(Int, length(la)), BUFS, :lady)::Vector{Int}; lb .= la; lb), v(:wt), v(:yscl), P, etotal, dualswitch(ngrs, ngre, lrad, ηsw),
-        CONVECTION[], ALPHA_MLT[], convcoef(ngrs, ngre, base))
+        CONVECTION[], ALPHA_MLT[], convcoef(ngrs, ngre, base; wbase = MLT_WOLD[] ? oldbase(base, ngrs, ngre) : base))
 end
 
+"""
+MLT_WOLD[] (S6a): the optical-depth weights of the MLT flux are computed from the start-of-step state (r, ρ, T, u of the old time level) instead of the current Newton
+iterate. The weight is a function of the Rosseland depth integrated from the outer boundary (not differentiated, as the Jacobian is block-banded); in an optically thin
+accretion atmosphere (τ ~ 0.5…2 over the top ten zones) the iterate-dependent weight made Newton 2-cycle (corrections of ±1e-2 in E_r and T alternating forever, dt ≤ 0.1 s);
+frozen over the step the system is smooth. Default false = TITAN.
+"""
+const MLT_WOLD = Ref(false)
+"The start-of-step state in the layout of `base` (columns 1 r, 3 ρ, 4 u, 5 T) for MLT_WOLD."
+function oldbase(base, ngrs, ngre)
+    ob = copy(base)
+    ro, do_, uo, to = TF.var(:ro), TF.var(:do), TF.var(:uo), TF.var(:to)
+    @inbounds for k in ngrs-1:ngre+2; ob[k, 1] = ro[k]; ob[k, 3] = do_[k]; ob[k, 4] = uo[k]; ob[k, 5] = to[k]; end
+    ob
+end
 "Interface ∇_ad, c_P, δ, κ_R on the current iterate (base) for the MLT flux; zeros if convection is off."
-function convcoef(ngrs, ngre, base)
+function convcoef(ngrs, ngre, base; wbase = base)
     mgr = TF.MGR
     cv = Tuple(get!(() -> zeros(mgr), BUFS, nm)::Vector{Float64} for nm in (:cvnad, :cvcp, :cvdel, :cvkap))
     foreach(a -> fill!(a, 0.0), cv)
@@ -201,12 +237,12 @@ function convcoef(ngrs, ngre, base)
     cvw = get!(() -> zeros(mgr), BUFS, :cvw)::Vector{Float64}; fill!(cvw, 0.0)
     τ = 0.0
     @inbounds for k in ngre:-1:ngrs+1
-        (base[k, 3] > 0 && base[k, 5] > 0) &&
-            (τ += material_opac(m, base[k, 3], base[k, 5])[1] * base[k, 3] * (base[k+1, 1] - base[k, 1]))
+        (wbase[k, 3] > 0 && wbase[k, 5] > 0) &&
+            (τ += material_opac(m, wbase[k, 3], wbase[k, 5])[1] * wbase[k, 3] * (wbase[k+1, 1] - wbase[k, 1]))
         x = clamp((log(max(τ, 1e-300)) - log(TAU_MLT[] / 2)) / log(4.0), 0.0, 1.0)
         cvw[k] = x * x * (3 - 2x)
         if MLT_NOINFALL[]          # no MLT flux in infalling gas: smooth step from inflow 10 km/s (MLT on) to 30 (off)
-            y = clamp((-base[k, 4] - 1e6) / 2e6, 0.0, 1.0)
+            y = clamp((-wbase[k, 4] - 1e6) / 2e6, 0.0, 1.0)
             cvw[k] *= 1 - y * y * (3 - 2y)
         end
     end
@@ -376,6 +412,18 @@ blending range (¼, ¾) of MLT_HS, and the blend weight (taken as a constant in 
 made Newton converge only linearly (factor ⅓ per iteration) in the central zone.
 """
 const MLT_HSDISC = Ref(false)
+"""
+MLT_HSAD[] (S6a): the blend weight of MLT_HS is differentiated (it was a constant in the Jacobian). In the nearly isobaric skin of an accreting star (the surface
+pressure is the ram pressure, the weight of the top layers is ≪ it) the ratio lp/lph sits in the blend range ¼…¾ permanently and the inconsistent Jacobian made
+Newton 2-cycle (dt ≤ 0.1 s). Default false = TITAN.
+"""
+const MLT_HSAD = Ref(false)
+"""
+ABSORB_TRAD[] (S6a): the absorption opacity κ_E of a zone is evaluated at max(T_gas, T_rad), T_rad = (E_r/a)^¼, i.e. radiation at T_rad is absorbed by gas of whatever temperature with
+the opacity of gas at T_rad (two-temperature grey transfer); emission 4πκ_P(T_gas)B(T_gas) is unchanged. In the optically thin atmosphere above an accreting protostar (T_rad ≈ 4600 K
+from the shock, gas decoupled: κ_P(T_gas) → 0 below 3000 K) the gas otherwise cools without bound (heated only by the pressure it is under). Default false = TITAN.
+"""
+const ABSORB_TRAD = Ref(false)
 "Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
 function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
@@ -396,6 +444,10 @@ function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
         hassrc && (W.snuc[k] = material_source(m, dn[k], tn[k]))
         if c.lrad
             χ, κE, κP = material_opac(m, dn[k], tn[k])
+            if ABSORB_TRAD[]       # absorption of the radiation field at its own temperature: κ_E = κ(ρ, max(T_gas, T_rad)); emission κ_P(T_gas) unchanged
+                Trad = (ern[k] / (4P.csigr / P.cc))^0.25
+                ForwardDiff.value(Trad) > ForwardDiff.value(tn[k]) && (κE = material_opac(m, dn[k], Trad)[2])
+            end
             chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
             t2 = tn[k] * tn[k]
             plfn[k] = P.csigr * (t2 * t2) / P.cpi
@@ -568,6 +620,11 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k]; end
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
+        if ALE_MDOT[] != 0       # S6a: prescribed self-similar mass grid (see ALE_MDOT)
+            fac = 1 + ALE_MDOT[] * dt / (4π * (P.xmtot - c.xmeo[ngre+1]))
+            fpsi = fac - 1
+            @inbounds for k in ngrs+1:ngre; R[ir, kb(k)] = xmen[k] - (P.xmtot - (P.xmtot - c.xmeo[k]) * (1 + (isempty(TD.ALE_PSI[]) ? 1.0 : TD.ALE_PSI[][k]) * fpsi)); end
+        end
     end
     REGULAR_CENTRE[] && (R[ir, kb(ngrs)] = X(ir, ngrs))
     k = ngrs - 1
@@ -610,7 +667,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     @inbounds for k in ngrs:ngre
         fin  = k == ngrs ? rmu[k] * P.phil0 : rmu[k] * urel[k] * db[k]
         fout = k == ngre ? (P.leobc == 3 ? rmu[k+1] * P.phir0 + rmu[k+1] * urel[k+1] * db[k+1] :
-                            rmu[k+1] * P.phir0) : rmu[k+1] * urel[k+1] * db[k+1]
+                            inflow_mass(P, rmu[k+1])) : rmu[k+1] * urel[k+1] * db[k+1]
         R[id, kb(k)] = (dn[k] * dvoln[k] - c.do_[k] * c.dvolo[k]) / dt + fout - fin - dfm[k+1] + dfm[k]
     end
     R[id, 1] = X(id, k0)
@@ -643,7 +700,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         r3m = ((r[k-1] + r[k]) / 2)^(1.5xmu)
         w = (un[k] * dn[k-1] * dvoln[k-1] - c.uo[k] * c.do_[k-1] * c.dvolo[k-1]) / (2dt) +
             0.5 * (dmdt[k-1] + dmdt[k]) * ub[k-1] +
-            rmu[k] * (PEXT[] - pg[k-1]) +
+            rmu[k] * ((PEXT_HOOK[] === nothing ? PEXT[] : PEXT_HOOK[](r[k])) - pg[k-1]) +
             (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk -
             r[k]^(-0.5xmu) * r3m * qf[k-1]
         c.lrad && (w -= avchi[k] * fr[k] / cc * mk)
@@ -676,7 +733,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             lp = log(Pp / Pm)
             if MLT_HS[]
                 lph = MLT_HSDISC[] ? -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi) : -0.5 * (rn[k+1] - rn[k-1]) / HP
-                q = clamp((ForwardDiff.value(lp / lph) - 0.25) / 0.5, 0.0, 1.0); sw = q * q * (3 - 2q)
+                q = MLT_HSAD[] ? clamp((lp / lph - 0.25) / 0.5, 0.0, 1.0) : clamp((ForwardDiff.value(lp / lph) - 0.25) / 0.5, 0.0, 1.0); sw = q * q * (3 - 2q)
                 sw < 1 && (lp = sw * lp + (1 - sw) * lph)
             end
             abs(ForwardDiff.value(lp)) < 1e-12 && continue
@@ -717,7 +774,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
                 w += dmdt[k] * egbg[k]
-                w += P.leobc != 3 ? rmu[k+1] * P.phir2 : -dmdt[k+1] * egbg[k+1]
+                w += P.leobc != 3 ? inflow_egas(P, rmu[k+1]) : -dmdt[k+1] * egbg[k+1]
             else
                 w += -dmdt[k+1] * egbg[k+1] + dmdt[k] * egbg[k]
             end
@@ -732,7 +789,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
             elseif k == ngre
                 w += dmdt[k] * egb[k]
-                w += P.leobc != 3 ? rmu[k+1] * (P.phir2 + urel[k+1] * er[k]) : -dmdt[k+1] * egb[k+1]
+                w += P.leobc != 3 ? inflow_egas(P, rmu[k+1]) + rmu[k+1] * urel[k+1] * er[k] : -dmdt[k+1] * egb[k+1]
             else
                 w += -dmdt[k+1] * egb[k+1] + dmdt[k] * egb[k]
             end
@@ -744,7 +801,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 w += -dmdt[k+1] * egb[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
                 w += dmdt[k] * egb[k]
-                w += P.leobc != 3 ? rmu[k+1] * P.phir2 : -dmdt[k+1] * egb[k+1]
+                w += P.leobc != 3 ? inflow_egas(P, rmu[k+1]) : -dmdt[k+1] * egb[k+1]
             else
                 w += -dmdt[k+1] * egb[k+1] + dmdt[k] * egb[k]
             end
@@ -796,7 +853,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)
-        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * ern[ngre]
+        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * (XIMR_HOOK[] === nothing ? P.ximr : XIMR_HOOK[](rn[ngre+1])) + frn[ngre+1] - cc * P.geddr * ern[ngre]
         R[iF, 1] = X(iF, k0)
         k = ngrs - 1
         R[iF, kb(k)] = P.lribc == 2 ? frn[k+2] + frn[k] : rn[k+1]^mu * frn[k+1] - rn[k]^mu * frn[k]
@@ -831,7 +888,7 @@ kinetic-energy, work and viscous pieces of the adjacent zone.
         Fl += -dmdt * 0.5 * u^2 + rmu * u * ptot(k, c, W) + rmu * u * W.qf[k]
     elseif k == ngre + 1
         if P.leobc != 3
-            Fl += c.lrad ? rmu * (P.phir2 + W.urel[k] * W.er[k-1]) : rmu * P.phir2
+            Fl += c.lrad ? inflow_egas(P, rmu) + rmu * W.urel[k] * W.er[k-1] : inflow_egas(P, rmu)
         else
             Fl += -dmdt * W.egb[k]
         end

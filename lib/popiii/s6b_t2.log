@@ -1,0 +1,19 @@
+hybrid mesh: psi = 0 for q > 0.30 (68 interfaces), 1 for q < 0.030 (48 interfaces)
+S6b start: M* = 0.2174 Msun, R* = 22.76 Rsun, Mdot = 1.100e-03 Msun/yr, 120 zones, T_s(precursor) = 4354 K, tau_prec = 0.00, P_ram = 1.329e+04, accretion true
+== relaxation (accretion and burning off), t_dyn = 3.708e+05 s
+relax    20 t=4.1559e+02 s (0.0 t_dyn) dt=1.386e+02 s R=22.7548 Rsun Tc=9.99548e+04 max|u|/cs(core)=2.45e-04 it=8
+relax    40 t=4.8514e+03 s (0.0 t_dyn) dt=2.250e+02 s R=22.7379 Rsun Tc=9.99526e+04 max|u|/cs(core)=1.58e-02 it=16
+relax    60 t=7.9665e+03 s (0.0 t_dyn) dt=9.132e+01 s R=22.7279 Rsun Tc=9.99532e+04 max|u|/cs(core)=1.52e-01 it=7
+relax    80 t=1.1362e+04 s (0.0 t_dyn) dt=7.413e+01 s R=22.7184 Rsun Tc=9.99542e+04 max|u|/cs(core)=2.42e-01 it=4
+relax   100 t=1.5014e+04 s (0.0 t_dyn) dt=1.505e+01 s R=22.7100 Rsun Tc=9.99553e+04 max|u|/cs(core)=2.32e-01 it=4
+relax   120 t=1.8856e+04 s (0.1 t_dyn) dt=1.954e+02 s R=22.7016 Rsun Tc=9.99566e+04 max|u|/cs(core)=2.01e-01 it=10
+relax   140 t=1.9793e+04 s (0.1 t_dyn) dt=1.983e+01 s R=22.6996 Rsun Tc=9.99570e+04 max|u|/cs(core)=2.27e-01 it=4
+relax   160 t=2.6373e+04 s (0.1 t_dyn) dt=2.061e+03 s R=22.6856 Rsun Tc=9.99601e+04 max|u|/cs(core)=1.57e-01 it=14
+relax   180 t=8.1515e+06 s (22.6 t_dyn) dt=1.083e+06 s R=22.3493 Rsun Tc=9.94491e+04 max|u|/cs(core)=5.30e-04 it=3
+relaxed at step 180: t = 8.151e+06 s = 22.6 t_dyn, max|u|/c_s = 5.30e-04
+  200 t=3.2215e-01 yr dt=7.556e+05 s M=0.2175 R=22.26 Rsun L*=45.074 Lacc=337.45 Teff=5409 Ts=4563 tau=0.01 Tc=9.9510e+04 rho_c=4.953e-04 Tmax=9.951e+04@0.000 LD=2.04e-26 fD=1.0000 it=9 adv(cons 8.6e-16 cfl 1.2e+03 dT 0.0e+00) ledger(err/|terms| step 6.2e-02 cum 6.1e-02) lim=0.006 rho@99 conv=0.000-0.014,0.016-0.035,0.039-0.078,0.088-0.110,0.123-0.155,0.173-0.217,0.273-0.306,0.383-0.429,0.950-1.000
+summary: steps 240 (failed attempts 0), t = 2.12304e+01 yr, M = 0.240513 Msun, R = 18.616 Rsun
+mass accretion check: (M - M0)/(Mdot t) = 1.00000000 (expected 1)
+composition advection: max |change of species mass - inflow|/mass = 1.53e-15; accreted-gas abundances kept in the top zone: X_H(top) = 0.75000 (inflow 0.75000)
+energy ledger: cumulative sum|err|/sum|terms| = 8.727e-02 (accretion off: ~1e-3)
+wall 77.9 s

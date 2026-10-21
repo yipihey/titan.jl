@@ -1,0 +1,10 @@
+s6b_pA_prof_1.0.csv: # t = 713.5274605262651 yr, M = 1.002039418948254 Msun, R = 23.48821200150087 Rsun, Teff_ph = 7273.933400248369, L* = 8.
+   T_max = 4.258e+05 K at m/M = 0.000 (r = 0.22 Rsun); convective m/M: 0.000-0.138 0.757-1.000; X_D/X_D0 min 1.000 at m/M = 0.000
+s6b_pA_prof_20.0.csv: # t = 18003.65567682858 yr, M = 20.021180456880757 Msun, R = 768.0815044547203 Rsun, Teff_ph = 4090.7412202627283, L* = 
+   T_max = 6.977e+06 K at m/M = 0.000 (r = 0.19 Rsun); convective m/M: 0.676-0.998; X_D/X_D0 min 0.000 at m/M = 0.000
+s6b_pA_prof_3.0.csv: # t = 2530.9153806192608 yr, M = 3.0011661310505398 Msun, R = 31.595212569164442 Rsun, Teff_ph = 7684.946461061194, L* =
+   T_max = 7.642e+05 K at m/M = 0.155 (r = 5.07 Rsun); convective m/M: 0.000-0.039 0.757-1.000; X_D/X_D0 min 1.000 at m/M = 0.138
+s6b_pA_prof_40.1.csv: # t = 36267.42678260487 yr, M = 40.111328673234745 Msun, R = 1288.5049323547107 Rsun, Teff_ph = 4097.671013359286, L* = 
+   T_max = 3.170e+07 K at m/M = 0.000 (r = 0.07 Rsun); convective m/M: 0.676-0.997; X_D/X_D0 min 0.000 at m/M = 0.000
+s6b_pA_prof_8.0.csv: # t = 7082.010359432096 yr, M = 8.007370607744628 Msun, R = 255.8968588886167 Rsun, Teff_ph = 4287.816326485676, L* = 18
+   T_max = 1.582e+06 K at m/M = 0.070 (r = 4.04 Rsun); convective m/M: 0.000-0.011 0.848-1.000; X_D/X_D0 min 0.749 at m/M = 0.056
