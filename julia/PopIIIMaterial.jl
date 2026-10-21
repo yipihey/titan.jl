@@ -161,6 +161,8 @@ function x_from_table(m::NetGas, ρ, T)
 end
 
 "After a converged hydro step: network step per zone in the ideal regime, equilibrium-table step where p ≥ pswitch."
+# S6b: CHEM_FALLBACK[] (default false = error): a zone whose network step fails to converge keeps its composition and temperature for that step (counted in CHEM_FAILS).
+const CHEM_FALLBACK = Ref(false); const CHEM_FAILS = Ref(0)
 function chem!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
@@ -174,7 +176,17 @@ function chem!(m::NetGas)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
         else
             m.eqzone[k] && (m.eqzone[k] = false)     # (back to the ideal regime: the network continues from the table composition)
-            x1, T1 = CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = m.env, photos = m.photos, cooling = cool)
+            x1, T1 = if CHEM_FALLBACK[]
+                try CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = m.env, photos = m.photos, cooling = cool)
+                catch e
+                    (e isa ErrorException && occursin("Newton failed", e.msg)) || rethrow()
+                    CHEM_FAILS[] += 1
+                    CHEM_FAILS[] <= 5 && println(stderr, "chem! fallback: zone $k rho = $(dn[k]) T = $(tn[k]) e = $(egn[k]) dt = $dt Lambda_ext = $(m.Λext[k]) cool = $(cool === nothing ? nothing : cool(dn[k], tn[k], CNn.full(m.x[k], m.net))) x = $(m.x[k]) (", e.msg, ")")
+                    (m.x[k], tn[k])           # composition and temperature kept for this step
+                end
+            else
+                CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = m.env, photos = m.photos, cooling = cool)
+            end
             m.x[k] = x1
         end
         dTmax = max(dTmax, abs(T1 / tn[k] - 1)); tn[k] = T1

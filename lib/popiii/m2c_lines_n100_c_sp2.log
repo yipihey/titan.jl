@@ -1,0 +1,23 @@
+M2c collapse [IC p100]: cooling lines, 106 shells (q = 1.1972, dm1 = 3e-7 Msun), R = 2.155e+17 cm, rho_c/rho_edge = 476319689494.9, T_edge = 124.5 K, p_ext = 8.675e-09
+theta = 0.55, C_dyn = 0.03, k5 = pss, chemistry netmodernli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 1.734e-04 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+    500   15.588 1.2982e+06    2708.6    2135.0  2.925e-01    -17.417  7.33e-02  5.02e+04  L_lines 8.442e+35  bins 0, thick lines 0
+   1000   14.490 1.2982e+06    2029.2    1809.2  8.370e-01    -28.856  1.25e-02  2.76e+05  L_lines 8.312e+35  bins 0, thick lines 0
+   1500   13.799 1.2982e+06    8728.1    1584.7  9.638e-06    -33.980  5.13e-02  1.43e+04  L_lines 7.493e+35  bins 0, thick lines 0
+   2000   13.406 1.2982e+06    2013.9    1469.4  5.923e-01    -16.450  8.93e-02  6.98e+04  L_lines 7.653e+35  bins 0, thick lines 0
+   2500   12.895 1.2982e+06   12981.6    1332.2  3.987e-06    -40.393  8.26e-02  2.43e+04  L_lines 6.301e+35  bins 0, thick lines 0
+   3000   13.170 1.2982e+06   14002.4    1404.5  2.092e-06    -39.241  8.07e-02  6.80e+05  L_lines 5.724e+35  bins 0, thick lines 0
+   3500   12.156 1.2982e+06   24218.2    1156.1  2.651e-11    -51.088  3.06e-02  3.61e+04  L_lines 5.051e+35  bins 0, thick lines 0
+   4000   11.656 1.2983e+06    2262.4     996.2  7.407e-01    -57.817  8.84e-02  3.67e+04  L_lines 1.911e+36  bins 0, thick lines 0
+   4500   11.417 1.2983e+06     680.3     917.4  8.674e-01    -17.236  1.37e-02  1.26e+07  L_lines 2.668e+35  bins 0, thick lines 0
+   5000   10.960 1.2983e+06    2319.0     783.4  6.738e-01    -58.180  9.03e-02  9.52e+04  L_lines 3.060e+36  bins 0, thick lines 0
+   5500   10.738 1.2983e+06  223462.5     725.7  3.095e-21    -64.230  4.52e-04  3.18e+05  L_lines 2.035e+35  bins 0, thick lines 0
+   6000   10.661 1.2983e+06   19897.5     706.4  6.371e-09    -33.887  6.30e-02  1.73e+06  L_lines 1.251e+35  bins 0, thick lines 0
+   6500   10.091 1.2984e+06  126595.4     580.3  5.181e-20    -64.955  1.19e-04  4.76e+05  L_lines 9.172e+34  bins 0, thick lines 0
+   7000    9.683 1.2984e+06    1624.4     532.4  1.824e-01    -63.320  4.73e-04  2.83e+05  L_lines 7.816e+35  bins 0, thick lines 0
+   7500    9.520 1.2986e+06   12647.6     517.6  4.845e-06    -14.159  8.23e-02  6.98e+06  L_lines 3.154e+34  bins 0, thick lines 0
+   8000    9.119 1.2988e+06   12768.1     483.0  4.520e-06    -16.589  8.22e-02  1.66e+07  L_lines 1.693e+34  bins 0, thick lines 0
+   8500    8.656 1.2992e+06   13966.2     445.9  2.144e-06    -17.090  8.29e-02  1.72e+07  L_lines 9.155e+33  bins 0, thick lines 0
+wall time: total 202.3 s, line transfer 56.9 s, chemistry 70.0 s (43 failed zone steps kept)
+implicit line cooling on 0 steps
+integrator TR-BDF2, statistics Dict(:fail_tr => 10, :fail_bdf => 20, :steps => 8943, :be_fallback => 0)

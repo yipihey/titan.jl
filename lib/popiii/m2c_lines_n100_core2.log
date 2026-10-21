@@ -1,0 +1,26 @@
+M2c collapse [IC p100]: cooling lines, 100 shells (q = 1.1972, dm1 = 3e-7 Msun), R = 2.155e+17 cm, rho_c/rho_edge = 1668334798247906.8, T_edge = 124.5 K, p_ext = 8.675e-09
+theta = 0.55, C_dyn = 0.01, k5 = pss, chemistry netmodernli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 1.598e-03 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+    131   21.266 1.2982e+06   14867.9       NaN  7.090e-02     -7.443  1.08e-04  3.40e+02  L_lines 8.664e+35  bins 162, thick lines 231
+    334   21.516 1.2982e+06   18208.6       NaN  6.109e-02     -8.088  6.28e-05  2.55e+02  L_lines 8.668e+35  bins 178, thick lines 231
+    500   21.647 1.2982e+06   19912.4       NaN  6.532e-02     -8.357  5.59e-05  2.19e+02  L_lines 8.670e+35  bins 186, thick lines 231
+    694   21.766 1.2982e+06   21674.5       NaN  6.133e-02     -8.447  5.05e-05  1.91e+02  L_lines 8.671e+35  bins 193, thick lines 231
+   1000   21.926 1.2982e+06   23965.8       NaN  6.614e-02     -8.504  4.42e-05  1.59e+02  L_lines 8.671e+35  bins 200, thick lines 231
+   1156   22.016 1.2982e+06   25380.7       NaN  6.547e-02     -8.595  4.08e-05  1.44e+02  L_lines 8.672e+35  bins 200, thick lines 231
+   1500   22.163 1.2982e+06   27915.0       NaN  6.529e-02     -8.629  3.61e-05  1.21e+02  L_lines 8.673e+35  bins 200, thick lines 231
+   1720   22.266 1.2982e+06   29922.0       NaN  6.347e-02     -8.542  3.30e-05  1.08e+02  L_lines 8.674e+35  bins 200, thick lines 231
+   2000   22.400 1.2982e+06   32961.3       NaN  5.774e-02     -8.664  2.90e-05  9.23e+01  L_lines 8.047e+35  bins 0, thick lines 0
+   2273   22.516 1.2982e+06   36180.6       NaN  5.387e-02     -8.723  2.62e-05  8.07e+01  L_lines 8.675e+35  bins 200, thick lines 231
+   2500   22.598 1.2982e+06   38915.0       NaN  4.851e-02     -8.731  2.44e-05  7.34e+01  L_lines 8.048e+35  bins 0, thick lines 0
+   3000   22.741 1.2982e+06   44886.4       NaN  4.232e-02     -8.686  2.16e-05  6.23e+01  L_lines 8.049e+35  bins 0, thick lines 0
+   3118   22.766 1.2982e+06   46097.7       NaN  4.084e-02     -8.670  2.12e-05  6.06e+01  L_lines 8.049e+35  bins 0, thick lines 0
+   3500   22.824 1.2982e+06   49306.8       NaN  3.956e-02     -8.611  2.04e-05  5.66e+01  L_lines 8.050e+35  bins 0, thick lines 0
+   4000   22.871 1.2982e+06   52187.7       NaN  3.770e-02     -8.736  2.01e-05  5.37e+01  L_lines 8.051e+35  bins 0, thick lines 0
+   4500   22.906 1.2982e+06   54508.0       NaN  3.557e-02     -8.814  2.00e-05  5.15e+01  L_lines 8.051e+35  bins 0, thick lines 0
+   5000   22.930 1.2982e+06   56178.7       NaN  3.492e-02     -8.837  2.02e-05  5.01e+01  L_lines 8.052e+35  bins 0, thick lines 0
+   5500   22.938 1.2982e+06   56771.2       NaN  3.484e-02     -8.804  2.09e-05  4.97e+01  L_lines 8.680e+35  bins 200, thick lines 231
+   6000   22.945 1.2982e+06   57291.7       NaN  3.475e-02     -8.722  2.16e-05  4.93e+01  L_lines 8.053e+35  bins 0, thick lines 0
+wall time: total 2184.5 s, line transfer 2051.1 s, chemistry 65.2 s
+implicit line cooling on 0 steps
+hybrid NLTE: 584 ALI calls
+integrator TR-BDF2, statistics Dict(:fail_tr => 0, :fail_bdf => 0, :steps => 6000, :be_fallback => 0)

@@ -1,0 +1,50 @@
+S6b start: M* = 0.2174 Msun, R* = 22.76 Rsun, Mdot = 1.100e-03 Msun/yr, 150 zones, T_s(precursor) = 4342 K, tau_prec = 0.00, P_ram = 1.329e+04, accretion true
+== relaxation (accretion and burning off), t_dyn = 3.708e+05 s
+relax    20 t=4.1553e+02 s (0.0 t_dyn) dt=1.386e+02 s R=22.7548 Rsun Tc=9.99186e+04 max|u|/cs(core)=8.57e-04 it=8
+relax    40 t=5.7727e+03 s (0.0 t_dyn) dt=1.125e+02 s R=22.7346 Rsun Tc=9.99140e+04 max|u|/cs(core)=2.94e-01 it=21
+relax    60 t=9.3953e+03 s (0.0 t_dyn) dt=9.132e+01 s R=22.7232 Rsun Tc=9.99141e+04 max|u|/cs(core)=3.36e-01 it=4
+relax    80 t=1.1676e+04 s (0.0 t_dyn) dt=1.483e+02 s R=22.7168 Rsun Tc=9.99148e+04 max|u|/cs(core)=3.32e-01 it=6
+relax   100 t=1.4407e+04 s (0.0 t_dyn) dt=4.815e+02 s R=22.7096 Rsun Tc=9.99156e+04 max|u|/cs(core)=3.02e-01 it=8
+relax   120 t=4.2786e+06 s (12.1 t_dyn) dt=1.064e+06 s R=22.0530 Rsun Tc=9.98706e+04 max|u|/cs(core)=3.11e-03 it=5
+relaxed at step 123: t = 7.457e+06 s = 21.2 t_dyn, max|u|/c_s = 1.42e-03
+  200 t=3.0103e+01 yr dt=2.148e+07 s M=0.2503 R=17.32 Rsun L*=34.843 Lacc=499.29 Teff=6600 Ts=6291 tau=0.40 Tc=1.3370e+05 rho_c=9.106e-04 Tmax=1.337e+05@0.000 LD=2.31e-22 fD=1.0000 it=8 adv(cons 9.5e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step 9.4e-03 cum 1.1e-02; W_d: step 9.1e-03 cum 1.1e-02 signed 1.1e-02) lim=0.018 rho@107 conv=0.000-1
+  300 t=1.0939e+02 yr dt=2.896e+07 s M=0.3375 R=16.11 Rsun L*=0.010 Lacc=723.70 Teff=6779 Ts=11227 tau=6.21 Tc=2.1334e+05 rho_c=2.000e-03 Tmax=2.133e+05@0.000 LD=1.06e-16 fD=1.0000 it=13 adv(cons 5.4e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -3.1e-05 cum 4.1e-03; W_d: step -8.4e-04 cum 4.0e-03 signed 3.7e-03) lim=0.010 T@85 conv=0.000-0.754
+  400 t=2.1655e+02 yr dt=3.908e+07 s M=0.4554 R=17.69 Rsun L*=0.012 Lacc=889.15 Teff=6924 Ts=11443 tau=7.50 Tc=2.8791e+05 rho_c=3.180e-03 Tmax=2.879e+05@0.000 LD=1.82e-13 fD=1.0000 it=11 adv(cons 5.8e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step 6.1e-05 cum 1.8e-03; W_d: step -1.6e-03 cum 2.4e-03 signed 8.0e-04) lim=0.005 T@80 conv=0.000-0.509,1.000-1.000
+  500 t=3.6113e+02 yr dt=5.272e+07 s M=0.6144 R=19.39 Rsun L*=0.016 Lacc=1094.27 Teff=7066 Ts=11562 tau=7.34 Tc=3.5993e+05 rho_c=4.474e-03 Tmax=3.599e+05@0.000 LD=3.03e-11 fD=1.0000 it=10 adv(cons 7.6e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -3.7e-04 cum 9.8e-04; W_d: step -1.9e-03 cum 2.1e-03 signed -4.8e-04) lim=0.005 T@76 conv=0.000-0.341,1.000-1.000
+  600 t=5.5622e+02 yr dt=7.114e+07 s M=0.8290 R=21.21 Rsun L*=0.021 Lacc=1350.10 Teff=7204 Ts=11642 tau=7.24 Tc=4.3390e+05 rho_c=5.932e-03 Tmax=4.339e+05@0.000 LD=1.68e-09 fD=1.0000 it=11 adv(cons 1.5e-15 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -5.7e-04 cum 7.7e-04; W_d: step -1.9e-03 cum 2.0e-03 signed -1.1e-03) lim=0.004 T@72 conv=0.000-0.248,1.000-1.000
+  700 t=8.1943e+02 yr dt=9.598e+07 s M=1.1186 R=23.15 Rsun L*=0.027 Lacc=1669.06 Teff=7336 Ts=11744 tau=7.05 Tc=5.1260e+05 rho_c=7.617e-03 Tmax=5.126e+05@0.000 LD=5.06e-08 fD=1.0000 it=11 adv(cons 7.7e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -6.6e-04 cum 7.1e-04; W_d: step -1.8e-03 cum 2.0e-03 signed -1.4e-03) lim=0.004 T@68 conv=0.000-0.180,1.000-1
+  800 t=1.1746e+03 yr dt=1.295e+08 s M=1.5092 R=25.22 Rsun L*=0.033 Lacc=2067.02 Teff=7462 Ts=11848 tau=6.98 Tc=5.9759e+05 rho_c=9.585e-03 Tmax=5.976e+05@0.000 LD=1.08e-06 fD=1.0000 it=12 adv(cons 6.0e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -7.3e-04 cum 7.1e-04; W_d: step -1.8e-03 cum 1.9e-03 signed -1.6e-03) lim=0.004 T@65 conv=0.000-0.130,1.000-1
+  900 t=1.6538e+03 yr dt=1.747e+08 s M=2.0363 R=27.44 Rsun L*=0.041 Lacc=2563.57 Teff=7584 Ts=11926 tau=6.78 Tc=6.9132e+05 rho_c=1.193e-02 Tmax=6.913e+05@0.000 LD=2.18e-05 fD=1.0000 it=10 adv(cons 9.1e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -7.1e-04 cum 7.2e-04; W_d: step -1.8e-03 cum 1.9e-03 signed -1.7e-03) lim=0.004 T@61 conv=0.000-0.087,1.000-1
+ 1000 t=2.3003e+03 yr dt=2.358e+08 s M=2.7475 R=29.79 Rsun L*=0.049 Lacc=3185.34 Teff=7702 Ts=12004 tau=6.64 Tc=7.9757e+05 rho_c=1.480e-02 Tmax=7.976e+05@0.000 LD=5.20e-04 fD=1.0000 it=10 adv(cons 1.4e-15 cfl 3.8e+04 dT 1.1e-11) ledger(err/|terms| step -6.3e-04 cum 7.1e-04; W_d: step -1.8e-03 cum 1.8e-03 signed -1.7e-03) lim=0.004 T@57 conv=0.000-0.063,1.000-1
+ 1100 t=3.1706e+03 yr dt=3.179e+08 s M=3.7048 R=32.36 Rsun L*=4.526 Lacc=3954.55 Teff=7814 Ts=11982 tau=6.17 Tc=9.2334e+05 rho_c=1.846e-02 Tmax=9.585e+05@0.147 LD=1.36e-02 fD=1.0000 it=8 adv(cons 1.0e-15 cfl 3.8e+04 dT 1.4e-10) ledger(err/|terms| step -6.1e-04 cum 6.6e-04; W_d: step -2.0e-03 cum 1.8e-03 signed -1.8e-03) lim=0.004 T@53 conv=0.000-0.045,0.834-1
+ 1200 t=4.3374e+03 yr dt=4.280e+08 s M=4.9883 R=37.28 Rsun L*=545.007 Lacc=4621.85 Teff=7889 Ts=9553 tau=2.12 Tc=1.0892e+06 rho_c=2.367e-02 Tmax=1.197e+06@0.116 LD=4.17e-01 fD=0.9992 it=7 adv(cons 9.6e-16 cfl 3.8e+04 dT 2.3e-09) ledger(err/|terms| step -1.4e-04 cum 5.5e-04; W_d: step -2.3e-03 cum 2.0e-03 signed -1.9e-03) lim=0.005 T@48 conv=0.000-0.033,0.864-1
+ 1300 t=5.4476e+03 yr dt=7.317e+07 s M=6.2095 R=76.46 Rsun L*=2167.671 Lacc=2805.29 Teff=5562 Ts=4681 tau=0.00 Tc=1.2507e+06 rho_c=2.883e-02 Tmax=1.436e+06@0.098 LD=5.40e+00 fD=0.9915 it=7 adv(cons 8.4e-16 cfl 5.2e+03 dT 2.3e-09) ledger(err/|terms| step 2.5e-03 cum 7.4e-04; W_d: step -4.5e-03 cum 2.8e-03 signed -2.7e-03) lim=0.044 rho@108 conv=0.000-0.025,0.993-1.000
+ 1400 t=6.3218e+03 yr dt=6.153e+08 s M=7.1711 R=108.29 Rsun L*=7614.743 Lacc=2287.38 Teff=5514 Ts=4639 tau=0.00 Tc=1.3983e+06 rho_c=3.279e-02 Tmax=1.695e+06@0.084 LD=3.19e+01 fD=0.9578 it=11 adv(cons 7.5e-16 cfl 3.8e+04 dT 7.0e-08) ledger(err/|terms| step 4.1e-03 cum 1.2e-03; W_d: step 3.2e-03 cum 2.5e-03 signed -1.9e-03) lim=0.024 T@130 conv=0.000-0.022,1.000-1.000
+ 1500 t=8.3894e+03 yr dt=6.609e+08 s M=9.4455 R=64.96 Rsun L*=13792.239 Lacc=5022.09 Teff=8181 Ts=10190 tau=2.44 Tc=1.9340e+06 rho_c=3.635e-02 Tmax=2.387e+06@0.077 LD=7.86e+01 fD=0.6622 it=17 adv(cons 3.0e-16 cfl 3.1e+04 dT 1.6e-07) ledger(err/|terms| step 3.9e-03 cum 2.9e-03; W_d: step 3.5e-03 cum 3.3e-03 signed 1.4e-03) lim=0.019 rho@125 conv=0.000-0.006,1.000-1
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 1, t = 2.658134775097882e11)): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 1, t = 2.6580778694565097e11)): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 1, t = 2.6580607977640982e11)): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 1, t = 2.6580556762563745e11)): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 1, t = 2.6580541398040576e11)): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 1, t = 2.6580536788683624e11)): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 1, t = 2.6580535405876538e11)): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 1, t = 2.6580534991034415e11)): retry with dt x 0.3
+STOPPED at step 1502: robust_step!: 8 attempts failed
+Stacktrace:
+ [1] error(s::String)
+   @ Base ./error.jl:44
+ [2] robust_step!()
+   @ Main ~/Projects/titan.jl/.claude/worktrees/agent-a45b2b6e924a71e54/julia/s6b_run.jl:310
+ [3] top-level scope
+   @ ~/Projects/titan.jl/.claude/worktrees/agent-a45b2b6e924a71e54/julia/s6b_run.jl:478
+ [4] include(mod::Module, _path::String)
+   @ Base ./Base.jl:306
+ [5] exec_options(opts::Base.JLOptions)
+   @ Base ./client.jl:317
+ [6] _start()
+   @ Base ./client.jl:550
+summary: steps 1502 (failed attempts 8), t = 8.42286e+03 yr, M = 9.482333 Msun, R = 64.500 Rsun
+mass accretion check: (M - M0)/(Mdot t) = 1.00000000 (expected 1)
+composition advection: max |change of species mass - inflow|/mass = 2.32e-15; accreted-gas abundances kept in the top zone: X_H(top) = 0.75000 (inflow 0.75000)
+energy ledger: cumulative sum|err|/sum|terms| = 2.904e-03 (accretion off: ~1e-3); with W_d: sum|err|/sum|terms| = 3.294e-03, sum err/sum|terms| = 1.398e-03
+wall 705.4 s

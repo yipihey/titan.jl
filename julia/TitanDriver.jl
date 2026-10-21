@@ -104,6 +104,12 @@ S6a-fix: `CONV_STALL[]` (default 0 = off, TITAN): Newton is also accepted when t
 convective zone, with corrections of 1e-7…1e-6 in ln E_r that alternate in sign forever).
 """
 const CONV_STALL = Ref(0.0)
+"""
+S6b: `INNER_GHOST_GEOM[]` (default false = TITAN): with the Lagrangian inner boundary (llibc = 1) the ghost interface below the first zone is the
+geometric reflection r(a−1) = r(a)²/r(a+1) instead of the radius of an equal-volume zone r(a−1)³ = r(a)³ − 3Δm/ρ (which has no real root
+when the zone is wider than a factor 2^(1/3) in r). Used by the mass sink of popiii_m2c.jl.
+"""
+const INNER_GHOST_GEOM = Ref(false)
 "Julia version of subroutine step (step.f), same control flow and arithmetic."
 function step!()
     r(:peq)

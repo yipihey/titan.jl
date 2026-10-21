@@ -12,6 +12,8 @@ SUBC for radiation hydrodynamics (neqn = 7).
 - `rI` interfaces (n+1), `rho`, `T` zone values (n), `u` interface velocities (n+1); `Er` zones, `Fr` interfaces.
 - `geom` 0 planar, 2 spherical. `Mc` central point mass (g; spherical gravity on with the Z0 value of G).
 - `selfgrav`: gravity of the gas itself (spherical, G = Z0.G) without a point mass.
+- `inner = :lagr` (lgrid = 3 only; TITAN's llibc = 1): the inner interface moves with the velocity `uextl` set by the caller
+  (S6b mass sink: supersonic outflow of the grid onto the central point mass `Mc`).
 - `outer = :free` (lgrid = 3 only): Lagrangian outer interface moving under the external pressure `pext`
   (TitanResidFast.PEXT; llobc = 1).
 - `inner`/`outer` ∈ (:wall, :inflow): Eulerian zero-flux wall (le?bc = 1) or a fixed external state (le?bc = 2);
@@ -50,10 +52,11 @@ function build!(; rI, rho, T, u, geom = 2, rad = false, Er = nothing, Fr = nothi
     opac === nothing || for (k, x) in pairs(opac); s!(k, x); end      # e.g. (lopac = 3, chif0 = …)
     s!(:lgrid, lgrid)
     outer === :free && lgrid != 3 && error("outer = :free needs lgrid = 3")
-    s!(:leibc, inner === :wall ? 1 : 2); s!(:leobc, outer === :wall ? 1 : outer === :free ? 0 : 2); s!(:llibc, 0)
+    s!(:leibc, inner === :wall ? 1 : inner === :lagr ? 0 : 2); s!(:leobc, outer === :wall ? 1 : outer === :free ? 0 : 2); s!(:llibc, inner === :lagr ? 1 : 0)
     s!(:llobc, outer === :free ? 1 : 0)
     TX.PEXT[] = outer === :free ? pext : NaN; TC.FREE_OUTER[] = outer === :free
     for k in (:phil0, :phil1, :phil2, :phir0, :phir1, :phir2, :ul, :ur, :uextl, :uextr, :pextr); s!(k, 0.0); end
+    inner === :lagr && (lgrid == 3 || error("inner = :lagr needs lgrid = 3"); s!(:uextl, u[1]))   # S6b: prescribed velocity of the inner interface
     for (k, x) in pairs(av); s!(k, x); end
     if rad
         s!(:lrad, 1); s!(:ltran, 1); s!(:lrobc, 1); s!(:ximr, 0.0); s!(:xipl, 0.0); s!(:teff, 0.0)

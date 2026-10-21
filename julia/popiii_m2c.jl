@@ -207,6 +207,62 @@ rho = [(mI[j+1] - mI[j]) / (4π / 3 * (rI[j+1]^3 - rI[j]^3)) for j in 1:nsh]
 Tz = [Tc0 * (ρ / ρc)^(2 / 3) for ρ in rho]
 uI = zeros(nsh + 1); yz = nothing
 end
+# S6b: RESTART=<snapshot file>, RESIDX=<index, default last>: start from a stored profile (same shell number as the IC above; the IC
+# only supplies the dark-matter halo). TMAXYR = run time [yr] after the restart (default 1e3 t_ff,c as before). Default off.
+const RESTART = get(ENV, "RESTART", "")
+const T_OFF = Ref(0.0)                                   # time of the snapshot [s]
+if RESTART != ""
+    using Serialization
+    sn = deserialize(RESTART); ix = parse(Int, get(ENV, "RESIDX", "0")); s0 = sn[ix <= 0 ? length(sn) + ix : ix]
+    length(s0.ρ) <= nsh || error("restart: snapshot has $(length(s0.ρ)) shells, run has $nsh")
+    global rI = copy(s0.r); global uI = copy(s0.u); global rho = copy(s0.ρ); global Tz = copy(s0.T); global yz = copy(s0.y); T_OFF[] = s0.t
+    global s0m = copy(s0.m)                              # interface masses [g] (include the point mass of a sink snapshot)
+    # SPLIT = s > 1: every zone is divided into s zones of equal mass (r³ linear in m inside the zone: the density of the zone is kept, u linear in m; T and composition copied)
+    # — finer zones near the sink boundary (the zone masses of the collapse grid are 20 % of the enclosed mass, i.e. a zone spans a factor 3–4 in radius there)
+    SPLIT = parse(Int, get(ENV, "SPLIT", "1"))
+    if SPLIT > 1
+        n0 = length(rho); mI_ = Float64[]; rI_ = Float64[]; uI_ = Float64[]; rho_ = Float64[]; Tz_ = Float64[]; yz_ = eltype(yz)[]
+        for j in 1:n0, i in 0:SPLIT-1
+            f = i / SPLIT
+            push!(mI_, s0m[j] + f * (s0m[j+1] - s0m[j])); push!(rI_, cbrt(rI[j]^3 + f * (rI[j+1]^3 - rI[j]^3))); push!(uI_, uI[j] + f * (uI[j+1] - uI[j]))
+            push!(rho_, rho[j]); push!(Tz_, Tz[j]); push!(yz_, yz[j])
+        end
+        push!(mI_, s0m[end]); push!(rI_, rI[end]); push!(uI_, uI[end])
+        global s0m = mI_; global rI = rI_; global uI = uI_; global rho = rho_; global Tz = Tz_; global yz = yz_
+        println("SPLIT = $SPLIT: $n0 -> $(length(rho)) zones")
+    end
+    global nsh = length(rho)
+    ρc = rho[1]; Tc0 = Tz[1]
+    println("restart from ", RESTART, " step ", s0.step, " t = ", s0.t / 3.156e7, " yr, n_c = ", rho[1] / PC.mH)
+end
+# S6b mass sink (SINK=1, needs RESTART or not): the grid is cut at RSINK [AU, default 1]: zones whose outer interface lies inside it are
+# removed and their mass added to a central point mass (gravity only); the innermost interface is Lagrangian with a prescribed
+# velocity (free-fall scaling u(a+1) sqrt(r(a+1)/r(a)): TITAN's llibc = 1), i.e. the grid is open to supersonic inflow.
+const SINK = get(ENV, "SINK", "0") == "1"
+const AU = 1.495978707e13
+# sink radius r_s(M) = RSINKAU (M_pt / RSMREF)^RSINKP AU (M_pt ≥ RSMREF); RSINKP = 0: fixed. With RSINKP = 1 the free-fall time from r_s,
+# t_ff(r_s, M) ∝ M, stays a fixed fraction of the accretion time M/Ṁ (Ṁ ≈ const), and the time step with it.
+const RSINK0 = parse(Float64, get(ENV, "RSINKAU", "1")) * AU; const RSINKP = parse(Float64, get(ENV, "RSINKP", "0")); const RSMREF = parse(Float64, get(ENV, "RSMREF", "1")) * Msun
+const RSMFLOOR = parse(Float64, get(ENV, "RSMFLOOR", string(RSMREF / Msun))) * Msun      # r_s stays at its value for M_pt = RSMFLOOR below that
+rsink(M) = RSINK0 * (max(M, RSMFLOOR) / RSMREF)^RSINKP
+const MPT = Ref(0.0)                                    # central point mass [g]
+const MSKIP = Ref(0)                                    # zones removed from the restart profile
+if SINK
+    global j0 = 1
+    if RESTART != ""
+        while true                                       # r_s depends on the point mass, which grows with j0
+            jn = findfirst(>=(rsink(s0m[j0])), rI); jn === nothing && (jn = length(rI) - 8)
+            jn <= j0 && break
+            global j0 = jn
+        end
+    end
+    (nsh - j0 + 1) % 2 == 1 && (global j0 += 1)                # build! needs an even zone number
+    MPT[] = RESTART != "" ? s0m[j0] : 0.0
+    MSKIP[] = j0 - 1
+    global rI = rI[j0:end]; global uI = uI[j0:end]; global rho = rho[j0:end]; global Tz = Tz[j0:end]; global yz = yz[j0:end]
+    global nsh = length(rho)
+    println("sink at ", rsink(MPT[]) / AU, " AU: ", j0 - 1, " zones removed, point mass ", MPT[] / Msun, " Msun, ", nsh, " zones left; r_inner = ", rI[1] / 1.495978707e13, " AU")
+end
 y0 = (1e-10, 0.0, 2.5e-4, 0.0)
 k5s = get(ENV, "K5", "pss")
 k5f = k5s == "db" ? (T -> PC.k5_db(T)) : k5s == "ra04" ? PC.k5_ra04 : PC.k5_pss
@@ -241,10 +297,11 @@ eqflag(k) = mat isa PM.NetGas ? mat.eqzone[k] : TF.var(:dn)[k] >= mat.ρeq
 # artificial viscosity: viscous length l = ql1 r ≈ 2 Δr (the SOD state's ql0 = 1e-4 cm is zero at these scales, M2g);
 # Δr/r ≈ 0.04 (core) … 0.12 (envelope) on the geometric mass grid; quadratic term only (cq2), as PORTING_NOTES P7
 av = (ql0 = 0.0, ql1 = parse(Float64, get(ENV, "AVQL1", "0.15")), cq1 = 0.0, cq2 = parse(Float64, get(ENV, "AVCQ2", "1.0")))
-PS.build!(; rI, rho, T = Tz, u = uI, geom = 2, lgrid = 3, inner = :wall, outer = :free, pext = 0.0,
-          selfgrav = true, material = mat, av)
+SINK && (TD.INNER_GHOST_GEOM[] = true)
+PS.build!(; rI, rho, T = Tz, u = uI, geom = 2, lgrid = 3, inner = SINK ? :lagr : :wall, outer = :free, pext = 0.0,
+          selfgrav = true, material = mat, av, Mc = MPT[])
 TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))    # G1: viscous length = AVZONE × zone width (0 = ql1 r̄ above)
-TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
+TX.REGULAR_CENTRE[] = !SINK; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
 PS.install_julia!(BlockSolver); TD.MSGIO[] = devnull
 a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre))
 TX.PEXT[] = TF.var(:pgn)[b]
@@ -257,10 +314,12 @@ if get(ENV, "FORCECHECK", "0") == "1"           # initial force balance: −r²�
            -rn[k]^2 * (pg[k] - pg[k-1]) / g, TF.var(:tn)[k], dn[k] / (1.22 * PC.mH))
     end
 end
+PM.CHEM_FALLBACK[] = get(ENV, "CHEMFALLBACK", "0") == "1"; ChemNet.XFLOOR[] = parse(Float64, get(ENV, "XFLOOR", "1e-20"))
 TF.setscalar!(:thet, parse(Float64, get(ENV, "THETA", "0.55")))   # 0.5 lets the centre ring (M2c)
 TC.DT_DYN[] = parse(Float64, get(ENV, "CDYN", "0.01"))
 tff = sqrt(3π / (32Z0.G * ρc))
-TF.setscalar!(:dtime, 1e-3tff); TF.setscalar!(:tmax, 1e3tff)
+TF.setscalar!(:dtime, parse(Float64, get(ENV, "DT0", "1")) * 1e-3tff); TF.setscalar!(:tmax, haskey(ENV, "TMAXYR") ? T_OFF[] + parse(Float64, ENV["TMAXYR"]) * 3.156e7 : 1e3tff)
+RESTART != "" && (TF.setscalar!(:timen, T_OFF[]); TF.setscalar!(:timeo, T_OFF[]))
 pr("M2c collapse [IC %s]: cooling %s, %d shells (q = %.4f, dm1 = 3e-7 Msun), R = %.3e cm, rho_c/rho_edge = %.1f, T_edge = %.1f K, p_ext = %.3e\n",
    ic, cool, nsh, q, rI[end], rho[1] / rho[end], Tz[end], TX.PEXT[])
 pr("theta = %.2f, C_dyn = %g, k5 = %s, chemistry %s, %s, AV ql1 = %g cq2 = %g, central t_ff0 = %.3e yr\n", TF.getscalar(:thet), TC.DT_DYN[], k5s, CHEM, mat isa PM.NetGas ? @sprintf("equilibrium table where p ≥ %g", mat.pswitch) : @sprintf("rho_eq = %g, eq EOS %s", mat.ρeq, mat.eqtable ? "Saha+SCVH95" : "Saha"), av.ql1, av.cq2, tff / 3.156e7)
@@ -306,10 +365,68 @@ function linecool(rr, uu, dd, tt, nh2, k)
     H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, fnlte = NLTE == "1" ? fnl : nothing)
 end
 const HLL = cool == "lines" ? H2Lines.load() : nothing; const NBIN = parse(Int, get(ENV, "NBIN", "30")); const LLINE = Ref(0.0)
+# S6b sink bookkeeping (SINK=1): zone removal, prescribed inner velocity, the mass flux through r = RSINK and the infall state there
+const SINKIO = SINK ? open(joinpath(TF.ROOT, "lib", "popiii", "s6c_$(get(ENV, "TAG", "")).csv"), "w") : nothing
+const INNERBC = get(ENV, "INNERBC", "ballistic")
+const LINEEVERY = parse(Int, get(ENV, "LINEEVERY", "1")); const LASTLL = Ref{Any}(([], [])); const TCMIN = Ref(Inf)
+const SINKREM = Ref(0); const TLINE = Ref(0.0); const TCHEM = Ref(0.0); const T0WALL = time()             # wall time in linecool [s]
+const RPREV = Ref(Float64[]); const TPREV = Ref(0.0)
+const EVIO = SINK ? open(joinpath(TF.ROOT, "lib", "popiii", "s6c_$(get(ENV, "TAG", ""))_events.csv"), "w") : nothing
+"Interior mass [Msun], radius [AU] and Eulerian mass flux 4π r² ρ̄ |u| [Msun/yr] through interface i (ρ̄ = mean of the two adjacent zones): the steady-state Mdot at that mass coordinate (OHY10 eq. 13)."
+function fluxcols(i, b_)
+    i = min(i, b_ - 1); rn = TF.var(:rn); dn = TF.var(:dn); un = TF.var(:un)
+    string(4π * TX.XMINT[][i] / Msun, ",", rn[i] / AU, ",", 4π * rn[i]^2 * 0.5 * (dn[i-1] + dn[i]) * abs(un[i]) / Msun * 3.15576e7)
+end
+function sink_update!(k)
+    a_ = Int(TF.getscalar(:ngrs)); b_ = Int(TF.getscalar(:ngre))
+    rn = TF.var(:rn); xm = TX.XMINT[]; dn = TF.var(:dn); un = TF.var(:un); dv = TF.var(:dvoln); t = TF.getscalar(:timen)
+    k == 1 && println(EVIO, "step,t_cross_yr,m_interface,r_s_AU,u_kms,rho,T,fH2,xe,e,p,cs_kms,rho_up,T_up,u_up_kms")
+    nrem = 0; rs = rsink(4π * xm[a_])
+    while rn[a_+nrem] < rs && b_ - a_ - nrem > 8
+        i = a_ + nrem                                    # interface i has crossed r_s: the mass inside it, m_i, is inside the sink
+        rp = length(RPREV[]) >= i ? RPREV[][i] : rn[i]
+        fr = rp > rn[i] ? clamp((rp - rs) / (rp - rn[i]), 0.0, 1.0) : 1.0
+        tc = TPREV[] + fr * (t - TPREV[])
+        j = min(i, b_); yc = ycomp(j)
+        println(EVIO, k, ",", tc / 3.15576e7, ",", 4π * xm[i] / Msun, ",", rs / AU, ",", un[i] / 1e5, ",", dn[j], ",", TF.var(:tn)[j], ",", 2yc[3], ",", yc[1], ",",
+                TF.var(:egn)[j], ",", TF.var(:pgn)[j], ",", TF.var(:asn)[j] / 1e5, ",", dn[min(j + 1, b_)], ",", TF.var(:tn)[min(j + 1, b_)], ",", un[min(i + 1, b_)] / 1e5)
+        nrem += 1; rs = rsink(4π * xm[a_ + nrem])
+    end
+    flush(EVIO)
+    if nrem > 0
+        a_ += nrem; SINKREM[] += nrem
+        TF.setscalar!(:ngrs, a_); global a = a_; global nsh = b_ - a_ + 1
+        for _ in 1:nrem; length(ALIFAC[]) > 0 && popfirst!(ALIFAC[]); end
+        TF.setscalar!(:delml, dn[a_] * dv[a_]); TF.setscalar!(:delrl, rn[a_+1] - rn[a_])
+    end
+    RPREV[] = copy(rn); TPREV[] = t
+    # inner interface: ballistic (no pressure force: the grid is open to supersonic inflow), mean velocity over the next step u − ½ g dt. (Setting it from the
+    # neighbour, u(a+1) sqrt(r(a+1)/r(a)), is a positive feedback through the pressure of the first zone and runs away.)
+    TF.setscalar!(:uextl, INNERBC == "ballistic" ? un[a_] - 0.5 * Z0.G * 4π * xm[a_] / rn[a_]^2 * TF.getscalar(:dtime) : un[a_+1] * sqrt(rn[a_+1] / rn[a_]))
+    rs = rsink(4π * xm[a_])
+    Mpt = 4π * xm[a_]; ρs = dn[a_]; us = un[a_]
+    Min = Mpt
+    if haskey(ENV, "SINKPROF") && k % parse(Int, ENV["SINKPROF"]) == 0
+        pr("  sink profile step %d t = %.5f yr: first zones (k, r/AU, u km/s, rho, T, p, fH2, M_int/Msun)\n", k, (t - T_OFF[]) / 3.15576e7)
+        for kk in a_:min(a_ + 11, b_)
+            pr("    %3d %9.5f %8.2f %10.3e %9.0f %10.3e %6.3f %9.5f\n", kk, rn[kk] / AU, un[kk] / 1e5, dn[kk], TF.var(:tn)[kk], TF.var(:pgn)[kk], 2ycomp(kk)[3], 4π * xm[kk] / Msun)
+        end
+    end
+    if k % parse(Int, get(ENV, "SINKLOG", "1")) == 0
+        i = a_; j = min(a_ + 1, b_)
+        k == 1 && println(SINKIO, "step,t_yr,dt_s,r_in_AU,r_s_AU,M_pt,M_in,rho,T,u_kms,cs_kms,fH2,xe,e,p,rho2,T2,u2_kms,fH2_2,ngrs,nrem,m3,r3_AU,Mdot3,m6,r6_AU,Mdot6")
+        yc1 = ycomp(i); yc2 = ycomp(j)
+        println(SINKIO, k, ",", t / 3.15576e7, ",", TF.getscalar(:dtime), ",", rn[a_] / AU, ",", rs / AU, ",", Mpt / Msun, ",", Min / Msun, ",",
+                ρs, ",", TF.var(:tn)[i], ",", us / 1e5, ",", TF.var(:asn)[i] / 1e5, ",", 2yc1[3], ",", yc1[1], ",", TF.var(:egn)[i], ",", TF.var(:pgn)[i], ",",
+                dn[j], ",", TF.var(:tn)[j], ",", un[j+1] / 1e5, ",", 2yc2[3], ",", a_, ",", SINKREM[], ",", fluxcols(a_ + 3, b_), ",", fluxcols(a_ + 6, b_))
+        flush(SINKIO)
+    end
+end
 Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(ENV, "NSTOP", "1e18"))
 try
     TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k)
-        dT = PM.chem!(mat)
+        _tc = time_ns(); dT = PM.chem!(mat); TCHEM[] += (time_ns() - _tc) * 1e-9
+        SINK && sink_update!(k)
         if SNAPS !== nothing                         # profiles for post-processing: every 0.25 dex of n_c, and every SNAPEVERY steps
             lnc = log10(TF.var(:dn)[a] / PC.mH)
             if lnc >= SNAPNEXT[] || (SNAPEVERY > 0 && k % SNAPEVERY == 0)
@@ -324,25 +441,29 @@ try
             # H₂ line transfer on the new state (RHFC02 A2.4); Λ held fixed over the next step; Δt ≤ 0.1 u ρ/|Λ| (A2.2)
             rr = TF.var(:rn)[a:b+1]; uu = TF.var(:un)[a:b+1]; dd = TF.var(:dn)[a:b]; tt = TF.var(:tn)[a:b]
             nh2 = [dd[j] / PC.μH * ycomp(a + j - 1)[3] for j in 1:nsh]
-            Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k)
-            tcmin = Inf
-            for j in 1:nsh
-                mat.Λext[a+j-1] = Λl[j]; mat.Tref[a+j-1] = tt[j]; mat.slope[a+j-1] = 0.0
-                ue = TF.var(:egn)[a+j-1] + PC.UOFF_TH                 # thermal-ish energy scale (positive)
-                Λl[j] != 0 && (tcmin = min(tcmin, abs(ue * dd[j] / Λl[j])))
-            end
-            # G7 (IMPCOOL=1, default): where the explicit cap Δt ≤ 0.1 t_cool would bind, the slope d ln Λ/d ln T from a
-            # second transfer call with all T × (1 + ε) makes Λ_j (T/T_j)^s implicit in the chemistry step, and the cap
-            # relaxes to Δt ≤ DTCOOL t_cool (default 1); otherwise Λ is held fixed (explicit, accurate there)
-            if IMPCOOL && (IMPALWAYS || 0.1tcmin < TF.getscalar(:dtime))
-                ε = 0.02; Λp, _, _ = linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1)
+            _t0 = time_ns()
+            if LINEEVERY == 1 || k % LINEEVERY == 1 || length(LASTLL[][1]) != nsh
+                Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k); LASTLL[] = (Λl, Lr)
+                TLINE[] += (time_ns() - _t0) * 1e-9
+                tcmin = Inf
                 for j in 1:nsh
-                    Λl[j] != 0 && Λp[j] / Λl[j] > 0 && (mat.slope[a+j-1] = clamp(log(Λp[j] / Λl[j]) / log(1 + ε), -10.0, 30.0))
+                    mat.Λext[a+j-1] = Λl[j]; mat.Tref[a+j-1] = tt[j]; mat.slope[a+j-1] = 0.0
+                    ue = TF.var(:egn)[a+j-1] + PC.UOFF_TH                 # thermal-ish energy scale (positive)
+                    Λl[j] != 0 && (tcmin = min(tcmin, abs(ue * dd[j] / Λl[j])))
                 end
-                NIMP[] += 1
-            end
-            LLINE[] = Lr[end]
-            TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin))
+                # G7 (IMPCOOL=1, default): where the explicit cap Δt ≤ 0.1 t_cool would bind, the slope d ln Λ/d ln T from a
+                # second transfer call with all T × (1 + ε) makes Λ_j (T/T_j)^s implicit in the chemistry step, and the cap
+                # relaxes to Δt ≤ DTCOOL t_cool (default 1); otherwise Λ is held fixed (explicit, accurate there)
+                if IMPCOOL && (IMPALWAYS || 0.1tcmin < TF.getscalar(:dtime))
+                    ε = 0.02; Λp, _, _ = linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1)
+                    for j in 1:nsh
+                        Λl[j] != 0 && Λp[j] / Λl[j] > 0 && (mat.slope[a+j-1] = clamp(log(Λp[j] / Λl[j]) / log(1 + ε), -10.0, 30.0))
+                    end
+                    NIMP[] += 1
+                end
+                LLINE[] = Lr[end]; TCMIN[] = tcmin
+            end                        # S6b: with LINEEVERY > 1 the line cooling (Λext, Tref, slope) is held from the last transfer call
+            TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * TCMIN[]))
         end
         if haskey(ENV, "PROFAT") && k in parse.(Int, split(ENV["PROFAT"], ","))
             rr = TF.var(:rn); uu = TF.var(:un); dd = TF.var(:dn); tt = TF.var(:tn)
@@ -376,6 +497,7 @@ catch e
     pr("stopped: %s\n", sprint(showerror, e)[1:min(end, 400)])
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
+pr("wall time: total %.1f s, line transfer %.1f s, chemistry %.1f s (%d failed zone steps kept)\n", time() - T0WALL, TLINE[], TCHEM[], PM.CHEM_FAILS[])
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))

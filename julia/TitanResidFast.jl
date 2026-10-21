@@ -648,7 +648,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     k = ngrs - 1
     if P.leibc == 1; R[ir, kb(k)] = rn[k] - 2rn[k+1] + rn[k+2]
     elseif P.leibc == 2; R[ir, kb(k)] = rn[k] - rn[k+1] + P.delrl
-    elseif P.llibc == 1; R[ir, kb(k)] = -P.delml / dn[k] + (rn[k+1]^(mu+1) - rn[k]^(mu+1)) / xmup1
+    elseif P.llibc == 1; R[ir, kb(k)] = TD.INNER_GHOST_GEOM[] ? rn[k] - rn[k+1]^2 / rn[k+2] : -P.delml / dn[k] + (rn[k+1]^(mu+1) - rn[k]^(mu+1)) / xmup1
     end
     k = ngre + 2
     if P.leobc == 1; R[ir, kb(k)] = rn[k] - 2rn[k-1] + rn[k-2]

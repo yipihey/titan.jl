@@ -15,9 +15,25 @@ include(joinpath(@__DIR__, "s4_common.jl"))
 include(joinpath(@__DIR__, "s6_star.jl"))
 include(joinpath(@__DIR__, "s6_setup.jl"))
 include(joinpath(@__DIR__, "s6b_setup.jl"))
+include(joinpath(@__DIR__, "s6c_precursor.jl"))
 envf(k, d) = haskey(ENV, k) ? parse(Float64, ENV[k]) : d
 envi(k, d) = haskey(ENV, k) ? parse(Int, ENV[k]) : d
-Mdot = envf("MDOT", 1.1e-3) * Msun / YR
+# S6b Part 3: MDOTFILE = CSV (header, then M [Msun], Mdot [Msun/yr]): time-dependent accretion rate Mdot(M*) (log-log interpolation, constant outside), e.g. from the collapse (popiii_m2c.jl SINK=1)
+const MDOTTAB = Ref{Any}(nothing)
+if haskey(ENV, "MDOTFILE")
+    rows = [parse.(Float64, split(l, ",")[1:2]) for l in readlines(ENV["MDOTFILE"])[2:end] if !isempty(strip(l))]
+    MDOTTAB[] = (log.([r[1] for r in rows]), log.([r[2] for r in rows]))
+end
+function mdot_of(M)
+    lx, ly = MDOTTAB[]; x = log(M / Msun)
+    x <= lx[1] && return exp(ly[1]) * Msun / YR; x >= lx[end] && return exp(ly[end]) * Msun / YR
+    i = searchsortedlast(lx, x); w = (x - lx[i]) / (lx[i+1] - lx[i]); exp((1 - w) * ly[i] + w * ly[i+1]) * Msun / YR
+end
+# MDOTRAMP [Msun/yr] (default off): the rate is capped at MDOTRAMP (M/M0GUESS)^MDOTRAMPP — as OHY10, who "start from a smaller rate and increase it with protostellar mass until the rate
+# of the collapse is reached" because their protostar models do not converge at the collapse rate for the first 0.1 Msun
+mdot_cap(M) = haskey(ENV, "MDOTRAMP") ? envf("MDOTRAMP", 4.41e-3) * Msun / YR * (M / (envf("M0GUESS", 0.22) * Msun))^envf("MDOTRAMPP", 2.5) : Inf
+mdot_now(M) = min(mdot_of(M), mdot_cap(M))
+Mdot = haskey(ENV, "MDOTFILE") ? mdot_now(envf("M0GUESS", 0.22) * Msun) : envf("MDOT", 1.1e-3) * Msun / YR      # (MDOTFILE: the rate at M0GUESS sets the ram pressure of the embryo)
 tag = get(ENV, "OUT", "run"); logio = open(joinpath(@__DIR__, "..", "lib", "popiii", "s6b_$(tag).log"), "w")
 pr(f, args...) = (s = Printf.format(Printf.Format(f), args...); print(s); print(logio, s); flush(logio); flush(stdout))
 setup = build_ale_star(; rhoc = envf("RHOC", 5e-4), Mdot, Tc = envf("TC", 1e5), nin = envi("NIN", 70), nenv = envi("NENV", 50), mfloor = envf("MFLOOR", 3e-7), qsplit = envf("QSPLIT", 0.05),
@@ -34,6 +50,10 @@ acc_on = get(ENV, "ACC", "1") == "1"; acc_final = acc_on; phase = Ref(:evol)
 intmass(k) = (TF.getscalar(:xmtot) - TF.var(:xmen)[k]) * 4π            # interior mass of interface k [g]
 zone_masses() = [4π * dn[k] * TF.var(:dvoln)[k] for k in a:b]
 BC = Ref{Any}(nothing)
+# S6b Part 2: PRECTHICK=1 (default 0 = S6a): optically thick precursor with advection of the radiation and the enthalpy sink of the accreted gas (s6c_precursor.jl);
+# PRECADV / PRECH [1] switch the two terms separately
+const HOOKOFF = Ref(0)
+const PRECTHICK = get(ENV, "PRECTHICK", "0") == "1"; const PRECADV = get(ENV, "PRECADV", "1") == "1"; const PRECH = get(ENV, "PRECH", "1") == "1"; const H0 = Ref{Any}(nothing)
 const LBC = Ref(0.0)
 "S6a-fix: interface of L* for the boundary conditions: KLSTAR [15] interfaces below the surface, or (LSTARQ > 0) the interface at exterior mass fraction LSTARQ."
 function kLstar()
@@ -45,7 +65,9 @@ end
 "Surface boundary conditions for the next step from the current state (lagged): P_ext, inflow, incident radiation; ALE rate."
 const LASTSD = Ref{Any}(nothing); const ES_OLD = Ref(0.0)
 function update_bc!()
+    HOOKOFF[] -= 1
     R = rn[b+1]; M = intmass(b + 1); frn = TF.var(:frn)
+    MDOTTAB[] === nothing || (global Mdot = mdot_now(M))
     kL = kLstar()         # L* from a few interfaces below the surface (the surface flux itself is the stiff response to the boundary condition)
     Lstar = 4π * rn[kL]^2 * (frn[kL] + (LASTSD[] === nothing ? 0.0 : LASTSD[].fcv[kL]))
     # S6a-fix: L* of the precursor relaxed over LTAU [yr] (0 = off): the luminosity of the surface layers flickers by 10 when the precursor sits at the ionisation cliff
@@ -55,7 +77,9 @@ function update_bc!()
     LBC[] = max(Lstar, 1e-6 * Lsun)
     vff = sqrt(2G * M / R); Pram = Mdot * vff / (4π * R^2)
     Lacc = G * M * Mdot / R
-    pc = precursor(R, M, Mdot, max(Lstar, 0.0) + Lacc; X = SM.hmass(mat, b))
+    pc = PRECTHICK ? precursor_thick(R, M, Mdot, max(Lstar, 0.0); X = SM.hmass(mat, b), advect = PRECADV, hterm = PRECH, h0 = H0[]) :
+                     precursor(R, M, Mdot, max(Lstar, 0.0) + Lacc; X = SM.hmass(mat, b))
+    PRECTHICK && (H0[] = pc.hR)
     TX.PEXT[] = Pram
     TF.setscalar!(:phir0, acc_on ? -Mdot / (4π * R^2) : 0.0)
     Es = ES_OLD[] > 0 ? exp((1 - envf("ESW", 0.5)) * log(ES_OLD[]) + envf("ESW", 0.5) * log(pc.Es)) : pc.Es
@@ -71,15 +95,29 @@ function update_bc!()
         g = TF.getscalar(:geddr); cc = TF.getscalar(:cc); cpi = TF.getscalar(:cpi)
         fac_ = cc * g / ((2g + 1) * cpi)
         TF.setscalar!(:ximr, fac_ * Es)
-        if get(ENV, "BCHOOK", "1") == "1" && acc_on
+        if get(ENV, "BCHOOK", "1") == "1" && acc_on && HOOKOFF[] <= 0
             # E_s(R) and P_ram(R) as functions of the radius of the iterate: precursor integrals on a grid of radii around R, interpolated in ln R (linear, differentiable);
             # the iterate then sees the dependence on the radius (steep: opacity cliff) instead of the value of the previous step
             nR = envi("BCNR", 13); span = envf("BCSPAN", 0.06)
             lrs = collect(range(log(R) - span, log(R) + span; length = nR)); lEs = zeros(nR)
             for (i, lr) in enumerate(lrs)
                 Ri = exp(lr)
-                pci = precursor(Ri, M, Mdot, max(Lstar, 0.0) + G * M * Mdot / Ri; X = X_, n = envi("BCNPTS", 120))
+                pci = PRECTHICK ? precursor_thick(Ri, M, Mdot, max(Lstar, 0.0); X = X_, n = envi("BCNPTS", 120), advect = PRECADV, hterm = PRECH, h0 = pc.hR) :
+                                  precursor(Ri, M, Mdot, max(Lstar, 0.0) + G * M * Mdot / Ri; X = X_, n = envi("BCNPTS", 120))
                 lEs[i] = log(pci.Es)
+            end
+            # S6b: BCSMOOTH = σ (in ln R; default 0 = off): Gaussian smoothing of ln E_s(R) over the nodes (the thin → thick transition of the precursor is a steep, kinked function of R
+            # near r_ph = R; the Newton iteration of the top zones 2-cycles on it)
+            if envf("BCSMOOTH", 0.0) > 0
+                σ_ = envf("BCSMOOTH", 0.0); dl = lrs .- (log(R)); ws = [exp.(-0.5 .* ((lrs .- lrs[i]) ./ σ_) .^ 2) for i in 1:nR]
+                lEs = [sum(ws[i] .* lEs) / sum(ws[i]) for i in 1:nR]
+            end
+            # S6b: BCSLOPE = s (default Inf = off): |d ln E_s / d ln R| ≤ s in the hook (increments limited from the centre node outwards): a steep E_s(R) (the knee where the precursor turns thick)
+            # in the Jacobian of the top zones made Newton fail at every dt (the same step passes with BCHOOK = 0)
+            if isfinite(envf("BCSLOPE", Inf))
+                sl = envf("BCSLOPE", Inf); i0 = (nR + 1) ÷ 2
+                for i in i0+1:nR; lEs[i] = clamp(lEs[i], lEs[i-1] - sl * (lrs[i] - lrs[i-1]), lEs[i-1] + sl * (lrs[i] - lrs[i-1])); end
+                for i in i0-1:-1:1; lEs[i] = clamp(lEs[i], lEs[i+1] - sl * (lrs[i+1] - lrs[i]), lEs[i+1] + sl * (lrs[i+1] - lrs[i])); end
             end
             # same damping as the value: shift the curve so that it passes through the damped E_s at R
             lEs .+= log(Es) - lEs[(nR + 1) ÷ 2]
@@ -141,7 +179,8 @@ function diag(sd)
     x0 = 13.6 * 1.602177e-12 / (Z0Physics.kB * Teff)
     I = sum(exp(-n * x0) * (x0^2 / n + 2x0 / n^2 + 2 / n^3) for n in 1:200)
     Sion = 4π * rph^2 * 2π * (Z0Physics.kB * Teff)^3 / (6.62607e-27^3 * Z0Physics.c^2) * I
-    (; t = TF.getscalar(:timen), M, R, Lstar, Lacc, Ltot, Teff, rph, Ts = pc.Ts, tau = pc.tau, Tc = tn[a], ρc = dn[a], Tmax, mTmax, Lpp, Ld, Lcno, Lhe, fD, conv = join(conv, ","), tKH, tacc, Sion)
+    (; t = TF.getscalar(:timen), M, R, Lstar, Lacc, Ltot, Teff, rph, Ts = pc.Ts, tau = pc.tau, Tc = tn[a], ρc = dn[a], Tmax, mTmax, Lpp, Ld, Lcno, Lhe, fD, conv = join(conv, ","), tKH, tacc, Sion,
+     Linf = hasproperty(pc, :Linf) ? pc.Linf : Ltot, hRf = hasproperty(pc, :hR) ? pc.hR / (G * M / R) : 0.0, Mdot = Mdot * YR / Msun)
 end
 
 # ----------------------------------------------------------------------------------- energy ledger
@@ -251,6 +290,9 @@ function robust_step!()
     snap = TD.snapshot(); dt0 = TF.getscalar(:dtime)
     for attempt in 0:7
         TD.restore!(snap); TF.setscalar!(:dtime, dt0 * 0.3^attempt)
+        # S6b: BCFALLBACK = n (default off): from attempt n on the surface-condition hook XIMR_HOOK (E_s(R) in the Jacobian) is dropped for that step: at the thin <-> thick transitions of
+        # the precursor its Jacobian fails Newton at every dt, and the step converges at once without it; update_bc! installs the hook again for the next step
+        attempt >= envi("BCFALLBACK", 1000) && attempt > 0 && (TX.XIMR_HOOK[] = nothing; HOOKOFF[] = envi("BCFALLSTEPS", 100))      # ... and for the next BCFALLSTEPS [100] steps
         res = nothing
         try
             res = SM.solve_step!(mat, TD.STEPFN[]; tol = envf("SPLITTOL", 3e-3), maxit = envi("SPLITIT", 4), ztol = envf("ZSPLITTOL", 3e-3))
@@ -339,7 +381,7 @@ function after_step(k, xme_start, Mz_start)
     let Eaft = energies(); led.Ed_prev = Eaft.Etotd; led.E_prev = Eaft.Etot; led.Eint_prev = Eaft.Eint; led.Ekin_prev = Eaft.Ekin; led.Eg_prev = Eaft.Eg; end
     d = diag(sd)
     get(ENV, "DTWHY", "0") == "1" && pr("   DTWHY %d dt=%.3e s -> next %.3e s: max rel change %.4f (%s zone %d), iter %d, caps: dtcap %.3e predict %.3e; adv cfl %.2g; BC: Ts_used=%.1f Lstar=%.2f Pram=%.4e ein=%.3e rho_in=%.3e Ttop=%.1f rho_top=%.3e u_top=%.3e\n", k, dt, TF.getscalar(:dtime), DTW[][1], DTW[][3], DTW[][2], Int(TF.getscalar(:iter)), mat.dtcap, SM.predict_cap(mat), adv.cfl, BC[].Tsh, BC[].Lstar / Lsun, BC[].Pram, BC[].ein, BC[].ρin, tn[b], dn[b], TF.var(:un)[b+1])
-    push!(series, (d.t / YR, dt / YR, d.M / Msun, d.R / Rsun, d.Lstar / Lsun, d.Lacc / Lsun, d.Teff, d.Tc, d.ρc, d.Tmax, d.mTmax, d.Ld / Lsun, d.Lpp / Lsun, d.Lcno / Lsun, d.fD, d.tKH / YR, d.tacc / YR, d.Sion, d.rph / Rsun, d.Ts, d.tau, d.Lhe / Lsun))
+    push!(series, (d.t / YR, dt / YR, d.M / Msun, d.R / Rsun, d.Lstar / Lsun, d.Lacc / Lsun, d.Teff, d.Tc, d.ρc, d.Tmax, d.mTmax, d.Ld / Lsun, d.Lpp / Lsun, d.Lcno / Lsun, d.fD, d.tKH / YR, d.tacc / YR, d.Sion, d.rph / Rsun, d.Ts, d.tau, d.Lhe / Lsun, d.Linf / Lsun, d.hRf, d.Mdot))
     if k % envi("EVERY", 10) == 0 || k <= 5
         pr("%5d t=%.4e yr dt=%.3e s M=%.4f R=%.2f Rsun L*=%.3f Lacc=%.2f Teff=%.0f Ts=%.0f tau=%.2f Tc=%.4e rho_c=%.3e Tmax=%.3e@%.3f LD=%.2e fD=%.4f it=%d adv(cons %.1e cfl %.1e dT %.1e) ledger(err/|terms| step %.1e cum %.1e; W_d: step %.1e cum %.1e signed %.1e) lim=%.3f %s@%d conv=%s\n", k, d.t / YR, dt, d.M / Msun, d.R / Rsun, d.Lstar / Lsun, d.Lacc / Lsun,
            d.Teff, d.Ts, d.tau, d.Tc, d.ρc, d.Tmax, d.mTmax, d.Ld / Lsun, d.fD, Int(TF.getscalar(:iter)), adv.cons, adv.cfl, adv.dTmax, err / max(abs(Einj_h) + abs(Fout_h) + abs(Ebind), 1e-300), led.errabs / max(led.Eabs, 1e-300), errd / max(abs(Einj_h) + abs(Fout_h) + abs(Ebind), 1e-300), led.errabsd / max(led.Eabs, 1e-300), led.errd / max(led.Eabs, 1e-300), DTW[][1], DTW[][3], DTW[][2], d.conv)
@@ -349,7 +391,7 @@ end
 
 function write_csv()
     io = open(joinpath(@__DIR__, "..", "lib", "popiii", "s6b_$(tag).csv"), "w")
-    println(io, "t_yr,dt_yr,M,R_Rsun,Lstar_Lsun,Lacc_Lsun,Teff,Tc,rho_c,Tmax,mTmax,LD,Lpp,Lcno,fD,tKH_yr,tacc_yr,Sion,rph_Rsun,Ts,tau_prec,Lhe")
+    println(io, "t_yr,dt_yr,M,R_Rsun,Lstar_Lsun,Lacc_Lsun,Teff,Tc,rho_c,Tmax,mTmax,LD,Lpp,Lcno,fD,tKH_yr,tacc_yr,Sion,rph_Rsun,Ts,tau_prec,Lhe,Linf_Lsun,hR_over_GMR,Mdot")
     for row in series; println(io, join(row, ",")); end
     close(io)
 end

@@ -1,0 +1,19 @@
+M2c collapse [IC abn02z19]: cooling lines, 200 shells (q = 1.1167, dm1 = 3e-7 Msun), R = 1.601e+20 cm, rho_c/rho_edge = 868683557663178752000.0, T_edge = 1010.2 K, p_ext = 2.644e-14
+theta = 0.55, C_dyn = 0.01, k5 = pss, chemistry netmodernli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 3.614e-03 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+     57   20.557 2.1857e+07    8655.8       NaN  1.280e-01     -8.218  1.91e-04  7.70e+02  L_lines 6.232e+36  bins 97, thick lines 230
+    126   20.809 2.1857e+07   11272.8       NaN  7.646e-02     -8.792  1.49e-04  5.76e+02  L_lines 6.232e+36  bins 109, thick lines 230
+    212   21.058 2.1857e+07   14612.1       NaN  5.000e-02     -9.623  1.16e-04  4.32e+02  L_lines 6.232e+36  bins 123, thick lines 230
+    318   21.307 2.1857e+07   17747.4       NaN  4.367e-02    -10.735  9.09e-05  3.25e+02  L_lines 6.231e+36  bins 135, thick lines 230
+    457   21.558 2.1857e+07   21053.2       NaN  4.477e-02    -11.725  7.09e-05  2.43e+02  L_lines 6.231e+36  bins 147, thick lines 230
+    500   21.621 2.1857e+07   21985.4       NaN  4.236e-02    -11.840  6.67e-05  2.26e+02  L_lines 6.231e+36  bins 150, thick lines 230
+    654   21.807 2.1857e+07   24594.1       NaN  4.762e-02    -12.250  4.53e-05  1.83e+02  L_lines 6.231e+36  bins 158, thick lines 230
+    931   22.057 2.1857e+07   28817.6       NaN  4.805e-02    -12.793  3.54e-05  1.37e+02  L_lines 6.230e+36  bins 170, thick lines 231
+   1000   22.119 2.1857e+07   30013.8       NaN  4.763e-02    -12.865  3.32e-05  1.27e+02  L_lines 6.230e+36  bins 172, thick lines 231
+   1258   22.307 2.1857e+07   34382.1       NaN  4.442e-02    -13.029  2.76e-05  1.03e+02  L_lines 6.229e+36  bins 182, thick lines 231
+   1500   22.461 2.1857e+07   39007.1       NaN  3.869e-02    -13.039  2.36e-05  8.60e+01  L_lines 6.229e+36  bins 192, thick lines 231
+   1675   22.557 2.1857e+07   42665.4       NaN  3.718e-02    -13.080  2.15e-05  7.70e+01  L_lines 6.229e+36  bins 199, thick lines 231
+   2000   22.686 2.1857e+07   48791.9       NaN  3.294e-02    -13.271  1.90e-05  6.64e+01  L_lines 6.228e+36  bins 200, thick lines 231
+   2500   22.785 2.1857e+07   54742.8       NaN  2.932e-02    -13.226  1.75e-05  5.92e+01  L_lines 3.376e+36  bins 0, thick lines 0
+   2731   22.807 2.1857e+07   56263.0       NaN  2.901e-02    -13.391  1.73e-05  5.78e+01  L_lines 6.227e+36  bins 200, thick lines 231
+   3000   22.825 2.1857e+07   57590.9       NaN  2.878e-02    -13.418  1.72e-05  5.65e+01  L_lines 3.375e+36  bins 0, thick lines 0

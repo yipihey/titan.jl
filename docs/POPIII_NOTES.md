@@ -2025,3 +2025,101 @@ Remaining: (i) L* below 3 M☉ is 0.02–0.06 L☉ against OP03's 0.1–0.5 (bot
 by ×30 still (it is ≪ L_acc, so the structure does not notice); (ii) D burns only after the wave (no 3 M☉ episode: T_max = 7.9e5 K); (iii) hybrid mesh at TOL 0.1 (`fH2`, before `GHOST_RHO`): a pp burst (L_pp 1.1e5 L☉ at 22 M☉) and re-expansion to
 108 R☉ at 25 M☉, not seen with all interfaces at TOL 0.05 — unexplained, the hybrid ψ(q) is fixed at the start mass (its interfaces with ψ < 1 crowd toward the centre as M grows ×100); (iv) the ledger's last 1 % (signed sink, 23–70 M☉),
 probably the O(Δr²) grid-motion split while R falls ×3; (v) the Ṁ_fid case still stalls at 0.218 M☉ (0.38 yr, τ_prec ≈ 1–150, E_s cliff; a test run with all fixes: dt → 2–20 s, log not kept) — not addressed.
+
+### S6b Protostar fed by the collapse [run]
+Files: `julia/popiii_m2c.jl` (restart, sink), `ProblemSetup.jl` (`inner = :lagr`), `TitanCore.jl`/`TitanResidFast.jl`/`TitanDriver.jl` (`INNER_GHOST_GEOM`), `ChemNet.jl` (`XFLOOR`), `PopIIIMaterial.jl` (`CHEM_FALLBACK`),
+`s6c_precursor.jl` (surface condition of the thick precursor), `s6b_run.jl` (`PRECTHICK`, `BCSMOOTH`, `BCSLOPE`, `BCFALLBACK`, `MDOTFILE`, `MDOTRAMP`), `s6c_prec_test.jl` (test, full tier `s6c_prec`), `s6c_mdot.jl`, `s6c_infall.jl`, `s6c_mt.jl`, `s6c_analyze.jl` (analysis).
+All new switches default off. Tests: quick tier 8/8 PASS (464/587/713 steps), full tier 23/23 PASS (S4 a/b/c, S5 b/zams15, S6 advect/b_early, s6c_prec). P100 collapse with the defaults (`MAXSTEPS=12000 NSTOP=1e12 lines 100`, `lib/popiii/m2c_lines_n100_s6bchk.log`):
+T_c = 293.3 / 373.3 / 447.6 / 629.0 / 866.9 K at log n_c = 7.00 / 8.17 / 9.15 / 10.15 / 11.17 (0.25-dex output, interpolated) against 293 / 372 / 448 / 631 / 867 (≤ 0.4 %). `PRECTHICK=0` of the new `s6b_run.jl` reproduces the S6a-fix run `fG5` to 0.1–0.5 % in R*, L*, T_c up to 8 M☉ (`s6b_pv5.log`).
+Logs: `m2c_lines_n100_core2.log`, `m2c_abn02z19_lines_n200_core2.log` (collapse past protostar formation), sink runs `m2c_lines_n100_p100f.log` + `s6c__p100f{,_events,_mdot,_mdot_smooth}.csv`, `m2c_abn02z19_lines_n200_z19f.log` + `s6c__z19f*.csv`, convergence `m2c_lines_n100_c_{r25,r10,cd01,sp2}.log` + `s6c__c_*_{events,mdot}.csv`,
+precursor `s6b_pt5.{log,csv}` (Ṁ_fid), `s6b_pv6.{log,csv}` (1.1e-3), `s6b_pv4{,a,b}.log` (failure and its fixes), protostar `s6b_p3_p100c.{log,csv}`, `s6b_p3_z19f.{log,csv}`.
+
+**Part 1. Accretion history from our collapse.**
+*Protostar.* The final runs were continued with the regular centre (`RESTART=` snapshot, `LINEEVERY=5`: line cooling re-evaluated every 5 steps, 94 % of the wall time was the ALI transfer). P100 at n_c = 8.8e22 cm⁻³ (6000 steps, `core2`), z19 at 6.7e22:
+ρ_c = 0.147 / 0.112 g cm⁻³, T_c = 5.7e4 / 5.8e4 K, f_H₂,c = 0.035 / 0.029, x_e,c = 0.67; hydrostatic core (|u| < 0.5 km/s) of M ≈ 3e-3 M☉, R ≈ 0.6 R☉, an accretion shock at 1–4 R☉ (u: −0.4 → −6 km/s). The two clouds give the same protostar and the same infall inside 100 AU
+(T = 2000 K at 1 AU, ρ = 5–8e-10, u = −5.5 km/s, m(<1 AU) = 0.05 M☉; M(r) ∝ r). OHY10 (Z = 0, ≤ 1e-6 Z☉): 1–2e-3 M☉, 0.5–1 R☉, n = 1e21–1e22, T = 2–3e4 K.
+*Sink* (`SINK=1`). Zones whose inner interface lies inside r_s are removed and their mass added to a point mass (gravity only); the innermost interface is TITAN's Lagrangian boundary (llibc = 1) moving ballistically (velocity u − ½ g Δt, no pressure force: the grid is open to supersonic inflow; prescribing it from the neighbour,
+u(a+1)√(r(a+1)/r(a)), is a positive feedback through the pressure of the first zone and ran away), ghost interface r(a−1) = r(a)²/r(a+1) (the equal-volume ghost has no real root for a zone wider than 2^{1/3} in r). Radius
+r_s = 5 AU (M_pt/M☉), floor 0.05 AU (11 R☉ at M_pt = 0.01 M☉): t_ff(r_s, M) ∝ M stays a few % of t_acc (dt ∝ t_acc: 3e4 steps for 67 M☉), r_s ≈ 0.07 GM/c_s² (T = 2000 K), i.e. inside the free-fall region, and ≥ 5 R* (R* ≤ 240 R☉ = 1.1 AU at M ≥ 13 M☉ where r_s ≥ 65 AU).
+The collapse grid has zone masses of 20 % of the enclosed mass (a zone spans a factor 3–4 in r at the sink): `SPLIT=4` (P100; 2 for z19: the state arrays do not hold 382 zones) divides every zone into equal-mass sub-zones (ρ kept, r³ linear in m, u linear in m).
+Needed on the way: `NLTE=ep` (ALI cost 10–15 s/step on 200 zones), network step: Newton convergence required λ = 1 and a positive step, which never holds for species at 1e-18 (H₂⁺): `XFLOOR = 1e-12` (species below it are not limited, clamped at 0; default 1e-20) — the step failed at 20 000 s for a state that converged at 10 000 s; `CHEMFALLBACK=1`: a zone whose network step still fails keeps its state for that step (100 of 2.8e6 zone-steps).
+*Mass flux.* Ṁ = ΔM/Δt of the shells crossing r_s (the crossing time of the interface interpolated inside the step; t shifted by the free-fall time r_s → 0.05 AU, 1–3 % of t_acc), over windows of Δln M ≥ 0.5 (single pairs scatter ×4 between neighbours).
+Runs end where the cloud does: P100 (100 M☉): M_pt = 67 M☉ at 14.3 kyr (8 zones left); z19: 234 M☉ at 28 kyr (stopped by hand; Ṁ = 6e-3 at 170 M☉). M_pt(t) [M☉] at t = 10 / 30 / 100 / 300 / 1e3 / 3e3 / 1e4 yr: P100 0.43 / 0.89 / 2.2 / 4.7 / 10.6 / 23.7 / 53.5; z19 0.75 / 1.8 / 5.2 / 12.6 / 32 / 74 / 151.
+
+| M* [M☉] | Ṁ P100 | Ṁ z19 | OHY10 Z=0 (Fig. B16, ±30 %) | P100/OHY | z19/OHY | φ = Ṁ/(c_s³/G), T of the shell at formation: P100 / z19 |
+|---|---|---|---|---|---|---|
+| 0.03 | 8.0e-2 | 1.3e-1 | 1.2e-1 | 0.67 | 1.10 | 12 / 20 |
+| 0.1 | 5.7e-2 | 9.9e-2 | 8.5e-2 | 0.67 | 1.16 | 12 / 22 |
+| 0.3 | 3.3e-2 | 6.4e-2 | 6.8e-2 | 0.49 | 0.94 | 10 / 16 |
+| 1 | 2.0e-2 | 5.3e-2 | 5.5e-2 | 0.37 | 0.97 | 9 / 15 |
+| 4 | 1.1e-2 | 4.3e-2 | 4.2e-2 | 0.26 | 1.01 | 5 / 12 |
+| 10 | 6.9e-3 | 3.4e-2 | 3.5e-2 | 0.20 | 0.96 | 3 / 9 |
+| 20 | 5.1e-3 | 2.5e-2 | 3.2e-2 | 0.16 | 0.79 | 2.5 / 7 |
+| 40 | 4.0e-3 | 2.1e-2 | 2.7e-2 | 0.15 | 0.78 | 2.3 / 6 |
+| 100 | — | 1.3e-2 | 2.0e-2 | — | 0.63 | — / 6 |
+
+(Ṁ in M☉/yr.) z19 (ABN02, T ≈ 1000 K warm core) is OHY10's analogue to ±15 % up to 10 M☉; P100 (polytrope, cold outskirts) falls to 0.15 of it. φ ≈ 10–20 up to 1 M☉ (OHY10: ≈ 10 c_s³/G), then falls to 2–8 as the outer envelope is not Larson–Penston-like.
+H11/HYOY12 (Pop III.1, 2D, rotation, with feedback: ≈ 3e-3 at 2 M☉ → 1e-3 at 30 M☉): our spherical non-rotating Ṁ is 4–5× (P100) and 15–20× (z19) higher, as expected. The snapshot rate 4πr²ρ|u| at the formation time (OHY10's eq. 13) is 0.6 of the dynamical one at 0.01 M☉ and 0.3 beyond 2 M☉: the envelope accelerates when the point mass grows.
+*Convergence* (Ṁ at M = 0.3 / 1 / 4 / 7 M☉, P100; reference r_s = 5 AU/M☉, CDYN 0.03, SPLIT 4): r_s = 2.5: +25 / +14 / +3 / −5 %; r_s = 10: +7 / −13 / −8 / −16 %; CDYN 0.01: +4 / −6 / +1 / +1 %; SPLIT 2: +22 / +9 / +17 / +14 %. So ±20 % (r_s, resolution), ±5 % (time step).
+*Infall state at the sink* (zone outside the interface that crossed r_s, events within 12 % of M averaged in ln; `s6c_infall.jl`):
+
+| M* | r_s [AU] | n_H [cm⁻³] | T [K] P100 / z19 | f_H₂ P100 / z19 | x_e P100 / z19 | u/v_ff P100 / z19 | Mach P100 / z19 |
+|---|---|---|---|---|---|---|---|
+| 0.01 | 0.05 | 3e17 | 3.3e3 / 3.4e3 | 0.51 / 0.48 | 6e-10 / 8e-10 | 0.73 / 0.71 | 2.6 / 2.5 |
+| 0.1 | 0.5 | 8e14 / 1.6e15 | 3.4e3 / 2.6e3 | 0.19 / 0.36 | 3e-3 / 4e-12 | 0.99 / 0.99 | 3.2 / 3.8 |
+| 1 | 5 | 6e11 | 6.2e4 / 5.7e3 | 0.17 / 0.04 | 0.72 / 0.02 | 1.8 / 1.05 | 1.05 / 2.5 |
+| 10 | 50 | 8e8 / 2.5e10 | 3.0e5 / 1.4e4 | 0 / 0 | 1.0 / 0.37 | 2.1 / 1.26 | 0.5 / 1.7 |
+| 30 | 150 | 4e7 / 1.6e9 | 4.2e5 / 1.9e4 | 0 | 1.0 / 0.61 | 2.0 / 1.35 | 0.4 / 1.4 |
+
+The infall near the sink is adiabatically heated (T ∝ 1/r, ≈ 1e4 K at r_s = 5 AU M☉⁻¹ for free fall) and there is no atomic cooling in the network: z19 stays at 6e3–2e4 K, Mach 1.4–2.5, whereas the P100 first zone heats to 6e4–4e5 K (Mach < 1 beyond 3 M☉; u/v_ff = 2 at the interface is the ballistic extrapolation).
+The P100 Ṁ beyond 3 M☉ is therefore partly a boundary result (the convergence tests agree to 20 %, all with the hot zone); z19 is clean. Not done: Lyα/free-free cooling of the infall, a sink radius ≫ 10 AU/M☉.
+
+**Part 2. Optically thick precursor.**
+*Diagnosis.* S6a's Lucy law gives at the stall (Ṁ_fid, M = 0.22 M☉, R = 22–27 R☉) T_s = 3–4e4 K, τ = 400–1400, i.e. all of G M Ṁ/R = 1.5–1.9e13 erg g⁻¹ radiated. But the ionisation energy of the accreted gas (H, He: 1.5e13 erg g⁻¹) is the same size: at R = 27.7 R☉ = G M/h_ion the shock cannot ionise the infall.
+Energy balance of the steady flow (free fall, T_gas = T_rad, v²/2 − GM/r cancels): L_co(r) = L_∞ + Ṁ h(r) + (16π/3) r² E |v| (h = gas enthalpy with ionisation energy from StellarEOS, last term = trapping of the radiation by the inflow, factor e^{4τv/c});
+at the surface L_∞ = L* + Ṁ (GM/R − h_s): the energy that heats and ionises the accreted gas is not radiated (TITAN's rows already carry Ṁ e_in; only E_s changes, the energy rows do not). Diffusion integral from far out (`precursor_E`, weighting 1/r² of the flux, κ = Rosseland of S3).
+With h_s = h(T_s): g(h) = h(T_s(h)) − h strictly decreasing but T_s(h) jumps (first-order ionisation-front transition: front outside the shock, hot, τ ~ 100, T_s ~ 3e4 K, or inside, thin, 6e3 K, at h_c ≈ 0.6 GM/R): E_s(R) of either side is the cliff that stalled S6a and Newton. The root h_R (bisection on the sign of g, continuous) with the thermostat condition
+**T_s = T(h_R)** (inverse of h_gas at the pre-shock density) is smooth in R, L*, Ṁ. At the S6a stall states (L* = 30 L☉, Ṁ_fid, M = 0.2174): R = 22 / 25 / 28 R☉: T_s = 11.8 / 9.9 / 8.0 kK (Lucy 41.5 / 36.2 / 28.9), τ = 3.9 / 5.3 / 3.1, h_R/(GM/R) = 0.62 / 0.41 / 0.14, L_∞/L_in = 0.39 / 0.60 / 0.87: the precursor is a thin shell (r_ph/R = 1.01), the 400–1400 of S6a were the artefact.
+*Blend.* For f = h_R/(GM/R) ≪ 1 (M ≳ 5 M☉ at 1.1e-3) the new weighting alone lowers E_s of thick extended precursors by 4 (T_s × 0.7) and the star then does not contract to the ZAMS (R*(40 M☉) = 9.6 against 4.6 R☉, ledger 10 %), so there E_s = Lucy × trapping (`precursor_E` with/without advection: +4 % in T_s);
+w = smoothstep in ln f between 0.01 and 0.05 blends the two (`precursor_thick`, 4.6 ms).
+*Numerics.* E_s(R) is tabulated (hook) on 21 radii ±9 %: `BCSMOOTH = 0.03` (Gaussian in ln R), `BCSLOPE = 8` (|d ln E_s/d ln R| ≤ 8). Without them Newton failed at every dt at M = 9.5 M☉ (thin → thick transition, top zones 2-cycling; the step passes with `BCHOOK=0`, `s6b_pv4a.log`, or with the slope limit, `s6b_pv4b.log`);
+for the high-Ṁ runs `BCFALLBACK=1`: after a failed attempt the hook is dropped for 100 steps.
+*Validation, Ṁ = 1.1e-3* (`s6b_pv6` against `fG5` of S6a-fix, same grid, ESLIM 1.05, TOL 0.05; ratios at equal M): R*(0.5 / 1 / 3 / 5 / 8 / 10 / 15 / 20 / 30 / 40 / 50 M☉) = 0.93 / 0.95 / 0.97 / 0.99 / 0.99 / 0.99 / 0.99 / 1.00 / 0.99 / 0.97 / 0.96; L* (M ≥ 5) 1.03 → 1.00; T_c 1.06 (0.5 M☉) → 1.00 (≥ 15);
+luminosity wave (L* > 1e2 / 1e3 / 1e4: 4.14 / 5.82 / 7.93 against 4.14 / 5.88 / 7.98), R* peak 111.8 at 6.80 (111.9 at 6.86), f_D < 0.99 / 0.5 / 0.1 at 6.31 / 10.71 / 15.44 (6.51 / 10.79 / 15.45), CNO ignition 42.35 (42.35), ZAMS 44.72 M☉, R = 3.93 R☉ (44.72, 4.09). Largest change: 7 % in R* at 0.5 M☉ (the enthalpy sink, h_R/(GM/R) = 0.03–0.15 there). Ledger Σ|err|/Σ|terms| 7.4e-3 cumulative (S6a-fix: 3e-3 – 1.1e-2 per mass interval).
+*Validation, Ṁ_fid = 4.41e-3* (`s6b_pt5`, 0.217 → 200 M☉, 45 kyr, 2569 s): S6a stalled at 0.223 M☉. R*(0.5 / 1 / 3 / 5 / 8 M☉) = 30 / 38 / 53 / 62 / 76 R☉ (SPS86 eq. 21: 48 R☉ M^0.27 (Ṁ/Ṁ_fid)^0.41 = 48 at 1 M☉: 0.8), luminosity wave (1e2 / 1e3 / 1e4) at 5.8 / 6.9 / 9.7 M☉ (OP03: 8), R* peak 219 R☉ at 10.8 M☉, D burning (f_D < 0.99 / 0.5 / 0.1) at 12.7 / 18.8 / 27.7,
+KH contraction 117 / 65 / 31.5 / 18 / 13 / 11 R☉ at 15 / 20 / 30 / 40 / 50 / 70 M☉, CNO ignition at 81 M☉. **Phase IIIb**: (L* + L_acc)/L_Edd (κ_es = 0.34) rises to 0.92 at 76–80 M☉, R* swells 11 → 57 R☉ (108 M☉) and falls again with the CNO cycle (31 R☉ at 174, ZAMS by the L_CNO criterion); OP03: Ṁ_fid expands at ≈ 300 M☉
+(ours 4× earlier: no radiation force on the infalling precursor); a first variant without the blend swelled to 1170 R☉ at 190 M☉ (`s6b_pt3`).
+
+**Part 3. Protostar fed by Ṁ(M*)** (embryo 0.217 M☉; `MDOTFILE` = the smoothed tables of Part 1; the rate is capped at Ṁ_fid (M/0.22)^2.5 until it meets the collapse rate at M ≈ 0.45 M☉, as OHY10 whose models do not converge at the collapse rate for the first 0.1 M☉).
+P100 to 60 M☉ (12.5 kyr, `p3_p100c`, 2284 steps, 1281 s, no failed step), z19 to 170 M☉ (14.7 kyr, `p3_z19f`; restarted once at 31.5 M☉ without the E_s damping memory after a Newton stall of the same kind). T_eff,ph / S_ion,ph: photosphere of the precursor (Lucy τ = 2/3); T_eff,* / S_ion,*: black body of the stellar surface (L*, R*).
+
+| M* | t [yr] | Ṁ | R* [R☉] | L* [L☉] | L_acc [L☉] | T_eff,ph [K] | T_c [K] | f_D | S_ion,ph [s⁻¹] | T_eff,* [K] | S_ion,* [s⁻¹] |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **P100** 1 | 48 | 2.0e-2 | 66 | 0.05 | 9.6e3 | 5980 | 2.2e5 | 1.000 | 9e39 | 340 | — |
+| 3 | 183 | 1.4e-2 | 84 | 2.3 | 1.6e4 | 6620 | 3.0e5 | 1.000 | 2e41 | | — |
+| 10 | 965 | 6.9e-3 | 96 | 4.1e3 | 2.2e4 | 7370 | 5.2e5 | 1.000 | 4e42 | 4.7e3 | 1e37 |
+| 15 | 1770 | 5.7e-3 | 198 | 5.1e4 | 1.3e4 | 6500 | 8.3e5 | 0.999 | 8e41 | 6.2e3 | 2e41 |
+| 20 | 2680 | 5.2e-3 | 92 | 9.4e4 | 3.5e4 | 8140 | 1.35e6 | 0.69 | 1e44 | 1.1e4 | 3e45 |
+| 30 | 4820 | 4.3e-3 | 39 | 2.4e5 | 1.1e5 | 8390 | 9.2e6 | 0.105 | 5e44 | 2.1e4 | 2e48 |
+| 40 | 7230 | 4.0e-3 | 19 | 4.3e5 | 2.6e5 | 8500 | 2.2e7 | 0.017 | 1e45 | 3.4e4 | 2e49 |
+| 60 | 12540 | 3.7e-3 | 9.6 | 1.0e6 | 7.3e5 | 9860 | 6.6e7 | 0.002 | 2e46 | 5.9e4 | 7e49 |
+| **z19** 1 | 34 | 5.3e-2 | 89 | 18 (flicker) | 1.9e4 | 5580 | 2.0e5 | 1.000 | 2e39 | | — |
+| 3 | 78 | 4.5e-2 | 131 | 1.2 | 3.3e4 | 6130 | 2.5e5 | 1.000 | 7e40 | | — |
+| 10 | 263 | 3.4e-2 | 169 | 81 | 6.3e4 | 6730 | 3.3e5 | 1.000 | 1e42 | | — |
+| 15 | 422 | 2.9e-2 | 190 | 1.1e4 | 7.2e4 | 6930 | 3.9e5 | 1.000 | 3e42 | 4.3e3 | 1e36 |
+| 20 | 606 | 2.5e-2 | 290 | 3.6e4 | 5.5e4 | 5920 | 4.8e5 | 1.000 | 1e41 | 4.7e3 | 8e37 |
+| 30 | 1014 | 2.7e-2 | 414 | 3.2e5 | 6.1e4 | 7000 | 9.0e5 | 0.99 | 2e43 | 6.7e3 | 8e42 |
+| 40 | 1447 | 2.1e-2 | 151 | 5.1e5 | 1.8e5 | 7810 | 1.6e6 | 0.59 | 3e44 | 1.3e4 | 1e47 |
+| 60 | 2562 | 1.7e-2 | 60 | 1.0e6 | 5.2e5 | 8010 | 1.1e7 | 0.098 | 1e45 | 2.4e4 | 1e49 |
+| 100 | 5374 | 1.3e-2 | 46 | 2.7e6 | 8.7e5 | 8200 | 4.5e7 | 0.015 | 3e45 | 3.5e4 | 1e50 |
+| 150 | 11200 | 6.4e-3 | 78 | 4.5e6 | 3.9e5 | 8640 | 1.26e8 | 0.013 | 1e46 | 3.0e4 | 1e50 |
+
+Milestones: P100: luminosity wave L* > 1e2 / 1e3 / 1e4 at 3.2 / 8.3 / 12.1 M☉ (L* flickers 0.5–2 L☉ below that), R* peak 243 R☉ at 13.1 M☉, D burning f_D < 0.99 / 0.5 / 0.1 at 16.1 / 22.0 / 30.3 M☉, no CNO ignition by 60 M☉ (T_c = 6.6e7 K, L_nuc/L* = 0.12), the star contracts (R* = 9.6 R☉) while the cloud ends at 67 M☉: **no ZAMS arrival**.
+z19: L* > 1e4 at 14.9 M☉ (transient spikes to 1e3 at 8 M☉), R* peak 549 R☉ at 24.4 M☉ (T_eff,ph 5200 K), D at 30 / 42 / 60 M☉, KH contraction to 46 R☉ at 70–100 M☉, CNO ignition at 151 M☉ with (L* + L_acc)/L_Edd ≈ 0.85 and R* growing again (78 R☉ at 150): **no ZAMS by 170 M☉**. Ledger Σ|err|/Σ|terms| 7.4e-3 (P100), 1.3e-2 (z19; 8e-3 with W_d).
+*Comparison.* OHY10 (Z = 0, Ṁ = 0.1 → 0.02, Fig. B17 read off, ±20 %): R* ≈ 80 R☉ at 0.6 M☉, 170–250 at 3–10, peak ≈ 750 at 35 M☉, 130 at 80 M☉, no ZAMS (Eddington-limited at 80 M☉). z19 (Ṁ within ±15 % of theirs): 89 (1 M☉), 131–169 (3–10), peak 549 at 24 M☉ (0.7 of theirs, 10 M☉ earlier), 46 at 70–100: same sequence (adiabatic phase, wave at 10–15 M☉, swelling to R_peak, contraction, no ZAMS), 70–80 % of their radii.
+P100 (Ṁ 0.2–0.5 of theirs beyond 3 M☉; R ∝ Ṁ^0.41): 66 / 84 / 96 / peak 243 at 13 M☉, contraction already at 20 M☉. H11/HYOY12 (Pop III.1: R* peak 100+ R☉ at 8–9 M☉, ZAMS 40 M☉, no-feedback Ṁ ≈ 1e-3 at 50 M☉): our constant 1.1e-3 run (above) peaks at 112 R☉ at 6.8 M☉ and reaches the ZAMS at 44.7 M☉; with the spherical Ṁ(M*) (4–20× higher) the star never reaches it before the cloud is used up (P100) or the luminosity approaches Eddington (z19).
+S_ion of the photosphere stays ≤ 3e46 s⁻¹ throughout (Z = 0 H⁻ photosphere in the envelope, T_eff,ph 5–10 kK, locked as in OP03 Fig. 8); the black body of the star's own surface (not what escapes) reaches 1e47 at 40 M☉ and 1e49–1e50 at 60–150 M☉ (Schaerer02 ZAMS: 1.9e49 at 40, 3.5e49 at 60 M☉). No Z = 0 atmosphere correction was available.
+
+**Open points.** (1) S7 needs S_ion(t) and the shape of the spectrum that *leaves the envelope*: frequency-dependent transfer through the infall (J_ν per zone for ChemNet's photo processes), a Z = 0 atmosphere spectrum for the stellar surface (L*, R*, T_eff,* above), and the radiation force on the infalling gas (not in our free-fall precursor; OP03's IIIb onset is at 4× the mass of ours).
+(2) Ṁ from the 1D collapse is spherical and non-rotating (4–20× H11); the sink boundary region is hot without atomic cooling (P100: Mach < 1 beyond 3 M☉; ±20 % in Ṁ from sink radius/resolution); Ṁ(M*) is used, not Ṁ(t) (arrival delay ≤ 3 % of t_acc). (3) The precursor is a steady, LTE (T_gas = T_rad), free-fall, 1D diffusion model with one-sided energy balance; the ionisation-front transition is
+resolved only through the thermostat T_s = T(h_R) and the blend with S6a's Lucy law (f = 0.01–0.05); a time-dependent shell (approach A) is not needed for it. (4) The Part 3 start (cap of Ṁ over 0.22 → 0.45 M☉) and the L* flicker below the wave (0.05–20 L☉, also in S6a-fix) are unvalidated; the z19 run was restarted once (E_s damping memory). (5) Sink: no cooling of the hot infall, P100 ends at 67 M☉ by cloud exhaustion, `SPLIT` ≤ 4 (SOD arrays hold ≤ 300 zones).

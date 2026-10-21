@@ -105,6 +105,9 @@ tests = Test[
          o -> (occursin("\nPASS", o), grab(r"\(5\) self-similar[^\n]*", o))),
     Test("s6b_early", env(julia(joinpath(J, "s6b_run.jl"); t = 4), "TITAN_NOLIB" => "1", "MAXSTEPS" => "120", "RELAXSTEPS" => "320", "EVERY" => "100", "OUT" => "test_early"), "full",
          check_s6b_early),
+    # --- S6b: ionisation-thermostat surface condition of the optically thick precursor ----------------------------------------
+    Test("s6c_prec", env(julia(joinpath(J, "s6c_prec_test.jl")), "TITAN_NOLIB" => "1"), "full",
+         o -> (occursin("ALL PASS", o) && !occursin("FAIL", o), grab(r"time per precursor_thick[^\n]*", o))),
 ]
 
 sel = filter(t -> tier == "full" || t.tier == "quick", tests)

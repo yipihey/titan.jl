@@ -273,7 +273,7 @@ function _ghost_and_derived!(mode::Symbol, eos!, opac!)
     end
     if llibc == 1
         tn[k] = tn[k+1]; dn[k] = dn[k+1]
-        rn[k] = rpow(rn[k+1]^mup1 - xmup1 * gf(:delml) / dn[k], rxm1)
+        rn[k] = TD.INNER_GHOST_GEOM[] ? rn[k+1]^2 / rn[k+2] : rpow(rn[k+1]^mup1 - xmup1 * gf(:delml) / dn[k], rxm1)
         xmen[k] = xmen[k+1] + gf(:delml); un[k] = un[k+1]
     end
     if lrad

@@ -270,6 +270,9 @@ function dxdt(x, nH, T, net, env, photo)
     dd[c.free]
 end
 
+# S6b: floor of the abundance in the relative convergence test of `step` (default 1e-20 = as before). Species at 1e-18 (H₂⁺ in cold dense gas) have round-off of the
+# Newton solve far above 1e-10 of their value: the step then "failed to converge" at every substep (the sink runs of popiii_m2c.jl use 1e-12).
+const XFLOOR = Ref(1e-20)
 """
     step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing) -> (x, T)
 
@@ -296,7 +299,7 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
             δ = -(Jm \ R); all(isfinite, δ) || return (z, false)
             λ = 1.0
             # keep every abundance ≥ 0, incl. the eliminated H, Li, e (linear in x)
-            for i in 1:nf; z[i] + λ * δ[i] < 0 && (λ = min(λ, 0.9 * z[i] / -δ[i])); end
+            for i in 1:nf; (XFLOOR[] <= 1e-20 || z[i] > XFLOOR[]) && z[i] + λ * δ[i] < 0 && (λ = min(λ, 0.9 * z[i] / -δ[i])); end     # (XFLOOR > 1e-20: species below it are noise, not limited, clamped at 0 below)
             d0 = full(z[1:nf], net); d1 = full(z[1:nf] .+ δ[1:nf], net)
             for s in (:H, :Li, :e)
                 haskey(d0, s) || continue
@@ -304,7 +307,8 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
             end
             abs(δ[nf+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[nf+1]))
             z .+= λ .* δ
-            λ == 1.0 && maximum(abs.(δ[1:nf]) ./ max.(abs.(z[1:nf]), 1e-20)) < tol && abs(δ[nf+1]) < tol && return (z, true)   # 1e-20: abundance floor
+            XFLOOR[] > 1e-20 && for i in 1:nf; z[i] < 0 && (z[i] = 0.0); end
+            λ == 1.0 && maximum(abs.(δ[1:nf]) ./ max.(abs.(z[1:nf]), XFLOOR[])) < tol && abs(δ[nf+1]) < tol && return (z, true)   # XFLOOR: abundance floor of the convergence test
         end
         (z, false)
     end
