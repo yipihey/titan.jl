@@ -1959,3 +1959,69 @@ The same states with the thin-precursor condition would be wrong (L_acc = 1.1e3 
 3. Surface physics of the post-shock layer: entropy of the settled gas (here (P_ram, T_s(Lucy)), at R = 600 R☉ P_ram = 8 dyn cm⁻²), α_MLT, T_eff,ph = 4100–4800 K vs the 7000+ K of OP03's compact stars, L_acc not reduced by the retained enthalpy (≲ 12 %), no H₂ below 3e3 K and opacities frozen at 3000 K, Z = 0 κ_R of S3 equals the P7 table (`s6_kappa_cmp.jl`: ≤ 10 % at 3500–2e4 K), no independent check against Lenzuni et al. 1991.
 4. Embryo: 0.22 M☉ isentrope vs OP03's 0.01 M☉ low-entropy core; relaxed over 22 t_dyn; the early L* (45 L☉ at the start) depends on it.
 5. Numerics worth keeping: `MLT_HSAD`, `MLT_WOLD`, `NEWTON_LIM`, `inflow_mass`, `prep_xmext!`, NSKIP step control, `XIMR_HOOK`/`PEXT_HOOK`; TR-BDF2 is not used with the ALE rows (θ = 1).
+
+### S6a-fix Energy accounting on the accreting mesh [run]
+Files: `julia/TitanResidFast.jl` (`GRAVWORK`, `gravwork`, `GHOST_RHO`, `ABSORB_SMOOTH`), `TitanDriver.jl` (`ALE_INFLOW`, `CONV_STALL`), `TitanCore.jl` (ALE predictor with `ALE_INFLOW`), `s6b_run.jl` (W_d ledger, `GWDBG`, `DECTRACE`, `LSTARQ`/`LTAU`, `DTR`, options in the header),
+`s6fix_test.jl` (tests). All new switches default off except `GRAVWORK = :auto` (on only with `ALE_MDOT ≠ 0`): quick tier 8/8 PASS (464/587/713), S4/S5 tests (`s4_a/b/c`, `s5_b`, `s5_zams15`) PASS, `s6b_early` PASS (`s6b_test_early.log`).
+Logs: `lib/popiii/s6fix_test.log`, `s6b_gwA2.log`, `s6b_gwA7.log` (correction per interface on the S6a mesh at 2.1 and 7.3 M☉), runs `s6b_fG.log` → `fG2` → `fG3` → `fG5.log/.csv/_prof_*` (150 zones), `s6b_fA3.log` → `fA4.log/.csv/_prof_*` (S6a's 120-zone mesh), `s6b_fH.log`, `s6b_fH2.log/.csv` (hybrid mesh).
+
+**1. The missing term.** Semi-discrete system (per steradian, θ = 1): interfaces k with interior mass m_k = x_mtot − x_me,k, fluid velocity u_k, grid velocity ṙ_k = u_k − u_rel,k; mass crossing interface k inward Δm_k = m_k^n − m_k^o
+(= r²ρ_b u_rel Δt by the continuity row, ρ_b the upwinded, van-Leer-limited density); momentum-cell mass m̄_k = ½(Δm_{k−1} + Δm_k). The momentum row applies −G m_k m̄_k/r_k², so the kinetic + internal energy rows (pdV with u, advected e_b, E_r) change by
+−Σ G m_k m̄_k u_k Δt/r_k² + boundary terms (S6a's dissection: exact to 4e-3 L☉). The potential that belongs to these rows is W = −Σ_k G m_k m̄_k/r_k. Its exact change splits into
+(i) interface motion at the new masses, Σ G m_k m̄_k Δr_k/(r_k r_k^o), = the ṙ part of the work (as on a Lagrangian grid), and (ii) relabelling at the old radii, −Σ G Δ(m_k m̄_k)/r_k^o = Σ_j A_j Δm_j after summation by parts,
+A_j = −G[½(m̄_j^n + m̄_j^o)/r_j^o + ½ m̃_{j−1}/r_{j−1}^o − ½ m̃_{j+1}/r_{j+1}^o] (m̃ = time mean) ≈ −g_j Δr̄_j. The momentum rows credit for (ii) the u_rel part of the work, −G m_j m̄_j u_rel,j Δt/r_j². Both agree only if
+m̄_j u_rel ≈ (r²ρ_b u_rel)Δr̄_j, i.e. ρ_b equals the momentum-cell density. At a steep density gradient ρ_b is the (lower) density of the zone above: the gas that sinks through interface j is credited g m̄ |u_rel| Δt, but releases only g Δm Δr̄:
+a source C_j ≈ g_j F_j Δr̄_j(ρ̄/ρ_b − 1) per interface, ∝ Ṁ, independent of Δt, and not small with N where the gradient is not resolved. So the term that is missing is the gravitational work done ON THE MASS THAT MOVES THROUGH THE MESH
+(the flux of the potential, Σ F_j ΔΦ_j); the boundary is not the culprit: the surface interface's A_{b+1}Δm_{b+1} = −G M δm/R(1 + O(Δm_b/M)) is exactly the binding energy the ledger books as L_acc, the inflow brings e_in only (no double counting).
+The inflow lacks the flow work P/ρ of the entering gas (test 1: 3e-3 of G M Ṁ/R; S6a: P_ram/ρ ≪ GM/R), left as it is. Where it sat in S6a (`GWDBG`, `s6b_gwA2.log`, `s6b_gwA7.log`): at the junction of the two parts of the mass grid (q = 0.05–0.15: 70 interior zones of
+ratio 1.12 end with 10 % of M per zone, the first envelope zone has 1 %) and at the edge of the compact core (ρ_b/ρ̄ = 0.49–0.88 there): Σ C = 167 L☉ at 2.1 M☉ (L* = 0.03 L☉, L_acc = 2.5e3), 2.5e3 L☉ at 7.3 M☉ (0.4 L*); 4.7e5 L☉ = 0.75 L* at 52.6 M☉ (S6a).
+This also explains why L* of the all-interface and the hybrid mesh differed by 10²–10³ in phase I (the spurious heat went into different zones).
+
+**2. Proof (`s6fix_test.jl`, `s6fix_test.log`).** γ = 5/3 gas, no radiation/convection/burning, discrete hydrostatic equilibrium (radii marched so the momentum rows vanish), regular centre, free surface at constant P_ext; E = U + K + W + P_ext V with W both as W_d and as the Gauss quadrature of S6a.
+Error (ΔE − expected)/(G M Ṁ_g t / R), off → on:
+
+| test | GRAVWORK off | on (W_d / Gauss) |
+|---|---|---|
+| relabel only (mesh drifts 20 % of M through the inner half; no inflow), smooth polytrope, 80 zones | 1.0e-4 | 2e-8 / 1.7e-4 |
+| accretion of 2 % M of gas at rest with e_in = e_top, smooth polytrope, 80 zones | 2.8e-3 | −3e-6 / 4e-5 |
+| accretion, low-entropy core under a ×100-entropy envelope (ρ drops ×21 per zone at the core edge) | **+5.35** (+5.10) | −3.8e-3 / −0.32 |
+| relabel, same core-edge star | **+2.15** | −1.2e-2 / −0.11 |
+| adaptive grid (lgrid = 1, x_me + ln ρ resolution, rigid walls), steps 2–200 after the first remap | ΔE_d = +6.6e44 erg = 3e-5 |W| | 0 to 1e42 erg (5e-8 |W|) |
+
+The uncorrected core-edge star gains energy (ρ_c −7 %, the star swells: the S6a symptom); with GRAVWORK W_d closes to ≤ 1e-2 (the Gauss W differs by the quadrature error of the smeared jump). The first step of the adaptive grid
+(a remap of the centre, ρ_c +56 %) is not cured (+6.6e-3 → −2.4e-3 |W|): large grid displacements leave the O(Δr²) split error.
+
+**3. The fix (`GRAVWORK`).** C_j = A_jΔm_j − G m_j m̄_j u_rel,j Δt/(r_j r_j^o) for every interior interface (the urel work with 1/(r r^o), so the grid-motion split is exact for the relabelled part), removed from the gas energy rows
+of the two adjacent zones (½ each), inside the residual (differentiated), for every energy-row variant. Pure function of x_me, r, u, ρ: holds for the prescribed mesh, a time-dependent Ṁ (S6b) and lgrid = 1 (`GRAVWORK[] = true`).
+`:auto` = on iff ALE_MDOT ≠ 0. Exact for θ = 1 (all ALE runs); for θ < 1 the work is still θ-centred.
+
+**4. Further numerics needed to run past 7 M☉ (found on the way; all in `s6b_run.jl` defaults).** (a) Newton 2-cycles of 1e-7…1e-4 in ln E_r, T at the H-ionisation zone, independent of Δt: `ABSORB_TRAD`'s hard switch κ(max(T, T_rad))
+alternates between ∂κ/∂T and ∂κ/∂E_r where T ≈ T_rad (optically thick): C¹ blend T_a = T + (T_rad − T)s((T_rad − T)/(εT)), ε = 0.05 (`ABSORB_SMOOTH`) → quadratic convergence. `CONV_STALL` (accept a repeating dmax ≤ 1e-5) as a guard.
+(b) Linear convergence (factor −0.6/iteration, 20–36 iterations, dt ≤ 3e7 s from 17 M☉ on) of the top-zone density: the free-surface ghost densities are refreshed to ρ_top after every update but their Newton rows are the identity,
+so the Jacobian saw them frozen; `GHOST_RHO` (ghost ρ = ρ_top inside the residual) → 2–3 iterations, dt 1e8–3e8 s, the 23 → 70 M☉ part in 31–38 min (AD vs FD Jacobian of the top rows agrees to 1e-3 otherwise).
+(c) ESLIM 1.05 (E_s change ≤ 5 %/step) to pass the thin → thick precursor transition at 9.4 M☉ (τ_prec 0 → 50, T_s 5e3 → 2.5e5 K). (d) Mass grid NIN=80 QC=1.083 QSPLIT=0.3 NENV=70 (150 zones, zone mass continuous at the split; the
+S6a grid gives the same star within 2–10 %, `fA3`/`fA4`).
+
+**5. Rerun, Ṁ = 1.1e-3 M☉/yr, all interfaces self-similar (PSI=0), from the S6a embryo** (`fG` 150 zones TOL 0.05; `fA` = S6a's 120-zone grid; both to 70 M☉, no failed step after (b); OP03 from Figs. 1, 2, 4 for Ṁ_fid/4, as in S6a):
+
+| quantity | OP03 / SPS86 | S6a (pA, no fix) | fG (fix, 150 z) | fA (fix, 120 z) |
+|---|---|---|---|---|
+| R*(0.5 / 1 / 3 M☉) | ≈ 20 / 25–30 / 40 | 19.7 / 23.5 / 31.6 | 19.7 / 23.5 / 31.4 | 19.7 / 23.5 / 31.4 |
+| L* at 1–3 M☉ | 0.1–0.5 L☉ | 0.03–20 | 0.03–0.06 | 0.02–0.04 |
+| luminosity wave (L* > 1e2 / 1e3 / 1e4) | L* ↑ at 3.5–4 M☉, 1e3 at 5–6 | 3.6 / 5.9 / 7.1 | 4.1 / 5.9 / 8.0 | 4.3 / 5.9 / 8.0 |
+| R* peak | 100–140 R☉ at 8–10 M☉ | none (1900 R☉ at 70) | **112 R☉ at 6.9 M☉** | **123 R☉ at 7.4 M☉** |
+| KH contraction R*(10 / 15 / 20 / 30 / 40 M☉) | falls to ≈ 4 R☉ at 40 M☉ | 369 / 610 / 768 / 1043 / 1286 | 59.8 / 28.2 / 14.3 / 7.0 / 4.6 | 65.8 / 29.6 / 14.9 / 7.2 / 4.7 |
+| L*(10 / 20 / 40 M☉), d ln L*/d ln M (10–40) | L* ∝ M³ (KH) | 3.7e4 / 1.5e5 / 4.2e5, 1.75 | 1.5e4 / 9.4e4 / 4.7e5, 2.5 | 1.5e4 / 9.1e4 / 4.4e5, 2.4 |
+| t_KH/t_acc | < 1 after the wave | 0.06 (8) → 0.002 | 0.3 (7) – 0.38 (15) – 0.52 (20) – 0.63 (40) | 0.25–0.51–0.67 |
+| D burning | active near 3 M☉, L_D small, little D burnt | from 5 M☉, f_D 0.85 (10), 0.46 (70) | f_D < 0.99 at 6.5, 0.5 at 10.8, 0.1 at 15.5 M☉; L_D ≤ 100 L☉ (< 1e-2 L*) to 20 M☉ | same (6.5 / 11.0 / 15.8) |
+| CNO ignition (L_CNO > 0.01 L*), ZAMS (L_CNO > 0.9 L*) | ≈ 40 M☉, ZAMS ≈ 50 M☉ | not reached | 42.4 M☉ (T_c 1.18e8 K), **ZAMS 44.7 M☉**, R 4.09 R☉, T_c 1.31e8 | 42.9, **45.2 M☉**, R 4.01 |
+| R*, T_c, L* on the MS (50 / 70 M☉) | — | — | 3.9 / 3.8 R☉, 1.29e8 K, 6.7e5 / 8.7e5 L☉ | 3.9 / 3.8, 1.29e8, 6.3e5 / 8.4e5 |
+| S_ion (precursor photosphere, T_eff,ph) at 50 / 70 M☉ | 1e48–49 | 3.6e37 (70) | 8.2e47 / 2.3e48 s⁻¹ (14 400 / 15 800 K) | 7.8e47 / 2.4e48 |
+| energy ledger, cumulative Σ|err|/Σ|terms| | — | 0.72 (pA), 0.76 (pH3) | 3.3e-3 (0.2–9.4), 5.2e-3 (9.4–18.5), 4.8e-3 (18.5–23.8), 1.1e-2 (23.8–70, signed −1.1e-2) | 5.0e-3 (0.2–23.5), 1.2e-2 (23.5–70) |
+
+So the swelling of S6a was the spurious source: with the gravitational work of the moving mass in the energy rows the star peaks at 110–120 R☉ right after the luminosity wave, contracts on t_KH ≈ 0.3–0.7 t_acc
+(R ∝ M^−1.85 from 10 to 40 M☉, OP03 ≈ M^−2), ignites CNO at 42–43 M☉ with T_c 1.2e8 K and settles on the ZAMS at 45 M☉ with R ≈ 4 R☉ — OP03's sequence, the peak ≈ 1–2 M☉ earlier. The two grids agree to 2–10 % in R.
+Remaining: (i) L* below 3 M☉ is 0.02–0.06 L☉ against OP03's 0.1–0.5 (both grids; the hybrid mesh with the fix gives 1.2–2.1 L☉, `s6b_fH.log`): the luminosity of the deep layers before the wave depends on the mesh
+by ×30 still (it is ≪ L_acc, so the structure does not notice); (ii) D burns only after the wave (no 3 M☉ episode: T_max = 7.9e5 K); (iii) hybrid mesh at TOL 0.1 (`fH2`, before `GHOST_RHO`): a pp burst (L_pp 1.1e5 L☉ at 22 M☉) and re-expansion to
+108 R☉ at 25 M☉, not seen with all interfaces at TOL 0.05 — unexplained, the hybrid ψ(q) is fixed at the start mass (its interfaces with ψ < 1 crowd toward the centre as M grows ×100); (iv) the ledger's last 1 % (signed sink, 23–70 M☉),
+probably the O(Δr²) grid-motion split while R falls ×3; (v) the Ṁ_fid case still stalls at 0.218 M☉ (0.38 yr, τ_prec ≈ 1–150, E_s cliff; a test run with all fixes: dt → 2–20 s, log not kept) — not addressed.

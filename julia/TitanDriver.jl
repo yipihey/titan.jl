@@ -96,6 +96,14 @@ const FAIL_TFAC = Ref(5.0e-2)
 const ALE_MDOT = Ref(0.0)
 "S6a: per-interface weights ψ_k ∈ [0,1] of the prescribed mass grid (index k of the interface; empty = all 1): m_k(t+Δt) = m_k (1 + ψ_k Ṁ Δt/M). ψ_k = 0: Lagrangian interface."
 const ALE_PSI = Ref(Float64[])
+"S6a-fix (tests): false = the prescribed mass grid moves through the matter without inflow at the surface (relabelling only; the surface interface is Lagrangian)."
+const ALE_INFLOW = Ref(true)
+"""
+S6a-fix: `CONV_STALL[]` (default 0 = off, TITAN): Newton is also accepted when the largest correction is ≤ CONV_STALL[] and repeats itself
+(|dmax − dmax two iterations earlier| < 1e-3 dmax: a 2-cycle of a non-differentiable switch, e.g. the MLT flux switching on and off at the edge of a
+convective zone, with corrections of 1e-7…1e-6 in ln E_r that alternate in sign forever).
+"""
+const CONV_STALL = Ref(0.0)
 "Julia version of subroutine step (step.f), same control flow and arithmetic."
 function step!()
     r(:peq)
@@ -103,9 +111,12 @@ function step!()
     @label two
     FULL_DT[] = g(:dtime)
     s!(:iter, 1)
+    dm1 = Inf; dm2 = Inf
     @label three
     r(:matgen); r(:matslv); r(:maxdel); r(:update)
     g(:dmax) <= g(:conv) && @goto seven
+    (g(:dmax) <= CONV_STALL[] && g(:iter) >= 4 && abs(g(:dmax) - dm2) < 1e-3 * g(:dmax)) && @goto seven
+    dm2 = dm1; dm1 = g(:dmax)
     s!(:iter, g(:iter) + 1)
     g(:iter) <= g(:niter) && @goto three
     # failure to converge: reduce timestep

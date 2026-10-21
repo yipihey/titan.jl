@@ -486,7 +486,7 @@ function predict!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[](), halve::B
     if TD.ALE_MDOT[] != 0 && gi(:lgrid) == 3
         xmtot = gf(:xmtot); dtp = gf(:dtime) * dtscale
         fac = 1 + TD.ALE_MDOT[] * dtp / (4π * (xmtot - xmeo[b+1]))
-        @inbounds for k in a+1:b+1; xmen[k] = xmtot - (xmtot - xmeo[k]) * (1 + (isempty(TD.ALE_PSI[]) || k > b ? 1.0 : TD.ALE_PSI[][k]) * (fac - 1)); end
+        @inbounds for k in a+1:b+1; xmen[k] = xmtot - (xmtot - xmeo[k]) * (1 + (k > b ? (TD.ALE_INFLOW[] ? 1.0 : 0.0) : isempty(TD.ALE_PSI[]) ? 1.0 : TD.ALE_PSI[][k]) * (fac - 1)); end
         dn_ = vf(:dn); mu1 = gi(:mu) + 1; xmup1 = gf(:xmup1)
         @inbounds for k in a:b
             dvn = (rn[k+1]^mu1 - rn[k]^mu1) / xmup1

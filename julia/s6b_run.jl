@@ -6,7 +6,11 @@
 #              QC [1.12], ALPHA [1.5] MLT, OPAC [stellar|z0], KLSTAR [15] (L* from this many interfaces below the surface), ESW [0.5] / ESLIM [1.15] (damping of E_s), BCHOOK [1] (E_s(R), P_ram(R) in the
 #              Jacobian), BCNR/BCSPAN, TFLOOROPAC [3000], ABSTRAD [1], WOLD [1], HSAD [1], NLIM [0.3], CONV [1e-7], XMEXT [1e-5]
 #   steps:     TOL [0.03] (use 0.05-0.15), GROW [1.6], FMAX [3e-3] (cap of Mdot dt/M per step), NSKIP [20], MEND [Msun], TEND [yr], MAXSTEPS, RELAX [1], RELAXSTEPS, RELAXT [20], RELAXU [2e-3]
-#   run:       EVERY, OUT, SAVE/RESTART/CKEVERY (checkpoints in /tmp/s6), PROFM [list of Msun: structure dumps], CSVEVERY, ACC [1], PSI [1] (hybrid mesh: Lagrangian interior, mass grid following the accreted mass from q = QHI [0.9] smoothly to q = QLO [1e-4]; PSI=0 = all interfaces self-similar: spurious heating, see notes), DTWHY, TRACE, SCAN, LEDGER, MASSDBG
+#   run:       EVERY, OUT, SAVE/RESTART/CKEVERY (checkpoints in /tmp/s6), PROFM [list of Msun: structure dumps], CSVEVERY, ACC [1], PSI [1] (hybrid mesh: Lagrangian interior, mass grid following the accreted mass from q = QHI [0.9] smoothly to q = QLO [1e-4]; PSI=0 = all interfaces self-similar), DTWHY, TRACE, SCAN, LEDGER, MASSDBG
+#   S6a-fix:   GRAVWORK [auto|1|0] (energy-conserving gravity work on the mass grid, TitanResidFast.GRAVWORK; auto = on with accretion), CONVSTALL [1e-5] (accept Newton 2-cycles of a switch below
+#              this, TitanDriver.CONV_STALL), ABSSMOOTH [0.05] (C¹ blend in ABSORB_TRAD), LSTARQ (L* for the BC at this exterior mass fraction instead of KLSTAR), LTAU [0 yr] (relaxation of that L*),
+#              DTR (dt after RESTART), NITER [25], ITSLOW [20], GWDBG (gravity-work correction per interface), DECTRACE (with TRACE: branch decisions that flip between Newton iterations).
+#              Production grid of S6a-fix: NIN=80 QC=1.083 QSPLIT=0.3 NENV=70 (150 zones, zone masses continuous at the split; see notes)
 include(joinpath(@__DIR__, "s4_common.jl"))
 include(joinpath(@__DIR__, "s6_star.jl"))
 include(joinpath(@__DIR__, "s6_setup.jl"))
@@ -30,12 +34,25 @@ acc_on = get(ENV, "ACC", "1") == "1"; acc_final = acc_on; phase = Ref(:evol)
 intmass(k) = (TF.getscalar(:xmtot) - TF.var(:xmen)[k]) * 4π            # interior mass of interface k [g]
 zone_masses() = [4π * dn[k] * TF.var(:dvoln)[k] for k in a:b]
 BC = Ref{Any}(nothing)
+const LBC = Ref(0.0)
+"S6a-fix: interface of L* for the boundary conditions: KLSTAR [15] interfaces below the surface, or (LSTARQ > 0) the interface at exterior mass fraction LSTARQ."
+function kLstar()
+    haskey(ENV, "LSTARQ") || return b + 1 - envi("KLSTAR", 15)
+    qL = envf("LSTARQ", 1e-3); M_ = intmass(b + 1)
+    for k in b+1:-1:a+1; (M_ - intmass(k)) / M_ >= qL && return k; end
+    a + 1
+end
 "Surface boundary conditions for the next step from the current state (lagged): P_ext, inflow, incident radiation; ALE rate."
 const LASTSD = Ref{Any}(nothing); const ES_OLD = Ref(0.0)
 function update_bc!()
     R = rn[b+1]; M = intmass(b + 1); frn = TF.var(:frn)
-    kL = b + 1 - envi("KLSTAR", 15)         # L* from a few interfaces below the surface (the surface flux itself is the stiff response to the boundary condition)
+    kL = kLstar()         # L* from a few interfaces below the surface (the surface flux itself is the stiff response to the boundary condition)
     Lstar = 4π * rn[kL]^2 * (frn[kL] + (LASTSD[] === nothing ? 0.0 : LASTSD[].fcv[kL]))
+    # S6a-fix: L* of the precursor relaxed over LTAU [yr] (0 = off): the luminosity of the surface layers flickers by 10 when the precursor sits at the ionisation cliff
+    if envf("LTAU", 0.0) > 0 && acc_on && LBC[] > 0
+        w_ = min(1.0, (TF.getscalar(:timen) - TF.getscalar(:timeo)) / (envf("LTAU", 0.0) * YR)); Lstar = exp((1 - w_) * log(LBC[]) + w_ * log(max(Lstar, 1e-3 * LBC[])))
+    end
+    LBC[] = max(Lstar, 1e-6 * Lsun)
     vff = sqrt(2G * M / R); Pram = Mdot * vff / (4π * R^2)
     Lacc = G * M * Mdot / R
     pc = precursor(R, M, Mdot, max(Lstar, 0.0) + Lacc; X = SM.hmass(mat, b))
@@ -93,7 +110,7 @@ prep_xmext!(dt) = acc_on ? shift_xmext!(xmext0 + 1.5 * Mdot * dt / (4π)) : noth
 function diag(sd)
     frn, ern = TF.var(:frn), TF.var(:ern)
     M = intmass(b + 1); R = rn[b+1]
-    kL = b + 1 - envi("KLSTAR", 15)
+    kL = kLstar()
     Lstar = 4π * rn[kL]^2 * (frn[kL] + sd.fcv[kL]); Lacc = G * M * Mdot / R
     pc = BC[].pc
     Ltot = Lstar + Lacc
@@ -131,7 +148,7 @@ end
 "Total energy components of the current state [erg]: internal + radiation, kinetic, gravitational (as S5)."
 function energies()
     egrn, un, dvn = TF.var(:egrn), TF.var(:un), TF.var(:dvoln)
-    Eint = 0.0; Ekin = 0.0; Eg = 0.0; mcum = 0.0
+    Eint = 0.0; Ekin = 0.0; Eg = 0.0; Egd = 0.0; mcum = 0.0
     dmz = [4π * dn[k] * dvn[k] for k in a:b]
     fine = get(ENV, "LEDGERFINE", "1") == "1"
     xg = (-0.9602898564975363, -0.7966664774136267, -0.5255324099163290, -0.1834346424956498, 0.1834346424956498, 0.5255324099163290, 0.7966664774136267, 0.9602898564975363)
@@ -147,15 +164,14 @@ function energies()
             end
         end
         mcum += dmz[j]
-        if !fine
-            Mk = k < b ? 0.5 * (dmz[j] + dmz[j+1]) : 0.5 * dmz[j]
-            Eg -= G * mcum * Mk / rn[k+1]
-        end
+        Mk = k < b ? 0.5 * (dmz[j] + dmz[j+1]) : 0.5 * dmz[j]
+        Egd -= G * mcum * Mk / rn[k+1]          # S6a-fix: W_d = −Σ G m_k m̄_k/r_k, the potential whose rate is the work of the momentum rows' gravity (TitanResidFast.GRAVWORK)
+        fine || (Eg -= G * mcum * Mk / rn[k+1])
     end
-    (; Eint, Ekin, Eg, Etot = Eint + Ekin + Eg)
+    (; Eint, Ekin, Eg, Egd, Etot = Eint + Ekin + Eg, Etotd = Eint + Ekin + Egd)
 end
-mutable struct Ledger; Eint_prev::Float64; Ekin_prev::Float64; Eg_prev::Float64; E_prev::Float64; E0::Float64; Ein::Float64; Eout::Float64; Ebind::Float64; Einj::Float64; Ebur::Float64; err::Float64; errabs::Float64; Eabs::Float64; end
-led = Ledger(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+mutable struct Ledger; Ed_prev::Float64; errd::Float64; errabsd::Float64; Eint_prev::Float64; Ekin_prev::Float64; Eg_prev::Float64; E_prev::Float64; E0::Float64; Ein::Float64; Eout::Float64; Ebind::Float64; Einj::Float64; Ebur::Float64; err::Float64; errabs::Float64; Eabs::Float64; end
+led = Ledger(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 # ----------------------------------------------------------------------------------- step control
 const COOL = Ref(0); const DTW = Ref((0.0, 0, ""))
 Tdyn() = sqrt(rn[b+1]^3 / (G * intmass(b + 1)))
@@ -190,7 +206,13 @@ TF.setscalar!(:dtime, envf("DT0", 1.0))
 get(ENV, "NOVIS", "0") == "1" && TF.setscalar!(:cqvis, 0.0)
 get(ENV, "NOCONV", "0") == "1" && (TX.CONVECTION[] = false)
 TD.STEPFN[] = TD.step!
+TX.GHOST_RHO[] = get(ENV, "GHOSTRHO", "1") == "1"      # S6a-fix: ghost densities of the free surface explicit in the residual (quadratic Newton convergence at the surface)
+TX.ABSORB_SMOOTH[] = envf("ABSSMOOTH", 0.05)      # S6a-fix: C¹ blend of max(T, T_rad) in ABSORB_TRAD (the hard switch 2-cycled Newton in optically thick zones)
+TD.CONV_STALL[] = envf("CONVSTALL", 1e-5)       # S6a-fix: accept Newton 2-cycles of a switch at ≤ 1e-5 (see TitanDriver.CONV_STALL)
+haskey(ENV, "GRAVWORK") && (TX.GRAVWORK[] = ENV["GRAVWORK"] == "1" ? true : ENV["GRAVWORK"] == "0" ? false : :auto)      # S6a-fix: energy-conserving gravity work on the mass grid (default :auto = on with ALE_MDOT)
 
+const DECPREV = Dict{Tuple{Symbol,Int},Vector{Bool}}()
+get(ENV, "DECTRACE", "0") == "1" && (TX.FREEZE[] = 1)
 if get(ENV, "TRACE", "0") == "1"
     oldmd = TD.ROUTINES[:maxdel]
     ixn = Dict(Int(TF.getscalar(s)) => string(s) for s in (:ir, :im, :id, :iu, :it, :ie, :if))
@@ -208,6 +230,16 @@ if get(ENV, "TRACE", "0") == "1"
                 row(k) = join([@sprintf("%+.3e", Rm[ixs[j], k - k0 + 1]) for j in (3, 4, 5, 6, 7)], " ")
                 pr("      lam=%5.2f  z%d: %s | z%d: %s | z%d: %s\n", λ, b - 2 - a + 1, row(b - 2), b - 1 - a + 1, row(b - 1), b - a + 1, row(b))
             end
+        end
+        if get(ENV, "DECTRACE", "0") == "1"      # branch decisions (limiter, upwind, viscosity) that changed since the last iteration
+            TX.FREEZE[] = 1
+            ch = String[]
+            for (key, v) in TX.DEC
+                old_ = get(DECPREV, key, nothing)
+                old_ === nothing || for k in a-1:b+2; v[k] != old_[k] && push!(ch, "$(key[1])/$(key[2])@$(k-a+1)"); end
+                DECPREV[key] = copy(v)
+            end
+            pr("      decisions changed: %s\n", join(ch, " "))
         end
         pr("   it %2d dt=%.3e dmax=%.3e  %s\n", Int(TF.getscalar(:iter)), TF.getscalar(:dtime), TF.getscalar(:dmax),
            join([@sprintf("%s:%+.2e@%d", ixn[i], dx[i], kx[i]) for i in 1:Int(TF.getscalar(:neqn))], " "))
@@ -257,6 +289,7 @@ function after_step(k, xme_start, Mz_start)
     Einj_h = sum(acc.Einj[a:b]); Fout_h = acc.Fout
     Ebind = acc_on ? G * (intmass(b + 1) - 0.5 * Mdot * dt) * Mdot * dt / (0.5 * (rn[b+1] + ro[b+1])) : 0.0       # gravitational energy released by the added mass (radiated at the shock): G M δm/R
     err = (Eh.Etot - led.E_prev) - (Einj_h - Fout_h - Ebind)
+    errd = (Eh.Etotd - led.Ed_prev) - (Einj_h - Fout_h - Ebind)         # the same with W_d
     if get(ENV, "LEDGER", "0") == "1"       # split of the balance: (1) ΔE_int + ΔE_kin against boundary fluxes + gravity work on the fluid; (2) ΔW against the gravity work and the binding of the new mass
         un_ = TF.var(:un); gw = 0.0; mm = 0.0
         dmz_ = [4π * dn[kk] * TF.var(:dvoln)[kk] for kk in a:b]
@@ -287,19 +320,29 @@ function after_step(k, xme_start, Mz_start)
            (Eh.Eg - led.Eg_prev) / dt / Lsun, (-gw - Ebind) / dt / Lsun, ((Eh.Eg - led.Eg_prev) - (-gw - Ebind)) / dt / Lsun)
     end
     get(ENV, "LEDGER", "0") == "1" && pr("   LEDGER %d: dE/dt=%.3f Einj/dt=%.3f Fout/dt=%.3f Ebind/dt=%.3f err/dt=%.3f [Lsun]; L*=%.1f Mdot*ein=%.2f Mdot*P/rho=%.2f\n", k, (Eh.Etot - led.E_prev) / dt / Lsun, Einj_h / dt / Lsun, Fout_h / dt / Lsun, Ebind / dt / Lsun, err / dt / Lsun, 4π * rn[b+1]^2 * TF.var(:frn)[b+1] / Lsun, Mdot * BC[].ein / Lsun, Mdot * BC[].Pram / BC[].ρin / Lsun)
+    if get(ENV, "GWDBG", "0") == "1"       # S6a-fix: gravitational-work correction per interface (TitanResidFast.GRAVWORK) at the converged state
+        c_ = TX.context(; dt); R_ = zeros(c_.neqn, c_.nb); ws_ = TX.getws(Float64, c_.mgr); TX.residual!(R_, ws_, c_, zeros(c_.neqn * c_.nb)); W_ = ws_.a
+        tot = 0.0
+        for j in a+1:b
+            cj = TX.gravwork(j, c_, W_, Float64) * 4π; tot += cj
+            (j > b - 25 || abs(cj) > 0.02 * abs(4π * rn[b+1]^2 * TF.var(:frn)[b+1])) && pr("   GW j=%3d q=%.2e r=%.3e Rsun C=%+.3e Lsun rho_b/rho_bar=%.3f rho=%.3e T=%.3e Mdot*e=%.3e Lsun\n", j - a, (intmass(b + 1) - intmass(j)) / intmass(b + 1), rn[j] / Rsun, cj / Lsun,
+                W_.db[j] / (0.5 * (W_.d[j] + W_.d[j-1])), dn[j], tn[j], Mdot * TF.var(:egn)[j] / Lsun)
+        end
+        pr("   GW total %.4e Lsun (L* %.4e)\n", tot / Lsun, 4π * rn[b+1-envi("KLSTAR", 15)]^2 * TF.var(:frn)[b+1-envi("KLSTAR", 15)] / Lsun)
+    end
     r = SM.burn!(mat; sd)
     SM.mix!(mat; sd, capmix = false, bridge = envi("BRIDGE", 4), tmax = envf("MIXTMAX", 0.02))
-    led.Ein += 0.0; led.Eout += Fout_h; led.Ebind += Ebind; led.Einj += r.Einj; led.Ebur += r.Ebur; led.err += err; led.errabs += abs(err); led.Eabs += abs(Einj_h) + abs(Fout_h) + abs(Ebind)
+    led.Ein += 0.0; led.Eout += Fout_h; led.Ebind += Ebind; led.Einj += r.Einj; led.Ebur += r.Ebur; led.err += err; led.errabs += abs(err); led.errd += errd; led.errabsd += abs(errd); led.Eabs += abs(Einj_h) + abs(Fout_h) + abs(Ebind)
     adv = acc_on ? SM.advect!(mat, xme_start, Mz_start; xin = Y0, order = envi("ADVORDER", 2), fac = Mdot * dt / ((TF.getscalar(:xmtot) - xme_start[end]) * 4π)) : (; cons = 0.0, cfl = 0.0, dTmax = 0.0, nsub = 0)
     MAXCONS[] = max(MAXCONS[], adv.cons)
     shift_xmext!(xmext0)
-    let Eaft = energies(); led.E_prev = Eaft.Etot; led.Eint_prev = Eaft.Eint; led.Ekin_prev = Eaft.Ekin; led.Eg_prev = Eaft.Eg; end
+    let Eaft = energies(); led.Ed_prev = Eaft.Etotd; led.E_prev = Eaft.Etot; led.Eint_prev = Eaft.Eint; led.Ekin_prev = Eaft.Ekin; led.Eg_prev = Eaft.Eg; end
     d = diag(sd)
     get(ENV, "DTWHY", "0") == "1" && pr("   DTWHY %d dt=%.3e s -> next %.3e s: max rel change %.4f (%s zone %d), iter %d, caps: dtcap %.3e predict %.3e; adv cfl %.2g; BC: Ts_used=%.1f Lstar=%.2f Pram=%.4e ein=%.3e rho_in=%.3e Ttop=%.1f rho_top=%.3e u_top=%.3e\n", k, dt, TF.getscalar(:dtime), DTW[][1], DTW[][3], DTW[][2], Int(TF.getscalar(:iter)), mat.dtcap, SM.predict_cap(mat), adv.cfl, BC[].Tsh, BC[].Lstar / Lsun, BC[].Pram, BC[].ein, BC[].ρin, tn[b], dn[b], TF.var(:un)[b+1])
     push!(series, (d.t / YR, dt / YR, d.M / Msun, d.R / Rsun, d.Lstar / Lsun, d.Lacc / Lsun, d.Teff, d.Tc, d.ρc, d.Tmax, d.mTmax, d.Ld / Lsun, d.Lpp / Lsun, d.Lcno / Lsun, d.fD, d.tKH / YR, d.tacc / YR, d.Sion, d.rph / Rsun, d.Ts, d.tau, d.Lhe / Lsun))
     if k % envi("EVERY", 10) == 0 || k <= 5
-        pr("%5d t=%.4e yr dt=%.3e s M=%.4f R=%.2f Rsun L*=%.3f Lacc=%.2f Teff=%.0f Ts=%.0f tau=%.2f Tc=%.4e rho_c=%.3e Tmax=%.3e@%.3f LD=%.2e fD=%.4f it=%d adv(cons %.1e cfl %.1e dT %.1e) ledger(err/|terms| step %.1e cum %.1e) lim=%.3f %s@%d conv=%s\n", k, d.t / YR, dt, d.M / Msun, d.R / Rsun, d.Lstar / Lsun, d.Lacc / Lsun,
-           d.Teff, d.Ts, d.tau, d.Tc, d.ρc, d.Tmax, d.mTmax, d.Ld / Lsun, d.fD, Int(TF.getscalar(:iter)), adv.cons, adv.cfl, adv.dTmax, err / max(abs(Einj_h) + abs(Fout_h) + abs(Ebind), 1e-300), led.errabs / max(led.Eabs, 1e-300), DTW[][1], DTW[][3], DTW[][2], d.conv)
+        pr("%5d t=%.4e yr dt=%.3e s M=%.4f R=%.2f Rsun L*=%.3f Lacc=%.2f Teff=%.0f Ts=%.0f tau=%.2f Tc=%.4e rho_c=%.3e Tmax=%.3e@%.3f LD=%.2e fD=%.4f it=%d adv(cons %.1e cfl %.1e dT %.1e) ledger(err/|terms| step %.1e cum %.1e; W_d: step %.1e cum %.1e signed %.1e) lim=%.3f %s@%d conv=%s\n", k, d.t / YR, dt, d.M / Msun, d.R / Rsun, d.Lstar / Lsun, d.Lacc / Lsun,
+           d.Teff, d.Ts, d.tau, d.Tc, d.ρc, d.Tmax, d.mTmax, d.Ld / Lsun, d.fD, Int(TF.getscalar(:iter)), adv.cons, adv.cfl, adv.dTmax, err / max(abs(Einj_h) + abs(Fout_h) + abs(Ebind), 1e-300), led.errabs / max(led.Eabs, 1e-300), errd / max(abs(Einj_h) + abs(Fout_h) + abs(Ebind), 1e-300), led.errabsd / max(led.Eabs, 1e-300), led.errd / max(led.Eabs, 1e-300), DTW[][1], DTW[][3], DTW[][2], d.conv)
     end
     d
 end
@@ -342,11 +385,12 @@ function restart!(name)
     TX.REGULAR_CENTRE[] = true; TX.XMINT[] = Float64[]; TX.ALPHA_MLT[] = envf("ALPHA", 1.5); TC.FREE_OUTER[] = true
     TD.EOS[](); TD.OPAC[](); SM.refresh!()
 end
-haskey(ENV, "RESTART") && (restart!(ENV["RESTART"]); pr("restarted from %s at step %d\n", ENV["RESTART"], nstep[]))
+haskey(ENV, "RESTART") && (restart!(ENV["RESTART"]); pr("restarted from %s at step %d\n", ENV["RESTART"], nstep[]); haskey(ENV, "DTR") && TF.setscalar!(:dtime, envf("DTR", 1.0)))
 
 # ----------------------------------------------------------------------------------- run
 # hybrid mesh: interfaces deep in the star are Lagrangian (psi = 0), those in the envelope follow the accreted mass (psi = 1), smooth ramp (smoothstep in ln q) between QHI and QLO.
-# With psi = 1 everywhere (the first version) the energy ledger had a spurious source proportional to Mdot G M/R_core (8 % of L_acc at 0.2 Msun, 70 % of L* at 50 Msun); this mesh closes it to 2e-3.
+# The spurious source proportional to Mdot G M/R_core of the first version (both meshes) was the gravity work of the momentum rows on the mass that crosses the
+# interfaces (upwinded density at steep gradients); removed by TitanResidFast.GRAVWORK (S6a-fix).
 if get(ENV, "PSI", "1") == "1"
     qhi = envf("QHI", 0.9); qlo = envf("QLO", 1e-4); Mi0 = intmass(b + 1)
     psi = ones(length(TF.var(:xmen)))
@@ -358,7 +402,7 @@ if get(ENV, "PSI", "1") == "1"
     pr("hybrid mesh: psi = 0 for q > %.2f (%d interfaces), 1 for q < %.3f (%d interfaces)\n", qhi, count(==(0.0), psi[a:b+1]), qlo, count(==(1.0), psi[a:b+1]))
 end
 update_bc!()
-let E0_ = energies(); led.E_prev = E0_.Etot; led.Eint_prev = E0_.Eint; led.Ekin_prev = E0_.Ekin; led.Eg_prev = E0_.Eg; end; led.E0 = led.E_prev; const tstart0 = Ref(TF.getscalar(:timen)); const Mstart0 = Ref(intmass(b + 1))
+let E0_ = energies(); led.Ed_prev = E0_.Etotd; led.E_prev = E0_.Etot; led.Eint_prev = E0_.Eint; led.Ekin_prev = E0_.Ekin; led.Eg_prev = E0_.Eg; end; led.E0 = led.E_prev; const tstart0 = Ref(TF.getscalar(:timen)); const Mstart0 = Ref(intmass(b + 1))
 let d = diag(TX.step_diag(1.0))
     pr("S6b start: M* = %.4f Msun, R* = %.2f Rsun, Mdot = %.3e Msun/yr, %d zones, T_s(precursor) = %.0f K, tau_prec = %.2f, P_ram = %.3e, accretion %s\n", d.M / Msun, d.R / Rsun, Mdot * YR / Msun, setup.n, d.Ts, d.tau, BC[].Pram, acc_on)
 end
@@ -392,7 +436,7 @@ if get(ENV, "RELAX", "1") == "1" && !haskey(ENV, "RESTART")
         end
     end
     acc_on = acc_final; phase[] = :evol; mat.nuc = get(ENV, "NUC", "1") == "1"
-    mat.acc.Einj .= 0.0; led.E_prev = energies().Etot; led.E0 = led.E_prev
+    mat.acc.Einj .= 0.0; led.E_prev = energies().Etot; led.Ed_prev = energies().Etotd; led.E0 = led.E_prev
     TF.setscalar!(:dtime, envf("DT1", 100.0)); update_bc!(); tstart0[] = TF.getscalar(:timen); Mstart0[] = intmass(b + 1)
 end
 maxsteps = envi("MAXSTEPS", 100); tend = envf("TEND", 1e12) * YR; mend = envf("MEND", 1e9) * Msun
@@ -420,6 +464,6 @@ let d = diag(TX.step_diag(1.0)), t0 = TF.getscalar(:timen)
     pr("summary: steps %d (failed attempts %d), t = %.5e yr, M = %.6f Msun, R = %.3f Rsun\n", nstep[], FAILS[], d.t / YR, d.M / Msun, d.R / Rsun)
     pr("mass accretion check: (M - M0)/(Mdot t) = %.8f (expected 1)\n", dM / (Mdot * (d.t - tstart0[])))
     pr("composition advection: max |change of species mass - inflow|/mass = %.2e; accreted-gas abundances kept in the top zone: X_H(top) = %.5f (inflow %.5f)\n", MAXCONS[], SM.hmass(mat, b), SM.hmass(mat, b) * 0 + Y0[SM.IH] * NN.AA[SM.IH] + Y0[SM.ID] * NN.AA[SM.ID])
-    pr("energy ledger: cumulative sum|err|/sum|terms| = %.3e (accretion off: ~1e-3)\n", led.errabs / max(led.Eabs, 1e-300))
+    pr("energy ledger: cumulative sum|err|/sum|terms| = %.3e (accretion off: ~1e-3); with W_d: sum|err|/sum|terms| = %.3e, sum err/sum|terms| = %.3e\n", led.errabs / max(led.Eabs, 1e-300), led.errabsd / max(led.Eabs, 1e-300), led.errd / max(led.Eabs, 1e-300))
 end
 pr("wall %.1f s\n", time() - t0wall)

@@ -118,8 +118,8 @@ Inflow through the free outer boundary: mass rate per steradian `rmu φ_r0` and 
 energy rate −Ṁ/4π · e_in with e_in = φ_r2/φ_r0) instead of r(θ)² φ_r0: the surface zone of an accreting star holds 1e-7 of the mass that flows through it per unit of M (it is the
 small difference of the inflow and the outflow through its lower interface), so the inflow must not depend on the radius of the iterate (r² changes by 1e-3 per step).
 """
-@inline inflow_mass(P, rmu) = ALE_MDOT[] != 0 ? -ALE_MDOT[] / (4π) : rmu * P.phir0
-@inline inflow_egas(P, rmu) = ALE_MDOT[] != 0 ? -ALE_MDOT[] / (4π) * (P.phir0 != 0 ? P.phir2 / P.phir0 : 0.0) : rmu * P.phir2
+@inline inflow_mass(P, rmu) = ALE_MDOT[] != 0 && TD.ALE_INFLOW[] ? -ALE_MDOT[] / (4π) : rmu * P.phir0
+@inline inflow_egas(P, rmu) = ALE_MDOT[] != 0 && TD.ALE_INFLOW[] ? -ALE_MDOT[] / (4π) * (P.phir0 != 0 ? P.phir2 / P.phir0 : 0.0) : rmu * P.phir2
 """
 PEXT[] (lgrid = 3, llobc = 1): free outer boundary. The outermost interface obeys the momentum equation of its half
 zone with a constant external pressure PEXT[] outside (RHFC02 App. A2.3) instead of the piston u = uextr. NaN
@@ -424,6 +424,10 @@ the opacity of gas at T_rad (two-temperature grey transfer); emission 4πκ_P(T_
 from the shock, gas decoupled: κ_P(T_gas) → 0 below 3000 K) the gas otherwise cools without bound (heated only by the pressure it is under). Default false = TITAN.
 """
 const ABSORB_TRAD = Ref(false)
+"S6a-fix: half-width ε (relative to T) of the C¹ blend between κ(T) and κ(T_rad) in ABSORB_TRAD (T_a = T + (T_rad − T) s((T_rad − T)/(εT))); 0 (default) = the hard switch of S6a."
+const ABSORB_SMOOTH = Ref(0.0)
+"S6a-fix: free outer boundary (llobc > 0): the ghost-zone densities are the top zone's inside the residual (they are refreshed to it after every Newton update, see TitanCore). Default false = TITAN."
+const GHOST_RHO = Ref(false)
 "Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
 function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
@@ -446,7 +450,16 @@ function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
             χ, κE, κP = material_opac(m, dn[k], tn[k])
             if ABSORB_TRAD[]       # absorption of the radiation field at its own temperature: κ_E = κ(ρ, max(T_gas, T_rad)); emission κ_P(T_gas) unchanged
                 Trad = (ern[k] / (4P.csigr / P.cc))^0.25
-                ForwardDiff.value(Trad) > ForwardDiff.value(tn[k]) && (κE = material_opac(m, dn[k], Trad)[2])
+                if ABSORB_SMOOTH[] > 0
+                    # S6a-fix: smooth maximum (width ABSORB_SMOOTH × T): in optically thick zones T_rad ≈ T and the hard switch alternated between ∂κ/∂T and
+                    # ∂κ/∂E_r from one Newton iterate to the next (2-cycle of 1e-4 in ln E_r, T at the H-ionisation zone, independent of Δt)
+                    # T_a = T + (T_rad − T) s(x), x = (T_rad − T)/(ε T), s a C¹ smoothstep from 0 (x ≤ −1) to 1 (x ≥ 1): = max(T, T_rad) outside |x| < 1, (T + T_rad)/2 at x = 0
+                    xs = clamp(((Trad - tn[k]) / (ABSORB_SMOOTH[] * tn[k]) + 1) / 2, 0.0, 1.0)
+                    Ta = tn[k] + (Trad - tn[k]) * xs * xs * (3 - 2xs)
+                    κE = material_opac(m, dn[k], Ta)[2]
+                else
+                    ForwardDiff.value(Trad) > ForwardDiff.value(tn[k]) && (κE = material_opac(m, dn[k], Trad)[2])
+                end
             end
             chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
             t2 = tn[k] * tn[k]
@@ -477,6 +490,11 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         else
             for bb in 1:nb; k = k0 + bb - 1; a[k] = c.base[k, cde] * exp(x[(bb-1)*neqn+j]); end
         end
+    end
+    # S6a-fix (GHOST_RHO): free surface: the ghost densities as explicit functions of the top zone's (TITAN's ghost refresh after each update makes them so, but
+    # their Newton rows are the identity, so the Jacobian saw them frozen: linear convergence, factor −0.6 per iteration, of the top-zone density)
+    if GHOST_RHO[] && P.llobc > 0 && !(P.leobc in (1, 2, 3))
+        dn[ngre+1] = dn[ngre]; dn[ngre+2] = dn[ngre]
     end
     # EOS / opacity (TITAN built-in physics unless a material is installed, see TitanMaterials)
     Rg = P.ck / (P.cm0 * P.gmu); γ = P.gam
@@ -756,6 +774,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
     end
     # ---------------------------------------------------------------- GAS ENERGY
+    gwon = gravwork_on(c)
     hassrc = MATERIAL[] !== nothing && has_source(MATERIAL[]); srco = SRCO[]
     @inbounds for k in ngrs:ngre
         aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
@@ -806,6 +825,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 w += -dmdt[k+1] * egb[k+1] + dmdt[k] * egb[k]
             end
         end
+        gwon && (w += 0.5 * (gravwork(k, c, W, T) + gravwork(k + 1, c, W, T)))
         R[it, kb(k)] = w
     end
     R[it, 1] = X(it, k0)
@@ -860,6 +880,40 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         R[iF, kb(ngre+2)] = -frn[ngre+1] + frn[ngre+2]
     end
     nothing
+end
+
+"""
+GRAVWORK[] (S6a-fix): energy-conserving gravitational work on a mesh with mass fluxes between zones. `:auto` (default) = on when the prescribed mass grid
+(ALE_MDOT ≠ 0) is active, `true` = on whenever there is self-gravity on a moving mass grid (also lgrid = 1), `false` = TITAN.
+The momentum rows apply gravity −G m_k/r_k² to the momentum-cell mass m̄_k and the kinetic-energy budget follows (work −g_k m̄_k u_k with the fluid velocity
+u_k = ṙ_k + u_rel,k). The potential energy consistent with these rows is W = −Σ_k G m_k m̄_k/r_k. Its exact change over a step splits into
+(i) the motion of the interfaces at the new masses, Σ G m_k m̄_k Δr_k/(r_k r_k^o) (the ṙ part of the work, as on a Lagrangian grid) and (ii) the relabelling at
+the old radii, ΔW_rel = −Σ_k G Δ(m_k m̄_k)/r_k^o = Σ_j A_j Δm_j (summation by parts, Δm_j = mass that crossed interface j inward), whose continuum value is
+the u_rel part of the work. Discretely they differ: m̄_k u_rel,k ≠ (mass flux r²ρ_b u_rel) Δr̄_k unless the advected density ρ_b equals the momentum-cell
+density — at a steep density gradient (coarse envelope zones, the edge of a compact core) the upwinded (limited) ρ_b is the lower density of the zone
+above and the inflowing mass releases less potential energy than the work credited to the gas: a spurious source ∝ Ṁ g Δr (1 − ρ̄/ρ_b), independent of Δt.
+With GRAVWORK the difference C_j = A_j Δm_j − G m_j m̄_j u_rel,j Δt/(r_j r_j^o) of every interior interface (the surface interface carries the binding energy
+of the accreted mass, booked by the caller) is removed from the gas energy of the two adjacent zones (½ each): ΔU + ΔK + ΔW = boundary terms exactly up to
+the O(Δr²) of the Lagrangian scheme.
+"""
+const GRAVWORK = Ref{Any}(:auto)
+gravwork_on(c) = (GRAVWORK[] === :auto ? ALE_MDOT[] != 0 : GRAVWORK[] === true) && c.p.cgrav > 0 && c.mu == 2 && EXTMASS[] === nothing && isempty(XMINT[])
+"""
+Gravitational-work correction C_j/Δt [erg s⁻¹ sr⁻¹] of interface j (GRAVWORK); 0 outside ngrs+1..ngre.
+"""
+@inline function gravwork(j, c, W, ::Type{T}) where {T}
+    ngrs, ngre = c.ngrs, c.ngre
+    (ngrs + 1 <= j <= ngre) || return zero(T)
+    P = c.p; Gp = 4 * P.cpi * P.cgrav; dt = P.dt
+    xmN(k) = P.xmtot - W.xmen[k]; xmO(k) = P.xmtot - c.xmeo[k]
+    xb(k) = 0.5 * (xmN(k) + xmO(k))
+    mkN(k) = k == ngre + 1 ? 0.5 * (xmN(k) - xmN(k - 1)) : 0.5 * (xmN(k + 1) - xmN(k - 1))
+    mkO(k) = k == ngre + 1 ? 0.5 * (xmO(k) - xmO(k - 1)) : 0.5 * (xmO(k + 1) - xmO(k - 1))
+    A = 0.5 * (mkN(j) + mkO(j)) / c.ro[j] - 0.5 * xb(j + 1) / c.ro[j+1]
+    j - 1 >= ngrs + 1 && (A += 0.5 * xb(j - 1) / c.ro[j-1])
+    dm = xmN(j) - xmO(j)
+    mk = 0.5 * (W.d[j] * W.dvol[j] + W.d[j-1] * W.dvol[j-1])
+    (-Gp * A * dm - Gp * W.xm[j] * mk * W.urel[j] * dt / (W.rn[j] * c.ro[j])) / dt
 end
 
 # ------------------------------------------------------------------ total energy (item 2)

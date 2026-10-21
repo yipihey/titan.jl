@@ -1,0 +1,79 @@
+restarted from fHr at step 3500
+hybrid mesh: psi = 0 for q > 0.90 (97 interfaces), 1 for q < 0.000 (30 interfaces)
+S6b start: M* = 18.4203 Msun, R* = 16.72 Rsun, Mdot = 1.100e-03 Msun/yr, 150 zones, T_s(precursor) = 60776 K, tau_prec = 39.85, P_ram = 2.643e+05, accretion true
+ 3520 t=1.6962e+04 yr dt=1.508e+09 s M=18.8755 R=15.90 Rsun L*=77836.629 Lacc=41017.14 Teff=6183 Ts=63337 tau=40.86 Tc=1.4056e+07 rho_c=6.050e-01 Tmax=1.406e+07@0.000 LD=3.76e+01 fD=0.0297 it=31 adv(cons 7.0e-16 cfl 3.5e+04 dT 1.5e-06) ledger(err/|terms| step 1.9e-02 cum 1.2e-02; W_d: step 1.4e-02 cum 9.7e-03 signed 9.6e-03) lim=0.085 rho@120 conv=1.000-1
+ 3540 t=1.7931e+04 yr dt=1.366e+09 s M=19.9413 R=16.74 Rsun L*=84842.566 Lacc=41149.51 Teff=6221 Ts=62176 tau=38.80 Tc=1.6336e+07 rho_c=8.411e-01 Tmax=1.634e+07@0.000 LD=3.14e+01 fD=0.0245 it=30 adv(cons 5.7e-16 cfl 3.0e+04 dT 1.9e-06) ledger(err/|terms| step 2.8e-02 cum 1.9e-02; W_d: step -2.4e-03 cum 7.9e-03 signed 7.7e-03) lim=0.036 rho@119 conv=1.000-1
+ 3560 t=1.8615e+04 yr dt=7.915e+08 s M=20.6938 R=19.76 Rsun L*=90568.032 Lacc=36174.97 Teff=6395 Ts=55543 tau=33.98 Tc=1.7980e+07 rho_c=1.045e+00 Tmax=1.798e+07@0.000 LD=4.79e+01 fD=0.0325 it=34 adv(cons 5.3e-16 cfl 1.7e+04 dT 8.1e-07) ledger(err/|terms| step 5.9e-02 cum 2.7e-02; W_d: step -1.2e-02 cum 8.0e-03 signed 2.3e-03) lim=0.026 rho@130 conv=1.000-1
+ 3580 t=1.9533e+04 yr dt=1.429e+09 s M=21.7032 R=26.59 Rsun L*=86910.196 Lacc=28193.35 Teff=6763 Ts=44330 tau=26.81 Tc=2.0092e+07 rho_c=1.356e+00 Tmax=2.009e+07@0.000 LD=4.84e+02 fD=0.0451 it=25 adv(cons 7.6e-16 cfl 2.9e+04 dT 1.1e-06) ledger(err/|terms| step 8.6e-02 cum 4.0e-02; W_d: step -3.4e-02 cum 1.3e-02 signed -6.3e-03) lim=0.045 rho@130 conv=1.000-1
+ 3600 t=2.0431e+04 yr dt=1.722e+09 s M=22.6912 R=36.50 Rsun L*=77914.194 Lacc=21475.99 Teff=7186 Ts=34185 tau=20.17 Tc=2.2018e+07 rho_c=1.692e+00 Tmax=2.202e+07@0.000 LD=5.02e+02 fD=0.0565 it=18 adv(cons 4.7e-16 cfl 3.3e+04 dT 1.1e-06) ledger(err/|terms| step 1.1e-01 cum 5.3e-02; W_d: step -9.3e-02 cum 2.2e-02 signed -1.6e-02) lim=0.067 rho@123 conv=1.000-1
+ 3620 t=2.1460e+04 yr dt=1.434e+09 s M=23.8230 R=64.21 Rsun L*=74678.898 Lacc=12815.53 Teff=7868 Ts=21025 tau=9.80 Tc=2.4216e+07 rho_c=2.133e+00 Tmax=2.422e+07@0.000 LD=1.44e+01 fD=0.0682 it=10 adv(cons 4.4e-16 cfl 2.6e+04 dT 7.1e-07) ledger(err/|terms| step 2.5e-01 cum 7.2e-02; W_d: step -1.7e-01 cum 4.4e-02 signed -4.0e-02) lim=0.087 rho@122 conv=1.000-1
+   step rejected: source/network mismatch 0.020 (zone 8.7e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.022 (zone 5.9e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.024 (zone 4.7e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.020 (zone 3.0e-05), retry with dt x 0.3
+ 3640 t=2.1975e+04 yr dt=4.196e+08 s M=24.3900 R=84.73 Rsun L*=83614.264 Lacc=9943.09 Teff=8147 Ts=16591 tau=6.24 Tc=2.5255e+07 rho_c=2.365e+00 Tmax=2.526e+07@0.000 LD=8.39e+00 fD=0.0746 it=8 adv(cons 3.9e-16 cfl 7.5e+03 dT 1.8e-07) ledger(err/|terms| step 3.0e-01 cum 8.7e-02; W_d: step -3.4e-02 cum 5.0e-02 signed -4.5e-02) lim=0.018 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.022 (zone 3.7e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.023 (zone 2.9e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.023 (zone 3.4e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.023 (zone 2.6e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.023 (zone 2.9e-05), retry with dt x 0.3
+ 3660 t=2.2174e+04 yr dt=1.684e+08 s M=24.6089 R=91.41 Rsun L*=85757.859 Lacc=9298.88 Teff=8217 Ts=15502 tau=5.41 Tc=2.5627e+07 rho_c=2.453e+00 Tmax=2.563e+07@0.000 LD=7.59e+00 fD=0.0776 it=10 adv(cons 6.2e-16 cfl 3.0e+03 dT 7.0e-08) ledger(err/|terms| step 2.9e-01 cum 9.3e-02; W_d: step -1.1e-02 cum 4.9e-02 signed -4.5e-02) lim=0.007 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.023 (zone 2.2e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.022 (zone 2.4e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.021 (zone 1.7e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.035 (zone 5.3e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.022 (zone 1.0e-05), retry with dt x 0.3
+ 3680 t=2.2316e+04 yr dt=9.403e+07 s M=24.7652 R=95.41 Rsun L*=86656.137 Lacc=8965.67 Teff=8255 Ts=14898 tau=4.96 Tc=2.5887e+07 rho_c=2.516e+00 Tmax=2.589e+07@0.000 LD=7.25e+00 fD=0.0798 it=12 adv(cons 4.0e-16 cfl 1.7e+03 dT 3.8e-08) ledger(err/|terms| step 2.8e-01 cum 9.7e-02; W_d: step -5.1e-03 cum 4.8e-02 signed -4.4e-02) lim=0.003 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.022 (zone 2.2e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.021 (zone 1.5e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.035 (zone 4.7e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.021 (zone 8.8e-06), retry with dt x 0.3
+ 3700 t=2.2420e+04 yr dt=1.258e+08 s M=24.8797 R=97.96 Rsun L*=87115.617 Lacc=8773.13 Teff=8277 Ts=14529 tau=4.68 Tc=2.6075e+07 rho_c=2.563e+00 Tmax=2.608e+07@0.000 LD=9.78e+00 fD=0.0815 it=13 adv(cons 5.7e-16 cfl 2.2e+03 dT 5.0e-08) ledger(err/|terms| step 2.6e-01 cum 9.9e-02; W_d: step -5.7e-03 cum 4.7e-02 signed -4.3e-02) lim=0.003 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.026 (zone 2.6e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.020 (zone 1.3e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.034 (zone 4.1e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.023 (zone 1.5e-05), retry with dt x 0.3
+ 3720 t=2.2528e+04 yr dt=2.341e+08 s M=24.9976 R=100.36 Rsun L*=87411.136 Lacc=8603.92 Teff=8296 Ts=14192 tau=4.43 Tc=2.6268e+07 rho_c=2.611e+00 Tmax=2.627e+07@0.000 LD=1.82e+01 fD=0.0832 it=13 adv(cons 6.1e-16 cfl 4.1e+03 dT 9.1e-08) ledger(err/|terms| step 2.5e-01 cum 1.0e-01; W_d: step -8.8e-03 cum 4.7e-02 signed -4.3e-02) lim=0.004 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.025 (zone 2.3e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.024 (zone 1.6e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.022 (zone 1.7e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.027 (zone 2.5e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.021 (zone 1.2e-05), retry with dt x 0.3
+ 3740 t=2.2627e+04 yr dt=1.307e+08 s M=25.1073 R=102.51 Rsun L*=87691.195 Lacc=8460.22 Teff=8314 Ts=13882 tau=4.20 Tc=2.6446e+07 rho_c=2.656e+00 Tmax=2.645e+07@0.000 LD=1.37e+01 fD=0.0847 it=14 adv(cons 3.4e-16 cfl 2.3e+03 dT 4.9e-08) ledger(err/|terms| step 2.5e-01 cum 1.0e-01; W_d: step -4.9e-03 cum 4.6e-02 signed -4.2e-02) lim=0.003 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.035 (zone 3.8e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.023 (zone 1.4e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.026 (zone 2.1e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.024 (zone 1.4e-05), retry with dt x 0.3
+ 3760 t=2.2720e+04 yr dt=1.749e+08 s M=25.2096 R=104.41 Rsun L*=87843.694 Lacc=8339.64 Teff=8328 Ts=13619 tau=4.01 Tc=2.6610e+07 rho_c=2.699e+00 Tmax=2.661e+07@0.000 LD=1.95e+01 fD=0.0862 it=14 adv(cons 8.8e-16 cfl 3.0e+03 dT 6.5e-08) ledger(err/|terms| step 2.5e-01 cum 1.1e-01; W_d: step -6.0e-03 cum 4.6e-02 signed -4.2e-02) lim=0.003 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.022 (zone 1.5e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.027 (zone 2.2e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.021 (zone 1.1e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.035 (zone 3.4e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.023 (zone 1.2e-05), retry with dt x 0.3
+ 3780 t=2.2803e+04 yr dt=9.767e+07 s M=25.3008 R=106.08 Rsun L*=87982.888 Lacc=8238.29 Teff=8341 Ts=13385 tau=3.84 Tc=2.6756e+07 rho_c=2.737e+00 Tmax=2.676e+07@0.000 LD=1.43e+01 fD=0.0875 it=13 adv(cons 4.5e-16 cfl 1.7e+03 dT 3.6e-08) ledger(err/|terms| step 2.5e-01 cum 1.1e-01; W_d: step -3.4e-03 cum 4.5e-02 signed -4.1e-02) lim=0.002 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.030 (zone 2.5e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.023 (zone 1.2e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.021 (zone 1.3e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.026 (zone 1.9e-05), retry with dt x 0.3
+ 3800 t=2.2888e+04 yr dt=1.818e+08 s M=25.3942 R=107.71 Rsun L*=88024.524 Lacc=8143.33 Teff=8352 Ts=13167 tau=3.68 Tc=2.6905e+07 rho_c=2.777e+00 Tmax=2.691e+07@0.000 LD=2.57e+01 fD=0.0889 it=14 adv(cons 3.4e-16 cfl 3.1e+03 dT 6.5e-08) ledger(err/|terms| step 2.4e-01 cum 1.1e-01; W_d: step -5.6e-03 cum 4.5e-02 signed -4.1e-02) lim=0.003 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.024 (zone 1.3e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.022 (zone 1.4e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.028 (zone 2.0e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.021 (zone 9.6e-06), retry with dt x 0.3
+   step rejected: source/network mismatch 0.035 (zone 3.0e-05), retry with dt x 0.3
+ 3820 t=2.2964e+04 yr dt=1.015e+08 s M=25.4780 R=109.17 Rsun L*=88090.308 Lacc=8061.48 Teff=8362 Ts=12965 tau=3.54 Tc=2.7038e+07 rho_c=2.813e+00 Tmax=2.704e+07@0.000 LD=1.79e+01 fD=0.0901 it=13 adv(cons 1.0e-15 cfl 1.7e+03 dT 3.6e-08) ledger(err/|terms| step 2.5e-01 cum 1.1e-01; W_d: step -3.3e-03 cum 4.4e-02 signed -4.1e-02) lim=0.002 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.022 (zone 1.1e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.030 (zone 2.2e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.023 (zone 1.1e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.021 (zone 1.1e-05), retry with dt x 0.3
+ 3840 t=2.3032e+04 yr dt=1.358e+08 s M=25.5523 R=110.44 Rsun L*=88106.890 Lacc=7992.06 Teff=8370 Ts=12798 tau=3.42 Tc=2.7156e+07 rho_c=2.845e+00 Tmax=2.716e+07@0.000 LD=2.42e+01 fD=0.0911 it=12 adv(cons 4.4e-16 cfl 2.3e+03 dT 4.7e-08) ledger(err/|terms| step 2.4e-01 cum 1.1e-01; W_d: step -4.1e-03 cum 4.4e-02 signed -4.0e-02) lim=0.002 rho@129 conv=1.000-1
+   step rejected: source/network mismatch 0.026 (zone 1.7e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.024 (zone 1.1e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.022 (zone 1.2e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.027 (zone 1.7e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.025 (zone 1.1e-05), retry with dt x 0.3
+ 3860 t=2.3104e+04 yr dt=5.451e+07 s M=25.6310 R=111.75 Rsun L*=88137.306 Lacc=7922.45 Teff=8378 Ts=12617 tau=3.29 Tc=2.7279e+07 rho_c=2.879e+00 Tmax=2.728e+07@0.000 LD=1.40e+01 fD=0.0923 it=12 adv(cons 5.5e-16 cfl 9.3e+02 dT 1.9e-08) ledger(err/|terms| step 2.5e-01 cum 1.1e-01; W_d: step -1.8e-03 cum 4.4e-02 signed -4.0e-02) lim=0.001 rho@130 conv=1.000-1
+   step rejected: source/network mismatch 0.022 (zone 1.2e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.028 (zone 1.8e-05), retry with dt x 0.3
+   step rejected: source/network mismatch 0.021 (zone 8.4e-06), retry with dt x 0.3
+   step rejected: source/network mismatch 0.036 (zone 2.7e-05), retry with dt x 0.3
