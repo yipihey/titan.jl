@@ -24,6 +24,11 @@ S4: `StarGas`, the TITAN material for a star whose composition is evolved: per-z
   factorisation for all species. Σ_k dm_k Y_k is conserved to round-off. Composition change at fixed e: T is re-solved at fixed
   ρ and the zone's gas energy e, so mixing changes no zone's energy (energy exactly conserved; nuclear binding energy moves with
   the material).
+* S5 (consistent coupling, TR-BDF2): `install_stage_hook!` books, at every converged implicit solve (θ-step, TR stage, BDF stage, BE fallback), the
+  energy injected by the residual's source and lost through the boundary with the weights of the scheme; `burn!` integrates the network along
+  the T/ρ history of the step (`burnT = :path`; E_inj of every stage is known, so TR-BDF2 needs no special case); `solve_step!` iterates a per-zone
+  level factor f_k on ε in the residual (state restored from a snapshot between iterations) until Σ|E_bur − E_inj| ≲ 3e-3 ΣE_bur and no zone's mismatch exceeds 2e-4 of its own energy (the central zones release 1e-4 of the total: a sum criterion alone left 5 % T_c excursions after the post-step correction). Without a stage
+  hook `burn!` behaves as in S4 (E_inj from `step_diag`, constant T_n, f = 1), which the S4 tests rely on.
 * Time-step control: after burn!, `m.dtcap` = Δt min(dX_max/max_k|ΔX_H|, f_e e/max_{i,k}|ΔY_i|Q_i N_A MeV, ...), consulted by
   `TitanCore.timstp!` through `TitanCore.DT_HOOKS` and also applied at once to `dtime` (timstp! runs before burn!).
 """
@@ -47,6 +52,17 @@ end
 # binding energy per nucleus [MeV] from the AME2020 atomic mass excesses (keV): B = Z Δ(¹H) + (A−Z) Δ(n) − Δ
 const BIND = [(NN.ZZ[i] * NN.MEXC[:p] + (NN.AA[i] - NN.ZZ[i]) * NN.MEXC[:n] - NN.MEX[i]) * 1e-3 for i in 1:NS]
 
+"Energy booked at every converged implicit solve of the step (TitanDriver.STAGE_HOOK), with the weights of the scheme."
+mutable struct StageAcc
+    Einj::Vector{Float64}                 # per zone: erg injected by the residual's nuclear source (4π included)
+    Fout::Float64; Fin::Float64           # energy through the outer / inner boundary, erg
+    Tg::Vector{Float64}; dg::Vector{Float64}   # zone T, ρ at the end of the TR stage
+    last::Symbol                          # kind of the last stage booked (:single, :tr, :bdf, :be)
+    ngam::Int
+    nstage::Int
+end
+StageAcc(n) = StageAcc(zeros(n + 2), 0.0, 0.0, zeros(n + 2), zeros(n + 2), :none, 0, 0)
+
 mutable struct StarGas{T} <: TM.Material
     Y::Matrix{Float64}                    # Y[i, k] mol/g
     zmix::NamedTuple{(:C, :N, :O),NTuple{3,Float64}}
@@ -66,9 +82,15 @@ mutable struct StarGas{T} <: TM.Material
     ledger::NamedTuple{(:Einj, :Ebur, :dabs, :Eabs, :resid, :nsteps),NTuple{6,Float64}}   # cumulative totals (erg, 4π incl.); corr = dabs/Eabs
     last::NamedTuple
     Dmix::Vector{Float64}                 # diffusion coefficient at interfaces of the last mix!
+    lambda_mix::Float64                   # fraction of the composition change mixed in the last mix! (1 unless tmax limited it)
+    fscale::Vector{Float64}               # S5: last measured E_bur/E_inj⁰ per zone (diagnostic)
+    fslope::Vector{Float64}               # S5: d(E_bur/E_inj⁰)/dΔ [1/s]: predictor of the level factor, f = 1 + fslope·Δ, see solve_step!
+    fcur::Vector{Float64}                 # S5: level factor on ε in the residual of the step being solved (iterated by solve_step!)
+    acc::StageAcc                         # S5: energy booked by the stage hook during the step
+    fcoupling::Bool                       # use fscale (true) or the plain ε of S4 (false)
 end
 function StarGas(n::Integer; X = 0.76, Y = 0.24, Z = 0.0, zmix = SE.ZMIX, tab = Z0.table(), opac = :stellar, grey = false,
-                 coulomb = true, pairs = true, kcap = Inf, nuc = false, screen = :chugunov, burnT = :end, dXmax = 1e-3, efrac = 0.05, mixing = true)
+                 coulomb = true, pairs = true, kcap = Inf, nuc = false, screen = :chugunov, burnT = :path, dXmax = 1e-3, efrac = 0.05, mixing = true, fcoupling = true)
     Yv = zeros(NS, n)
     s = zmix.C + zmix.N + zmix.O
     for k in 1:n
@@ -76,7 +98,7 @@ function StarGas(n::Integer; X = 0.76, Y = 0.24, Z = 0.0, zmix = SE.ZMIX, tab = 
         Yv[NN.IDX[:c12], k] = Z * zmix.C / s / 12; Yv[NN.IDX[:n14], k] = Z * zmix.N / s / 14; Yv[NN.IDX[:o16], k] = Z * zmix.O / s / 16
     end
     StarGas(Yv, zmix, tab, opac, grey, coulomb, pairs, kcap, nuc, screen, burnT, dXmax, efrac, Inf, Inf, copy(Yv), mixing,
-            (Einj = 0.0, Ebur = 0.0, dabs = 0.0, Eabs = 0.0, resid = 0.0, nsteps = 0.0), (;), zeros(n + 2))
+            (Einj = 0.0, Ebur = 0.0, dabs = 0.0, Eabs = 0.0, resid = 0.0, nsteps = 0.0), (;), zeros(n + 2), 1.0, ones(n + 2), zeros(n + 2), ones(n + 2), StageAcc(n), fcoupling)
 end
 
 "Metal mass fractions below this are set to zero in the EOS/opacity composition (their effect is far below 1e-18)."
@@ -145,7 +167,7 @@ function eps_nuc(ρ, T, Y; screen = :chugunov)
     e
 end
 TX.has_source(m::StarGas) = m.nuc
-TX.material_source(m::StarGas, ρ, T) = m.nuc ? eps_nuc(ρ, T, view(m.Y, :, TX.ZONE[]); screen = m.screen) : zero(T)
+TX.material_source(m::StarGas, ρ, T) = m.nuc ? (m.fcoupling ? m.fcur[TX.ZONE[]] : 1.0) * eps_nuc(ρ, T, view(m.Y, :, TX.ZONE[]); screen = m.screen) : zero(T)
 
 # ----------------------------------------------------------------------------------------------- state fills
 function TM.fill_eos!(m::StarGas)
@@ -195,47 +217,126 @@ function T_of_e(ρ, e, T0, comp; pairs = true, coulomb = true)
     T, abs(st.e - e) / abs(e)
 end
 
+# ----------------------------------------------------------------------------------------------- stage hook
+const γTR = 2 - sqrt(2.0); const ATR = 1 / (γTR * (2 - γTR))      # TR-BDF2: y_{n+1} = A y_γ − B y_n + (1−γ)/(2−γ) Δ f(y_{n+1})
+"""
+    install_stage_hook!(m)
+
+Registers `TitanDriver.STAGE_HOOK`: after every converged implicit solve (θ-step `:single`, TR-BDF2 stage 1 `:tr`, stage 2 `:bdf`,
+backward-Euler fallback `:be`) one Float64 residual evaluation books, per zone, the energy injected by the nuclear source
+(srcw·dt_stage) and the energy that left through the outer boundary (fout), weighted as the scheme combines the stages
+(y_{n+1} = A y_γ − B y_n + C₂Δ f(y_{n+1}) ⇒ weight A on stage 1, 1 on stage 2; A γ + C₂ = 1). The state T, ρ at the end of
+stage 1 is kept as the middle knot of the temperature history that `burn!` integrates.
+"""
+function install_stage_hook!(m::StarGas)
+    TD.STAGE_HOOK[] = function (kind, dt)
+        a = m.acc
+        dn, tn = TM.v(:dn), TM.v(:tn)
+        sd = TX.stage_diag(dt)
+        w = 1.0
+        if kind === :tr || kind === :single || kind === :be
+            fill!(a.Einj, 0.0); a.Fout = 0.0; a.Fin = 0.0; a.nstage = 0
+        end
+        kind === :tr && (w = ATR)
+        for k in eachindex(a.Einj); k <= length(sd.srcw) && (a.Einj[k] += w * 4π * sd.srcw[k] * dt); end
+        a.Fout += w * 4π * sd.fout; a.Fin += w * 4π * sd.fin
+        if kind === :tr; copyto!(a.Tg, tn); copyto!(a.dg, dn); end
+        a.last = kind; a.nstage += 1
+        nothing
+    end
+    nothing
+end
+
 # ----------------------------------------------------------------------------------------------- burn!
+"ln-quadratic (3 knots at s = 0, γ, 1) or ln-linear (2 knots at 0, 1) interpolation."
+@inline function pathval(s, v0, vg, v1, tr::Bool)
+    if tr
+        γ = γTR
+        return v0 * (s - γ) * (s - 1) / γ + vg * s * (s - 1) / (γ * (γ - 1)) + v1 * s * (s - γ) / (1 - γ)
+    end
+    (1 - s) * v0 + s * v1
+end
+
+"""
+    burn_zone(m, k, dt, tr, legacy) -> (Y_new, e_released [erg/g])
+
+Network integration of zone k over the step along the T/ρ history booked by the stage hook (see `burn!`). Does not change `m`.
+"""
+function burn_zone(m::StarGas, k, dt, tr::Bool, legacy::Bool)
+    dn, tn, to, do_ = TM.v(:dn), TM.v(:tn), TM.v(:to), TM.v(:do)
+    acc = m.acc; ρ = dn[k]; Y0 = m.Y[:, k]
+    if m.burnT === :end || legacy
+        res = NN.burn(Y0, ρ, tn[k], dt; screen = m.screen); return res.Y, res.ε * dt
+    end
+    l0, l1 = log(to[k]), log(tn[k]); lg = tr ? log(acc.Tg[k]) : 0.0
+    r0, r1 = log(do_[k]), log(ρ); rg = tr ? log(acc.dg[k]) : 0.0
+    dl = max(abs(l1 - l0), tr ? abs(lg - l0) : 0.0)
+    ns = tn[k] < 2e6 ? 1 : clamp(ceil(Int, 16dl / 0.15), 1, 6)
+    Yk = Y0; eb = 0.0
+    for j in 1:ns
+        sj = (j - 0.5) / ns
+        Tj = exp(pathval(sj, l0, lg, l1, tr)); ρj = exp(pathval(sj, r0, rg, r1, tr))
+        res = NN.burn(Yk, ρj, Tj, dt / ns; screen = m.screen)
+        eb += res.ε * dt / ns; Yk = res.Y
+    end
+    Yk, eb
+end
+
 """
     burn!(m::StarGas; dt = timen − timeo) -> NamedTuple
 
-After a converged step. See the module docstring. Returns the step's ledger entry (Einj, Ebur, corr, resid, max ΔX_H, dtcap).
+After a converged step. Per zone the network is integrated over the step along the temperature/density history of the step
+(`burnT = :path`: ln T and ln ρ interpolated through the knots (t_n, T_o), [(t_γ, T_γ) for TR-BDF2], (t_{n+1}, T_n), in `nseg` equal
+segments with `nseg` ≈ 16 Δln T / 0.15, 1..6; `:end`: constant T_n, S4 behaviour). The energy booked by the stage hook as injected
+by the residual E_inj is compared with the released E_bur; their difference is added to the zone's gas energy at fixed ρ (total
+energy exactly conserved). The ratio E_bur/E_inj⁰ (E_inj⁰ = E_inj/f used, f = 1 + fslope Δ) gives the new slope fslope = (E_bur/E_inj⁰ − 1)/Δ, so the residual of the next
+step (any Δ) injects ε·(1 + fslope Δ) (`fcoupling`): the implicit T-dependence of the residual's heating is kept, its level follows the network
+(the dominant mismatch, the growth of ε through the self-produced CNO and the T history, is linear in Δ).
 """
 function burn!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd = nothing)
     m.nuc || return (; Einj = 0.0, Ebur = 0.0, corr = 0.0, resid = 0.0, dXH = 0.0, dtcap = Inf)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
-    dn, tn, egn, to = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:to)
+    dn, tn, egn, to, do_ = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:to), TM.v(:do)
     dvoln = TM.v(:dvoln)
-    θ = TF.getscalar(:thet)
-    sd === nothing && (sd = TX.step_diag(dt))    # srcw: what the residual injected (erg/s per steradian)
+    acc = m.acc
     m.Yprev .= m.Y
+    tr = acc.last === :bdf
+    legacy = acc.nstage == 0                      # no stage hook booked this step: S4 behaviour (E_inj from step_diag, constant T_n, f = 1)
+    if legacy
+        sd === nothing && (sd = TX.step_diag(dt))
+        fill!(acc.Einj, 0.0); for k in eachindex(sd.srcw); acc.Einj[k] = 4π * sd.srcw[k] * dt; end
+        tr = false
+    end
     Einj = 0.0; Ebur = 0.0; Eabs = 0.0; dcorr = 0.0; resid = 0.0; dXH = 0.0; dEfrac = 0.0; dEsp = 0.0
+    fnew = ones(length(m.fscale)); slope_new = zeros(length(m.fscale))
     for k in a:b
         ρ = dn[k]; mk = 4π * dn[k] * dvoln[k]
-        Tb = m.burnT === :end ? tn[k] : θ * tn[k] + (1 - θ) * to[k]
         Y0 = m.Y[:, k]
-        res = NN.burn(Y0, ρ, Tb, dt; screen = m.screen)
-        eb = res.ε * dt                          # erg/g released (net of ν), time-averaged over substeps
-        ei = 4π * sd.srcw[k] * dt                # erg injected in the zone by the residual
+        Yk, eb = burn_zone(m, k, dt, tr, legacy)
+        ei = acc.Einj[k]                         # erg injected in the zone by the residual (stage weights included)
         Einj += ei; Ebur += eb * mk; Eabs += abs(eb * mk)
         dcorr += abs(eb * mk - ei)
-        # energy: e_new = e_n + (Ebur − Einj)/m at fixed ρ; T re-solved with the new composition
+        # next step's level factor: network release over this step / what the residual would have injected with f = 1
+        ei0 = ei / m.fcur[k]                         # what the residual would have injected with the level factor 1
+        fnew[k] = (m.fcoupling && !legacy && ei0 > 0 && eb * mk > 1e-6 * ei0) ? clamp(eb * mk / ei0, FLIM[1], FLIM[2]) : 1.0
+        slope_new[k] = fnew[k] == 1.0 ? 0.0 : (fnew[k] - 1.0) / dt        # predictor for the next step's f (solve_step!)
         et = egn[k] + (eb * mk - ei) / mk
-        m.Y[:, k] .= res.Y
+        m.Y[:, k] .= Yk
         comp = zonecomp(m, k)
         Tn, er = T_of_e(ρ, et, tn[k], comp; pairs = m.pairs, coulomb = m.coulomb)
         resid = max(resid, er); tn[k] = Tn
-        dXH = max(dXH, abs(NN.AA[IH] * (res.Y[IH] - Y0[IH]) + NN.AA[ID] * (res.Y[ID] - Y0[ID])))
+        dXH = max(dXH, abs(NN.AA[IH] * (Yk[IH] - Y0[IH]) + NN.AA[ID] * (Yk[ID] - Y0[ID])))
         for i in 1:NS
-            dEsp = max(dEsp, abs(res.Y[i] - Y0[i]) * Qspec[i] * NA * MeV / abs(et))
+            dEsp = max(dEsp, abs(Yk[i] - Y0[i]) * Qspec[i] * NA * MeV / abs(et))
         end
         dEfrac = max(dEfrac, abs(eb) / abs(et))
     end
+    m.fscale .= fnew; m.fslope .= slope_new; acc.nstage = 0
     ghosts!(m)
     tn[a-1] = tn[a]; tn[b+1] = tn[b]; tn[b+2] = tn[b]
     refresh!()
     cap = Inf
-    dXH > 0 && (cap = min(cap, dt * m.dXmax / dXH))
+    dXH > 0 && !REGION_CAP[] && (cap = min(cap, dt * m.dXmax / dXH))
     dE = max(dEsp, dEfrac)
     capE = dE > 0 ? dt * m.efrac / dE : Inf
     m.capE = capE; cap = min(cap, capE)
@@ -244,9 +345,84 @@ function burn!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd 
     corr = Ebur == 0 ? 0.0 : dcorr / abs(Ebur)
     L = m.ledger
     m.ledger = (Einj = L.Einj + Einj, Ebur = L.Ebur + Ebur, dabs = L.dabs + dcorr, Eabs = L.Eabs + Eabs, resid = max(L.resid, resid), nsteps = L.nsteps + 1)
-    m.last = (; Einj, Ebur, corr, resid, dXH, dtcap = cap, dEsp, dEfrac)
+    m.last = (; Einj, Ebur, corr, resid, dXH, dtcap = cap, dEsp, dEfrac, Fout = acc.Fout, kind = acc.last)
 end
 
+"""
+    install_state_predictor!(; maxratio = 1.5)
+
+Newton's initial guess of a step (TitanCore.PEQ_HOOK): T and E_r of every zone are extrapolated in time, ln y(t_n + Δ) = ln y_n + (Δ/Δ_prev)
+(ln y_n − ln y_{n−1}) (ratio capped at `maxratio`; the grid is extrapolated by `peq!` as before). TITAN starts from the old state,
+which in a star evolving on t_KH ≫ t_dyn is off by the change of the last step in every zone; for a convective core the error of ∇ − ∇_ad
+(∼ 1e-3 against the solution's 1e-7) puts Newton on the (∇ − ∇_ad)^{3/2} law of the MLT flux far from its root, where it converges only
+linearly, by the factor 1 − 1/p = ⅓ per iteration (8–14 iterations per step, and dt limited by the iteration count).
+"""
+function install_state_predictor!(; maxratio = 1.5)
+    hist = Ref{Any}(nothing)
+    TC.PEQ_HOOK[] = function ()
+        a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
+        tn, ern = TM.v(:tn), TM.v(:ern)
+        t_old = TF.getscalar(:timeo); dt = TF.getscalar(:dtime)
+        cur = (; t = t_old, T = copy(tn), E = copy(ern))
+        h = hist[]
+        if h !== nothing && t_old > h.t
+            r = clamp(dt / (t_old - h.t), 0.0, maxratio)
+            for k in a:b
+                (h.T[k] > 0 && h.E[k] > 0 && tn[k] > 0 && ern[k] > 0) || continue
+                tn[k] *= clamp((cur.T[k] / h.T[k])^r, 0.8, 1.25); ern[k] *= clamp((cur.E[k] / h.E[k])^r, 0.5, 2.0)
+            end
+        end
+        hist[] = cur
+        nothing
+    end
+    nothing
+end
+
+"""
+    solve_step!(m, stepfn; tol = 2e-3, maxit = 4) -> (mismatch, iterations)
+
+One implicit step with a nuclear source that is consistent with the network (`stepfn()` = `TitanDriver.STEPFN[]`, which starts from
+`peq`). The residual's source is ε(ρ,T;Y_lag)·f_k with a per-zone level factor f_k = `fcur`. Starting from the predictor
+f_k = 1 + fslope_k Δ, the step is solved, the network is integrated along the step's T/ρ history (`burn_zone`, no commit) and
+f_k ← E_bur,k/E_inj⁰,k (E_inj⁰ = E_inj/f used) until Σ|E_bur − E_inj| ≤ tol Σ E_bur; between iterations the state is restored from a
+snapshot. The implicit T-dependence of the heating stays in the Jacobian, so the thermostat of the burning core is implicit, and what
+`burn!` has to correct afterwards (E_bur − E_inj) is ≲ tol of the energy released: no operator-splitting heat pulse at the end of a step.
+"""
+const VERBOSE_SPLIT = Ref(false)
+"Range of the level factor f_k on ε in the residual: zones where ³He, D or the CNO catalysts relax within a step (cool edge of the core) release far less than ε(Y_lag)·Δ."
+const FLIM = (1e-3, 1e2)
+function solve_step!(m::StarGas, stepfn; tol = 2e-3, maxit = 4, ztol = 2e-4)
+    if !(m.nuc && m.fcoupling); stepfn(); return (NaN, 1, NaN); end
+    a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
+    dt_plan = TF.getscalar(:dtime)
+    m.fcur .= clamp.(1 .+ m.fslope .* dt_plan, FLIM[1], FLIM[2])
+    snap = TD.snapshot()
+    mism = Inf; zmis = Inf; it = 0
+    for outer it in 1:maxit
+        stepfn()
+        dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
+        tn, dn, dvoln, egn = TM.v(:tn), TM.v(:dn), TM.v(:dvoln), TM.v(:egn); acc = m.acc
+        tr = acc.last === :bdf
+        sumb = 0.0; sumd = 0.0; zmis = 0.0; fnewv = copy(m.fcur)
+        for k in a:b
+            (tn[k] < 1e6 || acc.Einj[k] <= 0) && (fnewv[k] = 1.0; continue)
+            Yk, eb = burn_zone(m, k, dt, tr, false)
+            mk = 4π * dn[k] * dvoln[k]; ebk = eb * mk; sumb += ebk; sumd += abs(ebk - acc.Einj[k])
+            zmis = max(zmis, abs(ebk - acc.Einj[k]) / (mk * abs(egn[k])))      # the heat the post-step correction would add, relative to the zone's own energy
+            ei0 = acc.Einj[k] / m.fcur[k]
+            fnewv[k] = (ebk > 1e-6 * ei0) ? clamp(ebk / ei0, FLIM[1], FLIM[2]) : 1.0
+            VERBOSE_SPLIT[] && abs(ebk - acc.Einj[k]) > 1e-3 * 1e47 && println("         zone ", k - a + 1, " Ebur ", ebk, " Einj ", acc.Einj[k], " f ", m.fcur[k], " -> ", fnewv[k], " T ", tn[k])
+        end
+        mism = sumb > 0 ? sumd / sumb : 0.0
+        VERBOSE_SPLIT[] && println("      split it ", it, " mism ", round(mism; sigdigits = 3), " zone-wise ", round(zmis; sigdigits = 3))
+        (mism <= tol && zmis <= ztol || it == maxit) && break
+        TD.restore!(snap); m.fcur .= fnewv
+    end
+    (mism, it, zmis)
+end
+
+"S5: the X_H part of the time-step cap comes from `predict_cap` only (rates averaged over the mixed regions of the last `mix!`), not from the per-zone burn of `burn!`: a convective core is homogenised within the step, so the central zone's own ΔX_H (10× the region's mean) is not what the lagged composition sees."
+const REGION_CAP = Ref(false)
 const WHICH = Ref{Any}(nothing)
 """
     predict_cap(m) -> dt [s]
@@ -343,10 +519,10 @@ end
 """
     mix!(m; dt, sd = TX.step_diag(dt)) -> NamedTuple
 
-Convective mixing over the step just taken (see the module docstring). Returns (cons = max_i |Δ(Σ dm Y_i)|/Σ dm Y_i,
+Convective mixing over the step just taken (see the module docstring). `tmax` (S5): partial mixing, at most the fraction of the composition change that shifts T of any zone by ≤ tmax in the fixed-e re-solve (the rest follows next step). `bridge = nb` (S5): convective regions are contiguous: gaps of ≤ nb interfaces (∇ ≤ ∇_ad at a single noisy interface) are filled with D = min of the neighbours, and a core is extended to the centre; without it the intermittently unmixed core drifted in composition and the next mixing re-solved T at fixed e (ΔT/T up to 24 % in the central zone). `capmix = false` (S5): mixing does not limit dt. The net (burn + mixing) change of X_H per zone limited dt to dXmax per step, but a redistribution of composition conserves the mass of every species: when the convective core switched off and on between steps (its flux is zero for ∇ ≤ ∇_ad), the step that mixed a core burnt unmixed for one step moved X_H by 0.1 in a zone and cut dt to 1e-6 yr, which kept the core unmixed: a death spiral (15 and 100 M☉ runs). Returns (cons = max_i |Δ(Σ dm Y_i)|/Σ dm Y_i,
 nconv = number of interfaces with D > 0, Dmax, t_turn = min over convective interfaces of ℓ/v, dEmax = max zone energy change).
 """
-function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd = TX.step_diag(dt), D = nothing)
+function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd = TX.step_diag(dt), D = nothing, capmix = true, bridge = 0, tmax = Inf)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dn, tn, egn, rn, dvoln = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:rn), TM.v(:dvoln)
     n = b - a + 1
@@ -354,6 +530,20 @@ function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd =
     for j in 2:n
         k = a + j - 1
         Di[j] = D === nothing ? (sd.fcv[k] > 0 && sd.vcv[k] > 0 ? sd.vcv[k] * sd.lcv[k] / 3 : 0.0) : D[k]
+    end
+    if bridge > 0 && D === nothing      # convective regions are contiguous: fill gaps of ≤ `bridge` interfaces and extend a core to the centre
+        jf = findfirst(>(0), view(Di, 2:n))
+        if jf !== nothing
+            jf += 1
+            jf <= 2 + 2bridge && (for j in 2:jf-1; Di[j] = Di[jf]; end)
+            j = jf
+            while j <= n
+                if Di[j] > 0; j += 1; continue; end
+                j2 = j; while j2 <= n && Di[j2] <= 0; j2 += 1; end
+                (j2 <= n && j2 - j <= bridge) && (for jj in j:j2-1; Di[jj] = min(Di[j-1], Di[j2]); end)
+                j = j2
+            end
+        end
     end
     m.Dmix = zeros(length(dn)); for j in 2:n; m.Dmix[a+j-1] = Di[j]; end
     any(>(0), Di) || return (; cons = 0.0, nconv = 0, Dmax = 0.0, t_turn = Inf, dEmax = 0.0)    # (burn!'s local cap stands)
@@ -365,6 +555,30 @@ function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd =
     tot1 = [sum(Y[i, j] * dm[j] for j in 1:n) for i in 1:NS]
     cons = maximum(abs(tot1[i] - tot0[i]) / tot0[i] for i in 1:NS if tot0[i] > 0; init = 0.0)
     dEmax = 0.0
+    if tmax < Inf       # S5: partial mixing. Re-solving T at fixed e and ρ for a large composition change (the boundary of a growing core moves
+                        # over a zone: ΔX_H = 0.2) shifts T of that zone by 10–20 %, which the next hydro step must undo (rejected / diverging steps).
+                        # Mix only the fraction λ of the change that keeps max|Δ ln T| ≤ tmax; the rest follows in the next steps (Σ dm Y conserved: linear in λ).
+        Y0 = m.Y[:, a:b]; ΔY = Y .- Y0
+        function maxdT(λ)
+            Ys = copy(m.Y); mx = 0.0
+            for j in 1:n
+                any(ΔY[:, j] .!= 0) || continue
+                k = a + j - 1; Ys[:, k] .= Y0[:, j] .+ λ .* ΔY[:, j]
+                comp = (t = xyz(view(Ys, :, k)); SE.composition(t[1], t[2], t[3], m.zmix))
+                Tn, _ = T_of_e(dn[k], egn[k], tn[k], comp; pairs = m.pairs, coulomb = m.coulomb)
+                mx = max(mx, abs(log(Tn / tn[k])))
+            end
+            mx
+        end
+        mx1 = maxdT(1.0)
+        if mx1 > tmax
+            λ = clamp(tmax / mx1, 0.02, 1.0)
+            for _ in 1:3; mxl = maxdT(λ); mxl <= 1.05tmax && break; λ *= 0.7tmax / mxl; end
+            Y .= Y0 .+ λ .* ΔY; m.lambda_mix = λ
+        else
+            m.lambda_mix = 1.0
+        end
+    end
     for j in 1:n
         k = a + j - 1
         any(Y[:, j] .!= m.Y[:, k]) || continue
@@ -375,7 +589,7 @@ function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd =
     ghosts!(m)
     tn[a-1] = tn[a]; tn[b+1] = tn[b]; tn[b+2] = tn[b]
     refresh!()
-    if m.nuc                       # net (burn + mixing) change of X_H per zone → time-step cap
+    if m.nuc && capmix             # net (burn + mixing) change of X_H per zone → time-step cap (S5: off, see below)
         dXn = maximum(abs(hmass(m, k) - (NN.AA[IH] * m.Yprev[IH, k] + NN.AA[ID] * m.Yprev[ID, k])) for k in a:b)
         m.dtcap = min(m.capE, dXn > 0 ? dt * m.dXmax / dXn : Inf)
         TF.setscalar!(:dtime, min(TF.getscalar(:dtime), m.dtcap))

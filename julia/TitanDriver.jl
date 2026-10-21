@@ -81,11 +81,23 @@ const EDD_MATERIAL_SOURCE = Ref(false)
 bitwise!(on::Bool = true) = (FIX_CLOCK[] = !on; FIX_ENERGY[] = !on; nothing)
 get(ENV, "TITAN_BITWISE", "0") == "1" && bitwise!(true)
 
+"""
+`STAGE_HOOK[]` (S5): `f(kind::Symbol, dt)` called by the step functions right after every converged implicit solve, while
+the new arrays hold the stage state and the old arrays its starting state: `:single` (TITAN's θ-scheme step, dt = dtime),
+and from `Trbdf2` `:tr` (stage 1), `:bdf` (stage 2) and `:be` (backward-Euler fallback). Used by StarMaterial to book the
+energy injected by the nuclear source and the energy lost through the boundary with the weights of the scheme.
+"""
+const STAGE_HOOK = Ref{Any}(nothing)
+"The full step size Δ of the step being solved (TR-BDF2 solves stages of γΔ, (1−γ)/(2−γ)Δ; `dtime` is the stage size). Set by `step!` and `Trbdf2.step!`; read by StarMaterial's source."
+const FULL_DT = Ref(0.0)
+"Factor on dtime after a Newton failure in `step!` (TITAN: 0.05; S5 star runs: 0.5, so that dt hovers near the largest step Newton can take instead of dropping 20×)."
+const FAIL_TFAC = Ref(5.0e-2)
 "Julia version of subroutine step (step.f), same control flow and arithmetic."
 function step!()
     r(:peq)
     s!(:jtry, 1); s!(:jback, 0)
     @label two
+    FULL_DT[] = g(:dtime)
     s!(:iter, 1)
     @label three
     r(:matgen); r(:matslv); r(:maxdel); r(:update)
@@ -94,7 +106,7 @@ function step!()
     g(:iter) <= g(:niter) && @goto three
     # failure to converge: reduce timestep
     msg(1)
-    s!(:tfac, 5.0e-2)
+    s!(:tfac, FAIL_TFAC[])
     s!(:dtime, g(:tfac) * g(:dtime))
     s!(:timen, g(:timeo) + g(:dtime))
     s!(:jtry, g(:jtry) + 1)
@@ -106,6 +118,7 @@ function step!()
     s!(:lboos, 1)
     r(:matgen); r(:matslv); r(:maxdel); r(:update)
     s!(:lboos, 0)
+    STAGE_HOOK[] === nothing || STAGE_HOOK[](:single, g(:dtime))
     FIX_ENERGY[] && r(:totnrg)              # book with the dt actually taken
     r(:timstp)
     xs = g(:smax) / g(:stol)

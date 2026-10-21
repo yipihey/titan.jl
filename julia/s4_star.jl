@@ -36,10 +36,17 @@ Builds the TITAN state of the Eddington standard model of mass M [g] and radius 
 gas+radiation, β from the Eddington quartic). Mass grid: `n - nenv` zones geometric (ratio qc) in the interior, then `nenv` zones
 log-spaced in the exterior mass fraction down to `mfloor` (surface zone mass = mfloor·M). T is floored at Tfloor
 (the polytrope's surface is T → 0, not an atmosphere); F_r = L_rad(m)/4πr² with L_rad from hydrostatic radiative equilibrium.
+
+S5 changes (the S4 defaults are kept where a test depends on them): (i) the interface radii are mapped with the exterior mass fraction normalised to the
+model's own total mass, and for q < 1e-7 follow the surface law r = R − δ*(q/q*)^{1/4} of the n = 3 polytrope (the RK4 Lane–Emden table cannot resolve
+the last 1e-9 of the mass: the two outermost zones had collapsed onto R, 2e-6 R apart, with ρ 1000× that of their neighbours, which is the origin of
+the S4 "super-Eddington skin"); (ii) `atm = true`: T⁴ = T_poly⁴ + ½T_eff⁴ (the grey-atmosphere constant, so that the flux boundary condition
+F = c g_R E_b matches the interior flux, instead of T → 0 / Tfloor); (iii) x_m,e (exterior mass offset of the grid) = 10⁻³ M/4π instead of 10³ times the mass
+(whose round-off equalled the surface zone's mass); (iv) `fcoupling` is passed to StarGas.
 """
 function build_star(; M = 100Msun, R = 5Rsun, X = 0.75, n = 100, nenv = 24, qc = 1.12, mfloor = 1e-10, Tfloor = 6e4, nuc = true,
                     alpha = 1.5, opac = :stellar, efrac = 0.05, dXmax = 1e-3, burnT = :end, theta = nothing, mixing = true,
-                    Yinit = nothing, screen = :chugunov, kind = :star, kcap = Inf, wmax = 40.0, qsplit = 0.3)
+                    Yinit = nothing, screen = :chugunov, kind = :star, kcap = Inf, wmax = 40.0, qsplit = 0.3, fcoupling = true, atm = false)
     ξ, θp, μp = lane_emden3(); ξ1 = ξ[end]; μ1 = μp[end]
     μmol = 1 / (2X + 0.75(1 - X)); β = eddington_beta(M, μmol)
     G = Z0.G; k = Z0.kB; a = Z0.arad
@@ -55,36 +62,53 @@ function build_star(; M = 100Msun, R = 5Rsun, X = 0.75, n = 100, nenv = 24, qc =
     mfrac = vcat(mint, 1 .- qe); mfrac[end] = 1.0
     m = M .* mfrac
     ξof(mm) = begin                                    # invert μ(ξ) = m/(4π al³ ρc)
-        t = mm / (4π * al^3 * ρc); t >= μ1 && return ξ1
+        t = mm / M * μ1; t >= μ1 && return ξ1          # (S5: normalised to the model's own total mass: the 7th-digit mismatch of M_poly/M squeezed the two outermost zones into 2e-6 R)
         i = searchsortedlast(μp, t); i >= length(μp) && return ξ1
         ξ[i] + (t - μp[i]) / (μp[i+1] - μp[i]) * (ξ[i+1] - ξ[i])
     end
     θof(x) = (i = searchsortedlast(ξ, x); i >= length(ξ) ? 0.0 : θp[i] + (x - ξ[i]) / (ξ[i+1] - ξ[i]) * (θp[i+1] - θp[i]))
     rI = [al * ξof(mm) for mm in m]; rI[1] = 0.0; rI[end] = R
+    # S5: the Lane–Emden table (RK4, h = 2e-4, last step interpolated) does not resolve the last ~1e-9 of the mass: the outermost interfaces
+    # collapsed onto R. Near the surface μ1 − μ ∝ (ξ1 − ξ)⁴ (θ ≈ |θ'1|(ξ1 − ξ), ρ ∝ θ³), so for exterior mass fractions q < q* the radii are
+    # R − δ*(q/q*)^{1/4}, with δ* from the table at q* = 1e-7.
+    let qs = 1e-7, δs = R - al * ξof(M * (1 - qs))
+        for j in 2:length(rI)-1
+            q = 1 - m[j] / M
+            q < qs && (rI[j] = R - δs * (q / qs)^0.25)
+        end
+    end
+    mat = kind === :star ? SM.StarGas(TF.MGR; X = X, Y = 1 - X, Z = 0.0, nuc, opac, efrac, dXmax, burnT, screen, mixing, kcap, fcoupling) :
+          StellarMaterial.StellarGas(TF.MGR; X = X, Y = 1 - X, Z = 0.0)
     dvol(j) = (rI[j+1]^3 - rI[j]^3) / 3
     ρz = [(m[j+1] - m[j]) / (4π * dvol(j)) for j in 1:n]
     mid(j) = 0.5 * (m[j] + m[j+1])
     ρpoly = [ρc * max(θof(ξof(mid(j))), 0.0)^3 for j in 1:n]
-    Tz = Float64[]
-    for j in 1:n
-        P = K * ρpoly[j]^(4 / 3); push!(Tz, max((3 * (1 - β) * P / a)^0.25, Tfloor))
+    Ppoly = [K * ρpoly[j]^(4 / 3) for j in 1:n]
+    # radiative-equilibrium luminosity: L(m) = 4π c G m (P_rad/P_tot)/κ
+    function Lprofile(Tz)
+        Lz = zeros(n + 1)
+        for j in 2:n
+            ρi = ρz[j]; Ti = Tz[j]
+            TX.ZONE[] = 1; κ = SO_kap(mat, ρi, Ti, X)
+            Pr = a * Ti^4 / 3; Pg = SE.gas_pe(ρi, Ti; X, Y = 1 - X)[1]
+            Lz[j] = 4π * Z0.c * G * m[j] * Pr / (Pr + Pg) / κ
+        end
+        Lz[n+1] = Lz[n]
+        Lz
+    end
+    Tz = [max((3 * (1 - β) * Ppoly[j] / a)^0.25, Tfloor) for j in 1:n]
+    if atm      # S5: the n = 3 polytrope has T → 0 at the surface. A grey atmosphere has T⁴ = ¾ T_eff⁴ (τ + ⅔) while the polytrope's radiation pressure
+                # already supplies the term linear in τ (P_rad = Γ g τ/κ ⇒ aT⁴/3 = ¼ aT_eff⁴ τ·…): what is missing is the constant ½ T_eff⁴, which
+                # makes the flux boundary condition F = c g_R E_b consistent with the interior flux (F = σT_eff⁴ for E_b = a T_eff⁴/2).
+        Teff4 = Lprofile(Tz)[n] / (4π * R^2 * Z0.σSB)
+        Tz = [(3 * (1 - β) * Ppoly[j] / a + 0.5 * Teff4)^0.25 for j in 1:n]
     end
     Er = a .* Tz .^ 4
     get(ENV,"S4DBG","0")=="1" && (println("rho z: ", ρz[[1,2,3,n-nenv,n-2,n-1,n]], "\nT z: ", Tz[[1,2,3,n-nenv,n-2,n-1,n]], "\nr: ", rI[[1,2,3,n-1,n,n+1]]); flush(stdout))
-    mat = kind === :star ? SM.StarGas(TF.MGR; X = X, Y = 1 - X, Z = 0.0, nuc, opac, efrac, dXmax, burnT, screen, mixing, kcap) :
-          StellarMaterial.StellarGas(TF.MGR; X = X, Y = 1 - X, Z = 0.0)
-    # radiative-equilibrium luminosity: L(m) = 4π c G m (P_rad/P_tot)/κ
-    Lz = zeros(n + 1)
-    for j in 2:n+1
-        j <= n || continue
-        ρi = ρz[min(j, n)]; Ti = Tz[min(j, n)]
-        TX.ZONE[] = 1; κ = SO_kap(mat, ρi, Ti, X)
-        Pr = a * Ti^4 / 3; Pg = SE.gas_pe(ρi, Ti; X, Y = 1 - X)[1]
-        Lz[j] = 4π * Z0.c * G * m[j] * Pr / (Pr + Pg) / κ
-    end
+    Lz = Lprofile(Tz)
     Fz = [j == 1 ? 0.0 : Lz[j] / (4π * rI[j]^2) for j in 1:n+1]; Fz[end] = Lz[n] / (4π * R^2)
     PS.build!(; rI, rho = ρz, T = Tz, u = zeros(n + 1), geom = 2, rad = true, Er, Fr = Fz, lgrid = 3, inner = :wall, outer = :free,
-              pext = 0.0, selfgrav = true, material = mat, convection = true, gam = 5 / 3, gmu = 1.0)
+              pext = 0.0, selfgrav = true, material = mat, convection = true, gam = 5 / 3, gmu = 1.0, xmext = 1e-3 * M / (4π))   # (S5: PS default 1e3·M put x_m,e at 1e3 M, leaving the exterior-mass differences of the surface zones at the round-off level)
     TX.REGULAR_CENTRE[] = true
     TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
     TX.ALPHA_MLT[] = alpha

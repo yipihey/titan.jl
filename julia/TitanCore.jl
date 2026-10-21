@@ -123,6 +123,20 @@ end
 const STATIC_FALLBACK = Ref(false)
 "S4: functions `() -> dt_max` consulted at the end of timstp! (e.g. the composition criterion of StarMaterial). Empty = TITAN's rule."
 const DT_HOOKS = Function[]
+"""
+S5: `DT_RULE[] = f(dt0) -> dt` replaces TITAN's relative-change rule (stol on every variable, tfac ∈ [0.1, 10]) at the end of
+`timstp!`; `DT_HOOKS` caps still apply afterwards. A quasi-static star changes on its evolutionary time scale, yet the stol rule is
+is not what limits a quasi-static star (smax 1e-4 … 7e-3 against stol 0.3); what does is Newton's convergence (see s5_run.jl `dt_rule`, `robust_step!`).
+"""
+const DT_RULE = Ref{Any}(nothing)
+"""
+S5: `EXTRAP_FRAC[]` (default Inf = TITAN): the initial Newton guess extrapolates every interface with its grid velocity,
+r = r_old + (dr/dt) dt. For dt ≫ zone crossing time (quasi-static stars, dt ~ 1e2–1e6 yr, velocities 1e-3–1 cm/s noise) that overshoots the
+neighbouring zones and peq halved dt until the grid was monotone again (dt collapsed to 1 s). The extrapolation interval of an
+interface is limited to EXTRAP_FRAC × (its smaller adjacent zone width) / |dr/dt|: continuous, and exactly TITAN's for flows that move
+less than a fraction of a zone per step. Replaces the all-or-nothing STATIC_FALLBACK.
+"""
+const EXTRAP_FRAC = Ref(Inf)
 function timstp!()
     a, b = gi(:ngrs), gi(:ngre); neqn = gi(:neqn)
     lhydr, lrad, ltur = gi(:lhydr), gi(:lrad), gi(:ltur)
@@ -178,6 +192,9 @@ function timstp!()
             (rn[k] > 0 && xmn[k] > 0) && (tdyn = min(tdyn, sqrt(rn[k]^3 / (G4π * xmn[k]))))
         end
         dtn = min(dtn, DT_DYN[] * tdyn); tfac = dtn / dt0
+    end
+    if DT_RULE[] !== nothing
+        dtn = DT_RULE[](dt0); tfac = dtn / dt0
     end
     for h in DT_HOOKS                      # S4: material time-step criteria (composition change, ...): h() -> dt cap [s]
         cap = h()
@@ -375,6 +392,10 @@ const PEQ_OLD2_RH = ((:dso, :dsn), (:uso, :usn), (:pgo, :pgn), (:aso, :asn), (:e
                      (:egro, :egrn), (:egrso, :egrsn), (:chifo, :chifn), (:frso, :frsn), (:xkeo, :xken),
                      (:xkpo, :xkpn), (:xneo, :xnen), (:plfo, :plfn))
 
+"S5: `PEQ_HOOK[] = f()` is called by `peq!` after new → old and before the extrapolation of the grid, i.e. with the end-of-last-step state in both the old and the new arrays; it may overwrite new arrays to improve the Newton initial guess (see StarMaterial.install_state_predictor!)."
+const PEQ_HOOK = Ref{Any}(nothing)
+"S5: Lagrangian (lgrid = 3) runs: set ρ_new = ρ_old ΔV_old/ΔV_new after the grid extrapolation of `predict!`, i.e. start Newton with the continuity rows satisfied."
+const PRED_LAGRHO = Ref(false)
 "Prepare a time step (peq{h,rh}): new → old, extrapolate r and m, boundary values, derived quantities."
 function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     a, b = gi(:ngrs), gi(:ngre); lrad = gi(:lrad) == 1
@@ -386,6 +407,7 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     lrad && for (o, n) in ((:ero, :ern), (:fro, :frn)); copyto!(view(vf(o), a-1:b+2), view(vf(n), a-1:b+2)); end
     for (o, n) in (lrad ? PEQ_OLD2_RH : PEQ_OLD2_H); copyto!(view(vf(o), a-1:b+1), view(vf(n), a-1:b+1)); end
     lrad && copyto!(view(vf(:avchio), a:b+1), view(vf(:avchin), a:b+1))
+    PEQ_HOOK[] === nothing || PEQ_HOOK[]()
     predict!(; eos!, opac!)
 end
 
@@ -413,13 +435,24 @@ function predict!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[](), halve::B
         llibc > 0 && (drdt[a] = un[a]; dmdt[a] = 0.0)
         llobc > 0 && (drdt[b+1] = un[b+1]; dmdt[b+1] = 0.0)
         dt = gf(:dtime) * dtscale * dtfac
-        @inbounds for k in a:b+1
-            rn[k] = ro[k] + drdt[k] * dt
-            xmen[k] = xmeo[k] - dmdt[k] * dt
+        if EXTRAP_FRAC[] < Inf
+            @inbounds for k in a:b+1
+                wl = k > a ? ro[k] - ro[k-1] : Inf; wr = k <= b ? ro[k+1] - ro[k] : Inf; w = min(wl, wr)
+                v = abs(drdt[k]); dtk = (v > 0 && w > 0 && v * dt > EXTRAP_FRAC[] * w) ? EXTRAP_FRAC[] * w / v : dt
+                rn[k] = ro[k] + drdt[k] * dtk
+                wml = k > a ? xmeo[k-1] - xmeo[k] : Inf; wmr = k <= b ? xmeo[k] - xmeo[k+1] : Inf; wm = min(wml, wmr)
+                vm = abs(dmdt[k]); dtm = (vm > 0 && wm > 0 && vm * dt > EXTRAP_FRAC[] * wm) ? EXTRAP_FRAC[] * wm / vm : dt
+                xmen[k] = xmeo[k] - dmdt[k] * dtm
+            end
+        else
+            @inbounds for k in a:b+1
+                rn[k] = ro[k] + drdt[k] * dt
+                xmen[k] = xmeo[k] - dmdt[k] * dt
+            end
         end
         mono = true
         @inbounds for k in a:b
-            (rn[k+1] <= rn[k] || xmen[k+1] > xmen[k]) && (mono = false; break)
+            (rn[k+1] <= rn[k] || xmen[k+1] > xmen[k] * (1 + 100eps())) && (mono = false; break)
         end
         mono && break
         if STATIC_FALLBACK[]            # S4: quasi-static runs with dt ≫ zone crossing time: use the old grid as the initial guess
@@ -432,7 +465,19 @@ function predict!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[](), halve::B
             dtfac *= 0.5
         end
         jext += 1; s!(:jext, jext)
-        jext <= nnext || error("peq: grid extrapolation nonmonotonic after $nnext attempts")
+        if jext > nnext
+            kbad = findfirst(k -> rn[k+1] <= rn[k] || xmen[k+1] > xmen[k] * (1 + 100eps()), a:b)
+            kb = kbad === nothing ? 0 : a + kbad - 1
+            error("peq: grid extrapolation nonmonotonic after $nnext attempts (first bad interface $kb: ro $(ro[kb]) $(ro[kb+1]) rn $(rn[kb]) $(rn[kb+1]) drdt $(drdt[kb]) $(drdt[kb+1]) xmeo $(xmeo[kb]) $(xmeo[kb+1]) xmen $(xmen[kb]) $(xmen[kb+1]) dmdt $(dmdt[kb]) $(dmdt[kb+1]))")
+        end
+    end
+    # ---- S5: Lagrangian grid: density consistent with the extrapolated radii (continuity row satisfied at the initial guess)
+    if PRED_LAGRHO[] && gi(:lgrid) == 3
+        dn_, do_, dvolo_ = vf(:dn), vf(:do), vf(:dvolo); mu1 = gi(:mu) + 1; xmup1 = gf(:xmup1)
+        @inbounds for k in a:b
+            dvn = (rn[k+1]^mu1 - rn[k]^mu1) / xmup1
+            dvn > 0 && (dn_[k] = do_[k] * dvolo_[k] / dvn)
+        end
     end
     # ---- boundary values of u and F
     leibc <= 2 && (un[a] = gf(:ul)); llibc == 1 && (un[a] = gf(:uextl))

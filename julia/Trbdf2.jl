@@ -135,11 +135,13 @@ function step!()
     save!()
     s!(:jtry, 1); s!(:jback, 0)
     while true
-        Δ = g(:dtime)
+        Δ = g(:dtime); TD.FULL_DT[] = Δ
         if BE_LEFT[] > 0                  # sticky backward-Euler phase after a fallback
             BE_LEFT[] -= 1
             s!(:thet, 1.0); s!(:timen, t0 + Δ)
-            ok = newton!(); s!(:thet, θ0)
+            ok = newton!()
+            ok && TD.STAGE_HOOK[] !== nothing && TD.STAGE_HOOK[](:be, Δ)
+            s!(:thet, θ0)
             if ok; STATS[:be_sticky] = get(STATS, :be_sticky, 0) + 1; break; end
             restore!(); TD.msg(1)
             s!(:tfac, TFAC[]); s!(:dtime, TFAC[] * Δ); s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)
@@ -150,11 +152,12 @@ function step!()
         if !ok
             STATS[:fail_tr] += 1
         else
+            TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:tr, γ * Δ)
             if bdf_old!()
                 s!(:thet, 1.0); s!(:dtime, C2 * Δ); s!(:timen, t0 + Δ)
                 TitanCore.predict!(; halve = false)       # initial guess y* + C2 Δ f from the grid velocities
                 ok = newton!()
-                ok || (STATS[:fail_bdf] += 1)
+                ok ? (TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:bdf, C2 * Δ)) : (STATS[:fail_bdf] += 1)
             else
                 ok = false; STATS[:fail_bdf] += 1
             end
@@ -163,7 +166,9 @@ function step!()
         ok && break
         if FALLBACK_BE[]          # same Δ with backward Euler from y_n before cutting the step
             r(:reset); s!(:thet, 1.0); s!(:timen, t0 + Δ); TitanCore.predict!(; halve = false)
-            ok = newton!(); s!(:thet, θ0)
+            ok = newton!()
+            ok && TD.STAGE_HOOK[] !== nothing && TD.STAGE_HOOK[](:be, Δ)
+            s!(:thet, θ0)
             ok && (STATS[:be_fallback] += 1; BE_LEFT[] = STICKY[]; break)
         end
         TD.msg(1)
