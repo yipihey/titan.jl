@@ -143,8 +143,8 @@ function new_opacity(n, nf, na)
     Opacity(zeros(n, nf), zeros(n, nf), zeros(n, nf), [zeros(n, nf) for _ in 1:na], [zeros(n, nf) for _ in 1:na], zeros(n, nf))
 end
 
-"Lowest temperature at which ContinuumOpacity.alpha is called (its H⁻ ff fit is an extrapolation below ≈ 1000 K and diverges at 100 K; the coefficients are those of this T below it)."
-const TCO_MIN = Ref(800.0)
+"Lowest temperature at which ContinuumOpacity.alpha is called. 0 (default): alpha is finite and continuous from 10 K (ck/alpha-lowT: H⁻ ff held at its 1400 K validity edge, H₂⁺ LTE estimate in logs); the former 800 K floor also mis-evaluated the H₂ CIA of cold gas."
+const TCO_MIN = Ref(0.0)
 "ContinuumOpacity.alpha for the other continua; the bf terms the network supplies are removed (returns absorption, scattering)."
 function co_other(ν, T, nH, X, abs_R)
     n(s) = nH * X(s)
