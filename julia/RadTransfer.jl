@@ -29,6 +29,18 @@ const CN = ChemNet; const CO = ContinuumOpacity
 const hP = CN.hP; const c = CN.c; const kB = CN.kB; const eV = CN.eV
 const σSB = 5.670374419e-5
 
+# S7c-2 switches (read at construction of `Opts` / `default_grid`; env RT_LYMAN=1, RT_LYA=1 for the drivers that cannot pass them)
+"Lyman-series scattering of atomic H (Kramers–Heisenberg with damping wings and thermal cores, LymanWings.jl) instead of the Rayleigh polynomial. Default off (= S7a/S7b)."
+const LYMAN = Ref(get(ENV, "RT_LYMAN", "0") == "1")
+"Trapped-Lyα radiation force (McKee & Tan 2008 eq. 22) as a separate component of `ARAD`. Default off."
+const LYA = Ref(get(ENV, "RT_LYA", "0") == "1")
+"Lines Ly-2 … Ly-n resolved by `default_grid` when `lyman` (extra bin edges, see LymanWings.line_edges)."
+const LYMAN_LINES = Ref(parse(Int, get(ENV, "RT_LYMAN_LINES", "12")))
+"Line-centre Lyα luminosity [erg/s] injected at the inner boundary (the H II region inside r_s: 0.68 of the absorbed ionising photons); set by the driver."
+const LYA_INJECT = Ref(0.0)
+"Stellar radius [cm] for the blackbody limit J ≤ B of the trapped radiation (0 = no limit; used when `Source.Rstar` is 0)."
+const LYA_RSTAR = Ref(0.0)
+
 # ------------------------------------------------------------------ frequency grid
 struct FreqGrid
     edges::Vector{Float64}; ν::Vector{Float64}; dν::Vector{Float64}; E::Vector{Float64}       # E: eV
@@ -43,7 +55,7 @@ end
 
 Bins of constant Δln ν per segment between the break energies [eV] (Emin, 0.754, 1.511, 3.4, 11.2, χ_H, χ_He, χ_He⁺, Emax); ≈ 250 bins.
 """
-function default_grid(; Emin = 0.1, Emax = 100.0, dIR = 0.1, dopt = 0.08, dLW = 0.01, dUV = 0.02)
+function default_grid(; Emin = 0.1, Emax = 100.0, dIR = 0.1, dopt = 0.08, dLW = 0.01, dUV = 0.02, lyman = (LYMAN[] || LYA[]), nlines = LYMAN_LINES[])
     bp = [Emin, 0.754, 1.511, 3.4, 11.2, CN.χH / eV, CN.χHe1 / eV, CN.χHe2 / eV, Emax]
     dl = [dIR, dopt, dopt, dopt, dLW, dUV, dUV, dUV]
     E = Float64[]
@@ -51,7 +63,21 @@ function default_grid(; Emin = 0.1, Emax = 100.0, dIR = 0.1, dopt = 0.08, dLW = 
         n = max(1, ceil(Int, log(bp[s+1] / bp[s]) / dl[s])); append!(E, bp[s] .* (bp[s+1] / bp[s]) .^ ((0:n-1) ./ n))
     end
     push!(E, Emax)
-    grid_from_edges(E .* eV ./ hP)
+    ed = E .* eV ./ hP
+    lyman && (ed = merge_edges(ed, LymanWings.line_edges(2, nlines)))
+    grid_from_edges(ed)
+end
+"Union of two ascending edge lists; an edge of `extra` closer than 2e-6 (relative) to an existing edge is dropped."
+function merge_edges(ed, extra)
+    out = collect(Float64, ed)
+    for e in extra
+        (e <= ed[1] || e >= ed[end]) && continue
+        j = searchsortedfirst(out, e)
+        (j <= length(out) && abs(out[j] / e - 1) < 2e-6) && continue
+        (j > 1 && abs(out[j-1] / e - 1) < 2e-6) && continue
+        insert!(out, j, e)
+    end
+    out
 end
 "Grid from explicit edge energies [eV]."
 edge_grid(Eedges) = grid_from_edges(collect(Float64, Eedges) .* eV ./ hP)
@@ -122,6 +148,10 @@ end
 Base.@kwdef struct Opts
     stim::Bool = true; emit::Bool = true; co::Bool = true; diffuse::Bool = true; twophoton::Bool = false
     nscat::Int = 6; scat_tol::Float64 = 1e-4; conserve::Bool = true
+    lyman::Bool = LYMAN[]          # S7c-2: Kramers–Heisenberg scattering of H I (Lyman wings and cores) replaces Dalgarno's Rayleigh polynomial
+    lya::Bool = LYA[]              # S7c-2: trapped-Lyα radiation force (MT08 eq. 22) added to `arad` (and kept in `ARAD_LYA`)
+    lya_vt::Float64 = 0.0          # extra (turbulent) speed in the Lyα Doppler width [cm/s]
+    lya_xh::Float64 = 3.0          # half-width of the stellar-continuum window of the trapped force, in units of x̂ = x/(aτ̄)^{1/3}
 end
 "Zones: interfaces r (n+1), T, nH (H nuclei cm⁻³) and X (species → abundance per H nucleus; missing = 0)."
 struct Medium
@@ -138,9 +168,10 @@ mutable struct Opacity
     kbf::Vector{Matrix{Float64}}     # gross bound–free of each absorber
     knet::Vector{Matrix{Float64}}    # net (gross − stimulated)
     kother::Matrix{Float64}    # net absorption of the non-network continua
+    sHI::Matrix{Float64}       # S7c-2: the part of `ssc` that is scattering by neutral H (Dalgarno's Rayleigh, or the Kramers–Heisenberg sum when `lyman`), only filled when `lyman` or `lya`
 end
 function new_opacity(n, nf, na)
-    Opacity(zeros(n, nf), zeros(n, nf), zeros(n, nf), [zeros(n, nf) for _ in 1:na], [zeros(n, nf) for _ in 1:na], zeros(n, nf))
+    Opacity(zeros(n, nf), zeros(n, nf), zeros(n, nf), [zeros(n, nf) for _ in 1:na], [zeros(n, nf) for _ in 1:na], zeros(n, nf), zeros(n, nf))
 end
 
 "Lowest temperature at which ContinuumOpacity.alpha is called. 0 (default): alpha is finite and continuous from 10 K (ck/alpha-lowT: H⁻ ff held at its 1400 K validity edge, H₂⁺ LTE estimate in logs); the former 800 K floor also mis-evaluated the H₂ CIA of cold gas."
@@ -159,8 +190,18 @@ end
 "Two-photon continuum of H: ψ(y) = 12 y (1 − y) (Spitzer & Greenstein 1951), A_2γ = 8.23 s⁻¹; fraction f of the n ≥ 2 recombinations that decay through 2s."
 two_photon_eta(ν, rate_B; f2γ = 0.32) = (ν0 = 10.2 * eV / hP; ν >= ν0 ? 0.0 : (y = ν / ν0; hP * ν * 2 * 12y * (1 - y) / ν0 * f2γ * rate_B / (4π)))
 
+"Bin-averaged Lyman-series scattering table of a grid (LymanWings.table; cached on the bin edges)."
+const LYTAB = Dict{UInt,Any}()
+function lytable(g::FreqGrid)
+    key = hash(g.edges)
+    get!(LYTAB, key) do
+        LymanWings.table(g.edges)
+    end
+end
+
 function fill_opacity!(op::Opacity, g::FreqGrid, ab::Vector{Absorber}, med::Medium, o::Opts)
     n = length(med); nf = nfreq(g); abs_R = Symbol[a.R for a in ab]
+    ltab = (o.lyman || o.lya) ? lytable(g) : nothing
     Threads.@threads for k in 1:n
         T = med.T[k]; nH = med.nH[k]; kT = kB * T
         Xk(s) = xs(med, s, k)
@@ -196,6 +237,22 @@ function fill_opacity!(op::Opacity, g::FreqGrid, ab::Vector{Absorber}, med::Medi
                 op.eta[k, f] += a_ * Bν(g.ν[f], T)
             end
         end
+        if ltab !== nothing
+            # S7c-2: scattering of the neutral H atoms from the Kramers–Heisenberg sum (damping wings, thermal cores) replaces Dalgarno's polynomial of ContinuumOpacity (still
+            # inside `sc` when o.co): σ̄_bin(T) is the bin average (Voigt cores resolved), not the value at the bin centre. `sHI` keeps the neutral-H part of the scattering.
+            nHa = nH * Xk(:H)
+            if nHa > 0
+                for f in 1:nf
+                    sc0 = o.co ? CO.σ_ray_H(c / g.ν[f] * 1e8) * nHa : 0.0
+                    if o.lyman
+                        s1 = nHa * LymanWings.sigma_bin(ltab, f, T)
+                        op.ssc[k, f] = max(op.ssc[k, f] - sc0 + s1, 0.0); op.sHI[k, f] = s1
+                    else
+                        op.sHI[k, f] = sc0
+                    end
+                end
+            end
+        end
         for f in 1:nf
             tot = op.kother[k, f]
             for ia in eachindex(ab); tot += op.knet[ia][k, f]; end
@@ -208,6 +265,8 @@ end
 # ------------------------------------------------------------------ the field
 "Radiation acceleration [cm s⁻²] of the last `transfer` call (per zone): the hook for the momentum equation (S7b adds ρ a to the force of each zone)."
 const ARAD = Ref(Float64[])
+"Trapped-Lyα component of `ARAD` (S7c-2; zeros when `Opts.lya` is off). `ARAD[]` is the sum of the direct beam, the diffuse field and this component."
+const ARAD_LYA = Ref(Float64[])
 mutable struct RadField
     g::FreqGrid; r::Vector{Float64}
     Jdir::Matrix{Float64}; Jdiff::Matrix{Float64}; J::Matrix{Float64}        # n × nf zone mean intensity [erg s⁻¹ cm⁻² Hz⁻¹ sr⁻¹]
@@ -235,14 +294,21 @@ function transfer(g::FreqGrid, ab::Vector{Absorber}, src::Source, med::Medium, o
     fill_opacity!(op, g, ab, med, o)
     V = [volume(r, k) for k in 1:n]; Δr = diff(r)
     Ld = zeros(n + 1, nf); Jdir = zeros(n, nf); Pabs = zeros(n, nf); Psc = zeros(n, nf)
+    arad_hi = zeros(n)                                    # S7c-2: the beam's force from the scattering by neutral H (single scattering), subtracted from the trapped-Lyα force
+    La = o.lya ? zeros(n + 1, nf) : zeros(0, 0)          # luminosity attenuated by true absorption only (the flux of the scattered, trapped photons: ∇·F = 0)
     # ---- direct beam
     for f in 1:nf
         L = src.L[f]; Ld[1, f] = L
+        if o.lya
+            Lp = L; La[1, f] = L
+            for k in 1:n; Lp *= exp(-op.kabs[k, f] * Δr[k]); La[k+1, f] = Lp; end
+        end
         for k in 1:n
             ext = op.kabs[k, f] + op.ssc[k, f]; τ = ext * Δr[k]; t = -expm1(-τ)
             Ld[k+1, f] = L * (1 - t)
             if ext > 0
                 Pabs[k, f] = L * t * op.kabs[k, f] / ext; Psc[k, f] = L * t * op.ssc[k, f] / ext
+                o.lya && rho !== nothing && (arad_hi[k] += L * t * op.sHI[k, f] / ext / (c * rho[k] * V[k]))
             end
             # effective mean intensity of the zone: absorbed/(4π κ V) with absorbed = L t κ_abs/ext  →  L (t/τ) Δr/(4π V) · (κ_abs/ext)(ext/κ) = L (t/τ) Δr/(4πV) (extinction beam)
             Jdir[k, f] = (τ > 1e-300 ? L * t / τ : L) * Δr[k] / (4π * V[k]) / (g.dν[f])
@@ -285,6 +351,14 @@ function transfer(g::FreqGrid, ab::Vector{Absorber}, src::Source, med::Medium, o
         end
         arad .+= arad_dir
     end
+    # ---- trapped Lyα (MT08 eq. 22), a separate component
+    alya = zeros(n)
+    if o.lya && rho !== nothing
+        GH = zeros(n); for (ia, a) in enumerate(ab); (a.R === :H && occursin("ground", a.p.name)) && (GH .+= Gam[ia]); end        # ionising-photon (> 13.6 eV, from the ground level) photoionisation rate per H atom: the stellar driver of the H II gas
+        alya = lya_accel(g, lytable(g), La, med, rho, o; Linject = LYA_INJECT[], Rstar = (src.Rstar > 0 ? src.Rstar : LYA_RSTAR[]), Lsrc = src.L, GammaH = GH) .- arad_hi
+        arad .+= alya
+    end
+    ARAD_LYA[] = alya
     # ---- ledger (photons above χ_H and energy)
     iH = findfirst(i -> g.edges[i] >= CN.χH / hP * (1 - 1e-9), 1:nf)
     iH === nothing && (iH = nf + 1)          # (grids without ionising bins)
@@ -601,5 +675,7 @@ function medium_from_net(r, T, nH, xs_, net)
 end
 
 include(joinpath(@__DIR__, "RadSweep.jl"))      # S7b: ion_sweep, interface_accel
+include(joinpath(@__DIR__, "LymanWings.jl"))    # S7c-2: H I Lyman-series scattering cross section, MT08 trapped-Lyα pressure
+include(joinpath(@__DIR__, "RadLya.jl"))        # S7c-2: trapped-Lyα radiation force on the grid
 
 end # module

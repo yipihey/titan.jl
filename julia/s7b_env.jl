@@ -142,6 +142,10 @@ function field!(rec, Mdot_dyn)
     redge = rn[1]; u_edge = abs(un[1])
     ρs = RHOMODE == "mdot" && isfinite(Mdot_dyn) && Mdot_dyn > 0 ? Mdot_dyn / (4π * redge^2 * max(u_edge, 1e3)) : dn[1]
     inner = perf(:rt_inner, () -> S.inner_column(ia, src, Mstar, rec["R"], redge, ρs, max(u_edge, 1e3); nz = NZIN, T = TINNER, reemit = (g, max(rec["Tph"], 3000.0))))
+    # S7c-2 (RT_LYA=1): the Lyα of the H II region inside r_s (0.68 per absorbed ionising photon, case B) is injected at line centre at the inner boundary; R* bounds J <= B
+    if RT.LYA[]
+        RT.LYA_INJECT[] = 0.68 * 10.2 * CN.eV * max(inner.Qstar - inner.Qesc, 0.0); RT.LYA_RSTAR[] = rec["R"]
+    end
     mz = 4π .* dn .* dv
     rmid = 0.5 .* (rn[1:end-1] .+ rn[2:end]); ubar = 0.5 .* (abs.(un[1:end-1]) .+ abs.(un[2:end]))
     mdotH = 4π .* rmid .^ 2 .* dn .* ubar ./ CN.μH()
@@ -217,7 +221,7 @@ function barrier!(t)
             maximum(fd.f.kLW), fd.amax, fd.Fmax, t_rt)
     flush(stdout)
     # envelope record for the star
-    done = Mpt >= MCAP || (MDOTSTOP > 0 && Md < MDOTSTOP && j > 20)
+    done = Mpt >= MCAP || (MDOTSTOP > 0 && Md < MDOTSTOP && j > 20) || tc >= envf("S7B_TCMAX", 1e30) * YR       # (S7B_TCMAX [yr]: S7c-2, stop a halted run)
     if EXCH
         save = !isempty(SAVEAT) && Macc / Msun + ST.Mstar0 / Msun >= SAVEAT[1] / Msun
         save && popfirst!(SAVEAT)
@@ -278,7 +282,7 @@ function finish()
     end
     # performance record (own file, independent of the driver's Perf instrumentation)
     mkpath(joinpath(Main.TF.ROOT, "lib", "popiii", "perf"))
-    open(joinpath(Main.TF.ROOT, "lib", "popiii", "perf", "s7b_$(TAG)_env_sections.csv"), "w") do io
+    open(joinpath(Main.TF.ROOT, "lib", "popiii", "perf", "$(get(ENV, "S7B_PERFPREFIX", "s7b"))_$(TAG)_env_sections.csv"), "w") do io
         println(io, "section,calls,total_s,mean_ms")
         for (kk, (c, s)) in sort(collect(PERFD); by = x -> -x[2][2]); @printf(io, "%s,%d,%.4f,%.4f\n", kk, c, s, 1e3 * s / max(c, 1)); end
         @printf(io, "exchange_wait_and_rt_total,%d,%.4f,%.4f\n", ST.j, ST.texch, 1e3 * ST.texch / max(ST.j, 1))

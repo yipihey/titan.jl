@@ -1,0 +1,33 @@
+a: ν_Lyα = 2.46604e+15 Hz (1215.684 Å, 10.1987 eV), Lyman limit 3.28805e+15 Hz; f_2 = 0.41620, f_3 = 0.07910, A_21 = 6.2615e+08 s^-1; 430 bins in the production grid (70 without lines)
+PASS  a1 sum rule, polarizability    Σ f_bound = 0.56500, continuum 0.43476, total 0.99975 (1); S(0) = 4.50441 (4.5 a.u.)
+   σ(ω/ω_l)  [this/Lee-Kim]: 0.05: 5.3001e-30/5.3002e-30 0.10: 8.6723e-29/8.6725e-29 0.20: 1.5224e-27/1.5224e-27 0.30: 9.1081e-27/9.1082e-27 0.40: 3.7570e-26/3.7569e-26 0.50: 1.3980e-25/1.3962e-25
+   ω/ω_l = 0.6: 6.0126e-25 vs series (truncated at p = 9, 'accurate to 4 %') 5.7831e-25: ratio 1.0397
+PASS  a2 Rayleigh vs Lee & Kim       max |ratio − 1| = 1.3e-03 for ω/ω_l ≤ 0.5; leading coefficient σ/σ_T (ω_l/ω)⁴ at 0.02 = 1.2668 (c_0 = 1.26537)
+PASS  a3 Ferland/Gavrila fit         max |σ/σ_Ferland − 1| = 0.054 (ω/ω_l = 0.2-0.6); Dalgarno's polynomial / this (ω/ω_l:ratio): 0.2: 1.00 0.3: 0.99 0.4: 0.94 0.5: 0.81 0.6: 0.54
+PASS  a4 Lyα resonance               peak σ = 7.0564e-11 (3λ²/2π = 7.0564e-11); ∫σ dν over ±1e-3 ν₀ + Lorentz tail = 1.1046e-02 (π e² f/mc = 1.1046e-02)
+   σ/σ_T near Lyα [this/Lee eq. 19]: -0.10: 4.367e+00/4.368e+00 -0.05: 1.802e+01/1.801e+01 -0.02: 1.112e+02/1.112e+02 -0.01: 4.399e+02/4.398e+02 +0.01: 4.241e+02/4.242e+02 +0.02: 1.032e+02/1.033e+02 +0.05: 1.452e+01/1.454e+01
+   midway Lyα–Lyβ (11.1430 eV): σ = 1.8178e-24 cm² (Lorentz wings of Lyα 3.360e-24 + Lyβ 1.933e-25; the dispersion terms carry the rest)
+PASS  a5 wings vs Lee expansion      max |σ/σ_Lee − 1| = 0.001 for |Δω/ω₂₁| ≤ 0.05 (fifth order; the series itself is good to a few % there)
+PASS  a6 Voigt, thermal cores        Voigt H(a,x) vs quadrature: max rel. diff 8.6e-04; ∫σ(T = 1e4 K) / ∫σ(atom) over ±0.3 % = 1.00000; core peak 5.8949e-14 cm² (σ₀ H(a,0) = 5.8949e-14)
+   table vs brute-force bin average at T = 1500 K (between nodes): 370 bins, worst 0.171 in bin 372 (13.5027 eV, width 3.2e-05)
+PASS  a7 tabulated bin averages      max rel. difference 0.171 (bins in the Gaussian-to-Lorentz transition of a core, 4-7 Doppler widths, where ln σ is not linear in ln T between the nodes 10^(1/8) apart); width-weighted mean 4.5e-03
+   N_H = 1e+18 cm^-2: grid 8.71458e-04, direct integral 8.34632e-04 (fraction of L/c removed below 13.59 eV), ratio 1.0441
+   N_H = 1e+20 cm^-2: grid 4.60858e-03, direct integral 4.58055e-03 (fraction of L/c removed below 13.59 eV), ratio 1.0061
+   N_H = 1e+22 cm^-2: grid 4.01188e-02, direct integral 4.04596e-02 (fraction of L/c removed below 13.59 eV), ratio 0.9916
+   N_H = 1e+24 cm^-2: grid 2.23247e-01, direct integral 2.22660e-01 (fraction of L/c removed below 13.59 eV), ratio 1.0026
+PASS  b1 shell force vs integral     5e4 K blackbody, neutral shell at T = 1000 K: max |grid/direct − 1| = 0.008 for N_H ≥ 1e20 (Voigt cores and Lorentz wings; the grid resolves Ly-2 … Ly-12); with Dalgarno's polynomial instead the force at 1e22 is 7.3171e-03 (5.5 times smaller)
+   M_F(N_H = 1e19, 1e20, 1e21, 1e22) = 13.6 29.3 63.1 136.0; fit 10 N19^0.44 = 10.0 27.5 75.9 208.9; slab estimate 15 (τ_0/10^5.5)^{1/3} = 18.5 39.8 85.7
+PASS  c1 force multiplier            M_F / (10 N19^0.44) = 1.36 1.06 0.83 at N_H = 1e19, 1e20, 1e21; log-slope 0.333 (analytic 1/3; their fit 0.44)
+   coherent regime (τ_total(r_0) = 40 at 8 eV): a_lya / (σ n F/ρc) at zones 5, 20, 40, 55 = 1.045 1.026 1.012 1.004; the beam alone (saturating): 0.00187 6.82e-10 2.56e-14 5.39e-16
+PASS  c2 flux-conserving closure     force per mass / (σ n_H F/ρc): mean 1.020, range 1.004-1.045 over zones 5-55 (conserved flux, N_eff from the profile); the beam (scattered photons removed) gives 0.002 at zone 5
+PASS  c3 thin limit                  τ_total = 4.0e-08: max |a(lya) − a(beam)|/a(beam) = 0.002 (bookkeeping of N_eff only)
+   injected Lyα (L = 1e39 erg/s) at r = 668 AU in an n_H = 1e8 (r/r0)^-1.5 envelope: N_out = 1.800e+24, N_eff = 3.995e+23 (k_ρ = 1.50), J/F = 194.9, M_F = 816.3, P_iso = 2.1668e-02 dyn/cm² (formula 2.1668e-02)
+PASS  c4 injected line               P_iso(r_1) / formula = 1.000000000000; P = 0 at the outer edge, decreasing outwards
+PASS  d1 defaults = S7b              a_rad (zones 1, 10, 40, 80, Σ) and k_LW of the 100 Msun star in a 1e7 cm^-3 (r/3000 AU)^-1.5 envelope, direct beam and with the diffuse field: max relative difference to the S7b numbers 1.6e-13; ARAD_LYA = 0
+   a_rad/g at zones 1, 10, 20, 40, 80: S7b (coarse grid) 0.785 0.147 0.0766 0.047 0.0372 | refined grid, Dalgarno 0.8 0.143 0.0726 0.0449 0.0363 | + Lyman wings 1.51 0.122 0.0675 0.0437 0.0355 | + trapped Lyα 10.5 10.7 12.9 19.6 73.7
+PASS  d2 grid refinement alone       lines resolved, Dalgarno opacity: max |a − a(S7b grid)|/a = 5.3e-02 (bin splitting only: the coarse 25 % bins of S7b sample the spectrum and the opacities at their centres)
+   N_H = 1e+20: k_LW 1.254e-02 (Dalgarno) -> 1.254e-02 (Lyman wings), ratio 1.000
+   N_H = 1e+22: k_LW 4.043e-06 (Dalgarno) -> 4.104e-06 (Lyman wings), ratio 1.015
+   N_H = 1e+23: k_LW 6.821e-09 (Dalgarno) -> 7.834e-09 (Lyman wings), ratio 1.148
+PASS  e1 LW overlap                  k_LW changes by the difference of the two H I scattering cross sections in 11.2-13.6 eV (Dalgarno's polynomial is an extrapolation there, the KH sum is not): the H₂ Lyman/Werner lines are not in the opacity (kLW = 1.38e9 J_LW f_sh), the H I wings attenuate the same photons independently; no photon is counted twice
+S7C2: ALL PASS

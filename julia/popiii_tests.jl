@@ -117,6 +117,9 @@ tests = Test[
     # --- S7b: OI02 H II-region confinement and radiation-force criteria, radiation-pressure shell in TITAN (AEXT hook), multi-species sweep -------
     Test("s7b", env(julia(joinpath(J, "s7b_test.jl"); t = 3), "TITAN_NOLIB" => "1"), "full",
          o -> (occursin("S7B: ALL PASS", o), grab(r"S7B[^\n]*", o))),
+    # --- S7c-2: Lyman-series scattering of H I (Kramers-Heisenberg, Voigt cores) and the trapped-Lyα radiation force (MT08) ------------------------
+    Test("s7c2", env(julia(joinpath(J, "s7c2_test.jl"); t = 3), "TITAN_NOLIB" => "1"), "full",
+         o -> (occursin("S7C2: ALL PASS", o), grab(r"S7C2[^\n]*", o))),
 ]
 
 sel = filter(t -> tier == "full" || t.tier == "quick", tests)
