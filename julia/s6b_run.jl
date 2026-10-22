@@ -20,6 +20,8 @@ envf(k, d) = haskey(ENV, k) ? parse(Float64, ENV[k]) : d
 envi(k, d) = haskey(ENV, k) ? parse(Int, ENV[k]) : d
 # S6b Part 3: MDOTFILE = CSV (header, then M [Msun], Mdot [Msun/yr]): time-dependent accretion rate Mdot(M*) (log-log interpolation, constant outside), e.g. from the collapse (popiii_m2c.jl SINK=1)
 const MDOTTAB = Ref{Any}(nothing)
+# S7b (opt-in, S7B_STAR=1; s7b_star.jl): hooks of the coupled run — S7BH[](d) after every accepted step, S7BDT[](dt) cap of the next time step, S7BMDOT[]() accretion rate (or nothing)
+const S7BH = Ref{Any}(nothing); const S7BDT = Ref{Any}(nothing); const S7BMDOT = Ref{Any}(nothing)
 if haskey(ENV, "MDOTFILE")
     rows = [parse.(Float64, split(l, ",")[1:2]) for l in readlines(ENV["MDOTFILE"])[2:end] if !isempty(strip(l))]
     MDOTTAB[] = (log.([r[1] for r in rows]), log.([r[2] for r in rows]))
@@ -68,6 +70,7 @@ function update_bc!()
     HOOKOFF[] -= 1
     R = rn[b+1]; M = intmass(b + 1); frn = TF.var(:frn)
     MDOTTAB[] === nothing || (global Mdot = mdot_now(M))
+    S7BMDOT[] === nothing || (let m_ = S7BMDOT[](); m_ === nothing || (global Mdot = m_); end)
     kL = kLstar()         # L* from a few interfaces below the surface (the surface flux itself is the stiff response to the boundary condition)
     Lstar = 4π * rn[kL]^2 * (frn[kL] + (LASTSD[] === nothing ? 0.0 : LASTSD[].fcv[kL]))
     # S6a-fix: L* of the precursor relaxed over LTAU [yr] (0 = off): the luminosity of the surface layers flickers by 10 when the precursor sits at the ionisation cliff
@@ -232,6 +235,7 @@ function dt_rule(dt0)
     TF.getscalar(:iter) > envi("ITSLOW", 20) && (f = min(f, 0.8))
     dtn = f * dt0
     acc_on && (dtn = min(dtn, envf("FMAX", 3e-3) * intmass(b + 1) / Mdot))
+    S7BDT[] === nothing || (dtn = S7BDT[](dtn))
     haskey(ENV, "DTMAX") && (dtn = min(dtn, parse(Float64, ENV["DTMAX"])))        # accreted mass per step ≤ FMAX × M
     dtn
 end
@@ -481,6 +485,9 @@ if get(ENV, "RELAX", "1") == "1" && !haskey(ENV, "RESTART")
     mat.acc.Einj .= 0.0; led.E_prev = energies().Etot; led.Ed_prev = energies().Etotd; led.E0 = led.E_prev
     TF.setscalar!(:dtime, envf("DT1", 100.0)); update_bc!(); tstart0[] = TF.getscalar(:timen); Mstart0[] = intmass(b + 1)
 end
+if get(ENV, "S7B_STAR", "0") == "1"
+    include(joinpath(@__DIR__, "s7b_exchange.jl")); include(joinpath(@__DIR__, "s7b_star.jl"))
+end
 maxsteps = envi("MAXSTEPS", 100); tend = envf("TEND", 1e12) * YR; mend = envf("MEND", 1e9) * Msun
 try
     for k in 1:maxsteps
@@ -490,6 +497,7 @@ try
         robust_step!()
         nstep[] += 1
         d = after_step(nstep[], xme_start, Mz_start)
+        S7BH[] === nothing || S7BH[](d)
         (nstep[] % envi("CKEVERY", 500) == 0) && haskey(ENV, "SAVE") && checkpoint(ENV["SAVE"] * "_auto" * string((nstep[] ÷ envi("CKEVERY", 500)) % 2))
         nstep[] % envi("CSVEVERY", 200) == 0 && write_csv()
         while !isempty(profm) && d.M / Msun >= profm[1]; dump_profile(d); popfirst!(profm); end
@@ -500,6 +508,7 @@ catch e
     pr("STOPPED at step %d: %s\n", nstep[], sprint(showerror, e, catch_backtrace())[1:min(end, 1500)])
 end
 write_csv()
+S7BH[] === nothing || Main.S7bStar.finish()
 haskey(ENV, "SAVE") && checkpoint(ENV["SAVE"])
 let d = diag(TX.step_diag(1.0)), t0 = TF.getscalar(:timen)
     dM = d.M - Mstart0[]

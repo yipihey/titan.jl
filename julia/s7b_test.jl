@@ -152,8 +152,40 @@ function test_d()
     end
     check("d4 resolution", maximum(abs.(Rs ./ Rs[end] .- 1)) < 5e-3, @sprintf("volume-equivalent ionised radius at 100/200/800 zones: %s kpc (a front of %.0f zones per call at 800)", join([@sprintf("%.4f", x / kpc) for x in Rs], " / "), 0.5 * 800 * RS / (6.6kpc) ))
 end
+
+# ====================================================================== e. star record -> inner column -> envelope field (S7b module)
+function test_e()
+    include(joinpath(J, "s7b_exchange.jl")); include(joinpath(J, "s7b_feedback.jl"))
+    Base.invokelatest(test_e_body)
+end
+function test_e_body()
+    S = Main.S7b
+    # e1: exchange record round trip
+    d = Dict("a" => 1.5, "b" => -2e-30, "c" => 3.0e40); path = joinpath(mktempdir(), "rec.txt"); S.write_rec(path, d); r2 = S.wait_rec(path)
+    check("e1 record round trip", all(r2[k] == d[k] for k in keys(d)), "write_rec/wait_rec exact")
+    # e2: inner column: bolometric conservation (absorbed power re-emitted), photon balance, confinement
+    M = 60Msun; R = 10Rsun; rs = 300AU; Mdot = 5e-3Msun / YR; u_s = 15e5; rho_s = Mdot / (4π * rs^2 * u_s)
+    rec = Dict("Lstar" => 1e6 * S.Lsun, "R" => R, "Linf" => 1.2e6 * S.Lsun, "Tph" => 8000.0)
+    src = S.star_source(gr, rec; mode = :star)
+    inn = S.inner_column(IAHe, src, M, R, rs, rho_s, u_s; reemit = (gr, 8000.0))
+    Lin = sum(src.L); Lout = sum(inn.Lout)
+    check("e2 inner column", abs(Lout - Lin) / Lin < 1e-9 && inn.Qesc <= inn.Qstar, @sprintf("L_out/L_in = %.12f (absorbed %.2e of %.2e erg/s re-emitted); Q* = %.2e, escaping %.2e; R_II/R* = %.3f; Q/Q_crit = %.2e; ionised flux Ṁ/m_p = %.2e", Lout / Lin, inn.Labs, Lin, inn.Qstar, inn.Qesc, inn.RII / R, inn.Qstar / inn.Qcrit, Mdot / mp))
+    # e3: breakout: the same star in a thin envelope (Mdot ÷ 300): the H II region reaches r_s and ionising photons enter the grid
+    inn2 = S.inner_column(IAHe, src, M, R, rs, rho_s / 300, u_s; reemit = (gr, 8000.0))
+    check("e3 breakout", inn2.Qesc > 0.5 * inn2.Qstar && inn2.Qstar / inn2.Qcrit > 1, @sprintf("Mdot/300: Q/Q_crit = %.1f, escaping fraction %.3f, R_II/R* = %.0f", inn2.Qstar / inn2.Qcrit, inn2.Qesc / inn2.Qstar, inn2.RII / R))
+    # e4: envelope field: the sweep's beam and RadTransfer.transfer's direct beam agree (same composition); photons and momentum
+    n = 60; r = collect(range(rs, 3rs, length = n + 1)); rc = 0.5 .* (r[1:end-1] .+ r[2:end]); nHz = rho_s / 300 ./ CN.μH() .* (rc ./ rs) .^ (-1.5)
+    net2, ph2 = A.atomic(); xn = zeros(length(net2.free)); for (i, s) in enumerate(net2.free); s === :H2 && (xn[i] = 0.01); s === :Hp && (xn[i] = 1e-6); end
+    xnet = [copy(xn) for _ in 1:n]; T = fill(1500.0, n); rho = nHz .* CN.μH()
+    ab = RT.absorbers(ph2, gr)
+    f = S.envfields(gr, IAHe, ab, net2, ph2, r, T, rho, nothing, xnet, inn2.Lout; opts = RT.Opts(diffuse = false), passes = 1)
+    Ldir = f.rf.Ldir; Lsw = f.sw.Ld
+    dev = maximum(abs.(Ldir[end, IAHe.f0:end] .- Lsw[end, IAHe.f0:end]) ./ (Lsw[1, IAHe.f0:end] .+ 1e-300))
+    check("e4 sweep vs transfer", dev < 1e-6, @sprintf("transmitted ionising power: max relative difference of the two direct beams %.1e; lit zones (x > 0.5) %d of %d; |ΣaM|c = %.3e of L_abs = %.3e erg/s", dev, count(>=(0.5), f.sw.x), n, abs(sum(f.arad .* (4π / 3 .* (r[2:end] .^ 3 .- r[1:end-1] .^ 3) .* rho))) * CN.c, sum(inn2.Lout) - sum(f.rf.Ldir[end, :])))
+end
 which in ("a", "all") && test_a()
 which in ("b", "all") && test_b()
+which in ("e", "all") && test_e()
 which in ("d", "all") && test_d()
 if which in ("c", "all")
     include(joinpath(J, "s7b_shell.jl"))

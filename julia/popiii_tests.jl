@@ -114,6 +114,9 @@ tests = Test[
     # --- S7a: frequency-dependent transfer, photochemistry, LW self-shielding; Iliev et al. 2006/2009 tests (incl. a TITAN hydro run) -----------
     Test("s7a", env(julia(joinpath(J, "s7a_test.jl"); t = 3), "TITAN_NOLIB" => "1"), "full",
          o -> (occursin("S7A: ALL PASS", o), grab(r"S7A[^\n]*", o))),
+    # --- S7b: OI02 H II-region confinement and radiation-force criteria, radiation-pressure shell in TITAN (AEXT hook), multi-species sweep -------
+    Test("s7b", env(julia(joinpath(J, "s7b_test.jl"); t = 3), "TITAN_NOLIB" => "1"), "full",
+         o -> (occursin("S7B: ALL PASS", o), grab(r"S7B[^\n]*", o))),
 ]
 
 sel = filter(t -> tier == "full" || t.tier == "quick", tests)

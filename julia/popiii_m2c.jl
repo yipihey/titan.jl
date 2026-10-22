@@ -21,6 +21,11 @@ using ForwardDiff
 include(joinpath(@__DIR__, "Trbdf2.jl"))
 # default since G2b: θ = 0.55 lets the z = 19 core oscillate at 1e11–1e13 (three-body heating phase) where TR-BDF2 is smooth
 get(ENV, "INTEGRATOR", "trbdf2") == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
+# S7b (opt-in): coupled protostellar feedback on the envelope (RadTransfer fields, radiation force, exchange with the protostar process); see s7b_env.jl
+const S7B = get(ENV, "S7B", "0") == "1"
+if S7B
+    include(joinpath(@__DIR__, "RadTransfer.jl")); include(joinpath(@__DIR__, "s7b_exchange.jl")); include(joinpath(@__DIR__, "s7b_feedback.jl")); include(joinpath(@__DIR__, "s7b_env.jl"))
+end
 const Msun = 1.98847e33
 
 cool = isempty(ARGS) ? "ra04" : ARGS[1]; nsh = length(ARGS) > 1 ? parse(Int, ARGS[2]) : 100
@@ -287,9 +292,11 @@ else
     atomic = startswith(CHEM, "netatomic")
     netw, phot = CHEM == "net" ? (ChemRates.rhfc02(; k5 = k5f), ChemNet.Photo[]) :
                  atomic ? AtomicHHe.atomic(; li = CHEM == "netatomicli") : ChemRates.modern(; li = CHEM == "netmodernli")
+    S7B && (atomic || error("S7B needs CHEM=netatomic[li]"); (netw, phot) = S7bEnv.prepare_net(netw, phot))
     tcmb = parse(Float64, get(ENV, "TCMB", "0"))
     Bν_(ν, T) = 2ChemNet.hP * ν^3 / ChemNet.c^2 / expm1(ChemNet.hP * ν / (ChemNet.kB * T))
     envn = (Trad = tcmb, J = tcmb > 0 ? (ν -> Bν_(ν, tcmb)) : (ν -> 0.0), static = true)   # same J in every zone: tabulated photo-rates
+    S7B && (envn = S7bEnv.make_env(phot, tcmb))        # S7b: per-zone radiation environment (RadTransfer.ZoneEnv), the CMB until the coupling starts
     ytup(d) = (d[:Hp], d[:Hm], d[:H2], d[:H2p])
     eqd(ρ, T) = (y = PopIIIEqEOS.composition(ρ, T); Dict(:H => 1 - y[1] - 2y[3], :Hp => y[1], :H2 => y[3], :He => ChemNet.yHe, :Hep => 0.0, :Hepp => 0.0, :e => y[1], :Hm => 0.0, :H2p => 0.0))
     coolnet = (ρ, T, d) -> cf(ρ, T, d === nothing ? PopIIIEqEOS.composition(ρ, T) : ytup(d))
@@ -311,6 +318,7 @@ else
         end
     end
 end
+S7B && S7bEnv.install!(mat)
 "Composition of zone k as the PrimordialChem tuple (x_H⁺, x_H⁻, x_H₂, x_H₂⁺), for either material."
 ycomp(k) = mat isa PM.NetGas ? (d = ChemNet.full(mat.x[k], mat.net); (d[:Hp], d[:Hm], d[:H2], d[:H2p])) : mat.y[k]
 "Equilibrium-regime flag of zone k."
@@ -449,6 +457,7 @@ try
     TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k)
         _tc = time_ns(); dT = PM.chem!(mat); TCHEM[] += (time_ns() - _tc) * 1e-9
         SINK && sink_update!(k)
+        S7B && S7bEnv.after_step(k)
         if atomic_dt > 0           # S6c: Δt ≤ ATOMDT × (thermal energy / atomic cooling rate) of the fastest-cooling zone (the cooling inside the chemistry step is implicit; this keeps the operator splitting accurate)
             tcmin_at = Inf
             for j in a:b
@@ -530,6 +539,7 @@ catch e
     pr("stopped: %s\n", sprint(showerror, e)[1:min(end, 400)])
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
+S7B && S7bEnv.finish()
 pr("wall time: total %.1f s, line transfer %.1f s, chemistry %.1f s (%d failed zone steps kept)\n", time() - T0WALL, TLINE[], TCHEM[], PM.CHEM_FAILS[])
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])

@@ -518,6 +518,32 @@ function set_zone!(ze::ZoneEnv, Jbins::AbstractVector, kLW = 0.0)
     ze.J = ν -> (i = searchsortedlast(edges, ν); (i >= 1 && i <= nf) ? tab[i] : 0.0)
     prepare!(ze)
 end
+"""
+    set_zone_light!(ze, Jbins, kLW = 0.0)
+
+S7b: as `set_zone!` but only the photo-integrals R and RE (bin sums, T independent) are refreshed; the nodes of the Milne quadratures keep their J (set by a previous `set_zone!`, e.g. J = 0 or the CMB)
+and the T-tabulated Milne coefficients (the expensive part) are kept. Valid where J_ν ≪ 2hν³/c² (stimulated recombination negligible), which holds everywhere outside the immediate neighbourhood of a hot star
+(J/(2hν³/c²) ~ 1e-9 at 1e16 cm from 1e6 L☉). Cost: one pass over the bins per level.
+"""
+function set_zone_light!(ze::ZoneEnv, Jbins::AbstractVector, kLW = 0.0)
+    ze.tab .= Jbins; ze.kLW = kLW; ze.mode = :binned
+    edges = ze.edges; tab = ze.tab; nf = length(tab)
+    ze.J = ν -> (i = searchsortedlast(edges, ν); (i >= 1 && i <= nf) ? tab[i] : 0.0)
+    g = ze.g
+    for (p, pq) in ze.quads
+        a = ze.absb[p]
+        for l in eachindex(pq.ν)
+            r = 0.0; re = 0.0
+            @inbounds for f in 1:nfreq(g)
+                s = a.σ[l, f]; s == 0 && continue
+                r += 4π * s * tab[f] * g.dν[f] / (hP * g.ν[f]); re += 4π * s * tab[f] * g.dν[f]
+            end
+            pq.Rl[l] = r; pq.REl[l] = re
+        end
+    end
+    ze
+end
+
 "Set J = B_ν(T) exactly (analytic, not binned): the detailed-balance state."
 function set_thermal!(ze::ZoneEnv, T)
     ze.J = ν -> Bν(ν, T); ze.kLW = 0.0; ze.mode = :thermal
