@@ -26,6 +26,7 @@ PrimordialChem for new work; PrimordialChem's RHFC02 network stays as the refere
 module ChemNet
 
 using ForwardDiff, Printf
+import LinearAlgebra
 
 const kB = 1.380649e-16; const hP = 6.62607015e-27; const c = 2.99792458e10; const eV = 1.602176634e-12
 const mH = 1.6735575e-24; const me = 9.1093837e-28; const mp = 1.67262192e-24
@@ -369,7 +370,8 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
                 NANHOOK[] === nothing || NANHOOK[](z, R, Jm)
                 return (z, false)
             end
-            δ = -(Jm \ R); all(isfinite, δ) || return (z, false)
+            δ = try -(Jm \ R) catch e; e isa LinearAlgebra.SingularException ? nothing : rethrow() end      # E2E-A: a singular Jacobian fails the attempt (the step halves / bisects in T) instead of aborting the run
+            (δ === nothing || !all(isfinite, δ)) && return (z, false)
             λ = 1.0
             # keep every abundance ≥ 0, incl. the eliminated H, Li, e (linear in x)
             for i in 1:nf; (XFLOOR[] <= 1e-20 || z[i] > XFLOOR[]) && z[i] + λ * δ[i] < 0 && (λ = min(λ, 0.9 * z[i] / -δ[i])); end     # (XFLOOR > 1e-20: species below it are noise, not limited, clamped at 0 below)
@@ -390,7 +392,7 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
         x = collect(Float64, x0)
         for it in 1:60
             F(xx) = xx .- x0 .- h .* dxdt(xx, nH, T, net, env, ph)
-            Fv = F(x); Jm = ForwardDiff.jacobian(F, x); δ = -(Jm \ Fv); all(isfinite, δ) || return nothing
+            Fv = F(x); Jm = ForwardDiff.jacobian(F, x); δ = try -(Jm \ Fv) catch e; e isa LinearAlgebra.SingularException ? nothing : rethrow() end; (δ === nothing || !all(isfinite, δ)) && return nothing
             λ = 1.0
             for i in 1:nf; (XFLOOR[] <= 1e-20 || x[i] > XFLOOR[]) && x[i] + λ * δ[i] < 0 && (λ = min(λ, 0.9 * x[i] / -δ[i])); end
             d0 = full(x, net); d1 = full(x .+ δ, net)

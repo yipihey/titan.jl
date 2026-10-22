@@ -47,15 +47,19 @@ logtail(file, n = 40) = isfile(file) ? join(last(readlines(file), n), "\n") : ""
 # ----------------------------------------------------------------------------------------------------------------- stages 1-3: popiii_m2c.jl
 "Environment of the ABN02 z = 19 collapse driver (final2 settings of the notes, S6c chemistry)."
 collapse_env() = Dict("IC" => "abn02z19", "TCMB" => "54.5", "AVZONE" => "2", "INTEGRATOR" => "trbdf2", "CHEM" => "netatomicli", "NLTE" => "hyb", "SNAPS" => "1", "SNAPDIR" => WORK,
-                                 "XFLOOR" => "1e-12", "CHEMFALLBACK" => "1", "THICKCONT" => "3")   # (atomic net: He+, He++, Li+ start at 0; ChemNet's Newton needs XFLOOR, see notes E2E-A)
-snapfile(tag) = joinpath(WORK, "snaps_abn02z19_lines_n200$(tag).jls")
+                                 "XFLOOR" => "1e-12", "CHEMFALLBACK" => "1", "THICKCONT" => "3", "TEQMAX" => "1e30")   # (atomic net: He+, He++, Li+ start at 0; ChemNet's Newton needs XFLOOR, see notes E2E-A)
+"Snapshot file of a popiii_m2c.jl run (its name carries the zone number after a sink removed zones: n200 -> n<N>)."
+function snapfile(tag)
+    c = filter(f -> startswith(f, "snaps_abn02z19_lines_n") && endswith(f, tag * ".jls") && occursin(r"^snaps_abn02z19_lines_n\d+" * tag * r"\.jls$", f), readdir(WORK))
+    isempty(c) ? joinpath(WORK, "snaps_abn02z19_lines_n200$(tag).jls") : joinpath(WORK, first(c))
+end
 "popiii_m2c.jl catches its errors and exits 0: success means no `stopped:` line in its log."
 m2c_ok(tag) = (l = joinpath(LIB, "m2c_abn02z19_lines_n200$(tag).log"); isfile(l) && (L = readlines(l); any(startswith(x, "wall time:") for x in L) && !any(startswith(x, "stopped:") for x in L)))
 """
 Run popiii_m2c.jl for `tag0`; a run that was killed or failed is continued from the last snapshot of the previous attempt (`<tag0>_r1`, `_r2`, ...; the collapse drivers write one every 0.25 dex of n_c),
 a finished attempt is reused. Returns the tag of the finishing attempt.
 """
-function run_m2c(stage, tag0, env; resumable = true, nsh = "200")
+function run_m2c(stage, tag0, env; resumable = true, nsh = "200", resume_env = Dict{String,String}())
     tags = [tag0; ["$(tag0)_r$i" for i in 1:RETRIES]]; prev = nothing
     for t in tags
         m2c_ok(t) && return t
@@ -63,7 +67,7 @@ function run_m2c(stage, tag0, env; resumable = true, nsh = "200")
             isfile(snapfile(t)) && (prev = snapfile(t)); continue
         end
         e = copy(env); e["TAG"] = t
-        resumable && prev !== nothing && (e["RESTART"] = prev; e["RESIDX"] = "0"; e["TMAXYR"] = get(env, "TMAXYR", "1e8"))
+        resumable && prev !== nothing && (e["RESTART"] = prev; e["RESIDX"] = "0"; haskey(env, "PERF") && (e["PERF"] = env["PERF"] * "_" * last(split(t, "_")));  e["TMAXYR"] = get(env, "TMAXYR", "1e8"); merge!(e, resume_env))
         rc = launch(stage, "popiii_m2c.jl", ["lines", nsh], e; suffix = t == tag0 ? "" : last(split(t, "_")) )
         m2c_ok(t) && rc == 0 && return t
         isfile(snapfile(t)) && (prev = snapfile(t))
@@ -88,9 +92,9 @@ function stage_sink()
     f = readdone("formation"); tag = "_e2e_$(TAG)_sink"
     env = merge(collapse_env(), Dict("TAG" => tag, "RESTART" => f["snapshot"], "RESIDX" => "0", "SINK" => "1", "SPLIT" => "2", "RSINKAU" => "5", "RSINKP" => "1", "RSMREF" => "1",
                                      "RSMFLOOR" => "0.01", "CDYN" => "0.03", "NLTE" => "ep", "XFLOOR" => "1e-12", "CHEMFALLBACK" => "1", "TMAXYR" => "1e5", "NSTOP" => "1e30", "TSTOP" => "1e30",
-                                     "MAXSTEPS" => "400000", "SNAPS" => "0", "MSTOPMSUN" => string(MCAP), "MDOTSTOP" => MDOTSTOP, "PERF" => "$(PERF)_sink", "PERFSTAGE" => "sink"))
+                                     "MAXSTEPS" => "400000", "SNAPS" => "1", "SNAPEVERY" => "1000", "MSTOPMSUN" => string(MCAP), "MDOTSTOP" => MDOTSTOP, "PERF" => "$(PERF)_sink", "PERFSTAGE" => "sink"))
     delete!(env, "SNAPEND")
-    tag = run_m2c("sink", tag, env; resumable = false)
+    tag = run_m2c("sink", tag, env; resume_env = Dict("SPLIT" => "1"))      # a restart from a sink snapshot (already split, zones below r_s removed again by the driver)
     # accretion history -> Mdot(M*) tables (lib/popiii/s6c_<tag>_mdot{,_smooth}.csv)
     run(setenv(pipeline(`julia --project=env $(joinpath(J, "s6c_mdot.jl")) $tag $(f["snapshot"])`; stdout = joinpath(LIB, "s6c_$(tag)_mdot.txt")), merge(Dict(ENV), Dict("TITAN_NOLIB" => "1")); dir = J))
     L = readlines(joinpath(LIB, "s6c_$(tag)_mdot_smooth.csv"))[2:end]; Mend = parse(Float64, split(last(L), ",")[1])

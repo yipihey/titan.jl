@@ -73,9 +73,6 @@ end
 "Surface boundary conditions for the next step from the current state (lagged): P_ext, inflow, incident radiation; ALE rate."
 const LASTSD = Ref{Any}(nothing); const ES_OLD = Ref(0.0)
 function update_bc!()
-    Perf.@section :bc update_bc_inner!()
-end
-function update_bc_inner!()
     HOOKOFF[] -= 1
     R = rn[b+1]; M = intmass(b + 1); frn = TF.var(:frn)
     MDOTTAB[] === nothing || (global Mdot = mdot_now(M))
@@ -473,7 +470,7 @@ if get(ENV, "PSI", "1") == "1"
     TD.ALE_PSI[] = psi
     pr("hybrid mesh: psi = 0 for q > %.2f (%d interfaces), 1 for q < %.3f (%d interfaces)\n", qhi, count(==(0.0), psi[a:b+1]), qlo, count(==(1.0), psi[a:b+1]))
 end
-update_bc!()
+Perf.@section(:bc, update_bc!())
 let E0_ = energies(); led.Ed_prev = E0_.Etotd; led.E_prev = E0_.Etot; led.Eint_prev = E0_.Eint; led.Ekin_prev = E0_.Ekin; led.Eg_prev = E0_.Eg; end; led.E0 = led.E_prev; const tstart0 = Ref(TF.getscalar(:timen)); const Mstart0 = Ref(intmass(b + 1))
 let d = diag(TX.step_diag(1.0))
     pr("S6b start: M* = %.4f Msun, R* = %.2f Rsun, Mdot = %.3e Msun/yr, %d zones, T_s(precursor) = %.0f K, tau_prec = %.2f, P_ram = %.3e, accretion %s\n", d.M / Msun, d.R / Rsun, Mdot * YR / Msun, setup.n, d.Ts, d.tau, BC[].Pram, acc_on)
@@ -497,7 +494,7 @@ if get(ENV, "RELAX", "1") == "1" && !haskey(ENV, "RESTART")
     trel0 = TF.getscalar(:timen)
     for k in 1:envi("RELAXSTEPS", 600)
         xme_start = copy(TF.var(:xmen)[a:b+1]); Mz_start = 4π .* [dn[kk] * TF.var(:dvoln)[kk] for kk in a:b]
-        update_bc!(); robust_step!(); nstep[] += 1
+        Perf.@section(:bc, update_bc!()); robust_step!(); nstep[] += 1
         sd = TX.step_diag(TF.getscalar(:timen) - TF.getscalar(:timeo)); LASTSD[] = sd
         shift_xmext!(xmext0)
         un = TF.var(:un); asn = TF.var(:asn)
@@ -509,7 +506,7 @@ if get(ENV, "RELAX", "1") == "1" && !haskey(ENV, "RESTART")
     end
     acc_on = acc_final; phase[] = :evol; mat.nuc = get(ENV, "NUC", "1") == "1"
     mat.acc.Einj .= 0.0; led.E_prev = energies().Etot; led.Ed_prev = energies().Etotd; led.E0 = led.E_prev
-    TF.setscalar!(:dtime, envf("DT1", 100.0)); update_bc!(); tstart0[] = TF.getscalar(:timen); Mstart0[] = intmass(b + 1)
+    TF.setscalar!(:dtime, envf("DT1", 100.0)); Perf.@section(:bc, update_bc!()); tstart0[] = TF.getscalar(:timen); Mstart0[] = intmass(b + 1)
 end
 if get(ENV, "S7B_STAR", "0") == "1"
     include(joinpath(@__DIR__, "s7b_exchange.jl")); include(joinpath(@__DIR__, "s7b_star.jl"))
@@ -518,7 +515,7 @@ maxsteps = envi("MAXSTEPS", 100); tend = envf("TEND", 1e12) * YR; mend = envf("M
 try
     for k in 1:maxsteps
         xme_start = copy(TF.var(:xmen)[a:b+1]); Mz_start = 4π .* [dn[kk] * TF.var(:dvoln)[kk] for kk in a:b]
-        update_bc!(); prep_xmext!(TF.getscalar(:dtime))
+        Perf.@section(:bc, update_bc!()); prep_xmext!(TF.getscalar(:dtime))
         xme_start = copy(TF.var(:xmen)[a:b+1])
         Perf.@section :step begin
             Perf.@section :robust_step robust_step!()

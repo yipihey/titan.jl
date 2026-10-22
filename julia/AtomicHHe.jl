@@ -259,7 +259,10 @@ E2E-A: `THICKCONT[]` (default 0 = S6c). The recombination/attachment emission of
 In the opaque core of the collapse (n_H ≳ 1e16 cm⁻³) the thin-limit emission of H⁻ (radiative attachment) cooled the core at t_cool < t_dyn (the T_c track oscillated and fell, f_H2 → 1).
 `THICKCONT = 1`: the RA04 escape factor min(1, (n_H/`NTHICK`)^−0.45) of the collision-induced continuum (fine to 1e17, not at 1e22: the emission grows as n²).
 `THICKCONT = 2`: escape factor (1 − e^−τ)/τ with the Planck-mean continuum optical depth τ = κ_P ρ r of the zone (`ZS.thick`, set per zone by the driver from `ContinuumOpacity.means`).
-Both are stand-ins until the frequency-dependent transfer (S7, RadTransfer) supplies J_ν.
+Mode 2 still let the z = 19 core oscillate at 1e17 (the thin emission is not a fraction of the LTE emission; 1/τ is not enough).
+`THICKCONT = 3` (used by the E2E chain): the continuum emission terms are switched off smoothly above `N3` = 1e12 cm⁻³, 1/(1 + (n_H/N3)²): opaque gas has J → B and no net emission;
+below N3 the S6c terms stand. The z = 19 collapse from 3e16 to 1e18 then equals the run without atomic cooling to 1e-4 (T_c 3153.1 K at n_c = 1e18).
+All are stand-ins until the frequency-dependent transfer (S7, RadTransfer) supplies J_ν.
 """
 const THICKCONT = Ref(0); const NTHICK = Ref(8e9); const N3 = Ref(1e12)
 thickfac(nH) = THICKCONT[] == 3 ? 1 / (1 + (nH / N3[])^2) : THICKCONT[] == 2 ? ZS.thick : nH <= NTHICK[] ? 1.0 : (nH / NTHICK[])^-0.45
