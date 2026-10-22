@@ -237,8 +237,14 @@ function fJ(E, T, env)
     E / (kB * T) > 600 && return one(T)          # S7a: B_ν(T) underflows (T ≲ 200 K for a 10 eV line): J/B = Inf made 0 × Inf = NaN in the cold gas with a non-zero J; the excitation rate there is q = 0 anyway
     max(1 - J / (2hP * ν^3 / c^2 / expm1(E / (kB * T))), FJ_FLOOR[])
 end
-"S7b: lower bound of the factor 1 − J/B (default −Inf = S7a). With a stellar field J(Lyα) ≫ B_Lyα(T) of cold gas the factor reached −1e63 and, times the recombination-cascade emission, a spurious heating of 1e38 erg cm⁻³ s⁻¹; S7b sets 0 (no net line cooling where the field exceeds the Planck function; the absorption itself is not a heating term of this formula)."
-const FJ_FLOOR = Ref(-Inf)
+"""
+Lower bound of the factor 1 − J/B in the line terms. Default 0: where the radiation field exceeds the Planck function
+at the line (a stellar field in cold gas) the formula gives no net line cooling, instead of an unbounded negative
+factor. With a stellar field, J(Lyα) ≫ B_Lyα(T) reached −1e63, which times the recombination-cascade emission gave a
+spurious heating of 1e38 erg cm⁻³ s⁻¹ (S7b). The default leaves J = 0 (factor 1) and J = B (factor 0) unchanged.
+The heating by line absorption itself is not a term of this formula.
+"""
+const FJ_FLOOR = Ref(0.0)
 "Resonance-line energy and f of the cascade end for each species (H Lyα, He I 584 Å, He II 304 Å)."
 const CASC = Dict(:H => (10.2 * eV, 0.4162, CN.mH), :He => (21.218 * eV, 0.2762, 4.0026 * 1.66053907e-24), :Hep => (40.81 * eV, 0.4162, 4.0026 * 1.66053907e-24))
 const E_DR = 40.81 * eV + CN.χHe1                         # photon energy radiated per dielectronic recombination (see the notes)
