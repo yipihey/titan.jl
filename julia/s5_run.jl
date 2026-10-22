@@ -19,15 +19,28 @@ include(joinpath(@__DIR__, "s4_star.jl"))
 include(joinpath(@__DIR__, "Trbdf2.jl"))
 envf(k, d) = haskey(ENV, k) ? parse(Float64, ENV[k]) : d
 envi(k, d) = haskey(ENV, k) ? parse(Int, ENV[k]) : d
+# E2E-A: performance recording (TitanDriver.Perf): always accumulated, written to lib/popiii/perf/<PERF>_* when PERF=<name> is set (PERFSTAGE labels the stage)
+const Perf = TD.Perf; const PERFNAME = get(ENV, "PERF", "")
+Perf.reset!(isempty(PERFNAME) ? "s5" : PERFNAME; stage = get(ENV, "PERFSTAGE", "ms"), driver = "s5_run.jl", out = get(ENV, "OUT", "run"), M = get(ENV, "M", "100"), n = get(ENV, "N", "140"),
+            integ = get(ENV, "INT", "trbdf2"), tol = get(ENV, "TOL", "0.03"), handoff = get(ENV, "HANDOFF", ""))
 Mstar = envf("M", 100.0) * Msun; Rs = envf("R0", 6.5) * Rsun; X0 = envf("X", 0.75)
 n = envi("N", 140); nenv = envi("NENV", 60); yr = 3.15576e7
 integ = get(ENV, "INT", "trbdf2")
 tol = envf("TOL", 0.03)
-st = build_star(; M = Mstar, R = Rs, X = X0, n, nenv, nuc = true, alpha = envf("ALPHA", 1.5), efrac = envf("EFRAC", 0.5), dXmax = envf("DXMAX", 2e-3),
+# E2E-A: HANDOFF=<file written by s6b_run.jl HANDOFF_OUT> starts from the accreted star (its grid, profiles and composition) instead of the polytrope
+include(joinpath(@__DIR__, "e2e_handoff.jl"))
+const HANDOFF = get(ENV, "HANDOFF", "")
+st = !isempty(HANDOFF) ? star_from_handoff(HANDOFF; alpha = envf("ALPHA", 1.5), efrac = envf("EFRAC", 0.5), dXmax = envf("DXMAX", 2e-3), burnT = Symbol(get(ENV, "BURNT", "path")),
+                                           kcap = envf("KCAP", Inf), fcoupling = get(ENV, "FCOUPLING", "1") == "1") :
+     build_star(; M = Mstar, R = Rs, X = X0, n, nenv, nuc = true, alpha = envf("ALPHA", 1.5), efrac = envf("EFRAC", 0.5), dXmax = envf("DXMAX", 2e-3),
                 mfloor = envf("MFLOOR", 1e-10), qsplit = envf("QSPLIT", 0.05), kcap = envf("KCAP", Inf), burnT = Symbol(get(ENV, "BURNT", "path")),
                 fcoupling = get(ENV, "FCOUPLING", "1") == "1", atm = get(ENV, "ATM", "1") == "1")
 mat = st.mat
 mat.dXmax = envf("DXMAX", 2e-3)
+# E2E-A: EDDCAP = Γ_max (default 0 = off): soft cap of the opacity at κ_cap = Γ_max 4π c G M / L_surface, updated every step (see notes E2E-A: a very massive star at L/L_Edd,es ≈ 0.8 has
+# Γ > 1 in the He II opacity bump and its 1D hydrostatic envelope is unbound; mass loss is off, so the opacity is limited instead)
+const EDDCAP = envf("EDDCAP", 0.0)
+update_eddcap!(L) = EDDCAP > 0 && (mat.kcap = EDDCAP * 4π * Z0.c * Z0.G * st.M / L)
 a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre))
 tag = get(ENV, "OUT", "run"); logio = open(joinpath(@__DIR__, "..", "lib", "popiii", "s5_$(tag).log"), "w")
 pr(f, args...) = (s = Printf.format(Printf.Format(f), args...); print(s); print(logio, s); flush(logio))
@@ -44,6 +57,7 @@ pr("S5 star: M = %.1f Msun, X = %.3f, R0 = %.3f Rsun, n = %d (env %d, qsplit %.3
 pr("polytrope: beta = %.4f, rho_c = %.3f, T_c = %.4e K\n", st.β, st.ρc, st.Tc)
 
 phase = Ref(:relax)
+update_eddcap!(star_diag(st).Ls)
 # ----------------------------------------------------------------------------------- energy ledger
 G = Z0.G
 "Total energy components of the current state [erg]: internal+radiation, kinetic, gravitational."
@@ -159,8 +173,8 @@ function after_step(k)
         pr("   CENTRE dt=%.3e yr  T_o=%.6e T_n=%.6e  Einj0=%.5e (booked/f)  eps(T_n,Yold)dt m=%.5e  burn(T_n) dt m=%.5e  ratio burn/eps=%.4f  Einj0/eps=%.4f\n", dt / yr, to[a], tn[a], acc.Einj[a] / fs_old, e_res, e_bconst, e_bconst / e_res, acc.Einj[a] / fs_old / e_res)
     end
     if phase[] === :evol
-        r = SM.burn!(mat; sd)
-        mixr = SM.mix!(mat; sd, capmix = false, bridge = envi("BRIDGE", 4), tmax = envf("MIXTMAX", 0.02))
+        r = Perf.@section :burn SM.burn!(mat; sd)
+        mixr = Perf.@section :mix SM.mix!(mat; sd, capmix = false, bridge = envi("BRIDGE", 4), tmax = envf("MIXTMAX", 0.02))
         Ea = energies()
         get(ENV, "NORULE", "0") == "1" && pr("   TITAN timstp step %d dt=%.3e yr -> next %.3e yr: smax %.3e (stol %.2f) limited by %s\n", k, dt / yr, TF.getscalar(:dtime) / yr, TF.getscalar(:smax), TF.getscalar(:stol),
             join(["$(nmv[i]):zone $(TF.var(:kx)[i]) dx=$(round(TF.var(:dx)[i]; sigdigits = 2))" for i in 1:Int(TF.getscalar(:neqn))], ", "))
@@ -179,6 +193,7 @@ function after_step(k)
         Ea = Eh; led.E_prev = Eh.Etot; step_info = (; Ebur = 0.0, Fout = acc.Fout, Einj = 0.0, err = 0.0, dEtot = 0.0)
     end
     d = star_diag(st)
+    update_eddcap!(d.Ls)
     ts = (d.t - tstart[]) / yr
     Yc = view(mat.Y, :, a)
     if get(ENV, "DUMPNOCORE", "0") == "1" && phase[] === :evol && sum(mat.Dmix[a:a+30] .> 0) < 20      # the convective core is not detected at this step
@@ -249,13 +264,15 @@ function robust_step!()
         TD.restore!(snap); TF.setscalar!(:dtime, dt0 * 0.3^attempt)
         res = nothing
         try
-            res = SM.solve_step!(mat, TD.STEPFN[]; tol = tol_, maxit = maxit_, ztol = envf("ZSPLITTOL", 3e-3))
+            res = Perf.@section(:solve_step, SM.solve_step!(mat, TD.STEPFN[]; tol = tol_, maxit = maxit_, ztol = envf("ZSPLITTOL", 3e-3)))
         catch e
             e isa InterruptException && rethrow()
+            Perf.count!(:step_fail)
             pr("   step failed (%s): retry with dt x 0.3\n", sprint(showerror, e)[1:min(end, 80)])
             continue
         end
         if res[1] > envf("SPLITREJ", 0.02) || res[3] > envf("ZSPLITREJ", 1e-2)       # the heating the residual used does not match the network's release: do not hide it in the post-step correction
+            Perf.count!(:step_reject)
             pr("   step rejected: source/network mismatch %.3f (zone-wise %.1e of the zone energy) after %d iterations at dt = %.3e yr, retry with dt x 0.3\n", res[1], res[3], res[2], (TF.getscalar(:timen) - TF.getscalar(:timeo)) / yr)
             continue
         end
@@ -266,6 +283,7 @@ function robust_step!()
             x = abs(log(dn[kk] / do_[kk])); x > d && (d = x; dk = kk - a + 1; dv = "rho")
         end
         if d > rej && !(attempt >= 2 && abs(d - dprev) < 0.05 * d)     # a change that does not shrink with dt is a property of the state, not of the step
+            Perf.count!(:step_reject)
             pr("   step rejected: max relative change %.3f (%s, zone %d) > %.2f at dt = %.3e yr, retry with dt x 0.3\n", d, dv, dk, rej, (TF.getscalar(:timen) - TF.getscalar(:timeo)) / yr)
             if get(ENV, "DUMPREJ", "0") == "1"
                 sdx = TX.step_diag(TF.getscalar(:timen) - TF.getscalar(:timeo))
@@ -320,7 +338,11 @@ pr("%6s %10s %9s %8s %8s %9s %9s %9s %8s %9s %8s %9s %3s %s | %9s %9s %9s %7s %9
 xstop = envf("XSTOP", 1e-3); tend = envf("TEND", 1e12) * yr; maxsteps = envi("MAXSTEPS", 3000)
 try
     for k in 1:maxsteps
-        global lastmism = robust_step!(); after_step(nrelax[] + k)
+        Perf.@section :step begin
+            global lastmism = Perf.@section(:robust_step, robust_step!()); Perf.@section(:after_step, after_step(nrelax[] + k))
+        end
+        Perf.count!(:steps)
+        k % 50 == 0 && Perf.sample!(step = nrelax[] + k, t_yr = (TF.getscalar(:timen) - tstart[]) / yr, dt_yr = TF.getscalar(:dtime) / yr, zones = b - a + 1, newton = Int(TF.getscalar(:iter)), Xc = Xc(), wall_s = Perf.elapsed())
         k == envi("SAVE_AT_STEP", -1) && haskey(ENV, "SAVE") && checkpoint(ENV["SAVE"])
         (k % envi("CKEVERY", 400) == 0) && haskey(ENV, "SAVE") && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ envi("CKEVERY", 400)) % 2))
         if k == envi("DEBUGSTEP", -1)
@@ -362,6 +384,9 @@ catch e
 end
 wall = time() - t0wall
 d = star_diag(st)
+if !isempty(PERFNAME)
+    Perf.write(); Perf.summary()
+end
 pr("final: t = %.4e yr, R = %.4f Rsun, log L = %.4f, log Teff = %.5f, T_c = %.5e K, rho_c = %.4f, L_nuc/L = %.4f, X_c = %.5f, M_cc/M = %.4f; %d steps (%d relax), %.1f s wall\n",
    (d.t - tstart[]) / yr, d.R / Rsun, log10(d.Ls / Lsun), log10(d.Teff), d.Tc, d.ρc, d.Lnuc / d.Ls, Xc(), conv_core(), nstep[], nrelax[], wall)
 pr("ledger: sum E_bur = %.4e erg, sum Fout dt = %.4e, E_tot change = %.4e; closure (dE - (Ebur - Fout))/sum|Ebur| = %.3e; splitting correction sum|Ebur-Einj|/sum|Ebur| = %.3e; hydro-step energy error sum|err|/sum|Ebur| = %.3e\n",

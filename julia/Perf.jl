@@ -19,7 +19,7 @@ module Perf
 using Printf
 
 mutable struct Sec
-    calls::Int; ns::UInt64; bytes::Int
+    calls::Int; ns::UInt64; bytes::Int; first_ns::UInt64     # first_ns: the very first call (includes JIT compilation of everything it runs); also part of ns
 end
 const SECS = Dict{Symbol,Sec}()
 const ORDER = Symbol[]
@@ -56,8 +56,9 @@ meta!(k, v) = (META[string(k)] = string(v); nothing)
 "Accumulate one timed call of section `name`."
 function add!(name::Symbol, ns, bytes)
     s = get!(SECS, name) do
-        push!(ORDER, name); Sec(0, 0, 0)
+        push!(ORDER, name); Sec(0, 0, 0, 0)
     end
+    s.calls == 0 && (s.first_ns = ns)
     s.calls += 1; s.ns += ns; s.bytes += bytes
     nothing
 end
@@ -95,11 +96,12 @@ function write(; dir = DIR[])
         for k in sort(collect(keys(META))); println(io, k, " = ", META[k]); end
     end
     open(pre * "_sections.csv", "w") do io
-        println(io, "section,calls,total_s,mean_ms,frac_of_wall,alloc_MB")
+        println(io, "section,calls,total_s,mean_ms,frac_of_wall,alloc_MB,first_call_s,mean_ms_excl_first")
         tw = elapsed()
         for n in ORDER
             s = SECS[n]
-            @printf(io, "%s,%d,%.6f,%.6f,%.5f,%.3f\n", n, s.calls, s.ns * 1e-9, s.ns * 1e-6 / max(s.calls, 1), s.ns * 1e-9 / tw, s.bytes / 2^20)
+            @printf(io, "%s,%d,%.6f,%.6f,%.5f,%.3f,%.6f,%.6f\n", n, s.calls, s.ns * 1e-9, s.ns * 1e-6 / max(s.calls, 1), s.ns * 1e-9 / tw, s.bytes / 2^20, s.first_ns * 1e-9,
+                    (s.ns - s.first_ns) * 1e-6 / max(s.calls - 1, 1))
         end
     end
     open(pre * "_counters.csv", "w") do io
@@ -124,10 +126,10 @@ end
 function summary(io::IO = stdout)
     tw = elapsed()
     @printf(io, "perf %s: wall %.1f s, %s threads, git %s\n", RUN[], tw, get(META, "julia_threads", "?"), get(META, "git", "?"))
-    @printf(io, "  %-24s %10s %12s %10s %8s %10s\n", "section", "calls", "total [s]", "mean [ms]", "% wall", "alloc [MB]")
+    @printf(io, "  %-24s %10s %12s %10s %8s %10s %10s\n", "section", "calls", "total [s]", "mean [ms]", "% wall", "alloc [MB]", "1st [s]")
     for n in sort(ORDER; by = n -> -SECS[n].ns)
         s = SECS[n]
-        @printf(io, "  %-24s %10d %12.3f %10.3f %8.1f %10.1f\n", n, s.calls, s.ns * 1e-9, s.ns * 1e-6 / max(s.calls, 1), 100 * s.ns * 1e-9 / tw, s.bytes / 2^20)
+        @printf(io, "  %-24s %10d %12.3f %10.3f %8.1f %10.1f %10.3f\n", n, s.calls, s.ns * 1e-9, s.ns * 1e-6 / max(s.calls, 1), 100 * s.ns * 1e-9 / tw, s.bytes / 2^20, s.first_ns * 1e-9)
     end
     for k in sort(collect(keys(COUNTS))); @printf(io, "  counter %-20s %d\n", k, COUNTS[k]); end
     nothing

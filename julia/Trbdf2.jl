@@ -55,11 +55,12 @@ const SAVE = Dict{Symbol,Vector{Float64}}()
 save!() = (for s in OLD; copyto!(get!(() -> similar(vf(s)), SAVE, s), vf(s)); end)
 restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end)
 
-function newton!()
+newton!() = TD.Perf.@section(:newton, newton_inner!())
+function newton_inner!()
     s!(:iter, 1)
     try
         while true
-            r(:matgen); r(:matslv); r(:maxdel); r(:update)
+            r(:matgen); r(:matslv); r(:maxdel); r(:update); TD.Perf.count!(:newton_iter)
             g(:dmax) <= g(:conv) && break
             s!(:iter, g(:iter) + 1)
             g(:iter) > g(:niter) && return false
@@ -124,8 +125,9 @@ function bdf_old!()
     true
 end
 
-"Drop-in for TitanDriver.step! (TR-BDF2)."
-function step!()
+"Drop-in for TitanDriver.step! (TR-BDF2). (Timed by Perf as `:integrator`.)"
+step!() = TD.Perf.@section(:integrator, step_inner!())
+function step_inner!()
     Int(g(:lgrid)) in (2, 3) || error("Trbdf2: lgrid = 2 or 3 only")
     # peq extrapolates the grid over dtime: that is the TR stage (γΔ), not the whole step (BE_LEFT > 0: backward Euler over Δ)
     Δ0 = g(:dtime); BE_LEFT[] > 0 || s!(:dtime, γ * Δ0)
@@ -143,23 +145,23 @@ function step!()
             ok && TD.STAGE_HOOK[] !== nothing && TD.STAGE_HOOK[](:be, Δ)
             s!(:thet, θ0)
             if ok; STATS[:be_sticky] = get(STATS, :be_sticky, 0) + 1; break; end
-            restore!(); TD.msg(1)
+            restore!(); TD.msg(1); TD.Perf.count!(:step_fail)
             s!(:tfac, TFAC[]); s!(:dtime, TFAC[] * Δ); s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)
             r(:reset); s!(:timen, t0 + g(:dtime)); TitanCore.predict!(; halve = false); continue
         end
         s!(:thet, 0.5); s!(:dtime, γ * Δ); s!(:timen, t0 + γ * Δ)
         ok = newton!()
         if !ok
-            STATS[:fail_tr] += 1
+            STATS[:fail_tr] += 1; TD.Perf.count!(:stage_fail)
         else
             TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:tr, γ * Δ)
             if bdf_old!()
                 s!(:thet, 1.0); s!(:dtime, C2 * Δ); s!(:timen, t0 + Δ)
                 TitanCore.predict!(; halve = false)       # initial guess y* + C2 Δ f from the grid velocities
                 ok = newton!()
-                ok ? (TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:bdf, C2 * Δ)) : (STATS[:fail_bdf] += 1)
+                ok ? (TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:bdf, C2 * Δ)) : (STATS[:fail_bdf] += 1; TD.Perf.count!(:stage_fail))
             else
-                ok = false; STATS[:fail_bdf] += 1
+                ok = false; STATS[:fail_bdf] += 1; TD.Perf.count!(:stage_fail)
             end
         end
         restore!(); s!(:thet, θ0); s!(:dtime, Δ); s!(:timen, t0 + Δ)
@@ -169,9 +171,9 @@ function step!()
             ok = newton!()
             ok && TD.STAGE_HOOK[] !== nothing && TD.STAGE_HOOK[](:be, Δ)
             s!(:thet, θ0)
-            ok && (STATS[:be_fallback] += 1; BE_LEFT[] = STICKY[]; break)
+            ok && (STATS[:be_fallback] += 1; TD.Perf.count!(:be_fallback); BE_LEFT[] = STICKY[]; break)
         end
-        TD.msg(1)
+        TD.msg(1); TD.Perf.count!(:step_fail)
         s!(:tfac, TFAC[]); s!(:dtime, TFAC[] * Δ)
         s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)
         r(:reset); s!(:timen, t0 + g(:dtime)); TitanCore.predict!(; halve = false, dtscale = γ)   # next: the TR stage

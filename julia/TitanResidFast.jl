@@ -1054,10 +1054,13 @@ function _assemble!(c::Ctx, ::Val{PP}, ncol) where {PP}
         xd[(kb-1)*neqn+j] = D(0.0, ForwardDiff.Partials(ntuple(i -> i == slot ? 1.0 : 0.0, Val(PP))))
     end
     ws = getws(D, c.mgr)
-    residual!(Rd, ws, c, xd)
+    # E2E-A Perf: `:residual` = the forward-mode AD evaluation of the residual (values and the Jacobian partials in one pass), `:jacobian` = scatter into the block matrix + side outputs
+    TD.Perf.@section :residual residual!(Rd, ws, c, xd)
     E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); rhs = v(:rhs)
-    _scatter!(E, rhs, Rd, neqn, nb, k0, ncol)
-    store_side!(c, ws)
+    TD.Perf.@section :jacobian begin
+        _scatter!(E, rhs, Rd, neqn, nb, k0, ncol)
+        store_side!(c, ws)
+    end
     nothing
 end
 function _scatter!(E, rhs, Rd::Matrix{D}, neqn, nb, k0, ncol) where {D}
@@ -1096,6 +1099,6 @@ function store_side!(c::Ctx, ws::WS{D}) where {D}
     nothing
 end
 
-matgen!(; ncol = 6) = (assemble!(context(); ncol); nothing)
+matgen!(; ncol = 6) = (assemble!(TD.Perf.@section(:context, context()); ncol); nothing)
 
 end # module

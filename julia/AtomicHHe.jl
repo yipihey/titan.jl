@@ -89,8 +89,9 @@ Line escape length of an absorber with Doppler parameter b: ℓ = min(√π b L_
 """
 mutable struct ZoneState
     r::Float64; Lv::Float64; nH::Float64; xH::Float64; xHe::Float64; xHep::Float64
+    thick::Float64          # E2E-A: escape factor of the continuum emission of the zone from its Planck-mean optical depth (THICKCONT = 2; 1 = off)
 end
-const ZS = ZoneState(0.0, Inf, 1.0, 0.0, 0.0, 0.0)
+const ZS = ZoneState(0.0, Inf, 1.0, 0.0, 0.0, 0.0, 1.0)
 const ONSPOT = Ref(true)
 function set_zone!(r, Lv, nH, d)
     ZS.r = r; ZS.Lv = Lv; ZS.nH = nH
@@ -254,6 +255,16 @@ gff(T) = 1.1 + 0.34 * exp(-(5.5 - log10(T))^2 / 3)
 # 1e4–3e5 K). The Cen fit equals van Hoof et al. (2014) ⟨g_ff⟩ to ≤ 1.7 % for Z = 1, 2 (ContinuumFF.gaunt_ff_total) [run].
 
 """
+E2E-A: `THICKCONT[]` (default 0 = S6c). The recombination/attachment emission of the photo pairs (and free–free, dielectronic) is optically thin with J = CMB only: no re-absorption.
+In the opaque core of the collapse (n_H ≳ 1e16 cm⁻³) the thin-limit emission of H⁻ (radiative attachment) cooled the core at t_cool < t_dyn (the T_c track oscillated and fell, f_H2 → 1).
+`THICKCONT = 1`: the RA04 escape factor min(1, (n_H/`NTHICK`)^−0.45) of the collision-induced continuum (fine to 1e17, not at 1e22: the emission grows as n²).
+`THICKCONT = 2`: escape factor (1 − e^−τ)/τ with the Planck-mean continuum optical depth τ = κ_P ρ r of the zone (`ZS.thick`, set per zone by the driver from `ContinuumOpacity.means`).
+Both are stand-ins until the frequency-dependent transfer (S7, RadTransfer) supplies J_ν.
+"""
+const THICKCONT = Ref(0); const NTHICK = Ref(8e9); const N3 = Ref(1e12)
+thickfac(nH) = THICKCONT[] == 3 ? 1 / (1 + (nH / N3[])^2) : THICKCONT[] == 2 ? ZS.thick : nH <= NTHICK[] ? 1.0 : (nH / NTHICK[])^-0.45
+
+"""
     parts(ρ, T, d; photos, env, eqcomp = nothing) -> NamedTuple (erg cm⁻³ s⁻¹)
 
 Terms of the atomic cooling at density ρ, temperature T, composition d (Dict of number fractions per H nucleus):
@@ -264,8 +275,9 @@ Collisional ionisation and three-body recombination carry no term here: their en
 function parts(ρ, T, d; photos, env)
     nH = ρ / CN.μH(); g(s) = get(d, s, zero(T)); ne = nH * g(:e); Tv = ForwardDiff.value(T)
     rad = zero(T)
+    thick = THICKCONT[] > 0 ? thickfac(nH) : 1.0
     for p in photos
-        RE, AE, AX = CN.photoenergy_t(p, T, env); es = p.esc(Tv, env)
+        RE, AE, AX = CN.photoenergy_t(p, T, env); es = p.esc(Tv, env) * thick
         xion = g(p.P[1]); xX = g(p.R)
         βc = one(T); fj = one(T)
         if haskey(CASC, p.R)
@@ -279,8 +291,8 @@ function parts(ρ, T, d; photos, env)
         exc += ne * nl * l.q(T) * l.E * β_line(l.f, l.E, nl, T, l.m) * fJ(l.E, T, env)
     end
     exc *= EXCFRAC[]
-    dr = nH^2 * g(:e) * g(:Hep) * k_di_HeII(T) * E_DR
-    ff = 1.42e-27 * sqrt(T) * ne * nH * (gff(T) * (g(:Hp) + g(:Hep)) + 4gff(T / 4) * g(:Hepp))
+    dr = nH^2 * g(:e) * g(:Hep) * k_di_HeII(T) * E_DR * thick
+    ff = 1.42e-27 * sqrt(T) * ne * nH * (gff(T) * (g(:Hp) + g(:Hep)) + 4gff(T / 4) * g(:Hepp)) * thick
     comp = env.Trad > 0 ? 1.0178e-37 * env.Trad^4 * (T - env.Trad) * ne : zero(T)
     (rad = rad, exc = exc, dr = dr, ff = ff, comp = comp)
 end

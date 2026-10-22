@@ -93,8 +93,8 @@ end
 function use!(m::Material)
     TX.MATERIAL[] = m isa Builtin ? nothing : m
     TD.EDD_MATERIAL_SOURCE[] = !(m isa Builtin)
-    TD.EOS[] = () -> fill_eos!(m)
-    TD.OPAC[] = () -> fill_opac!(m)
+    TD.EOS[] = () -> TD.Perf.@section(:eos, fill_eos!(m))          # (E2E-A Perf: the state fills of peq!/update!; the zone evaluations inside the residual are in :residual)
+    TD.OPAC[] = () -> TD.Perf.@section(:opacity, fill_opac!(m))
     m
 end
 

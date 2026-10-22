@@ -16,8 +16,13 @@ include(joinpath(@__DIR__, "s6_star.jl"))
 include(joinpath(@__DIR__, "s6_setup.jl"))
 include(joinpath(@__DIR__, "s6b_setup.jl"))
 include(joinpath(@__DIR__, "s6c_precursor.jl"))
+include(joinpath(@__DIR__, "e2e_handoff.jl"))
 envf(k, d) = haskey(ENV, k) ? parse(Float64, ENV[k]) : d
 envi(k, d) = haskey(ENV, k) ? parse(Int, ENV[k]) : d
+# E2E-A: performance recording (TitanDriver.Perf): always accumulated, written to lib/popiii/perf/<PERF>_* when PERF=<name> is set (PERFSTAGE labels the stage)
+const Perf = TD.Perf; const PERFNAME = get(ENV, "PERF", "")
+Perf.reset!(isempty(PERFNAME) ? "s6b" : PERFNAME; stage = get(ENV, "PERFSTAGE", "protostar"), driver = "s6b_run.jl", out = get(ENV, "OUT", "run"), mdotfile = get(ENV, "MDOTFILE", ""), mdot = get(ENV, "MDOT", ""),
+            prec = get(ENV, "PRECTHICK", "0"), nin = get(ENV, "NIN", "70"), nenv = get(ENV, "NENV", "50"), tol = get(ENV, "TOL", "0.03"))
 # S6b Part 3: MDOTFILE = CSV (header, then M [Msun], Mdot [Msun/yr]): time-dependent accretion rate Mdot(M*) (log-log interpolation, constant outside), e.g. from the collapse (popiii_m2c.jl SINK=1)
 const MDOTTAB = Ref{Any}(nothing)
 # S7b (opt-in, S7B_STAR=1; s7b_star.jl): hooks of the coupled run — S7BH[](d) after every accepted step, S7BDT[](dt) cap of the next time step, S7BMDOT[]() accretion rate (or nothing)
@@ -68,6 +73,9 @@ end
 "Surface boundary conditions for the next step from the current state (lagged): P_ext, inflow, incident radiation; ALE rate."
 const LASTSD = Ref{Any}(nothing); const ES_OLD = Ref(0.0)
 function update_bc!()
+    Perf.@section :bc update_bc_inner!()
+end
+function update_bc_inner!()
     HOOKOFF[] -= 1
     R = rn[b+1]; M = intmass(b + 1); frn = TF.var(:frn)
     MDOTTAB[] === nothing || (global Mdot = mdot_now(M))
@@ -315,26 +323,26 @@ function robust_step!()
         attempt >= envi("BCFALLBACK", 1000) && attempt > 0 && (TX.XIMR_HOOK[] = nothing; HOOKOFF[] = envi("BCFALLSTEPS", 100))      # ... and for the next BCFALLSTEPS [100] steps
         res = nothing
         try
-            res = SM.solve_step!(mat, TD.STEPFN[]; tol = envf("SPLITTOL", 3e-3), maxit = envi("SPLITIT", 4), ztol = envf("ZSPLITTOL", 3e-3))
+            res = Perf.@section(:solve_step, SM.solve_step!(mat, TD.STEPFN[]; tol = envf("SPLITTOL", 3e-3), maxit = envi("SPLITIT", 4), ztol = envf("ZSPLITTOL", 3e-3)))
         catch e
             e isa InterruptException && rethrow()
-            FAILS[] += 1; pr("   step failed (%s): retry with dt x 0.3\n", sprint(showerror, e)[1:min(end, 100)])
+            FAILS[] += 1; Perf.count!(:step_fail); pr("   step failed (%s): retry with dt x 0.3\n", sprint(showerror, e)[1:min(end, 100)])
             continue
         end
         if res[1] > envf("SPLITREJ", 0.02) || res[3] > envf("ZSPLITREJ", 1e-2)
-            pr("   step rejected: source/network mismatch %.3f (zone %.1e), retry with dt x 0.3\n", res[1], res[3]); continue
+            Perf.count!(:step_reject); pr("   step rejected: source/network mismatch %.3f (zone %.1e), retry with dt x 0.3\n", res[1], res[3]); continue
         end
         # consistency of the zone masses: Δx_me (prescribed grid + mass row) against ρΔV, top zones
         xm_ = TF.var(:xmen); mmis = 0.0
         for kk in b-4:b; mmis = max(mmis, abs((xm_[kk] - xm_[kk+1]) / (dn[kk] * TF.var(:dvoln)[kk]) - 1)); end
         get(ENV, "MASSDBG", "0") == "1" && pr("      mass mismatch per zone (b-6..b): %s; xmen top: %s\n", join([@sprintf("%.2e", (xm_[kk] - xm_[kk+1]) / (dn[kk] * TF.var(:dvoln)[kk]) - 1) for kk in b-6:b], " "), join([@sprintf("%.10e", xm_[kk]) for kk in b-2:b+1], " "))
         if !(mmis < envf("MASSMIS", 5e-2)) || any(!isfinite, view(tn, a:b)) || any(<=(0), view(dn, a:b))
-            pr("   step rejected: zone-mass mismatch %.2e (or non-finite state) at dt = %.3e s, retry with dt x 0.3\n", mmis, TF.getscalar(:timen) - TF.getscalar(:timeo)); continue
+            Perf.count!(:step_reject); pr("   step rejected: zone-mass mismatch %.2e (or non-finite state) at dt = %.3e s, retry with dt x 0.3\n", mmis, TF.getscalar(:timen) - TF.getscalar(:timeo)); continue
         end
         dmax = 0.0
         for kk in a:b-envi("NSKIP", 20); dmax = max(dmax, abs(log(tn[kk] / to[kk])), abs(log(dn[kk] / do_[kk]))); end
         if dmax > envf("REJECT", 0.3) && attempt < 3
-            pr("   step rejected: max relative change %.3f at dt = %.3e s, retry with dt x 0.3\n", dmax, TF.getscalar(:timen) - TF.getscalar(:timeo)); continue
+            Perf.count!(:step_reject); pr("   step rejected: max relative change %.3f at dt = %.3e s, retry with dt x 0.3\n", dmax, TF.getscalar(:timen) - TF.getscalar(:timeo)); continue
         end
         attempt > 0 && (COOL[] = 12)
         return res
@@ -347,7 +355,7 @@ function after_step(k, xme_start, Mz_start)
     XME_START[] = xme_start
     dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
     sd = TX.step_diag(dt); LASTSD[] = sd
-    Eh = energies(); acc = mat.acc
+    Eh = Perf.@section(:diag, energies()); acc = mat.acc
     Einj_h = sum(acc.Einj[a:b]); Fout_h = acc.Fout
     Ebind = acc_on ? G * (intmass(b + 1) - 0.5 * Mdot * dt) * Mdot * dt / (0.5 * (rn[b+1] + ro[b+1])) : 0.0       # gravitational energy released by the added mass (radiated at the shock): G M δm/R
     err = (Eh.Etot - led.E_prev) - (Einj_h - Fout_h - Ebind)
@@ -392,14 +400,14 @@ function after_step(k, xme_start, Mz_start)
         end
         pr("   GW total %.4e Lsun (L* %.4e)\n", tot / Lsun, 4π * rn[b+1-envi("KLSTAR", 15)]^2 * TF.var(:frn)[b+1-envi("KLSTAR", 15)] / Lsun)
     end
-    r = SM.burn!(mat; sd)
-    SM.mix!(mat; sd, capmix = false, bridge = envi("BRIDGE", 4), tmax = envf("MIXTMAX", 0.02))
+    r = Perf.@section :burn SM.burn!(mat; sd)
+    Perf.@section :mix SM.mix!(mat; sd, capmix = false, bridge = envi("BRIDGE", 4), tmax = envf("MIXTMAX", 0.02))
     led.Ein += 0.0; led.Eout += Fout_h; led.Ebind += Ebind; led.Einj += r.Einj; led.Ebur += r.Ebur; led.err += err; led.errabs += abs(err); led.errd += errd; led.errabsd += abs(errd); led.Eabs += abs(Einj_h) + abs(Fout_h) + abs(Ebind)
-    adv = acc_on ? SM.advect!(mat, xme_start, Mz_start; xin = Y0, order = envi("ADVORDER", 2), fac = Mdot * dt / ((TF.getscalar(:xmtot) - xme_start[end]) * 4π)) : (; cons = 0.0, cfl = 0.0, dTmax = 0.0, nsub = 0)
+    adv = acc_on ? Perf.@section(:advect, SM.advect!(mat, xme_start, Mz_start; xin = Y0, order = envi("ADVORDER", 2), fac = Mdot * dt / ((TF.getscalar(:xmtot) - xme_start[end]) * 4π))) : (; cons = 0.0, cfl = 0.0, dTmax = 0.0, nsub = 0)
     MAXCONS[] = max(MAXCONS[], adv.cons)
     shift_xmext!(xmext0)
     let Eaft = energies(); led.Ed_prev = Eaft.Etotd; led.E_prev = Eaft.Etot; led.Eint_prev = Eaft.Eint; led.Ekin_prev = Eaft.Ekin; led.Eg_prev = Eaft.Eg; end
-    d = diag(sd)
+    d = Perf.@section :diag diag(sd)
     get(ENV, "DTWHY", "0") == "1" && pr("   DTWHY %d dt=%.3e s -> next %.3e s: max rel change %.4f (%s zone %d), iter %d, caps: dtcap %.3e predict %.3e; adv cfl %.2g; BC: Ts_used=%.1f Lstar=%.2f Pram=%.4e ein=%.3e rho_in=%.3e Ttop=%.1f rho_top=%.3e u_top=%.3e\n", k, dt, TF.getscalar(:dtime), DTW[][1], DTW[][3], DTW[][2], Int(TF.getscalar(:iter)), mat.dtcap, SM.predict_cap(mat), adv.cfl, BC[].Tsh, BC[].Lstar / Lsun, BC[].Pram, BC[].ein, BC[].ρin, tn[b], dn[b], TF.var(:un)[b+1])
     push!(series, (d.t / YR, dt / YR, d.M / Msun, d.R / Rsun, d.Lstar / Lsun, d.Lacc / Lsun, d.Teff, d.Tc, d.ρc, d.Tmax, d.mTmax, d.Ld / Lsun, d.Lpp / Lsun, d.Lcno / Lsun, d.fD, d.tKH / YR, d.tacc / YR, d.Sion, d.rph / Rsun, d.Ts, d.tau, d.Lhe / Lsun, d.Linf / Lsun, d.hRf, d.Mdot))
     if k % envi("EVERY", 10) == 0 || k <= 5
@@ -512,14 +520,20 @@ try
         xme_start = copy(TF.var(:xmen)[a:b+1]); Mz_start = 4π .* [dn[kk] * TF.var(:dvoln)[kk] for kk in a:b]
         update_bc!(); prep_xmext!(TF.getscalar(:dtime))
         xme_start = copy(TF.var(:xmen)[a:b+1])
-        robust_step!()
-        nstep[] += 1
-        d = after_step(nstep[], xme_start, Mz_start)
-        S7BH[] === nothing || S7BH[](d)
+        Perf.@section :step begin
+            Perf.@section :robust_step robust_step!()
+            nstep[] += 1
+            d = after_step(nstep[], xme_start, Mz_start)
+            S7BH[] === nothing || S7BH[](d)
+        end
+        Perf.count!(:steps)
         haskey(ENV, "PROFSTEP") && nstep[] == envi("PROFSTEP", 0) && profile_top(envi("PROFN", 30))      # S7c-1 diagnostic: top-zone profile after this step
-        (nstep[] % envi("CKEVERY", 500) == 0) && haskey(ENV, "SAVE") && checkpoint(ENV["SAVE"] * "_auto" * string((nstep[] ÷ envi("CKEVERY", 500)) % 2))
-        nstep[] % envi("CSVEVERY", 200) == 0 && write_csv()
-        while !isempty(profm) && d.M / Msun >= profm[1]; dump_profile(d); popfirst!(profm); end
+        nstep[] % 50 == 0 && Perf.sample!(step = nstep[], t_yr = d.t / YR, dt_s = TF.getscalar(:dtime), M_Msun = d.M / Msun, zones = b - a + 1, newton = Int(TF.getscalar(:iter)), wall_s = Perf.elapsed())
+        Perf.@section :io begin
+            (nstep[] % envi("CKEVERY", 500) == 0) && haskey(ENV, "SAVE") && checkpoint(ENV["SAVE"] * "_auto" * string((nstep[] ÷ envi("CKEVERY", 500)) % 2))
+            nstep[] % envi("CSVEVERY", 200) == 0 && write_csv()
+            while !isempty(profm) && d.M / Msun >= profm[1]; dump_profile(d); popfirst!(profm); end
+        end
         if d.M >= mend; pr("MEND reached\n"); break; end
         if TF.getscalar(:timen) > tend; pr("TEND reached\n"); break; end
     end
@@ -529,6 +543,8 @@ end
 write_csv()
 S7BH[] === nothing || Main.S7bStar.finish()
 haskey(ENV, "SAVE") && checkpoint(ENV["SAVE"])
+# E2E-A: HANDOFF_OUT=<file>: the star at the end of this run (grid, profiles, composition) for s5_run.jl (HANDOFF=<file>), see e2e_handoff.jl
+haskey(ENV, "HANDOFF_OUT") && (export_star(ENV["HANDOFF_OUT"]; mat, extra = (; Mdot = Mdot * YR / Msun, tacc = (TF.getscalar(:timen) - tstart0[]) / YR, M0 = Mstart0[] / Msun)))
 let d = diag(TX.step_diag(1.0)), t0 = TF.getscalar(:timen)
     dM = d.M - Mstart0[]
     pr("summary: steps %d (failed attempts %d), t = %.5e yr, M = %.6f Msun, R = %.3f Rsun\n", nstep[], FAILS[], d.t / YR, d.M / Msun, d.R / Rsun)
@@ -537,3 +553,6 @@ let d = diag(TX.step_diag(1.0)), t0 = TF.getscalar(:timen)
     pr("energy ledger: cumulative sum|err|/sum|terms| = %.3e (accretion off: ~1e-3); with W_d: sum|err|/sum|terms| = %.3e, sum err/sum|terms| = %.3e\n", led.errabs / max(led.Eabs, 1e-300), led.errabsd / max(led.Eabs, 1e-300), led.errd / max(led.Eabs, 1e-300))
 end
 pr("wall %.1f s\n", time() - t0wall)
+if !isempty(PERFNAME)
+    Perf.write(); Perf.summary()
+end

@@ -17,6 +17,9 @@ using .TitanFortran
 const TF = TitanFortran
 export TF
 
+# E2E-A: performance recording (Perf.jl, no dependencies). `TitanDriver.Perf` is the single instance the whole stack and the drivers share.
+include(joinpath(@__DIR__, "Perf.jl"))
+
 # ------------------------------------------------------------------ ccalls
 const PTR = Dict{Symbol,Ptr{Cvoid}}()
 fptr(s::Symbol) = get!(() -> TF.Libdl.dlsym(TF.load(), s), PTR, s)
@@ -43,7 +46,8 @@ const OPAC = Ref{Function}(() -> fcall(:opac_))
 const ROUTINES = Dict{Symbol,Function}(
     s => (() -> fcall(Symbol(s, "_"))) for s in
     (:peq, :matgen, :matslv, :maxdel, :update, :timstp, :reset, :totnrg))
-r(s) = ROUTINES[s]()
+"Run routine `s` of the step. `matgen` (residual + Jacobian assembly) and `matslv` (block solve) are timed by Perf (`:matgen`, `:linsolve`)."
+r(s) = s === :matgen ? Perf.@section(:matgen, ROUTINES[s]()) : s === :matslv ? Perf.@section(:linsolve, ROUTINES[s]()) : ROUTINES[s]()
 
 # scalar accessors (zero-copy 0-dim views, cached)
 const SV = Dict{Symbol,Array}()
@@ -116,8 +120,9 @@ geometric reflection r(a−1) = r(a)²/r(a+1) instead of the radius of an equal-
 when the zone is wider than a factor 2^(1/3) in r). Used by the mass sink of popiii_m2c.jl.
 """
 const INNER_GHOST_GEOM = Ref(false)
-"Julia version of subroutine step (step.f), same control flow and arithmetic."
-function step!()
+"Julia version of subroutine step (step.f), same control flow and arithmetic. (Timed by Perf as `:integrator`.)"
+step!() = Perf.@section(:integrator, step_inner!())
+function step_inner!()
     r(:peq)
     s!(:jtry, 1); s!(:jback, 0)
     @label two
@@ -125,7 +130,7 @@ function step!()
     s!(:iter, 1)
     dm1 = Inf; dm2 = Inf
     @label three
-    r(:matgen); r(:matslv); r(:maxdel); r(:update)
+    r(:matgen); r(:matslv); r(:maxdel); r(:update); Perf.count!(:newton_iter)
     g(:dmax) <= g(:conv) && @goto seven
     (g(:dmax) <= CONV_STALL[] && g(:iter) >= 4 && abs(g(:dmax) - dm2) < 1e-3 * g(:dmax)) && @goto seven
     dm2 = dm1; dm1 = g(:dmax)
@@ -136,7 +141,7 @@ function step!()
         s!(:jtry, 2); r(:reset); FIX_CLOCK[] && s!(:timen, g(:timeo) + g(:dtime))
         @goto two
     end
-    msg(1)
+    msg(1); Perf.count!(:step_fail)
     s!(:tfac, FAIL_TFAC[])
     s!(:dtime, g(:tfac) * g(:dtime))
     s!(:timen, g(:timeo) + g(:dtime))

@@ -16,6 +16,10 @@ include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "
 include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2Lines.jl"))
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
+# E2E-A: performance recording (TitanDriver.Perf, Perf.jl): always accumulated (overhead < 1 %), written to lib/popiii/perf/<PERF>_* when PERF=<name> is set
+const Perf = TD.Perf; const PERFNAME = get(ENV, "PERF", "")
+Perf.reset!(isempty(PERFNAME) ? "m2c" : PERFNAME; stage = get(ENV, "PERFSTAGE", "collapse"), driver = "popiii_m2c.jl", args = join(ARGS, " "), ic = get(ENV, "IC", "p100"),
+            chem = get(ENV, "CHEM", "rhfc02"), nlte = get(ENV, "NLTE", "1"), sink = get(ENV, "SINK", "0"), integrator = get(ENV, "INTEGRATOR", "trbdf2"), tag = get(ENV, "TAG", ""))
 using ForwardDiff
 # INTEGRATOR=trbdf2 (default) | theta: second-order L-stable TR-BDF2 (Trbdf2.jl, G2) or TITAN's theta scheme
 include(joinpath(@__DIR__, "Trbdf2.jl"))
@@ -308,13 +312,21 @@ else
     end
     xinit(y) = [s === :Hp ? y[1] : s === :Hm ? y[2] : s === :H2 ? y[3] : s === :H2p ? y[4] : s === :Lip ? 0.0 : 0.0 for s in netw.free]
     global mat = PM.NetGas([xinit(y) for y in ystore], netw, phot, coolnet; env = envn, pswitch = parse(Float64, get(ENV, "PSWITCH", "1e4")), Teqmax = atomic ? parse(Float64, get(ENV, "TEQMAX", "1.2e4")) : Inf)
+    atomic && (AtomicHHe.THICKCONT[] = parse(Int, get(ENV, "THICKCONT", "0")))      # E2E-A: RA04-type thick-gas factor on the photo-pair emission (see AtomicHHe.THICKCONT)
     if atomic && get(ENV, "ESCAPE", "1") == "1"
         # escape probabilities of lines and recombination continua from the zone's size and velocity gradient (Sobolev, capped by the column to r)
         mat.zonehook = function (k, d)
             rn = TF.var(:rn); un = TF.var(:un); dn = TF.var(:dn)
             r1, r2 = rn[k], rn[k+1]; rm = 0.5 * (r1 + r2)
             grad = max(abs((un[k+1] - un[k]) / (r2 - r1)), abs(0.5 * (un[k] + un[k+1]) / rm), 1e-30)
-            AtomicHHe.set_zone!(rm, 1 / grad, dn[k] / ChemNet.μH(), d === nothing ? eqd(dn[k], TF.var(:tn)[k]) : d)
+            dd_ = d === nothing ? eqd(dn[k], TF.var(:tn)[k]) : d
+            AtomicHHe.set_zone!(rm, 1 / grad, dn[k] / ChemNet.μH(), dd_)
+            if AtomicHHe.THICKCONT[] == 2           # E2E-A: Planck-mean continuum optical depth of the zone over r (only where it can matter: n_H > 1e12)
+                nHk = dn[k] / ChemNet.μH(); Tk = TF.var(:tn)[k]
+                AtomicHHe.ZS.thick = nHk < 1e12 ? 1.0 : (κP = ContinuumOpacity.means(dn[k], Tk; nH = nHk * get(dd_, :H, 0.0), nH2 = nHk * get(dd_, :H2, 0.0), nHe = nHk * get(dd_, :He, ChemNet.yHe), nHp = nHk * get(dd_, :Hp, 0.0),
+                                                   ne = nHk * get(dd_, :e, 0.0), nHm = nHk * get(dd_, :Hm, 0.0), nHep = nHk * get(dd_, :Hep, 0.0), nHepp = nHk * get(dd_, :Hepp, 0.0), νs = ContinuumOpacity.grid(; n = 250, T = Tk)).κP;
+                                                   AtomicHHe.βesc(κP * dn[k] * rm))
+            end
         end
     end
 end
@@ -360,7 +372,7 @@ on98T(ln) = (j = findfirst(p -> p[1] >= ln, on98); j === nothing ? NaN : j == 1 
 pr("%7s %8s %10s %9s %9s %10s %10s %9s %9s\n", "step", "log n_c", "t [yr]", "T_c", "ON98 T_c", "f_H2,c", "u_c [km/s]", "max dT/T", "dt [s]")
 nextln = Ref(log10(rho[1] / PC.mH) + 0.25)
 using Serialization
-const SNAPFILE = joinpath(TF.ROOT, "lib", "popiii", "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(get(ENV, "TAG", "")).jls")
+const SNAPFILE = joinpath(get(ENV, "SNAPDIR", joinpath(TF.ROOT, "lib", "popiii")), "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(get(ENV, "TAG", "")).jls")
 const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
 const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(ENV, "SNAPEVERY", "0"))
 const HI21ON = get(ENV, "HI21", "0") == "1"; const HI21N = parse(Int, get(ENV, "HI21EVERY", "200"))   # S8b (opt-in): 21 cm diagnostic (HI21.jl) every HI21EVERY steps -> lib/popiii/hi21_<run>.csv
@@ -382,7 +394,8 @@ function linecool(rr, uu, dd, tt, nh2, k)
         # ALI refresh interval adaptive (≤ NALI): halved when the ALI/EP factor moved by > 5 % since the last refresh,
         # doubled when < 1 % — a factor frozen while the lines turn thick jumps at the refresh and kicks the core
         if k >= 0 && (k - ALILAST[] >= ALIINT[] || length(ALIFAC[]) != nsh)
-            Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali)
+            Λa, Lra, xa = Perf.@section(:linecool_ali, H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali))
+            Perf.count!(:ali_calls)
             fnew = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? Λa[j] / Λe[j] : 1.0 for j in 1:nsh]
             if length(ALIFAC[]) == nsh
                 δ = maximum(abs.(log.(fnew ./ ALIFAC[])))
@@ -402,6 +415,7 @@ const HLL = cool == "lines" ? H2Lines.load() : nothing; const NBIN = parse(Int, 
 const SINKIO = SINK ? open(joinpath(TF.ROOT, "lib", "popiii", "s6c_$(get(ENV, "TAG", "")).csv"), "w") : nothing
 const INNERBC = get(ENV, "INNERBC", "ballistic")
 const LINEEVERY = parse(Int, get(ENV, "LINEEVERY", "1")); const LASTLL = Ref{Any}(([], [])); const TCMIN = Ref(Inf)
+const PERFLAST = Ref(time_ns()); const PERFFAIL = Ref(0)
 const SINKREM = Ref(0); const TLINE = Ref(0.0); const TCHEM = Ref(0.0); const T0WALL = time()             # wall time in linecool [s]
 const RPREV = Ref(Float64[]); const TPREV = Ref(0.0)
 const EVIO = SINK ? open(joinpath(TF.ROOT, "lib", "popiii", "s6c_$(get(ENV, "TAG", ""))_events.csv"), "w") : nothing
@@ -439,6 +453,13 @@ function sink_update!(k)
     rs = rsink(4π * xm[a_])
     Mpt = 4π * xm[a_]; ρs = dn[a_]; us = un[a_]
     Min = Mpt
+    if MSTOP > 0 && Mpt >= MSTOP
+        TF.setscalar!(:tmax, TF.getscalar(:timen)); pr("sink stop: M_pt = %.3f Msun >= MSTOPMSUN at step %d, t = %.5f yr\n", Mpt / Msun, k, (t - T_OFF[]) / 3.15576e7)
+    end
+    if MDOTSTOP > 0
+        fl = parse(Float64, split(fluxcols(a_ + 3, b_), ",")[3]); MDOTLOW[] = fl < MDOTSTOP ? MDOTLOW[] + 1 : 0
+        MDOTLOW[] >= MDOTSTOPN && (TF.setscalar!(:tmax, TF.getscalar(:timen)); pr("sink stop: mass flux %.3e Msun/yr < MDOTSTOP for %d steps (M_pt = %.3f Msun, t = %.5f yr)\n", fl, MDOTLOW[], Mpt / Msun, (t - T_OFF[]) / 3.15576e7))
+    end
     if haskey(ENV, "SINKPROF") && k % parse(Int, ENV["SINKPROF"]) == 0
         pr("  sink profile step %d t = %.5f yr: first zones (k, r/AU, u km/s, rho, T, p, fH2, M_int/Msun)\n", k, (t - T_OFF[]) / 3.15576e7)
         for kk in a_:min(a_ + 11, b_)
@@ -455,11 +476,22 @@ function sink_update!(k)
         flush(SINKIO)
     end
 end
+"Profile snapshot of the current state (restart file of RESTART=, analysis)."
+push_snap!(k) = push!(SNAPS, (; step = k, t = TF.getscalar(:timen), r = TF.var(:rn)[a:b+1], u = TF.var(:un)[a:b+1],
+    ρ = TF.var(:dn)[a:b], T = TF.var(:tn)[a:b], e = TF.var(:egn)[a:b], y = [ycomp(a + j - 1) for j in 1:nsh],
+    m = 4π .* TX.XMINT[][a:b+1], Λext = copy(mat.Λext[a:b]), eq = [eqflag(a + j - 1) for j in 1:nsh]))
 Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(ENV, "NSTOP", "1e18"))
+# E2E-A stops of the sink run (default off): MSTOPMSUN = point mass [Msun] at which accretion is declared finished (a documented cap: without feedback the cloud
+# keeps feeding the star); MDOTSTOP [Msun/yr] with MDOTSTOPN [200]: stop when the Eulerian mass flux at the third interface has stayed below it for that many steps
+const MSTOP = parse(Float64, get(ENV, "MSTOPMSUN", "0")) * Msun
+const MDOTSTOP = parse(Float64, get(ENV, "MDOTSTOP", "0")); const MDOTSTOPN = parse(Int, get(ENV, "MDOTSTOPN", "200")); const MDOTLOW = Ref(0)
+PERFLAST[] = time_ns()
 try
     TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k)
-        _tc = time_ns(); dT = PM.chem!(mat); TCHEM[] += (time_ns() - _tc) * 1e-9
-        SINK && sink_update!(k)
+        _tout = time_ns(); _tc = _tout; dT = PM.chem!(mat); TCHEM[] += (time_ns() - _tc) * 1e-9
+        Perf.add!(:chem, time_ns() - _tc, 0); Perf.add!(:step, _tout - PERFLAST[], 0); Perf.count!(:steps)     # (:step = integrator time since the end of the last output call)
+        Perf.count!(:chem_fail, PM.CHEM_FAILS[] - PERFFAIL[]); PERFFAIL[] = PM.CHEM_FAILS[]
+        SINK && Perf.@section(:sink, sink_update!(k))
         S7B && S7bEnv.after_step(k)
         if atomic_dt > 0           # S6c: Δt ≤ ATOMDT × (thermal energy / atomic cooling rate) of the fastest-cooling zone (the cooling inside the chemistry step is implicit; this keeps the operator splitting accurate)
             tcmin_at = Inf
@@ -475,11 +507,9 @@ try
         if SNAPS !== nothing                         # profiles for post-processing: every 0.25 dex of n_c, and every SNAPEVERY steps
             lnc = log10(TF.var(:dn)[a] / PC.mH)
             if lnc >= SNAPNEXT[] || (SNAPEVERY > 0 && k % SNAPEVERY == 0)
-                push!(SNAPS, (; step = k, t = TF.getscalar(:timen), r = TF.var(:rn)[a:b+1], u = TF.var(:un)[a:b+1],
-                    ρ = TF.var(:dn)[a:b], T = TF.var(:tn)[a:b], e = TF.var(:egn)[a:b], y = [ycomp(a + j - 1) for j in 1:nsh],
-                    m = 4π .* TX.XMINT[][a:b+1], Λext = copy(mat.Λext[a:b]), eq = [eqflag(a + j - 1) for j in 1:nsh]))
+                push_snap!(k)
                 lnc >= SNAPNEXT[] && (SNAPNEXT[] = lnc + 0.25)
-                serialize(SNAPFILE, SNAPS)
+                Perf.@section :io serialize(SNAPFILE, SNAPS)
             end
         end
         HI21ON && k % HI21N == 0 && HI21.inline!(k, TF.getscalar(:timen), TF.var(:rn)[a:b+1], TF.var(:un)[a:b+1], TF.var(:dn)[a:b], TF.var(:tn)[a:b], [ycomp(a + j - 1) for j in 1:nsh], 4π .* TX.XMINT[][a:b+1])
@@ -489,7 +519,7 @@ try
             nh2 = [dd[j] / PC.μH * ycomp(a + j - 1)[3] for j in 1:nsh]
             _t0 = time_ns()
             if LINEEVERY == 1 || k % LINEEVERY == 1 || length(LASTLL[][1]) != nsh
-                Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k); LASTLL[] = (Λl, Lr)
+                Λl, Lr, _ = Perf.@section(:linecool, linecool(rr, uu, dd, tt, nh2, k)); LASTLL[] = (Λl, Lr)
                 TLINE[] += (time_ns() - _t0) * 1e-9
                 tcmin = Inf
                 for j in 1:nsh
@@ -501,7 +531,7 @@ try
                 # second transfer call with all T × (1 + ε) makes Λ_j (T/T_j)^s implicit in the chemistry step, and the cap
                 # relaxes to Δt ≤ DTCOOL t_cool (default 1); otherwise Λ is held fixed (explicit, accurate there)
                 if IMPCOOL && (IMPALWAYS || 0.1tcmin < TF.getscalar(:dtime))
-                    ε = 0.02; Λp, _, _ = linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1)
+                    ε = 0.02; Λp, _, _ = Perf.@section(:linecool, linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1))
                     for j in 1:nsh
                         Λl[j] != 0 && Λp[j] / Λl[j] > 0 && (mat.slope[a+j-1] = clamp(log(Λp[j] / Λl[j]) / log(1 + ε), -10.0, 30.0))
                     end
@@ -538,14 +568,23 @@ try
             end
         end
         (Tc_ > Tstop || ρc_ / PC.mH > nstop) && TF.setscalar!(:tmax, TF.getscalar(:timen))
+        k % 50 == 0 && Perf.sample!(step = k, t_yr = (TF.getscalar(:timen) - T_OFF[]) / 3.156e7, dt_s = TF.getscalar(:dtime), zones = nsh, newton = Int(TF.getscalar(:iter)), log_nc = ln, Tc = Tc_,
+                                    wall_s = Perf.elapsed())
+        PERFLAST[] = time_ns(); Perf.add!(:output, PERFLAST[] - _tout, 0)     # (whole output callback, inclusive of :chem, :linecool, :sink, :io)
     end)
 catch e
     pr("stopped: %s\n", sprint(showerror, e)[1:min(end, 400)])
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
+end
+if SNAPS !== nothing && get(ENV, "SNAPEND", "0") == "1"          # E2E-A: the final state as the last snapshot (restart of the next stage)
+    push_snap!(-1); serialize(SNAPFILE, SNAPS)
 end
 S7B && S7bEnv.finish()
 pr("wall time: total %.1f s, line transfer %.1f s, chemistry %.1f s (%d failed zone steps kept)\n", time() - T0WALL, TLINE[], TCHEM[], PM.CHEM_FAILS[])
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
+if !isempty(PERFNAME)
+    Perf.write(); Perf.summary()
+end
 close(io)
