@@ -87,27 +87,45 @@ function envfields(g::RT.FreqGrid, ia::RT.IonAtoms, ab, net, photos, r, T, rho, 
     sec(name, f) = perf === nothing ? f() : perf(name, f)
     local sw = nothing
     xH0 = copy(get(X, :Hp, zeros(n)))
-    if sweep && sum(Lsrc) > 0
-        op = RT.new_opacity(n, nf, length(ab))
-        sec(:rt_opacity, () -> RT.fill_opacity!(op, g, ab, med, opts))
-        kext = op.kother .+ op.ssc
+    op = RT.new_opacity(n, nf, length(ab))
+    sec(:rt_opacity, () -> RT.fill_opacity!(op, g, ab, med, opts))
+    function do_sweep(kext)
         Tsw = max.(T, Tsweep_min)
         sw = sec(:rt_sweep, () -> RT.ion_sweep(ia, Lsrc, r, Tsw, nH; kext = kext, mdotH = mdotH, passes = passes,
                                                 x0 = (x = xH0, a1 = ia.yHe > 0 ? get(X, :Hep, zeros(n)) ./ ia.yHe : zeros(n), a2 = ia.yHe > 0 ? get(X, :Hepp, zeros(n)) ./ ia.yHe : zeros(n))))
         Hp = get!(X, :Hp, zeros(n)); Hn = get!(X, :H, zeros(n)); Ee = get!(X, :e, zeros(n)); Hep = get!(X, :Hep, zeros(n)); Hepp = get!(X, :Hepp, zeros(n)); Hen = get!(X, :He, zeros(n))
         for k in 1:n
             dx = max(sw.x[k] - Hp[k], 0.0)
-            Hp[k] += dx; Hn[k] = max(Hn[k] - dx, 0.0); Ee[k] += dx
+            if dx > 0
+                # the zone is ionised to the sweep's level: nuclei in neutral form = 1 − x; H₂ cannot hold more than 2 % of them (so that the neutral H atoms of the sweep stay in the medium)
+                Hp[k] += dx; Ee[k] += dx; avail = max(1 - Hp[k], 0.0)
+                H2k = get(X, :H2, nothing); h2n = H2k === nothing ? 0.0 : min(H2k[k], 0.01 * avail); H2k === nothing || (H2k[k] = h2n)
+                Hn[k] = max(avail - 2h2n - (haskey(X, :Hm) ? X[:Hm][k] : 0.0) - (haskey(X, :H2p) ? 2 * X[:H2p][k] : 0.0), 0.0)
+            end
             if ia.yHe > 0
                 h1 = max(Hep[k], ia.yHe * sw.a1[k]); h2 = max(Hepp[k], ia.yHe * sw.a2[k])
                 if h1 + h2 > ia.yHe; h1 = max(ia.yHe - h2, 0.0); end
                 Ee[k] += (h1 - Hep[k]) + 2 * (h2 - Hepp[k]); Hep[k] = h1; Hepp[k] = h2; Hen[k] = max(ia.yHe - h1 - h2, 0.0)
             end
         end
+        sw
+    end
+    if sweep && sum(Lsrc) > 0
+        sw = do_sweep(op.kother .+ op.ssc)
+        if any(k -> sw.x[k] > xH0[k] + 1e-3, 1:n)
+            # the other opacities (Rayleigh of the neutral H and H₂ that are gone, …) depend on the composition: second pass with the opacities of the updated medium
+            op = RT.new_opacity(n, nf, length(ab)); sec(:rt_opacity, () -> RT.fill_opacity!(op, g, ab, med, opts))
+            sw = do_sweep(op.kother .+ op.ssc)
+        end
     end
     rf = sec(:rt_transfer, () -> RT.transfer(g, ab, RT.Source(Lsrc, 0.0, sum(Lsrc)), med, opts; rho = rho))
     J = copy(rf.J); Jcmb === nothing || (J .+= reshape(Jcmb, 1, :))
-    (; J, kLW = rf.kLW, arad = rf.arad, heat_other = rf.heat_other, rf, sw, med, xH0)
+    # net heating of the continua that the network does not carry (CIA, H⁻ and H free–free, …): absorption of the field minus the thermal emission of the same opacity, 4π ∫ k (J − B_ν(T)) dν
+    # (one-sided absorption would heat the gas without the emission that balances it at J → B)
+    emis = zeros(n)
+    for k in 1:n, f in 1:nf; emis[k] += 4π * op.kother[k, f] * RT.Bν(g.ν[f], T[k]) * g.dν[f]; end
+    heat_net = rf.heat_other .- emis
+    (; J, kLW = rf.kLW, arad = rf.arad, heat_other = rf.heat_other, heat_net, rf, sw, med, xH0)
 end
 
 # ------------------------------------------------------------------ analytic estimates

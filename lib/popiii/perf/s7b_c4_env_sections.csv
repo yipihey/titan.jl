@@ -1,0 +1,9 @@
+section,calls,total_s,mean_ms
+s7b_hook,5408,338.6116,62.6131
+rt_total,86,31.4615,365.8317
+rt_opacity,86,12.3149,143.1969
+rt_transfer,86,11.7032,136.0837
+rt_inner,86,4.3412,50.4793
+rt_sweep,86,1.6354,19.0157
+exchange_wait_and_rt_total,86,338.5473,3936.5968
+wall_total,1,1170.0219,1170021.8570

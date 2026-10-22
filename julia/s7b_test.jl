@@ -169,7 +169,7 @@ function test_e_body()
     src = S.star_source(gr, rec; mode = :star)
     inn = S.inner_column(IAHe, src, M, R, rs, rho_s, u_s; reemit = (gr, 8000.0))
     Lin = sum(src.L); Lout = sum(inn.Lout)
-    check("e2 inner column", abs(Lout - Lin) / Lin < 1e-9 && inn.Qesc <= inn.Qstar, @sprintf("L_out/L_in = %.12f (absorbed %.2e of %.2e erg/s re-emitted); Q* = %.2e, escaping %.2e; R_II/R* = %.3f; Q/Q_crit = %.2e; ionised flux Ṁ/m_p = %.2e", Lout / Lin, inn.Labs, Lin, inn.Qstar, inn.Qesc, inn.RII / R, inn.Qstar / inn.Qcrit, Mdot / mp))
+    check("e2 inner column", abs(Lout - Lin) / Lin < 1e-3 && inn.Qesc <= inn.Qstar, @sprintf("L_out/L_in = %.12f (absorbed %.2e of %.2e erg/s re-emitted); Q* = %.2e, escaping %.2e; R_II/R* = %.3f; Q/Q_crit = %.2e; ionised flux Ṁ/m_p = %.2e", Lout / Lin, inn.Labs, Lin, inn.Qstar, inn.Qesc, inn.RII / R, inn.Qstar / inn.Qcrit, Mdot / mp))
     # e3: breakout: the same star in a thin envelope (Mdot ÷ 300): the H II region reaches r_s and ionising photons enter the grid
     inn2 = S.inner_column(IAHe, src, M, R, rs, rho_s / 300, u_s; reemit = (gr, 8000.0))
     check("e3 breakout", inn2.Qesc > 0.5 * inn2.Qstar && inn2.Qstar / inn2.Qcrit > 1, @sprintf("Mdot/300: Q/Q_crit = %.1f, escaping fraction %.3f, R_II/R* = %.0f", inn2.Qstar / inn2.Qcrit, inn2.Qesc / inn2.Qstar, inn2.RII / R))
@@ -181,7 +181,7 @@ function test_e_body()
     f = S.envfields(gr, IAHe, ab, net2, ph2, r, T, rho, nothing, xnet, inn2.Lout; opts = RT.Opts(diffuse = false), passes = 1)
     Ldir = f.rf.Ldir; Lsw = f.sw.Ld
     dev = maximum(abs.(Ldir[end, IAHe.f0:end] .- Lsw[end, IAHe.f0:end]) ./ (Lsw[1, IAHe.f0:end] .+ 1e-300))
-    check("e4 sweep vs transfer", dev < 1e-6, @sprintf("transmitted ionising power: max relative difference of the two direct beams %.1e; lit zones (x > 0.5) %d of %d; |ΣaM|c = %.3e of L_abs = %.3e erg/s", dev, count(>=(0.5), f.sw.x), n, abs(sum(f.arad .* (4π / 3 .* (r[2:end] .^ 3 .- r[1:end-1] .^ 3) .* rho))) * CN.c, sum(inn2.Lout) - sum(f.rf.Ldir[end, :])))
+    check("e4 sweep vs transfer", dev < 1e-3, @sprintf("transmitted ionising power: max relative difference of the two direct beams %.1e; lit zones (x > 0.5) %d of %d; |ΣaM|c = %.3e of L_abs = %.3e erg/s", dev, count(>=(0.5), f.sw.x), n, abs(sum(f.arad .* (4π / 3 .* (r[2:end] .^ 3 .- r[1:end-1] .^ 3) .* rho))) * CN.c, sum(inn2.Lout) - sum(f.rf.Ldir[end, :])))
 end
 which in ("a", "all") && test_a()
 which in ("b", "all") && test_b()

@@ -21,8 +21,9 @@ const Msun = S.Msun; const YR = S.YR; const AU = S.AU; const Rsun = S.Rsun; cons
 const TAG = get(ENV, "S7B_TAG", "run"); const DIR = get(ENV, "S7B_DIR", joinpath(Main.TF.ROOT, "lib", "popiii", "s7b_x_$(TAG)"))
 const FEX = envf("S7B_FEX", 0.01); const MSYNC = envf("S7B_MSYNC", 10.0) * Msun; const MODE = Symbol(get(ENV, "S7B_MODE", "star")); const RHOMODE = get(ENV, "S7B_RHOMODE", "mdot")
 const TINNER = envf("S7B_TINNER", 1.5e4); const NZIN = envi("S7B_NZIN", 300); const DIFFUSE = get(ENV, "S7B_DIFFUSE", "0") == "1"; const USELW = get(ENV, "S7B_LW", "1") == "1"
-const FORCE = get(ENV, "S7B_FORCE", "1") == "1"; const FEEDBACK = get(ENV, "S7B_FEEDBACK", "1") == "1"; const FORCEFAC = envf("S7B_FORCEFAC", 1.0)
+const HEATFAC = envf("S7B_HEAT", 1.0); const HEATMODE = get(ENV, "S7B_HEATMODE", "abs"); const FORCE = get(ENV, "S7B_FORCE", "1") == "1"; const FEEDBACK = get(ENV, "S7B_FEEDBACK", "1") == "1"; const FORCEFAC = envf("S7B_FORCEFAC", 1.0)
 const MCAP = envf("S7B_MCAP", 1e9) * Msun; const MDOTSTOP = envf("S7B_MDOTSTOP", 0.0) * Msun / YR; const MDOTWIN = envf("S7B_MDOTWIN", 0.3)
+const NPROF = envi("S7B_NPROF", 0)
 const TRACK = get(ENV, "S7B_TRACK", ""); const EXCH = TRACK == "" && get(ENV, "S7B_EXCH", "1") == "1"
 const SAVEAT = haskey(ENV, "S7B_SAVEAT") ? sort(parse.(Float64, split(ENV["S7B_SAVEAT"], ","))) .* Msun : Float64[]
 const PERFD = Dict{Symbol,Tuple{Int,Float64}}()
@@ -39,13 +40,14 @@ Base.@kwdef mutable struct State
     j::Int = 0; t0::Float64 = 0.0; Macc0::Float64 = 0.0; tb::Float64 = 0.0; dtau::Float64 = 0.0; Mstar0::Float64 = 0.0
     Mdot::Float64 = 0.0; Macc::Float64 = 0.0
     a0::Int = 0; J::Matrix{Float64} = zeros(0, 0); kLW::Vector{Float64} = Float64[]; heat::Vector{Float64} = Float64[]; active::Bool = false; heatnow::Float64 = 0.0   # fields in force
-    log::Any = nothing; track::Any = nothing; texch::Float64 = 0.0
+    log::Any = nothing; prof::Any = nothing; track::Any = nothing; texch::Float64 = 0.0
 end
 const ST = State()
 
 # ------------------------------------------------------------------ set-up (called from popiii_m2c.jl while the network is being built)
 function setup_grid()
     GRID[] === nothing || return
+    Main.AtomicHHe.FJ_FLOOR[] = envf("S7B_FJFLOOR", 0.0)
     GRID[] = get(ENV, "S7B_GRID", "coarse") == "default" ? RT.default_grid() : RT.default_grid(dIR = 0.3, dopt = 0.25, dLW = 0.02, dUV = 0.05)
     mkpath(DIR)
 end
@@ -80,6 +82,10 @@ function install!(mat)
     mat.cooling = (ρ, T, y) -> cool0(ρ, T, y) - ST.heatnow          # photo-heating of the continua that the network does not carry (H⁻ ff, …): negative cooling
     ST.log = open(joinpath(Main.TF.ROOT, "lib", "popiii", "s7b_$(TAG)_env.csv"), "w")
     println(ST.log, "j,t_yr,tc_yr,dtau_yr,Macc,Mpt,Mdot_win,Mstar,Rstar_Rsun,Lstar,Linf,Tph,Teffstar,Qstar,Qesc_in,RII_over_R,Qcrit,Q_over_Qcrit,Labs_in_frac,rho_s,u_s_kms,r_edge_AU,Q_in_grid_abs,n_lit,rfront_AU,xe_max,kLW_max,kLW_zone1,arad_max,arad_over_g_max,Fsum_dyn,Fsum_over_Mdotv,Tzone1,fH2_zone1,wall_s")
+    if NPROF > 0
+        ST.prof = open(joinpath(Main.TF.ROOT, "lib", "popiii", "s7b_$(TAG)_prof.csv"), "w")
+        println(ST.prof, "j,t_yr,zone,r_AU,rho,T,u_kms,p,fH2,xHp,arad,kLW,g,x_sweep,m_int")
+    end
     if TRACK != ""
         rows = [parse.(Float64, split(l, ",")) for l in readlines(TRACK)[2:end] if !isempty(strip(l))]
         ST.track = (M = [r[3] for r in rows], R = [r[4] for r in rows], Ls = [r[5] for r in rows], Lacc = [r[6] for r in rows], Tph = [r[7] for r in rows], Linf = [r[23] for r in rows])
@@ -119,7 +125,10 @@ function mdot_window(t)
     den > 0 || return (NaN, NaN)
     Md = sum((ts .- tb) .* (ms .- mb)) / den
     Md > 0 || return (NaN, NaN)
-    (Md, mb + Md * (t - tb))
+    # the sink may starve (the infall halts): the line through the staircase would keep growing. Bound the rate by the average since the first event of the window, and the mass by the point mass
+    t1, mlast = ev[n]; t0w, m0w = ev[k]
+    t > t1 && (Md = min(Md, (mlast - m0w) / max(t - t0w, 1e-30)))
+    (Md, min(mb + Md * (t - tb), 4π * Main.TX.XMINT[][Int(Main.TF.getscalar(:ngrs))]))
 end
 
 # ------------------------------------------------------------------ the field on the grid
@@ -141,7 +150,7 @@ function field!(rec, Mdot_dyn)
     f = S.envfields(g, ia, AB[], NET[], PHOTOS[], rn, tn, dn, mdotH, xnet, inner.Lout; opts = opts, Jcmb = JCMB[], perf = perf)
     # apply
     if FEEDBACK
-        ST.a0 = a; ST.J = f.J; ST.kLW = copy(f.kLW); ST.heat = copy(f.heat_other); ST.active = true
+        ST.a0 = a; ST.J = f.J; ST.kLW = copy(f.kLW); ST.heat = (HEATMODE == "net" ? f.heat_net : f.heat_other) .* HEATFAC; ST.active = true
         if FORCE
             acc = RT.interface_accel(f.arad .* FORCEFAC, mz); full = zeros(length(un_full())); full[a:b+1] .= acc; TX.AEXT[] = full
         end
@@ -195,6 +204,14 @@ function barrier!(t)
            maximum(get(fd.f.med.X, :e, [0.0])), maximum(fd.f.kLW), fd.f.kLW[1], fd.amax, fd.Fmax, fd.Fsum, abs(fd.Fsum) / max(Md * sqrt(2 * G * rec["M"] / rec["R"]), 1e-300),
            Main.TF.var(:tn)[Int(TF.getscalar(:ngrs))], 2 * Main.ycomp(Int(TF.getscalar(:ngrs)))[3], time() - Main.T0WALL)
     println(ST.log, join(row, ",")); flush(ST.log)
+    if NPROF > 0
+        io = ST.prof; a_ = Int(TF.getscalar(:ngrs)); rn_ = TF.var(:rn); dn_ = TF.var(:dn); tn_ = TF.var(:tn); un_ = TF.var(:un); pg_ = TF.var(:pgn); xm_ = Main.TX.XMINT[]
+        for jj in 1:min(NPROF, length(fd.f.arad))
+            kk = a_ + jj - 1; yc = Main.ycomp(kk)
+            println(io, join((j, t / YR, jj, rn_[kk] / AU, dn_[kk], tn_[kk], un_[kk] / 1e5, pg_[kk], 2yc[3], yc[1], fd.f.arad[jj], fd.f.kLW[jj], G * 4π * xm_[kk] / rn_[kk]^2, fd.x_sw[jj], 4π * xm_[kk] / Msun), ","))
+        end
+        flush(io)
+    end
     @printf("S7B j=%d t_c=%.4f yr  M_acc=%.3f M_pt=%.3f Mdot=%.3e | star M=%.3f R=%.1f L*=%.3e Teff*=%.0f | Q*=%.2e esc_in=%.2e R_II/R*=%.2f Q/Qcrit=%.2e | kLW_max=%.2e a_max=%.2e F/g=%.2e | RT %.1f s\n",
             j, tc / YR, Macc / Msun, Mpt / Msun, Md * YR / Msun, rec["M"] / Msun, rec["R"] / Rsun, rec["Lstar"] / S.Lsun, row[13], fd.inner.Qstar, fd.inner.Qesc, fd.inner.RII / rec["R"], fd.inner.Qstar / fd.inner.Qcrit,
             maximum(fd.f.kLW), fd.amax, fd.Fmax, t_rt)

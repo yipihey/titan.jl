@@ -1,0 +1,40 @@
+a: M = 30 Msun, R_in = 10 Rsun, α_B(1e4 K) = 2.474e-13, Q_crit(1e-3 Msun/yr) = 3.508e+51 s^-1 (OI02 eq. 9: 3.33e+51)
+   Mdot = 1e-03: Q/Q_crit = 0.5 (Q = 1.75e+51): R_II/R_in = 1.652 (analytic e^q = 1.649), ratio 1.002; photons 3.8e-16, ionisations vs recombinations + advection 1.0e-14, escaping 0.0e+00
+   Mdot = 1e-03: Q/Q_crit = 1.0 (Q = 3.51e+51): R_II/R_in = 2.727 (analytic e^q = 2.718), ratio 1.003; photons 0.0e+00, ionisations vs recombinations + advection 9.0e-15, escaping 0.0e+00
+   Mdot = 1e-03: Q/Q_crit = 2.0 (Q = 7.02e+51): R_II/R_in = 7.407 (analytic e^q = 7.389), ratio 1.002; photons 3.8e-16, ionisations vs recombinations + advection 9.8e-15, escaping 0.0e+00
+   Mdot = 1e-03: Q/Q_crit = 3.0 (Q = 1.05e+52): R_II/R_in = 20.120 (analytic e^q = 20.086), ratio 1.002; photons 1.3e-15, ionisations vs recombinations + advection 6.3e-15, escaping 0.0e+00
+   Mdot = 1e-03: Q/Q_crit = 5.0 (Q = 1.75e+52): R_II/R_in = 148.384 (analytic e^q = 148.413), ratio 1.000; photons 1.5e-16, ionisations vs recombinations + advection 8.6e-15, escaping 0.0e+00
+   Mdot = 1e-02: Q/Q_crit = 0.5 (Q = 1.75e+53): R_II/R_in = 1.652 (analytic e^q = 1.649), ratio 1.002; photons 3.6e-16, ionisations vs recombinations + advection 1.7e-14, escaping 0.0e+00
+   Mdot = 1e-02: Q/Q_crit = 1.0 (Q = 3.51e+53): R_II/R_in = 2.727 (analytic e^q = 2.718), ratio 1.003; photons 0.0e+00, ionisations vs recombinations + advection 3.6e-16, escaping 0.0e+00
+   Mdot = 1e-02: Q/Q_crit = 2.0 (Q = 7.02e+53): R_II/R_in = 7.407 (analytic e^q = 7.389), ratio 1.002; photons 3.6e-16, ionisations vs recombinations + advection 1.5e-14, escaping 0.0e+00
+   Mdot = 1e-02: Q/Q_crit = 3.0 (Q = 1.05e+54): R_II/R_in = 20.120 (analytic e^q = 20.086), ratio 1.002; photons 6.5e-16, ionisations vs recombinations + advection 4.1e-15, escaping 0.0e+00
+   Mdot = 1e-02: Q/Q_crit = 5.0 (Q = 1.75e+54): R_II/R_in = 148.384 (analytic e^q = 148.413), ratio 1.000; photons 5.8e-16, ionisations vs recombinations + advection 1.3e-14, escaping 0.0e+00
+PASS  a1 R_II vs OI02 eq. 7          max |R_II/(R_in e^{(Q−Ṁ/m_p)/Q_crit}) − 1| = 0.003
+PASS  a2 photon budget               max 1.7e-14
+PASS  a3 critical Mdot               Q = 1e50, M = 30 Msun: Ṁ_crit (R_II = 1e4 R_in) = 5.5632e-05 Msun/yr, analytic (eq. 5, 6) 5.5631e-05, ratio 1.0000
+b: α_B = 2.474e-13, hν = 20.0 eV, Haehnelt radius R_H = 35.95 pc (OI02: ~26 pc for 13.6 eV)
+   R_II,crit = 10 R_in: Q = 2.925e+52, sweep R_II/R_II,crit = 1.0011, a_rad/g in (1.2 R_in, 0.9 R_II): 1.0000 … 1.0000
+   R_II,crit = 30 R_in: Q = 3.141e+52, sweep R_II/R_II,crit = 1.0011, a_rad/g in (1.2 R_in, 0.9 R_II): 1.0000 … 1.0000
+   R_II,crit = 100 R_in: Q = 3.217e+52, sweep R_II/R_II,crit = 0.9999, a_rad/g in (1.2 R_in, 0.9 R_II): 1.0000 … 1.0000
+PASS  b1 uniform-velocity solution   a_rad = G M/r² everywhere inside the H II region to 6.2e-06; R_II = R_II,crit to 1.1e-03
+PASS  b2 OI02 eq. 30                 Q_crit(R_II → ∞) = α M²/(4π R_H² m_p² R_in) = 3.2496e+52 vs (hν/c)^{-1} G M²/(R_in R_H) = 3.2496e+52
+PASS  e1 record round trip           write_rec/wait_rec exact
+FAIL  e2 inner column                L_out/L_in = 0.999917787907 (absorbed 2.55e+39 of 4.59e+39 erg/s re-emitted); Q* = 7.35e+49, escaping 0.00e+00; R_II/R* = 1.000; Q/Q_crit = 2.34e-03; ionised flux Ṁ/m_p = 1.88e+47
+PASS  e3 breakout                    Mdot/300: Q/Q_crit = 210.8, escaping fraction 0.953, R_II/R* = 6451
+FAIL  e4 sweep vs transfer           transmitted ionising power: max relative difference of the two direct beams 9.2e-01; lit zones (x > 0.5) 60 of 60; |ΣaM|c = 4.844e+38 of L_abs = 4.844e+38 erg/s
+PASS  d1 Strömgren sphere            steady on-the-spot profile (ODE): r(x = ½) = 5.9909 kpc, sweep 5.9909 (ratio 1.0000), max rel. deviation of x_HI(r) (x_HI > 1e-3) 2.7e-03; (R_S = (3Q/4πα n²)^{1/3} = 5.4764 kpc, r_I/R_S = 1.094: the 20 eV photons ionise a thicker shell)
+PASS  d2 H+He structure              R(H⁺) = 0.942 R_S(H-only), R(He⁺) = 0.963, R(He²⁺) = 0.493 R_S; ionisations vs recombinations 1.9e-14; photon closure 0.0e+00; escaping 1.2e-22
+PASS  d3 energy                      (E_in − E_out − ionisation − heating)/E_in = 8.0e-17 (mean photoelectron energy 12.73 eV per ionisation)
+PASS  d4 resolution                  volume-equivalent ionised radius at 100/200/800 zones: 5.8744 / 5.8742 / 5.8742 kpc (a front of 332 zones per call at 800)
+c thin : steps 204, t = 1.01e+06 s, τ_eff: absorbed fraction 0.0040, control drift P0 = -7.052e+03, ΔP = 1.3341e+36, hook ∫ΣaM dt = 1.3341e+36, beam (L/c) Σ f dt = 1.3341e+36, a_max = 1.010e+01 cm/s²
+PASS  c1 hook momentum (thin)        Σ m u gained 1.3341e+36 vs ∫ Σ a_j M_j dt 1.3341e+36 (ratio 1.00000)
+PASS  c2 beam balance (thin)         ∫ Σ a M dt vs ∫ (L_in − L_out)/c dt: ratio 1.00000
+   thin: kinetic energy gained 3.5686e+42 erg, ∫ Σ a M ū dt = 3.5745e+42 erg (ratio 0.9983), absorbed radiation energy 3.9923e+46 erg: work/absorbed = 8.95e-05
+PASS  c4 work of the force (thin)    ΔKE / ∫ΣaMū dt = 0.9983 (≤ 1: the rest is dissipated by the artificial viscosity in the accelerated skin of the thick shell)
+PASS  c3 thin acceleration           a_max = 1.010e+01 vs σ_T L/(4π m_p r1² c) = 1.012e+01 (ratio 0.998; the free-free adds ~-0%)
+c thick: steps 122, t = 3.04e+05 s, τ_eff: absorbed fraction 1.0000, control drift P0 = -1.594e+07, ΔP = 1.0097e+38, hook ∫ΣaM dt = 1.0109e+38, beam (L/c) Σ f dt = 1.0109e+38, a_max = 3.343e+00 cm/s²
+PASS  c1 hook momentum (thick)       Σ m u gained 1.0097e+38 vs ∫ Σ a_j M_j dt 1.0109e+38 (ratio 0.99876)
+PASS  c2 beam balance (thick)        ∫ Σ a M dt vs ∫ (L_in − L_out)/c dt: ratio 1.00000
+   thick: kinetic energy gained 1.9223e+44 erg, ∫ Σ a M ū dt = 2.1773e+44 erg (ratio 0.8829), absorbed radiation energy 3.0406e+48 erg: work/absorbed = 7.16e-05
+PASS  c4 work of the force (thick)   ΔKE / ∫ΣaMū dt = 0.8829 (≤ 1: the rest is dissipated by the artificial viscosity in the accelerated skin of the thick shell)
+S7B: 2 FAIL

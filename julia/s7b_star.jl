@@ -14,13 +14,14 @@ const TAG = get(ENV, "S7B_TAG", "run"); const DIR = get(ENV, "S7B_DIR", joinpath
 const MSYNC = envf("S7B_MSYNC", 10.0) * Msun; const NSLAVE = envf("S7B_NSLAVE", 15.0); const SLEW = envf("S7B_SLEW", 0.05); const CLIP = envf("S7B_CLIP", 0.2)
 const SAVEPREFIX = get(ENV, "S7B_CKPREFIX", "s7b_$(TAG)")
 const PERFD = Dict{Symbol,Tuple{Int,Float64}}()
+const HIST = Tuple{Float64,Float64,Float64,Float64}[]        # (t_start, t_barrier, Mdot0, Mdot1) of every interval: replay after a rollback
 function perf(name, f)
     t0 = time_ns(); v = f(); cs = get(PERFD, name, (0, 0.0)); PERFD[name] = (cs[1] + 1, cs[2] + (time_ns() - t0) * 1e-9); v
 end
 mutable struct SS
-    phase::Symbol; j::Int; t0::Float64; Mstar0::Float64; tb::Float64; dtau::Float64; Mdot::Float64; dtfree::Float64; texch::Float64; Macc_env::Float64
+    phase::Symbol; j::Int; t0::Float64; Mstar0::Float64; tb::Float64; dtau::Float64; Mdot::Float64; dtfree::Float64; texch::Float64; Macc_env::Float64; Mdot0::Float64; tstart::Float64
 end
-const ST = SS(:pre, 0, 0.0, 0.0, Inf, 0.0, 0.0, 0.0, 0.0, 0.0)
+const ST = SS(:pre, 0, 0.0, 0.0, Inf, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 fname(kind, j) = joinpath(DIR, @sprintf("%s_%05d.txt", kind, j))
 
 "Record of the star at the end of the step (d: the NamedTuple of s6b_run.jl `diag`), cgs."
@@ -37,8 +38,10 @@ function exchange!(d)
         Mdp = env["Mdot"]
         corr = (env["Macc"] - Macc_star) / (NSLAVE * env["dtau"])
         tgt = clamp(Mdp + corr, (1 - CLIP) * Mdp, (1 + CLIP) * Mdp)
-        ST.Mdot = ST.j == 0 ? tgt : clamp(tgt, (1 - SLEW) * ST.Mdot, (1 + SLEW) * ST.Mdot)       # slew limit: the precursor boundary condition stalls on abrupt changes of Mdot
+        newM = ST.j == 0 ? tgt : clamp(tgt, (1 - SLEW) * ST.Mdot, (1 + SLEW) * ST.Mdot)       # slew limit: the precursor boundary condition stalls on abrupt changes of Mdot
+        ST.Mdot0 = ST.j == 0 ? newM : ST.Mdot; ST.tstart = d.t; ST.Mdot = newM        # Mdot(t) ramps linearly from the old to the new value over the interval (continuous in time)
         ST.dtau = env["dtau"]; ST.tb = ST.t0 + env["tc"] + env["dtau"]
+        push!(HIST, (ST.tstart, ST.tb, ST.Mdot0, ST.Mdot))
         env["save"] > 0.5 && Main.checkpoint(SAVEPREFIX * @sprintf("_%05d", j))
         if env["done"] > 0.5
             ST.phase = :done; Core.eval(Main, :(mend = 0.0))
@@ -50,8 +53,38 @@ function exchange!(d)
     nothing
 end
 
+"""
+Stall recovery. The precursor boundary condition of the S6b star (E_s damped against its previous value, ionisation-cliff hook) can fall into a regime where the accepted steps shrink to seconds while the
+state flickers (L*, T_s, τ_prec oscillate): S6b restarted such runs from a checkpoint without the E_s damping memory. Here: when the accepted step is < STALLFRAC × the accretion time for STALLN
+consecutive steps, the memory (`ES_OLD`, `H0`) is dropped, the hook is switched off for 100 steps and the step is reset to RESETFRAC × t_acc.
+"""
+const STALLFRAC = envf("S7B_STALLFRAC", 1e-7); const STALLN = Int(envf("S7B_STALLN", 40)); const RESETFRAC = envf("S7B_RESETFRAC", 1e-5)
+const STALLCNT = Ref(0); const LASTT = Ref(0.0); const NRECOVER = Ref(0); const LASTROLL = Ref(0); const ROLLAFTER = Int(envf("S7B_ROLLAFTER", 2))
+function check_stall!(d)
+    dt = d.t - LASTT[]; LASTT[] = d.t
+    tacc = d.M / max(d.Mdot * Msun / YR, 1e-30)
+    if dt > 0 && dt < STALLFRAC * tacc; STALLCNT[] += 1; else STALLCNT[] = 0; end
+    if STALLCNT[] >= STALLN
+        STALLCNT[] = 0; NRECOVER[] += 1
+        Main.ES_OLD[] = 0.0; Main.H0[] = nothing; Main.HOOKOFF[] = 100
+        Main.TX.XIMR_HOOK[] = nothing; Main.TX.PEXT_HOOK[] = nothing
+        Main.TF.setscalar!(:dtime, RESETFRAC * tacc)
+        @printf("S7B-star: stall recovery %d at t = %.6e s (dt = %.2e s = %.1e t_acc): E_s memory and BC hooks dropped, dt reset to %.2e s\n", NRECOVER[], d.t, dt, dt / tacc, RESETFRAC * tacc)
+        if NRECOVER[] - LASTROLL[] >= ROLLAFTER && haskey(ENV, "SAVE")
+            LASTROLL[] = NRECOVER[]
+            ck = [(mtime(joinpath(Main.ckdir, "s6b_$(ENV["SAVE"])_auto$(i).aux")), "$(ENV["SAVE"])_auto$(i)") for i in 0:1 if isfile(joinpath(Main.ckdir, "s6b_$(ENV["SAVE"])_auto$(i).aux"))]
+            if !isempty(ck)
+                name = last(sort(ck))[2]
+                @printf("S7B-star: rollback to checkpoint %s (replay of the recorded Mdot ramps)\n", name)
+                Main.restart!(name); Main.ES_OLD[] = 0.0; Main.H0[] = nothing; Main.HOOKOFF[] = 100; Main.TX.XIMR_HOOK[] = nothing; Main.TX.PEXT_HOOK[] = nothing
+                LASTT[] = Main.TF.getscalar(:timen)
+            end
+        end
+    end
+end
 "Called after every accepted step with the diagnostics d."
 function on_step(d)
+    check_stall!(d)
     if ST.phase === :pre
         if d.M >= MSYNC
             ST.phase = :coupled; ST.t0 = d.t; ST.Mstar0 = d.M; ST.Mdot = d.Mdot * Msun / YR
@@ -75,7 +108,18 @@ function dt_cap(dtn)
     elseif rem < 2dtn; return 0.5 * rem
     else ST.dtfree = dtn; return dtn; end
 end
-mdot_now() = ST.phase === :coupled || ST.phase === :done ? ST.Mdot : nothing
+function mdot_now()
+    ST.phase === :coupled || return ST.phase === :done ? ST.Mdot : nothing
+    t = Main.TF.getscalar(:timen)
+    if t < ST.tstart                       # replay after a rollback: the ramp of the interval that contains t
+        for (ts, tb, m0, m1) in Iterators.reverse(HIST)
+            t >= ts && return (1 - clamp((t - ts) / max(tb - ts, 1e-30), 0.0, 1.0)) * m0 + clamp((t - ts) / max(tb - ts, 1e-30), 0.0, 1.0) * m1
+        end
+        return isempty(HIST) ? ST.Mdot0 : HIST[1][3]
+    end
+    w = clamp((t - ST.tstart) / max(ST.tb - ST.tstart, 1e-30), 0.0, 1.0)
+    (1 - w) * ST.Mdot0 + w * ST.Mdot
+end
 function finish()
     mkpath(joinpath(Main.TF.ROOT, "lib", "popiii", "perf"))
     open(joinpath(Main.TF.ROOT, "lib", "popiii", "perf", "s7b_$(TAG)_star_sections.csv"), "w") do io
