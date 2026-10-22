@@ -1,0 +1,3 @@
+_h18a: state of the zone just outside the sink at the crossing of the shell M (events within a factor 1.1 in M averaged in ln)
+ M [Msun] r_s [AU]        rho     T [K]  u [km/s]     v_ff    u/v_ff       c_s     Mach     f_H2       x_e n_H [cm-3]
+       25      121  2.037e-16      9831     31.76    19.12      1.66     10.50     3.03    0.000  3.60e-03   9.13e+07

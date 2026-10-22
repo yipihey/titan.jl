@@ -118,9 +118,11 @@ mutable struct NetGas <: TM.Material
     pswitch::Float64
     eqzone::Vector{Bool}                 # per zone: in the equilibrium (table) regime after the last chem! step
     Λext::Vector{Float64}; Tref::Vector{Float64}; slope::Vector{Float64}     # as PrimordialGas (G7)
+    Teqmax::Float64                      # S6c: zones hotter than this stay in the network even where p ≥ pswitch (the equilibrium table keeps He neutral: 1.2e4 K for the atomic net, Inf otherwise)
+    zonehook::Any                        # S6c: nothing or (k, d) -> … called before the chemistry/cooling of zone k (escape lengths of AtomicHHe); d = composition Dict (nothing: table regime)
 end
-NetGas(x, net, photos, cooling; env, pswitch = 1e4) =
-    NetGas(x, net, photos, cooling, env, pswitch, falses(length(x)), zeros(length(x)), ones(length(x)), zeros(length(x)))
+NetGas(x, net, photos, cooling; env, pswitch = 1e4, zonehook = nothing, Teqmax = Inf) =
+    NetGas(x, net, photos, cooling, env, pswitch, falses(length(x)), zeros(length(x)), ones(length(x)), zeros(length(x)), Teqmax, zonehook)
 
 import ..ChemNet
 const CNn = ChemNet
@@ -155,7 +157,9 @@ function x_from_table(m::NetGas, ρ, T)
     out = zeros(length(m.net.free))
     for (i, s) in enumerate(m.net.free)
         out[i] = s === :Hp ? xHp : s === :H2 ? xH2 : s === :Hm ? xHm :
-                 s === :Lip ? (K = CNn.Keq([:Li], [:Lip, :e], T); CNn.yLi * K / (K + max(ne, 1e-300))) : 0.0
+                 s === :Lip ? (K = CNn.Keq([:Li], [:Lip, :e], T); CNn.yLi * K / (K + max(ne, 1e-300))) :
+                 (s === :Hep || s === :Hepp) ? (r1 = exp(CNn.lnKeq([:He], [:Hep, :e], T)) / max(ne, 1e-300); r2 = exp(CNn.lnKeq([:Hep], [:Hepp, :e], T)) / max(ne, 1e-300);
+                                               xHe0 = CNn.yHe / (1 + r1 + r1 * r2); s === :Hep ? xHe0 * r1 : xHe0 * r1 * r2) : 0.0
     end
     out
 end
@@ -170,7 +174,8 @@ function chem!(m::NetGas)
     dTmax = 0.0
     for k in a:b
         cool = zone_cooling(m, k)
-        if pgn[k] >= m.pswitch
+        m.zonehook === nothing || m.zonehook(k, pgn[k] >= m.pswitch ? nothing : CNn.full(m.x[k], m.net))
+        if pgn[k] >= m.pswitch && tn[k] < m.Teqmax
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
             _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true

@@ -1,0 +1,48 @@
+PASS  a1 flux balance at Saha            max |net|/flux = 6.5e-14 over 48 (T = 1e3–1e6 K, n_H = 1e0–1e20) states, all 36 reactions + 8 photo pairs paired (worst: He+ + e → He2+ + 2e (Voronov 1997))
+PASS  a2 relaxation to Saha              pseudo-transient steady state from a Saha state with every free species scaled by 0.97 or 1.03, vs Saha for the species with x ≥ 1e-6 (smaller ones are fixed by a1, the pseudo-time stop rule limits this to ~1e-6; tolerance 5e-6): max rel. dev. 9.8e-07 (Hepp at T = 3e+04, n_H = 1e+04), 18 states, T = 3e3–1e6 K, n_H = 1e4–1e20 (1e3 K: rates ≲ 1e-30 s⁻¹, not relaxable; covered by a1)
+PASS  a3 He Saha constant                Keq(He → He⁺ + e) at 2e4 K = 1.7342e+16 cm⁻³ vs hand evaluation 1.7342e+16 (ratio 1.00000; hand sum drops n ≥ 3 term detail and n_max shell of He⁺)
+
+Rate comparisons (ours / reference):
+      T [K] | αA(H)/HG97 αA(He)/VF96 αA(He+)/VF96 | Voron/Jan H       He      He+ | αB(H)/HG97 αB(He+)/GA08         
+       3000 |    0.913    0.998    0.726 |    0.003      Inf    0.000 |    0.907    0.758
+       5000 |    0.931    1.020    0.810 |    0.173    0.028    0.000 |    0.932    0.796
+      10000 |    0.945    1.020    0.877 |    1.030    0.503    0.000 |    0.956    0.839
+      30000 |    0.957    0.987    0.927 |    1.265    1.018    0.239 |    0.973    0.893
+     100000 |    0.970    0.279    0.955 |    1.036    1.001    0.697 |    0.969    0.930
+     300000 |    0.980    0.006    0.973 |    0.997    0.963    0.816 |    0.958    0.947
+    1000000 |    0.985    0.001    0.987 |    1.026    0.981    0.882 |    0.958    0.953
+PASS  c2 radiative recombination         Milne totals vs Hui & Gnedin 1997 / Verner & Ferland 1996 (n ≤ 15 levels, which costs 5 % (H) and 12 % (He²⁺) at 1e4 K): H case A ≤ 5.5 % (1e4–1e6 K), He⁺→He ≤ 2.0 % (3e3–3e4 K; excited-level σ scale calibrated), He²⁺→He⁺ ≤ 12.3 %; case B (excited levels only): H ≤ 4.4 %, He²⁺ ≤ 16.1 % (GA08 k20,B)
+  energy radiated per recombination to H   at 1e4 K: 14.289 eV = chi + 0.80 kT (chi 13.598 eV)
+  energy radiated per recombination to He  at 1e4 K: 25.295 eV = chi + 0.82 kT (chi 24.587 eV)
+  energy radiated per recombination to He+ at 1e4 K: 55.201 eV = chi + 0.91 kT (chi 54.418 eV)
+PASS  c3 recombination energy            energy radiated per recombination = χ + (0.80, 0.82, 0.91) kT for H, He, He⁺ at 1e4 K (kinetic part 0.2–1.5 kT; χ counted once: the explicit loss is the whole photon energy, the ionisation energy leaves the gas through E0 only at the ionisation side)
+PASS  c4 Compton                         Compton cooling per electron at z = 19, T = 3000 K: 2.6449e-27 vs Cen 1992 5.65e-36 (1+z)⁴ (T − 2.7(1+z)) = 2.6632e-27 (ratio 0.9931); sign: heats for T < T_CMB
+PASS  b CIE ionisation fractions         vs Cen 1992 (J = 0, n_H = 1e-2): max |Δx_H⁺| = 0.054 (T ≥ 1.5e4), max |Δ(He⁺/He)| = 0.126, |Δ(He²⁺/He)| = 0.127; He⁺ peak at 5.01e+04 K (Cen 5.01e+04), He²⁺/He = 0.5 at 7.94e+04 K (Cen 8.91e+04)
+
+CIE cooling Λ/n_H² [erg cm³ s⁻¹] (ours at own CIE / ours at Cen's composition / Cen's total at Cen's composition):
+  T =    10000  6.515e-27  5.198e-27  5.050e-27   (1.29, 1.03)
+  T =    17783  1.429e-22  1.581e-22  1.475e-22   (0.97, 1.07)
+  T =    31623  5.057e-23  7.405e-23  6.334e-23   (0.80, 1.17)
+  T =    56234  2.404e-23  3.510e-23  3.015e-23   (0.80, 1.16)
+  T =   100000  4.189e-23  6.455e-23  5.722e-23   (0.73, 1.13)
+  T =   177828  1.357e-23  2.062e-23  1.839e-23   (0.74, 1.12)
+  T =   316228  6.933e-24  9.172e-24  8.769e-24   (0.79, 1.05)
+  T =   562341  5.197e-24  5.980e-24  6.279e-24   (0.83, 0.95)
+  T =  1000000  4.910e-24  5.188e-24  5.805e-24   (0.85, 0.89)
+PASS  c1 cooling curve                   1e4–1e6 K: Λ(ours, Cen's composition)/Λ(Cen 1992) = 0.89–1.20 (±25 %), Λ(own CIE)/Λ(Cen) = 0.72–1.29 (±35 %); H peak at 1.78e+04 K, He⁺ peak at 7.94e+04 K. Reference: Cen 1992/KWH96 fits coded independently (SD93 tables not obtainable offline)
+PASS  d1 closed box, no cooling          4 steps (1e2–1e8 s) from T = 2.5e4 K (x_H⁺ = 0.05 → 0.107, T → 13478 K): max |Δu|/|u| = 2.7e-16
+PASS  d2 energy with cooling             68 steps 1e5 → 19698 K: per-step |Δu + dt Λ/ρ|/|u| ≤ 4.8e-15; Σ trapezoid(Λ dt)/ρ = 1.8835e+13 vs u drop 1.8779e+13 erg/g (ratio 0.9971)
+
+Isochoric cooling from 1e5 K (thin, J = 0):
+  n_H = 1e+03: T = 3e+04 K reached at t = 4.076e+01 yr (CIE-curve estimate 2.326e+01 yr); x_H⁺ = 0.996 (CIE 0.997), He⁺/He = 0.567 (CIE 0.702), He²⁺/He = 0.409 (CIE 0.000)
+  n_H = 1e+03: T = 2e+04 K reached at t = 4.424e+01 yr (CIE-curve estimate 2.460e+01 yr); x_H⁺ = 0.981 (CIE 0.899), He⁺/He = 0.598 (CIE 0.007), He²⁺/He = 0.360 (CIE 0.000)
+  n_H = 1e+03: T = 1e+04 K reached at t = 7.199e+01 yr (CIE-curve estimate 5.579e+02 yr); x_H⁺ = 0.735 (CIE 0.002), He⁺/He = 0.647 (CIE 0.000), He²⁺/He = 0.090 (CIE 0.000)
+  n_H = 1e+10: T = 3e+04 K reached at t = 4.076e-06 yr (CIE-curve estimate 2.326e-06 yr); x_H⁺ = 0.996 (CIE 0.997), He⁺/He = 0.567 (CIE 0.702), He²⁺/He = 0.409 (CIE 0.000)
+  n_H = 1e+10: T = 2e+04 K reached at t = 4.424e-06 yr (CIE-curve estimate 2.460e-06 yr); x_H⁺ = 0.981 (CIE 0.899), He⁺/He = 0.598 (CIE 0.007), He²⁺/He = 0.360 (CIE 0.000)
+  n_H = 1e+10: T = 1e+04 K reached at t = 7.199e-06 yr (CIE-curve estimate 5.579e-05 yr); x_H⁺ = 0.735 (CIE 0.002), He⁺/He = 0.647 (CIE 0.000), He²⁺/He = 0.090 (CIE 0.000)
+PASS  e isochoric cooling                n = 1e3: t(1e5 → 2e4 K) = 44.2 yr = 1.80 × the CIE-curve time (the He²⁺ left over from 1e5 K cools less efficiently than He⁺ in CIE), t(→ 1e4 K) = 72.0 yr = 0.13 × (the gas stays ionised, x_H⁺ = 0.735 at 1e4 K vs CIE 0.0015, so Lyα and recombination keep cooling it: Gnat & Sternberg 2007 find the same, non-equilibrium cooling being faster below ~2e4 K); He²⁺/He at 3e4 K 0.409 vs CIE 0.0000; t(n = 1e3)/t(n = 1e10) = 1.0e+07 (thin: ∝ 1/n)
+PASS  f escape probability               Λ_exc(τ)/Λ_exc(thin): 1.000000 at τ_Lyα = 5.8e-08, 0.185 at 5.8e+00, 2.25e-10 at 5.8e+09, 2.25e-11 at 5.8e+10; log-slope -1.000 (thick, → −1); the weaker lines (Lyβ…) turn over later, so the slope is that of the sum
+PASS  f2 on-the-spot (case B)            ground-level recombination continuum escape fraction 1.6e-07 in a neutral column of 1e24 cm⁻² (case B), 1.0 when thin (case A)
+PASS  g eq. table He                     Saha He ionisation at the table's pressures (1e4–1e8 dyn cm⁻²) and T = 1.2e4 K (NetGas.Teqmax of the atomic net): ≤ 3.4e-04 of He, energy ≤ 6.5e-05 of the H ionisation energy: the table's neutral He is exact below; at 2e4 K and p = 1e4: He ionised 0.94 (He ionisation energy 0.14 of H's) — those zones stay in the network
+PASS  h stiff cooling step               ionised gas at 5.0e4 K, n_H = 2.6e10, Λ t_cool ≈ 4 s, step of 9e6 s: coupled Newton fails; with ChemNet.NESTED (bisection in T over the chemistry): T → 7001 K, energy residual 3.9e-14
+S6C ATOMIC: ALL PASS (15 checks)

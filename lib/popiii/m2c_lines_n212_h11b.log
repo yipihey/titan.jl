@@ -1,0 +1,17 @@
+M2c collapse [IC p100]: cooling lines, 82 shells (q = 1.0843, dm1 = 3e-7 Msun), R = 2.154e+17 cm, rho_c/rho_edge = 53672.6, T_edge = 124.7 K, p_ext = 8.701e-09
+theta = 0.55, C_dyn = 0.03, k5 = pss, chemistry netmodernli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 2.815e+02 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+     47   11.066 1.2984e+06    1161.3     812.7  4.970e-01     -3.411  1.52e-02  4.17e+06  L_lines 4.251e+35  bins 0, thick lines 0
+     48   11.069 1.2984e+06    1160.1     813.3  4.974e-01     -3.414  1.41e-02  6.73e+06  L_lines 4.237e+35  bins 0, thick lines 0
+     67   11.278 1.2984e+06    1118.9     874.5  6.006e-01     -3.402  8.13e-02  6.04e+07  L_lines 4.553e+35  bins 0, thick lines 0
+    135   11.524 1.2986e+06     930.2     952.1  8.627e-01     -3.730  1.72e-02  6.02e+07  L_lines 4.612e+35  bins 0, thick lines 0
+    150   11.784 1.2986e+06    1084.4    1041.4  8.891e-01     -4.689  1.53e-02  3.94e+07  L_lines 6.140e+35  bins 0, thick lines 0
+    162   12.039 1.2986e+06    1244.4    1130.5  9.119e-01     -5.872  1.20e-02  2.65e+07  L_lines 8.198e+35  bins 0, thick lines 0
+    172   12.280 1.2986e+06    1390.3    1184.0  9.314e-01     -7.109  1.31e-02  1.84e+07  L_lines 1.056e+36  bins 0, thick lines 0
+    182   12.546 1.2986e+06    1537.2    1245.9  9.492e-01     -8.613  1.45e-02  1.25e+07  L_lines 1.387e+36  bins 0, thick lines 0
+    190   12.775 1.2986e+06    1610.2    1302.0  9.556e-01     -9.993  1.98e-02  9.08e+06  L_lines 1.676e+36  bins 0, thick lines 0
+    199   13.051 1.2986e+06    1660.5    1372.6  9.515e-01    -11.766  2.22e-02  6.27e+06  L_lines 1.982e+36  bins 0, thick lines 0
+    206   13.276 1.2986e+06    1704.2    1433.3  9.428e-01    -13.338  2.60e-02  4.67e+06  L_lines 2.201e+36  bins 0, thick lines 0
+wall time: total 74.7 s, line transfer 8.7 s, chemistry 8.9 s (0 failed zone steps kept)
+implicit line cooling on 0 steps
+integrator TR-BDF2, statistics Dict(:fail_tr => 1, :fail_bdf => 0, :be_sticky => 9, :steps => 314, :be_fallback => 1)
