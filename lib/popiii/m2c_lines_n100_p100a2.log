@@ -1,0 +1,17 @@
+M2c collapse [IC p100]: cooling lines, 212 shells (q = 1.1972, dm1 = 3e-7 Msun), R = 2.155e+17 cm, rho_c/rho_edge = 476319689494.9, T_edge = 124.5 K, p_ext = 8.675e-09
+theta = 0.55, C_dyn = 0.03, k5 = pss, chemistry netatomicli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 1.734e-04 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+     22   17.737 1.2982e+06    3371.5    3511.1  5.069e-01    -11.628  5.12e-03  2.07e+04  L_lines 8.221e+35  bins 0, thick lines 0
+    500   14.965 1.2982e+06    2133.9    1981.7  8.230e-01    -12.731  2.61e-02  1.65e+05  L_lines 8.589e+35  bins 0, thick lines 0
+   1000   13.377 1.2982e+06    1724.8    1461.3  9.451e-01    -13.165  2.40e-02  9.65e+05  L_lines 5.372e+35  bins 0, thick lines 0
+   1500   11.890 1.2983e+06    1298.1    1080.0  8.467e-01    -10.967  1.58e-02  4.38e+06  L_lines 3.901e+35  bins 0, thick lines 0
+   2000   11.165 1.2984e+06    1138.3     840.9  5.337e-01     -9.509  2.18e-02  1.42e+07  L_lines 2.698e+35  bins 0, thick lines 0
+   2500   10.628 1.2986e+06    1179.5     698.5  2.197e-01    -11.918  1.94e-02  1.19e+07  L_lines 2.121e+35  bins 0, thick lines 0
+   3000    9.506 1.2990e+06     985.9     516.4  2.658e-02     -7.060  1.11e-02  8.40e+07  L_lines 3.469e+34  bins 0, thick lines 0
+   3500    9.179 1.3000e+06    1276.4     488.0  8.594e-03     -8.193  9.38e-03  7.44e+07  L_lines 3.378e+34  bins 0, thick lines 0
+   4000    8.833 1.3015e+06    1537.2     459.7  3.324e-03    -10.529  5.19e-03  5.70e+07  L_lines 3.510e+34  bins 0, thick lines 0
+   4500    8.290 1.3041e+06    1367.1     418.6  1.245e-03     -6.919  5.33e-03  2.28e+08  L_lines 1.238e+34  bins 0, thick lines 0
+   5000    7.941 1.3081e+06    1417.0     391.8  8.068e-04     -8.677  3.35e-03  1.94e+08  L_lines 1.112e+34  bins 0, thick lines 0
+wall time: total 337.3 s, line transfer 145.7 s, chemistry 112.5 s (0 failed zone steps kept)
+implicit line cooling on 0 steps
+integrator TR-BDF2, statistics Dict(:fail_tr => 0, :fail_bdf => 0, :steps => 5426, :be_fallback => 0)

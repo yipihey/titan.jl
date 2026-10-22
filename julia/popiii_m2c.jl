@@ -12,7 +12,7 @@ include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "Bl
 include(joinpath(@__DIR__, "TitanCore.jl")); include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "TitanMaterials.jl"))
 include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "PrimordialChem.jl"))
 include(joinpath(@__DIR__, "SCVH.jl")); include(joinpath(@__DIR__, "PopIIIEqEOS.jl"))
-include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl"))
+include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl")); include(joinpath(@__DIR__, "AtomicHHe.jl"))
 include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2Lines.jl"))
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
@@ -275,20 +275,41 @@ end
 const IMPCOOL = get(ENV, "IMPCOOL", "1") in ("1", "2")               # G7: transfer cooling implicit in T (linearised in ln T)
 const DTCOOL = parse(Float64, get(ENV, "DTCOOL", "1.0"))
 const IMPALWAYS = get(ENV, "IMPCOOL", "1") == "2"                  # IMPCOOL=2: slope every step
+const atomic_dt = (get(ENV, "CHEM", "") |> c -> startswith(c, "netatomic")) ? parse(Float64, get(ENV, "ATOMDT", "0")) : 0.0
+const ATOMTC = Ref(Inf)
 const NIMP = Ref(0)                                                  # steps with implicit line cooling
 const CHEM = get(ENV, "CHEM", "rhfc02")     # rhfc02: PrimordialGas (RHFC02 network, ρ_eq switch); net / netmodern / netmodernli: NetGas (G5)
 if CHEM == "rhfc02"
     global mat = PM.PrimordialGas(ystore, PC.rates_rhfc02(; k5 = k5f), cf, parse(Float64, get(ENV, "RHOEQ", "5e-11")), get(ENV, "EQEOS", "scvh") == "scvh")
 else
     # G5: ChemNet network; equilibrium table where the ideal-gas pressure ≥ PSWITCH (EOS validity, RHFC02's 1e4 dyn cm⁻²)
-    netw, phot = CHEM == "net" ? (ChemRates.rhfc02(; k5 = k5f), ChemNet.Photo[]) : ChemRates.modern(; li = CHEM == "netmodernli")
+    # S6c: CHEM=netatomic[li] adds He, He⁺, He²⁺ chemistry and the atomic H/He cooling (AtomicHHe) to the net of netmodern[li]
+    atomic = startswith(CHEM, "netatomic")
+    netw, phot = CHEM == "net" ? (ChemRates.rhfc02(; k5 = k5f), ChemNet.Photo[]) :
+                 atomic ? AtomicHHe.atomic(; li = CHEM == "netatomicli") : ChemRates.modern(; li = CHEM == "netmodernli")
     tcmb = parse(Float64, get(ENV, "TCMB", "0"))
     Bν_(ν, T) = 2ChemNet.hP * ν^3 / ChemNet.c^2 / expm1(ChemNet.hP * ν / (ChemNet.kB * T))
     envn = (Trad = tcmb, J = tcmb > 0 ? (ν -> Bν_(ν, tcmb)) : (ν -> 0.0), static = true)   # same J in every zone: tabulated photo-rates
     ytup(d) = (d[:Hp], d[:Hm], d[:H2], d[:H2p])
+    eqd(ρ, T) = (y = PopIIIEqEOS.composition(ρ, T); Dict(:H => 1 - y[1] - 2y[3], :Hp => y[1], :H2 => y[3], :He => ChemNet.yHe, :Hep => 0.0, :Hepp => 0.0, :e => y[1], :Hm => 0.0, :H2p => 0.0))
     coolnet = (ρ, T, d) -> cf(ρ, T, d === nothing ? PopIIIEqEOS.composition(ρ, T) : ytup(d))
+    if atomic
+        coolat = AtomicHHe.cooling(phot, envn; eqcomp = eqd)
+        coolnet = let c0 = coolnet; (ρ, T, d) -> c0(ρ, T, d) + coolat(ρ, T, d); end
+        atomic_off = get(ENV, "ATOMICOFF", "0") == "1"            # sensitivity: atomic cooling off (chemistry only)
+        atomic_off && (coolnet = let c0 = (ρ, T, d) -> cf(ρ, T, d === nothing ? PopIIIEqEOS.composition(ρ, T) : ytup(d)); c0; end)
+    end
     xinit(y) = [s === :Hp ? y[1] : s === :Hm ? y[2] : s === :H2 ? y[3] : s === :H2p ? y[4] : s === :Lip ? 0.0 : 0.0 for s in netw.free]
-    global mat = PM.NetGas([xinit(y) for y in ystore], netw, phot, coolnet; env = envn, pswitch = parse(Float64, get(ENV, "PSWITCH", "1e4")))
+    global mat = PM.NetGas([xinit(y) for y in ystore], netw, phot, coolnet; env = envn, pswitch = parse(Float64, get(ENV, "PSWITCH", "1e4")), Teqmax = atomic ? parse(Float64, get(ENV, "TEQMAX", "1.2e4")) : Inf)
+    if atomic && get(ENV, "ESCAPE", "1") == "1"
+        # escape probabilities of lines and recombination continua from the zone's size and velocity gradient (Sobolev, capped by the column to r)
+        mat.zonehook = function (k, d)
+            rn = TF.var(:rn); un = TF.var(:un); dn = TF.var(:dn)
+            r1, r2 = rn[k], rn[k+1]; rm = 0.5 * (r1 + r2)
+            grad = max(abs((un[k+1] - un[k]) / (r2 - r1)), abs(0.5 * (un[k] + un[k+1]) / rm), 1e-30)
+            AtomicHHe.set_zone!(rm, 1 / grad, dn[k] / ChemNet.μH(), d === nothing ? eqd(dn[k], TF.var(:tn)[k]) : d)
+        end
+    end
 end
 "Composition of zone k as the PrimordialChem tuple (x_H⁺, x_H⁻, x_H₂, x_H₂⁺), for either material."
 ycomp(k) = mat isa PM.NetGas ? (d = ChemNet.full(mat.x[k], mat.net); (d[:Hp], d[:Hm], d[:H2], d[:H2p])) : mat.y[k]
@@ -315,6 +336,7 @@ if get(ENV, "FORCECHECK", "0") == "1"           # initial force balance: −r²�
     end
 end
 PM.CHEM_FALLBACK[] = get(ENV, "CHEMFALLBACK", "0") == "1"; ChemNet.XFLOOR[] = parse(Float64, get(ENV, "XFLOOR", "1e-20"))
+CHEM != "rhfc02" && startswith(CHEM, "netatomic") && (ChemNet.NESTED[] = get(ENV, "NESTED", "1") == "1")      # S6c: bisection-in-T fallback of the network step (stiff atomic cooling)
 TF.setscalar!(:thet, parse(Float64, get(ENV, "THETA", "0.55")))   # 0.5 lets the centre ring (M2c)
 TC.DT_DYN[] = parse(Float64, get(ENV, "CDYN", "0.01"))
 tff = sqrt(3π / (32Z0.G * ρc))
@@ -427,6 +449,17 @@ try
     TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k)
         _tc = time_ns(); dT = PM.chem!(mat); TCHEM[] += (time_ns() - _tc) * 1e-9
         SINK && sink_update!(k)
+        if atomic_dt > 0           # S6c: Δt ≤ ATOMDT × (thermal energy / atomic cooling rate) of the fastest-cooling zone (the cooling inside the chemistry step is implicit; this keeps the operator splitting accurate)
+            tcmin_at = Inf
+            for j in a:b
+                (TF.var(:pgn)[j] >= mat.pswitch) && continue
+                d_ = ChemNet.full(mat.x[j], mat.net); T_ = TF.var(:tn)[j]; ρ_ = TF.var(:dn)[j]
+                Λ_ = abs(coolat(ρ_, T_, d_)); Λ_ > 0 || continue
+                uth = 1.5 * ChemNet.kB * T_ * sum(values(d_)) / ChemNet.μH()
+                tcmin_at = min(tcmin_at, uth * ρ_ / Λ_)
+            end
+            ATOMTC[] = tcmin_at; TF.setscalar!(:dtime, min(TF.getscalar(:dtime), atomic_dt * tcmin_at))
+        end
         if SNAPS !== nothing                         # profiles for post-processing: every 0.25 dex of n_c, and every SNAPEVERY steps
             lnc = log10(TF.var(:dn)[a] / PC.mH)
             if lnc >= SNAPNEXT[] || (SNAPEVERY > 0 && k % SNAPEVERY == 0)

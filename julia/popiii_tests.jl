@@ -108,6 +108,9 @@ tests = Test[
     # --- S6b: ionisation-thermostat surface condition of the optically thick precursor ----------------------------------------
     Test("s6c_prec", env(julia(joinpath(J, "s6c_prec_test.jl")), "TITAN_NOLIB" => "1"), "full",
          o -> (occursin("ALL PASS", o) && !occursin("FAIL", o), grab(r"time per precursor_thick[^\n]*", o))),
+    # --- S6c: atomic H/He chemistry and cooling (detailed balance, CIE, cooling curve, energy, escape probability) -----------
+    Test("s6c_atomic", julia(joinpath(J, "s6c_atomic_test.jl")), "full",
+         o -> (occursin("S6C ATOMIC: ALL PASS", o), grab(r"S6C ATOMIC[^\n]*", o))),
 ]
 
 sel = filter(t -> tier == "full" || t.tier == "quick", tests)

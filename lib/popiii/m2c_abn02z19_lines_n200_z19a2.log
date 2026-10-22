@@ -1,0 +1,12 @@
+M2c collapse [IC abn02z19]: cooling lines, 254 shells (q = 1.1167, dm1 = 3e-7 Msun), R = 1.601e+20 cm, rho_c/rho_edge = 1816508075932453888.0, T_edge = 1010.2 K, p_ext = 2.644e-14
+theta = 0.55, C_dyn = 0.03, k5 = pss, chemistry netatomicli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 1.989e-04 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+    500   14.082 2.1857e+07    1929.0    1672.9  8.652e-01    -13.528  2.82e-02  7.00e+05  L_lines 2.674e+36  bins 0, thick lines 0
+   1000   11.993 2.1857e+07    1468.5    1119.4  8.256e-01    -12.084  1.69e-02  7.69e+06  L_lines 2.118e+36  bins 0, thick lines 0
+   1500   10.504 2.1857e+07    1273.9     669.3  9.649e-02    -11.230  3.04e-02  3.71e+07  L_lines 6.563e+35  bins 0, thick lines 0
+   2000    9.269 2.1858e+07    1574.4     495.6  4.472e-03     -9.959  1.64e-02  1.33e+08  L_lines 2.083e+35  bins 0, thick lines 0
+   2500    7.949 2.1861e+07    1096.8     392.6  2.164e-03     -7.047  3.93e-03  4.79e+08  L_lines 4.867e+34  bins 0, thick lines 0
+   3000    7.280 2.1870e+07    1303.0     327.6  1.871e-03    -12.397  7.93e-03  2.61e+08  L_lines 7.618e+34  bins 0, thick lines 0
+wall time: total 364.6 s, line transfer 157.1 s, chemistry 127.3 s (0 failed zone steps kept)
+implicit line cooling on 0 steps
+integrator TR-BDF2, statistics Dict(:fail_tr => 0, :fail_bdf => 0, :steps => 3385, :be_fallback => 0)
