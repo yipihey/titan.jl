@@ -241,6 +241,8 @@ const CASC = Dict(:H => (10.2 * eV, 0.4162, CN.mH), :He => (21.218 * eV, 0.2762,
 const E_DR = 40.81 * eV + CN.χHe1                         # photon energy radiated per dielectronic recombination (see the notes)
 "Gaunt factor of the free–free emission (Cen 1992 / Katz et al. 1996 fit)."
 gff(T) = 1.1 + 0.34 * exp(-(5.5 - log10(T))^2 / 3)
+# ck/freefree: the frequency-integrated Gaunt factor depends on kT/Z² Ry, so He²⁺ takes gff(T/4) (×1.05–1.10 at
+# 1e4–3e5 K). The Cen fit equals van Hoof et al. (2014) ⟨g_ff⟩ to ≤ 1.7 % for Z = 1, 2 (ContinuumFF.gaunt_ff_total) [run].
 
 """
     parts(ρ, T, d; photos, env, eqcomp = nothing) -> NamedTuple (erg cm⁻³ s⁻¹)
@@ -269,7 +271,7 @@ function parts(ρ, T, d; photos, env)
     end
     exc *= EXCFRAC[]
     dr = nH^2 * g(:e) * g(:Hep) * k_di_HeII(T) * E_DR
-    ff = 1.42e-27 * gff(T) * sqrt(T) * ne * nH * (g(:Hp) + g(:Hep) + 4g(:Hepp))
+    ff = 1.42e-27 * sqrt(T) * ne * nH * (gff(T) * (g(:Hp) + g(:Hep)) + 4gff(T / 4) * g(:Hepp))
     comp = env.Trad > 0 ? 1.0178e-37 * env.Trad^4 * (T - env.Trad) * ne : zero(T)
     (rad = rad, exc = exc, dr = dr, ff = ff, comp = comp)
 end

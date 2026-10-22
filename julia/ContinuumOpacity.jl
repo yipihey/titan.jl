@@ -17,6 +17,9 @@ Planck and Rosseland means. Sources (data outside the repository, `~/Projects/po
   α = k n_H P_e (stimulated emission included in the fit).
 - **H (neutral) bound–free and H⁺ + e free–free**: hydrogenic (Kramers, Gaunt factors = 1) — adequate only as an
   order of magnitude; matters above ≈ 5000 K.
+- **ContinuumFF (S7-prep, EXT_FF)**: thermally averaged free–free Gaunt factors (van Hoof et al. 2014) on the
+  hydrogenic free–free of H⁺, He⁺, He²⁺; He⁻ free–free (John 1994); H₂⁻ free–free (John 1975, via Turbospectrum);
+  H₂⁺ bound–free + free–free (Stancil 1994).  Sources, ranges and extrapolations: `ContinuumFF.jl`.
 - **Rayleigh**: H₂ — RH (Victor & Dalgarno 1969; Tarafdar & Vardya 1973 fit) σ[Mb] = (87.79 + (1.323e6 +
   2.245e10/λ²)/λ²)/λ⁴, λ in nm; H — σ = 5.799e-13/λ⁴ + 1.422e-6/λ⁶ + 2.784/λ⁸ cm², λ in Å (Dalgarno 1962) [memory,
   unverified].
@@ -28,6 +31,12 @@ module ContinuumOpacity
 
 const h = 6.62607015e-27; const c = 2.99792458e10; const kB = 1.380649e-16; const me = 9.1093837e-28
 const σT = 6.6524587e-25; const eV = 1.602176634e-12
+include(joinpath(@__DIR__, "ContinuumFF.jl")); const FF = ContinuumFF
+"""
+Switch for the ContinuumFF processes (van Hoof free–free Gaunt factors on H⁺/He⁺/He²⁺, He⁻ and H₂⁻
+free–free, H₂⁺ bound–free + free–free).  Default on; `false` reproduces the M3c means exactly.
+"""
+const EXT_FF = Ref(true)
 
 # ------------------------------------------------------------------ CIA tables
 struct CIA
@@ -149,7 +158,7 @@ function α_H_kramers(ν, T, nH, nHp, ne)
         pn = 2n^2 * exp(-χ * (1 - 1 / n^2) / (kB * T)) / Z
         α += nH * pn * σ0 * n * (χ / n^2 / (h * ν))^3
     end
-    αff = 3.692e8 * ne * nHp / (sqrt(T) * ν^3)          # Kramers free–free, Z = 1, g = 1 [cm⁻¹]
+    αff = 3.692e8 * ne * nHp / (sqrt(T) * ν^3) * (EXT_FF[] ? FF.gaunt_ff(ν, T, 1) : 1.0)   # Kramers free–free, Z = 1; ḡ_ff van Hoof 2014 (g = 1 when EXT_FF off)
     (α + αff) * (-expm1(-h * ν / (kB * T)))
 end
 "Rayleigh cross sections [cm²]: H₂ (RH fit, λ in nm → σ in Mb) and H (Dalgarno 1962 [memory])."
@@ -157,12 +166,12 @@ end
 σ_ray_H(λÅ) = 5.799e-13 / λÅ^4 + 1.422e-6 / λÅ^6 + 2.784 / λÅ^8
 
 """
-    alpha(ν, T; nH, nH2, nHe, nHp, ne, nHm) -> (α_abs, α_sca, parts) [cm⁻¹]
+    alpha(ν, T; nH, nH2, nHe, nHp, ne, nHm, nHep = 0, nHepp = 0, nH2p = nothing) -> (α_abs, α_sca, parts) [cm⁻¹]
 
 Continuum absorption (true absorption, stimulated emission included) and scattering coefficients at frequency ν [Hz].
 `parts` is a named tuple of the absorption contributions (for diagnostics).
 """
-function alpha(ν, T; nH, nH2, nHe, nHp, ne, nHm)
+function alpha(ν, T; nH, nH2, nHe, nHp, ne, nHm, nHep = 0.0, nHepp = 0.0, nH2p = nothing)
     t = tables(); σ = ν / c; λμ = 1e4 / σ; stim = -expm1(-h * ν / (kB * T))
     a_h2h2 = k_h2h2(t, σ, T) * nH2^2
     a_h2he = kcia(t.H2He, σ, T) * nH2 * nHe
@@ -170,9 +179,17 @@ function alpha(ν, T; nH, nH2, nHe, nHp, ne, nHm)
     a_hmbf = σ_Hm_bf(λμ) * nHm * stim
     a_hmff = k_Hm_ff(λμ, T) * nH * ne * kB * T
     a_h = α_H_kramers(ν, T, nH, nHp, ne)
+    a_hemff = 0.0; a_h2mff = 0.0; a_h2p = 0.0; a_heff = 0.0
+    if EXT_FF[]
+        a_hemff = FF.k_Hem_ff(λμ * 1e4, T) * nHe * ne * kB * T                 # He⁻ ff (stim. emission in the table)
+        a_h2mff = FF.α_H2m_ff(ν, T, nH2, ne)                                   # H₂⁻ ff
+        bf2, ff2 = FF.α_H2p(ν, T, nH, nHp; nH2p); a_h2p = bf2 + ff2            # H₂⁺ bf + ff
+        a_heff = FF.α_ff_hydrogenic(ν, T, 1, nHep, ne) + FF.α_ff_hydrogenic(ν, T, 2, nHepp, ne)   # He⁺, He²⁺ ff
+    end
     sca = σ_ray_H2(λμ * 1e3) * nH2 + σ_ray_H(λμ * 1e4) * nH + σT * ne
-    abs_ = a_h2h2 + a_h2he + a_h2h + a_hmbf + a_hmff + a_h
-    (abs_, sca, (cia_h2h2 = a_h2h2, cia_h2he = a_h2he, cia_h2h = a_h2h, hm_bf = a_hmbf, hm_ff = a_hmff, h = a_h))
+    abs_ = a_h2h2 + a_h2he + a_h2h + a_hmbf + a_hmff + a_h + a_hemff + a_h2mff + a_h2p + a_heff
+    (abs_, sca, (cia_h2h2 = a_h2h2, cia_h2he = a_h2he, cia_h2h = a_h2h, hm_bf = a_hmbf, hm_ff = a_hmff, h = a_h,
+                 hem_ff = a_hemff, h2m_ff = a_h2mff, h2p = a_h2p, he_ff = a_heff))
 end
 
 Bν(ν, T) = 2h * ν^3 / c^2 / expm1(h * ν / (kB * T))
@@ -187,11 +204,11 @@ grid(; n = 4000, T = 0.0) = [c * 10^x for x in range(1.0, log10(max(1e5, 25kB * 
 
 Planck mean of the absorption, Rosseland mean of the extinction (and of the absorption alone), trapezoid on νs.
 """
-function means(ρ, T; nH, nH2, nHe, nHp, ne, nHm, νs = grid(; T))
+function means(ρ, T; nH, nH2, nHe, nHp, ne, nHm, nHep = 0.0, nHepp = 0.0, nH2p = nothing, νs = grid(; T))
     sP = 0.0; sB = 0.0; sR = 0.0; sRa = 0.0; sD = 0.0
     for i in 1:length(νs)-1
         ν = 0.5 * (νs[i] + νs[i+1]); dν = νs[i+1] - νs[i]
-        a, s, _ = alpha(ν, T; nH, nH2, nHe, nHp, ne, nHm)
+        a, s, _ = alpha(ν, T; nH, nH2, nHe, nHp, ne, nHm, nHep, nHepp, nH2p)
         B = Bν(ν, T); D = dBdT(ν, T)
         sP += a * B * dν; sB += B * dν
         sR += D / max(a + s, 1e-300) * dν; sRa += D / max(a, 1e-300) * dν; sD += D * dν

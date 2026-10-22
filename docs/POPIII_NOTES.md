@@ -2135,14 +2135,9 @@ EmissionKernels.jl (identical to all digits [run]) — same primary sources, not
 dielectronic coefficient of `k4d` is [memory]. CIE curve at n_H = 1: H peak 1.0e-22 (Λ/n_H²) at 1.8e4 K, He share 0.83 at 1e5 K,
 bremsstrahlung above 1e6 K (9e-24 at 1e7 K) [run].
 
-**Hook-up (not done, Tom's/the other session's call).** `PopIIIMaterial.NetGas` takes `cooling(ρ, T, d)`; popiii_m2c.jl l. 289
-builds `coolnet = (ρ, T, d) -> cf(ρ, T, …)`: add `+ AtomicCooling.cooling_atomic_rho(ρ, T, d; he = :cie)` where `d` is the ChemNet
-composition (the equilibrium-table branch passes `d === nothing`: there use `he = :saha` with the table's x_H⁺). **Energy
-bookkeeping:** ChemNet carries χ in u, so the adapter's default `ionization_in_u = true` omits ciHI and charges χ_H + E_kin per
-radiative recombination (the photon's energy); PrimordialGas/thermal-energy callers use `ionization_in_u = false`. Helium is
-inert in ChemNet (no He⁺ species): He uses the thermal convention in both modes; a He network (k3/k4+k4d, k5/k6 with detailed-
-balance reverses, species :Hep/:Hepp with E0 = 24.587 / 79.005 eV) is the next step and the rates are in the module. In thick
-gas (τ > 1 for Lyα, continuum) these terms must be moderated by the transfer (M3c) — the adapter is the thin limit.
+**Superseded by S6c.** `AtomicHHe.jl` (S6c, in ChemNet, with He⁺/He²⁺ species, Milne pairs and escape probabilities) is the
+set used by the collapse/protostar runs; `AtomicCooling.jl` stays as the independent thin-limit cross-check (CIE curve) of it
+and is not wired into NetGas.
 
 ChemistryKernels.jl (branch `dense-equilibrium`) now has the same helium set behind `helium_cooling = true` (EmissionKernels
 `cooling_rate_helium`), with He Saha at the gas T and the He ionisation energy in the conserved budget under `planck_radiation`.
@@ -2169,8 +2164,13 @@ only); `ContinuumOpacity` had H⁻ ff (John 1988) and hydrogenic ff with g = 1; 
 - `AtomicCooling.brem_Z(T, Z)` (and EmissionKernels `brem_Z`): He²⁺ bremsstrahlung with the integrated Gaunt factor at T/Z².
 - ChemistryKernels `planck_radiation`: the whole radiative sum (lines, recombination, free–free, Compton) is now dropped
   (balanced by absorption in J = B), not just the collisional-ionisation terms.
-Not done: Bell (1980) H₂⁻ ff; He⁻ ff above 10 080 K (clamped in θ); frequency-dependent Gaunt factors for the *cooling*
-coefficient (the Cen integrated fit is kept); relativistic ff (van Hoof et al. 2015) above 1e8 K.
+Completed in the same branch (`ck/freefree`, worktree `../titan-ck`, files from data.nublado.org/gauntff): the merged
+relativistic Gaunt tables of van Hoof et al. (2015) for Z = 1, 2 are the default of `gaunt_ff` (agree with the 2014 table to
+< 0.5 % below 1e7 K, valid to 1e10 K); the frequency-integrated ⟨g_ff⟩(γ²) table (`gaunt_ff_total`) shows the Cen (1992) fit of
+the bremsstrahlung cooling coefficient is within 1.7 % for Z = 1 and 2 over 3e3–3e8 K — kept, but He²⁺ now takes gff(T/4) in
+`AtomicHHe.cooling`, `AtomicCooling.brem_Z` and EmissionKernels `brem_Z` (+5–10 % on the He²⁺ term); He⁻ ff above 10 080 K
+extrapolated linearly in θ to 20 160 K and held (positive, continuous). Still open: Bell (1980) H₂⁻ ff (no open-source
+transcription found; Kurucz ATLAS9 and Korg carry only John 1975 / H⁻), and a two-photon continuum (S7).
 ### S6c Atomic H and He chemistry and cooling [run]
 Files: `julia/AtomicHHe.jl` (new: network `atomic()`, cooling `cooling`/`parts`, escape probabilities), `ChemNet.jl` (species He/He⁺/He²⁺ with partition functions and E0, He eliminated by nuclei conservation when He⁺ is a species, `Photo.esc`, `photoenergy[_t]`, `steady(xfloor, tol, xclamp)`, opt-in `NESTED`, finite-Jacobian guard, overflow-free `u_H2` below 20 K),
 `PopIIIMaterial.jl` (`NetGas.zonehook`, `Teqmax`, He in `x_from_table`), `popiii_m2c.jl` (`CHEM=netatomic` (no Li) / `netatomicli`, `ESCAPE`, `TEQMAX`, `NESTED`, `ATOMDT`, `ATOMICOFF`), `s6c_atomic_test.jl` (15 checks, full tier `s6c_atomic`), `s6c_atomic_cmp.jl` (Ṁ tables). All new switches are opt-in: `modern()` steady state and coupled step are identical to 15 digits to the S6b code (4 states), and the P100 default collapse (`MAXSTEPS=12000 NSTOP=1e12 lines 100`, `m2c_lines_n100_s6cchk.log`) is bit-identical to `s6bchk` (T_c = 293.9 / 373.5 / 446.5 / 627.5 / 867.9 K at log n_c = 7.00 / 8.17 / 9.15 / 10.15 / 11.17, difference 0; the S6b table values 293 / 372 / 448 / 631 / 867 are within 0.6 %). Quick tier 8/8 PASS, full tier 24/24 PASS (23 earlier + `s6c_atomic`).

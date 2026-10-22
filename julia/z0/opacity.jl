@@ -10,6 +10,14 @@
 
 const NLEV_H   = 12
 const NLEV_HE2 = 8
+include(joinpath(@__DIR__, "..", "ContinuumFF.jl"))
+"""
+Thermally averaged free–free Gaunt factors (van Hoof et al. 2014, `ContinuumFF.gaunt_ff`) in `kappa_nu`
+instead of g = 1.  Default `false`: the shipped Z0 tables (S3) were built with g = 1; switching on
+changes κ by the Gaunt factor (1.1–1.8 at 1e4–1e6 K) and requires `build_table` and the S3
+re-validation.  Float64 only (the table lookup is not AD-aware).
+"""
+const GAUNT_FF = Ref(false)
 
 # --- H− cross sections (John 1988, A&A 193, 189) -----------------------------------------
 "H− bound-free cross section (cm²), λ in μm."
@@ -81,7 +89,11 @@ function kappa_nu(ν, T, s, pH, pHe)
     ν0 = χHe1 / h
     ν >= ν0 && (ab += s.nHe0 * 7.4e-18 * (ν0 / ν)^1.7)
     ab *= stim
-    ab += 3.69e8 * s.ne * (s.nHp + s.nHe1 + 4s.nHe2) / sqrt(T) / ν^3 * stim
+    if GAUNT_FF[]
+        ab += 3.69e8 * s.ne * ((s.nHp + s.nHe1) * ContinuumFF.gaunt_ff(ν, T, 1) + 4s.nHe2 * ContinuumFF.gaunt_ff(ν, T, 2)) / sqrt(T) / ν^3 * stim
+    else
+        ab += 3.69e8 * s.ne * (s.nHp + s.nHe1 + 4s.nHe2) / sqrt(T) / ν^3 * stim
+    end
     nHm = s.nH0 * s.ne * exp(χHm / kT) / (4λe3(T))
     ab += nHm * σHm_bf(λμ) * stim
     ab += s.nH0 * kHm_ff(λμ, T) * s.ne * kT
