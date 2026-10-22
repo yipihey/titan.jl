@@ -234,6 +234,7 @@ end
 "Net factor 1 − J(ν₀)/B_ν₀(T) (stimulated absorption of the radiation field in the line; 1 for J = 0)."
 function fJ(E, T, env)
     ν = E / hP; J = env.J(ν); J == 0 && return one(T)
+    E / (kB * T) > 600 && return one(T)          # S7a: B_ν(T) underflows (T ≲ 200 K for a 10 eV line): J/B = Inf made 0 × Inf = NaN in the cold gas with a non-zero J; the excitation rate there is q = 0 anyway
     1 - J / (2hP * ν^3 / c^2 / expm1(E / (kB * T)))
 end
 "Resonance-line energy and f of the cascade end for each species (H Lyα, He I 584 Å, He II 304 Å)."

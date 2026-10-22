@@ -1,0 +1,12 @@
+t =    1.07 Myr  step    59  r_I = 0.9380 kpc  (0.174 rS0)  T_hii = 19613  r(nmax) = 0.025 kpc  n_max = 1.005e-03  dt = 0.097 Myr  wall 52 s
+t =    3.04 Myr  step    70  r_I = 1.3776 kpc  (0.255 rS0)  T_hii = 17411  r(nmax) = 0.025 kpc  n_max = 1.028e-03  dt = 0.277 Myr  wall 53 s
+t =   10.39 Myr  step    86  r_I = 2.1364 kpc  (0.396 rS0)  T_hii = 15324  r(nmax) = 2.778 kpc  n_max = 1.003e-03  dt = 0.500 Myr  wall 54 s
+t =   30.39 Myr  step   126  r_I = 3.0968 kpc  (0.574 rS0)  T_hii = 13813  r(nmax) = 4.039 kpc  n_max = 1.013e-03  dt = 0.500 Myr  wall 56 s
+t =   50.39 Myr  step   166  r_I = 3.6725 kpc  (0.681 rS0)  T_hii = 13165  r(nmax) = 4.808 kpc  n_max = 1.026e-03  dt = 0.500 Myr  wall 58 s
+t =  100.39 Myr  step   266  r_I = 4.6337 kpc  (0.859 rS0)  T_hii = 12422  r(nmax) = 4.556 kpc  n_max = 1.086e-03  dt = 0.500 Myr  wall 64 s
+t =  150.39 Myr  step   366  r_I = 5.3702 kpc  (0.996 rS0)  T_hii = 12104  r(nmax) = 5.446 kpc  n_max = 1.173e-03  dt = 0.500 Myr  wall 70 s
+t =  200.39 Myr  step   466  r_I = 6.0213 kpc  (1.116 rS0)  T_hii = 11942  r(nmax) = 7.996 kpc  n_max = 1.306e-03  dt = 0.500 Myr  wall 77 s
+t =  300.39 Myr  step   666  r_I = 7.1550 kpc  (1.327 rS0)  T_hii = 11790  r(nmax) = 9.721 kpc  n_max = 1.745e-03  dt = 0.500 Myr  wall 90 s
+t =  400.39 Myr  step   866  r_I = 8.1437 kpc  (1.510 rS0)  T_hii = 11719  r(nmax) = 11.275 kpc  n_max = 2.056e-03  dt = 0.500 Myr  wall 103 s
+t =  500.39 Myr  step  1066  r_I = 9.0215 kpc  (1.673 rS0)  T_hii = 11655  r(nmax) = 12.676 kpc  n_max = 2.286e-03  dt = 0.500 Myr  wall 116 s
+rS0 = 5.3931 kpc, trec = 122.35 Myr, steps 1066, wall 116 s

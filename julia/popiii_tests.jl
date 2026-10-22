@@ -111,6 +111,9 @@ tests = Test[
     # --- S6c: atomic H/He chemistry and cooling (detailed balance, CIE, cooling curve, energy, escape probability) -----------
     Test("s6c_atomic", julia(joinpath(J, "s6c_atomic_test.jl")), "full",
          o -> (occursin("S6C ATOMIC: ALL PASS", o), grab(r"S6C ATOMIC[^\n]*", o))),
+    # --- S7a: frequency-dependent transfer, photochemistry, LW self-shielding; Iliev et al. 2006/2009 tests (incl. a TITAN hydro run) -----------
+    Test("s7a", env(julia(joinpath(J, "s7a_test.jl"); t = 3), "TITAN_NOLIB" => "1"), "full",
+         o -> (occursin("S7A: ALL PASS", o), grab(r"S7A[^\n]*", o))),
 ]
 
 sel = filter(t -> tier == "full" || t.tier == "quick", tests)

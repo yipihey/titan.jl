@@ -218,6 +218,7 @@ end
 const PETAB = IdDict{Any,Any}()
 "photoenergy through a table in log T (static radiation field only), Catmull–Rom in ln, differentiable in T."
 function photoenergy_t(p::Photo, T, env)
+    hasproperty(env, :energy_fn) && return env.energy_fn(p, ForwardDiff.value(T))      # S7a: per-zone tabulated Milne sums (RadTransfer.ZoneEnv)
     (hasproperty(env, :static) && env.static) || return photoenergy(p, ForwardDiff.value(T), env)
     tab = get!(PETAB, (p, env)) do
         lT = collect(0.0:0.01:6.0); v = [photoenergy(p, 10^x, env) for x in lT]
@@ -235,6 +236,7 @@ every zone (`env.static == true`, e.g. the CMB or none); otherwise direct. Table
 """
 const PHTAB = IdDict{Any,Any}()
 function photorates_t(p::Photo, T, env)
+    hasproperty(env, :rates_fn) && return env.rates_fn(p, T)                          # S7a: per-zone tabulated rates (RadTransfer.ZoneEnv)
     (hasproperty(env, :static) && env.static) || return photorates(p, T, env)
     tab = get!(PHTAB, (p, env)) do
         lT = collect(0.0:0.005:6.0)
