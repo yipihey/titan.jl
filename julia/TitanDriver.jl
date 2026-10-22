@@ -105,6 +105,12 @@ convective zone, with corrections of 1e-7…1e-6 in ln E_r that alternate in sig
 """
 const CONV_STALL = Ref(0.0)
 """
+S7c-1: `SAMEDT_RETRY[]` (default false = TITAN): after the FIRST Newton failure of a step, retry once at the same dt from the old state (`reset` restores it: no extrapolated radii, no predicted T, E) before the time step
+is reduced. The extrapolated initial guess of the interface radii (EXTRAP_FRAC, `predict!`) fails where the surface layers of a luminous, extended star oscillate (first Newton correction ×14 in the H-ionisation zone) and the
+dt reduction then repeated at every step (dt → seconds: "the S6b stall"); from the old state the same dt converges.
+"""
+const SAMEDT_RETRY = Ref(false)
+"""
 S6b: `INNER_GHOST_GEOM[]` (default false = TITAN): with the Lagrangian inner boundary (llibc = 1) the ghost interface below the first zone is the
 geometric reflection r(a−1) = r(a)²/r(a+1) instead of the radius of an equal-volume zone r(a−1)³ = r(a)³ − 3Δm/ρ (which has no real root
 when the zone is wider than a factor 2^(1/3) in r). Used by the mass sink of popiii_m2c.jl.
@@ -126,6 +132,10 @@ function step!()
     s!(:iter, g(:iter) + 1)
     g(:iter) <= g(:niter) && @goto three
     # failure to converge: reduce timestep
+    if SAMEDT_RETRY[] && g(:jtry) == 1
+        s!(:jtry, 2); r(:reset); FIX_CLOCK[] && s!(:timen, g(:timeo) + g(:dtime))
+        @goto two
+    end
     msg(1)
     s!(:tfac, FAIL_TFAC[])
     s!(:dtime, g(:tfac) * g(:dtime))

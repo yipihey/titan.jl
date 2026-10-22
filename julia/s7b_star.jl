@@ -13,6 +13,9 @@ const Msun = 1.98847e33; const YR = 3.15576e7
 const TAG = get(ENV, "S7B_TAG", "run"); const DIR = get(ENV, "S7B_DIR", joinpath(Main.TF.ROOT, "lib", "popiii", "s7b_x_$(TAG)")); mkpath(DIR)
 const MSYNC = envf("S7B_MSYNC", 10.0) * Msun; const NSLAVE = envf("S7B_NSLAVE", 15.0); const SLEW = envf("S7B_SLEW", 0.05); const CLIP = envf("S7B_CLIP", 0.2)
 const SAVEPREFIX = get(ENV, "S7B_CKPREFIX", "s7b_$(TAG)")
+# S7c-1 replay: S7B_ENVDIR = directory of the recorded exchange (env_<j>.txt, star_<j>.txt) of an earlier coupled run; the star then runs alone on the recorded envelope data,
+# S7B_RESUME = 1 rebuilds the state of the exchange at the time of the restart checkpoint from those records (no envelope process needed)
+const ENVDIR = get(ENV, "S7B_ENVDIR", DIR)
 const PERFD = Dict{Symbol,Tuple{Int,Float64}}()
 const HIST = Tuple{Float64,Float64,Float64,Float64}[]        # (t_start, t_barrier, Mdot0, Mdot1) of every interval: replay after a rollback
 function perf(name, f)
@@ -32,7 +35,7 @@ function exchange!(d)
     t_w0 = time(); j = ST.j
     perf(:exchange, () -> begin
         S.write_rec(fname("star", j), record(d))
-        env = S.wait_rec(fname("env", j))
+        env = S.wait_rec(joinpath(ENVDIR, @sprintf("env_%05d.txt", j)))
         ST.Macc_env = env["Macc"]
         Macc_star = d.M - ST.Mstar0
         Mdp = env["Mdot"]
@@ -120,13 +123,31 @@ function mdot_now()
     w = clamp((t - ST.tstart) / max(ST.tb - ST.tstart, 1e-30), 0.0, 1.0)
     (1 - w) * ST.Mdot0 + w * ST.Mdot
 end
+"Rebuild the exchange state at time t [s] from the recorded star/env records of ENVDIR (S7B_RESUME = 1; same arithmetic as `exchange!`)."
+function resume!(tnow)
+    j = 0; Mdot_sync = 0.0
+    while isfile(joinpath(ENVDIR, @sprintf("star_%05d.txt", j + 1))) && S.read_rec(joinpath(ENVDIR, @sprintf("star_%05d.txt", j + 1)))["t"] <= tnow * (1 + 1e-12); j += 1; end
+    s0 = S.read_rec(joinpath(ENVDIR, "star_00000.txt")); ST.t0 = s0["t"]; ST.Mstar0 = s0["M"]; ST.Mdot = s0["Mdot"]; ST.phase = :coupled
+    empty!(HIST)
+    for i in 0:j
+        sd = S.read_rec(joinpath(ENVDIR, @sprintf("star_%05d.txt", i))); env = S.read_rec(joinpath(ENVDIR, @sprintf("env_%05d.txt", i)))
+        Mdp = env["Mdot"]; corr = (env["Macc"] - (sd["M"] - ST.Mstar0)) / (NSLAVE * env["dtau"])
+        tgt = clamp(Mdp + corr, (1 - CLIP) * Mdp, (1 + CLIP) * Mdp)
+        newM = i == 0 ? tgt : clamp(tgt, (1 - SLEW) * ST.Mdot, (1 + SLEW) * ST.Mdot)
+        ST.Mdot0 = i == 0 ? newM : ST.Mdot; ST.tstart = sd["t"]; ST.Mdot = newM; ST.dtau = env["dtau"]; ST.tb = ST.t0 + env["tc"] + env["dtau"]; ST.Macc_env = env["Macc"]
+        push!(HIST, (ST.tstart, ST.tb, ST.Mdot0, ST.Mdot))
+    end
+    ST.j = j + 1; ST.dtfree = Main.TF.getscalar(:dtime); LASTT[] = tnow
+    @printf("S7B-star: resumed at t = %.6e s from the records of %s: barrier j = %d, next barrier t = %.6e s, Mdot %.3e -> %.3e Msun/yr\n", tnow, ENVDIR, j, ST.tb, ST.Mdot0 * YR / Msun, ST.Mdot * YR / Msun)
+end
 function finish()
     mkpath(joinpath(Main.TF.ROOT, "lib", "popiii", "perf"))
-    open(joinpath(Main.TF.ROOT, "lib", "popiii", "perf", "s7b_$(TAG)_star_sections.csv"), "w") do io
+    open(joinpath(Main.TF.ROOT, "lib", "popiii", "perf", "$(get(ENV, "S7B_PERFPREFIX", "s7b"))_$(TAG)_star_sections.csv"), "w") do io
         println(io, "section,calls,total_s,mean_ms")
         for (kk, (c, s)) in sort(collect(PERFD); by = x -> -x[2][2]); @printf(io, "%s,%d,%.4f,%.4f\n", kk, c, s, 1e3 * s / max(c, 1)); end
         @printf(io, "wall_total,1,%.4f,%.4f\n", time() - Main.t0wall, 1e3 * (time() - Main.t0wall))
     end
 end
+get(ENV, "S7B_RESUME", "0") == "1" && resume!(Main.TF.getscalar(:timen))
 Main.S7BH[] = on_step; Main.S7BDT[] = dt_cap; Main.S7BMDOT[] = mdot_now
 end # module

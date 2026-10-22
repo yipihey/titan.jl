@@ -59,7 +59,7 @@ const PRECTHICK = get(ENV, "PRECTHICK", "0") == "1"; const PRECADV = get(ENV, "P
 const LBC = Ref(0.0)
 "S6a-fix: interface of L* for the boundary conditions: KLSTAR [15] interfaces below the surface, or (LSTARQ > 0) the interface at exterior mass fraction LSTARQ."
 function kLstar()
-    haskey(ENV, "LSTARQ") || return b + 1 - envi("KLSTAR", 15)
+    envf("LSTARQ", 1e-3) > 0 || return b + 1 - envi("KLSTAR", 15)      # S7c-1: LSTARQ default 1e-3 (was off: KLSTAR = 15 interfaces below the surface, i.e. inside the convective/H-ionisation skin once the star is luminous and extended; LSTARQ = 0 restores that)
     qL = envf("LSTARQ", 1e-3); M_ = intmass(b + 1)
     for k in b+1:-1:a+1; (M_ - intmass(k)) / M_ >= qL && return k; end
     a + 1
@@ -85,8 +85,12 @@ function update_bc!()
     PRECTHICK && (H0[] = pc.hR)
     TX.PEXT[] = Pram
     TF.setscalar!(:phir0, acc_on ? -Mdot / (4π * R^2) : 0.0)
-    Es = ES_OLD[] > 0 ? exp((1 - envf("ESW", 0.5)) * log(ES_OLD[]) + envf("ESW", 0.5) * log(pc.Es)) : pc.Es
-    ES_OLD[] > 0 && (Es = clamp(Es, ES_OLD[] / envf("ESLIM", 1.15), ES_OLD[] * envf("ESLIM", 1.15)))       # the precursor flips to an optically thick, ionised state (T_s ×4): follow it in steps of at most 15 % in E_s
+    # S7c-1: the damping of E_s (weight ESW, limit ESLIM per step) is a rate per UNIT TIME: the precursor is a steady flow that adjusts on its flow time τ_E = ESTAU R/v_ff, so over a step dt < τ_E the surface
+    # radiation moves only the fraction fdt = 1 − exp(−dt/τ_E) of the damped amount (fdt = 1 for dt ≫ τ_E: the old per-step rule). With a per-step rule the boundary kept moving by ESLIM per step while the
+    # time-step control, which sees the response of the surface zones to that move, cut dt by 2–3 per step (dt → seconds in ~20 steps, "the S6b stall"): the move per step never became smaller.
+    fdt = envf("ESTAU", 1.0) > 0 ? -expm1(-TF.getscalar(:dtime) / (envf("ESTAU", 1.0) * R / vff)) : 1.0
+    Es = ES_OLD[] > 0 ? exp((1 - envf("ESW", 0.5) * fdt) * log(ES_OLD[]) + envf("ESW", 0.5) * fdt * log(pc.Es)) : pc.Es
+    ES_OLD[] > 0 && (Es = clamp(Es, ES_OLD[] / envf("ESLIM", 1.15)^fdt, ES_OLD[] * envf("ESLIM", 1.15)^fdt))       # the precursor flips to an optically thick, ionised state (T_s ×4): follow it in steps of at most 15 % in E_s
     ES_OLD[] = Es; Tsh = (Es / Z0Physics.arad)^0.25
     # the accreted gas enters in the state of the post-shock gas: pressure P_ram, temperature T_s of the precursor radiation (cold accretion: no shock heat is kept; the
     # shock energy G M Ṁ/R is radiated). (Entering with the top zone's own e_in made the top zone cool without bound: its gas is not coupled to the radiation, κ_P(T_gas) → 0.)
@@ -243,12 +247,17 @@ TC.DT_RULE[] = get(ENV, "NORULE", "0") == "1" ? nothing : dt_rule
 TD.FAIL_TFAC[] = envf("FAILTFAC", 0.5)
 TX.MLT_RCAP[] = true; TX.MLT_HSDISC[] = true; TX.MLT_WOLD[] = get(ENV, "WOLD", "1") == "1"; TX.MLT_HS[] = get(ENV, "MLTHS", "1") == "1"; TX.TAU_MLT[] = envf("TAUMLT", 1.0); TX.MLT_HSAD[] = get(ENV, "HSAD", "1") == "1"
 TC.EXTRAP_FRAC[] = envf("EXTRAP", 0.3)
+TD.SAMEDT_RETRY[] = get(ENV, "SAMEDTRETRY", "0") == "1"      # S7c-1: after the first Newton failure of a step retry at the same dt from the old state (see TitanDriver.SAMEDT_RETRY)
 TC.PRED_LAGRHO[] = false; SM.TFLOOR[] = envf("TFLOOR", 0.0); TX.ABSORB_TRAD[] = get(ENV, "ABSTRAD", "1") == "1"; SM.TFLOOR_OPAC[] = envf("TFLOOROPAC", 3000.0); TC.NEWTON_LIM[] = envf("NLIM", 0.3)
 SM.REGION_CAP[] = true; SM.install_stage_hook!(mat); SM.install_dt_hook!(mat); get(ENV, "PREDICT", "1") == "1" && SM.install_state_predictor!()
 TF.setscalar!(:dtime, envf("DT0", 1.0))
 get(ENV, "NOVIS", "0") == "1" && TF.setscalar!(:cqvis, 0.0)
 get(ENV, "NOCONV", "0") == "1" && (TX.CONVECTION[] = false)
 TD.STEPFN[] = TD.step!
+# S7c-1 (opt-in): DAMPED = 1: Newton with a backtracking line search on the row-equilibrated residual (s7c1_newton.jl = DampedNewton + the star driver's hooks); DTRIG [0.05] engages it when the full correction exceeds this, DALPHA [0.5] max relative change per iterate
+if get(ENV, "DAMPED", "0") == "1"
+    include(joinpath(@__DIR__, "s7c1_newton.jl")); DampedNewtonS.TFAC[] = envf("FAILTFAC", 0.5); DampedNewtonS.DTRIG[] = envf("DTRIG", 0.05); DampedNewtonS.ALPHA[] = envf("DALPHA", 0.5); DampedNewtonS.LMIN[] = envf("DLMIN", 1 / 32); TD.STEPFN[] = DampedNewtonS.step!
+end
 TX.GHOST_RHO[] = get(ENV, "GHOSTRHO", "1") == "1"      # S6a-fix: ghost densities of the free surface explicit in the residual (quadratic Newton convergence at the surface)
 TX.ABSORB_SMOOTH[] = envf("ABSSMOOTH", 0.05)      # S6a-fix: C¹ blend of max(T, T_rad) in ABSORB_TRAD (the hard switch 2-cycled Newton in optically thick zones)
 TD.CONV_STALL[] = envf("CONVSTALL", 1e-5)       # S6a-fix: accept Newton 2-cycles of a switch at ≤ 1e-5 (see TitanDriver.CONV_STALL)
@@ -419,17 +428,19 @@ ckdir = get(ENV, "CKDIR", "/tmp/s6")
 function checkpoint(name)
     mkpath(ckdir)
     TF.save_state(joinpath(ckdir, "s6b_$(name).tstate.gz"))
-    serialize(joinpath(ckdir, "s6b_$(name).aux"), (; Y = mat.Y, Yprev = mat.Yprev, fscale = mat.fscale, fslope = mat.fslope, Dmix = mat.Dmix, ledger = mat.ledger, dtcap = mat.dtcap, capE = mat.capE, series, nstep = nstep[], pext = TX.PEXT[], xmext0))
+    serialize(joinpath(ckdir, "s6b_$(name).aux"), (; Y = mat.Y, Yprev = mat.Yprev, fscale = mat.fscale, fslope = mat.fslope, Dmix = mat.Dmix, ledger = mat.ledger, dtcap = mat.dtcap, capE = mat.capE, series, nstep = nstep[], pext = TX.PEXT[], xmext0, es_old = ES_OLD[], h0 = H0[], lbc = LBC[]))
 end
 function restart!(name)
     TF.load_state!(joinpath(ckdir, "s6b_$(name).tstate.gz"))
     aux = deserialize(joinpath(ckdir, "s6b_$(name).aux"))
     mat.Y .= aux.Y; mat.Yprev .= aux.Yprev; mat.fscale .= aux.fscale; mat.fslope .= aux.fslope; mat.Dmix = aux.Dmix; mat.ledger = aux.ledger; mat.dtcap = aux.dtcap; mat.capE = aux.capE
     append!(series, aux.series); nstep[] = aux.nstep; TX.PEXT[] = aux.pext
+    hasproperty(aux, :es_old) && (ES_OLD[] = aux.es_old; H0[] = aux.h0; LBC[] = aux.lbc)      # S7c-1: boundary-condition memory (E_s damping, enthalpy guess, L*) restored with the state
     global dn, tn, rn, to, do_, ro = TF.var(:dn), TF.var(:tn), TF.var(:rn), TF.var(:to), TF.var(:do), TF.var(:ro)
     TF.setscalar!(:thet, 1.0); TF.setscalar!(:stol, 0.3); TF.setscalar!(:tmax, 1e30); TF.setscalar!(:niter, envi("NITER", 25))
     TX.REGULAR_CENTRE[] = true; TX.XMINT[] = Float64[]; TX.ALPHA_MLT[] = envf("ALPHA", 1.5); TC.FREE_OUTER[] = true
     TD.EOS[](); TD.OPAC[](); SM.refresh!()
+    LASTSD[] = TX.step_diag(1.0)      # S7c-1: the convective flux of the restored state (without it L* of the boundary condition lacks the convective part for one step)
 end
 haskey(ENV, "RESTART") && (restart!(ENV["RESTART"]); pr("restarted from %s at step %d\n", ENV["RESTART"], nstep[]); haskey(ENV, "DTR") && TF.setscalar!(:dtime, envf("DTR", 1.0)))
 
@@ -459,7 +470,7 @@ function profile_top(nz = 30)
     for k in b:-1:b-nz+1
         τ += chif[k] * dn[k] * (rn[k+1] - rn[k])
         q = (M - intmass(k)) / M
-        pr("   %4d q=%9.2e r=%8.5f rho=%9.3e T=%9.2f Pg=%9.3e Prad=%9.3e kappa=%9.3e tau=%9.3e Lrad=%9.3e u[km/s]=%9.3e\n", k - a + 1, q, rn[k] / Rsun, dn[k], tn[k], pgn[k], ern[k] / 3, chif[k], τ, 4π * rn[k+1]^2 * frn[k+1] / Lsun, TF.var(:un)[k+1] / 1e5)
+        pr("   %4d q=%9.2e r=%8.5f rho=%9.3e T=%9.2f Pg=%9.3e Prad=%9.3e kappa=%9.3e tau=%9.3e Lrad=%9.3e Lconv=%9.3e u[km/s]=%9.3e\n", k - a + 1, q, rn[k] / Rsun, dn[k], tn[k], pgn[k], ern[k] / 3, chif[k], τ, 4π * rn[k+1]^2 * frn[k+1] / Lsun, LASTSD[] === nothing ? 0.0 : 4π * rn[k+1]^2 * LASTSD[].fcv[k+1] / Lsun, TF.var(:un)[k+1] / 1e5)
     end
 end
 get(ENV, "PROFILE", "0") == "1" && profile_top(envi("PROFN", 30))
@@ -498,6 +509,7 @@ try
         nstep[] += 1
         d = after_step(nstep[], xme_start, Mz_start)
         S7BH[] === nothing || S7BH[](d)
+        haskey(ENV, "PROFSTEP") && nstep[] == envi("PROFSTEP", 0) && profile_top(envi("PROFN", 30))      # S7c-1 diagnostic: top-zone profile after this step
         (nstep[] % envi("CKEVERY", 500) == 0) && haskey(ENV, "SAVE") && checkpoint(ENV["SAVE"] * "_auto" * string((nstep[] ÷ envi("CKEVERY", 500)) % 2))
         nstep[] % envi("CSVEVERY", 200) == 0 && write_csv()
         while !isempty(profm) && d.M / Msun >= profm[1]; dump_profile(d); popfirst!(profm); end
