@@ -2071,7 +2071,7 @@ H11/HYOY12 (Pop III.1, 2D, rotation, with feedback: ≈ 3e-3 at 2 M☉ → 1e-3 
 | 10 | 50 | 8e8 / 2.5e10 | 3.0e5 / 1.4e4 | 0 / 0 | 1.0 / 0.37 | 2.1 / 1.26 | 0.5 / 1.7 |
 | 30 | 150 | 4e7 / 1.6e9 | 4.2e5 / 1.9e4 | 0 | 1.0 / 0.61 | 2.0 / 1.35 | 0.4 / 1.4 |
 
-The infall near the sink is adiabatically heated (T ∝ 1/r, ≈ 1e4 K at r_s = 5 AU M☉⁻¹ for free fall) and there is no atomic cooling in the network: z19 stays at 6e3–2e4 K, Mach 1.4–2.5, whereas the P100 first zone heats to 6e4–4e5 K (Mach < 1 beyond 3 M☉; u/v_ff = 2 at the interface is the ballistic extrapolation).
+**[Corrected in S6c: the hot P100 first zone below was a flicker of the boundary zone, not a thermal state of the infall; reruns give a cold supersonic infall (1.3–2.6e3 K, Mach 3–4.4) and Ṁ 11–24 % (P100) / 7–16 % (z19) below the numbers here.]** The infall near the sink is adiabatically heated (T ∝ 1/r, ≈ 1e4 K at r_s = 5 AU M☉⁻¹ for free fall) and there is no atomic cooling in the network: z19 stays at 6e3–2e4 K, Mach 1.4–2.5, whereas the P100 first zone heats to 6e4–4e5 K (Mach < 1 beyond 3 M☉; u/v_ff = 2 at the interface is the ballistic extrapolation).
 The P100 Ṁ beyond 3 M☉ is therefore partly a boundary result (the convergence tests agree to 20 %, all with the hot zone); z19 is clean. Not done: Lyα/free-free cooling of the infall, a sink radius ≫ 10 AU/M☉.
 
 **Part 2. Optically thick precursor.**
@@ -2123,3 +2123,51 @@ S_ion of the photosphere stays ≤ 3e46 s⁻¹ throughout (Z = 0 H⁻ photospher
 **Open points.** (1) S7 needs S_ion(t) and the shape of the spectrum that *leaves the envelope*: frequency-dependent transfer through the infall (J_ν per zone for ChemNet's photo processes), a Z = 0 atmosphere spectrum for the stellar surface (L*, R*, T_eff,* above), and the radiation force on the infalling gas (not in our free-fall precursor; OP03's IIIb onset is at 4× the mass of ours).
 (2) Ṁ from the 1D collapse is spherical and non-rotating (4–20× H11); the sink boundary region is hot without atomic cooling (P100: Mach < 1 beyond 3 M☉; ±20 % in Ṁ from sink radius/resolution); Ṁ(M*) is used, not Ṁ(t) (arrival delay ≤ 3 % of t_acc). (3) The precursor is a steady, LTE (T_gas = T_rad), free-fall, 1D diffusion model with one-sided energy balance; the ionisation-front transition is
 resolved only through the thermostat T_s = T(h_R) and the blend with S6a's Lucy law (f = 0.01–0.05); a time-dependent shell (approach A) is not needed for it. (4) The Part 3 start (cap of Ṁ over 0.22 → 0.45 M☉) and the L* flicker below the wave (0.05–20 L☉, also in S6a-fix) are unvalidated; the z19 run was restarted once (E_s damping memory). (5) Sink: no cooling of the hot infall, P100 ends at 67 M☉ by cloud exhaustion, `SPLIT` ≤ 4 (SOD arrays hold ≤ 300 zones).
+
+## S7-prep Atomic cooling of H and He (ChemistryKernels session, 21 Oct 2026) [run]
+
+S6b found the sink boundary region at 6e3–4e5 K with no atomic cooling in the network. `julia/AtomicCooling.jl` (standalone,
+no new dependencies; test `julia/atomic_cooling_test.jl`, 11/11 PASS) provides the complete Cen (1992) / Anninos et al. (1997)
+atomic set for H and He: collisional excitation (H Lyα, He I 2³S ∝ n_e² n_He⁺, He II), collisional ionisation (13.6 / 24.6 /
+54.4 eV × k1 / k3 / k5, He I 2³S), recombination cooling (case B, Hui & Gnedin 1997 rates; He⁺ dielectronic), bremsstrahlung
+(Z² weights), plus the helium ionisation state `he_fractions(T, n_e; mode = :cie | :saha)`. The fits are transcribed from
+EmissionKernels.jl (identical to all digits [run]) — same primary sources, not re-checked against the papers here; the He⁺
+dielectronic coefficient of `k4d` is [memory]. CIE curve at n_H = 1: H peak 1.0e-22 (Λ/n_H²) at 1.8e4 K, He share 0.83 at 1e5 K,
+bremsstrahlung above 1e6 K (9e-24 at 1e7 K) [run].
+
+**Hook-up (not done, Tom's/the other session's call).** `PopIIIMaterial.NetGas` takes `cooling(ρ, T, d)`; popiii_m2c.jl l. 289
+builds `coolnet = (ρ, T, d) -> cf(ρ, T, …)`: add `+ AtomicCooling.cooling_atomic_rho(ρ, T, d; he = :cie)` where `d` is the ChemNet
+composition (the equilibrium-table branch passes `d === nothing`: there use `he = :saha` with the table's x_H⁺). **Energy
+bookkeeping:** ChemNet carries χ in u, so the adapter's default `ionization_in_u = true` omits ciHI and charges χ_H + E_kin per
+radiative recombination (the photon's energy); PrimordialGas/thermal-energy callers use `ionization_in_u = false`. Helium is
+inert in ChemNet (no He⁺ species): He uses the thermal convention in both modes; a He network (k3/k4+k4d, k5/k6 with detailed-
+balance reverses, species :Hep/:Hepp with E0 = 24.587 / 79.005 eV) is the next step and the rates are in the module. In thick
+gas (τ > 1 for Lyα, continuum) these terms must be moderated by the transfer (M3c) — the adapter is the thin limit.
+
+ChemistryKernels.jl (branch `dense-equilibrium`) now has the same helium set behind `helium_cooling = true` (EmissionKernels
+`cooling_rate_helium`), with He Saha at the gas T and the He ionisation energy in the conserved budget under `planck_radiation`.
+
+### S7-prep.2 Free–free processes completed (ChemistryKernels session, 21 Oct 2026) [run]
+
+Inventory before: cooling functions had only e⁻–ion bremsstrahlung (Cen 1992 integrated Gaunt factor, Z² weights, emission
+only); `ContinuumOpacity` had H⁻ ff (John 1988) and hydrogenic ff with g = 1; `Z0Physics` the same with g = 1. Added:
+- `julia/ContinuumFF.jl` (+ `julia/data/vanHoof2014-nr-gauntff.dat`, the authors' BSD-licensed table): thermally averaged
+  free–free Gaunt factors ḡ(γ², u) (van Hoof et al. 2014, bilinear in log γ², log u); He⁻ ff (John 1994, K(λ, θ) table,
+  stimulated emission included); H₂⁻ ff (John 1975 as tabulated in Turbospectrum `jonabs_vac_v07.3.dat`, component 22,
+  per H₂ per unit P_e, stimulated emission applied by us — inferred from detabs.f; Bell 1980 would supersede it, table not
+  reachable); H₂⁺ bound–free (σ_bf per molecule) and free–free (per n_H n_H⁺) from Stancil (1994) with its LTE K(T),
+  Arrhenius-extrapolated below 3150 K. Transcriptions from Korg.jl / Turbospectrum, numerically identical to their tables
+  at the nodes [run]; none re-checked against the papers [read-src-code].
+- `ContinuumOpacity.alpha/means`: switch `EXT_FF` (default on; `false` reproduces M3c exactly). New kwargs `nHep`, `nHepp`
+  (He⁺/He²⁺ ff with Z = 1, 2 Gaunt factors) and `nH2p` (network H₂⁺ for the bf term; LTE when absent). Hydrogenic ff of H⁺ now
+  carries ḡ. New `parts`: `hem_ff`, `h2m_ff`, `h2p`, `he_ff`.
+- Effect on the means, He neutral, Li electrons (`continuum_ff_test.jl`, 18/18 PASS): (1e14, 2000 K) +0.3 % / +0.5 % in
+  κ_P / κ_R; (1e16, 3000) ≤ 0.3 %; (1e18, 3500, f_H₂ 0.3) ×1.10 / ×1.20; (1e20, 8000) ×1.08 / ×1.25; (1e21, 2e4, x_H⁺ 0.3)
+  ×1.26 / ×2.11 (Gaunt factor ≈ 1.5 plus He⁻/H₂⁺). `stellaropacity_test.jl` still 14/14 (its M3c comparison moves 0.04 %).
+- `Z0Physics.GAUNT_FF` (default **false**): van Hoof Gaunt factors in `kappa_nu` for H⁺, He⁺, He²⁺ ff. Switching on raises the
+  ff-dominated κ_ν by ×1.47 at (1e-8 g cm⁻³, 3e4 K, 1e14 Hz) and requires `build_table` + the S3 re-validation; Float64 only.
+- `AtomicCooling.brem_Z(T, Z)` (and EmissionKernels `brem_Z`): He²⁺ bremsstrahlung with the integrated Gaunt factor at T/Z².
+- ChemistryKernels `planck_radiation`: the whole radiative sum (lines, recombination, free–free, Compton) is now dropped
+  (balanced by absorption in J = B), not just the collisional-ionisation terms.
+Not done: Bell (1980) H₂⁻ ff; He⁻ ff above 10 080 K (clamped in θ); frequency-dependent Gaunt factors for the *cooling*
+coefficient (the Cen integrated fit is kept); relativistic ff (van Hoof et al. 2015) above 1e8 K.
