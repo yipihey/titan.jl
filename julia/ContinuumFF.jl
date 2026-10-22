@@ -280,20 +280,32 @@ const H2P_BF = 1e-18 .* [7.34e-05 0.000143 0.000204 0.000287 0.000389 0.000497 0
     0.0025 0.0161 0.0373 0.079 0.1506 0.2567 0.3216 0.3929;
     0.0019 0.0123 0.0286 0.0607 0.1161 0.1982 0.2487 0.3042]        # σ_bf [cm²] per H₂⁺ molecule, rows λ, columns T
 """
-LTE equilibrium constant n_H n_H⁺/n_H₂⁺ [cm⁻³] (Stancil 1994): ln K linear in 1/T between the nodes
-(Arrhenius; K ∝ e^{−D₀/kT} with D₀(H₂⁺) = 2.65 eV) and extrapolated the same way below 3150 K; clamped above 25 200 K.
+ln of the LTE equilibrium constant n_H n_H⁺/n_H₂⁺ [cm⁻³] (Stancil 1994): linear in 1/T between the nodes
+(Arrhenius; K ∝ e^{−D₀/kT} with D₀(H₂⁺) = 2.65 eV) and extrapolated the same way below 3150 K (−1.5e5 at 10 K: use
+the log form); clamped above 25 200 K.
 """
-function K_H2p(T)
-    T >= H2P_T[end] && return H2P_K[end]
+function lnK_H2p(T)
+    T >= H2P_T[end] && return log(H2P_K[end])
     i = clamp(searchsortedlast(H2P_T, T), 1, length(H2P_T) - 1)
     x1 = 1 / H2P_T[i]; x2 = 1 / H2P_T[i + 1]; a = (1 / T - x1) / (x2 - x1)
-    exp((1 - a) * log(H2P_K[i]) + a * log(H2P_K[i + 1]))
+    (1 - a) * log(H2P_K[i]) + a * log(H2P_K[i + 1])
+end
+K_H2p(T) = exp(lnK_H2p(T))
+"""
+LTE H₂⁺ number density n_H n_H⁺/K(T), formed in logarithms and capped at min(n_H, n_H⁺): below ~1000 K K underflows and
+the uncapped ratio would exceed the hydrogen budget (the LTE estimate is then meaningless anyway; pass the network's
+`nH2p` to `α_H2p` where it matters).  0 when n_H or n_H⁺ is 0.
+"""
+function nH2p_lte(T, nH, nHp)
+    (nH > 0 && nHp > 0) || return 0.0
+    min(exp(log(nH) + log(nHp) - lnK_H2p(T)), min(nH, nHp))
 end
 """
     α_H2p(ν, T, nH, nHp; nH2p = nothing) -> (α_bf, α_ff) [cm⁻¹], stimulated emission included
 
 H₂⁺ photodissociation (bf, σ_bf [cm²] per H₂⁺ molecule) and H + H⁺ free–free (per n_H n_H⁺, [cm⁵])
-(Stancil 1994).  Without `nH2p` the bf term assumes LTE H₂⁺, n_H₂⁺ = n_H n_H⁺/K(T); with the network's
+(Stancil 1994).  Without `nH2p` the bf term assumes LTE H₂⁺, n_H₂⁺ = n_H n_H⁺/K(T) capped at min(n_H, n_H⁺)
+(`nH2p_lte`); with the network's
 n_H₂⁺ it uses that.  Cross sections clamped in T to 3150–25 200 K; ff ∝ λ² beyond 2 μm and 0 below
 700 Å; bf 0 outside 500–20 000 Å.
 """
@@ -302,7 +314,7 @@ function α_H2p(ν, T, nH, nHp; nH2p = nothing)
     bf = 0.0; ff = 0.0
     if H2P_LAM_BF[1] <= λ <= H2P_LAM_BF[end]
         σ = interp2(H2P_LAM_BF, H2P_T, H2P_BF, λ, Tc)              # σ_bf [cm²] per H₂⁺
-        bf = σ * (nH2p === nothing ? nH * nHp / K_H2p(T) : nH2p)
+        bf = σ * (nH2p === nothing ? nH2p_lte(T, nH, nHp) : nH2p)
     end
     if λ >= H2P_LAM_FF[1]
         λc = min(λ, H2P_LAM_FF[end])

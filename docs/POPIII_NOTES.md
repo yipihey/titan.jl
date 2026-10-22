@@ -2164,6 +2164,13 @@ only); `ContinuumOpacity` had H⁻ ff (John 1988) and hydrogenic ff with g = 1; 
 - `AtomicCooling.brem_Z(T, Z)` (and EmissionKernels `brem_Z`): He²⁺ bremsstrahlung with the integrated Gaunt factor at T/Z².
 - ChemistryKernels `planck_radiation`: the whole radiative sum (lines, recombination, free–free, Compton) is now dropped
   (balanced by absorption in J = B), not just the collisional-ionisation terms.
+`alpha` finite from 10 K (`ck/alpha-lowT`, for RadTransfer's TCO_MIN → 0): the John 1988 H⁻ ff fit is held at its 1400 K value
+below 1400 K (its polynomial turns negative near 1000 K and was clipped to 0: a 270-dex cliff in the hm_ff part); the LTE H₂⁺
+estimate is formed in logarithms and capped at min(n_H, n_H⁺) (K underflowed below ~800 K → NaN); CIA held at the nearest HITRAN
+block outside its temperatures (H₂–H₂, H₂–He < 200 K; H₂–H < 1000 K); He⁻ and H₂⁻ ff clamped at their table edges. Test
+`julia/alpha_lowT_test.jl` (16/16): every part finite, ≥ 0 and continuous (relative change < 1e-3 for ΔT/T = 1e-6) over
+10 K–1e5 K and 1e12–3e15 Hz at five compositions; means finite at (1e6, 10 K) … (1e12, 300 K). The remaining steep T
+dependence of the `h` part is the Boltzmann factor of the excited-level bound–free, not a discontinuity.
 Completed in the same branch (`ck/freefree`, worktree `../titan-ck`, files from data.nublado.org/gauntff): the merged
 relativistic Gaunt tables of van Hoof et al. (2015) for Z = 1, 2 are the default of `gaunt_ff` (agree with the 2014 table to
 < 0.5 % below 1e7 K, valid to 1e10 K); the frequency-integrated ⟨g_ff⟩(γ²) table (`gaunt_ff_total`) shows the Cen (1992) fit of

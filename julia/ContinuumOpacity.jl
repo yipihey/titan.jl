@@ -4,7 +4,9 @@
 Population III project, M3c: frequency-dependent continuum opacity of metal-free gas, κ_ν(ρ, T, composition), and its
 Planck and Rosseland means. Sources (data outside the repository, `~/Projects/popiii_lit/`):
 
-- **CIA** (collision-induced absorption), HITRAN (Karman et al. 2019 compilation; files `main/*_2011.cia`):
+- **CIA** (collision-induced absorption), HITRAN (Karman et al. 2019 compilation; files `main/*_2011.cia`; outside the
+  tabulated temperatures — H₂–H₂ and H₂–He below 200 K, H₂–H below 1000 K — the nearest block is held, HITRAN offering no
+  lower data; H₂–H₂ above 3000 K follows Borysow et al. 1997):
   H₂–H₂ (200–3000 K, 20–10 000 cm⁻¹; Abel et al. 2011/2012; above 3000 K Borysow et al. 1997, joined at 3000 K), H₂–He (200–9900 K, 20–20 000 cm⁻¹; Abel et al. 2012),
   H₂–H (1000–2500 K, 100–10 000 cm⁻¹; Gustafsson & Frommhold 2003). α_ν = k(ν, T) n₁ n₂ [cm⁻¹], k in cm⁵.
   Outside the tabulated T ranges k is held at the nearest table temperature (H₂–H₂: Borysow et al. 1997 to 7000 K, see
@@ -12,7 +14,8 @@ Planck and Rosseland means. Sources (data outside the repository, `~/Projects/po
 - **H⁻ bound–free**: John (1988, A&A 193, 189) fit to Wishart (1979): σ = 1e-18 λ³ (1/λ − 1/λ₀)^{3/2}
   Σ_{n=1}^{6} C_n (1/λ − 1/λ₀)^{(n−1)/2} cm², λ in μm, λ₀ = 1.6419 μm (coefficients as in the AHMIN routine of the
   "oracle" code and in RH); × n_H⁻ (1 − e^{−hν/kT}).
-- **H⁻ free–free**: John (1988) Table 3a/b (coefficients cross-checked in RH `hydrogen.c` and NEMESIS `hmin_ff.f`):
+- **H⁻ free–free**: John (1988) Table 3a/b (coefficients cross-checked in RH `hydrogen.c` and NEMESIS `hmin_ff.f`;
+  θ held at 3.6, i.e. the 1400 K value, below 1400 K where the fit turns negative):
   k = 1e-29 Σ θ^{(n+1)/2}(A_n λ² + B_n + C_n/λ + D_n/λ² + E_n/λ³ + F_n/λ⁴) cm⁴ dyn⁻¹, θ = 5040/T, λ in μm;
   α = k n_H P_e (stimulated emission included in the fit).
 - **H (neutral) bound–free and H⁺ + e free–free**: hydrogenic (Kramers, Gaunt factors = 1) — adequate only as an
@@ -131,9 +134,14 @@ const Fff1 = (0.0, 208.952, -812.939, 1132.738, -655.020, 132.985)
 const Aff2 = (518.1021, 473.2636, -482.2089, 115.5291); const Bff2 = (-734.8666, 1443.4137, -737.1616, 169.6374)
 const Cff2 = (1021.1775, -1977.3395, 1096.8827, -245.649); const Dff2 = (-479.0721, 922.3575, -521.1341, 114.243)
 const Eff2 = (93.1373, -178.9275, 101.7963, -21.9972); const Fff2 = (-6.4285, 12.3600, -7.0571, 1.5097)
-"H⁻ free–free coefficient [cm⁴ dyn⁻¹] per H atom per unit electron pressure (John 1988), λ in μm."
+"""
+H⁻ free–free coefficient [cm⁴ dyn⁻¹] per H atom per unit electron pressure (John 1988), λ in μm.  The fit is
+valid for θ = 5040/T ≤ 3.6 (T ≥ 1400 K): below, its polynomial in θ^{(n+1)/2} turns negative (≈ 1000 K at 1 μm) —
+the coefficient is therefore held at its 1400 K value for T < 1400 K (continuous; H⁻ ff ∝ n_H n_e is negligible
+in the cold, neutral envelope anyway).
+"""
 function k_Hm_ff(λ, T)
-    θ = 5040 / T; s = 0.0
+    θ = min(5040 / T, 3.6); s = 0.0
     if λ > 0.3645
         for n in 1:6
             s += θ^((n + 1) / 2) * (λ^2 * Aff1[n] + Bff1[n] + Cff1[n] / λ + Dff1[n] / λ^2 + Eff1[n] / λ^3 + Fff1[n] / λ^4)
