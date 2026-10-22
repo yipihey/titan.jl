@@ -287,12 +287,13 @@ function transfer(g::FreqGrid, ab::Vector{Absorber}, src::Source, med::Medium, o
     end
     # ---- ledger (photons above χ_H and energy)
     iH = findfirst(i -> g.edges[i] >= CN.χH / hP * (1 - 1e-9), 1:nf)
-    Nsrc = sum(src.L[f] / (hP * g.ν[f]) for f in iH:nf); Ndir_out = sum(Ld[n+1, f] / (hP * g.ν[f]) for f in iH:nf)
-    Ndif_out = sum(4π * r[n+1]^2 * Fdiff[n+1, f] * g.dν[f] / (hP * g.ν[f]) for f in iH:nf)
+    iH === nothing && (iH = nf + 1)          # (grids without ionising bins)
+    Nsrc = sum(src.L[f] / (hP * g.ν[f]) for f in iH:nf; init = 0.0); Ndir_out = sum(Ld[n+1, f] / (hP * g.ν[f]) for f in iH:nf; init = 0.0)
+    Ndif_out = sum(4π * r[n+1]^2 * Fdiff[n+1, f] * g.dν[f] / (hP * g.ν[f]) for f in iH:nf; init = 0.0)
     Nabs = 0.0; Nem = 0.0
     for k in 1:n
-        Nem += sum(4π * op.eta[k, f] * V[k] * g.dν[f] / (hP * g.ν[f]) for f in iH:nf)         # 4π ∫ η dV
-        Nabs += sum(4π * op.kabs[k, f] * Jtot[k, f] * V[k] * g.dν[f] / (hP * g.ν[f]) for f in iH:nf)
+        Nem += sum(4π * op.eta[k, f] * V[k] * g.dν[f] / (hP * g.ν[f]) for f in iH:nf; init = 0.0)         # 4π ∫ η dV
+        Nabs += sum(4π * op.kabs[k, f] * Jtot[k, f] * V[k] * g.dν[f] / (hP * g.ν[f]) for f in iH:nf; init = 0.0)
     end
     Eabs = sum(4π * op.kabs[k, f] * Jtot[k, f] * V[k] * g.dν[f] for k in 1:n, f in 1:nf)
     ledger = (Nsrc = Nsrc, Ndir_out = Ndir_out, Ndif_out = Ndif_out, Nabs = Nabs, Nem = Nem,
@@ -572,5 +573,7 @@ function medium_from_net(r, T, nH, xs_, net)
     end
     Medium(r, T, nH, X)
 end
+
+include(joinpath(@__DIR__, "RadSweep.jl"))      # S7b: ion_sweep, interface_accel
 
 end # module

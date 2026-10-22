@@ -149,6 +149,12 @@ r -> M_ext(< r) per steradian, added to the gas interior mass in the gravity ter
 Float64 or Dual). `nothing` (default) = none.
 """
 const EXTMASS = Ref{Any}(nothing)
+"""
+AEXT[] (S7b): external outward acceleration [cm s⁻²] per interface (a `Vector{Float64}` indexed like `un`, e.g. the radiation force of `RadTransfer.interface_accel`), subtracted
+as `a_k m_k` from the momentum row of the interfaces ngrs+1 … ngre+1 (same form as the radiation-flux force, `m_k` the interface mass); held fixed over the step (not
+differentiated). Empty (default) = off; the cost when off is one `isempty` per residual call.
+"""
+const AEXT = Ref(Float64[])
 "u/r at interface k, with the regular limit at the centre."
 @inline uor(u, r, k, ngrs) = REGULAR_CENTRE[] && k == ngrs ? u[k+1] / r[k+1] : u[k] / r[k]
 const MEC2 = 8.1871057769e-7            # m_e c² [erg]
@@ -695,6 +701,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         R[id, kb(k)] = P.leobc == 1 ? -dn[k-1] + dn[k] : X(id, k)
     end
     # ---------------------------------------------------------------- GAS MOMENTUM
+    aext = AEXT[]; use_aext = !isempty(aext)       # S7b: external (radiation) acceleration per interface, off by default
     @inbounds for k in ngrs+1:ngre
         mk = 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])
         r1 = r[k]^(-0.5xmu)
@@ -706,6 +713,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk +
             r1 * (r3k * qf[k] - r3m * qf[k-1])
         c.lrad && (w -= avchi[k] * fr[k] / cc * mk)
+        use_aext && (w -= aext[k] * mk)
         R[iu, kb(k)] = w
     end
     R[iu, kb(ngrs)] = X(iu, ngrs); R[iu, kb(ngre+1)] = X(iu, ngre + 1); R[iu, 1] = X(iu, k0)
@@ -722,6 +730,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk -
             r[k]^(-0.5xmu) * r3m * qf[k-1]
         c.lrad && (w -= avchi[k] * fr[k] / cc * mk)
+        use_aext && (w -= aext[k] * mk)
         R[iu, kb(k)] = w
     end
     (P.leibc in (1, 2) || P.llibc == 1) || error("gasmom inner BC")
