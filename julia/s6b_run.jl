@@ -39,7 +39,8 @@ end
 # MDOTRAMP [Msun/yr] (default off): the rate is capped at MDOTRAMP (M/M0GUESS)^MDOTRAMPP — as OHY10, who "start from a smaller rate and increase it with protostellar mass until the rate
 # of the collapse is reached" because their protostar models do not converge at the collapse rate for the first 0.1 Msun
 mdot_cap(M) = haskey(ENV, "MDOTRAMP") ? envf("MDOTRAMP", 4.41e-3) * Msun / YR * (M / (envf("M0GUESS", 0.22) * Msun))^envf("MDOTRAMPP", 2.5) : Inf
-mdot_now(M) = min(mdot_of(M), mdot_cap(M))
+# E2E-A: MDOTSCALE [1] multiplies the table rate (a few-per-cent jitter steps the protostar over a precursor stall that depends chaotically on Mdot(M*), see notes E2E-A)
+mdot_now(M) = envf("MDOTSCALE", 1.0) * min(mdot_of(M), mdot_cap(M))
 Mdot = haskey(ENV, "MDOTFILE") ? mdot_now(envf("M0GUESS", 0.22) * Msun) : envf("MDOT", 1.1e-3) * Msun / YR      # (MDOTFILE: the rate at M0GUESS sets the ram pressure of the embryo)
 tag = get(ENV, "OUT", "run"); logio = open(joinpath(@__DIR__, "..", "lib", "popiii", "s6b_$(tag).log"), "w")
 pr(f, args...) = (s = Printf.format(Printf.Format(f), args...); print(s); print(logio, s); flush(logio); flush(stdout))
@@ -347,6 +348,10 @@ function robust_step!()
     error("robust_step!: 8 attempts failed")
 end
 
+# E2E-A: EDDCAP = Γ_max [0 = off]: soft cap of the opacity at κ_cap = Γ_max 4π c G M / L* (L* of the boundary condition, updated every step), as s5_run.jl: a star at L/L_Edd,es ≈ 0.9 has Γ > 1 in
+# the He II opacity bump and its 1D envelope inflates (phase IIIb: R* 50 -> 1000 R☉, dt -> seconds) when mass loss is off
+const EDDCAP = envf("EDDCAP", 0.0)
+update_eddcap!() = EDDCAP > 0 && (mat.kcap = EDDCAP * 4π * Z0Physics.c * G * intmass(b + 1) / max(LBC[], 1e-6 * Lsun))
 XME_START = Ref{Any}(nothing)
 function after_step(k, xme_start, Mz_start)
     XME_START[] = xme_start
@@ -516,6 +521,7 @@ try
     for k in 1:maxsteps
         xme_start = copy(TF.var(:xmen)[a:b+1]); Mz_start = 4π .* [dn[kk] * TF.var(:dvoln)[kk] for kk in a:b]
         Perf.@section(:bc, update_bc!()); prep_xmext!(TF.getscalar(:dtime))
+        update_eddcap!()
         xme_start = copy(TF.var(:xmen)[a:b+1])
         Perf.@section :step begin
             Perf.@section :robust_step robust_step!()

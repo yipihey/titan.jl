@@ -88,6 +88,23 @@ function stage_formation()
     tag = run_m2c("formation", tag, env)
     writedone("formation", "snapshot" => snapfile(tag), "log" => joinpath(LIB, "m2c_abn02z19_lines_n200$(tag).log"))
 end
+"""
+Smooth the windowed Mdot(M*) rows of s6c_mdot.jl (`s6c_<tag>_mdot.csv`: M, Mdot) with a Gaussian in ln M (sigma = SIGMA, weights on ln Mdot) at nodes every 0.15 in ln M.
+The windowed rates zig-zag by +-20 % from node to node (the shells cross the sink one zone at a time); the protostar's luminosity-wave onset at 0.6 M* depends on those wiggles (S6b stall,
+notes E2E-A), the physical rate does not.
+"""
+function smooth_mdot(infile, outfile; sigma = 0.4)
+    rows = [parse.(Float64, split(l, ",")[1:2]) for l in readlines(infile)[2:end] if !isempty(strip(l))]
+    lm = log.([r[1] for r in rows]); ly = log.([r[2] for r in rows])
+    nodes = collect(range(lm[1], lm[end]; step = 0.15))
+    open(outfile, "w") do io
+        println(io, "M_Msun,Mdot_Msun_yr")
+        for x in nodes
+            w = exp.(-0.5 .* ((lm .- x) ./ sigma) .^ 2); println(io, exp(x), ",", exp(sum(w .* ly) / sum(w)))
+        end
+    end
+    outfile
+end
 function stage_sink()
     f = readdone("formation"); tag = "_e2e_$(TAG)_sink"
     env = merge(collapse_env(), Dict("TAG" => tag, "RESTART" => f["snapshot"], "RESIDX" => "0", "SINK" => "1", "SPLIT" => "2", "RSINKAU" => "5", "RSINKP" => "1", "RSMREF" => "1",
@@ -96,10 +113,10 @@ function stage_sink()
     delete!(env, "SNAPEND")
     tag = run_m2c("sink", tag, env; resume_env = Dict("SPLIT" => "1"))      # a restart from a sink snapshot (already split, zones below r_s removed again by the driver)
     # accretion history -> Mdot(M*) tables (lib/popiii/s6c_<tag>_mdot{,_smooth}.csv)
-    run(setenv(pipeline(`julia --project=env $(joinpath(J, "s6c_mdot.jl")) $tag $(f["snapshot"])`; stdout = joinpath(LIB, "s6c_$(tag)_mdot.txt")), merge(Dict(ENV), Dict("TITAN_NOLIB" => "1")); dir = J))
+    run(pipeline(setenv(`julia --project=env $(joinpath(J, "s6c_mdot.jl")) $tag $(f["snapshot"])`, merge(Dict(ENV), Dict("TITAN_NOLIB" => "1")); dir = J); stdout = joinpath(LIB, "s6c_$(tag)_mdot.txt")))
     L = readlines(joinpath(LIB, "s6c_$(tag)_mdot_smooth.csv"))[2:end]; Mend = parse(Float64, split(last(L), ",")[1])
     S = readlines(joinpath(LIB, "s6c_$(tag).csv")); Mpt = parse(Float64, split(last(S), ",")[6]); tyr = parse(Float64, split(last(S), ",")[2])
-    writedone("sink", "tag" => tag, "mdot_table" => joinpath(LIB, "s6c_$(tag)_mdot_smooth.csv"), "Mpt_final" => string(Mpt), "t_yr_final" => string(tyr), "Mtable_end" => string(Mend))
+    writedone("sink", "tag" => tag, "mdot_table" => smooth_mdot(joinpath(LIB, "s6c_$(tag)_mdot.csv"), joinpath(LIB, "s6c_$(tag)_mdot_smooth2.csv")), "Mpt_final" => string(Mpt), "t_yr_final" => string(tyr), "Mtable_end" => string(Mend))
 end
 # ----------------------------------------------------------------------------------------------------------------- stage 4: protostar fed by Mdot(M*) (S6b Part 3)
 "Newest checkpoint `<prefix>_auto{0,1}` in WORK/ck (by modification time of the .aux file), or nothing."
@@ -113,8 +130,9 @@ function stage_protostar()
     base = Dict("OUT" => out0, "PRECTHICK" => "1", "BCSMOOTH" => "0.03", "BCSLOPE" => "8", "BCFALLBACK" => "1", "ESLIM" => "1.05", "TOL" => "0.05", "NIN" => "80", "QC" => "1.083",
                 "QSPLIT" => "0.3", "NENV" => "70", "PSI" => "0", "MDOTFILE" => s["mdot_table"], "MDOTRAMP" => "4.41e-3", "M0GUESS" => "0.22", "MDOTRAMPP" => "2.5",
                 "MEND" => string(Mend), "MAXSTEPS" => "400000", "EVERY" => "50", "CSVEVERY" => "200", "CKEVERY" => "300", "CKDIR" => joinpath(WORK, "ck"), "SAVE" => "e2e_$(TAG)_p3",
-                "PROFM" => "1,3,10,30,60,100,150,200", "PERFSTAGE" => "protostar", "HANDOFF_OUT" => joinpath(WORK, "handoff_$(TAG).star"))
-    attempt = 0; restart = nothing
+                "PROFM" => "1,3,10,30,60,100,150,200", "EDDCAP" => "0.95", "PERFSTAGE" => "protostar", "HANDOFF_OUT" => joinpath(WORK, "handoff_$(TAG).star"))
+    ck0 = latest_ck("s6b", "e2e_$(TAG)_p3")
+    attempt = ck0 === nothing ? 0 : 1; restart = ck0
     while true
         env = copy(base); env["PERF"] = attempt == 0 ? "$(PERF)_protostar" : "$(PERF)_protostar_r$(attempt)"
         attempt > 0 && (env["OUT"] = "$(out0)_r$(attempt)"; env["RESTART"] = restart)
@@ -133,8 +151,9 @@ end
 function stage_ms()
     p = readdone("protostar"); out0 = "e2e_$(TAG)_ms"
     base = Dict("HANDOFF" => p["handoff"], "OUT" => out0, "INT" => "theta", "DXMAX" => "4e-3", "EFRAC" => "5", "CONV" => "1e-5", "XSTOP" => "1e-3", "MAXSTEPS" => "100000", "EVERY" => "50",
-                "CKEVERY" => "300", "CKDIR" => joinpath(WORK, "ck"), "SAVE" => "e2e_$(TAG)_ms", "PROFILE_X" => "0.7,0.5,0.3,0.1,0.01", "PERFSTAGE" => "ms", "TOL" => "0.03")
-    attempt = 0; restart = nothing
+                "CKEVERY" => "100", "CKDIR" => joinpath(WORK, "ck"), "SAVE" => "e2e_$(TAG)_ms", "PROFILE_X" => "0.7,0.5,0.3,0.1,0.01", "EDDCAP" => "0.95", "PERFSTAGE" => "ms", "TOL" => "0.01", "NITER" => "40")      # (TOL 0.03 / NITER 25: Newton fails at t = 1.9e4 yr, R = 7.3 Rsun, see notes E2E-A)
+    ck0 = latest_ck("s5", "e2e_$(TAG)_ms")      # a run that was killed leaves its checkpoints: continue from the newest one
+    attempt = ck0 === nothing ? 0 : 1; restart = ck0
     while true
         env = copy(base); env["PERF"] = attempt == 0 ? "$(PERF)_ms" : "$(PERF)_ms_r$(attempt)"
         attempt > 0 && (env["OUT"] = "$(out0)_r$(attempt)"; env["RESTART"] = restart)      # (HANDOFF stays: it builds the grid, the checkpoint then supplies the state)
