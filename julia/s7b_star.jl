@@ -11,6 +11,7 @@ const SR = 6.957e10
 envf(k, d) = haskey(ENV, k) ? parse(Float64, ENV[k]) : d
 const Msun = 1.98847e33; const YR = 3.15576e7
 const TAG = get(ENV, "S7B_TAG", "run"); const DIR = get(ENV, "S7B_DIR", joinpath(Main.TF.ROOT, "lib", "popiii", "s7b_x_$(TAG)")); mkpath(DIR)
+const SLEWDN = envf("S7B_SLEWDN", envf("S7B_SLEW", 0.05))      # S8a: slew limit of a decrease of Mdot (default = SLEW); a starving sink has to be followed
 const MSYNC = envf("S7B_MSYNC", 10.0) * Msun; const NSLAVE = envf("S7B_NSLAVE", 15.0); const SLEW = envf("S7B_SLEW", 0.05); const CLIP = envf("S7B_CLIP", 0.2)
 const SAVEPREFIX = get(ENV, "S7B_CKPREFIX", "s7b_$(TAG)")
 # S7c-1 replay: S7B_ENVDIR = directory of the recorded exchange (env_<j>.txt, star_<j>.txt) of an earlier coupled run; the star then runs alone on the recorded envelope data,
@@ -41,7 +42,7 @@ function exchange!(d)
         Mdp = env["Mdot"]
         corr = (env["Macc"] - Macc_star) / (NSLAVE * env["dtau"])
         tgt = clamp(Mdp + corr, (1 - CLIP) * Mdp, (1 + CLIP) * Mdp)
-        newM = ST.j == 0 ? tgt : clamp(tgt, (1 - SLEW) * ST.Mdot, (1 + SLEW) * ST.Mdot)       # slew limit: the precursor boundary condition stalls on abrupt changes of Mdot
+        newM = ST.j == 0 ? tgt : clamp(tgt, (1 - SLEWDN) * ST.Mdot, (1 + SLEW) * ST.Mdot)       # slew limit: the precursor boundary condition stalls on abrupt changes of Mdot
         ST.Mdot0 = ST.j == 0 ? newM : ST.Mdot; ST.tstart = d.t; ST.Mdot = newM        # Mdot(t) ramps linearly from the old to the new value over the interval (continuous in time)
         ST.dtau = env["dtau"]; ST.tb = ST.t0 + env["tc"] + env["dtau"]
         push!(HIST, (ST.tstart, ST.tb, ST.Mdot0, ST.Mdot))
@@ -133,7 +134,7 @@ function resume!(tnow)
         sd = S.read_rec(joinpath(ENVDIR, @sprintf("star_%05d.txt", i))); env = S.read_rec(joinpath(ENVDIR, @sprintf("env_%05d.txt", i)))
         Mdp = env["Mdot"]; corr = (env["Macc"] - (sd["M"] - ST.Mstar0)) / (NSLAVE * env["dtau"])
         tgt = clamp(Mdp + corr, (1 - CLIP) * Mdp, (1 + CLIP) * Mdp)
-        newM = i == 0 ? tgt : clamp(tgt, (1 - SLEW) * ST.Mdot, (1 + SLEW) * ST.Mdot)
+        newM = i == 0 ? tgt : clamp(tgt, (1 - SLEWDN) * ST.Mdot, (1 + SLEW) * ST.Mdot)
         ST.Mdot0 = i == 0 ? newM : ST.Mdot; ST.tstart = sd["t"]; ST.Mdot = newM; ST.dtau = env["dtau"]; ST.tb = ST.t0 + env["tc"] + env["dtau"]; ST.Macc_env = env["Macc"]
         push!(HIST, (ST.tstart, ST.tb, ST.Mdot0, ST.Mdot))
     end

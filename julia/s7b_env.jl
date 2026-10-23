@@ -12,6 +12,10 @@
 # Environment: S7B_DIR (exchange directory), S7B_TAG, S7B_MSYNC [Msun, accretion since the start of the run at which the coupling starts], S7B_FEX [0.01], S7B_MODE [star|photosphere],
 # S7B_RHOMODE [mdot|grid], S7B_TINNER [1.5e4], S7B_NZIN [300], S7B_DIFFUSE [0], S7B_GRID [coarse|default], S7B_LW [1], S7B_FORCE [1], S7B_FEEDBACK [1] (0: transfer evaluated, nothing applied),
 # S7B_MCAP [Msun], S7B_MDOTSTOP [Msun/yr], S7B_MDOTWIN [0.3] (window in ln M of the accretion-rate estimate), S7B_TRACK, S7B_SAVEAT [list of Msun: snapshot of the envelope], S7B_RESUME.
+# S8a: Monte Carlo Lyα (RT_LYA=mc): LyaMC.jl (Monte Carlo) and s8a_couple.jl (inner column, grid coupling) are loaded into Main
+if get(ENV, "RT_LYA", "0") == "mc"
+    include(joinpath(@__DIR__, "LyaMC.jl")); include(joinpath(@__DIR__, "s8a_couple.jl"))
+end
 module S7bEnv
 using Printf, Serialization
 const S = Main.S7b; const RT = Main.RadTransfer; const CN = Main.ChemNet
@@ -23,7 +27,7 @@ const FEX = envf("S7B_FEX", 0.01); const MSYNC = envf("S7B_MSYNC", 10.0) * Msun;
 const TINNER = envf("S7B_TINNER", 1.5e4); const NZIN = envi("S7B_NZIN", 300); const DIFFUSE = get(ENV, "S7B_DIFFUSE", "0") == "1"; const USELW = get(ENV, "S7B_LW", "1") == "1"
 const HEATFAC = envf("S7B_HEAT", 1.0); const HEATMODE = get(ENV, "S7B_HEATMODE", "abs"); const FORCE = get(ENV, "S7B_FORCE", "1") == "1"; const FEEDBACK = get(ENV, "S7B_FEEDBACK", "1") == "1"; const FORCEFAC = envf("S7B_FORCEFAC", 1.0)
 const MCAP = envf("S7B_MCAP", 1e9) * Msun; const MDOTSTOP = envf("S7B_MDOTSTOP", 0.0) * Msun / YR; const MDOTWIN = envf("S7B_MDOTWIN", 0.3)
-const NPROF = envi("S7B_NPROF", 0); const LYASURV = get(ENV, "S7B_LYASURV", "0") == "1"
+const STARVE = envf("S7B_STARVE", 3.0); const DTMAX = envf("S7B_DTMAX", 1e30) * 3.15576e7; const NPROF = envi("S7B_NPROF", 0); const LYASURV = get(ENV, "S7B_LYASURV", "0") == "1"
 const TRACK = get(ENV, "S7B_TRACK", ""); const EXCH = TRACK == "" && get(ENV, "S7B_EXCH", "1") == "1"
 const SAVEAT = haskey(ENV, "S7B_SAVEAT") ? sort(parse.(Float64, split(ENV["S7B_SAVEAT"], ","))) .* Msun : Float64[]
 const PERFD = Dict{Symbol,Tuple{Int,Float64}}()
@@ -128,7 +132,79 @@ function mdot_window(t)
     # the sink may starve (the infall halts): the line through the staircase would keep growing. Bound the rate by the average since the first event of the window, and the mass by the point mass
     t1, mlast = ev[n]; t0w, m0w = ev[k]
     t > t1 && (Md = min(Md, (mlast - m0w) / max(t - t0w, 1e-30)))
+    # S8a: a sink that has starved gives Ṁ → 0: once the last event is overdue (t − t1 beyond STARVE × the expected interval) the rate cannot exceed STARVE × the last zone mass / (t − t1)
+    # (the average since the first event of the window decays too slowly: the coupled star grew to 178 M☉ while the sink had stopped at 143, S7c-1). S7B_STARVE = 0 restores the S7c-1 estimator.
+    if STARVE > 0 && t > t1 && n >= 2
+        Md = min(Md, STARVE * (mlast - ev[n-1][2]) / max(t - t1, 1e-30))
+    end
     (Md, min(mb + Md * (t - tb), 4π * Main.TX.XMINT[][Int(Main.TF.getscalar(:ngrs))]))
+end
+
+
+const LYA_FIRST = Ref(true)
+
+
+"""
+Per-zone Lyα field of the Monte Carlo at a snapshot barrier, lib/popiii/s8a_<tag>_J_<j>.csv (header line `# t = <s>`): zone, r [cm], T_k, n_HI, J_erg = hν_α J_α^phot
+[erg s⁻¹ cm⁻² Hz⁻¹ sr⁻¹, mean intensity of the line radiation averaged over |x| < 1 of the fluid-frame Doppler profile], T_c [K] (T_k where the tilt is not measurable), valid, R_sc [scatterings per H atom per s].
+"""
+function dump_J!(res, j, t)
+    Lm = Main.LyaMC
+    open(joinpath(Main.TF.ROOT, "lib", "popiii", "s8a_$(TAG)_J_$(j).csv"), "w") do io
+        println(io, "# t = ", t)
+        println(io, "zone,r,T,nHI,J_erg,Tc,Tc_valid,Rsc")
+        for k in 1:length(res.T)
+            println(io, join((k, 0.5 * (res.r[k] + res.r[k+1]), res.T[k], res.nHI[k], Lm.E0 * res.Jalpha[k], res.Tcolor[k], res.Tcolor_valid[k] ? 1 : 0, res.Rsc[k]), ","))
+        end
+    end
+end
+const LYALOG = Ref{Any}(nothing); const LYAPROF = Ref{Any}(nothing)
+"One line per Monte Carlo evaluation (s8a_<tag>_lya.csv) and the profile of the innermost zones (s8a_<tag>_lyaprof.csv)."
+function log_lya!(lya, j, t, mz, rn, dn)
+    res = lya.res; Lm = Main.LyaMC; S8 = Main.S8a
+    if LYALOG[] === nothing
+        LYALOG[] = open(joinpath(Main.TF.ROOT, "lib", "popiii", "s8a_$(TAG)_lya.csv"), "w")
+        println(LYALOG[], "j,t_yr,rate_line,rate_win,Ncol_inner,inner_flines,inner_nsc,Lya_tot_erg,F_mc,F_mc_over_Lc,F_inner_part,F_grid_part,f_out,f_in,f_2g,f_Hm,f_H2,nsc_per_photon,relerr_F,Jalpha_zone1,Tc_over_Tk_zone1,wall_s")
+        LYAPROF[] = open(joinpath(Main.TF.ROOT, "lib", "popiii", "s8a_$(TAG)_lyaprof.csv"), "w")
+        println(LYAPROF[], "j,t_yr,zone,r_AU,nHI,T,u_kms,Jalpha,Tcolor,Tcolor_ok,force,force_err,accel,Rsc,nsc")
+    end
+    if res === nothing
+        println(LYALOG[], join((j, t / YR, lya.rate_line, sum(lya.rate_win), lya.Ncol, S8.INNER.flines, S8.INNER.nsc, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, time() - Main.T0WALL), ",")); flush(LYALOG[]); return
+    end
+    Lt = (lya.rate_line + sum(lya.rate_win)) * Lm.E0; Fm = sum(res.force)
+    ms = res.momsrc; names = res.sources
+    Fin = any(==(:inner), names) ? sum(ms[findfirst(==(:inner), names), :]) : 0.0; Fgr = any(==(:grid), names) ? sum(ms[findfirst(==(:grid), names), :]) : 0.0
+    big = findall(>(0.02 * maximum(abs.(res.force))), abs.(res.force))
+    relerr = isempty(big) ? 0.0 : sum(res.force_err[big] .^ 2)^0.5 / max(abs(sum(res.force[big])), 1e-300)
+    println(LYALOG[], join((j, t / YR, lya.rate_line, sum(lya.rate_win), lya.Ncol, S8.INNER.flines, S8.INNER.nsc, Lt, Fm, Fm * Lm.c / max(Lt, 1e-300), Fin, Fgr, res.f_out, res.f_in, res.f_2g, res.f_Hm, res.f_H2,
+                            res.nsc_per_photon, relerr, res.Jalpha[1], res.Tcolor[1] / res.T[1], time() - Main.T0WALL), ",")); flush(LYALOG[])
+    for kk in 1:min(max(NPROF, 12), length(res.T))
+        println(LYAPROF[], join((j, t / YR, kk, res.r[kk] / AU, res.nHI[kk], res.T[kk], 0.5 * (res.r[kk] == 0 ? 0.0 : 0.0), res.Jalpha[kk], res.Tcolor[kk], res.Tcolor_valid[kk] ? 1 : 0, res.force[kk], res.force_err[kk], res.force[kk] / mz[kk], res.Rsc[kk], res.nsc[kk]), ","))
+    end
+    flush(LYAPROF[])
+end
+"""
+S8a: one Monte Carlo evaluation of the Lyα field. Returns (accel [cm s⁻²] per zone, result of the grid run, inner-column response).
+"""
+function lya_mc(rec, inner, src, g, rn, tn, dn, un, f, mz, ρs, redge, u_edge)
+    S8 = Main.S8a; Lm = Main.LyaMC
+    Rst = rec["R"]; RII = max(inner.RII, 1.001 * Rst)
+    rate_line = Lm.f_lya_caseB(TINNER) * max(inner.Qstar - inner.Qesc, 0.0)              # Lyα photons/s of the H II region
+    win = RT.LYA_MC_WIN[]
+    rate_win = S8.window_rates(g, inner.Lout, win)
+    nHe = ρs / CN.μH()
+    if redge > 1.05 * Rst
+        inn = S8.inner_response!(Rst, RII, redge, nHe, u_edge, TINNER)
+        Ncol = S8.column(nHe * (1 - S8.XE_IN), RII, redge); tau0 = Ncol * Lm.sig0(TINNER)
+        emerge = S8.emergent(inn, rate_line, rate_win, tau0)
+    else
+        Ncol = 0.0
+        ed = collect(range(-win * Lm.c, win * Lm.c, length = S8.NWIN + 1)); wts = copy(rate_win); wts[div(S8.NWIN, 2)] += 0.5 * rate_line; wts[div(S8.NWIN, 2) + 1] += 0.5 * rate_line
+        emerge = (ed, wts)
+    end
+    un_i = un
+    acc, res = S8.grid_mc!(rn, tn, dn, un_i, f.med.X, emerge, Ncol, TINNER, mz; seed = ST.j + 1)
+    (; accel = acc, res, emerge, rate_line, rate_win, Ncol)
 end
 
 # ------------------------------------------------------------------ the field on the grid
@@ -143,7 +219,7 @@ function field!(rec, Mdot_dyn)
     ρs = RHOMODE == "mdot" && isfinite(Mdot_dyn) && Mdot_dyn > 0 ? Mdot_dyn / (4π * redge^2 * max(u_edge, 1e3)) : dn[1]
     inner = perf(:rt_inner, () -> S.inner_column(ia, src, Mstar, rec["R"], redge, ρs, max(u_edge, 1e3); nz = NZIN, T = TINNER, reemit = (g, max(rec["Tph"], 3000.0))))
     # S7c-2 (RT_LYA=1): the Lyα of the H II region inside r_s (0.68 per absorbed ionising photon, case B) is injected at line centre at the inner boundary; R* bounds J <= B
-    if RT.LYA[]
+    if RT.LYA[] && !RT.LYAMC[]
         RT.LYA_INJECT[] = 0.68 * 10.2 * CN.eV * max(inner.Qstar - inner.Qesc, 0.0); RT.LYA_RSTAR[] = rec["R"]
         # S7c-1 (S7B_LYASURV = 1, default off): fraction of that Lyα that survives the neutral free-fall column R_II -> r_e (R_II = 1.1 R*) before it reaches the grid: two-photon destruction in the
         # trapped regime, MT08 eq. B13: Gamma = 1.04 (eps tau)^(1/3), eps = 4.4e-9 (upper bound: n_e >> n_cr), tau = sigma_0 N_H(column of a free-fall flow of rate Mdot); the trapped intensity is divided by (1 + Gamma)
@@ -158,11 +234,26 @@ function field!(rec, Mdot_dyn)
     xnet = [Main.mat.x[a+j-1] for j in 1:n]
     opts = RT.Opts(diffuse = DIFFUSE)
     f = S.envfields(g, ia, AB[], NET[], PHOTOS[], rn, tn, dn, mdotH, xnet, inner.Lout; opts = opts, Jcmb = JCMB[], perf = perf)
+    # S8a (RT_LYA=mc): Monte Carlo Lyα. The inner column (H II region -> first interface) in a scaled medium, then the grid; every S8A.NEVERY barriers, the force is held in between.
+    a_mc = zeros(n); lya = nothing
+    if RT.LYAMC[]
+        rc_now = sqrt.(rn[1:end-1] .* rn[2:end])
+        savenow = !isempty(SAVEAT) && ST.Macc / Msun + ST.Mstar0 / Msun >= SAVEAT[1] / Msun          # the snapshot of this barrier gets its Lyα field (S8b: J_α, T_c)
+        if LYA_FIRST[] || ST.j % Main.S8a.NEVERY == 0 || savenow
+            lya = perf(:lya_mc, () -> lya_mc(rec, inner, src, g, rn, tn, dn, un, f, mz, ρs, redge, u_edge))
+            a_mc = lya.accel; Main.S8a.LASTGRID[] = (rc_now, copy(a_mc)); LYA_FIRST[] = false
+            log_lya!(lya, ST.j, TF.getscalar(:timen), mz, rn, dn)
+            savenow && lya.res !== nothing && dump_J!(lya.res, ST.j, TF.getscalar(:timen))
+        else
+            a_mc = Main.S8a.held_accel(rc_now)
+        end
+    end
+    arad_tot = f.arad .* FORCEFAC .+ a_mc
     # apply
     if FEEDBACK
         ST.a0 = a; ST.J = f.J; ST.kLW = copy(f.kLW); ST.heat = (HEATMODE == "net" ? f.heat_net : f.heat_other) .* HEATFAC; ST.active = true
         if FORCE
-            acc = RT.interface_accel(f.arad .* FORCEFAC, mz); full = zeros(length(un_full())); full[a:b+1] .= acc; TX.AEXT[] = full
+            acc = RT.interface_accel(arad_tot, mz); full = zeros(length(un_full())); full[a:b+1] .= acc; TX.AEXT[] = full
         end
     end
     # diagnostics
@@ -170,9 +261,9 @@ function field!(rec, Mdot_dyn)
     kf = findlast(>=(0.5), x_sw)
     vff = sqrt.(2 * G * (4π .* TX.XMINT[][a:b]) ./ rmid)
     gloc = G .* (4π .* TX.XMINT[][a:b]) ./ rmid .^ 2
-    Fsum = sum(f.arad .* mz)
+    Fsum = sum(arad_tot .* mz)
     Nabs = f.sw === nothing ? 0.0 : f.sw.ledger.Nion
-    (; inner, src, f, ρs, redge, u_edge, n, kf, rn, x_sw, Nabs, Fsum, Fmax = maximum(f.arad ./ gloc), amax = maximum(abs.(f.arad)), mz)
+    (; inner, src, f, ρs, redge, u_edge, n, kf, rn, x_sw, Nabs, Fsum, Fmax = maximum(arad_tot ./ gloc), amax = maximum(abs.(arad_tot)), mz, a_mc, lya, arad_tot)
 end
 un_full() = Main.TF.var(:un)
 
@@ -204,7 +295,7 @@ function barrier!(t)
     t_rt = time() - t_w0
     # next barrier
     tacc = max(rec["M"], Mpt) / max(Md, 1e-30)
-    dtau = FEX * tacc
+    dtau = min(FEX * tacc, DTMAX)
     ST.dtau = dtau; ST.tb = t + dtau
     # records
     Rr = Main.TF.var(:rn)

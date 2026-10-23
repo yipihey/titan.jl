@@ -43,7 +43,7 @@ end
 Isotropic pressure P_iso [dyn cm⁻²] at the n + 1 interfaces from the stellar spectrum (`La`: (n+1) × nf luminosity per bin attenuated by true absorption only), the injected line and the grid
 sources; `parts` = (stellar, injected, grid pressures, N_eff, k_ρ, T). `tab` is the `LymanWings.Table` of the grid.
 """
-function lya_pressures(g::FreqGrid, tab, La, med::Medium, o::Opts; Linject = 0.0, Rstar = 0.0, Lsrc = nothing, TinjK = 1.5e4, GammaH = nothing)
+function lya_pressures(g::FreqGrid, tab, La, med::Medium, o::Opts; Linject = 0.0, Rstar = 0.0, Lsrc = nothing, TinjK = 1.5e4, GammaH = nothing, skipbins = nothing, nolines = false)
     LW = LymanWings
     n = length(med); r = med.r; nf = nfreq(g); Δr = diff(r)
     nHI = [med.nH[k] * xs(med, :H, k) for k in 1:n]
@@ -79,7 +79,7 @@ function lya_pressures(g::FreqGrid, tab, La, med::Medium, o::Opts; Linject = 0.0
         A4 = 4π * r[j]^2
         # line sources: the line-centre ratio J/F is the plateau of Lyα (σ → the damping core: coherent J ≫ plateau)
         Jl = LW.line_plateau(2, Neff, T; vt, eps)
-        if Jl[1] > 0
+        if Jl[1] > 0 && !nolines
             D = LW.Δν_D(2, T; vt)
             for (Fl, TB, dst) in ((Linject, TinjK, Pln), (Lcum[j], max(T, TinjK), Pgr))
                 Fl > 0 || continue
@@ -91,6 +91,7 @@ function lya_pressures(g::FreqGrid, tab, La, med::Medium, o::Opts; Linject = 0.0
         # the stellar spectrum, bin by bin (structured bins: sub-sampled)
         s = 0.0
         for f in 1:nf
+            skipbins !== nothing && skipbins[f] && continue
             Fb = La[j, f] / A4
             Fb > 0 || continue
             Jr = 0.0
@@ -112,8 +113,11 @@ function lya_pressures(g::FreqGrid, tab, La, med::Medium, o::Opts; Linject = 0.0
 end
 
 "Radial acceleration [cm s⁻²] of each zone from the trapped radiation pressure, a_k = max((P_k − P_{k+1})/(ρ_k Δr_k), 0) (the total force of the neutral-H scattering; `transfer` subtracts the beam's share)."
-function lya_accel(g::FreqGrid, tab, La, med::Medium, rho, o::Opts; Linject = 0.0, Rstar = 0.0, Lsrc = nothing, GammaH = nothing)
+function lya_accel(g::FreqGrid, tab, La, med::Medium, rho, o::Opts; Linject = 0.0, Rstar = 0.0, Lsrc = nothing, GammaH = nothing, skipbins = nothing, nolines = false)
     n = length(med); r = med.r
-    P, = lya_pressures(g, tab, La, med, o; Linject, Rstar, Lsrc, GammaH)
+    P, = lya_pressures(g, tab, La, med, o; Linject, Rstar, Lsrc, GammaH, skipbins, nolines)
     [max((P[k] - P[k+1]) / (rho[k] * (r[k+1] - r[k])), 0.0) for k in 1:n]      # (a pressure that rises outward, from a jump of the density slope, is not a force on the gas)
 end
+
+"Mask of the frequency bins within |ν/ν_α − 1| < win of Lyα (S8a: the part of the spectrum that the Monte Carlo transports)."
+lya_window(g::FreqGrid, win) = BitVector([abs(g.ν[f] / LymanWings.ν_line(2) - 1) < win for f in 1:nfreq(g)])

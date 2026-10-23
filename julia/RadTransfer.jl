@@ -33,7 +33,11 @@ const σSB = 5.670374419e-5
 "Lyman-series scattering of atomic H (Kramers–Heisenberg with damping wings and thermal cores, LymanWings.jl) instead of the Rayleigh polynomial. Default off (= S7a/S7b)."
 const LYMAN = Ref(get(ENV, "RT_LYMAN", "0") == "1")
 "Trapped-Lyα radiation force (McKee & Tan 2008 eq. 22) as a separate component of `ARAD`. Default off."
-const LYA = Ref(get(ENV, "RT_LYA", "0") == "1")
+const LYA = Ref(get(ENV, "RT_LYA", "0") in ("1", "mc"))
+"S8a: RT_LYA=mc replaces the MT08 force of Lyα itself (window around the line, the injected and grid line sources) by the Monte Carlo of LyaMC.jl; the other Lyman lines keep the MT08 approximation. Default off."
+const LYAMC = Ref(get(ENV, "RT_LYA", "0") == "mc")
+"Half-width |ν/ν_α − 1| of the window around Lyα that the Monte Carlo transports (RT_LYA_MCWIN)."
+const LYA_MC_WIN = Ref(parse(Float64, get(ENV, "RT_LYA_MCWIN", "0.03")))
 "Lines Ly-2 … Ly-n resolved by `default_grid` when `lyman` (extra bin edges, see LymanWings.line_edges)."
 const LYMAN_LINES = Ref(parse(Int, get(ENV, "RT_LYMAN_LINES", "12")))
 "Line-centre Lyα luminosity [erg/s] injected at the inner boundary (the H II region inside r_s: 0.68 of the absorbed ionising photons); set by the driver."
@@ -151,6 +155,7 @@ Base.@kwdef struct Opts
     lyman::Bool = LYMAN[]          # S7c-2: Kramers–Heisenberg scattering of H I (Lyman wings and cores) replaces Dalgarno's Rayleigh polynomial
     lya::Bool = LYA[]              # S7c-2: trapped-Lyα radiation force (MT08 eq. 22) added to `arad` (and kept in `ARAD_LYA`)
     lya_vt::Float64 = 0.0          # extra (turbulent) speed in the Lyα Doppler width [cm/s]
+    lya_mc_win::Float64 = (LYAMC[] ? LYA_MC_WIN[] : 0.0)    # S8a: > 0: bins within |ν/ν_α − 1| < lya_mc_win and the line sources are left to the Monte Carlo (LyaMC)
     lya_xh::Float64 = 3.0          # half-width of the stellar-continuum window of the trapped force, in units of x̂ = x/(aτ̄)^{1/3}
 end
 "Zones: interfaces r (n+1), T, nH (H nuclei cm⁻³) and X (species → abundance per H nucleus; missing = 0)."
@@ -355,7 +360,10 @@ function transfer(g::FreqGrid, ab::Vector{Absorber}, src::Source, med::Medium, o
     alya = zeros(n)
     if o.lya && rho !== nothing
         GH = zeros(n); for (ia, a) in enumerate(ab); (a.R === :H && occursin("ground", a.p.name)) && (GH .+= Gam[ia]); end        # ionising-photon (> 13.6 eV, from the ground level) photoionisation rate per H atom: the stellar driver of the H II gas
-        alya = lya_accel(g, lytable(g), La, med, rho, o; Linject = LYA_INJECT[], Rstar = (src.Rstar > 0 ? src.Rstar : LYA_RSTAR[]), Lsrc = src.L, GammaH = GH) .- arad_hi
+        mcw = o.lya_mc_win > 0
+        winbins = mcw ? lya_window(g, o.lya_mc_win) : nothing
+        alya = lya_accel(g, lytable(g), La, med, rho, o; Linject = mcw ? 0.0 : LYA_INJECT[], Rstar = (src.Rstar > 0 ? src.Rstar : LYA_RSTAR[]), Lsrc = src.L,
+                         GammaH = mcw ? nothing : GH, skipbins = winbins, nolines = mcw) .- arad_hi
         arad .+= alya
     end
     ARAD_LYA[] = alya
