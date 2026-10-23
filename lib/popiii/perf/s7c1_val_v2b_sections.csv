@@ -1,0 +1,2 @@
+section,calls,total_s,mean_ms,frac_of_wall,alloc_MB
+run,1,634.088074,634088.073875,0.99949,87756.395

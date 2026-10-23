@@ -58,8 +58,9 @@ const HOOKOFF = Ref(0)
 const PRECTHICK = get(ENV, "PRECTHICK", "0") == "1"; const PRECADV = get(ENV, "PRECADV", "1") == "1"; const PRECH = get(ENV, "PRECH", "1") == "1"; const H0 = Ref{Any}(nothing)
 const LBC = Ref(0.0)
 "S6a-fix: interface of L* for the boundary conditions: KLSTAR [15] interfaces below the surface, or (LSTARQ > 0) the interface at exterior mass fraction LSTARQ."
+const PROT = Ref(false)      # S7c-1 (PROTGAMMA > 0): protections of the surface condition while the star is near its Eddington limit (see update_bc!)
 function kLstar()
-    envf("LSTARQ", 1e-3) > 0 || return b + 1 - envi("KLSTAR", 15)      # S7c-1: LSTARQ default 1e-3 (was off: KLSTAR = 15 interfaces below the surface, i.e. inside the convective/H-ionisation skin once the star is luminous and extended; LSTARQ = 0 restores that)
+    (envf("LSTARQ", 0.0) > 0 || PROT[]) || return b + 1 - envi("KLSTAR", 15)      # S7c-1: LSTARQ = 0 (default) as before; with PROTGAMMA the interface at q = 1e-3 while PROT (KLSTAR = 15 lies inside the convective/H-ionisation skin of a luminous, extended star)
     qL = envf("LSTARQ", 1e-3); M_ = intmass(b + 1)
     for k in b+1:-1:a+1; (M_ - intmass(k)) / M_ >= qL && return k; end
     a + 1
@@ -71,6 +72,11 @@ function update_bc!()
     R = rn[b+1]; M = intmass(b + 1); frn = TF.var(:frn)
     MDOTTAB[] === nothing || (global Mdot = mdot_now(M))
     S7BMDOT[] === nothing || (let m_ = S7BMDOT[](); m_ === nothing || (global Mdot = m_); end)
+    if envf("PROTGAMMA", 0.0) > 0       # S7c-1: Gamma = (L* + L_acc)/L_Edd (kappa_es = 0.34) of the previous step; protections on above PROTGAMMA, off below 0.8 PROTGAMMA
+        Lacc_ = G * M * Mdot / R; Γ_ = (LBC[] + Lacc_) / (4π * Z0Physics.c * G * M / 0.34)
+        PROT[] = Γ_ > (PROT[] ? 0.8 : 1.0) * envf("PROTGAMMA", 0.0)
+        TD.SAMEDT_RETRY[] = PROT[]
+    end
     kL = kLstar()         # L* from a few interfaces below the surface (the surface flux itself is the stiff response to the boundary condition)
     Lstar = 4π * rn[kL]^2 * (frn[kL] + (LASTSD[] === nothing ? 0.0 : LASTSD[].fcv[kL]))
     # S6a-fix: L* of the precursor relaxed over LTAU [yr] (0 = off): the luminosity of the surface layers flickers by 10 when the precursor sits at the ionisation cliff
@@ -88,7 +94,8 @@ function update_bc!()
     # S7c-1: the damping of E_s (weight ESW, limit ESLIM per step) is a rate per UNIT TIME: the precursor is a steady flow that adjusts on its flow time τ_E = ESTAU R/v_ff, so over a step dt < τ_E the surface
     # radiation moves only the fraction fdt = 1 − exp(−dt/τ_E) of the damped amount (fdt = 1 for dt ≫ τ_E: the old per-step rule). With a per-step rule the boundary kept moving by ESLIM per step while the
     # time-step control, which sees the response of the surface zones to that move, cut dt by 2–3 per step (dt → seconds in ~20 steps, "the S6b stall"): the move per step never became smaller.
-    fdt = envf("ESTAU", 1.0) > 0 ? -expm1(-TF.getscalar(:dtime) / (envf("ESTAU", 1.0) * R / vff)) : 1.0
+    estau_ = PROT[] ? envf("ESTAU", 1.0) : envf("ESTAU", 0.0)
+    fdt = estau_ > 0 ? -expm1(-TF.getscalar(:dtime) / (estau_ * R / vff)) : 1.0
     Es = ES_OLD[] > 0 ? exp((1 - envf("ESW", 0.5) * fdt) * log(ES_OLD[]) + envf("ESW", 0.5) * fdt * log(pc.Es)) : pc.Es
     ES_OLD[] > 0 && (Es = clamp(Es, ES_OLD[] / envf("ESLIM", 1.15)^fdt, ES_OLD[] * envf("ESLIM", 1.15)^fdt))       # the precursor flips to an optically thick, ionised state (T_s ×4): follow it in steps of at most 15 % in E_s
     ES_OLD[] = Es; Tsh = (Es / Z0Physics.arad)^0.25

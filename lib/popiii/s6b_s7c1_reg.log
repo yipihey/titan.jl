@@ -1,0 +1,24 @@
+S6b start: M* = 0.2174 Msun, R* = 22.76 Rsun, Mdot = 1.100e-03 Msun/yr, 150 zones, T_s(precursor) = 4342 K, tau_prec = 0.00, P_ram = 1.329e+04, accretion true
+== relaxation (accretion and burning off), t_dyn = 3.708e+05 s
+relax    20 t=4.1553e+02 s (0.0 t_dyn) dt=1.386e+02 s R=22.7548 Rsun Tc=9.99186e+04 max|u|/cs(core)=8.57e-04 it=8
+relax    40 t=5.8625e+03 s (0.0 t_dyn) dt=5.624e+01 s R=22.7343 Rsun Tc=9.99139e+04 max|u|/cs(core)=2.88e-01 it=7
+relax    60 t=9.9573e+03 s (0.0 t_dyn) dt=3.653e+02 s R=22.7216 Rsun Tc=9.99143e+04 max|u|/cs(core)=3.00e-01 it=9
+relax    80 t=1.2435e+04 s (0.0 t_dyn) dt=1.853e+01 s R=22.7146 Rsun Tc=9.99150e+04 max|u|/cs(core)=2.91e-01 it=5
+relax   100 t=1.3805e+04 s (0.0 t_dyn) dt=1.204e+02 s R=22.7109 Rsun Tc=9.99154e+04 max|u|/cs(core)=3.13e-01 it=5
+relax   120 t=1.6302e+04 s (0.0 t_dyn) dt=1.221e+01 s R=22.7050 Rsun Tc=9.99161e+04 max|u|/cs(core)=2.79e-01 it=9
+relax   140 t=2.0490e+04 s (0.1 t_dyn) dt=7.933e+01 s R=22.6959 Rsun Tc=9.99169e+04 max|u|/cs(core)=2.33e-01 it=5
+relax   160 t=2.2129e+05 s (0.6 t_dyn) dt=6.595e+04 s R=22.4280 Rsun Tc=9.99133e+04 max|u|/cs(core)=9.25e-02 it=5
+relaxed at step 171: t = 7.583e+06 s = 21.5 t_dyn, max|u|/c_s = 1.41e-03
+  200 t=1.3067e+00 yr dt=1.623e+06 s M=0.2186 R=21.56 Rsun L*=39.227 Lacc=350.21 Teff=5491 Ts=4649 tau=0.01 Tc=1.0100e+05 rho_c=5.097e-04 Tmax=1.010e+05@0.000 LD=3.39e-26 fD=1.0000 it=12 adv(cons 8.7e-16 cfl 3.2e+03 dT 0.0e+00) ledger(err/|terms| step 1.1e-03 cum 3.4e-03; W_d: step 1.1e-03 cum 3.6e-03 signed 3.6e-03) lim=0.002 rho@105 conv=0.005-0.020,0.045-0.049,0.058-1.000
+  400 t=1.6057e+02 yr dt=3.379e+07 s M=0.3938 R=16.91 Rsun L*=0.011 Lacc=804.18 Teff=6854 Ts=11320 tau=6.53 Tc=2.5163e+05 rho_c=2.585e-03 Tmax=2.516e+05@0.000 LD=6.99e-15 fD=1.0000 it=11 adv(cons 8.9e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step 1.3e-04 cum 2.5e-03; W_d: step -1.3e-03 cum 2.9e-03 signed 1.9e-03) lim=0.006 T@82 conv=0.000-0.597,1.000-1.000
+  600 t=4.5431e+02 yr dt=6.152e+07 s M=0.7169 R=20.32 Rsun L*=0.019 Lacc=1218.56 Teff=7138 Ts=11548 tau=7.18 Tc=3.9737e+05 rho_c=5.199e-03 Tmax=3.974e+05@0.000 LD=2.61e-10 fD=1.0000 it=11 adv(cons 5.0e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -5.3e-04 cum 8.4e-04; W_d: step -1.9e-03 cum 2.1e-03 signed -8.6e-04) lim=0.004 T@74 conv=0.000-0.291,1.000-1.000
+  800 t=9.8906e+02 yr dt=1.120e+08 s M=1.3051 R=24.20 Rsun L*=0.030 Lacc=1862.60 Teff=7402 Ts=11768 tau=7.02 Tc=5.5523e+05 rho_c=8.590e-03 Tmax=5.552e+05@0.000 LD=2.49e-07 fD=1.0000 it=10 adv(cons 8.2e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -7.8e-04 cum 7.1e-04; W_d: step -1.9e-03 cum 1.9e-03 signed -1.5e-03) lim=0.004 T@66 conv=0.000-0.153,1.000-1
+ 1000 t=1.9626e+03 yr dt=2.039e+08 s M=2.3760 R=28.65 Rsun L*=0.045 Lacc=2864.79 Teff=7644 Ts=11927 tau=6.56 Tc=7.4378e+05 rho_c=1.332e-02 Tmax=7.438e+05@0.000 LD=1.09e-04 fD=1.0000 it=9 adv(cons 9.0e-16 cfl 3.8e+04 dT 3.3e-12) ledger(err/|terms| step -6.6e-04 cum 7.2e-04; W_d: step -1.8e-03 cum 1.9e-03 signed -1.7e-03) lim=0.004 T@59 conv=0.000-0.074,1.000-1
+ 1200 t=3.7019e+03 yr dt=3.681e+08 s M=4.2893 R=34.43 Rsun L*=153.920 Lacc=4303.39 Teff=7851 Ts=11026 tau=4.23 Tc=9.9663e+05 rho_c=2.073e-02 Tmax=1.064e+06@0.125 LD=6.95e-02 fD=0.9998 it=7 adv(cons 7.6e-16 cfl 3.8e+04 dT 5.3e-10) ledger(err/|terms| step -4.8e-04 cum 6.3e-04; W_d: step -2.3e-03 cum 1.9e-03 signed -1.8e-03) lim=0.004 T@51 conv=0.000-0.039,0.834-1
+ 1400 t=5.7749e+03 yr dt=4.239e+08 s M=6.5696 R=109.82 Rsun L*=5392.933 Lacc=2066.33 Teff=5114 Ts=4302 tau=0.00 Tc=1.3024e+06 rho_c=3.040e-02 Tmax=1.520e+06@0.091 LD=1.09e+01 fD=0.9847 it=9 adv(cons 4.9e-16 cfl 2.8e+04 dT 2.1e-08) ledger(err/|terms| step 2.0e-03 cum 7.9e-04; W_d: step -3.6e-04 cum 2.7e-03 signed -2.7e-03) lim=0.049 rho@124 conv=0.000-0.023,1.000-1.000
+MEND reached
+summary: steps 1488 (failed attempts 0), t = 7.07866e+03 yr, M = 8.003702 Msun, R = 90.617 Rsun
+mass accretion check: (M - M0)/(Mdot t) = 1.00000000 (expected 1)
+composition advection: max |change of species mass - inflow|/mass = 2.10e-15; accreted-gas abundances kept in the top zone: X_H(top) = 0.75000 (inflow 0.75000)
+energy ledger: cumulative sum|err|/sum|terms| = 2.055e-03 (accretion off: ~1e-3); with W_d: sum|err|/sum|terms| = 2.866e-03, sum err/sum|terms| = -3.123e-04
+wall 992.8 s

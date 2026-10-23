@@ -23,7 +23,7 @@ const FEX = envf("S7B_FEX", 0.01); const MSYNC = envf("S7B_MSYNC", 10.0) * Msun;
 const TINNER = envf("S7B_TINNER", 1.5e4); const NZIN = envi("S7B_NZIN", 300); const DIFFUSE = get(ENV, "S7B_DIFFUSE", "0") == "1"; const USELW = get(ENV, "S7B_LW", "1") == "1"
 const HEATFAC = envf("S7B_HEAT", 1.0); const HEATMODE = get(ENV, "S7B_HEATMODE", "abs"); const FORCE = get(ENV, "S7B_FORCE", "1") == "1"; const FEEDBACK = get(ENV, "S7B_FEEDBACK", "1") == "1"; const FORCEFAC = envf("S7B_FORCEFAC", 1.0)
 const MCAP = envf("S7B_MCAP", 1e9) * Msun; const MDOTSTOP = envf("S7B_MDOTSTOP", 0.0) * Msun / YR; const MDOTWIN = envf("S7B_MDOTWIN", 0.3)
-const NPROF = envi("S7B_NPROF", 0)
+const NPROF = envi("S7B_NPROF", 0); const LYASURV = get(ENV, "S7B_LYASURV", "0") == "1"
 const TRACK = get(ENV, "S7B_TRACK", ""); const EXCH = TRACK == "" && get(ENV, "S7B_EXCH", "1") == "1"
 const SAVEAT = haskey(ENV, "S7B_SAVEAT") ? sort(parse.(Float64, split(ENV["S7B_SAVEAT"], ","))) .* Msun : Float64[]
 const PERFD = Dict{Symbol,Tuple{Int,Float64}}()
@@ -40,7 +40,7 @@ Base.@kwdef mutable struct State
     j::Int = 0; t0::Float64 = 0.0; Macc0::Float64 = 0.0; tb::Float64 = 0.0; dtau::Float64 = 0.0; Mstar0::Float64 = 0.0
     Mdot::Float64 = 0.0; Macc::Float64 = 0.0
     a0::Int = 0; J::Matrix{Float64} = zeros(0, 0); kLW::Vector{Float64} = Float64[]; heat::Vector{Float64} = Float64[]; active::Bool = false; heatnow::Float64 = 0.0   # fields in force
-    log::Any = nothing; prof::Any = nothing; track::Any = nothing; texch::Float64 = 0.0
+    log::Any = nothing; lyasurv::Float64 = 1.0; prof::Any = nothing; track::Any = nothing; texch::Float64 = 0.0
 end
 const ST = State()
 
@@ -145,6 +145,12 @@ function field!(rec, Mdot_dyn)
     # S7c-2 (RT_LYA=1): the Lyα of the H II region inside r_s (0.68 per absorbed ionising photon, case B) is injected at line centre at the inner boundary; R* bounds J <= B
     if RT.LYA[]
         RT.LYA_INJECT[] = 0.68 * 10.2 * CN.eV * max(inner.Qstar - inner.Qesc, 0.0); RT.LYA_RSTAR[] = rec["R"]
+        # S7c-1 (S7B_LYASURV = 1, default off): fraction of that Lyα that survives the neutral free-fall column R_II -> r_e (R_II = 1.1 R*) before it reaches the grid: two-photon destruction in the
+        # trapped regime, MT08 eq. B13: Gamma = 1.04 (eps tau)^(1/3), eps = 4.4e-9 (upper bound: n_e >> n_cr), tau = sigma_0 N_H(column of a free-fall flow of rate Mdot); the trapped intensity is divided by (1 + Gamma)
+        if LYASURV && isfinite(Mdot_dyn) && Mdot_dyn > 0
+            RII = 1.1 * rec["R"]; NH = Mdot_dyn / (4π * CN.μH() * sqrt(2G * Mstar)) * 2 * (RII^-0.5 - redge^-0.5); τ0 = 5.9e-14 * (TINNER / 1e4)^-0.5 * max(NH, 0.0)
+            Γ = 1.04 * (4.4e-9 * τ0)^(1 / 3); surv = 1 / (1 + Γ); RT.LYA_INJECT[] *= surv; ST.lyasurv = surv; ST.j % 10 == 0 && @printf("S7B Lya survival j=%d: N_H(R_II->r_e) = %.2e, tau0 = %.2e, Gamma = %.1f, survival = %.3f\n", ST.j, NH, τ0, Γ, surv)
+        end
     end
     mz = 4π .* dn .* dv
     rmid = 0.5 .* (rn[1:end-1] .+ rn[2:end]); ubar = 0.5 .* (abs.(un[1:end-1]) .+ abs.(un[2:end]))

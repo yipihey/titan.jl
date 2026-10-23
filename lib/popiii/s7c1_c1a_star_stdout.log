@@ -1,0 +1,550 @@
+isentropic star: M = 0.2174 Msun, R = 21.364 Rsun, rho_c = 0.0005, T_s = 1.086e+04, rho_s = 7.279e-08
+S6b start: M* = 0.2174 Msun, R* = 21.36 Rsun, Mdot = 4.280e-03 Msun/yr, 150 zones, T_s(precursor) = 11990 K, tau_prec = 11.86, P_ram = 6.054e+04, accretion true
+== relaxation (accretion and burning off), t_dyn = 3.373e+05 s
+relax    20 t=6.6485e+03 s (0.0 t_dyn) dt=2.217e+03 s R=21.3659 Rsun Tc=9.99143e+04 max|u|/cs(core)=1.62e-02 it=7
+relaxed at step 39: t = 6.976e+06 s = 20.6 t_dyn, max|u|/c_s = 1.89e-05
+   50 t=2.2182e-01 yr dt=5.704e+03 s M=0.2174 R=21.47 Rsun L*=0.002 Lacc=1360.73 Teff=5925 Ts=11875 tau=2.92 Tc=9.9858e+04 rho_c=4.987e-04 Tmax=9.986e+04@0.000 LD=2.33e-26 fD=1.0000 it=12 adv(cons 5.2e-16 cfl 4.5e+01 dT 0.0e+00) ledger(err/|terms| step 1.0e-03 cum 1.1e-03; W_d: step -8.0e-04 cum 7.5e-04 signed -7.5e-04) lim=0.040 rho@130 conv=0.001-0.001,0.001-0.004,0.005-0.008,0.008-0.053,0.509-0.551,0.908-0.925,0.938-0.949,0.966-0.981,0.984-1.000,1.000-1.000
+  100 t=1.7682e+00 yr dt=4.645e+06 s M=0.2243 R=22.41 Rsun L*=0.005 Lacc=1442.73 Teff=5911 Ts=11721 tau=2.84 Tc=1.0470e+05 rho_c=5.460e-04 Tmax=1.047e+05@0.000 LD=1.11e-25 fD=1.0000 it=14 adv(cons 6.3e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step 6.4e-04 cum 8.7e-04; W_d: step 2.8e-04 cum 6.5e-04 signed 4.4e-04) lim=0.021 rho@93 conv=0.001-0.049,0.063-0.068,0.754-0.938,1.000-1.000
+  150 t=8.3393e+00 yr dt=3.704e+06 s M=0.2608 R=26.12 Rsun L*=0.017 Lacc=2098.93 Teff=5809 Ts=12410 tau=4.06 Tc=1.2580e+05 rho_c=7.661e-04 Tmax=1.258e+05@0.000 LD=3.56e-23 fD=1.0000 it=11 adv(cons 9.3e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -2.1e-03 cum 1.3e-03; W_d: step -4.0e-03 cum 2.1e-03 signed -1.9e-03) lim=0.017 rho@85 conv=0.000-0.754,1.000-1.000
+  200 t=1.3579e+01 yr dt=2.954e+06 s M=0.3033 R=31.03 Rsun L*=0.002 Lacc=2996.57 Teff=5718 Ts=12634 tau=12.56 Tc=1.4105e+05 rho_c=9.359e-04 Tmax=1.411e+05@0.000 LD=1.09e-21 fD=1.0000 it=11 adv(cons 6.7e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -5.5e-04 cum 1.4e-03; W_d: step -4.9e-03 cum 3.4e-03 signed -3.3e-03) lim=0.016 rho@82 conv=0.000-0.597,1.000-1.000
+  250 t=1.7758e+01 yr dt=2.355e+06 s M=0.3527 R=36.74 Rsun L*=0.003 Lacc=4291.65 Teff=5627 Ts=12933 tau=3.23 Tc=1.5346e+05 rho_c=1.079e-03 Tmax=1.535e+05@0.000 LD=1.26e-20 fD=1.0000 it=11 adv(cons 5.9e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step 4.4e-05 cum 9.1e-04; W_d: step -5.2e-03 cum 4.0e-03 signed -4.0e-03) lim=0.012 rho@80 conv=0.000-0.469,1.000-1.000
+  300 t=2.1090e+01 yr dt=1.878e+06 s M=0.4101 R=43.40 Rsun L*=0.004 Lacc=6161.24 Teff=5538 Ts=13229 tau=4.91 Tc=1.6467e+05 rho_c=1.211e-03 Tmax=1.647e+05@0.000 LD=9.27e-20 fD=1.0000 it=11 adv(cons 1.4e-15 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -1.8e-04 cum 6.6e-04; W_d: step -5.4e-03 cum 4.4e-03 signed -4.4e-03) lim=0.011 rho@78 conv=0.000-0.400,1.000-1.000
+  350 t=2.3747e+01 yr dt=1.498e+06 s M=0.4769 R=51.32 Rsun L*=0.007 Lacc=8836.08 Teff=5451 Ts=13542 tau=7.34 Tc=1.7428e+05 rho_c=1.328e-03 Tmax=1.743e+05@0.000 LD=4.50e-19 fD=1.0000 it=13 adv(cons 5.0e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -3.9e-04 cum 5.7e-04; W_d: step -5.4e-03 cum 4.7e-03 signed -4.7e-03) lim=0.011 rho@76 conv=0.000-0.341,0.999-1.000
+  400 t=2.5866e+01 yr dt=1.194e+06 s M=0.5546 R=60.53 Rsun L*=0.011 Lacc=12704.39 Teff=5365 Ts=13899 tau=3.92 Tc=1.8202e+05 rho_c=1.424e-03 Tmax=1.820e+05@0.000 LD=1.49e-18 fD=1.0000 it=7 adv(cons 4.8e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -6.3e-04 cum 5.6e-04; W_d: step -5.4e-03 cum 4.9e-03 signed -4.9e-03) lim=0.011 rho@74 conv=0.000-0.268,1.000-1.000,1.000-1.000
+  450 t=2.7635e+01 yr dt=1.154e+06 s M=0.6445 R=69.23 Rsun L*=0.013 Lacc=15395.56 Teff=5368 Ts=13632 tau=1.99 Tc=1.8824e+05 rho_c=1.503e-03 Tmax=1.882e+05@0.000 LD=3.70e-18 fD=1.0000 it=13 adv(cons 1.4e-15 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -5.1e-04 cum 5.6e-04; W_d: step -4.2e-03 cum 4.9e-03 signed -4.9e-03) lim=0.010 rho@73 conv=0.000-0.228,0.908-0.997,1.000-1.000
+  500 t=2.9644e+01 yr dt=1.385e+06 s M=0.7486 R=75.03 Rsun L*=0.019 Lacc=15973.51 Teff=5457 Ts=13529 tau=9.70 Tc=1.9419e+05 rho_c=1.579e-03 Tmax=1.942e+05@0.000 LD=8.58e-18 fD=1.0000 it=8 adv(cons 1.8e-15 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -1.5e-03 cum 6.7e-04; W_d: step -3.6e-03 cum 4.7e-03 signed -4.7e-03) lim=0.010 rho@71 conv=0.000-0.195,0.834-0.938,1.000-1.000
+  550 t=3.2054e+01 yr dt=1.658e+06 s M=0.8695 R=80.84 Rsun L*=0.025 Lacc=16706.09 Teff=5541 Ts=13438 tau=3.31 Tc=1.9974e+05 rho_c=1.652e-03 Tmax=1.997e+05@0.000 LD=1.82e-17 fD=1.0000 it=10 adv(cons 8.3e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -1.9e-03 cum 8.9e-04; W_d: step -3.3e-03 cum 4.4e-03 signed -4.4e-03) lim=0.010 rho@69 conv=0.000-0.166,0.754-0.798,1.000-1.000
+  600 t=3.4937e+01 yr dt=1.986e+06 s M=1.0099 R=86.44 Rsun L*=0.034 Lacc=17599.71 Teff=5623 Ts=13377 tau=2.86 Tc=2.0513e+05 rho_c=1.723e-03 Tmax=2.051e+05@0.000 LD=3.70e-17 fD=1.0000 it=8 adv(cons 7.8e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -1.8e-03 cum 1.1e-03; W_d: step -2.9e-03 cum 4.2e-03 signed -4.2e-03) lim=0.009 rho@67 conv=0.000-0.141,1.000-1.000
+  650 t=3.8393e+01 yr dt=2.380e+06 s M=1.1729 R=91.87 Rsun L*=0.045 Lacc=18640.80 Teff=5705 Ts=13323 tau=5.24 Tc=2.1060e+05 rho_c=1.796e-03 Tmax=2.106e+05@0.000 LD=7.42e-17 fD=1.0000 it=8 adv(cons 3.6e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -1.6e-03 cum 1.2e-03; W_d: step -2.6e-03 cum 3.9e-03 signed -3.9e-03) lim=0.009 rho@65 conv=0.000-0.120,1.000-1.000
+  700 t=4.2528e+01 yr dt=2.844e+06 s M=1.3623 R=97.23 Rsun L*=0.765 Lacc=19882.45 Teff=5785 Ts=13258 tau=20.59 Tc=2.1619e+05 rho_c=1.872e-03 Tmax=2.162e+05@0.000 LD=1.48e-16 fD=1.0000 it=12 adv(cons 9.8e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -1.3e-03 cum 1.3e-03; W_d: step -2.3e-03 cum 3.6e-03 signed -3.6e-03) lim=0.009 rho@63 conv=0.000-0.102,0.997-1.000
+  750 t=4.7467e+01 yr dt=3.395e+06 s M=1.5823 R=102.49 Rsun L*=0.078 Lacc=21316.88 Teff=5862 Ts=13288 tau=17.48 Tc=2.2192e+05 rho_c=1.951e-03 Tmax=2.219e+05@0.000 LD=2.93e-16 fD=1.0000 it=9 adv(cons 3.6e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -1.2e-03 cum 1.3e-03; W_d: step -2.1e-03 cum 3.3e-03 signed -3.3e-03) lim=0.009 rho@61 conv=0.000-0.087,1.000-1.000
+  800 t=5.3358e+01 yr dt=4.048e+06 s M=1.8378 R=107.70 Rsun L*=0.103 Lacc=22950.67 Teff=5938 Ts=13297 tau=17.18 Tc=2.2781e+05 rho_c=2.034e-03 Tmax=2.278e+05@0.000 LD=5.84e-16 fD=1.0000 it=11 adv(cons 1.1e-15 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -1.0e-03 cum 1.2e-03; W_d: step -2.0e-03 cum 3.1e-03 signed -3.1e-03) lim=0.008 rho@59 conv=0.000-0.074,1.000-1.000
+  850 t=6.0380e+01 yr dt=4.823e+06 s M=2.1346 R=112.83 Rsun L*=0.135 Lacc=24805.97 Teff=6014 Ts=13307 tau=21.17 Tc=2.3392e+05 rho_c=2.120e-03 Tmax=2.339e+05@0.000 LD=1.21e-15 fD=1.0000 it=11 adv(cons 7.8e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -8.5e-04 cum 1.2e-03; W_d: step -1.8e-03 cum 2.8e-03 signed -2.8e-03) lim=0.008 rho@57 conv=0.000-0.063,1.000-1.000
+  900 t=6.8728e+01 yr dt=5.722e+06 s M=2.4793 R=118.12 Rsun L*=0.188 Lacc=26946.69 Teff=6087 Ts=13340 tau=19.72 Tc=2.4032e+05 rho_c=2.212e-03 Tmax=2.403e+05@0.000 LD=2.88e-15 fD=1.0000 it=9 adv(cons 5.5e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -7.7e-04 cum 1.1e-03; W_d: step -1.7e-03 cum 2.6e-03 signed -2.6e-03) lim=0.008 rho@56 conv=0.000-0.053,1.000-1.000
+  950 t=7.8647e+01 yr dt=6.813e+06 s M=2.8797 R=123.20 Rsun L*=0.262 Lacc=29268.93 Teff=6161 Ts=13375 tau=20.25 Tc=2.4709e+05 rho_c=2.311e-03 Tmax=2.492e+05@0.173 LD=9.31e-15 fD=1.0000 it=11 adv(cons 5.5e-16 cfl 3.8e+04 dT 0.0e+00) ledger(err/|terms| step -6.7e-04 cum 1.0e-03; W_d: step -1.6e-03 cum 2.4e-03 signed -2.4e-03) lim=0.007 rho@54 conv=0.000-0.045,1.000-1.000
+S7B-star: coupling starts at t = 2.579827e+09 s, M = 3.00296 Msun, R = 124.6 Rsun, Mdot = 3.959e-02 Msun/yr
+S7B-star j=0 t_c=0.0000 yr M=3.0030 (env M_acc 3.0030, star 3.0030) Mdot_env=4.265e-02 -> Mdot_star=4.265e-02 Msun/yr, next barrier in 0.7408 yr
+S7B-star j=1 t_c=0.7408 yr M=3.0346 (env M_acc 3.0172, star 3.0346) Mdot_env=4.111e-02 -> Mdot_star=4.052e-02 Msun/yr, next barrier in 0.7685 yr
+S7B-star j=2 t_c=1.5094 yr M=3.0667 (env M_acc 3.0309, star 3.0667) Mdot_env=3.963e-02 -> Mdot_star=3.849e-02 Msun/yr, next barrier in 0.7973 yr
+S7B-star j=3 t_c=2.3067 yr M=3.0983 (env M_acc 3.0442, star 3.0983) Mdot_env=3.820e-02 -> Mdot_star=3.657e-02 Msun/yr, next barrier in 0.8271 yr
+S7B-star j=4 t_c=3.1338 yr M=3.1296 (env M_acc 3.0569, star 3.1296) Mdot_env=3.682e-02 -> Mdot_star=3.474e-02 Msun/yr, next barrier in 0.8581 yr
+S7B-star j=5 t_c=3.9919 yr M=3.1604 (env M_acc 3.0692, star 3.1604) Mdot_env=3.549e-02 -> Mdot_star=3.300e-02 Msun/yr, next barrier in 0.8905 yr
+S7B-star j=6 t_c=4.8824 yr M=3.1907 (env M_acc 3.0811, star 3.1907) Mdot_env=3.421e-02 -> Mdot_star=3.135e-02 Msun/yr, next barrier in 0.9327 yr
+S7B-star j=7 t_c=5.8151 yr M=3.2210 (env M_acc 3.0924, star 3.2210) Mdot_env=3.299e-02 -> Mdot_star=2.978e-02 Msun/yr, next barrier in 0.9763 yr
+S7B-star j=8 t_c=6.7702 yr M=3.2503 (env M_acc 3.2667, star 3.2503) Mdot_env=4.194e-02 -> Mdot_star=3.127e-02 Msun/yr, next barrier in 0.7974 yr
+ 1000 t=8.9017e+01 yr dt=9.474e+06 s M=3.2653 R=119.75 Rsun L*=2641.417 Lacc=25815.95 Teff=6349 Ts=13701 tau=21.49 Tc=2.5351e+05 rho_c=2.405e-03 Tmax=2.695e+05@0.159 LD=3.70e-14 fD=1.0000 it=13 adv(cons 7.1e-16 cfl 3.5e+04 dT 0.0e+00) ledger(err/|terms| step 1.9e-03 cum 1.1e-03; W_d: step 1.9e-03 cum 2.3e-03 signed -2.1e-03) lim=0.015 rho@94 conv=0.000-0.039,0.798-1
+S7B-star j=9 t_c=7.5676 yr M=3.2745 (env M_acc 3.2838, star 3.2745) Mdot_env=4.080e-02 -> Mdot_star=3.284e-02 Msun/yr, next barrier in 0.8196 yr
+S7B-star j=10 t_c=8.3871 yr M=3.3005 (env M_acc 3.2948, star 3.3005) Mdot_env=3.933e-02 -> Mdot_star=3.448e-02 Msun/yr, next barrier in 0.8503 yr
+S7B-star j=11 t_c=9.2374 yr M=3.3290 (env M_acc 3.3469, star 3.3290) Mdot_env=3.892e-02 -> Mdot_star=3.620e-02 Msun/yr, next barrier in 0.9066 yr
+S7B-star j=12 t_c=10.1441 yr M=3.3608 (env M_acc 3.3821, star 3.3608) Mdot_env=3.892e-02 -> Mdot_star=3.801e-02 Msun/yr, next barrier in 0.9066 yr
+S7B-star j=13 t_c=11.0507 yr M=3.3942 (env M_acc 3.4174, star 3.3942) Mdot_env=3.892e-02 -> Mdot_star=3.991e-02 Msun/yr, next barrier in 0.9066 yr
+S7B-star j=14 t_c=11.9573 yr M=3.4294 (env M_acc 3.4821, star 3.4294) Mdot_env=3.903e-02 -> Mdot_star=4.191e-02 Msun/yr, next barrier in 0.9569 yr
+S7B-star j=15 t_c=12.8930 yr M=3.4675 (env M_acc 3.5944, star 3.4675) Mdot_env=4.226e-02 -> Mdot_star=4.400e-02 Msun/yr, next barrier in 0.9325 yr
+S7B-star j=16 t_c=13.8254 yr M=3.5074 (env M_acc 3.6338, star 3.5074) Mdot_env=4.226e-02 -> Mdot_star=4.620e-02 Msun/yr, next barrier in 0.9325 yr
+S7B-star j=17 t_c=14.7579 yr M=3.5493 (env M_acc 3.6718, star 3.5493) Mdot_env=4.213e-02 -> Mdot_star=4.851e-02 Msun/yr, next barrier in 0.9351 yr
+S7B-star j=18 t_c=15.6931 yr M=3.5933 (env M_acc 3.6921, star 3.5933) Mdot_env=4.061e-02 -> Mdot_star=4.740e-02 Msun/yr, next barrier in 0.9701 yr
+ 1050 t=9.8232e+01 yr dt=5.719e+06 s M=3.6314 R=142.68 Rsun L*=51.494 Lacc=38217.03 Teff=6184 Ts=13443 tau=21.87 Tc=2.5914e+05 rho_c=2.489e-03 Tmax=2.873e+05@0.147 LD=1.37e-13 fD=1.0000 it=10 adv(cons 4.5e-16 cfl 3.0e+04 dT 0.0e+00) ledger(err/|terms| step -1.8e-03 cum 1.2e-03; W_d: step -3.1e-03 cum 2.4e-03 signed -2.2e-03) lim=0.028 rho@89 conv=0.000-0.036,0.754-0.888,0.972-0.977,0.993-1.000
+S7B-star j=19 t_c=16.6632 yr M=3.6400 (env M_acc 3.7118, star 3.6400) Mdot_env=3.915e-02 -> Mdot_star=4.503e-02 Msun/yr, next barrier in 1.0064 yr
+S7B-star j=20 t_c=17.6697 yr M=3.6867 (env M_acc 3.7307, star 3.6867) Mdot_env=3.774e-02 -> Mdot_star=4.278e-02 Msun/yr, next barrier in 1.0441 yr
+S7B-star j=21 t_c=18.7138 yr M=3.7328 (env M_acc 3.7488, star 3.7328) Mdot_env=3.639e-02 -> Mdot_star=4.064e-02 Msun/yr, next barrier in 1.0827 yr
+S7B-star j=22 t_c=19.7836 yr M=3.7777 (env M_acc 3.7661, star 3.7777) Mdot_env=3.510e-02 -> Mdot_star=3.861e-02 Msun/yr, next barrier in 1.1225 yr
+S7B-star j=23 t_c=20.8859 yr M=3.8216 (env M_acc 3.7830, star 3.8216) Mdot_env=3.384e-02 -> Mdot_star=3.668e-02 Msun/yr, next barrier in 1.1645 yr
+S7B-star j=24 t_c=22.0504 yr M=3.8657 (env M_acc 3.9775, star 3.8657) Mdot_env=4.258e-02 -> Mdot_star=3.851e-02 Msun/yr, next barrier in 0.9794 yr
+S7B-star j=25 t_c=23.0298 yr M=3.9023 (env M_acc 3.9955, star 3.9023) Mdot_env=4.104e-02 -> Mdot_star=4.044e-02 Msun/yr, next barrier in 1.0162 yr
+S7B-star j=26 t_c=24.0460 yr M=3.9421 (env M_acc 4.1166, star 3.9421) Mdot_env=4.523e-02 -> Mdot_star=4.246e-02 Msun/yr, next barrier in 0.9728 yr
+S7B-star j=27 t_c=25.0188 yr M=3.9822 (env M_acc 4.1387, star 3.9822) Mdot_env=4.360e-02 -> Mdot_star=4.458e-02 Msun/yr, next barrier in 1.0092 yr
+S7B-star j=28 t_c=26.0279 yr M=4.0259 (env M_acc 4.1601, star 4.0259) Mdot_env=4.203e-02 -> Mdot_star=4.681e-02 Msun/yr, next barrier in 1.0469 yr
+S7B-star j=29 t_c=27.0749 yr M=4.0735 (env M_acc 4.1807, star 4.0735) Mdot_env=4.051e-02 -> Mdot_star=4.710e-02 Msun/yr, next barrier in 1.0861 yr
+ 1100 t=1.0946e+02 yr dt=6.938e+06 s M=4.1033 R=145.21 Rsun L*=3.575 Lacc=41635.05 Teff=6246 Ts=16344 tau=43.51 Tc=2.6549e+05 rho_c=2.585e-03 Tmax=3.074e+05@0.125 LD=5.93e-13 fD=1.0000 it=6 adv(cons 9.0e-16 cfl 3.2e+04 dT 0.0e+00) ledger(err/|terms| step -3.9e-03 cum 1.3e-03; W_d: step -5.4e-03 cum 2.3e-03 signed -2.1e-03) lim=0.046 rho@99 conv=0.000-0.030,0.646-0.700,0.888-0.966,1.000-1.000
+S7B-star j=30 t_c=28.1610 yr M=4.1244 (env M_acc 4.2006, star 4.1244) Mdot_env=3.905e-02 -> Mdot_star=4.474e-02 Msun/yr, next barrier in 1.1268 yr
+S7B-star j=31 t_c=29.2877 yr M=4.1764 (env M_acc 4.2197, star 4.1764) Mdot_env=3.764e-02 -> Mdot_star=4.250e-02 Msun/yr, next barrier in 1.1689 yr
+S7B-star j=32 t_c=30.4567 yr M=4.2277 (env M_acc 4.2381, star 4.2277) Mdot_env=3.629e-02 -> Mdot_star=4.038e-02 Msun/yr, next barrier in 1.2127 yr
+S7B-star j=33 t_c=31.6693 yr M=4.2782 (env M_acc 4.2559, star 4.2782) Mdot_env=3.498e-02 -> Mdot_star=3.836e-02 Msun/yr, next barrier in 1.2580 yr
+S7B-star j=34 t_c=32.9274 yr M=4.3280 (env M_acc 4.2731, star 4.3280) Mdot_env=3.371e-02 -> Mdot_star=3.644e-02 Msun/yr, next barrier in 1.3051 yr
+S7B-star j=35 t_c=34.2325 yr M=4.3771 (env M_acc 4.2896, star 4.3771) Mdot_env=3.250e-02 -> Mdot_star=3.462e-02 Msun/yr, next barrier in 1.3540 yr
+S7B-star j=36 t_c=35.5865 yr M=4.4255 (env M_acc 4.3055, star 4.4255) Mdot_env=3.133e-02 -> Mdot_star=3.289e-02 Msun/yr, next barrier in 1.4127 yr
+S7B-star j=37 t_c=36.9992 yr M=4.4735 (env M_acc 4.5507, star 4.4735) Mdot_env=4.000e-02 -> Mdot_star=3.453e-02 Msun/yr, next barrier in 1.1642 yr
+S7B-star j=38 t_c=38.1634 yr M=4.5125 (env M_acc 4.5773, star 4.5125) Mdot_env=3.905e-02 -> Mdot_star=3.626e-02 Msun/yr, next barrier in 1.1926 yr
+S7B-star j=39 t_c=39.3559 yr M=4.5544 (env M_acc 4.5924, star 4.5544) Mdot_env=3.764e-02 -> Mdot_star=3.807e-02 Msun/yr, next barrier in 1.2373 yr
+S7B-star j=40 t_c=40.5932 yr M=4.6001 (env M_acc 4.6593, star 4.6001) Mdot_env=3.697e-02 -> Mdot_star=3.994e-02 Msun/yr, next barrier in 1.3292 yr
+ 1150 t=1.2261e+02 yr dt=8.342e+06 s M=4.6102 R=138.97 Rsun L*=81.888 Lacc=39660.04 Teff=6385 Ts=15879 tau=37.32 Tc=2.7227e+05 rho_c=2.688e-03 Tmax=3.292e+05@0.116 LD=2.63e-12 fD=1.0000 it=12 adv(cons 1.0e-15 cfl 2.7e+04 dT 0.0e+00) ledger(err/|terms| step -2.6e-04 cum 1.3e-03; W_d: step -1.3e-03 cum 2.2e-03 signed -1.8e-03) lim=0.015 rho@121 conv=0.000-0.028,0.834-1.000
+S7B-star j=41 t_c=41.9225 yr M=4.6516 (env M_acc 4.7084, star 4.6516) Mdot_env=3.697e-02 -> Mdot_star=3.982e-02 Msun/yr, next barrier in 1.3292 yr
+S7B-star j=42 t_c=43.2517 yr M=4.7047 (env M_acc 4.7576, star 4.7047) Mdot_env=3.697e-02 -> Mdot_star=3.962e-02 Msun/yr, next barrier in 1.3292 yr
+S7B-star j=43 t_c=44.5809 yr M=4.7575 (env M_acc 4.8470, star 4.7575) Mdot_env=3.694e-02 -> Mdot_star=4.118e-02 Msun/yr, next barrier in 1.4077 yr
+S7B-star j=44 t_c=45.9700 yr M=4.8134 (env M_acc 5.0022, star 4.8134) Mdot_env=3.989e-02 -> Mdot_star=4.324e-02 Msun/yr, next barrier in 1.3756 yr
+S7B-star j=45 t_c=47.3456 yr M=4.8711 (env M_acc 5.0571, star 4.8711) Mdot_env=3.989e-02 -> Mdot_star=4.540e-02 Msun/yr, next barrier in 1.3756 yr
+S7B-star j=46 t_c=48.7212 yr M=4.9318 (env M_acc 5.1119, star 4.9318) Mdot_env=3.989e-02 -> Mdot_star=4.767e-02 Msun/yr, next barrier in 1.3756 yr
+S7B-star j=47 t_c=50.0967 yr M=4.9955 (env M_acc 5.1425, star 4.9955) Mdot_env=3.857e-02 -> Mdot_star=4.546e-02 Msun/yr, next barrier in 1.4228 yr
+S7B-star j=48 t_c=51.5195 yr M=5.0621 (env M_acc 5.1698, star 5.0621) Mdot_env=3.718e-02 -> Mdot_star=4.318e-02 Msun/yr, next barrier in 1.4760 yr
+S7B-star j=49 t_c=52.9955 yr M=5.1278 (env M_acc 5.1961, star 5.1278) Mdot_env=3.584e-02 -> Mdot_star=4.102e-02 Msun/yr, next barrier in 1.5312 yr
+S7B-star j=50 t_c=54.5267 yr M=5.1926 (env M_acc 5.2212, star 5.1926) Mdot_env=3.456e-02 -> Mdot_star=3.897e-02 Msun/yr, next barrier in 1.5879 yr
+ 1200 t=1.3691e+02 yr dt=1.201e+07 s M=5.2185 R=157.56 Rsun L*=1627.844 Lacc=42324.27 Teff=6413 Ts=8894 tau=3.85 Tc=2.7907e+05 rho_c=2.793e-03 Tmax=3.509e+05@0.107 LD=1.07e-11 fD=1.0000 it=8 adv(cons 8.3e-16 cfl 3.7e+04 dT 0.0e+00) ledger(err/|terms| step 1.4e-03 cum 1.3e-03; W_d: step -7.1e-05 cum 2.3e-03 signed -1.9e-03) lim=0.029 rho@110 conv=0.000-0.023,0.798-0.834,0.958-1
+S7B-star j=51 t_c=56.0985 yr M=5.2558 (env M_acc 5.2457, star 5.2558) Mdot_env=3.331e-02 -> Mdot_star=3.702e-02 Msun/yr, next barrier in 1.6474 yr
+S7B-star j=52 t_c=57.7459 yr M=5.3188 (env M_acc 5.2693, star 5.3188) Mdot_env=3.211e-02 -> Mdot_star=3.517e-02 Msun/yr, next barrier in 1.7090 yr
+S7B-star j=53 t_c=59.4549 yr M=5.3808 (env M_acc 5.5349, star 5.3808) Mdot_env=4.019e-02 -> Mdot_star=3.693e-02 Msun/yr, next barrier in 1.4452 yr
+S7B-star j=54 t_c=60.9001 yr M=5.4326 (env M_acc 5.5600, star 5.4326) Mdot_env=3.873e-02 -> Mdot_star=3.878e-02 Msun/yr, next barrier in 1.4995 yr
+S7B-star j=55 t_c=62.3996 yr M=5.4890 (env M_acc 5.7275, star 5.4890) Mdot_env=4.263e-02 -> Mdot_star=4.072e-02 Msun/yr, next barrier in 1.4375 yr
+S7B-star j=56 t_c=63.8371 yr M=5.5458 (env M_acc 5.7585, star 5.5458) Mdot_env=4.109e-02 -> Mdot_star=4.275e-02 Msun/yr, next barrier in 1.4913 yr
+S7B-star j=57 t_c=65.3285 yr M=5.6076 (env M_acc 5.7884, star 5.6076) Mdot_env=3.961e-02 -> Mdot_star=4.489e-02 Msun/yr, next barrier in 1.5472 yr
+S7B-star j=58 t_c=66.8756 yr M=5.6751 (env M_acc 5.8173, star 5.6751) Mdot_env=3.818e-02 -> Mdot_star=4.409e-02 Msun/yr, next barrier in 1.6050 yr
+S7B-star j=59 t_c=68.4807 yr M=5.7466 (env M_acc 5.8451, star 5.7466) Mdot_env=3.680e-02 -> Mdot_star=4.188e-02 Msun/yr, next barrier in 1.6651 yr
+S7B-star j=60 t_c=70.1458 yr M=5.8186 (env M_acc 5.8719, star 5.8186) Mdot_env=3.548e-02 -> Mdot_star=3.979e-02 Msun/yr, next barrier in 1.7274 yr
+S7B-star j=61 t_c=71.8732 yr M=5.8895 (env M_acc 5.8977, star 5.8895) Mdot_env=3.420e-02 -> Mdot_star=3.780e-02 Msun/yr, next barrier in 1.7921 yr
+ 1250 t=1.5392e+02 yr dt=9.317e+06 s M=5.9012 R=161.88 Rsun L*=279.399 Lacc=45543.40 Teff=6468 Ts=8471 tau=3.03 Tc=2.8698e+05 rho_c=2.917e-03 Tmax=3.758e+05@0.098 LD=4.92e-11 fD=1.0000 it=12 adv(cons 1.1e-15 cfl 2.5e+04 dT 0.0e+00) ledger(err/|terms| step -9.5e-05 cum 1.4e-03; W_d: step -1.5e-03 cum 2.2e-03 signed -1.8e-03) lim=0.018 rho@92 conv=0.000-0.020,0.864-0.925,0.984-1
+S7B-star j=62 t_c=73.6653 yr M=5.9594 (env M_acc 5.9226, star 5.9594) Mdot_env=3.296e-02 -> Mdot_star=3.591e-02 Msun/yr, next barrier in 1.8591 yr
+S7B-star j=63 t_c=75.5244 yr M=6.0283 (env M_acc 5.9466, star 6.0283) Mdot_env=3.177e-02 -> Mdot_star=3.411e-02 Msun/yr, next barrier in 1.9287 yr
+S7B-star j=64 t_c=77.4531 yr M=6.0961 (env M_acc 5.9698, star 6.0961) Mdot_env=3.063e-02 -> Mdot_star=3.241e-02 Msun/yr, next barrier in 2.0009 yr
+S7B-star j=65 t_c=79.4540 yr M=6.1629 (env M_acc 5.9921, star 6.1629) Mdot_env=2.952e-02 -> Mdot_star=3.079e-02 Msun/yr, next barrier in 2.0876 yr
+S7B-star j=66 t_c=81.5416 yr M=6.2292 (env M_acc 6.3442, star 6.2292) Mdot_env=3.805e-02 -> Mdot_star=3.233e-02 Msun/yr, next barrier in 1.7045 yr
+S7B-star j=67 t_c=83.2461 yr M=6.2827 (env M_acc 6.3763, star 6.2827) Mdot_env=3.699e-02 -> Mdot_star=3.394e-02 Msun/yr, next barrier in 1.7533 yr
+S7B-star j=68 t_c=84.9994 yr M=6.3404 (env M_acc 6.3973, star 6.3404) Mdot_env=3.565e-02 -> Mdot_star=3.564e-02 Msun/yr, next barrier in 1.8191 yr
+S7B-star j=69 t_c=86.8184 yr M=6.4034 (env M_acc 6.5017, star 6.4034) Mdot_env=3.533e-02 -> Mdot_star=3.742e-02 Msun/yr, next barrier in 1.9371 yr
+S7B-star j=70 t_c=88.7555 yr M=6.4738 (env M_acc 6.5702, star 6.4738) Mdot_env=3.533e-02 -> Mdot_star=3.864e-02 Msun/yr, next barrier in 1.9371 yr
+ 1300 t=1.7218e+02 yr dt=8.240e+06 s M=6.5372 R=151.38 Rsun L*=4.209 Lacc=51954.70 Teff=6558 Ts=18394 tau=60.86 Tc=2.9494e+05 rho_c=3.043e-03 Tmax=4.010e+05@0.084 LD=2.03e-10 fD=1.0000 it=9 adv(cons 4.4e-16 cfl 1.9e+04 dT 0.0e+00) ledger(err/|terms| step -1.3e-03 cum 1.5e-03; W_d: step -2.1e-03 cum 2.2e-03 signed -1.5e-03) lim=0.026 rho@102 conv=0.000-0.018,0.798-0.977,1.000-1.000
+S7B-star j=71 t_c=90.6926 yr M=6.5472 (env M_acc 6.6386, star 6.5472) Mdot_env=3.533e-02 -> Mdot_star=3.847e-02 Msun/yr, next barrier in 1.9371 yr
+S7B-star j=72 t_c=92.6297 yr M=6.6220 (env M_acc 6.7615, star 6.6220) Mdot_env=3.528e-02 -> Mdot_star=3.981e-02 Msun/yr, next barrier in 2.0531 yr
+S7B-star j=73 t_c=94.6641 yr M=6.7013 (env M_acc 6.9775, star 6.7013) Mdot_env=3.810e-02 -> Mdot_star=4.180e-02 Msun/yr, next barrier in 2.0057 yr
+S7B-star j=74 t_c=96.6698 yr M=6.7827 (env M_acc 7.0539, star 6.7827) Mdot_env=3.810e-02 -> Mdot_star=4.389e-02 Msun/yr, next barrier in 2.0057 yr
+S7B-star j=75 t_c=98.6755 yr M=6.8682 (env M_acc 7.1261, star 6.8682) Mdot_env=3.794e-02 -> Mdot_star=4.552e-02 Msun/yr, next barrier in 2.0146 yr
+S7B-star j=76 t_c=100.6901 yr M=6.9580 (env M_acc 7.1654, star 6.9580) Mdot_env=3.657e-02 -> Mdot_star=4.325e-02 Msun/yr, next barrier in 2.0900 yr
+S7B-star j=77 t_c=102.7801 yr M=7.0512 (env M_acc 7.2033, star 7.0512) Mdot_env=3.525e-02 -> Mdot_star=4.108e-02 Msun/yr, next barrier in 2.1682 yr
+S7B-star j=78 t_c=104.9482 yr M=7.1431 (env M_acc 7.2398, star 7.1431) Mdot_env=3.398e-02 -> Mdot_star=3.903e-02 Msun/yr, next barrier in 2.2493 yr
+S7B-star j=79 t_c=107.1975 yr M=7.2337 (env M_acc 7.2750, star 7.2337) Mdot_env=3.275e-02 -> Mdot_star=3.708e-02 Msun/yr, next barrier in 2.3335 yr
+S7B-star j=80 t_c=109.5310 yr M=7.3230 (env M_acc 7.3089, star 7.3230) Mdot_env=3.157e-02 -> Mdot_star=3.522e-02 Msun/yr, next barrier in 2.4208 yr
+ 1350 t=1.9329e+02 yr dt=1.314e+07 s M=7.3961 R=169.77 Rsun L*=2330.173 Lacc=49060.18 Teff=6595 Ts=7840 tau=0.98 Tc=3.0345e+05 rho_c=3.179e-03 Tmax=4.279e+05@0.077 LD=8.31e-10 fD=1.0000 it=8 adv(cons 9.2e-16 cfl 2.5e+04 dT 0.0e+00) ledger(err/|terms| step 2.5e-03 cum 1.5e-03; W_d: step 1.3e-03 cum 2.2e-03 signed -1.6e-03) lim=0.030 rho@112 conv=0.000-0.017,0.700-0.798,0.938-1
+S7B-star j=81 t_c=111.9518 yr M=7.4109 (env M_acc 7.3416, star 7.4109) Mdot_env=3.043e-02 -> Mdot_star=3.346e-02 Msun/yr, next barrier in 2.5114 yr
+S7B-star j=82 t_c=114.4632 yr M=7.4976 (env M_acc 7.3731, star 7.4976) Mdot_env=2.933e-02 -> Mdot_star=3.179e-02 Msun/yr, next barrier in 2.6054 yr
+S7B-star j=83 t_c=117.0686 yr M=7.5829 (env M_acc 7.7427, star 7.5829) Mdot_env=3.651e-02 -> Mdot_star=3.338e-02 Msun/yr, next barrier in 2.2156 yr
+S7B-star j=84 t_c=119.2843 yr M=7.6547 (env M_acc 7.7765, star 7.6547) Mdot_env=3.518e-02 -> Mdot_star=3.505e-02 Msun/yr, next barrier in 2.2988 yr
+S7B-star j=85 t_c=121.5831 yr M=7.7328 (env M_acc 8.0082, star 7.7328) Mdot_env=3.843e-02 -> Mdot_star=3.680e-02 Msun/yr, next barrier in 2.2205 yr
+S7B-star j=86 t_c=123.8036 yr M=7.8121 (env M_acc 8.0503, star 7.8121) Mdot_env=3.705e-02 -> Mdot_star=3.864e-02 Msun/yr, next barrier in 2.3036 yr
+S7B-star j=87 t_c=126.1072 yr M=7.8985 (env M_acc 8.0908, star 7.8985) Mdot_env=3.571e-02 -> Mdot_star=4.057e-02 Msun/yr, next barrier in 2.3898 yr
+S7B-star j=88 t_c=128.4971 yr M=7.9927 (env M_acc 8.1299, star 7.9927) Mdot_env=3.442e-02 -> Mdot_star=3.854e-02 Msun/yr, next barrier in 2.4793 yr
+S7B-star j=89 t_c=130.9763 yr M=8.0913 (env M_acc 8.1676, star 8.0913) Mdot_env=3.318e-02 -> Mdot_star=3.662e-02 Msun/yr, next barrier in 2.5720 yr
+S7B-star j=90 t_c=133.5484 yr M=8.1884 (env M_acc 8.2039, star 8.1884) Mdot_env=3.198e-02 -> Mdot_star=3.479e-02 Msun/yr, next barrier in 2.6683 yr
+ 1400 t=2.1746e+02 yr dt=1.612e+07 s M=8.2662 R=165.53 Rsun L*=23.215 Lacc=55648.09 Teff=6632 Ts=10448 tau=6.64 Tc=3.1388e+05 rho_c=3.349e-03 Tmax=4.605e+05@0.071 LD=4.05e-09 fD=1.0000 it=9 adv(cons 8.0e-16 cfl 2.8e+04 dT 0.0e+00) ledger(err/|terms| step -5.3e-04 cum 1.5e-03; W_d: step -1.7e-03 cum 2.2e-03 signed -1.4e-03) lim=0.023 rho@95 conv=0.000-0.000,0.000-0.014,0.864-0.949,0.994-1.000
+S7B-star j=91 t_c=136.2167 yr M=8.2841 (env M_acc 8.2389, star 8.2841) Mdot_env=3.083e-02 -> Mdot_star=3.305e-02 Msun/yr, next barrier in 2.7681 yr
+S7B-star j=92 t_c=138.9848 yr M=8.3785 (env M_acc 8.2726, star 8.3785) Mdot_env=2.972e-02 -> Mdot_star=3.139e-02 Msun/yr, next barrier in 2.8717 yr
+S7B-star j=93 t_c=141.8565 yr M=8.4716 (env M_acc 8.3051, star 8.4716) Mdot_env=2.865e-02 -> Mdot_star=2.982e-02 Msun/yr, next barrier in 2.9792 yr
+S7B-star j=94 t_c=144.8357 yr M=8.5634 (env M_acc 8.3365, star 8.5634) Mdot_env=2.761e-02 -> Mdot_star=2.833e-02 Msun/yr, next barrier in 3.1012 yr
+S7B-star j=95 t_c=147.9369 yr M=8.6541 (env M_acc 8.8306, star 8.6541) Mdot_env=3.557e-02 -> Mdot_star=2.975e-02 Msun/yr, next barrier in 2.5393 yr
+S7B-star j=96 t_c=150.4762 yr M=8.7275 (env M_acc 8.8691, star 8.7275) Mdot_env=3.445e-02 -> Mdot_star=3.124e-02 Msun/yr, next barrier in 2.6217 yr
+S7B-star j=97 t_c=153.0872 yr M=8.8066 (env M_acc 9.0147, star 8.8066) Mdot_env=3.405e-02 -> Mdot_star=3.280e-02 Msun/yr, next barrier in 2.7987 yr
+S7B-star j=98 t_c=155.8860 yr M=8.8957 (env M_acc 9.1100, star 8.8957) Mdot_env=3.405e-02 -> Mdot_star=3.444e-02 Msun/yr, next barrier in 2.7987 yr
+S7B-star j=99 t_c=158.6847 yr M=8.9894 (env M_acc 9.2053, star 8.9894) Mdot_env=3.405e-02 -> Mdot_star=3.616e-02 Msun/yr, next barrier in 2.7987 yr
+S7B-star j=100 t_c=161.4834 yr M=9.0876 (env M_acc 9.2755, star 9.0876) Mdot_env=3.352e-02 -> Mdot_star=3.792e-02 Msun/yr, next barrier in 2.8433 yr
+S7B-star j=101 t_c=164.3267 yr M=9.1924 (env M_acc 9.3105, star 9.1924) Mdot_env=3.231e-02 -> Mdot_star=3.603e-02 Msun/yr, next barrier in 2.9497 yr
+ 1450 t=2.4733e+02 yr dt=2.300e+07 s M=9.2398 R=163.55 Rsun L*=15.834 Lacc=66677.79 Teff=6734 Ts=19266 tau=66.77 Tc=3.2526e+05 rho_c=3.536e-03 Tmax=4.959e+05@0.066 LD=1.95e-08 fD=1.0000 it=8 adv(cons 6.8e-16 cfl 3.7e+04 dT 0.0e+00) ledger(err/|terms| step -2.5e-03 cum 1.5e-03; W_d: step -3.7e-03 cum 2.1e-03 signed -1.2e-03) lim=0.036 rho@105 conv=0.000-0.013,0.798-0.966,1.000-1.000
+S7B-star j=102 t_c=167.2765 yr M=9.3021 (env M_acc 9.3442, star 9.3021) Mdot_env=3.114e-02 -> Mdot_star=3.423e-02 Msun/yr, next barrier in 3.0601 yr
+S7B-star j=103 t_c=170.3366 yr M=9.4101 (env M_acc 9.5274, star 9.4101) Mdot_env=3.182e-02 -> Mdot_star=3.429e-02 Msun/yr, next barrier in 3.1696 yr
+S7B-star j=104 t_c=173.5062 yr M=9.5187 (env M_acc 9.6283, star 9.5187) Mdot_env=3.182e-02 -> Mdot_star=3.413e-02 Msun/yr, next barrier in 3.1696 yr
+S7B-star j=105 t_c=176.6757 yr M=9.6272 (env M_acc 9.7021, star 9.6272) Mdot_env=3.130e-02 -> Mdot_star=3.285e-02 Msun/yr, next barrier in 3.2231 yr
+S7B-star j=106 t_c=179.8824 yr M=9.7350 (env M_acc 9.9360, star 9.7350) Mdot_env=3.268e-02 -> Mdot_star=3.449e-02 Msun/yr, next barrier in 3.2572 yr
+S7B-star j=107 t_c=183.1396 yr M=9.8442 (env M_acc 9.9902, star 9.8442) Mdot_env=3.150e-02 -> Mdot_star=3.438e-02 Msun/yr, next barrier in 3.3791 yr
+S7B-star j=108 t_c=186.5187 yr M=9.9606 (env M_acc 10.0425, star 9.9606) Mdot_env=3.036e-02 -> Mdot_star=3.266e-02 Msun/yr, next barrier in 3.5055 yr
+S7B-star j=109 t_c=190.0242 yr M=10.0788 (env M_acc 10.0930, star 10.0788) Mdot_env=2.927e-02 -> Mdot_star=3.103e-02 Msun/yr, next barrier in 3.6367 yr
+S7B-star j=110 t_c=193.6609 yr M=10.1952 (env M_acc 10.1416, star 10.1952) Mdot_env=2.821e-02 -> Mdot_star=2.947e-02 Msun/yr, next barrier in 3.7728 yr
+S7B-star j=111 t_c=197.4338 yr M=10.3099 (env M_acc 10.1884, star 10.3099) Mdot_env=2.719e-02 -> Mdot_star=2.800e-02 Msun/yr, next barrier in 3.9140 yr
+ 1500 t=2.7988e+02 yr dt=2.203e+07 s M=10.3305 R=165.77 Rsun L*=3292.816 Lacc=57679.11 Teff=6793 Ts=10962 tau=7.67 Tc=3.3728e+05 rho_c=3.737e-03 Tmax=5.335e+05@0.060 LD=8.82e-08 fD=1.0000 it=21 adv(cons 6.0e-16 cfl 2.5e+04 dT 0.0e+00) ledger(err/|terms| step 2.8e-03 cum 1.5e-03; W_d: step 1.6e-03 cum 2.0e-03 signed -1.1e-03) lim=0.023 rho@130 conv=0.000-0.000,0.000-0.011,0.908-1
+S7B-star j=112 t_c=201.3478 yr M=10.4230 (env M_acc 10.2336, star 10.4230) Mdot_env=2.621e-02 -> Mdot_star=2.660e-02 Msun/yr, next barrier in 4.0605 yr
+S7B-star j=113 t_c=205.4083 yr M=10.5344 (env M_acc 10.7701, star 10.5344) Mdot_env=3.332e-02 -> Mdot_star=2.793e-02 Msun/yr, next barrier in 3.3802 yr
+S7B-star j=114 t_c=208.7885 yr M=10.6260 (env M_acc 10.8176, star 10.6260) Mdot_env=3.212e-02 -> Mdot_star=2.933e-02 Msun/yr, next barrier in 3.5071 yr
+S7B-star j=115 t_c=212.2956 yr M=10.7260 (env M_acc 10.8634, star 10.7260) Mdot_env=3.096e-02 -> Mdot_star=3.079e-02 Msun/yr, next barrier in 3.6387 yr
+S7B-star j=116 t_c=215.9343 yr M=10.8349 (env M_acc 11.1711, star 10.8349) Mdot_env=3.335e-02 -> Mdot_star=3.233e-02 Msun/yr, next barrier in 3.5636 yr
+S7B-star j=117 t_c=219.4979 yr M=10.9467 (env M_acc 11.6070, star 10.9467) Mdot_env=3.986e-02 -> Mdot_star=3.395e-02 Msun/yr, next barrier in 3.1560 yr
+S7B-star j=118 t_c=222.6539 yr M=11.0507 (env M_acc 11.7328, star 11.0507) Mdot_env=3.986e-02 -> Mdot_star=3.565e-02 Msun/yr, next barrier in 3.1560 yr
+S7B-star j=119 t_c=225.8099 yr M=11.1598 (env M_acc 11.8586, star 11.1598) Mdot_env=3.986e-02 -> Mdot_star=3.743e-02 Msun/yr, next barrier in 3.1560 yr
+S7B-star j=120 t_c=228.9659 yr M=11.2744 (env M_acc 11.9844, star 11.2744) Mdot_env=3.986e-02 -> Mdot_star=3.930e-02 Msun/yr, next barrier in 3.1560 yr
+S7B-star j=121 t_c=232.1220 yr M=11.3948 (env M_acc 12.0460, star 11.3948) Mdot_env=3.856e-02 -> Mdot_star=4.127e-02 Msun/yr, next barrier in 3.2625 yr
+ 1550 t=3.1656e+02 yr dt=1.813e+07 s M=11.5020 R=182.08 Rsun L*=84.607 Lacc=80485.81 Teff=6771 Ts=18016 tau=52.40 Tc=3.5150e+05 rho_c=3.980e-03 Tmax=5.783e+05@0.060 LD=4.41e-07 fD=1.0000 it=8 adv(cons 5.7e-16 cfl 2.5e+04 dT 0.0e+00) ledger(err/|terms| step -2.4e-03 cum 1.5e-03; W_d: step -4.3e-03 cum 2.0e-03 signed -1.2e-03) lim=0.028 rho@98 conv=0.000-0.000,0.000-0.010,0.798-0.938,0.999-1
+S7B-star j=122 t_c=235.3845 yr M=11.5255 (env M_acc 12.0983, star 11.5255) Mdot_env=3.716e-02 -> Mdot_star=4.333e-02 Msun/yr, next barrier in 3.3850 yr
+S7B-star j=123 t_c=238.7695 yr M=11.6680 (env M_acc 12.1488, star 11.6680) Mdot_env=3.582e-02 -> Mdot_star=4.298e-02 Msun/yr, next barrier in 3.5120 yr
+S7B-star j=124 t_c=242.2815 yr M=11.8197 (env M_acc 12.1974, star 11.8197) Mdot_env=3.452e-02 -> Mdot_star=4.143e-02 Msun/yr, next barrier in 3.6439 yr
+S7B-star j=125 t_c=245.9254 yr M=11.9740 (env M_acc 12.2443, star 11.9740) Mdot_env=3.327e-02 -> Mdot_star=3.936e-02 Msun/yr, next barrier in 3.7806 yr
+S7B-star j=126 t_c=249.7060 yr M=12.1275 (env M_acc 12.2895, star 12.1275) Mdot_env=3.207e-02 -> Mdot_star=3.739e-02 Msun/yr, next barrier in 3.9226 yr
+S7B-star j=127 t_c=253.6286 yr M=12.2789 (env M_acc 12.3331, star 12.2789) Mdot_env=3.091e-02 -> Mdot_star=3.552e-02 Msun/yr, next barrier in 4.0698 yr
+S7B-star j=128 t_c=257.6984 yr M=12.4280 (env M_acc 12.6743, star 12.4280) Mdot_env=3.310e-02 -> Mdot_star=3.719e-02 Msun/yr, next barrier in 4.0100 yr
+S7B-star j=129 t_c=261.7084 yr M=12.5731 (env M_acc 12.7317, star 12.5731) Mdot_env=3.191e-02 -> Mdot_star=3.533e-02 Msun/yr, next barrier in 4.1600 yr
+S7B-star j=130 t_c=265.8684 yr M=12.7246 (env M_acc 12.7868, star 12.7246) Mdot_env=3.076e-02 -> Mdot_star=3.357e-02 Msun/yr, next barrier in 4.3150 yr
+S7B-star j=131 t_c=270.1658 yr M=12.8733 (env M_acc 13.3272, star 12.8733) Mdot_env=3.642e-02 -> Mdot_star=3.525e-02 Msun/yr, next barrier in 3.8577 yr
+ 1600 t=3.5325e+02 yr dt=1.875e+07 s M=12.9184 R=189.90 Rsun L*=8898.617 Lacc=72398.34 Teff=6833 Ts=13249 tau=16.08 Tc=3.6595e+05 rho_c=4.231e-03 Tmax=6.249e+05@0.056 LD=1.92e-06 fD=1.0000 it=8 adv(cons 1.1e-15 cfl 2.0e+04 dT 0.0e+00) ledger(err/|terms| step 3.1e-03 cum 1.6e-03; W_d: step 1.2e-03 cum 2.2e-03 signed -1.3e-03) lim=0.012 rho@95 conv=0.000-0.000,0.000-0.009,0.908-1
+S7B-star j=132 t_c=274.0235 yr M=13.0054 (env M_acc 13.4460, star 13.0054) Mdot_env=3.605e-02 -> Mdot_star=3.701e-02 Msun/yr, next barrier in 3.8972 yr
+S7B-star j=133 t_c=277.9208 yr M=13.1455 (env M_acc 13.5047, star 13.1455) Mdot_env=3.474e-02 -> Mdot_star=3.886e-02 Msun/yr, next barrier in 4.0435 yr
+S7B-star j=134 t_c=281.9643 yr M=13.2982 (env M_acc 13.5613, star 13.2982) Mdot_env=3.348e-02 -> Mdot_star=3.766e-02 Msun/yr, next barrier in 4.1953 yr
+S7B-star j=135 t_c=286.1596 yr M=13.4593 (env M_acc 13.6158, star 13.4593) Mdot_env=3.227e-02 -> Mdot_star=3.578e-02 Msun/yr, next barrier in 4.3528 yr
+S7B-star j=136 t_c=290.5123 yr M=13.6198 (env M_acc 13.6683, star 13.6198) Mdot_env=3.111e-02 -> Mdot_star=3.399e-02 Msun/yr, next barrier in 4.5162 yr
+S7B-star j=137 t_c=295.0285 yr M=13.7782 (env M_acc 13.7190, star 13.7782) Mdot_env=2.998e-02 -> Mdot_star=3.229e-02 Msun/yr, next barrier in 4.6857 yr
+S7B-star j=138 t_c=299.7142 yr M=13.9344 (env M_acc 13.7678, star 13.9344) Mdot_env=2.890e-02 -> Mdot_star=3.068e-02 Msun/yr, next barrier in 4.8616 yr
+S7B-star j=139 t_c=304.5757 yr M=14.0882 (env M_acc 13.8148, star 14.0882) Mdot_env=2.785e-02 -> Mdot_star=2.914e-02 Msun/yr, next barrier in 5.0585 yr
+S7B-star j=140 t_c=309.6342 yr M=14.2405 (env M_acc 13.8603, star 14.2405) Mdot_env=2.684e-02 -> Mdot_star=2.769e-02 Msun/yr, next barrier in 5.3057 yr
+S7B-star j=141 t_c=314.9399 yr M=14.3923 (env M_acc 14.2616, star 14.3923) Mdot_env=2.879e-02 -> Mdot_star=2.710e-02 Msun/yr, next barrier in 5.1488 yr
+ 1650 t=3.9928e+02 yr dt=4.931e+07 s M=14.4638 R=189.69 Rsun L*=16251.257 Lacc=66010.15 Teff=6947 Ts=10124 tau=5.05 Tc=3.8603e+05 rho_c=4.587e-03 Tmax=6.896e+05@0.056 LD=1.17e-05 fD=1.0000 it=7 adv(cons 6.0e-16 cfl 3.7e+04 dT 0.0e+00) ledger(err/|terms| step 3.6e-03 cum 1.7e-03; W_d: step 2.0e-03 cum 2.1e-03 signed -1.1e-03) lim=0.019 rho@130 conv=0.000-0.000,0.000-0.008,0.834-1
+S7B-star j=142 t_c=320.0887 yr M=14.5337 (env M_acc 14.3218, star 14.5337) Mdot_env=2.775e-02 -> Mdot_star=2.574e-02 Msun/yr, next barrier in 5.3415 yr
+S7B-star j=143 t_c=325.4302 yr M=14.6758 (env M_acc 14.8102, star 14.6758) Mdot_env=3.116e-02 -> Mdot_star=2.703e-02 Msun/yr, next barrier in 5.0346 yr
+S7B-star j=144 t_c=330.4648 yr M=14.8077 (env M_acc 14.9670, star 14.8077) Mdot_env=3.116e-02 -> Mdot_star=2.838e-02 Msun/yr, next barrier in 5.0346 yr
+S7B-star j=145 t_c=335.4994 yr M=14.9463 (env M_acc 15.1239, star 14.9463) Mdot_env=3.116e-02 -> Mdot_star=2.980e-02 Msun/yr, next barrier in 5.0346 yr
+S7B-star j=146 t_c=340.5340 yr M=15.0920 (env M_acc 15.2331, star 15.0920) Mdot_env=3.060e-02 -> Mdot_star=3.129e-02 Msun/yr, next barrier in 5.1274 yr
+S7B-star j=147 t_c=345.6614 yr M=15.2476 (env M_acc 15.2908, star 15.2476) Mdot_env=2.949e-02 -> Mdot_star=3.003e-02 Msun/yr, next barrier in 5.3199 yr
+S7B-star j=148 t_c=350.9813 yr M=15.4113 (env M_acc 15.3464, star 15.4113) Mdot_env=2.842e-02 -> Mdot_star=2.853e-02 Msun/yr, next barrier in 5.5195 yr
+S7B-star j=149 t_c=356.5008 yr M=15.5738 (env M_acc 15.3999, star 15.5738) Mdot_env=2.739e-02 -> Mdot_star=2.710e-02 Msun/yr, next barrier in 5.7267 yr
+S7B-star j=150 t_c=362.2275 yr M=15.7341 (env M_acc 15.7640, star 15.7341) Mdot_env=2.860e-02 -> Mdot_star=2.846e-02 Msun/yr, next barrier in 5.7886 yr
+S7B-star j=151 t_c=368.0161 yr M=15.8939 (env M_acc 15.9296, star 15.8939) Mdot_env=2.860e-02 -> Mdot_star=2.901e-02 Msun/yr, next barrier in 5.7886 yr
+S7B-star j=152 t_c=373.8048 yr M=16.0598 (env M_acc 16.0040, star 16.0598) Mdot_env=2.764e-02 -> Mdot_star=2.756e-02 Msun/yr, next barrier in 5.9886 yr
+ 1700 t=4.6154e+02 yr dt=4.968e+07 s M=16.2303 R=196.26 Rsun L*=14884.793 Lacc=72545.93 Teff=6972 Ts=8548 tau=2.32 Tc=4.1499e+05 rho_c=5.114e-03 Tmax=7.822e+05@0.051 LD=1.08e-04 fD=1.0000 it=8 adv(cons 3.1e-16 cfl 3.4e+04 dT 0.0e+00) ledger(err/|terms| step 2.4e-03 cum 1.9e-03; W_d: step -6.4e-04 cum 1.9e-03 signed -8.8e-04) lim=0.011 rho@130 conv=0.000-0.007,0.888-1
+S7B-star j=153 t_c=379.7934 yr M=16.2303 (env M_acc 16.3830, star 16.2303) Mdot_env=2.888e-02 -> Mdot_star=2.893e-02 Msun/yr, next barrier in 6.0656 yr
+S7B-star j=154 t_c=385.8589 yr M=16.4006 (env M_acc 16.4701, star 16.4006) Mdot_env=2.784e-02 -> Mdot_star=2.857e-02 Msun/yr, next barrier in 6.2933 yr
+S7B-star j=155 t_c=392.1522 yr M=16.5817 (env M_acc 16.5540, star 16.5817) Mdot_env=2.683e-02 -> Mdot_star=2.715e-02 Msun/yr, next barrier in 6.5295 yr
+S7B-star j=156 t_c=398.6817 yr M=16.7647 (env M_acc 16.6350, star 16.7647) Mdot_env=2.586e-02 -> Mdot_star=2.579e-02 Msun/yr, next barrier in 6.7746 yr
+S7B-star j=157 t_c=405.4562 yr M=16.9451 (env M_acc 16.7130, star 16.9451) Mdot_env=2.492e-02 -> Mdot_star=2.450e-02 Msun/yr, next barrier in 7.0289 yr
+S7B-star j=158 t_c=412.4851 yr M=17.1230 (env M_acc 16.7881, star 17.1230) Mdot_env=2.402e-02 -> Mdot_star=2.327e-02 Msun/yr, next barrier in 7.2927 yr
+S7B-star j=159 t_c=419.7778 yr M=17.2981 (env M_acc 16.8606, star 17.2981) Mdot_env=2.315e-02 -> Mdot_star=2.211e-02 Msun/yr, next barrier in 7.5664 yr
+S7B-star j=160 t_c=427.3442 yr M=17.4710 (env M_acc 17.7264, star 17.4710) Mdot_env=2.893e-02 -> Mdot_star=2.322e-02 Msun/yr, next barrier in 6.3898 yr
+S7B-star j=161 t_c=433.7341 yr M=17.6149 (env M_acc 17.8037, star 17.6149) Mdot_env=2.789e-02 -> Mdot_star=2.438e-02 Msun/yr, next barrier in 6.6289 yr
+S7B-star j=162 t_c=440.3630 yr M=17.7716 (env M_acc 18.2826, star 17.7716) Mdot_env=2.995e-02 -> Mdot_star=2.560e-02 Msun/yr, next barrier in 6.5312 yr
+S7B-star j=163 t_c=446.8942 yr M=17.9338 (env M_acc 18.3804, star 17.9338) Mdot_env=2.887e-02 -> Mdot_star=2.688e-02 Msun/yr, next barrier in 6.7764 yr
+S7B-star j=164 t_c=453.6706 yr M=18.1104 (env M_acc 18.4746, star 18.1104) Mdot_env=2.783e-02 -> Mdot_star=2.822e-02 Msun/yr, next barrier in 7.0308 yr
+ 1750 t=5.4069e+02 yr dt=5.570e+07 s M=18.2537 R=213.49 Rsun L*=31451.921 Lacc=73953.25 Teff=7025 Ts=8550 tau=2.24 Tc=4.5446e+05 rho_c=5.860e-03 Tmax=9.060e+05@0.047 LD=1.30e-03 fD=1.0000 it=15 adv(cons 7.8e-16 cfl 3.3e+04 dT 0.0e+00) ledger(err/|terms| step 3.5e-03 cum 2.1e-03; W_d: step 1.2e-04 cum 1.5e-03 signed -7.1e-04) lim=0.008 T@33 conv=0.000-0.006,0.925-1
+S7B-star j=165 t_c=460.7014 yr M=18.3029 (env M_acc 18.5654, star 18.3029) Mdot_env=2.682e-02 -> Mdot_star=2.922e-02 Msun/yr, next barrier in 7.2947 yr
+S7B-star j=166 t_c=467.9961 yr M=18.5116 (env M_acc 18.6529, star 18.5116) Mdot_env=2.585e-02 -> Mdot_star=2.776e-02 Msun/yr, next barrier in 7.5685 yr
+S7B-star j=167 t_c=475.5645 yr M=18.7284 (env M_acc 18.7373, star 18.7284) Mdot_env=2.491e-02 -> Mdot_star=2.637e-02 Msun/yr, next barrier in 7.8526 yr
+S7B-star j=168 t_c=483.4171 yr M=18.9421 (env M_acc 18.8185, star 18.9421) Mdot_env=2.401e-02 -> Mdot_star=2.505e-02 Msun/yr, next barrier in 8.1473 yr
+S7B-star j=169 t_c=491.5644 yr M=19.1527 (env M_acc 18.8969, star 19.1527) Mdot_env=2.314e-02 -> Mdot_star=2.380e-02 Msun/yr, next barrier in 8.4531 yr
+S7B-star j=170 t_c=500.0176 yr M=19.3603 (env M_acc 19.9233, star 19.3603) Mdot_env=2.925e-02 -> Mdot_star=2.499e-02 Msun/yr, next barrier in 7.0578 yr
+S7B-star j=171 t_c=507.0753 yr M=19.5316 (env M_acc 20.0049, star 19.5316) Mdot_env=2.819e-02 -> Mdot_star=2.624e-02 Msun/yr, next barrier in 7.3219 yr
+S7B-star j=172 t_c=514.3972 yr M=19.7184 (env M_acc 20.5256, star 19.7184) Mdot_env=3.001e-02 -> Mdot_star=2.755e-02 Msun/yr, next barrier in 7.2791 yr
+S7B-star j=173 t_c=521.6763 yr M=19.9136 (env M_acc 20.6525, star 19.9136) Mdot_env=2.914e-02 -> Mdot_star=2.893e-02 Msun/yr, next barrier in 7.4985 yr
+ 1800 t=6.0653e+02 yr dt=2.440e+07 s M=19.9997 R=313.99 Rsun L*=42354.912 Lacc=55959.95 Teff=5794 Ts=4897 tau=0.01 Tc=4.9065e+05 rho_c=6.571e-03 Tmax=1.017e+06@0.044 LD=8.57e-03 fD=1.0000 it=9 adv(cons 6.6e-16 cfl 1.4e+04 dT 0.0e+00) ledger(err/|terms| step 3.3e-03 cum 2.2e-03; W_d: step -4.7e-03 cum 1.8e-03 signed -1.1e-03) lim=0.047 rho@103 conv=0.000-0.006,0.984-1.000
+S7B-star j=174 t_c=529.1748 yr M=20.1248 (env M_acc 20.7531, star 20.1248) Mdot_env=2.808e-02 -> Mdot_star=3.037e-02 Msun/yr, next barrier in 7.7799 yr
+S7B-star j=175 t_c=536.9547 yr M=20.3552 (env M_acc 20.8501, star 20.3552) Mdot_env=2.707e-02 -> Mdot_star=3.115e-02 Msun/yr, next barrier in 8.0720 yr
+S7B-star j=176 t_c=545.0267 yr M=20.6032 (env M_acc 20.9435, star 20.6032) Mdot_env=2.609e-02 -> Mdot_star=2.960e-02 Msun/yr, next barrier in 8.3750 yr
+S7B-star j=177 t_c=553.4016 yr M=20.8583 (env M_acc 21.0336, star 20.8583) Mdot_env=2.514e-02 -> Mdot_star=2.812e-02 Msun/yr, next barrier in 8.6893 yr
+ 1850 t=6.4272e+02 yr dt=3.522e+07 s M=21.0784 R=483.07 Rsun L*=90636.285 Lacc=39045.22 Teff=4990 Ts=4200 tau=0.00 Tc=5.1361e+05 rho_c=7.035e-03 Tmax=1.087e+06@0.044 LD=2.45e-02 fD=1.0000 it=9 adv(cons 8.0e-16 cfl 1.9e+04 dT 2.0e-12) ledger(err/|terms| step 4.2e-03 cum 2.3e-03; W_d: step -1.5e-03 cum 1.9e-03 signed -1.3e-03) lim=0.032 rho@111 conv=0.000-0.005,0.997-1.000
+S7B-star j=178 t_c=562.0910 yr M=21.1100 (env M_acc 21.1205, star 21.1100) Mdot_env=2.423e-02 -> Mdot_star=2.671e-02 Msun/yr, next barrier in 9.0155 yr
+S7B-star j=179 t_c=571.1064 yr M=21.3583 (env M_acc 21.2041, star 21.3583) Mdot_env=2.336e-02 -> Mdot_star=2.538e-02 Msun/yr, next barrier in 9.3539 yr
+S7B-star j=180 t_c=580.4603 yr M=21.6031 (env M_acc 22.1656, star 21.6031) Mdot_env=2.805e-02 -> Mdot_star=2.664e-02 Msun/yr, next barrier in 8.2179 yr
+S7B-star j=181 t_c=588.6782 yr M=21.8155 (env M_acc 22.2598, star 21.8155) Mdot_env=2.704e-02 -> Mdot_star=2.798e-02 Msun/yr, next barrier in 8.5254 yr
+S7B-star j=182 t_c=597.2037 yr M=22.0471 (env M_acc 22.3504, star 22.0471) Mdot_env=2.607e-02 -> Mdot_star=2.835e-02 Msun/yr, next barrier in 8.8438 yr
+S7B-star j=183 t_c=606.0291 yr M=22.2954 (env M_acc 22.9999, star 22.2954) Mdot_env=2.822e-02 -> Mdot_star=2.977e-02 Msun/yr, next barrier in 8.6468 yr
+S7B-star j=184 t_c=614.6759 yr M=22.5453 (env M_acc 23.1146, star 22.5453) Mdot_env=2.720e-02 -> Mdot_star=3.126e-02 Msun/yr, next barrier in 8.9714 yr
+S7B-star j=185 t_c=623.6472 yr M=22.8177 (env M_acc 23.2251, star 22.8177) Mdot_env=2.621e-02 -> Mdot_star=2.970e-02 Msun/yr, next barrier in 9.3081 yr
+S7B-star j=186 t_c=632.9553 yr M=23.1029 (env M_acc 23.3316, star 23.1029) Mdot_env=2.526e-02 -> Mdot_star=2.821e-02 Msun/yr, next barrier in 9.6575 yr
+S7B-star j=187 t_c=642.6128 yr M=23.3838 (env M_acc 23.4342, star 23.3838) Mdot_env=2.435e-02 -> Mdot_star=2.680e-02 Msun/yr, next barrier in 10.0200 yr
+ 1900 t=7.2756e+02 yr dt=6.208e+07 s M=23.4736 R=605.53 Rsun L*=148999.576 Lacc=34130.42 Teff=4850 Ts=4081 tau=0.00 Tc=5.8048e+05 rho_c=8.444e-03 Tmax=1.286e+06@0.040 LD=3.26e-01 fD=1.0000 it=6 adv(cons 1.2e-15 cfl 3.0e+04 dT 2.5e-11) ledger(err/|terms| step 7.5e-03 cum 3.1e-03; W_d: step 3.8e-03 cum 1.8e-03 signed -7.0e-04) lim=0.029 rho@112 conv=0.000-0.005,0.997-1.000
+S7B-star j=188 t_c=652.6328 yr M=23.6608 (env M_acc 23.5331, star 23.6608) Mdot_env=2.347e-02 -> Mdot_star=2.546e-02 Msun/yr, next barrier in 10.3961 yr
+S7B-star j=189 t_c=663.0289 yr M=23.9337 (env M_acc 23.6285, star 23.9337) Mdot_env=2.262e-02 -> Mdot_star=2.419e-02 Msun/yr, next barrier in 10.7863 yr
+S7B-star j=190 t_c=673.8153 yr M=24.2023 (env M_acc 23.7204, star 24.2023) Mdot_env=2.180e-02 -> Mdot_star=2.298e-02 Msun/yr, next barrier in 11.1912 yr
+S7B-star j=191 t_c=685.0065 yr M=24.4668 (env M_acc 24.8039, star 24.4668) Mdot_env=2.612e-02 -> Mdot_star=2.413e-02 Msun/yr, next barrier in 9.8576 yr
+S7B-star j=192 t_c=694.8641 yr M=24.6982 (env M_acc 24.9072, star 24.6982) Mdot_env=2.517e-02 -> Mdot_star=2.533e-02 Msun/yr, next barrier in 10.2265 yr
+ 1950 t=7.8337e+02 yr dt=6.669e+07 s M=24.8634 R=614.31 Rsun L*=182881.949 Lacc=31360.56 Teff=4998 Ts=4205 tau=0.00 Tc=6.3389e+05 rho_c=9.629e-03 Tmax=1.441e+06@0.037 LD=1.76e+00 fD=1.0000 it=15 adv(cons 5.2e-16 cfl 2.6e+04 dT 9.2e-11) ledger(err/|terms| step 9.8e-03 cum 3.8e-03; W_d: step 7.5e-03 cum 2.2e-03 signed 1.4e-04) lim=0.029 T@121 conv=0.000-0.004,0.997-1.000
+S7B-star j=193 t_c=705.0906 yr M=24.9502 (env M_acc 25.5168, star 24.9502) Mdot_env=2.657e-02 -> Mdot_star=2.660e-02 Msun/yr, next barrier in 10.2542 yr
+S7B-star j=194 t_c=715.3448 yr M=25.2153 (env M_acc 25.7330, star 25.2153) Mdot_env=2.618e-02 -> Mdot_star=2.793e-02 Msun/yr, next barrier in 10.4075 yr
+S7B-star j=195 t_c=725.7523 yr M=25.4981 (env M_acc 25.8592, star 25.4981) Mdot_env=2.523e-02 -> Mdot_star=2.746e-02 Msun/yr, next barrier in 10.7981 yr
+S7B-star j=196 t_c=736.5504 yr M=25.7977 (env M_acc 25.9810, star 25.7977) Mdot_env=2.432e-02 -> Mdot_star=2.609e-02 Msun/yr, next barrier in 11.2034 yr
+S7B-star j=197 t_c=747.7538 yr M=26.0988 (env M_acc 26.0983, star 26.0988) Mdot_env=2.344e-02 -> Mdot_star=2.479e-02 Msun/yr, next barrier in 11.6240 yr
+S7B-star j=198 t_c=759.3778 yr M=26.3952 (env M_acc 26.2113, star 26.3952) Mdot_env=2.259e-02 -> Mdot_star=2.355e-02 Msun/yr, next barrier in 12.0603 yr
+ 2000 t=8.4489e+02 yr dt=4.137e+07 s M=26.4879 R=619.56 Rsun L*=242665.396 Lacc=32935.28 Teff=5301 Ts=4462 tau=0.00 Tc=7.0207e+05 rho_c=1.122e-02 Tmax=1.634e+06@0.034 LD=1.07e+01 fD=0.9998 it=19 adv(cons 1.2e-15 cfl 1.5e+04 dT 2.4e-10) ledger(err/|terms| step 7.4e-03 cum 4.4e-03; W_d: step 5.8e-03 cum 2.8e-03 signed 1.0e-03) lim=0.045 rho@124 conv=0.000-0.004,0.998-1.000
+S7B-star j=199 t_c=771.4381 yr M=26.6872 (env M_acc 26.3203, star 26.6872) Mdot_env=2.177e-02 -> Mdot_star=2.237e-02 Msun/yr, next barrier in 12.5130 yr
+S7B-star j=200 t_c=783.9511 yr M=26.9751 (env M_acc 26.4253, star 26.9751) Mdot_env=2.099e-02 -> Mdot_star=2.125e-02 Msun/yr, next barrier in 12.9827 yr
+S7B-star j=201 t_c=796.9338 yr M=27.2588 (env M_acc 27.5973, star 27.2588) Mdot_env=2.511e-02 -> Mdot_star=2.231e-02 Msun/yr, next barrier in 11.4485 yr
+ 2050 t=8.8033e+02 yr dt=2.078e+07 s M=27.2939 R=567.19 Rsun L*=262826.898 Lacc=32249.25 Teff=5638 Ts=4750 tau=0.01 Tc=7.4548e+05 rho_c=1.228e-02 Tmax=1.756e+06@0.034 LD=2.89e+01 fD=0.9994 it=13 adv(cons 7.3e-16 cfl 6.5e+03 dT 2.4e-10) ledger(err/|terms| step 4.3e-03 cum 4.6e-03; W_d: step 3.6e-03 cum 3.0e-03 signed 1.4e-03) lim=0.022 T@130 conv=0.000-0.004,0.999-1.000
+S7B-star j=202 t_c=808.3823 yr M=27.5075 (env M_acc 27.7339, star 27.5075) Mdot_env=2.430e-02 -> Mdot_star=2.343e-02 Msun/yr, next barrier in 11.8309 yr
+S7B-star j=203 t_c=820.2132 yr M=27.7768 (env M_acc 27.8479, star 27.7768) Mdot_env=2.342e-02 -> Mdot_star=2.381e-02 Msun/yr, next barrier in 12.2730 yr
+S7B-star j=204 t_c=832.4705 yr M=28.0658 (env M_acc 28.6379, star 28.0658) Mdot_env=2.523e-02 -> Mdot_star=2.500e-02 Msun/yr, next barrier in 12.0593 yr
+S7B-star j=205 t_c=844.5299 yr M=28.3583 (env M_acc 28.7825, star 28.3583) Mdot_env=2.432e-02 -> Mdot_star=2.625e-02 Msun/yr, next barrier in 12.5120 yr
+S7B-star j=206 t_c=857.0419 yr M=28.6773 (env M_acc 28.9219, star 28.6773) Mdot_env=2.344e-02 -> Mdot_star=2.494e-02 Msun/yr, next barrier in 12.9817 yr
+S7B-star j=207 t_c=870.0235 yr M=29.0112 (env M_acc 29.0562, star 29.0112) Mdot_env=2.259e-02 -> Mdot_star=2.369e-02 Msun/yr, next barrier in 13.4689 yr
+S7B-star j=208 t_c=883.4924 yr M=29.3402 (env M_acc 29.1857, star 29.3402) Mdot_env=2.177e-02 -> Mdot_star=2.251e-02 Msun/yr, next barrier in 13.9745 yr
+ 2100 t=9.7922e+02 yr dt=4.548e+07 s M=29.6641 R=439.09 Rsun L*=320000.530 Lacc=48006.87 Teff=6760 Ts=5872 tau=0.09 Tc=8.7916e+05 rho_c=1.573e-02 Tmax=2.128e+06@0.031 LD=3.50e+02 fD=0.9942 it=8 adv(cons 2.0e-15 cfl 1.4e+04 dT 4.9e-09) ledger(err/|terms| step 7.8e-03 cum 6.3e-03; W_d: step 6.9e-03 cum 4.7e-03 signed 3.6e-03) lim=0.044 T@128 conv=0.000-0.003,1.000-1.000
+S7B-star j=209 t_c=897.4669 yr M=29.6641 (env M_acc 29.3105, star 29.6641) Mdot_env=2.099e-02 -> Mdot_star=2.138e-02 Msun/yr, next barrier in 14.4991 yr
+S7B-star j=210 t_c=911.9660 yr M=29.9832 (env M_acc 29.4307, star 29.9832) Mdot_env=2.023e-02 -> Mdot_star=2.031e-02 Msun/yr, next barrier in 15.0433 yr
+S7B-star j=211 t_c=927.0093 yr M=30.2978 (env M_acc 30.7476, star 30.2978) Mdot_env=2.433e-02 -> Mdot_star=2.133e-02 Msun/yr, next barrier in 13.1934 yr
+S7B-star j=212 t_c=940.2027 yr M=30.5715 (env M_acc 30.9321, star 30.5715) Mdot_env=2.369e-02 -> Mdot_star=2.240e-02 Msun/yr, next barrier in 13.5532 yr
+S7B-star j=213 t_c=953.7558 yr M=30.8665 (env M_acc 31.0610, star 30.8665) Mdot_env=2.283e-02 -> Mdot_star=2.351e-02 Msun/yr, next barrier in 14.0603 yr
+S7B-star j=214 t_c=967.8162 yr M=31.1875 (env M_acc 31.9270, star 31.1875) Mdot_env=2.455e-02 -> Mdot_star=2.469e-02 Msun/yr, next barrier in 13.8418 yr
+S7B-star j=215 t_c=981.6580 yr M=31.5198 (env M_acc 32.0905, star 31.5198) Mdot_env=2.366e-02 -> Mdot_star=2.593e-02 Msun/yr, next barrier in 14.3614 yr
+S7B-star j=216 t_c=996.0194 yr M=31.8813 (env M_acc 32.2480, star 31.8813) Mdot_env=2.280e-02 -> Mdot_star=2.463e-02 Msun/yr, next barrier in 14.9005 yr
+ 2150 t=1.0854e+03 yr dt=8.256e+07 s M=32.0774 R=320.19 Rsun L*=368266.871 Lacc=80184.20 Teff=7487 Ts=17339 tau=29.51 Tc=1.0220e+06 rho_c=1.973e-02 Tmax=2.564e+06@0.027 LD=1.97e+03 fD=0.9562 it=7 adv(cons 2.1e-16 cfl 2.6e+04 dT 6.3e-08) ledger(err/|terms| step 8.0e-03 cum 7.1e-03; W_d: step 6.9e-03 cum 5.7e-03 signed 4.8e-03) lim=0.050 rho@130 conv=0.000-0.003,1.000-1
+S7B-star j=217 t_c=1010.9198 yr M=32.2596 (env M_acc 32.3998, star 32.2596) Mdot_env=2.198e-02 -> Mdot_star=2.340e-02 Msun/yr, next barrier in 15.4598 yr
+S7B-star j=218 t_c=1026.3796 yr M=32.6329 (env M_acc 32.5461, star 32.6329) Mdot_env=2.118e-02 -> Mdot_star=2.223e-02 Msun/yr, next barrier in 16.0401 yr
+S7B-star j=219 t_c=1042.4196 yr M=33.0005 (env M_acc 32.6871, star 33.0005) Mdot_env=2.042e-02 -> Mdot_star=2.112e-02 Msun/yr, next barrier in 16.6421 yr
+S7B-star j=220 t_c=1059.0618 yr M=33.3627 (env M_acc 32.8230, star 33.3627) Mdot_env=1.968e-02 -> Mdot_star=2.006e-02 Msun/yr, next barrier in 17.2668 yr
+S7B-star j=221 t_c=1076.3286 yr M=33.7195 (env M_acc 32.9540, star 33.7195) Mdot_env=1.897e-02 -> Mdot_star=1.906e-02 Msun/yr, next barrier in 17.9149 yr
+S7B-star j=222 t_c=1094.2435 yr M=34.0713 (env M_acc 34.5376, star 34.0713) Mdot_env=2.307e-02 -> Mdot_star=2.001e-02 Msun/yr, next barrier in 15.5423 yr
+S7B-star j=223 t_c=1109.7859 yr M=34.3734 (env M_acc 34.6817, star 34.3734) Mdot_env=2.224e-02 -> Mdot_star=2.101e-02 Msun/yr, next barrier in 16.1239 yr
+S7B-star j=224 t_c=1125.9098 yr M=34.7026 (env M_acc 35.5929, star 34.7026) Mdot_env=2.370e-02 -> Mdot_star=2.206e-02 Msun/yr, next barrier in 16.0105 yr
+ 2200 t=1.2237e+03 yr dt=1.112e+08 s M=35.0457 R=212.79 Rsun L*=400348.741 Lacc=112895.99 Teff=7717 Ts=25174 tau=68.46 Tc=1.1908e+06 rho_c=2.478e-02 Tmax=3.087e+06@0.027 LD=2.80e+03 fD=0.8201 it=8 adv(cons 2.1e-15 cfl 2.8e+04 dT 2.6e-07) ledger(err/|terms| step 8.2e-03 cum 7.5e-03; W_d: step 7.5e-03 cum 6.4e-03 signed 5.8e-03) lim=0.033 T@18 conv=0.000-0.003,1.000-1
+S7B-star j=225 t_c=1141.9203 yr M=35.0457 (env M_acc 35.8126, star 35.0457) Mdot_env=2.300e-02 -> Mdot_star=2.316e-02 Msun/yr, next barrier in 16.5001 yr
+S7B-star j=226 t_c=1158.4205 yr M=35.4169 (env M_acc 35.9893, star 35.4169) Mdot_env=2.217e-02 -> Mdot_star=2.432e-02 Msun/yr, next barrier in 17.1195 yr
+S7B-star j=227 t_c=1175.5399 yr M=35.8214 (env M_acc 36.1597, star 35.8214) Mdot_env=2.136e-02 -> Mdot_star=2.311e-02 Msun/yr, next barrier in 17.7621 yr
+S7B-star j=228 t_c=1193.3020 yr M=36.2449 (env M_acc 36.3239, star 36.2449) Mdot_env=2.059e-02 -> Mdot_star=2.195e-02 Msun/yr, next barrier in 18.4288 yr
+S7B-star j=229 t_c=1211.7308 yr M=36.6619 (env M_acc 36.4821, star 36.6619) Mdot_env=1.985e-02 -> Mdot_star=2.085e-02 Msun/yr, next barrier in 19.1205 yr
+S7B-star j=230 t_c=1230.8513 yr M=37.0733 (env M_acc 36.6346, star 37.0733) Mdot_env=1.913e-02 -> Mdot_star=1.981e-02 Msun/yr, next barrier in 19.8382 yr
+S7B-star j=231 t_c=1250.6896 yr M=37.4784 (env M_acc 36.7817, star 37.4784) Mdot_env=1.844e-02 -> Mdot_star=1.882e-02 Msun/yr, next barrier in 20.5829 yr
+S7B-star j=232 t_c=1271.2725 yr M=37.8778 (env M_acc 38.5453, star 37.8778) Mdot_env=2.249e-02 -> Mdot_star=1.976e-02 Msun/yr, next barrier in 17.8017 yr
+S7B-star j=233 t_c=1289.0742 yr M=38.2195 (env M_acc 38.7071, star 38.2195) Mdot_env=2.168e-02 -> Mdot_star=2.075e-02 Msun/yr, next barrier in 18.4679 yr
+S7B-star j=234 t_c=1307.5421 yr M=38.5917 (env M_acc 39.6007, star 38.5917) Mdot_env=2.268e-02 -> Mdot_star=2.179e-02 Msun/yr, next barrier in 18.6869 yr
+ 2250 t=1.3965e+03 yr dt=1.248e+08 s M=38.7425 R=153.48 Rsun L*=450744.329 Lacc=165909.32 Teff=7810 Ts=33295 tau=107.41 Tc=1.4825e+06 rho_c=3.395e-02 Tmax=3.804e+06@0.022 LD=3.07e+03 fD=0.6339 it=8 adv(cons 9.5e-16 cfl 2.7e+04 dT 3.7e-07) ledger(err/|terms| step 8.4e-03 cum 7.8e-03; W_d: step 7.5e-03 cum 6.7e-03 signed 6.3e-03) lim=0.046 T@14 conv=0.000-0.002,1.000-1
+S7B-star j=235 t_c=1326.2290 yr M=38.9872 (env M_acc 39.9512, star 38.9872) Mdot_env=2.239e-02 -> Mdot_star=2.288e-02 Msun/yr, next barrier in 18.9235 yr
+S7B-star j=236 t_c=1345.1525 yr M=39.4077 (env M_acc 40.1500, star 39.4077) Mdot_env=2.158e-02 -> Mdot_star=2.402e-02 Msun/yr, next barrier in 19.6338 yr
+S7B-star j=237 t_c=1364.7864 yr M=39.8661 (env M_acc 40.3417, star 39.8661) Mdot_env=2.080e-02 -> Mdot_star=2.282e-02 Msun/yr, next barrier in 20.3708 yr
+S7B-star j=238 t_c=1385.1572 yr M=40.3457 (env M_acc 40.5265, star 40.3457) Mdot_env=2.005e-02 -> Mdot_star=2.168e-02 Msun/yr, next barrier in 21.1355 yr
+S7B-star j=239 t_c=1406.2926 yr M=40.8180 (env M_acc 40.7046, star 40.8180) Mdot_env=1.932e-02 -> Mdot_star=2.059e-02 Msun/yr, next barrier in 21.9288 yr
+S7B-star j=240 t_c=1428.2214 yr M=41.2837 (env M_acc 40.8762, star 41.2837) Mdot_env=1.863e-02 -> Mdot_star=1.956e-02 Msun/yr, next barrier in 22.7519 yr
+S7B-star j=241 t_c=1450.9733 yr M=41.7426 (env M_acc 41.0416, star 41.7426) Mdot_env=1.795e-02 -> Mdot_star=1.859e-02 Msun/yr, next barrier in 23.6059 yr
+S7B-star j=242 t_c=1474.5793 yr M=42.1952 (env M_acc 42.8896, star 42.1952) Mdot_env=2.160e-02 -> Mdot_star=1.952e-02 Msun/yr, next barrier in 20.6975 yr
+S7B-star j=243 t_c=1495.2768 yr M=42.5870 (env M_acc 43.1331, star 42.5870) Mdot_env=2.099e-02 -> Mdot_star=2.049e-02 Msun/yr, next barrier in 21.2970 yr
+ 2300 t=1.5983e+03 yr dt=1.756e+08 s M=43.0103 R=117.66 Rsun L*=518094.755 Lacc=232283.37 Teff=7861 Ts=41444 tau=135.95 Tc=2.1302e+06 rho_c=4.437e-02 Tmax=4.827e+06@0.021 LD=2.92e+03 fD=0.4496 it=8 adv(cons 5.5e-16 cfl 3.3e+04 dT 3.1e-07) ledger(err/|terms| step 1.1e-02 cum 8.2e-03; W_d: step 1.0e-02 cum 7.2e-03 signed 6.9e-03) lim=0.034 T@8 conv=0.000-0.001,1.000-1
+S7B-star j=244 t_c=1516.5738 yr M=43.0103 (env M_acc 43.3107, star 43.0103) Mdot_env=2.024e-02 -> Mdot_star=2.114e-02 Msun/yr, next barrier in 22.0940 yr
+S7B-star j=245 t_c=1538.6677 yr M=43.4685 (env M_acc 44.5102, star 43.4685) Mdot_env=2.168e-02 -> Mdot_star=2.220e-02 Msun/yr, next barrier in 21.8232 yr
+S7B-star j=246 t_c=1560.4909 yr M=43.9385 (env M_acc 44.7360, star 43.9385) Mdot_env=2.090e-02 -> Mdot_star=2.325e-02 Msun/yr, next barrier in 22.6423 yr
+S7B-star j=247 t_c=1583.1333 yr M=44.4505 (env M_acc 44.9538, star 44.4505) Mdot_env=2.014e-02 -> Mdot_star=2.209e-02 Msun/yr, next barrier in 23.4923 yr
+S7B-star j=248 t_c=1606.6255 yr M=44.9858 (env M_acc 45.1636, star 44.9858) Mdot_env=1.942e-02 -> Mdot_star=2.098e-02 Msun/yr, next barrier in 24.3741 yr
+S7B-star j=249 t_c=1630.9996 yr M=45.5135 (env M_acc 45.3658, star 45.5135) Mdot_env=1.871e-02 -> Mdot_star=1.993e-02 Msun/yr, next barrier in 25.2890 yr
+S7B-star j=250 t_c=1656.2885 yr M=46.0336 (env M_acc 45.5608, star 46.0336) Mdot_env=1.804e-02 -> Mdot_star=1.894e-02 Msun/yr, next barrier in 26.2382 yr
+S7B-star j=251 t_c=1682.5268 yr M=46.5464 (env M_acc 45.7487, star 46.5464) Mdot_env=1.738e-02 -> Mdot_star=1.799e-02 Msun/yr, next barrier in 27.2231 yr
+S7B-star j=252 t_c=1709.7499 yr M=47.0523 (env M_acc 45.9297, star 47.0523) Mdot_env=1.675e-02 -> Mdot_star=1.709e-02 Msun/yr, next barrier in 28.2449 yr
+S7B-star j=253 t_c=1737.9948 yr M=47.5509 (env M_acc 48.1177, star 47.5509) Mdot_env=2.036e-02 -> Mdot_star=1.794e-02 Msun/yr, next barrier in 24.5278 yr
+S7B-star j=254 t_c=1762.5226 yr M=47.9778 (env M_acc 48.3177, star 47.9778) Mdot_env=1.962e-02 -> Mdot_star=1.884e-02 Msun/yr, next barrier in 25.4456 yr
+S7B-star j=255 t_c=1787.9682 yr M=48.4429 (env M_acc 49.5039, star 48.4429) Mdot_env=2.067e-02 -> Mdot_star=1.978e-02 Msun/yr, next barrier in 25.5632 yr
+ 2350 t=1.8753e+03 yr dt=1.776e+08 s M=48.5489 R=89.57 Rsun L*=619267.903 Lacc=320693.89 Teff=7925 Ts=53300 tau=154.17 Tc=3.1521e+06 rho_c=7.443e-02 Tmax=6.515e+06@0.017 LD=2.33e+03 fD=0.2760 it=12 adv(cons 4.4e-16 cfl 2.7e+04 dT 4.1e-07) ledger(err/|terms| step 1.1e-02 cum 9.5e-03; W_d: step 9.6e-03 cum 8.4e-03 signed 8.2e-03) lim=0.022 T@3 conv=1.000-1
+S7B-star j=256 t_c=1813.5314 yr M=48.9335 (env M_acc 49.8714, star 48.9335) Mdot_env=2.023e-02 -> Mdot_star=2.077e-02 Msun/yr, next barrier in 26.1287 yr
+S7B-star j=257 t_c=1839.6601 yr M=49.4601 (env M_acc 50.1177, star 49.4601) Mdot_env=1.949e-02 -> Mdot_star=2.111e-02 Msun/yr, next barrier in 27.1095 yr
+S7B-star j=258 t_c=1866.7696 yr M=50.0268 (env M_acc 50.3551, star 50.0268) Mdot_env=1.879e-02 -> Mdot_star=2.006e-02 Msun/yr, next barrier in 28.1271 yr
+S7B-star j=259 t_c=1894.8967 yr M=50.6089 (env M_acc 50.5838, star 50.6089) Mdot_env=1.811e-02 -> Mdot_star=1.905e-02 Msun/yr, next barrier in 29.1829 yr
+S7B-star j=260 t_c=1924.0796 yr M=51.1827 (env M_acc 50.8043, star 51.1827) Mdot_env=1.745e-02 -> Mdot_star=1.810e-02 Msun/yr, next barrier in 30.2783 yr
+S7B-star j=261 t_c=1954.3579 yr M=51.7482 (env M_acc 51.0168, star 51.7482) Mdot_env=1.682e-02 -> Mdot_star=1.719e-02 Msun/yr, next barrier in 31.4148 yr
+S7B-star j=262 t_c=1985.7727 yr M=52.3063 (env M_acc 51.2217, star 52.3063) Mdot_env=1.621e-02 -> Mdot_star=1.634e-02 Msun/yr, next barrier in 32.5940 yr
+S7B-star j=263 t_c=2018.3668 yr M=52.8563 (env M_acc 51.4191, star 52.8563) Mdot_env=1.563e-02 -> Mdot_star=1.552e-02 Msun/yr, next barrier in 33.8237 yr
+S7B-star j=264 t_c=2052.1905 yr M=53.3985 (env M_acc 53.8621, star 53.3985) Mdot_env=1.891e-02 -> Mdot_star=1.629e-02 Msun/yr, next barrier in 29.4939 yr
+S7B-star j=265 t_c=2081.6843 yr M=53.8647 (env M_acc 54.0809, star 53.8647) Mdot_env=1.822e-02 -> Mdot_star=1.711e-02 Msun/yr, next barrier in 30.5976 yr
+S7B-star j=266 t_c=2112.2819 yr M=54.3725 (env M_acc 55.4311, star 54.3725) Mdot_env=1.919e-02 -> Mdot_star=1.796e-02 Msun/yr, next barrier in 30.7495 yr
+ 2400 t=2.2177e+03 yr dt=2.246e+08 s M=54.7819 R=71.11 Rsun L*=773212.080 Lacc=424994.66 Teff=7972 Ts=68423 tau=163.92 Tc=7.7118e+06 rho_c=7.924e-02 Tmax=8.986e+06@0.012 LD=1.80e+03 fD=0.1565 it=8 adv(cons 7.6e-16 cfl 2.9e+04 dT 7.5e-07) ledger(err/|terms| step 1.3e-02 cum 1.1e-02; W_d: step 1.1e-02 cum 9.7e-03 signed 9.5e-03) lim=0.016 rho@78 conv=1.000-1
+S7B-star j=267 t_c=2143.0314 yr M=54.9084 (env M_acc 55.8171, star 54.9084) Mdot_env=1.873e-02 -> Mdot_star=1.886e-02 Msun/yr, next barrier in 31.5108 yr
+S7B-star j=268 t_c=2174.5422 yr M=55.4850 (env M_acc 56.0877, star 55.4850) Mdot_env=1.805e-02 -> Mdot_star=1.928e-02 Msun/yr, next barrier in 32.6936 yr
+S7B-star j=269 t_c=2207.2359 yr M=56.1068 (env M_acc 56.3484, star 56.1068) Mdot_env=1.740e-02 -> Mdot_star=1.832e-02 Msun/yr, next barrier in 33.9208 yr
+S7B-star j=270 t_c=2241.1567 yr M=56.7479 (env M_acc 56.5997, star 56.7479) Mdot_env=1.677e-02 -> Mdot_star=1.740e-02 Msun/yr, next barrier in 35.1941 yr
+S7B-star j=271 t_c=2276.3508 yr M=57.3799 (env M_acc 56.8419, star 57.3799) Mdot_env=1.616e-02 -> Mdot_star=1.653e-02 Msun/yr, next barrier in 36.5151 yr
+S7B-star j=272 t_c=2312.8659 yr M=58.0034 (env M_acc 57.0753, star 58.0034) Mdot_env=1.558e-02 -> Mdot_star=1.570e-02 Msun/yr, next barrier in 37.8858 yr
+S7B-star j=273 t_c=2350.7516 yr M=58.6180 (env M_acc 57.3003, star 58.6180) Mdot_env=1.501e-02 -> Mdot_star=1.492e-02 Msun/yr, next barrier in 39.3078 yr
+S7B-star j=274 t_c=2390.0595 yr M=59.2238 (env M_acc 57.5172, star 59.2238) Mdot_env=1.447e-02 -> Mdot_star=1.417e-02 Msun/yr, next barrier in 40.9272 yr
+S7B-star j=275 t_c=2430.9866 yr M=59.8230 (env M_acc 60.1625, star 59.8230) Mdot_env=1.737e-02 -> Mdot_star=1.488e-02 Msun/yr, next barrier in 35.8518 yr
+S7B-star j=276 t_c=2466.8385 yr M=60.3405 (env M_acc 60.4064, star 60.3405) Mdot_env=1.674e-02 -> Mdot_star=1.563e-02 Msun/yr, next barrier in 37.1935 yr
+S7B-star j=277 t_c=2504.0320 yr M=60.9042 (env M_acc 61.7692, star 60.9042) Mdot_env=1.737e-02 -> Mdot_star=1.641e-02 Msun/yr, next barrier in 37.9321 yr
+S7B-star j=278 t_c=2541.9641 yr M=61.5080 (env M_acc 62.3125, star 61.5080) Mdot_env=1.716e-02 -> Mdot_star=1.723e-02 Msun/yr, next barrier in 38.4099 yr
+ 2450 t=2.6527e+03 yr dt=2.988e+08 s M=61.9887 R=57.35 Rsun L*=995079.625 Lacc=571016.91 Teff=8011 Ts=88824 tau=174.26 Tc=1.2394e+07 rho_c=1.450e-01 Tmax=1.268e+07@0.007 LD=1.56e+03 fD=0.0839 it=16 adv(cons 9.2e-16 cfl 3.2e+04 dT 1.7e-06) ledger(err/|terms| step 1.5e-02 cum 1.3e-02; W_d: step 1.3e-02 cum 1.1e-02 signed 1.1e-02) lim=0.018 rho@75 conv=1.000-1
+S7B-star j=279 t_c=2580.3740 yr M=62.1499 (env M_acc 62.6153, star 62.1499) Mdot_env=1.654e-02 -> Mdot_star=1.732e-02 Msun/yr, next barrier in 39.8517 yr
+S7B-star j=280 t_c=2620.2256 yr M=62.8378 (env M_acc 62.9072, star 62.8378) Mdot_env=1.594e-02 -> Mdot_star=1.645e-02 Msun/yr, next barrier in 41.3475 yr
+S7B-star j=281 t_c=2661.5732 yr M=63.5397 (env M_acc 63.1885, star 63.5397) Mdot_env=1.536e-02 -> Mdot_star=1.563e-02 Msun/yr, next barrier in 42.8996 yr
+S7B-star j=282 t_c=2704.4728 yr M=64.2323 (env M_acc 63.4597, star 64.2323) Mdot_env=1.481e-02 -> Mdot_star=1.485e-02 Msun/yr, next barrier in 44.5099 yr
+S7B-star j=283 t_c=2748.9826 yr M=64.9149 (env M_acc 63.7210, star 64.9149) Mdot_env=1.427e-02 -> Mdot_star=1.410e-02 Msun/yr, next barrier in 46.1806 yr
+S7B-star j=284 t_c=2795.1632 yr M=65.5878 (env M_acc 63.9729, star 65.5878) Mdot_env=1.375e-02 -> Mdot_star=1.340e-02 Msun/yr, next barrier in 47.9140 yr
+S7B-star j=285 t_c=2843.0772 yr M=66.2510 (env M_acc 64.2156, star 66.2510) Mdot_env=1.326e-02 -> Mdot_star=1.273e-02 Msun/yr, next barrier in 49.9736 yr
+S7B-star j=286 t_c=2893.0508 yr M=66.9081 (env M_acc 67.1898, star 66.9081) Mdot_env=1.592e-02 -> Mdot_star=1.337e-02 Msun/yr, next barrier in 43.6853 yr
+S7B-star j=287 t_c=2936.7362 yr M=67.4744 (env M_acc 67.4620, star 67.4744) Mdot_env=1.534e-02 -> Mdot_star=1.403e-02 Msun/yr, next barrier in 45.3201 yr
+S7B-star j=288 t_c=2982.0563 yr M=68.0926 (env M_acc 69.0676, star 68.0926) Mdot_env=1.601e-02 -> Mdot_star=1.474e-02 Msun/yr, next barrier in 45.9843 yr
+S7B-star j=289 t_c=3028.0406 yr M=68.7503 (env M_acc 69.5746, star 68.7503) Mdot_env=1.566e-02 -> Mdot_star=1.547e-02 Msun/yr, next barrier in 47.0119 yr
+ 2500 t=3.1456e+03 yr dt=3.535e+08 s M=69.2858 R=46.30 Rsun L*=1222524.239 Lacc=710516.77 Teff=8070 Ts=110974 tau=171.89 Tc=1.7465e+07 rho_c=2.996e-01 Tmax=1.750e+07@0.002 LD=1.39e+03 fD=0.0456 it=13 adv(cons 8.9e-16 cfl 3.1e+04 dT 3.1e-06) ledger(err/|terms| step 1.5e-02 cum 1.4e-02; W_d: step 1.3e-02 cum 1.2e-02 signed 1.2e-02) lim=0.017 rho@73 conv=1.000-1
+S7B-star j=290 t_c=3075.0524 yr M=69.4572 (env M_acc 69.9132, star 69.4572) Mdot_env=1.509e-02 -> Mdot_star=1.571e-02 Msun/yr, next barrier in 48.7765 yr
+S7B-star j=291 t_c=3123.8289 yr M=70.2166 (env M_acc 70.2396, star 70.2166) Mdot_env=1.454e-02 -> Mdot_star=1.493e-02 Msun/yr, next barrier in 50.6074 yr
+S7B-star j=292 t_c=3174.4363 yr M=70.9961 (env M_acc 70.5541, star 70.9961) Mdot_env=1.402e-02 -> Mdot_star=1.418e-02 Msun/yr, next barrier in 52.5070 yr
+S7B-star j=293 t_c=3226.9433 yr M=71.7652 (env M_acc 70.8573, star 71.7652) Mdot_env=1.351e-02 -> Mdot_star=1.347e-02 Msun/yr, next barrier in 54.4779 yr
+S7B-star j=294 t_c=3281.4212 yr M=72.5234 (env M_acc 71.1495, star 72.5234) Mdot_env=1.302e-02 -> Mdot_star=1.280e-02 Msun/yr, next barrier in 56.5228 yr
+S7B-star j=295 t_c=3337.9440 yr M=73.2706 (env M_acc 71.4311, star 73.2706) Mdot_env=1.255e-02 -> Mdot_star=1.216e-02 Msun/yr, next barrier in 58.6444 yr
+S7B-star j=296 t_c=3396.5884 yr M=74.0072 (env M_acc 71.7026, star 74.0072) Mdot_env=1.210e-02 -> Mdot_star=1.155e-02 Msun/yr, next barrier in 61.1837 yr
+S7B-star j=297 t_c=3457.7722 yr M=74.7372 (env M_acc 71.9656, star 74.7372) Mdot_env=1.166e-02 -> Mdot_star=1.097e-02 Msun/yr, next barrier in 64.1194 yr
+S7B-star j=298 t_c=3521.8915 yr M=75.4640 (env M_acc 75.3584, star 75.4640) Mdot_env=1.394e-02 -> Mdot_star=1.152e-02 Msun/yr, next barrier in 55.6914 yr
+S7B-star j=299 t_c=3577.5829 yr M=76.0865 (env M_acc 76.9784, star 76.0865) Mdot_env=1.435e-02 -> Mdot_star=1.210e-02 Msun/yr, next barrier in 57.2806 yr
+S7B-star j=300 t_c=3634.8635 yr M=76.7590 (env M_acc 77.6554, star 76.7590) Mdot_env=1.417e-02 -> Mdot_star=1.270e-02 Msun/yr, next barrier in 58.0085 yr
+ 2550 t=3.7496e+03 yr dt=6.020e+08 s M=77.1607 R=36.71 Rsun L*=1451423.178 Lacc=808039.52 Teff=8172 Ts=131324 tau=152.61 Tc=2.4112e+07 rho_c=6.433e-01 Tmax=2.411e+07@0.000 LD=1.54e+03 fD=0.0246 it=16 adv(cons 5.1e-16 cfl 3.8e+04 dT 6.9e-06) ledger(err/|terms| step 2.2e-02 cum 1.5e-02; W_d: step 2.0e-02 cum 1.3e-02 signed 1.3e-02) lim=0.023 rho@76 conv=1.000-1
+S7B-star j=301 t_c=3692.8720 yr M=77.4741 (env M_acc 78.0350, star 77.4741) Mdot_env=1.366e-02 -> Mdot_star=1.334e-02 Msun/yr, next barrier in 60.1859 yr
+S7B-star j=302 t_c=3753.0579 yr M=78.2544 (env M_acc 78.4009, star 78.2544) Mdot_env=1.316e-02 -> Mdot_star=1.332e-02 Msun/yr, next barrier in 62.4450 yr
+S7B-star j=303 t_c=3815.5030 yr M=79.0868 (env M_acc 78.7536, star 79.0868) Mdot_env=1.269e-02 -> Mdot_star=1.265e-02 Msun/yr, next barrier in 64.7890 yr
+S7B-star j=304 t_c=3880.2919 yr M=79.9336 (env M_acc 79.0934, star 79.9336) Mdot_env=1.223e-02 -> Mdot_star=1.202e-02 Msun/yr, next barrier in 67.2209 yr
+S7B-star j=305 t_c=3947.5129 yr M=80.7683 (env M_acc 79.4210, star 80.7683) Mdot_env=1.178e-02 -> Mdot_star=1.142e-02 Msun/yr, next barrier in 69.7441 yr
+S7B-star j=306 t_c=4017.2570 yr M=81.5910 (env M_acc 79.7367, star 81.5910) Mdot_env=1.136e-02 -> Mdot_star=1.085e-02 Msun/yr, next barrier in 72.3621 yr
+S7B-star j=307 t_c=4089.6190 yr M=82.4019 (env M_acc 83.2024, star 82.4019) Mdot_env=1.352e-02 -> Mdot_star=1.139e-02 Msun/yr, next barrier in 64.1597 yr
+S7B-star j=308 t_c=4153.7788 yr M=83.1110 (env M_acc 83.9077, star 83.1110) Mdot_env=1.336e-02 -> Mdot_star=1.196e-02 Msun/yr, next barrier in 64.9081 yr
+S7B-star j=309 t_c=4218.6869 yr M=83.8644 (env M_acc 85.6597, star 83.8644) Mdot_env=1.368e-02 -> Mdot_star=1.256e-02 Msun/yr, next barrier in 67.0729 yr
+S7B-star j=310 t_c=4285.7598 yr M=84.6820 (env M_acc 86.4687, star 84.6820) Mdot_env=1.357e-02 -> Mdot_star=1.319e-02 Msun/yr, next barrier in 67.6579 yr
+ 2600 t=4.4352e+03 yr dt=5.148e+08 s M=85.5475 R=31.74 Rsun L*=1770054.832 Lacc=1103157.58 Teff=8164 Ts=158894 tau=170.66 Tc=3.2349e+07 rho_c=1.326e+00 Tmax=3.235e+07@0.000 LD=1.95e+03 fD=0.0152 it=5 adv(cons 5.4e-16 cfl 3.1e+04 dT 7.6e-06) ledger(err/|terms| step 1.4e-02 cum 1.5e-02; W_d: step 1.1e-02 cum 1.4e-02 signed 1.4e-02) lim=0.017 rho@67 conv=1.000-1
+S7B-star j=311 t_c=4353.4177 yr M=85.5475 (env M_acc 86.9017, star 85.5475) Mdot_env=1.308e-02 -> Mdot_star=1.384e-02 Msun/yr, next barrier in 70.1976 yr
+S7B-star j=312 t_c=4423.6153 yr M=86.4904 (env M_acc 87.3191, star 86.4904) Mdot_env=1.260e-02 -> Mdot_star=1.336e-02 Msun/yr, next barrier in 72.8325 yr
+S7B-star j=313 t_c=4496.4478 yr M=87.4849 (env M_acc 87.7213, star 87.4849) Mdot_env=1.215e-02 -> Mdot_star=1.269e-02 Msun/yr, next barrier in 75.5664 yr
+S7B-star j=314 t_c=4572.0142 yr M=88.4746 (env M_acc 88.1090, star 88.4746) Mdot_env=1.171e-02 -> Mdot_star=1.206e-02 Msun/yr, next barrier in 78.4028 yr
+S7B-star j=315 t_c=4650.4170 yr M=89.4503 (env M_acc 88.4827, star 89.4503) Mdot_env=1.128e-02 -> Mdot_star=1.146e-02 Msun/yr, next barrier in 81.3458 yr
+S7B-star j=316 t_c=4731.7627 yr M=90.4129 (env M_acc 88.8429, star 90.4129) Mdot_env=1.088e-02 -> Mdot_star=1.088e-02 Msun/yr, next barrier in 84.3992 yr
+S7B-star j=317 t_c=4816.1619 yr M=91.3617 (env M_acc 89.1900, star 91.3617) Mdot_env=1.048e-02 -> Mdot_star=1.034e-02 Msun/yr, next barrier in 87.5672 yr
+S7B-star j=318 t_c=4903.7291 yr M=92.2969 (env M_acc 89.5246, star 92.2969) Mdot_env=1.010e-02 -> Mdot_star=9.821e-03 Msun/yr, next barrier in 91.3614 yr
+S7B-star j=319 t_c=4995.0905 yr M=93.2238 (env M_acc 89.8488, star 93.2238) Mdot_env=9.735e-03 -> Mdot_star=9.330e-03 Msun/yr, next barrier in 95.7621 yr
+S7B-star j=320 t_c=5090.8526 yr M=94.1468 (env M_acc 94.0917, star 94.1468) Mdot_env=1.166e-02 -> Mdot_star=9.797e-03 Msun/yr, next barrier in 83.0763 yr
+S7B-star j=321 t_c=5173.9289 yr M=94.9365 (env M_acc 96.0416, star 94.9365) Mdot_env=1.193e-02 -> Mdot_star=1.029e-02 Msun/yr, next barrier in 85.9058 yr
+S7B-star j=322 t_c=5259.8347 yr M=95.7946 (env M_acc 96.8838, star 95.7946) Mdot_env=1.178e-02 -> Mdot_star=1.080e-02 Msun/yr, next barrier in 87.0068 yr
+ 2650 t=5.3535e+03 yr dt=3.752e+08 s M=95.9169 R=28.06 Rsun L*=2148960.936 Lacc=1104231.71 Teff=8291 Ts=162393 tau=136.64 Tc=4.3936e+07 rho_c=2.904e+00 Tmax=4.394e+07@0.000 LD=1.45e+03 fD=0.0087 it=6 adv(cons 1.2e-15 cfl 1.6e+04 dT 6.6e-06) ledger(err/|terms| step 8.7e-03 cum 1.5e-02; W_d: step 6.1e-03 cum 1.3e-02 signed 1.3e-02) lim=0.009 rho@52 conv=1.000-1
+S7B-star j=323 t_c=5346.8415 yr M=96.7070 (env M_acc 97.3557, star 96.7070) Mdot_env=1.135e-02 -> Mdot_star=1.134e-02 Msun/yr, next barrier in 90.2727 yr
+S7B-star j=324 t_c=5437.1142 yr M=97.7002 (env M_acc 97.8106, star 97.7002) Mdot_env=1.094e-02 -> Mdot_star=1.102e-02 Msun/yr, next barrier in 93.6612 yr
+S7B-star j=325 t_c=5530.7754 yr M=98.7513 (env M_acc 98.2490, star 98.7513) Mdot_env=1.055e-02 -> Mdot_star=1.047e-02 Msun/yr, next barrier in 97.1769 yr
+S7B-star j=326 t_c=5627.9523 yr M=99.8024 (env M_acc 98.6716, star 99.8024) Mdot_env=1.017e-02 -> Mdot_star=9.947e-03 Msun/yr, next barrier in 100.8245 yr
+S7B-star j=327 t_c=5728.7768 yr M=100.8385 (env M_acc 99.0788, star 100.8385) Mdot_env=9.798e-03 -> Mdot_star=9.450e-03 Msun/yr, next barrier in 104.6091 yr
+S7B-star j=328 t_c=5833.3859 yr M=101.8598 (env M_acc 99.4714, star 101.8598) Mdot_env=9.444e-03 -> Mdot_star=8.978e-03 Msun/yr, next barrier in 108.5357 yr
+S7B-star j=329 t_c=5941.9216 yr M=102.8662 (env M_acc 104.0760, star 102.8662) Mdot_env=1.138e-02 -> Mdot_star=9.426e-03 Msun/yr, next barrier in 95.0729 yr
+S7B-star j=330 t_c=6036.9945 yr M=103.7353 (env M_acc 106.1133, star 103.7353) Mdot_env=1.151e-02 -> Mdot_star=9.898e-03 Msun/yr, next barrier in 99.4392 yr
+S7B-star j=331 t_c=6136.4337 yr M=104.6900 (env M_acc 107.2579, star 104.6900) Mdot_env=1.151e-02 -> Mdot_star=1.039e-02 Msun/yr, next barrier in 99.4392 yr
+S7B-star j=332 t_c=6235.8730 yr M=105.6927 (env M_acc 108.1308, star 105.6927) Mdot_env=1.132e-02 -> Mdot_star=1.091e-02 Msun/yr, next barrier in 101.1427 yr
+S7B-star j=333 t_c=6337.0156 yr M=106.7639 (env M_acc 108.6601, star 106.7639) Mdot_env=1.091e-02 -> Mdot_star=1.146e-02 Msun/yr, next barrier in 104.9392 yr
+ 2700 t=6.4966e+03 yr dt=8.539e+08 s M=107.6242 R=29.62 Rsun L*=2719627.205 Lacc=1274993.28 Teff=8287 Ts=168452 tau=137.74 Tc=5.9557e+07 rho_c=6.461e+00 Tmax=5.956e+07@0.000 LD=5.95e+03 fD=0.0080 it=11 adv(cons 6.6e-16 cfl 3.5e+04 dT 1.5e-05) ledger(err/|terms| step 1.1e-02 cum 1.5e-02; W_d: step 6.3e-03 cum 1.3e-02 signed 1.3e-02) lim=0.047 rho@130 conv=1.000-1
+S7B-star j=334 t_c=6441.9548 yr M=107.9314 (env M_acc 109.1703, star 107.9314) Mdot_env=1.051e-02 -> Mdot_star=1.127e-02 Msun/yr, next barrier in 108.8782 yr
+S7B-star j=335 t_c=6550.8330 yr M=109.1705 (env M_acc 109.6620, star 109.1705) Mdot_env=1.013e-02 -> Mdot_star=1.071e-02 Msun/yr, next barrier in 112.9650 yr
+S7B-star j=336 t_c=6663.7980 yr M=110.4167 (env M_acc 110.1359, star 110.4167) Mdot_env=9.766e-03 -> Mdot_star=1.017e-02 Msun/yr, next barrier in 117.2053 yr
+S7B-star j=337 t_c=6781.0034 yr M=111.6469 (env M_acc 110.5926, star 111.6469) Mdot_env=9.413e-03 -> Mdot_star=9.664e-03 Msun/yr, next barrier in 121.6048 yr
+S7B-star j=338 t_c=6902.6081 yr M=112.8595 (env M_acc 111.0329, star 112.8595) Mdot_env=9.072e-03 -> Mdot_star=9.181e-03 Msun/yr, next barrier in 126.1693 yr
+S7B-star j=339 t_c=7028.7774 yr M=114.0551 (env M_acc 111.4572, star 114.0551) Mdot_env=8.744e-03 -> Mdot_star=8.722e-03 Msun/yr, next barrier in 130.9052 yr
+S7B-star j=340 t_c=7159.6827 yr M=115.2336 (env M_acc 111.8661, star 115.2336) Mdot_env=8.428e-03 -> Mdot_star=8.286e-03 Msun/yr, next barrier in 136.7319 yr
+S7B-star j=341 t_c=7296.4145 yr M=116.4030 (env M_acc 112.2628, star 116.4030) Mdot_env=8.121e-03 -> Mdot_star=7.871e-03 Msun/yr, next barrier in 143.3388 yr
+S7B-star j=342 t_c=7439.7533 yr M=117.5676 (env M_acc 117.2442, star 117.5676) Mdot_env=9.617e-03 -> Mdot_star=8.265e-03 Msun/yr, next barrier in 125.5925 yr
+ 2750 t=7.6471e+03 yr dt=1.866e+08 s M=118.5747 R=42.82 Rsun L*=3305296.105 Lacc=717017.24 Teff=8432 Ts=115704 tau=76.42 Tc=7.5965e+07 rho_c=1.237e+01 Tmax=7.596e+07@0.000 LD=1.10e+03 fD=0.0075 it=5 adv(cons 6.5e-16 cfl 5.2e+03 dT 2.9e-06) ledger(err/|terms| step 6.1e-03 cum 1.5e-02; W_d: step 4.8e-04 cum 1.1e-02 signed 1.1e-02) lim=0.009 rho@130 conv=1.000-1
+S7B-star j=343 t_c=7565.3458 yr M=118.5747 (env M_acc 117.6970, star 118.5747) Mdot_env=9.270e-03 -> Mdot_star=8.678e-03 Msun/yr, next barrier in 130.2924 yr
+S7B-star j=344 t_c=7695.6383 yr M=119.6721 (env M_acc 120.1399, star 119.6721) Mdot_env=9.484e-03 -> Mdot_star=9.112e-03 Msun/yr, next barrier in 134.7843 yr
+S7B-star j=345 t_c=7830.4225 yr M=120.8653 (env M_acc 121.0885, star 120.8653) Mdot_env=9.314e-03 -> Mdot_star=9.422e-03 Msun/yr, next barrier in 137.2456 yr
+S7B-star j=346 t_c=7967.6681 yr M=122.1350 (env M_acc 121.6675, star 122.1350) Mdot_env=8.977e-03 -> Mdot_star=8.951e-03 Msun/yr, next barrier in 142.3972 yr
+S7B-star j=347 t_c=8110.0653 yr M=123.4458 (env M_acc 122.2255, star 123.4458) Mdot_env=8.652e-03 -> Mdot_star=8.503e-03 Msun/yr, next barrier in 147.7423 yr
+S7B-star j=348 t_c=8257.8076 yr M=124.7386 (env M_acc 122.7633, star 124.7386) Mdot_env=8.339e-03 -> Mdot_star=8.078e-03 Msun/yr, next barrier in 153.2880 yr
+ 2800 t=8.4350e+03 yr dt=7.501e+08 s M=125.5400 R=80.14 Rsun L*=3721602.825 Lacc=408507.25 Teff=8441 Ts=76142 tau=49.99 Tc=8.7293e+07 rho_c=1.800e+01 Tmax=8.729e+07@0.000 LD=1.53e+03 fD=0.0107 it=5 adv(cons 8.5e-16 cfl 2.0e+04 dT 8.0e-06) ledger(err/|terms| step 1.1e-02 cum 1.4e-02; W_d: step 2.8e-03 cum 1.0e-02 signed 9.9e-03) lim=0.042 rho@130 conv=1.000-1
+S7B-star j=349 t_c=8411.0956 yr M=126.0137 (env M_acc 123.2817, star 126.0137) Mdot_env=8.037e-03 -> Mdot_star=7.674e-03 Msun/yr, next barrier in 159.0418 yr
+S7B-star j=350 t_c=8570.1374 yr M=127.2728 (env M_acc 123.7813, star 127.2728) Mdot_env=7.747e-03 -> Mdot_star=7.291e-03 Msun/yr, next barrier in 165.0116 yr
+S7B-star j=351 t_c=8735.1490 yr M=128.5144 (env M_acc 124.2628, star 128.5144) Mdot_env=7.466e-03 -> Mdot_star=6.926e-03 Msun/yr, next barrier in 172.1272 yr
+S7B-star j=352 t_c=8907.2762 yr M=129.7449 (env M_acc 124.7294, star 129.7449) Mdot_env=7.195e-03 -> Mdot_star=6.580e-03 Msun/yr, next barrier in 180.3332 yr
+S7B-star j=353 t_c=9087.6094 yr M=130.9697 (env M_acc 125.1831, star 130.9697) Mdot_env=6.931e-03 -> Mdot_star=6.251e-03 Msun/yr, next barrier in 188.9710 yr
+S7B-star j=354 t_c=9276.5804 yr M=132.1889 (env M_acc 125.6241, star 132.1889) Mdot_env=6.674e-03 -> Mdot_star=5.938e-03 Msun/yr, next barrier in 198.0655 yr
+S7B-star j=355 t_c=9474.6459 yr M=133.4024 (env M_acc 126.0526, star 133.4024) Mdot_env=6.425e-03 -> Mdot_star=5.641e-03 Msun/yr, next barrier in 207.6427 yr
+S7B-star j=356 t_c=9682.2885 yr M=134.6099 (env M_acc 132.3231, star 134.6099) Mdot_env=7.729e-03 -> Mdot_star=5.923e-03 Msun/yr, next barrier in 174.5164 yr
+S7B-star j=357 t_c=9856.8050 yr M=135.6123 (env M_acc 132.7786, star 135.6123) Mdot_env=7.450e-03 -> Mdot_star=6.220e-03 Msun/yr, next barrier in 182.0359 yr
+S7B-star j=358 t_c=10038.8409 yr M=136.7120 (env M_acc 133.2200, star 136.7120) Mdot_env=7.180e-03 -> Mdot_star=5.957e-03 Msun/yr, next barrier in 190.4170 yr
+ 2850 t=1.0154e+04 yr dt=1.062e+09 s M=136.9214 R=71.24 Rsun L*=4046794.820 Lacc=375392.59 Teff=8625 Ts=76323 tau=38.33 Tc=1.1149e+08 rho_c=3.499e+01 Tmax=1.115e+08@0.000 LD=1.26e+03 fD=0.0101 it=18 adv(cons 1.2e-15 cfl 1.9e+04 dT 8.6e-06) ledger(err/|terms| step 1.8e-02 cum 1.5e-02; W_d: step 9.0e-03 cum 1.1e-02 signed 1.1e-02) lim=0.012 rho@41 conv=1.000-1
+S7B-star j=359 t_c=10229.2578 yr M=137.8770 (env M_acc 133.6487, star 137.8770) Mdot_env=6.917e-03 -> Mdot_star=5.659e-03 Msun/yr, next barrier in 199.3238 yr
+S7B-star j=360 t_c=10428.5816 yr M=139.0413 (env M_acc 134.0651, star 139.0413) Mdot_env=6.662e-03 -> Mdot_star=5.376e-03 Msun/yr, next barrier in 208.6965 yr
+S7B-star j=361 t_c=10637.2782 yr M=140.1996 (env M_acc 134.4695, star 140.1996) Mdot_env=6.415e-03 -> Mdot_star=5.132e-03 Msun/yr, next barrier in 218.5532 yr
+S7B-star j=362 t_c=10855.8314 yr M=141.3540 (env M_acc 134.8620, star 141.3540) Mdot_env=6.175e-03 -> Mdot_star=4.940e-03 Msun/yr, next barrier in 228.9242 yr
+S7B-star j=363 t_c=11084.7556 yr M=142.5117 (env M_acc 134.8781, star 142.5117) Mdot_env=5.942e-03 -> Mdot_star=4.753e-03 Msun/yr, next barrier in 239.8511 yr
+S7B-star j=364 t_c=11324.6067 yr M=143.6789 (env M_acc 134.8781, star 143.6789) Mdot_env=5.716e-03 -> Mdot_star=4.573e-03 Msun/yr, next barrier in 251.3770 yr
+S7B-star j=365 t_c=11575.9837 yr M=144.8557 (env M_acc 134.8781, star 144.8557) Mdot_env=5.497e-03 -> Mdot_star=4.397e-03 Msun/yr, next barrier in 263.5390 yr
+S7B-star j=366 t_c=11839.5227 yr M=146.0423 (env M_acc 134.8781, star 146.0423) Mdot_env=5.284e-03 -> Mdot_star=4.227e-03 Msun/yr, next barrier in 276.3764 yr
+S7B-star j=367 t_c=12115.8990 yr M=147.2387 (env M_acc 134.8781, star 147.2387) Mdot_env=5.078e-03 -> Mdot_star=4.063e-03 Msun/yr, next barrier in 289.9311 yr
+ 2900 t=1.2348e+04 yr dt=1.972e+09 s M=147.8700 R=49.76 Rsun L*=4316329.418 Lacc=389805.10 Teff=8940 Ts=86875 tau=30.97 Tc=1.3940e+08 rho_c=5.627e+01 Tmax=1.394e+08@0.000 LD=1.56e+03 fD=0.0069 it=12 adv(cons 8.1e-16 cfl 2.2e+04 dT 1.3e-05) ledger(err/|terms| step 4.2e-03 cum 1.6e-02; W_d: step 2.5e-03 cum 1.1e-02 signed 1.1e-02) lim=0.039 rho@130 conv=0.000-0.094,1.000-1
+S7B-star j=368 t_c=12405.8301 yr M=148.4452 (env M_acc 134.8781, star 148.4452) Mdot_env=4.879e-03 -> Mdot_star=3.903e-03 Msun/yr, next barrier in 304.2482 yr
+S7B-star j=369 t_c=12710.0783 yr M=149.6615 (env M_acc 134.8781, star 149.6615) Mdot_env=4.686e-03 -> Mdot_star=3.749e-03 Msun/yr, next barrier in 319.3748 yr
+S7B-star j=370 t_c=13029.4531 yr M=150.8880 (env M_acc 134.8781, star 150.8880) Mdot_env=4.499e-03 -> Mdot_star=3.599e-03 Msun/yr, next barrier in 335.3627 yr
+S7B-star j=371 t_c=13364.8158 yr M=152.1247 (env M_acc 134.8781, star 152.1247) Mdot_env=4.318e-03 -> Mdot_star=3.455e-03 Msun/yr, next barrier in 352.2662 yr
+S7B-star j=372 t_c=13717.0820 yr M=153.3716 (env M_acc 134.8781, star 153.3716) Mdot_env=4.144e-03 -> Mdot_star=3.315e-03 Msun/yr, next barrier in 370.1438 yr
+S7B-star j=373 t_c=14087.2258 yr M=154.6283 (env M_acc 134.8781, star 154.6283) Mdot_env=3.974e-03 -> Mdot_star=3.180e-03 Msun/yr, next barrier in 389.0569 yr
+S7B-star j=374 t_c=14476.2827 yr M=155.8956 (env M_acc 134.8781, star 155.8956) Mdot_env=3.811e-03 -> Mdot_star=3.049e-03 Msun/yr, next barrier in 409.0737 yr
+S7B-star j=375 t_c=14885.3564 yr M=157.1736 (env M_acc 134.8781, star 157.1736) Mdot_env=3.653e-03 -> Mdot_star=2.922e-03 Msun/yr, next barrier in 430.2663 yr
+ 2950 t=1.5044e+04 yr dt=1.092e+09 s M=157.4075 R=34.24 Rsun L*=4470202.270 Lacc=438364.54 Teff=9289 Ts=102321 tau=27.57 Tc=1.3783e+08 rho_c=4.645e+01 Tmax=1.378e+08@0.000 LD=6.81e+02 fD=0.0032 it=11 adv(cons 6.7e-16 cfl 8.4e+03 dT 1.2e-05) ledger(err/|terms| step -3.9e-03 cum 1.1e-02; W_d: step -2.8e-03 cum 7.3e-03 signed 6.9e-03) lim=0.020 rho@130 conv=0.000-0.369,1.000-1
+S7B-star j=376 t_c=15315.6227 yr M=158.4615 (env M_acc 134.8781, star 158.4615) Mdot_env=3.500e-03 -> Mdot_star=2.800e-03 Msun/yr, next barrier in 452.7090 yr
+S7B-star j=377 t_c=15768.3317 yr M=159.7601 (env M_acc 134.8781, star 159.7601) Mdot_env=3.353e-03 -> Mdot_star=2.682e-03 Msun/yr, next barrier in 476.4859 yr
+S7B-star j=378 t_c=16244.8176 yr M=161.0694 (env M_acc 134.8781, star 161.0694) Mdot_env=3.211e-03 -> Mdot_star=2.568e-03 Msun/yr, next barrier in 501.6849 yr
+S7B-star j=379 t_c=16746.5025 yr M=162.3894 (env M_acc 134.8781, star 162.3894) Mdot_env=3.073e-03 -> Mdot_star=2.459e-03 Msun/yr, next barrier in 528.4000 yr
+ 3000 t=1.7318e+04 yr dt=1.217e+09 s M=163.6248 R=27.85 Rsun L*=4534679.028 Lacc=456477.13 Teff=9608 Ts=110720 tau=24.91 Tc=1.3737e+08 rho_c=4.311e+01 Tmax=1.374e+08@0.000 LD=8.57e+02 fD=0.0018 it=8 adv(cons 1.0e-15 cfl 7.3e+03 dT 1.5e-05) ledger(err/|terms| step -8.1e-03 cum 9.6e-03; W_d: step -6.7e-03 cum 6.6e-03 signed 4.1e-03) lim=0.018 rho@130 conv=0.000-0.469,1.000-1
+S7B-star j=380 t_c=17274.9025 yr M=163.7200 (env M_acc 134.8781, star 163.7200) Mdot_env=2.941e-03 -> Mdot_star=2.353e-03 Msun/yr, next barrier in 556.7322 yr
+S7B-star j=381 t_c=17831.6347 yr M=165.0615 (env M_acc 134.8781, star 165.0615) Mdot_env=2.813e-03 -> Mdot_star=2.250e-03 Msun/yr, next barrier in 586.7908 yr
+S7B-star j=382 t_c=18418.4254 yr M=166.4141 (env M_acc 134.8781, star 166.4141) Mdot_env=2.690e-03 -> Mdot_star=2.152e-03 Msun/yr, next barrier in 618.6929 yr
+S7B-star j=383 t_c=19037.1183 yr M=167.7778 (env M_acc 134.8781, star 167.7778) Mdot_env=2.571e-03 -> Mdot_star=2.057e-03 Msun/yr, next barrier in 652.5632 yr
+ 3050 t=1.9151e+04 yr dt=1.009e+09 s M=167.8465 R=25.08 Rsun L*=4555469.530 Lacc=452294.71 Teff=9899 Ts=114023 tau=22.72 Tc=1.3686e+08 rho_c=4.090e+01 Tmax=1.369e+08@0.000 LD=8.59e+02 fD=0.0011 it=22 adv(cons 9.4e-16 cfl 5.1e+03 dT 1.5e-05) ledger(err/|terms| step -1.2e-02 cum 9.6e-03; W_d: step -1.1e-02 cum 6.9e-03 signed 2.0e-03) lim=0.013 rho@130 conv=0.000-0.509,1.000-1
+S7B-star j=384 t_c=19689.6815 yr M=169.1525 (env M_acc 134.8781, star 169.1525) Mdot_env=2.457e-03 -> Mdot_star=1.965e-03 Msun/yr, next barrier in 688.5365 yr
+S7B-star j=385 t_c=20378.2180 yr M=170.5386 (env M_acc 140.3467, star 170.5386) Mdot_env=2.183e-03 -> Mdot_star=1.867e-03 Msun/yr, next barrier in 781.3060 yr
+ 3100 t=2.0611e+04 yr dt=4.876e+08 s M=170.8340 R=24.38 Rsun L*=4554535.621 Lacc=428751.13 Teff=10102 Ts=112843 tau=20.71 Tc=1.3671e+08 rho_c=3.962e+01 Tmax=1.367e+08@0.000 LD=5.12e+02 fD=0.0007 it=8 adv(cons 1.3e-15 cfl 2.2e+03 dT 9.8e-06) ledger(err/|terms| step -1.6e-02 cum 1.0e-02; W_d: step -1.5e-02 cum 7.6e-03 signed 1.9e-04) lim=0.005 rho@130 conv=0.000-0.551,1.000-1
+S7B-star j=386 t_c=21159.5240 yr M=172.0372 (env M_acc 142.0521, star 172.0372) Mdot_env=2.183e-03 -> Mdot_star=1.774e-03 Msun/yr, next barrier in 788.1714 yr
+ 3150 t=2.1851e+04 yr dt=9.406e+08 s M=173.1542 R=24.63 Rsun L*=4540543.092 Lacc=396945.37 Teff=10240 Ts=109349 tau=18.85 Tc=1.3662e+08 rho_c=3.868e+01 Tmax=1.366e+08@0.000 LD=1.41e+03 fD=0.0006 it=8 adv(cons 6.1e-16 cfl 3.9e+03 dT 1.8e-05) ledger(err/|terms| step -1.9e-02 cum 1.1e-02; W_d: step -1.8e-02 cum 8.4e-03 signed -1.4e-03) lim=0.010 rho@130 conv=0.000-0.597,1.000-1
+S7B-star j=387 t_c=21947.6954 yr M=173.4731 (env M_acc 142.7505, star 173.4731) Mdot_env=2.183e-03 -> Mdot_star=1.746e-03 Msun/yr, next barrier in 794.7501 yr
+S7B-star j=388 t_c=22742.4454 yr M=174.8722 (env M_acc 142.7505, star 174.8722) Mdot_env=2.158e-03 -> Mdot_star=1.726e-03 Msun/yr, next barrier in 810.2998 yr
+ 3200 t=2.2905e+04 yr dt=4.302e+08 s M=175.0130 R=24.37 Rsun L*=4521832.787 Lacc=393443.80 Teff=10315 Ts=108916 tau=18.28 Tc=1.3637e+08 rho_c=3.781e+01 Tmax=1.364e+08@0.000 LD=5.23e+02 fD=0.0004 it=7 adv(cons 6.1e-16 cfl 1.7e+03 dT 1.2e-05) ledger(err/|terms| step -2.2e-02 cum 1.2e-02; W_d: step -2.1e-02 cum 9.3e-03 signed -2.7e-03) lim=0.004 rho@130 conv=0.000-0.597,1.000-1
+S7B-star j=389 t_c=23552.7452 yr M=176.2793 (env M_acc 142.7505, star 176.2793) Mdot_env=2.063e-03 -> Mdot_star=1.651e-03 Msun/yr, next barrier in 854.3801 yr
+ 3250 t=2.3829e+04 yr dt=4.845e+08 s M=176.6139 R=23.94 Rsun L*=4503055.139 Lacc=396345.19 Teff=10378 Ts=109457 tau=18.03 Tc=1.3623e+08 rho_c=3.716e+01 Tmax=1.362e+08@0.000 LD=7.48e+02 fD=0.0004 it=7 adv(cons 5.7e-16 cfl 1.9e+03 dT 1.5e-05) ledger(err/|terms| step -2.5e-02 cum 1.2e-02; W_d: step -2.4e-02 cum 1.0e-02 signed -3.9e-03) lim=0.004 rho@130 conv=0.000-0.597,1.000-1
+S7B-star j=390 t_c=24407.1252 yr M=177.7226 (env M_acc 142.7505, star 177.7226) Mdot_env=1.972e-03 -> Mdot_star=1.577e-03 Msun/yr, next barrier in 901.3029 yr
+ 3300 t=2.4651e+04 yr dt=5.455e+08 s M=177.9895 R=24.39 Rsun L*=4480573.619 Lacc=375515.88 Teff=10444 Ts=106615 tau=17.00 Tc=1.3634e+08 rho_c=3.681e+01 Tmax=1.363e+08@0.000 LD=1.02e+03 fD=0.0003 it=7 adv(cons 9.6e-16 cfl 2.0e+03 dT 1.7e-05) ledger(err/|terms| step -2.6e-02 cum 1.3e-02; W_d: step -2.5e-02 cum 1.1e-02 signed -5.0e-03) lim=0.004 rho@130 conv=0.000-0.646,1.000-1
+ 3350 t=2.5390e+04 yr dt=3.810e+08 s M=179.1779 R=24.67 Rsun L*=4454221.675 Lacc=359930.13 Teff=10514 Ts=104513 tau=16.20 Tc=1.3618e+08 rho_c=3.631e+01 Tmax=1.362e+08@0.000 LD=6.16e+02 fD=0.0003 it=10 adv(cons 7.3e-16 cfl 1.3e+03 dT 1.4e-05) ledger(err/|terms| step -2.8e-02 cum 1.4e-02; W_d: step -2.7e-02 cum 1.2e-02 signed -6.0e-03) lim=0.003 rho@130 conv=0.000-0.646,1.000-1
+
+[44991] signal 15: Terminated: 15
+in expression starting at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/s6b_run.jl:510
+__psynch_cvwait at /usr/lib/system/libsystem_kernel.dylib (unknown line)
+unknown function (ip: 0x0) at (unknown file)
+__psynch_cvwait at /usr/lib/system/libsystem_kernel.dylib (unknown line)
+unknown function (ip: 0x0) at (unknown file)
+__psynch_cvwait at /usr/lib/system/libsystem_kernel.dylib (unknown line)
+unknown function (ip: 0x0) at (unknown file)
+__psynch_cvwait at /usr/lib/system/libsystem_kernel.dylib (unknown line)
+unknown function (ip: 0x0) at (unknown file)
+__psynch_cvwait at /usr/lib/system/libsystem_kernel.dylib (unknown line)
+unknown function (ip: 0x0) at (unknown file)
++ at ./float.jl:495 [inlined]
+macro expansion at /Users/tabel/.julia/packages/ForwardDiff/wp23H/src/partials.jl:159 [inlined]
+add_tuples at /Users/tabel/.julia/packages/ForwardDiff/wp23H/src/partials.jl:210 [inlined]
++ at /Users/tabel/.julia/packages/ForwardDiff/wp23H/src/partials.jl:82 [inlined]
++ at /Users/tabel/.julia/packages/ForwardDiff/wp23H/src/dual.jl:503 [inlined]
++ at /Users/tabel/.julia/packages/ForwardDiff/wp23H/src/dual.jl:503 [inlined]
+fd at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StellarEOS.jl:129
+fgas at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StellarEOS.jl:213 [inlined]
+#branch_E#3 at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StellarEOS.jl:295
+branch_E at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StellarEOS.jl:284 [inlined]
+#gas_state#4 at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StellarEOS.jl:391
+gas_state at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StellarEOS.jl:385 [inlined]
+#11 at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StellarEOS.jl:424
+thermo at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StellarEOS.jl:435
+#eos#6 at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StellarEOS.jl:423 [inlined]
+eos at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StellarEOS.jl:420 [inlined]
+material_thermo at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StarMaterial.jl:163
+unknown function (ip: 0x12d54c617) at (unknown file)
+residual! at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/TitanResidFast.jl:770
+_assemble! at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/TitanResidFast.jl:1057
+unknown function (ip: 0x12d098baf) at (unknown file)
+#assemble!#38 at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/TitanResidFast.jl:1043
+assemble! at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/TitanResidFast.jl:1041 [inlined]
+#matgen!#42 at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/TitanResidFast.jl:1099 [inlined]
+matgen! at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/TitanResidFast.jl:1099 [inlined]
+#install_julia!##0 at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/ProblemSetup.jl:149
+unknown function (ip: 0x12cf400ff) at (unknown file)
+r at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/TitanDriver.jl:46
+step! at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/TitanDriver.jl:128
+#solve_step!#22 at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StarMaterial.jl:421
+unknown function (ip: 0x12c935697) at (unknown file)
+solve_step! at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/StarMaterial.jl:413
+unknown function (ip: 0x12c8ec143) at (unknown file)
+robust_step! at /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-a5ea8b87f9981e927/julia/s6b_run.jl:318
+unknown function (ip: 0x12c83dbff) at (unknown file)
+jl_apply at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/./julia.h:2391 [inlined]
+do_call at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/interpreter.c:123
+eval_stmt_value at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/interpreter.c:194
+eval_body at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/interpreter.c:689
+eval_body at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/interpreter.c:558
+jl_interpret_toplevel_thunk at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/interpreter.c:898
+jl_toplevel_eval_flex at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/toplevel.c:1035
+jl_toplevel_eval_flex at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/toplevel.c:975
+ijl_toplevel_eval at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/toplevel.c:1047 [inlined]
+ijl_toplevel_eval_in at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/toplevel.c:1092
+eval at ./boot.jl:489
+include_string at ./loading.jl:2874
+_include at ./loading.jl:2934
+include at ./Base.jl:307
+IncludeInto at ./Base.jl:308
+jfptr_IncludeInto_63486.1 at /Users/tabel/.julia/juliaup/julia-1.12.6+0.aarch64.apple.darwin14/lib/julia/sys.dylib (unknown line)
+jl_apply at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/./julia.h:2391 [inlined]
+do_call at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/interpreter.c:123
+eval_stmt_value at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/interpreter.c:194
+eval_body at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/interpreter.c:689
+jl_interpret_toplevel_thunk at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/interpreter.c:898
+jl_toplevel_eval_flex at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/toplevel.c:1035
+jl_toplevel_eval_flex at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/toplevel.c:975
+ijl_toplevel_eval at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/toplevel.c:1047 [inlined]
+ijl_toplevel_eval_in at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/toplevel.c:1092
+eval at ./boot.jl:489
+include_string at ./loading.jl:2874
+_include at ./loading.jl:2934
+include at ./Base.jl:306
+exec_options at ./client.jl:317
+_start at ./client.jl:550
+jfptr__start_29115.1 at /Users/tabel/.julia/juliaup/julia-1.12.6+0.aarch64.apple.darwin14/lib/julia/sys.dylib (unknown line)
+jl_apply at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/./julia.h:2391 [inlined]
+true_main at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/jlapi.c:971
+jl_repl_entrypoint at /Users/julia/.julia/scratchspaces/a66863c6-20e8-4ff4-8a62-49f30b1f605e/agent-cache/default-honeycrisp-HL2F7YQ3XH.0/build/default-honeycrisp-HL2F7YQ3XH-0/julialang/julia-release-1-dot-12/src/jlapi.c:1139
+unknown function (ip: 0x0) at (unknown file)
+Allocations: 1547037348 (Pool: 1547032722; Big: 4626); GC: 6272
+S7B-star j=391 t_c=25308.4282 yr M=179.1779 (env M_acc 142.7505, star 179.1779) Mdot_env=1.884e-03 -> Mdot_star=1.507e-03 Msun/yr, next barrier in 951.1486 yr
