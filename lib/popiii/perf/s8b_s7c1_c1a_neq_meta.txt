@@ -1,0 +1,12 @@
+cpu = apple-m1 (6 hw threads)
+date = 2026-10-23 03:32:34
+file = env_snap_00026.jls
+git = 3735afe
+host = PHY-FD69NP6NG2
+julia = 1.12.6
+julia_threads = 1
+lya = none
+neq = true
+run = s8b_s7c1_c1a_neq
+stage = hi21_snap
+wall_s = 3.244

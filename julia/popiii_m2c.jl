@@ -363,6 +363,9 @@ using Serialization
 const SNAPFILE = joinpath(TF.ROOT, "lib", "popiii", "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(get(ENV, "TAG", "")).jls")
 const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
 const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(ENV, "SNAPEVERY", "0"))
+const HI21ON = get(ENV, "HI21", "0") == "1"; const HI21N = parse(Int, get(ENV, "HI21EVERY", "200"))   # S8b (opt-in): 21 cm diagnostic (HI21.jl) every HI21EVERY steps -> lib/popiii/hi21_<run>.csv
+HI21ON && include(joinpath(@__DIR__, "HI21.jl"))
+HI21ON && HI21.open_inline!(joinpath(TF.ROOT, "lib", "popiii"), get(ENV, "HI21RUN", "m2c_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(get(ENV, "TAG", ""))"); Tcmb = parse(Float64, get(ENV, "TCMB", "54.5")))
 # NLTE (line source functions): 1 = GP98/HM79 factor on S (old default), 0 = LTE, ep = statistical equilibrium with escape
 # probabilities (H2Levels), ali = statistical equilibrium coupled to the transfer (ALI, G6c), hyb = ALI every NALI steps
 # and EP × (ALI/EP per zone, from the last ALI) in between, the interval adaptive (see linecool)
@@ -479,6 +482,7 @@ try
                 serialize(SNAPFILE, SNAPS)
             end
         end
+        HI21ON && k % HI21N == 0 && HI21.inline!(k, TF.getscalar(:timen), TF.var(:rn)[a:b+1], TF.var(:un)[a:b+1], TF.var(:dn)[a:b], TF.var(:tn)[a:b], [ycomp(a + j - 1) for j in 1:nsh], 4π .* TX.XMINT[][a:b+1])
         if cool == "lines"
             # H₂ line transfer on the new state (RHFC02 A2.4); Λ held fixed over the next step; Δt ≤ 0.1 u ρ/|Λ| (A2.2)
             rr = TF.var(:rn)[a:b+1]; uu = TF.var(:un)[a:b+1]; dd = TF.var(:dn)[a:b]; tt = TF.var(:tn)[a:b]

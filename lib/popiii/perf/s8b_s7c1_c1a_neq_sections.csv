@@ -1,0 +1,3 @@
+section,calls,total_s,mean_ms,frac_of_wall,alloc_MB
+lya,11,0.159854,14.532189,0.04928,132.958
+hi21,11,1.789157,162.650625,0.55155,441.934

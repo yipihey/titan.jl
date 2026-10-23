@@ -120,6 +120,9 @@ tests = Test[
     # --- S7c-2: Lyman-series scattering of H I (Kramers-Heisenberg, Voigt cores) and the trapped-Lyα radiation force (MT08) ------------------------
     Test("s7c2", env(julia(joinpath(J, "s7c2_test.jl"); t = 3), "TITAN_NOLIB" => "1"), "full",
          o -> (occursin("S7C2: ALL PASS", o), grab(r"S7C2[^\n]*", o))),
+    # --- S8b: 21 cm hyperfine line diagnostic (HI21.jl): κ10 tables, T_s limits, Wouthuysen–Field, IGM global signal, ray tracing -------------------
+    Test("s8b", julia(joinpath(J, "s8b_test.jl")), "full",
+         o -> (occursin("S8B: ALL PASS", o), grab(r"S8B[^\n]*", o))),
 ]
 
 sel = filter(t -> tier == "full" || t.tier == "quick", tests)

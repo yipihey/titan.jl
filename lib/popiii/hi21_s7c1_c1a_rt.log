@@ -1,0 +1,23 @@
+env_snap_00026.jls: 11 snapshots; T_CMB = 54.50 K, z = 19, Lyα = rt
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 3.9, L* = 9.07e+02 L☉, Q_ion* = 1.60e+41 s⁻¹, escaping the inner column 0.00e+00
+  1 step      0  log n_c  11.23 T_c     1296  M_HI   7490.55 Msun  <Ts>_m    591.8 K (<Tk>_m    726.0)  max tau21 4.089e+02  dTb(disc)     0.000 ..  375.629 mK  centre     0.000 .. 62084.787  EW 2.381e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 7.7, L* = 2.83e+03 L☉, Q_ion* = 8.99e+41 s⁻¹, escaping the inner column 0.00e+00
+  2 step      0  log n_c  10.57 T_c     1177  M_HI   7488.11 Msun  <Ts>_m    591.7 K (<Tk>_m    726.0)  max tau21 3.413e+02  dTb(disc)     0.000 ..  375.520 mK  centre     0.000 .. 56393.801  EW 2.381e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 14.9, L* = 1.61e+04 L☉, Q_ion* = 3.36e+42 s⁻¹, escaping the inner column 0.00e+00
+  3 step      0  log n_c   9.80 T_c     1174  M_HI   7483.00 Msun  <Ts>_m    591.7 K (<Tk>_m    726.0)  max tau21 1.500e+02  dTb(disc)     0.000 ..  375.536 mK  centre     0.000 .. 62781.794  EW 2.381e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 25.0, L* = 1.85e+05 L☉, Q_ion* = 1.86e+39 s⁻¹, escaping the inner column 0.00e+00
+  4 step      0  log n_c   9.21 T_c     1387  M_HI   7474.41 Msun  <Ts>_m    591.4 K (<Tk>_m    726.0)  max tau21 6.808e+01  dTb(disc)     0.000 ..  375.481 mK  centre     0.000 .. 66611.794  EW 2.381e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 34.7, L* = 3.92e+05 L☉, Q_ion* = 4.77e+45 s⁻¹, escaping the inner column 0.00e+00
+  5 step      0  log n_c   8.81 T_c     1279  M_HI   7466.42 Msun  <Ts>_m    591.2 K (<Tk>_m    725.9)  max tau21 4.680e+01  dTb(disc)     0.000 ..  375.448 mK  centre     0.000 .. 61205.506  EW 2.381e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 49.5, L* = 6.49e+05 L☉, Q_ion* = 1.98e+48 s⁻¹, escaping the inner column 0.00e+00
+  6 step      0  log n_c   8.32 T_c     1011  M_HI   7455.29 Msun  <Ts>_m    595.0 K (<Tk>_m    725.8)  max tau21 3.265e+01  dTb(disc)     0.000 ..  376.083 mK  centre     0.000 .. 48124.175  EW 2.383e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 70.2, L* = 1.26e+06 L☉, Q_ion* = 3.30e+49 s⁻¹, escaping the inner column 0.00e+00
+  7 step      0  log n_c   7.82 T_c     1109  M_HI   7439.86 Msun  <Ts>_m    647.5 K (<Tk>_m    725.8)  max tau21 1.968e+01  dTb(disc)     0.000 ..  378.349 mK  centre     0.000 .. 53122.721  EW 2.402e+03  t_eq/t_ff max  6.6e-07  theta 2.01e-02"
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 94.1, L* = 2.09e+06 L☉, Q_ion* = 1.13e+50 s⁻¹, escaping the inner column 0.00e+00
+  8 step      0  log n_c   7.31 T_c     3392  M_HI   7423.13 Msun  <Ts>_m    683.8 K (<Tk>_m    726.1)  max tau21 1.380e+01  dTb(disc)     0.000 ..  379.863 mK  centre     0.000 .. 143522.609  EW 2.410e+03  t_eq/t_ff max  3.3e-07  theta 2.01e-02"
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 110.4, L* = 2.94e+06 L☉, Q_ion* = 1.57e+50 s⁻¹, escaping the inner column 0.00e+00
+  9 step      0  log n_c   6.96 T_c     1322  M_HI   7412.51 Msun  <Ts>_m    700.1 K (<Tk>_m    719.6)  max tau21 9.296e+00  dTb(disc)     0.000 ..  380.969 mK  centre     0.000 .. 63292.794  EW 2.406e+03  t_eq/t_ff max  1.5e-07  theta 2.01e-02"
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 134.6, L* = 3.98e+06 L☉, Q_ion* = 1.16e+50 s⁻¹, escaping the inner column 0.00e+00
+ 10 step      0  log n_c   7.03 T_c     1690  M_HI   7398.37 Msun  <Ts>_m    708.1 K (<Tk>_m    718.1)  max tau21 6.086e+00  dTb(disc)     0.000 ..  381.837 mK  centre     0.000 .. 67262.104  EW 2.408e+03  t_eq/t_ff max  7.5e-08  theta 2.01e-02"
+   RT Lyα bin 55: ν = 2.4038e+15 Hz (Lyα 2.4661e+15); star M = 170.5, L* = 4.56e+06 L☉, Q_ion* = 3.24e+50 s⁻¹, escaping the inner column 0.00e+00
+ 11 step      0  log n_c   5.39 T_c     8360  M_HI   7329.19 Msun  <Ts>_m    726.9 K (<Tk>_m    860.9)  max tau21 1.046e+00  dTb(disc)     0.000 ..  376.032 mK  centre     0.000 .. 45066.753  EW 2.399e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"

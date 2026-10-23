@@ -1,0 +1,5 @@
+snaps_abn02z19_lines_n200_final2.jls: 67 snapshots; T_CMB = 54.50 K, z = 19, Lyα = scan:1
+ 22 step   7772  log n_c   8.40 T_c      676  M_HI   7495.62 Msun  <Ts>_m    597.5 K (<Tk>_m    730.0)  max tau21 1.777e+01  dTb(disc)     0.000 ..  371.654 mK  centre     0.000 .. 30392.717  EW 2.375e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"
+ 44 step   8894  log n_c  13.97 T_c     1749  M_HI   7493.39 Msun  <Ts>_m    594.6 K (<Tk>_m    726.4)  max tau21 3.949e+02  dTb(disc)     0.000 ..  372.364 mK  centre     0.000 .. 84070.915  EW 2.371e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"
+ 66 step   9656  log n_c  19.55 T_c     4891  M_HI   7493.33 Msun  <Ts>_m    594.3 K (<Tk>_m    726.2)  max tau21 1.388e+06  dTb(disc)     0.000 ..  372.875 mK  centre     0.000 .. 240074.996  EW 2.370e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"
+ 67 step   9699  log n_c  19.80 T_c     5487  M_HI   7493.33 Msun  <Ts>_m    594.3 K (<Tk>_m    726.2)  max tau21 1.923e+06  dTb(disc)     0.000 ..  372.798 mK  centre     0.000 .. 268754.120  EW 2.370e+03  t_eq/t_ff max  1.2e-06  theta 2.01e-02"

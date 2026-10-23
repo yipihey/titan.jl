@@ -1,0 +1,12 @@
+cpu = apple-m1 (6 hw threads)
+date = 2026-10-23 03:31:59
+file = snaps_abn02z19_lines_n200_final2.jls
+git = 3735afe
+host = PHY-FD69NP6NG2
+julia = 1.12.6
+julia_threads = 1
+lya = scan:1
+neq = false
+run = s8b_abn02z19_final2_lya1
+stage = hi21_snap
+wall_s = 3.217

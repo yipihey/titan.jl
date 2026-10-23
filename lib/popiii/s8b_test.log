@@ -1,0 +1,21 @@
+PASS  a1 published values          worst relative deviation 1.6e-15 over 10 values (κ_HH(88 K) = 1.092e-10, used in FOB06 eq. 67)
+PASS  a2 table interpolation       monotonic; log-log interpolation inside the rows; clamped outside (HH above 1e4 K, eH/pH above 2e4 K, all below 1 K)
+PASS  a3 species ordering          κeH/κHH = 259, 19, 18, 11 at 10, 100, 1e3, 1e4 K; κpH/κHH = 2.15 at 1e4 K, 128 at 10 K
+PASS  b1 no coupling               T_s = T_γ = 54.5000 K; with a radio excess Ar = 0.1 K at 78 MHz: T_γ = 57.071 K and T_s = 57.071 K
+PASS  b2 collisions dominate       n_H = 1e8 cm⁻³: x_c = 9.17e+09, T_s = 300.00000 K (T_k = 300.0)
+PASS  b3 Lyα dominates             P_α = 1e-4 s⁻¹ (actual line intensity), T_c = 20 K, T_k = 300 K: x_α = 6.50e+06, T_s = 20.00000 K
+PASS  b4 Lyα continuum             continuum Lyα: T_s = 300.000 K (T_k), T_c^eff = 300.00 K, S̃_α = 0.9697
+PASS  b5 explicit rates            linearised vs explicit: worst 1.2e-03 (T*/T_γ = 1.3e-03); detailed balance: CMB only 1.1e-13, collisions only 6.0e-13
+PASS  b6 relaxation                T_s(∞) = 16.7457 K (linear 16.7080); one e-fold after t_eq = 7.334e+10 s; CMB-only t_eq = 1.098e+11 s = 3478 yr (z = 19)
+PASS  c1 critical flux             J_αC(z = 19) = 1.1077e-10 (PL12: 1.165e-10; ∫σ dν = 1.1052e-02 cm² Hz = π e² f/m_e c with f = 0.4162)
+PASS  c2 P_α ↔ Hirata x̃_α          x_α = 2.70843e-01 from P_α = 4.166e-12 s⁻¹; Hirata eq. 38: 2.70843e-01 (λ, γ = A_α/4π = 4.985e+07 Hz)
+PASS  c3 S̃_α fit                   S̃_α(T_k = T_s = 100 K, τ_GP = 2e6) = 0.9234 (CM04 fit 0.9541); at 5 K 0.5794 (0.7075); at 1e4 K 0.9962
+PASS  c4 T_c, fixed point          T_c^eff(T_k = 100, T_s = 20) = 98.40 K; implicit T_s = 42.26298 K (x_α = 1.038e-01, S̃ = 0.7983), residual 1.3e-13
+PASS  d1 dark-age absorption       z = 69 (1+z = 70), T_k = 88.4 K (FOB06: 88 K), n_H = 6.483e-02: x_c = 0.895, T_s = 123.4 K, T_γ = 190.8 K, τ = 0.0399, δT_b = -37.6 mK (published peak ≈ −40 mK, FOB06 Fig. 6b / PL12 Fig. 3)
+PASS  d2 z = 19 IGM                z = 19, T_k = 7.22 K, x_c = 8.70e-04: without Lyα T_s = 54.20 K, δT_b = -0.21 mK (collisions decoupled); fully Lyα-coupled T_s = T_k: δT_b = -234.1 mK (τ = 0.104; thin form -246.5 mK) against PL12 eq. 7 (27 mK coefficient): -248.0 mK
+PASS  e1 static sphere             T_b(v) of the rays p/R = 0, 0.3, 0.6, 0.9 vs T_γ e^-τ + T_s (1 - e^-τ), τ = κ0 φ_v 2√(R²-p²) (max τ 0.24): worst relative deviation of δT 4.7e-09
+PASS  e2 thin sphere, disc mean    area-weighted δT(v=0) = -5.5119e-10 K vs analytic -5.5114e-10 (rel. 8.8e-05); equivalent width rel. 1.2e-03 (300 rays, 49 velocity bins)
+PASS  e3 Sobolev limit             τ_S = 0.082: T_b(v=0) = 51.7891 vs 51.7891; τ_S = 3.273: T_b(v=0) = 21.3067 vs 21.3068 (b/H = 1.3e+19 cm = 4.3e-03 R)
+PASS  e4 mirror symmetry           infall vs outflow (3 km/s at the edge) with v → −v: max |ΔT_b| = 0.0e+00 K
+PASS  f1 snapshot z = 19           final2 snapshot: T_s between min/max(T_k, T_γ) in all 200 zones; n_HI max 3.01e+19 → T_s = 5487.5 K (T_k = 5487.5), outer zone T_s = 608.46 K (T_k = 1010.2, T_γ = 54.5), max τ21 = 1.92e+06, t_eq/t_ff: 1.2e-06 (outer) … 6.5e-17 (centre)
+S8B: ALL PASS
