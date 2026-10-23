@@ -168,6 +168,37 @@ function test_e()
         push!(out, @sprintf("N_H = %.0e: M_F = %.1f (momentum balance; events %.1f) [D&L08 %.1f, MT08 %.1f, 3.51(aτ0)^(1/3) = %.1f]", NH, MFpi, MF, dl, mt, 3.51 * (L.damp(T) * NH * s0)^(1 / 3))); ok &= 0.25 < MFpi / dl < 6 && abs(MFpi / MF - 1) < 0.5
     end
     check("e2 force multiplier of a static shell", ok, join(out, "; ") * "; the cavity returns the reflected photons to the shell (N_H = 1e19: 18 crossings of the inner face per photon), M_F is 1.5-4× the D&L08 fit")
+    # e3: uniform sphere, central line-centre source: full diffusion solution of Tomaselli & Ferrara (2021) eq. 13 (not the asymptote 3.51 (aτ0)^{1/3}, valid only for aτ0 >> 1e4), T = 100 K, τ0 = 1e6 (aτ0 = 4.7e3)
+    T3 = 100.0; τ3 = 1e6; a3 = L.damp(T3); R = 1e18; nz = 40; r = collect(range(0, R, length = nz + 1))
+    Z = L.build_zones(r, fill(τ3 / (L.sig0(T3) * R), nz), fill(T3, nz), zeros(nz + 1))
+    res = L.run(Z, [L.src_point(1.0; npk = 1000)]; nbatch = 8, opts = L.Opts(wmax = 3e9, nbw = 40))
+    xg = collect(range(0, 200, length = 200001)); hx = xg[2] - xg[1]; gg = [1 / (sqrt(1.5) * L.voigt(a3, x)) for x in xg]; sg = zeros(length(xg))
+    for i in 2:length(xg); sg[i] = sg[i-1] + 0.5 * (gg[i] + gg[i-1]) * hx; end
+    ff = [s == 0 ? 20.0 : atanh(exp(-sqrt(π) * s / τ3)) for s in sg]; ff[1] = ff[2]
+    MFtf = 2 * (4 / π) * sqrt(2 / 3) * sum((ff[1:end-1] .+ ff[2:end]) .* hx ./ 2); MFmc = sum(res.force) * cE
+    check("e3 uniform sphere vs Tomaselli & Ferrara", abs(MFmc / MFtf - 1) < 0.2, @sprintf("M_F = %.1f (events %.1f) vs diffusion eq. 13 = %.1f (asymptote 3.51(aτ0)^{1/3} = %.1f); T = 100 K, τ0 = 1e6", MFmc, sum(res.force_event) * cE, MFtf, 3.51 * (a3 * τ3)^(1 / 3)))
+    # e4: independent plane-parallel re-implementation: thin shell + empty cavity = slab of column N_H with a specular mirror at z = 0 (a cavity chord returns the photon at the same |μ| and frequency); only the atom kernel
+    # (scatter_x, tested in a) and the Voigt function are shared. M_F = Σ over scatterings of (μ_in − μ_out) per photon. Gaussian (σ = 50 km/s) source as in Dijkstra & Loeb (2008), N_H = 1e19.
+    NH = 1e19; a4 = L.damp(T); g4 = L.recoil_g(T); xfs = L.DFS / L.dopp(T); b4 = L.bth(T); τ04 = NH * L.sig0(T); nb = 8; dep = zeros(nb)
+    Threads.@threads for ib in 1:nb
+        rng = Xoshiro(11 * 7919 + ib)
+        for _ in 1:50
+            x = randn(rng) * 5e6 / b4; z = 0.0; μ = 1.0; d = 0.0
+            while true
+                zn = z + μ * (-log(1 - rand(rng))) / L.voigt(a4, x)
+                if zn < 0; z = 0.0; μ = -μ; continue; end
+                zn > τ04 && break
+                z = zn; xo, μs = L.scatter_x(rng, x, a4, g4, xfs); s2 = sqrt(max(1 - μs * μs, 0.0))
+                μn = clamp(μs * μ + s2 * sqrt(max(1 - μ * μ, 0.0)) * cos(2π * rand(rng)), -1.0, 1.0); d += μ - μn; x = xo; μ = μn
+            end
+            dep[ib] += d
+        end
+    end
+    m4 = sum(dep) / (50nb); e4 = sqrt(sum((dep ./ 50 .- m4) .^ 2) / (nb - 1) / nb)
+    Zs = L.build_zones(vcat([0.0], collect(range(3e18 - 3e16, 3e18, length = 4))), vcat(0.0, fill(NH / 3e16, 3)), fill(T, 4), zeros(5))
+    rs = L.run(Zs, [L.src_shell(0.0, 1.0, collect(range(-2.5e7, 2.5e7, length = 41)), [exp(-0.5 * (x / 5e6)^2) for x in range(-2.4375e7, 2.4375e7, length = 40)]; npk = 800)]; nbatch = 8, opts = L.Opts(wmax = 3e9, nbw = 40))
+    MFs = sum(rs.force[2:end]) * cE
+    check("e4 shell = mirrored slab (independent code)", abs(MFs / m4 - 1) < 0.15, @sprintf("N_H = 1e19, Gaussian σ = 50 km/s source: LyaMC shell %.1f vs plane-parallel mirror slab %.1f ± %.1f (D&L08 Fig. 6 reads ≈ 10: not reproduced; with the line-centre source 40 vs 41)", MFs, m4, e4))
 end
 
 # ====================================================================== f
