@@ -1,0 +1,17 @@
+args = lines 100
+chem = rhfc02
+cpu = apple-m1 (6 hw threads)
+date = 2026-10-21 21:55:58
+driver = popiii_m2c.jl
+git = 8417fb2
+host = PHY-FD69NP6NG2
+ic = p100
+integrator = trbdf2
+julia = 1.12.6
+julia_threads = 4
+nlte = 1
+run = perf_p100chk
+sink = 0
+stage = collapse
+tag = _e2echk
+wall_s = 167.527

@@ -1,0 +1,17 @@
+args = lines 200
+chem = netatomicli
+cpu = apple-m1 (6 hw threads)
+date = 2026-10-22 05:07:57
+driver = popiii_m2c.jl
+git = 8417fb2
+host = PHY-FD69NP6NG2
+ic = abn02z19
+integrator = trbdf2
+julia = 1.12.6
+julia_threads = 4
+nlte = hyb
+run = e2e_collapse
+sink = 0
+stage = collapse
+tag = _e2e_abn02z19_nofb_c1
+wall_s = 9236.550

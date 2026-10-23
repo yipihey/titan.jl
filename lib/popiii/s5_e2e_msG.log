@@ -1,0 +1,10 @@
+S5 star: M = 261.9 Msun, X = 0.750, R0 = 6.500 Rsun, n = 140 (env 60, qsplit 0.05), integrator theta, theta 1.00, alpha_MLT 1.50, tol 0.01, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = NaN, rho_c = 32.052, T_c = 1.3801e+08 K
+restarted from e2e_msF_ck at step 177, t = 1.34767e+04 yr
+start of evolution: R = 7.8864 Rsun, log L = 6.8105, log Teff = 5.01552, Tc = 1.3587e+08, rho_c = 27.058, L_nuc(X0)/L = 0.9409
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+   100 1.3988e+04 5.852e+01   7.6617   6.8017   5.01958   1.35945   27.0491   1.0164   0.74085  0.69998  1.33e-09  13 2 |   1.1e-03  2.03e-04  1.14e-03  0.9774 5.439e+03
+   150 1.6995e+04 7.559e+01   7.0039   6.7774   5.03300   1.35711   26.7177   1.0760   0.74135  0.75371  1.21e-09  11 1 |   9.8e-04  2.16e-04  9.76e-04  0.9654 6.032e+03
+   200 3.2937e+04 5.080e+02   6.9424   6.7550   5.02931   1.33833   25.4970   0.9918   0.73752  0.88815  1.46e-09  10 2 |   5.9e-04  5.42e-04  5.90e-04  0.8509 4.957e+03
+   step rejected: source/network mismatch 0.025 (zone-wise 5.0e-02 of the zone energy) after 4 iterations at dt = 4.038e+02 yr, retry with dt x 0.3
+   250 7.0500e+04 7.574e+02   7.1312   6.7566   5.02388   1.32029   24.3849   0.9936   0.72835  0.86375  1.83e-09  12 3 |   3.5e-04  9.18e-04  3.49e-04  0.8977 4.973e+03

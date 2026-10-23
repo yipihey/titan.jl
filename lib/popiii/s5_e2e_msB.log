@@ -1,0 +1,31 @@
+S5 star: M = 261.9 Msun, X = 0.750, R0 = 6.500 Rsun, n = 140 (env 60, qsplit 0.05), integrator theta, theta 1.00, alpha_MLT 1.50, tol 0.03, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = NaN, rho_c = 32.052, T_c = 1.3801e+08 K
+== relaxation of the initial model (burning off, dt = 1.3x per step up to 3 t_dyn = 4.39e+04 s, t_dyn = 1.46e+04 s)
+relax     1 t=1.0000e+00 s dt=1.000e+00 s R=28.0446 logL=8.9708 logTeff=5.28009 Tc=1.3801e+08 rho_c=32.052 max|u|/cs=1.68e-01 iter=6
+relax     2 t=2.5000e+00 s dt=1.500e+00 s R=28.0446 logL=8.9471 logTeff=5.27418 Tc=1.3801e+08 rho_c=32.052 max|u|/cs=1.69e-01 iter=8
+relax     3 t=4.7500e+00 s dt=2.250e+00 s R=28.0447 logL=8.9268 logTeff=5.26910 Tc=1.3801e+08 rho_c=32.052 max|u|/cs=1.70e-01 iter=3
+relax    50 t=1.1067e+06 s dt=4.394e+04 s R=28.0819 logL=6.9055 logTeff=4.76350 Tc=1.3801e+08 rho_c=32.054 max|u|/cs=1.58e-03 iter=2
+relaxed at step 57: t = 1.414e+06 s = 96.5 t_dyn, max|u|/c_s = 9.52e-04
+start of evolution: R = 28.0940 Rsun, log L = 6.9079, log Teff = 4.76401, Tc = 1.3801e+08, rho_c = 32.054, L_nuc(X0)/L = 1.0912
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+-- ZAMS (L_surface/<L_nuc> = 0.9843 over the last 10 steps): t = 3.0672e-01 yr, R = 28.1095 Rsun, log L = 6.9115, log Teff = 4.76476, T_c = 1.3801e+08 K, rho_c = 32.053, X_c = 0.74258, M_cc/M = 0.3147, X_CNO,c = 1.51e-09
+   100 3.4799e+02 2.721e+01  24.4314   6.8889   4.78957   1.37206   31.3096   1.0077   0.74238  0.46945  1.54e-09   5 2 |   8.6e-04  1.38e-05  8.64e-04  0.9922 4.022e+03
+   150 2.5986e+03 6.014e+01  17.4824   6.8626   4.85569   1.35804   29.4343   1.0869   0.74188  0.50852  1.52e-09   8 1 |   1.4e-03  2.05e-04  1.41e-03  0.9904 4.511e+03
+   200 6.1841e+03 8.165e+01  12.9337   6.8439   4.91644   1.35345   28.0431   1.0714   0.74099  0.55082  1.52e-09   9 1 |   1.8e-03  2.25e-04  1.80e-03  0.9894 4.769e+03
+   250 1.0172e+04 8.386e+01   9.6663   6.8267   4.97536   1.35774   27.4546   1.0437   0.74092  0.64624  1.40e-09  11 1 |   1.5e-03  2.30e-04  1.46e-03  0.9831 5.042e+03
+   300 1.5389e+04 1.456e+02   7.2941   6.7943   5.02842   1.35453   26.6427   1.0374   0.74085  0.69998  1.29e-09  14 2 |   1.2e-03  2.63e-04  1.17e-03  0.9767 5.452e+03
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 58, t = 5.928943714478): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 58, t = 5.927448245984): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 58, t = 5.926999605435): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 58, t = 5.926865013271): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 58, t = 5.926824635622): retry with dt x 0.3
+   step failed (TITAN step01: failure to converge after 6 attempts (jstep 58, t = 5.926812522327): retry with dt x 0.3
+   step rejected: source/network mismatch 2.656 (zone-wise 6.6e-03 of the zone energy) after 4 iterations at dt = 3.159e-01 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.598 (zone-wise 1.8e-03 of the zone energy) after 4 iterations at dt = 9.476e-02 yr, retry with dt x 0.3
+STOPPED at step 315: robust_step!: 8 attempts failed
+final: t = 1.8781e+04 yr, R = 6.7971 Rsun, log L = 6.7650, log Teff = 5.03642, T_c = 1.35094e+08 K, rho_c = 26.3054, L_nuc/L = 52326.5037, X_c = 0.74159, M_cc/M = 1.0000; 315 steps (57 relax), 390.6 s wall
+ledger: sum E_bur = 1.4453e+52 erg, sum Fout dt = 1.5295e+52, E_tot change = -8.2302e+50; closure (dE - (Ebur - Fout))/sum|Ebur| = 1.318e-03; splitting correction sum|Ebur-Einj|/sum|Ebur| = 2.919e-04; hydro-step energy error sum|err|/sum|Ebur| = 9.955e-04
+ZAMS: t = 3.0672e-01 yr, R = 28.1095 Rsun, log L = 6.9115, log Teff = 4.76476, T_c = 1.3801e+08 K, rho_c = 32.053, X_c = 0.74258, M_cc/M = 0.3147, X_CNO,c = 1.51e-09 (step 73)
+H-burning lifetime from the ZAMS to X_c = 7.4e-01: tau_H = 1.8781e+04 yr (1.8781e+04 yr from the start of the evolution)
+centre MLT: L_conv/L_nuc(<r) [Lsun] at the first 4 interfaces: 1.063e+04/2.754e+08  2.195e+04/5.719e+08  3.403e+04/8.913e+08  4.695e+04/1.236e+09;  L_conv(1)/L_conv(2) = 0.484 (r^3 law: 0.480)
+integrator stats: theta

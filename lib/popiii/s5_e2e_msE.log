@@ -1,0 +1,28 @@
+S5 star: M = 261.9 Msun, X = 0.750, R0 = 6.500 Rsun, n = 140 (env 60, qsplit 0.05), integrator theta, theta 1.00, alpha_MLT 1.50, tol 0.03, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = NaN, rho_c = 32.052, T_c = 1.3801e+08 K
+== relaxation of the initial model (burning off, dt = 1.3x per step up to 3 t_dyn = 4.39e+04 s, t_dyn = 1.46e+04 s)
+relax     1 t=1.0000e+00 s dt=1.000e+00 s R=28.0446 logL=8.9709 logTeff=5.28012 Tc=1.3801e+08 rho_c=32.052 max|u|/cs=1.50e-01 iter=6
+relax     2 t=2.5000e+00 s dt=1.500e+00 s R=28.0446 logL=8.9657 logTeff=5.27883 Tc=1.3801e+08 rho_c=32.052 max|u|/cs=1.51e-01 iter=9
+relax     3 t=4.7500e+00 s dt=2.250e+00 s R=28.0447 logL=8.9685 logTeff=5.27952 Tc=1.3801e+08 rho_c=32.052 max|u|/cs=1.51e-01 iter=3
+relax    50 t=1.0855e+06 s dt=4.206e+04 s R=27.2730 logL=7.8653 logTeff=5.00979 Tc=1.3802e+08 rho_c=32.062 max|u|/cs=1.84e-03 iter=2
+relaxed at step 72: t = 2.009e+06 s = 143.9 t_dyn, max|u|/c_s = 9.28e-04
+start of evolution: R = 27.1940 Rsun, log L = 7.2219, log Teff = 4.84956, Tc = 1.3803e+08, rho_c = 32.064, L_nuc(X0)/L = 0.5304
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+   100 3.2527e+01 7.995e+00  26.4289   6.9628   4.79100   1.38015   32.0346   1.1520   0.74256  0.46945  1.52e-09   6 2 |   5.3e-04  1.00e-05  5.34e-04  0.9924 1.877e+03
+   150 1.5846e+03 4.876e+01  18.4317   6.8949   4.85227   1.36815   30.4235   1.0941   0.74232  0.50852  1.49e-09   8 1 |   1.6e-03  1.91e-04  1.59e-03  0.9906 4.227e+03
+   200 4.1837e+03 4.739e+01  13.5809   6.8668   4.91157   1.35878   28.8303   1.1251   0.74174  0.55082  1.48e-09   9 1 |   1.4e-03  2.33e-04  1.44e-03  0.9888 4.757e+03
+   250 6.4436e+03 4.760e+01  10.0528   6.9229   4.99090   1.36151   28.3357   1.1392   0.74144  0.59664  1.44e-09  19 1 |   1.3e-03  1.88e-04  1.31e-03  0.9868 4.479e+03
+   300 7.9456e+03 2.170e+01   8.1439   7.0137   5.05934   1.38390   29.1426   1.1818   0.74075  0.59664  1.51e-09  11 2 |   1.4e-03  2.16e-04  1.36e-03  0.9906 4.060e+03
+   step rejected: source/network mismatch 0.097 (zone-wise 6.4e-02 of the zone energy) after 4 iterations at dt = 5.019e+01 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.093 (zone-wise 1.9e-02 of the zone energy) after 4 iterations at dt = 1.506e+01 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.079 (zone-wise 9.7e-05 of the zone energy) after 4 iterations at dt = 4.517e+00 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.047 (zone-wise 2.2e-05 of the zone energy) after 4 iterations at dt = 1.355e+00 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.001 (zone-wise 2.4e-02 of the zone energy) after 4 iterations at dt = 2.177e+01 yr, retry with dt x 0.3
+   step rejected: source/network mismatch 0.000 (zone-wise 2.2e-02 of the zone energy) after 4 iterations at dt = 2.090e+01 yr, retry with dt x 0.3
+   350 8.9387e+03 3.416e+00   7.0913   7.0718   5.10392   1.41239   30.5576   1.4922   0.74368  1.00000  1.02e-09   6 2 |   1.5e-03  2.20e-04  1.53e-03  0.9880 5.155e+03
+   400 9.0915e+03 2.410e+00   6.9359   7.0828   5.11147   1.42092   31.0449   1.4290   0.74364  1.00000  1.04e-09   6 2 |   1.5e-03  2.30e-04  1.51e-03  0.9909 4.877e+03
+   450 9.2354e+03 1.404e+00   6.7987   7.0905   5.11774   1.42776   31.4299   1.3501   0.74359  1.00000  1.05e-09   4 2 |   1.5e-03  2.39e-04  1.49e-03  0.9936 4.667e+03
+final: t = 9.2972e+03 yr, R = 6.7424 Rsun, log L = 7.0933, log Teff = 5.12025, T_c = 1.43033e+08 K, rho_c = 31.5705, L_nuc/L = 5.9799, X_c = 0.74357, M_cc/M = 1.0000; 472 steps (72 relax), 645.1 s wall
+ledger: sum E_bur = 8.2858e+51 erg, sum Fout dt = 9.5705e+51, E_tot change = -1.2724e+51; closure (dE - (Ebur - Fout))/sum|Ebur| = 1.478e-03; splitting correction sum|Ebur-Einj|/sum|Ebur| = 2.427e-04; hydro-step energy error sum|err|/sum|Ebur| = 1.478e-03
+centre MLT: L_conv/L_nuc(<r) [Lsun] at the first 4 interfaces: 1.182e+04/1.236e+05  2.453e+04/2.563e+05  3.819e+04/3.987e+05  5.290e+04/5.517e+05;  L_conv(1)/L_conv(2) = 0.482 (r^3 law: 0.480)
+integrator stats: theta

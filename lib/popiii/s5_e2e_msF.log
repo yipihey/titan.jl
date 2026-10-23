@@ -1,0 +1,14 @@
+S5 star: M = 261.9 Msun, X = 0.750, R0 = 6.500 Rsun, n = 140 (env 60, qsplit 0.05), integrator theta, theta 1.00, alpha_MLT 1.50, tol 0.01, dXmax 0.004, efrac 5, fcoupling true, burnT path, kcap Inf
+polytrope: beta = NaN, rho_c = 32.052, T_c = 1.3801e+08 K
+restarted from e2e_msB_ck_auto0 at step 257, t = 1.07686e+04 yr
+start of evolution: R = 9.2835 Rsun, log L = 6.8242, log Teff = 4.98351, Tc = 1.3565e+08, rho_c = 27.285, L_nuc(X0)/L = 0.9524
+  step     t [yr]   dt [yr] R [Rsun]     logL   logTeff  Tc [1e8]     rho_c  Ls/<Ln>       X_c    Mcc/M   X_CNO,c  it s |   closure      corr   err_hyd  eCNO/e  cap [yr]
+   step rejected: max relative change 0.179 (rho, zone 138) > 0.15 at dt = 8.753e+01 yr, retry with dt x 0.3
+   100 1.1066e+04 6.798e+01   9.1086   6.8165   4.98571   1.35601   27.2169   1.0116   0.74060  0.64624  1.43e-09  11 2 |   1.4e-03  2.31e-04  1.38e-03  0.9837 5.119e+03
+   150 1.2590e+04 3.208e+01   8.3081   6.8144   5.00518   1.35335   26.8456   1.0631   0.74128  0.64624  1.29e-09  10 2 |   1.2e-03  2.12e-04  1.23e-03  0.9826 6.017e+03
+final: t = 1.3477e+04 yr, R = 7.8864 Rsun, log L = 6.8105, log Teff = 5.01552, T_c = 1.35869e+08 K, rho_c = 27.0580, L_nuc/L = 0.9409, X_c = 0.74101, M_cc/M = 0.7000; 177 steps (57 relax), 194.0 s wall
+ledger: sum E_bur = 1.0567e+52 erg, sum Fout dt = 1.1368e+52, E_tot change = -7.8864e+50; closure (dE - (Ebur - Fout))/sum|Ebur| = 1.174e-03; splitting correction sum|Ebur-Einj|/sum|Ebur| = 2.021e-04; hydro-step energy error sum|err|/sum|Ebur| = 1.174e-03
+ZAMS: t = 3.0672e-01 yr, R = 28.1095 Rsun, log L = 6.9115, log Teff = 4.76476, T_c = 1.3801e+08 K, rho_c = 32.053, X_c = 0.74258, M_cc/M = 0.3147, X_CNO,c = 1.51e-09 (step 73)
+H-burning lifetime from the ZAMS to X_c = 7.4e-01: tau_H = 1.3476e+04 yr (1.3477e+04 yr from the start of the evolution)
+centre MLT: L_conv/L_nuc(<r) [Lsun] at the first 4 interfaces: 9.063e+03/9.344e+03  1.877e+04/1.935e+04  2.919e+04/3.009e+04  4.038e+04/4.161e+04;  L_conv(1)/L_conv(2) = 0.483 (r^3 law: 0.480)
+integrator stats: theta

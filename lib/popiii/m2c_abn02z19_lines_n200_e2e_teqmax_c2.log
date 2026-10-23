@@ -1,0 +1,9 @@
+M2c collapse [IC abn02z19]: cooling lines, 200 shells (q = 1.1167, dm1 = 3e-7 Msun), R = 1.602e+20 cm, rho_c/rho_edge = 4333372904680330362880.0, T_edge = 1006.1 K, p_ext = 2.618e-14
+theta = 0.55, C_dyn = 0.01, k5 = pss, chemistry netatomicli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 1.623e-03 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+    127   21.253 2.1676e+07   21609.3       NaN  4.613e-03    -10.942  7.50e-04  3.46e+02  L_lines 5.826e+36  bins 146, thick lines 230
+    500   21.127 2.1676e+07   24695.5       NaN  8.466e-04    -12.291  3.16e-03  3.99e+02  L_lines 5.826e+36  bins 144, thick lines 227
+   1000   20.213 2.1676e+07   20858.7       NaN  4.768e-04    -10.899  7.79e-03  9.97e+02  L_lines 5.823e+36  bins 119, thick lines 227
+   1500   19.161 2.1676e+07   19136.7    5077.5  4.832e-05    -10.429  1.35e-02  2.51e+03  L_lines 5.816e+36  bins 98, thick lines 227
+   2000   18.962 2.1676e+07   22440.7    4821.8  3.322e-06    -11.033  3.58e-03  3.03e+03  L_lines 5.803e+36  bins 103, thick lines 227
+   2500   18.880 2.1676e+07   22612.6    4721.1  2.155e-06    -11.669  4.41e-03  3.56e+03  L_lines 5.791e+36  bins 105, thick lines 227

@@ -1,0 +1,14 @@
+M2c collapse [IC abn02z19]: cooling lines, 200 shells (q = 1.1167, dm1 = 3e-7 Msun), R = 1.602e+20 cm, rho_c/rho_edge = 4369311821232188424192.0, T_edge = 1006.1 K, p_ext = 2.618e-14
+theta = 0.55, C_dyn = 0.01, k5 = pss, chemistry netatomicli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 1.616e-03 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+     33   21.261 2.1676e+07    5192.9       NaN  8.456e-01     -8.023  3.55e-03  3.42e+02  L_lines 5.825e+36  bins 80, thick lines 231
+     62   21.509 2.1676e+07    5184.4       NaN  8.818e-01     -8.086  3.72e-03  2.57e+02  L_lines 5.826e+36  bins 80, thick lines 231
+     91   21.763 2.1676e+07    5232.5       NaN  9.055e-01     -8.134  3.68e-03  1.92e+02  L_lines 5.826e+36  bins 81, thick lines 231
+    119   22.011 2.1676e+07    5084.9       NaN  9.389e-01     -8.208  7.76e-03  1.44e+02  L_lines 5.826e+36  bins 81, thick lines 231
+    146   22.258 2.1676e+07    4985.0       NaN  9.589e-01     -8.527  7.88e-03  1.09e+02  L_lines 5.826e+36  bins 82, thick lines 231
+    172   22.515 2.1676e+07    3050.0       NaN  9.985e-01     -8.781  5.75e-02  8.09e+01  L_lines 5.826e+36  bins 83, thick lines 231
+    195   22.762 2.1676e+07    1251.1       NaN  1.000e+00     -8.959  1.52e-01  6.08e+01  L_lines 5.826e+36  bins 83, thick lines 231
+wall time: total 293.3 s, line transfer 225.9 s, chemistry 18.9 s (0 failed zone steps kept)
+implicit line cooling on 0 steps
+hybrid NLTE: 41 ALI calls
+integrator TR-BDF2, statistics Dict(:fail_tr => 0, :fail_bdf => 0, :steps => 203, :be_fallback => 0)

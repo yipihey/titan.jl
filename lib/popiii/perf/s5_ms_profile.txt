@@ -1,0 +1,20 @@
+profile of s5_run.jl: 25074 samples (main thread, ~5 ms)
+  StellarEOS                                          15351   61.2 %
+  TitanResidFast                                       4145   16.5 %
+  TitanDriver                                          3138   12.5 %
+  NucNet                                               1073    4.3 %
+  StellarOpacity                                        465    1.9 %
+  driver script (s5_run.jl)                             237    0.9 %
+  StarMaterial                                          229    0.9 %
+  BlockSolver                                           217    0.9 %
+  TitanCore                                             170    0.7 %
+  ProblemSetup                                           49    0.2 %
+leaf functions in TitanDriver.jl:
+  r:50                                                24054
+  step_inner!:147                                       246
+  snapshot:217                                           25
+  s!:56                                                   8
+  restore!:221                                            6
+  g:55                                                    2
+  sv:54                                                   1
+  msg:34                                                  1

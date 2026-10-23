@@ -1,0 +1,17 @@
+args = lines 200
+chem = netatomicli
+cpu = apple-m1 (6 hw threads)
+date = 2026-10-22 14:14:02
+driver = popiii_m2c.jl
+git = e0fb96e
+host = PHY-FD69NP6NG2
+ic = abn02z19
+integrator = trbdf2
+julia = 1.12.6
+julia_threads = 4
+nlte = ep
+run = e2e_sink
+sink = 1
+stage = sink
+tag = _e2e_abn02z19_nofb_sink
+wall_s = 3512.240

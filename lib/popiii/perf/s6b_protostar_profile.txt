@@ -1,0 +1,12 @@
+profile of s6b_run.jl: 36425 samples (main thread, ~5 ms)
+  StellarEOS                                          24591   67.5 %
+  TitanResidFast                                       4467   12.3 %
+  TitanDriver                                          3168    8.7 %
+  NucNet                                               1735    4.8 %
+  StellarOpacity                                       1483    4.1 %
+  StarMaterial                                          260    0.7 %
+  BlockSolver                                           240    0.7 %
+  driver script (s6b_run.jl)                            239    0.7 %
+  TitanCore                                             196    0.5 %
+  ProblemSetup                                           42    0.1 %
+  TitanMaterials                                          4    0.0 %
