@@ -5,17 +5,17 @@
 #                  in the diffusive regime aτ_0 ≫ 1 the transfer equation (Harrington 1973) is invariant under x → x/λ, τ_0 → τ_0/λ³ (the escape frequency is x_esc ∝ (aτ_0)^{1/3}),
 #                  so the column density is divided by s = λ³, the destruction probability per scattering multiplied by s (the number of scatterings of a photon is ∝ τ_0 in the thick limit,
 #                  ε N_sc invariant: test s8a_test.jl), the recoil parameter by λ (g x_esc invariant), the flow velocities in Doppler units divided by λ, and the spectra rescaled by λ.
-#                  The Monte Carlo yields response functions (emergent spectrum per injected photon) of the line and of 12 sub-windows of the continuum, cached while the column τ_0 stays
-#                  within 25 %. When ε τ_0 > EPSTAU_MAX (40) the column is opaque to the line photons by the two-photon channel (survival e^{-ε τ_0/…} < 1e-13) and the response is zero.
+#                  The Monte Carlo yields response functions (emergent spectrum per injected photon) of the line and of NWIN sub-windows of the continuum, cached while the column τ_0 stays
+#                  within 25 %. With ε τ_0 ≫ 1 (two-photon channel, ε N_sc, N_sc ≈ 1.6 τ_0) all photons that get into the core are destroyed; only those injected beyond ≈ x_esc escape.
 #   grid           LyaMC on the hydro zones (moving medium, composition of the sweep): sources = emergent spectrum of the inner column at the first interface, recombination and collisional
 #                  Lyα of the zones; inner boundary = reflecting with the albedo of the thick column; outputs: force per zone (-> momentum row), J_α, T_c, escape, destruction.
 module S8a
 using Printf
 const L = Main.LyaMC; const RT = Main.RadTransfer; const CN = Main.ChemNet
 envf(k, d) = haskey(ENV, k) ? parse(Float64, ENV[k]) : d
-const TAUMC = envf("S8A_TAUMC", 2e6); const NPK_LINE = Int(envf("S8A_NPK_LINE", 320)); const NPK_WIN = Int(envf("S8A_NPK_WIN", 24)); const NPK_GRID = Int(envf("S8A_NPK_GRID", 600)); const NPK_IN = Int(envf("S8A_NPK_IN", 600))
-const NBATCH = Int(envf("S8A_NBATCH", 8)); const NEVERY = Int(envf("S8A_NEVERY", 4)); const XE_IN = envf("S8A_XE_IN", 1e-4); const NZIN = Int(envf("S8A_NZIN", 6))
-const EPSTAU_MAX = envf("S8A_EPSTAU_MAX", 40.0); const GRIDSRC = get(ENV, "S8A_GRIDSRC", "all"); const NWIN = 12; const SAFE = envf("S8A_SAFE", 8.0)
+const TAUMC = envf("S8A_TAUMC", 2e6); const NPK_LINE = Int(envf("S8A_NPK_LINE", 320)); const NPK_WIN = Int(envf("S8A_NPK_WIN", 24)); const NPK_GRID = Int(envf("S8A_NPK_GRID", 300)); const NPK_IN = Int(envf("S8A_NPK_IN", 300))
+const NBATCH = Int(envf("S8A_NBATCH", 8)); const NEVERY = Int(envf("S8A_NEVERY", 25)); const XE_IN = envf("S8A_XE_IN", 1e-4); const NZIN = Int(envf("S8A_NZIN", 6))
+const EPSTAU_MAX = envf("S8A_EPSTAU_MAX", 40.0); const GRIDSRC = get(ENV, "S8A_GRIDSRC", "all"); const NWIN = 24; const SAFE = envf("S8A_SAFE", 4.0)
 const mHyd = CN.mH
 
 mutable struct Inner
@@ -41,14 +41,6 @@ function inner_response!(Rstar, RII, redge, nHedge, uedge, T)
         return INNER
     end
     t0 = time()
-    if epsin * tau0 > EPSTAU_MAX
-        INNER.valid = true; INNER.tau0 = tau0; INNER.T = T; INNER.Ncol = Ncol; INNER.calls += 1
-        INNER.resp_line = zeros(700); INNER.resp_win = zeros(NWIN, 700); INNER.wedges = collect(range(-1e10, 1e10, length = 701)); INNER.lam = 1.0
-        INNER.flines = 0.0; INNER.fwin = zeros(NWIN); INNER.nsc = 0.0
-        INNER.stats = (; tau0, eps = epsin, eps_tau0 = epsin * tau0, opaque = true)
-        @printf("S8A inner column: N_H = %.2e, tau0 = %.2e, eps = %.2e, eps*tau0 = %.2e > %g: opaque to Lyα (two-photon destruction), response zero\n", Ncol, tau0, epsin, epsin * tau0, EPSTAU_MAX)
-        return INNER
-    end
     s = max(tau0 / TAUMC, 1.0); lam = cbrt(s)
     nz = NZIN
     r = vcat([Rstar], RII .* (redge / RII) .^ range(0, 1, length = nz + 1))
@@ -57,7 +49,7 @@ function inner_response!(Rstar, RII, redge, nHedge, uedge, T)
     nHI = nH .* (1 - XE_IN) ./ s
     # flow: inward, u = -u_e (r/r_e)^(-1/2) (Doppler units / λ in the scaled medium)
     u = -uedge .* (r ./ redge) .^ -0.5 ./ lam
-    Z = L.build_zones(r, nHI, fill(T, nz + 1), u; ne = nH .* XE_IN, np = nH .* XE_IN, eps_extra = s, g_extra = lam, safe = SAFE)
+    Z = L.build_zones(r, nHI, fill(T, nz + 1), u; ne = nH .* XE_IN, np = nH .* XE_IN, eps_extra = s, g_extra = lam, wscale = lam, safe = SAFE)
     a = L.damp(T); b = L.bth(T)
     xesc = max((a * tau0 / s)^(1 / 3), 3.0)
     wmax = 14 * xesc * b
@@ -122,14 +114,7 @@ function grid_mc!(rn, tn, dn, un, X, emerge, Ncol, Tin, mz; seed = 1)
     kabs = [nHm[k] * L.sigma_Hm(λHm) for k in 1:n]
     Z = L.build_zones(rn, nHI, tn, un; ne = ne, np = np, kabs = kabs, nH2 = nH2, safe = SAFE)
     V = Z.vol
-    rates = zeros(n)
-    if GRIDSRC != "none"
-        for k in 1:n
-            rec = L.f_lya_caseB(tn[k]) * L.alphaB(tn[k]) * ne[k] * np[k]
-            col = GRIDSRC == "all" ? ne[k] * nHI[k] * L.gamma_1s2p(tn[k]) : 0.0
-            rates[k] = (rec + col) * V[k]
-        end
-    end
+    rates = grid_rates(tn, dn, X, V)
     srcs = L.Source[]
     wedges, wts = emerge
     Rin = sum(wts)
@@ -139,13 +124,28 @@ function grid_mc!(rn, tn, dn, un, X, emerge, Ncol, Tin, mz; seed = 1)
     isempty(srcs) && return (zeros(n), nothing)
     wmax = max(abs(wedges[1]), abs(wedges[end]), 3e8)
     res = L.run(Z, srcs; nbatch = NBATCH, seed = seed, opts = L.Opts(inner = :reflect, albedo = column_albedo(Ncol, Tin), wmax = wmax, nbw = 1200))
+    @printf("S8A grid MC: %d zones (%d with core skipping), sources %s, N_sc/photon %.2e, out %.3f in %.3f 2γ %.3f H⁻ %.2e H2 %.2e cut %.3f, F_tot c/L_src %.3f, %d packets\n", n, count(>(0), Z.xc),
+            string([(s.name, round(s.rate, sigdigits = 3)) for s in srcs]), res.nsc_per_photon, res.f_out, res.f_in, res.f_2g, res.f_Hm, res.f_H2, res.f_lost, sum(res.force) * L.c / (res.emit * L.E0), sum(s.npk for s in srcs))
     (res.force ./ mz, res)
+end
+
+"Lyα photon rates [s⁻¹] of the grid zones: case-B recombination (Cantalupo et al. 2008 fraction) + collisional 1s → 2p excitation by electrons (`S8A_GRIDSRC` = all | rec | none)."
+function grid_rates(tn, dn, X, V)
+    n = length(tn); nH = dn ./ CN.μH(); g(s) = haskey(X, s) ? X[s] : zeros(n)
+    ne = nH .* g(:e); np = nH .* g(:Hp); nHI = nH .* g(:H); rates = zeros(n)
+    GRIDSRC == "none" && return rates
+    for k in 1:n
+        rec = L.f_lya_caseB(tn[k]) * L.alphaB(tn[k]) * ne[k] * np[k]
+        col = GRIDSRC == "all" ? ne[k] * nHI[k] * L.gamma_1s2p(tn[k]) : 0.0
+        rates[k] = (rec + col) * V[k]
+    end
+    rates
 end
 
 "Interpolate the held acceleration of the last Monte Carlo (zone-centre radii `rc`) onto the zones of the current grid."
 function held_accel(rc_now)
     LASTGRID[] === nothing && return zeros(length(rc_now))
-    rc0, a0 = LASTGRID[]
+    rc0, a0 = LASTGRID[][1], LASTGRID[][2]
     out = zeros(length(rc_now))
     for (i, r) in enumerate(rc_now)
         if r <= rc0[1]; out[i] = a0[1]

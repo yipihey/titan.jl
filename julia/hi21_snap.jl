@@ -3,8 +3,9 @@
 # Environment:
 #   RUN=<name>        output lib/popiii/hi21_<RUN>.csv (summary, one row per snapshot), hi21_<RUN>_prof.csv (per zone), hi21_<RUN>_spec_<k>.csv (velocity-resolved spectra); default: file name
 #   TCMB (54.5), Z (19)    background temperature at the source and its redshift (z = 19 ↔ T_CMB = 2.7255 (1+z) = 54.5 K)
-#   LYA=none|scan|rt|file   none: no Lyα (collisions + CMB); scan:<f>: uniform J_α = f × J_αC (the critical flux, x_α = 1 for S_α = 1); rt: RadTransfer's zone mean intensity at the Lyα bin
+#   LYA=none|scan|rt|mc|file   none: no Lyα (collisions + CMB); scan:<f>: uniform J_α = f × J_αC (the critical flux, x_α = 1 for S_α = 1); rt: RadTransfer's zone mean intensity at the Lyα bin
 #                           from the star record next to the snapshot (STARDIR, env_snap_<j>.jls ↔ star_<j>.txt), continuum photons (Hirata S̃_α, T_c); file:<csv> per-zone columns J (erg…) or P, Tc
+#                     mc:<dir>:<tag>: S8a Monte Carlo field (LyaMC.hi21_adapter: s8a_<tag>_J_<j>.csv of the coupled run in <dir>, J = hν J_α and T_c, S_α = 1)
 #   NEQ=1             time-dependent level population carried from snapshot to snapshot (Lagrangian zones)
 #   SPEC=1            write spectra files;  RAYS=0 skips the ray tracing (zone quantities only);  KH2: H–H₂ coefficient as a multiple of κ_HH (default 0)
 #   RADIO_AR, RADIO_BETA   radio excess at 78.1 MHz (default none)
@@ -28,6 +29,8 @@ end
 @printf("%s: %d snapshots; T_CMB = %.2f K, z = %g, Lyα = %s\n", basename(file), length(snaps), Tcmb, z, lyamode)
 
 # ---- Lyα providers
+const MCAD = Dict{Any,Any}()
+startswith(lyamode, "mc:") && include(joinpath(J_, "LyaMC.jl"))
 const JC = 27 * H.A10 * H.Tgamma(Tcmb, z; Ar = radio[1], β = radio[2]) / (16π * H.SIGINT_A * H.TSTAR)      # critical J_α [photons cm⁻² s⁻¹ Hz⁻¹ sr⁻¹]: x_α = 1 at S = 1
 function lya_for(s, k)
     n = length(s.T)
@@ -36,6 +39,11 @@ function lya_for(s, k)
         f = parse(Float64, split(lyamode, ":")[2]); return H.lya_from_Jnu(fill(f * JC * H.hP * H.NU_A, n))
     elseif lyamode == "rt"
         return get(ENV, "STARDIR", "") == "" ? error("LYA=rt needs STARDIR and snapshot names env_snap_<j>.jls") : rt_lya(s, jlabel[k])
+    elseif startswith(lyamode, "mc:")
+        # S8a: the Monte Carlo Lyα field written by the coupled run at the barrier of this snapshot (J_α, T_c: the actual line intensity, S_α = 1): LYA=mc:<dir>:<tag>
+        p = split(lyamode, ":"); key = (String(p[2]), String(p[3]))
+        haskey(MCAD, key) || (MCAD[key] = LyaMC.hi21_adapter(key[1], key[2]))
+        r = MCAD[key](s); return H.lya_actual(r.J, r.Tc)
     else
         error("unknown LYA = $lyamode")
     end

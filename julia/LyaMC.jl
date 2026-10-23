@@ -6,7 +6,11 @@
 # wing, tabulated), Doppler shifts from the bulk flow along the ray (sub-stepped), destruction by collisional 2p → 2s mixing followed by two-photon decay, continuous absorption (H⁻ photodetachment
 # etc.) and H₂ Lyman-band lines near 1216 Å. Core skipping (Smith et al. 2015 idea, exact variant): a scattering with |x| < x_c in a zone whose line mean free path at x_c is much shorter than
 # the zone is replaced by a precomputed frequency walk (the real redistribution kernel, tables of exit frequency, number of core scatterings N and visits per frequency bin), the destruction acts on all N
-# scatterings: (1 − ε)^N.
+# scatterings: (1 − ε)^N. The skipped photon does not move, so skipping is applied only to a photon deeper than D = safe · x_c · l(x_c) (l = mean free path at x_c) from both zone
+# interfaces and from r = 0, in zones with D ≤ 0.2 Δr (the core walk is otherwise explicit); inside the layer D the photons are exact: a skipped walk next to a boundary changes the
+# reflection of the layer and the force on it (test e: N_H = 1e19 shell, force 7.5 L/c with skipping everywhere against 40.6 exact; 40.8 with the layer).
+# Force: Σ over the momentum balance of the radiation field, F_k = A_k Π_k − A_{k+1} Π_{k+1} + ∫(u − Π_rr)/r dV (crossing estimator of the radial momentum flux Π_rr at the interfaces and
+# Δμ along the tracks, ∫(1 − μ²)/r ds = Δμ), which has no sign cancellation per event (the event estimator Σ(hν/c)μ_in has variance ∝ N_sc).
 #
 # Units: frequencies as the lab-frame velocity offset w = c (ν − ν0)/ν0 [cm/s]; x = (w − u μ)/b in the fluid frame (b = √(2kT/m_H)). Rates: each source has a photon rate [s⁻¹];
 # every output is a rate (s⁻¹, erg s⁻¹, dyn).
@@ -159,6 +163,7 @@ end
 # ------------------------------------------------------------------ core-skipping tables
 const XB = 0.1; const XBM = 12.0; const NXB = 240          # visit / J(x) bins: x ∈ [−12, 12]
 @inline xbin(x) = (abs(x) >= XBM ? 0 : floor(Int, (x + XBM) / XB) + 1)
+const TABCACHE = Dict{Any,Any}()          # skip tables per (ln T bucket, x_c, M): built once per process
 struct SkipTab
     xc::Float64; nodes::Vector{Float64}; xs::Matrix{Float64}; ns::Matrix{Int32}; vis::Matrix{Float64}        # vis[node, bin]: mean visits to the bin before the exit
 end
@@ -195,16 +200,16 @@ struct Zones
     eps::Vector{Float64}; kabs::Vector{Float64}; epsA::Vector{Float64}
     xc::Vector{Float64}; lskip::Vector{Float64}; tab::Vector{Int}; tabs::Vector{SkipTab}
     h2nu::Vector{Vector{Float64}}; h2amp::Vector{Vector{Float64}}; h2D::Vector{Vector{Float64}}; h2a::Vector{Vector{Float64}}
-    vol::Vector{Float64}
+    vol::Vector{Float64}; wscale::Float64; dlayer::Float64
 end
-function build_zones(r, nHI, T, u; ne = zeros(length(T)), np = zeros(length(T)), kabs = zeros(length(T)), nH2 = zeros(length(T)), eps_extra = 1.0, g_extra = 1.0, xcs = (3.0, 6.0), safe = 8.0,
-                     tabM = 384, epsfloor = 0.0)
+function build_zones(r, nHI, T, u; ne = zeros(length(T)), np = zeros(length(T)), kabs = zeros(length(T)), nH2 = zeros(length(T)), eps_extra = 1.0, g_extra = 1.0, wscale = 1.0, dlayer = 0.5, xcs = (6.0, 3.0, 2.0, 1.2), safe = 4.0,
+                     tabM = 192, epsfloor = 0.0)
     init_wings!()
     n = length(T); @assert length(r) == n + 1 && length(u) == n + 1
     du = [(u[k+1] - u[k]) / (r[k+1] - r[k]) for k in 1:n]
     b = bth.(T); a = damp.(T); D = dopp.(T); ns = nHI .* sig0.(T); g = recoil_g.(T) .* g_extra; xfs = DFS ./ D
     eps = [min(eps_collisional(T[k], ne[k], np[k]) * eps_extra + epsfloor, 1.0) for k in 1:n]
-    xc = zeros(n); lskip = zeros(n); tabid = zeros(Int, n); tabs = SkipTab[]; cache = Dict{Any,Int}()
+    xc = zeros(n); lskip = zeros(n); tabid = zeros(Int, n); tabs = SkipTab[]; cache = Dict{Any,Int}()          # (tables of the run are shared through TABCACHE)
     h2nu = [Float64[] for _ in 1:n]; h2amp = [Float64[] for _ in 1:n]; h2D = [Float64[] for _ in 1:n]; h2a = [Float64[] for _ in 1:n]
     epsA = zeros(n)
     for k in 1:n
@@ -216,17 +221,26 @@ function build_zones(r, nHI, T, u; ne = zeros(length(T)), np = zeros(length(T)),
             end
         end
         epsA[k] = kabs[k] > 0 ? kabs[k] / (ns[k] * 0.6 + kabs[k]) : 0.0
-        isempty(h2nu[k]) || (epsA[k] = 0.0)
+        if !isempty(h2nu[k]) && ns[k] > 0
+            # H₂ lines inside the Doppler core: probability per core scattering that the interaction is a line absorption, averaged over the core profile (weights H(a, x))
+            sa = 0.0; sw = 0.0
+            for x in range(-6.0, 6.0, length = 121)
+                ν = ν0 * (1 + x * b[k] / c); kA = 0.0
+                for l in eachindex(h2nu[k]); xl = (ν - h2nu[k][l]) / h2D[k][l]; abs(xl) < 40 && (kA += h2amp[k][l] * voigt(h2a[k][l], xl)); end
+                kL = ns[k] * voigt(a[k], x); hw = voigt(a[k], x); sa += hw * (kA + kabs[k]) / (kL + kA + kabs[k]); sw += hw
+            end
+            epsA[k] = max(epsA[k], sa / sw)
+        end
         # core skipping: largest candidate for which the photon at x_c has many scatterings per zone crossing
         dr = r[k+1] - r[k]
-        if ns[k] > 0 && isempty(h2nu[k])
+        if ns[k] > 0
             for xcand in sort(collect(xcs); rev = true)
                 lmfp = 1 / (ns[k] * voigt(a[k], xcand))
-                if lmfp * max(xcand, 1.0) * safe <= dr
+                if lmfp * max(xcand, 1.0) * safe <= 0.2 * dr
                     xc[k] = xcand; lskip[k] = lmfp * max(xcand, 1.0) * safe
-                    key = (round(log(T[k]) / 0.15), xcand)
+                    key = (round(log(T[k]) / 0.25), xcand, tabM)
                     id = get!(cache, key) do
-                        push!(tabs, skiptab(a[k], g[k], xfs[k], xcand; M = tabM)); length(tabs)
+                        push!(tabs, get!(TABCACHE, key) do; skiptab(a[k], g[k], xfs[k], xcand; M = tabM); end); length(tabs)
                     end
                     tabid[k] = id; break
                 end
@@ -234,7 +248,7 @@ function build_zones(r, nHI, T, u; ne = zeros(length(T)), np = zeros(length(T)),
         end
     end
     vol = [4π / 3 * (r[k+1]^3 - r[k]^3) for k in 1:n]
-    Zones(n, collect(float.(r)), collect(float.(u)), du, collect(float.(nHI)), collect(float.(T)), b, a, ns, g, xfs, eps, collect(float.(kabs)), epsA, xc, lskip, tabid, tabs, h2nu, h2amp, h2D, h2a, vol)
+    Zones(n, collect(float.(r)), collect(float.(u)), du, collect(float.(nHI)), collect(float.(T)), b, a, ns, g, xfs, eps, collect(float.(kabs)), epsA, xc, lskip, tabid, tabs, h2nu, h2amp, h2D, h2a, vol, float(wscale), float(dlayer))
 end
 
 # ------------------------------------------------------------------ sources
@@ -258,17 +272,17 @@ end
 mutable struct Tally
     nz::Int
     nsc::Vector{Float64}; nsk::Vector{Float64}; mom::Vector{Float64}; hexch::Vector{Float64}; hrec::Vector{Float64}; Egas::Vector{Float64}
-    nHm::Vector{Float64}; nH2::Vector{Float64}; n2g::Vector{Float64}; Jpath::Vector{Float64}; Jwin::Vector{Float64}; Prr::Vector{Float64}
+    nHm::Vector{Float64}; nH2::Vector{Float64}; n2g::Vector{Float64}; Jpath::Vector{Float64}; Jwin::Vector{Float64}; Prr::Vector{Float64}; Gth::Vector{Float64}; Xi::Vector{Float64}; Jskip::Vector{Float64}
     Jx::Matrix{Float64}; momsrc::Matrix{Float64}
     out::Matrix{Float64}; inn::Vector{Float64}
     emit::Float64; nout::Float64; nin::Float64; nlost::Float64; Eemit::Float64; Eout::Float64; Ein::Float64; E2g::Float64; Eabs::Float64; Eskipmiss::Float64
     nscphot::Float64
     nbw::Int
 end
-Tally(nz, nsrc, nbw) = Tally(nz, zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz, NXB), zeros(nsrc, nz),
+Tally(nz, nsrc, nbw) = Tally(nz, zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz), zeros(nz + 1), zeros(nz), zeros(nz, NXB), zeros(nsrc, nz),
                               zeros(nsrc, nbw), zeros(nbw), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, nbw)
 function merge!(A::Tally, B::Tally)
-    for f in (:nsc, :nsk, :mom, :hexch, :hrec, :Egas, :nHm, :nH2, :n2g, :Jpath, :Jwin, :Prr, :Jx, :momsrc, :out, :inn)
+    for f in (:nsc, :nsk, :mom, :hexch, :hrec, :Egas, :nHm, :nH2, :n2g, :Jpath, :Jwin, :Prr, :Gth, :Xi, :Jskip, :Jx, :momsrc, :out, :inn)
         getfield(A, f) .+= getfield(B, f)
     end
     for f in (:emit, :nout, :nin, :nlost, :Eemit, :Eout, :Ein, :E2g, :Eabs, :Eskipmiss, :nscphot); setfield!(A, f, getfield(A, f) + getfield(B, f)); end
@@ -289,7 +303,7 @@ Opts(; inner = :absorb, albedo = w -> 0.0, maxsc = 20_000_000, wmax = 2e9, nbw =
 # ------------------------------------------------------------------ transport
 @inline energy(w) = E0 * (1 + w / c)
 @inline function kappas(Z::Zones, k, x, wf)
-    κL = Z.nsig[k] * voigt(Z.a[k], x) * Cwing(wf / c)
+    κL = Z.nsig[k] * voigt(Z.a[k], x) * Cwing(Z.wscale * wf / c)
     κA = Z.kabs[k]
     nl = length(Z.h2nu[k])
     if nl > 0
@@ -343,6 +357,7 @@ function trace!(rng, Z::Zones, Tl::Tally, o::Opts, isrc, r, μ, w, wt, k)
                     fr = τt / Δτ; sint = s + fr * ds; hit = true
                     dpath = fr * ds; xm = xs + 0.5 * fr * (x2 - xs)
                     Tl.Jpath[k] += wt * dpath; Tl.Prr[k] += wt * dpath * (0.5 * (μs + μs + fr * (μ2 - μs)))^2
+                    rh = sqrt(max(r * r + 2 * rμ * sint + sint * sint, 0.0)); Tl.Gth[k] += wt * ((rh > 0 ? clamp((rμ + sint) / rh, -1.0, 1.0) : μ) - μs)
                     ib = xbin(xm); ib > 0 && (Tl.Jx[k, ib] += wt * dpath)
                     abs(xm) < o.xwin && (Tl.Jwin[k] += wt * dpath)
                     break
@@ -350,12 +365,13 @@ function trace!(rng, Z::Zones, Tl::Tally, o::Opts, isrc, r, μ, w, wt, k)
                 τt -= Δτ
                 xm = 0.5 * (xs + x2)
                 Tl.Jpath[k] += wt * ds; Tl.Prr[k] += wt * ds * (0.5 * (μs + μ2))^2
+                Tl.Gth[k] += wt * (μ2 - μs)
                 ib = xbin(xm); ib > 0 && (Tl.Jx[k, ib] += wt * ds)
                 abs(xm) < o.xwin && (Tl.Jwin[k] += wt * ds)
                 s = s2; rs = r2; μs = μ2; us = u2; wf = wf2; xs = x2; κs = κe
             end
         else
-            Tl.Jpath[k] += wt * smax; Tl.Prr[k] += wt * smax * (μ * μ + (1 - μ * μ) * 0.0 + 0.0)
+            Tl.Jpath[k] += wt * smax; Tl.Prr[k] += wt * smax * (μ * μ); Tl.Gth[k] += wt * ((let re = sqrt(max(r * r + 2 * rμ * smax + smax * smax, 0.0)); re > 0 ? clamp((rμ + smax) / re, -1.0, 1.0) : μ end) - μ)
             s = smax
         end
         if !hit
@@ -363,12 +379,13 @@ function trace!(rng, Z::Zones, Tl::Tally, o::Opts, isrc, r, μ, w, wt, k)
             rn = crossin ? rk : rk1
             μn = rn > 0 ? clamp((rμ + smax) / rn, -1.0, 1.0) : μ
             r = rn; μ = μn
+            Tl.Xi[crossin ? k : k + 1] += wt * abs(μn)            # radial momentum flux through the interface (crossing estimator of Π_rr)
             if crossin
                 if k == 1
                     if o.inner === :escape
                         Tl.nin += wt; Tl.Ein += wt * energy(w); Tl.inn[wbin(w, o.wmax, o.nbw)] += wt; return
                     elseif o.inner === :reflect && rand(rng) < o.albedo(w)
-                        μ = sqrt(rand(rng)); continue
+                        μ = sqrt(rand(rng)); Tl.Xi[1] += wt * μ; continue
                     else
                         Tl.nin += wt; Tl.Ein += wt * energy(w); Tl.inn[wbin(w, o.wmax, o.nbw)] += wt; return
                     end
@@ -402,7 +419,7 @@ function trace!(rng, Z::Zones, Tl::Tally, o::Opts, isrc, r, μ, w, wt, k)
         eps = Z.eps[k]; epsA = Z.epsA[k]
         g = Z.g[k]; bc = b * cinv
         tid = Z.tab[k]
-        if tid > 0 && abs(x) < Z.xc[k] && r > Z.lskip[k]
+        if tid > 0 && abs(x) < Z.xc[k] && r > Z.lskip[k] && min(r - rk, rk1 - r) > Z.dlayer * Z.lskip[k]
             tb = Z.tabs[tid]
             ax = abs(x); j = clamp(floor(Int, ax / tb.xc / 0.98 * (length(tb.nodes) - 1)) + 1, 1, length(tb.nodes) - 1)
             jj = (rand(rng) < (ax - tb.nodes[j]) / (tb.nodes[j+1] - tb.nodes[j])) ? j + 1 : j
@@ -414,7 +431,7 @@ function trace!(rng, Z::Zones, Tl::Tally, o::Opts, isrc, r, μ, w, wt, k)
                 v = tb.vis[jj, ib]; v == 0 && continue
                 xb = -XBM + (ib - 0.5) * XB; xb = x < 0 ? -xb : xb; ibb = xbin(xb)
                 κLv, κAv = kappas(Z, k, xb, xb * b); pth = wt * v / (κLv + κAv)
-                Tl.Jpath[k] += pth; Tl.Prr[k] += pth / 3; ibb > 0 && (Tl.Jx[k, ibb] += pth); abs(xb) < o.xwin && (Tl.Jwin[k] += pth)
+                Tl.Jpath[k] += pth; Tl.Prr[k] += pth / 3; Tl.Jskip[k] += pth; r > 0 && (Tl.Gth[k] += pth * (2 / 3) / r); ibb > 0 && (Tl.Jx[k, ibb] += pth); abs(xb) < o.xwin && (Tl.Jwin[k] += pth)
                 pskip += pth
             end
             # momentum of the skipped absorptions: the radial cosine of a photon re-emitted isotropically at r and absorbed after a flight l is (r μ + l)/r', mean (2/3) l/r (the rotation of the radial
@@ -499,6 +516,7 @@ function run(Z::Zones, sources::Vector{Source}; nbatch = 8, seed = 1, opts::Opts
             for _ in 1:nb
                 r, μ, w, k = emit_packet(rng, Z, s)
                 T.emit += wt; T.Eemit += wt * energy(w)
+                s.kind === :shell && r == Z.r[k] && (T.Xi[k] += wt * μ)           # injected radial momentum flux at an interface
                 trace!(rng, Z, T, opts, is, r, μ, w, wt, k)
             end
         end
@@ -553,9 +571,34 @@ function finalize(Z::Zones, sources, tl, tot::Tally, o::Opts)
         dP = k1 > k0 ? (Prr[k1] - Prr[k0]) / (rcen[k1] - rcen[k0]) : 0.0
         forceP[k] = -V[k] * (dP + (3 * Prr[k] - uE[k]) / rcen[k])
     end
+    # momentum balance of the radiation field (exact in steady state): force on zone k = A_k Π_k − A_{k+1} Π_{k+1} + ∫ (u − Π_rr)/r dV   (crossing + track-length estimators, no sign cancellation per event)
+    # skipped core scatterings never cross an interface: their isotropic stress Π_c = u_c/3 at the interfaces is interpolated from the zone values of u_c (visit tallies)
+    function core_if(Jsk)
+        uc = E0 .* Jsk ./ (c .* V); gas = [Z.nHI[k] > 0 for k in 1:n]; Pif = zeros(n + 1)
+        for i in 1:n+1
+            kl = i - 1; kr = i
+            if kl >= 1 && kr <= n && gas[kl] && gas[kr]
+                w = (Z.r[i] - rcen[kl]) / (rcen[kr] - rcen[kl]); Pif[i] = ((1 - w) * uc[kl] + w * uc[kr]) / 3
+            else
+                k1 = (kr <= n && gas[kr]) ? kr : kl; k1 >= 1 && k1 <= n && gas[k1] || continue
+                k2 = k1 == kr ? k1 + 1 : k1 - 1
+                if k2 >= 1 && k2 <= n && gas[k2]
+                    slope = (uc[k1] - uc[k2]) / (rcen[k1] - rcen[k2]); Pif[i] = max(uc[k1] + slope * (Z.r[i] - rcen[k1]), 0.0) / 3
+                else
+                    Pif[i] = uc[k1] / 3
+                end
+            end
+        end
+        [4π * (Z.r[k]^2 * Pif[k] - Z.r[k+1]^2 * Pif[k+1]) for k in 1:n]
+    end
+    Xi = tot.Xi; cif(t) = Z.dlayer > 0 ? zeros(n) : core_if(t.Jskip)        # (with a boundary layer the interface stress is carried by explicit photons: no interpolation of the skipped core stress)
+    forcePi = [E0 / c * (Xi[k] - Xi[k+1] + tot.Gth[k]) for k in 1:n] .+ cif(tot)
+    fb2 = hcat([[E0 / c * (t.Xi[k] - t.Xi[k+1] + t.Gth[k]) for k in 1:n] .+ cif(t) for t in tl]...)
+    fm2 = vec(sum(fb2, dims = 2)) ./ nb
+    ferrPi = [nb > 1 ? sqrt(sum((fb2[k, :] .- fm2[k]) .^ 2) / (nb - 1) / nb) : 0.0 for k in 1:n] .* nb
     emit = tot.emit
-    (; forceP, uE, Prr, r = Z.r, vol = V, T = Z.T, nHI = Z.nHI, Jalpha, Jint, Rsc, Tcolor = Tc, Tcolor_err = Tcerr, Tcolor_valid = Tvalid, force, force_err = ferr, nsc = tot.nsc, nskip = tot.nsk,
-       heat_recoil = tot.hrec, heat_exch = tot.hexch, Egas_lab = tot.Egas, n_Hm = tot.nHm, n_H2 = tot.nH2, n_2g = tot.n2g, momsrc = tot.momsrc, Jx = tot.Jx, sources = [s.name for s in sources],
+    (; forcePi, forcePi_err = ferrPi, forceP, uE, Prr, r = Z.r, vol = V, T = Z.T, nHI = Z.nHI, Jalpha, Jint, Rsc, Tcolor = Tc, Tcolor_err = Tcerr, Tcolor_valid = Tvalid, force = forcePi, force_err = ferrPi, force_event = force, force_event_err = ferr, nsc = tot.nsc, nskip = tot.nsk,
+       heat_recoil = tot.hrec, heat_exch = tot.hexch, heat_Hm = tot.nHm .* (E0 - 0.755 * eV), E_2g_zone = tot.n2g .* E0, Egas_lab = tot.Egas, n_Hm = tot.nHm, n_H2 = tot.nH2, n_2g = tot.n2g, momsrc = tot.momsrc, Jx = tot.Jx, sources = [s.name for s in sources],
        emit, f_out = tot.nout / emit, f_in = tot.nin / emit, f_2g = sum(tot.n2g) / emit, f_Hm = sum(tot.nHm) / emit, f_H2 = sum(tot.nH2) / emit, f_lost = tot.nlost / emit,
        nsc_per_photon = tot.nscphot / emit, spec_out = vec(sum(tot.out, dims = 1)), spec_out_src = copy(tot.out), spec_in = copy(tot.inn), wmax = o.wmax, nbw = o.nbw,
        Eemit = tot.Eemit, Eout = tot.Eout, Ein = tot.Ein, E2g = tot.E2g, Eabs = tot.Eabs, Egas_total = sum(tot.Egas), batches = tl, xwin = o.xwin)

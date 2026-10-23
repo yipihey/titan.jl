@@ -37,7 +37,7 @@ const LYA = Ref(get(ENV, "RT_LYA", "0") in ("1", "mc"))
 "S8a: RT_LYA=mc replaces the MT08 force of Lyα itself (window around the line, the injected and grid line sources) by the Monte Carlo of LyaMC.jl; the other Lyman lines keep the MT08 approximation. Default off."
 const LYAMC = Ref(get(ENV, "RT_LYA", "0") == "mc")
 "Half-width |ν/ν_α − 1| of the window around Lyα that the Monte Carlo transports (RT_LYA_MCWIN)."
-const LYA_MC_WIN = Ref(parse(Float64, get(ENV, "RT_LYA_MCWIN", "0.03")))
+const LYA_MC_WIN = Ref(parse(Float64, get(ENV, "RT_LYA_MCWIN", "0.12")))
 "Lines Ly-2 … Ly-n resolved by `default_grid` when `lyman` (extra bin edges, see LymanWings.line_edges)."
 const LYMAN_LINES = Ref(parse(Int, get(ENV, "RT_LYMAN_LINES", "12")))
 "Line-centre Lyα luminosity [erg/s] injected at the inner boundary (the H II region inside r_s: 0.68 of the absorbed ionising photons); set by the driver."
@@ -684,6 +684,7 @@ end
 
 include(joinpath(@__DIR__, "RadSweep.jl"))      # S7b: ion_sweep, interface_accel
 include(joinpath(@__DIR__, "LymanWings.jl"))    # S7c-2: H I Lyman-series scattering cross section, MT08 trapped-Lyα pressure
+LymanWings.LYB_CONV[] = LYAMC[]
 include(joinpath(@__DIR__, "RadLya.jl"))        # S7c-2: trapped-Lyα radiation force on the grid
 
 end # module

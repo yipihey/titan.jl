@@ -164,35 +164,39 @@ function log_lya!(lya, j, t, mz, rn, dn)
     res = lya.res; Lm = Main.LyaMC; S8 = Main.S8a
     if LYALOG[] === nothing
         LYALOG[] = open(joinpath(Main.TF.ROOT, "lib", "popiii", "s8a_$(TAG)_lya.csv"), "w")
-        println(LYALOG[], "j,t_yr,rate_line,rate_win,Ncol_inner,inner_flines,inner_nsc,Lya_tot_erg,F_mc,F_mc_over_Lc,F_inner_part,F_grid_part,f_out,f_in,f_2g,f_Hm,f_H2,nsc_per_photon,relerr_F,Jalpha_zone1,Tc_over_Tk_zone1,wall_s")
+        println(LYALOG[], "j,t_yr,rate_line,rate_win,Ncol_inner,inner_flines,inner_nsc,Lya_tot_erg,F_mc,F_mc_over_Lc,F_inner_part,F_grid_part,f_out,f_in,f_2g,f_Hm,f_H2,f_cut,nsc_per_photon,relerr_F,ag_max,agerr_max,agerr_med_over_ag_where_big,Jalpha_zone1,Tc_over_Tk_zone1,tab_n,wall_s,mc_s,inner_s,F_mt08,F_cont,F_total_mc_mode,F_over_Mdotv_mc,F_over_Mdotv_mt08")
         LYAPROF[] = open(joinpath(Main.TF.ROOT, "lib", "popiii", "s8a_$(TAG)_lyaprof.csv"), "w")
-        println(LYAPROF[], "j,t_yr,zone,r_AU,nHI,T,u_kms,Jalpha,Tcolor,Tcolor_ok,force,force_err,accel,Rsc,nsc")
+        println(LYAPROF[], "j,t_yr,zone,r_AU,nHI,T,u_kms,Jalpha,Tcolor,Tcolor_ok,force,force_err,accel,Rsc,nsc,a_mt08_total,a_cont_beam,g")
     end
     if res === nothing
-        println(LYALOG[], join((j, t / YR, lya.rate_line, sum(lya.rate_win), lya.Ncol, S8.INNER.flines, S8.INNER.nsc, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, time() - Main.T0WALL), ",")); flush(LYALOG[]); return
+        println(LYALOG[], join((j, t / YR, lya.rate_line, sum(lya.rate_win), lya.Ncol, S8.INNER.flines, S8.INNER.nsc, (0 for _ in 1:19)..., time() - Main.T0WALL, lya.t_mc, lya.t_inner, 0, 0, 0, 0, 0), ",")); flush(LYALOG[]); return
     end
     Lt = (lya.rate_line + sum(lya.rate_win)) * Lm.E0; Fm = sum(res.force)
     ms = res.momsrc; names = res.sources
     Fin = any(==(:inner), names) ? sum(ms[findfirst(==(:inner), names), :]) : 0.0; Fgr = any(==(:grid), names) ? sum(ms[findfirst(==(:grid), names), :]) : 0.0
     big = findall(>(0.02 * maximum(abs.(res.force))), abs.(res.force))
     relerr = isempty(big) ? 0.0 : sum(res.force_err[big] .^ 2)^0.5 / max(abs(sum(res.force[big])), 1e-300)
-    println(LYALOG[], join((j, t / YR, lya.rate_line, sum(lya.rate_win), lya.Ncol, S8.INNER.flines, S8.INNER.nsc, Lt, Fm, Fm * Lm.c / max(Lt, 1e-300), Fin, Fgr, res.f_out, res.f_in, res.f_2g, res.f_Hm, res.f_H2,
-                            res.nsc_per_photon, relerr, res.Jalpha[1], res.Tcolor[1] / res.T[1], time() - Main.T0WALL), ",")); flush(LYALOG[])
+    Fmt = lya.a_mt === nothing ? NaN : sum(lya.a_mt .* mz); Fcont = sum(lya.a_cont .* mz)
+    ag = abs.(res.force) ./ (mz .* lya.gloc); eag = res.force_err ./ (mz .* lya.gloc); agm = maximum(ag)
+    bigag = findall(>(0.05 * agm), ag); medrel = isempty(bigag) ? 0.0 : sort(eag[bigag] ./ max.(ag[bigag], 1e-300))[(length(bigag) + 1) ÷ 2]
+    println(LYALOG[], join((j, t / YR, lya.rate_line, sum(lya.rate_win), lya.Ncol, S8.INNER.flines, S8.INNER.nsc, Lt, Fm, Fm * Lm.c / max(Lt, 1e-300), Fin, Fgr, res.f_out, res.f_in, res.f_2g, res.f_Hm, res.f_H2, res.f_lost,
+                            res.nsc_per_photon, relerr, agm, maximum(eag), medrel, res.Jalpha[1], res.Tcolor[1] / res.T[1], length(Lm.TABCACHE), time() - Main.T0WALL, lya.t_mc, lya.t_inner,
+                            Fmt, Fcont, Fcont + Fm, (Fcont + Fm) / lya.mdotv, Fmt / lya.mdotv), ",")); flush(LYALOG[])
     for kk in 1:min(max(NPROF, 12), length(res.T))
-        println(LYAPROF[], join((j, t / YR, kk, res.r[kk] / AU, res.nHI[kk], res.T[kk], 0.5 * (res.r[kk] == 0 ? 0.0 : 0.0), res.Jalpha[kk], res.Tcolor[kk], res.Tcolor_valid[kk] ? 1 : 0, res.force[kk], res.force_err[kk], res.force[kk] / mz[kk], res.Rsc[kk], res.nsc[kk]), ","))
+        println(LYAPROF[], join((j, t / YR, kk, res.r[kk] / AU, res.nHI[kk], res.T[kk], 0.5 * (res.r[kk] == 0 ? 0.0 : 0.0), res.Jalpha[kk], res.Tcolor[kk], res.Tcolor_valid[kk] ? 1 : 0, res.force[kk], res.force_err[kk], res.force[kk] / mz[kk], res.Rsc[kk], res.nsc[kk], lya.a_mt === nothing ? NaN : lya.a_mt[kk], lya.a_cont[kk], lya.gloc[kk]), ","))
     end
     flush(LYAPROF[])
 end
 """
 S8a: one Monte Carlo evaluation of the Lyα field. Returns (accel [cm s⁻²] per zone, result of the grid run, inner-column response).
 """
-function lya_mc(rec, inner, src, g, rn, tn, dn, un, f, mz, ρs, redge, u_edge)
+function lya_mc(rec, inner, src, g, rn, tn, dn, un, f, mz, ρs, redge, u_edge; only_rates = false)
     S8 = Main.S8a; Lm = Main.LyaMC
     Rst = rec["R"]; RII = max(inner.RII, 1.001 * Rst)
     rate_line = Lm.f_lya_caseB(TINNER) * max(inner.Qstar - inner.Qesc, 0.0)              # Lyα photons/s of the H II region
     win = RT.LYA_MC_WIN[]
     rate_win = S8.window_rates(g, inner.Lout, win)
-    nHe = ρs / CN.μH()
+    nHe = ρs / CN.μH(); t_in0 = time()
     if redge > 1.05 * Rst
         inn = S8.inner_response!(Rst, RII, redge, nHe, u_edge, TINNER)
         Ncol = S8.column(nHe * (1 - S8.XE_IN), RII, redge); tau0 = Ncol * Lm.sig0(TINNER)
@@ -202,9 +206,26 @@ function lya_mc(rec, inner, src, g, rn, tn, dn, un, f, mz, ρs, redge, u_edge)
         ed = collect(range(-win * Lm.c, win * Lm.c, length = S8.NWIN + 1)); wts = copy(rate_win); wts[div(S8.NWIN, 2)] += 0.5 * rate_line; wts[div(S8.NWIN, 2) + 1] += 0.5 * rate_line
         emerge = (ed, wts)
     end
-    un_i = un
+    t_inner = time() - t_in0; un_i = un; t_mc0 = time()
+    if only_rates
+        return sum(emerge[2]) + sum(S8.grid_rates(tn, dn, f.med.X, 4π / 3 .* (rn[2:end] .^ 3 .- rn[1:end-1] .^ 3)))
+    end
     acc, res = S8.grid_mc!(rn, tn, dn, un_i, f.med.X, emerge, Ncol, TINNER, mz; seed = ST.j + 1)
-    (; accel = acc, res, emerge, rate_line, rate_win, Ncol)
+    # comparison: the S7c-2 approximation (MT08 eq. 22 with the H II-region Lyα injected unattenuated and the grid's photoionisation Lyα) on the same state
+    a_mt = nothing
+    if get(ENV, "S8A_CMP", "1") == "1"
+        try
+            RT.LYA_INJECT[] = 0.68 * 10.2 * CN.eV * max(inner.Qstar - inner.Qesc, 0.0); RT.LYA_RSTAR[] = Rst
+            rf2 = RT.transfer(g, AB[], RT.Source(inner.Lout, 0.0, sum(inner.Lout)), f.med, RT.Opts(diffuse = false, lya = true, lya_mc_win = 0.0); rho = dn)
+            a_mt = copy(rf2.arad)
+        finally
+            RT.LYA_INJECT[] = 0.0
+        end
+    end
+    a_ = Int(Main.TF.getscalar(:ngrs)); b_ = Int(Main.TF.getscalar(:ngre)); rmid = 0.5 .* (rn[1:end-1] .+ rn[2:end])
+    gloc = G .* (4π .* Main.TX.XMINT[][a_:b_]) ./ rmid .^ 2
+    mdotv = max(abs(ST.Mdot) * sqrt(2 * G * rec["M"] / rec["R"]), 1e-300)
+    (; accel = acc, res, emerge, rate_line, rate_win, Ncol, a_mt, a_cont = f.arad, gloc, mdotv, t_mc = time() - t_mc0, t_inner, rtot = sum(emerge[2]) + sum(S8.grid_rates(tn, dn, f.med.X, 4π / 3 .* (rn[2:end] .^ 3 .- rn[1:end-1] .^ 3))))
 end
 
 # ------------------------------------------------------------------ the field on the grid
@@ -241,11 +262,12 @@ function field!(rec, Mdot_dyn)
         savenow = !isempty(SAVEAT) && ST.Macc / Msun + ST.Mstar0 / Msun >= SAVEAT[1] / Msun          # the snapshot of this barrier gets its Lyα field (S8b: J_α, T_c)
         if LYA_FIRST[] || ST.j % Main.S8a.NEVERY == 0 || savenow
             lya = perf(:lya_mc, () -> lya_mc(rec, inner, src, g, rn, tn, dn, un, f, mz, ρs, redge, u_edge))
-            a_mc = lya.accel; Main.S8a.LASTGRID[] = (rc_now, copy(a_mc)); LYA_FIRST[] = false
+            a_mc = lya.accel; Main.S8a.LASTGRID[] = (rc_now, copy(a_mc), lya.rtot); LYA_FIRST[] = false
             log_lya!(lya, ST.j, TF.getscalar(:timen), mz, rn, dn)
             savenow && lya.res !== nothing && dump_J!(lya.res, ST.j, TF.getscalar(:timen))
         else
-            a_mc = Main.S8a.held_accel(rc_now)
+            rnow = lya_mc(rec, inner, src, g, rn, tn, dn, un, f, mz, ρs, redge, u_edge; only_rates = true)
+            a_mc = Main.S8a.held_accel(rc_now) .* (Main.S8a.LASTGRID[][3] > 0 ? clamp(rnow / Main.S8a.LASTGRID[][3], 0.0, 10.0) : 1.0)          # held force, scaled with the source rate
         end
     end
     arad_tot = f.arad .* FORCEFAC .+ a_mc

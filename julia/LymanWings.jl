@@ -41,6 +41,8 @@ const mH = 1.6735575e-24
 const πe2mc = 0.02654008                                                  # π e²/(m c) [cm² Hz]
 const E0 = νRy / νHa                                                       # Lyman limit in Ha (reduced mass): 0.49973
 const NLINES = 300                                                        # explicit lines of the sum (the rest is added as a smooth tail)
+"S8a (RT_LYA=mc): Lyβ and higher lines are destroyed by the cascade np → ns, nd with probability 1 − branch(n) per scattering (0.118 for Lyβ); default off (S7c-2: no conversion)."
+const LYB_CONV = Ref(false)
 const NV = 12                                                             # lines with a thermal (Voigt) core
 
 # ------------------------------------------------------------------ atomic data
@@ -368,7 +370,7 @@ function line_plateau(n, Neff, T; vt = 0.0, eps = 0.0)
     D = Δν_D(n, T; vt); a = A_tot(n) / (4π * D); s̄ = πe2mc * FN[n] / D; τ̄ = s̄ * Neff; aτ = a * τ̄
     aτ < 1 && return (0.0, 0.0, aτ)
     xe = aτ^(1 / 3); sat = min(1.0, (aτ / 450)^(1 / 3))
-    Γ = n == 2 ? 1.04 * (eps * τ̄)^(1 / 3) : 0.0
+    Γ = n == 2 ? 1.04 * (eps * τ̄)^(1 / 3) : (LYB_CONV[] ? 1.04 * ((1 - branch(n)) * τ̄)^(1 / 3) : 0.0)       # S8a: Ly-n (n ≥ 3) loses 1 − branch(n) of its scatterings to the cascade np → 2s,2d (Hα, …): destruction of the line photon
     (0.411 * xe / (sat + Γ), xe, aτ)
 end
 "Damping parameter a and σ̄ = π e² f/(m c Δν_D) of Lyα (kept for the tests)."
