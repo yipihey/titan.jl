@@ -37,6 +37,8 @@ const LYA = Ref(get(ENV, "RT_LYA", "0") in ("1", "mc"))
 "S8a: RT_LYA=mc replaces the MT08 force of Lyα itself (window around the line, the injected and grid line sources) by the Monte Carlo of LyaMC.jl; the other Lyman lines keep the MT08 approximation. Default off."
 const LYAMC = Ref(get(ENV, "RT_LYA", "0") == "mc")
 "Half-width |ν/ν_α − 1| of the window around Lyα that the Monte Carlo transports (RT_LYA_MCWIN)."
+# S8a: with RT_LYA=mc the MT08 force of the remaining Lyman lines and of the coherent far wings is dropped (the Monte Carlo replaces the approximation; the beam keeps them); RT_LYA_MT08REST=1 keeps it (Ly-n conversion on)
+const LYA_MT08REST = Ref(get(ENV, "RT_LYA_MT08REST", "0") == "1")
 const LYA_MC_WIN = Ref(parse(Float64, get(ENV, "RT_LYA_MCWIN", "0.12")))
 "Lines Ly-2 … Ly-n resolved by `default_grid` when `lyman` (extra bin edges, see LymanWings.line_edges)."
 const LYMAN_LINES = Ref(parse(Int, get(ENV, "RT_LYMAN_LINES", "12")))
@@ -300,6 +302,7 @@ function transfer(g::FreqGrid, ab::Vector{Absorber}, src::Source, med::Medium, o
     V = [volume(r, k) for k in 1:n]; Δr = diff(r)
     Ld = zeros(n + 1, nf); Jdir = zeros(n, nf); Pabs = zeros(n, nf); Psc = zeros(n, nf)
     arad_hi = zeros(n)                                    # S7c-2: the beam's force from the scattering by neutral H (single scattering), subtracted from the trapped-Lyα force
+    winmask = (o.lya && o.lya_mc_win > 0) ? lya_window(g, o.lya_mc_win) : nothing; arad_hiw = zeros(n)          # S8a: the window bins' share of arad_hi
     La = o.lya ? zeros(n + 1, nf) : zeros(0, 0)          # luminosity attenuated by true absorption only (the flux of the scattered, trapped photons: ∇·F = 0)
     # ---- direct beam
     for f in 1:nf
@@ -313,7 +316,10 @@ function transfer(g::FreqGrid, ab::Vector{Absorber}, src::Source, med::Medium, o
             Ld[k+1, f] = L * (1 - t)
             if ext > 0
                 Pabs[k, f] = L * t * op.kabs[k, f] / ext; Psc[k, f] = L * t * op.ssc[k, f] / ext
-                o.lya && rho !== nothing && (arad_hi[k] += L * t * op.sHI[k, f] / ext / (c * rho[k] * V[k]))
+                if o.lya && rho !== nothing
+                    dh = L * t * op.sHI[k, f] / ext / (c * rho[k] * V[k]); arad_hi[k] += dh
+                    winmask !== nothing && winmask[f] && (arad_hiw[k] += dh)
+                end
             end
             # effective mean intensity of the zone: absorbed/(4π κ V) with absorbed = L t κ_abs/ext  →  L (t/τ) Δr/(4π V) · (κ_abs/ext)(ext/κ) = L (t/τ) Δr/(4πV) (extinction beam)
             Jdir[k, f] = (τ > 1e-300 ? L * t / τ : L) * Δr[k] / (4π * V[k]) / (g.dν[f])
@@ -362,8 +368,12 @@ function transfer(g::FreqGrid, ab::Vector{Absorber}, src::Source, med::Medium, o
         GH = zeros(n); for (ia, a) in enumerate(ab); (a.R === :H && occursin("ground", a.p.name)) && (GH .+= Gam[ia]); end        # ionising-photon (> 13.6 eV, from the ground level) photoionisation rate per H atom: the stellar driver of the H II gas
         mcw = o.lya_mc_win > 0
         winbins = mcw ? lya_window(g, o.lya_mc_win) : nothing
-        alya = lya_accel(g, lytable(g), La, med, rho, o; Linject = mcw ? 0.0 : LYA_INJECT[], Rstar = (src.Rstar > 0 ? src.Rstar : LYA_RSTAR[]), Lsrc = src.L,
-                         GammaH = mcw ? nothing : GH, skipbins = winbins, nolines = mcw) .- arad_hi
+        if mcw && !LYA_MT08REST[]
+            alya = .-arad_hiw                    # Monte Carlo mode: only the window's single-scattering beam force is replaced (by LyaMC); everything else stays the beam
+        else
+            alya = lya_accel(g, lytable(g), La, med, rho, o; Linject = mcw ? 0.0 : LYA_INJECT[], Rstar = (src.Rstar > 0 ? src.Rstar : LYA_RSTAR[]), Lsrc = src.L,
+                             GammaH = mcw ? nothing : GH, skipbins = winbins, nolines = mcw) .- arad_hi
+        end
         arad .+= alya
     end
     ARAD_LYA[] = alya
@@ -684,7 +694,7 @@ end
 
 include(joinpath(@__DIR__, "RadSweep.jl"))      # S7b: ion_sweep, interface_accel
 include(joinpath(@__DIR__, "LymanWings.jl"))    # S7c-2: H I Lyman-series scattering cross section, MT08 trapped-Lyα pressure
-LymanWings.LYB_CONV[] = LYAMC[]
+LymanWings.LYB_CONV[] = LYAMC[] && LYA_MT08REST[]
 include(joinpath(@__DIR__, "RadLya.jl"))        # S7c-2: trapped-Lyα radiation force on the grid
 
 end # module

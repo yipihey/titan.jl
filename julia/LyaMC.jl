@@ -555,7 +555,8 @@ function finalize(Z::Zones, sources, tl, tot::Tally, o::Opts)
         sb = [slope(tl[ib].Jx, k) for ib in 1:nb]; sb = filter(isfinite, sb)
         if isfinite(s) && s > 0 && length(sb) >= 3
             m = sum(sb) / length(sb); sd = sqrt(sum((sb .- m) .^ 2) / (length(sb) - 1) / length(sb))
-            Tc[k] = Z.T[k] * s0 / s; Tcerr[k] = Z.T[k] * s0 / s * sd / max(s, 1e-300); Tvalid[k] = sd < 0.3 * s
+            tcc = Z.T[k] * s0 / s; Tcerr[k] = tcc * sd / max(s, 1e-300)
+            if sd < 0.15 * s && 0.3 < tcc / Z.T[k] < 3.0; Tc[k] = tcc; Tvalid[k] = true; end        # (a tilt measured with > 15 % scatter or implausible stays T_k: the true departures are ≲ 1e-2)
         end
     end
     # noise of the force: scatter of the batches

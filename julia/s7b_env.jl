@@ -302,9 +302,14 @@ function barrier!(t)
     TF = Main.TF; t_w0 = time()
     j = ST.j; tc = t - ST.t0
     Md, Macc_t = mdot_window(t)
-    if !isfinite(Md); Md = ST.Mdot; Macc_t = ST.Macc0 + ST.Mdot * tc; end
-    Macc = Macc_t - ST.Macc0; ST.Macc = Macc; ST.Mdot = Md
     Mpt = 4π * Main.TX.XMINT[][Int(TF.getscalar(:ngrs))]
+    if !isfinite(Md)
+        # no fit (fewer than 4 events in the window): S8a starvation fallback, the rate cannot exceed STARVE × (last zone mass)/(time since the last event); the mass cannot exceed the point mass
+        Md = ST.Mdot; ev = ST.events; nev = length(ev)
+        STARVE > 0 && nev >= 2 && t > ev[nev][1] && (Md = min(Md, STARVE * (ev[nev][2] - ev[nev-1][2]) / max(t - ev[nev][1], 1e-30)))
+        Macc_t = STARVE > 0 ? Mpt : ST.Macc0 + ST.Mdot * tc
+    end
+    Macc = Macc_t - ST.Macc0; ST.Macc = Macc; ST.Mdot = Md
     # star record at t_j
     rec = nothing
     if TRACK != ""

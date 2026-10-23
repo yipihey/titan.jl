@@ -1,0 +1,33 @@
+PASS  a1 parallel-velocity sampler       KS distance 0.0049 over 8 (x, a) pairs (1% critical value 0.0052)
+PASS  a2 wing redistribution             x=8: <Δx> = -0.1298 (−1/x = -0.1250), <Δx²> = 1.0285; x=30: <Δx> = -0.0344 (−1/x = -0.0333), <Δx²> = 1.0065
+PASS  a3 Rayleigh angles                 <μ> = -0.0010, <μ²> = 0.4005 (0.4 for (3/8)(1+μ²))
+PASS  a4 destruction probability         ε(n_e = 1e8) = 4.381e-09 (A_2γ/3A_21 = 4.381e-09), ε(n_e = 100) = 1.10e-10
+PASS  a5 KH wing table                   σ_MC/σ_KH within 0.001 over Δν/ν = ±0.02 … ±0.1
+   [a: 1 s]
+   slab aτ0 = 1491: MC peak at |x| = 1.05 (aτ0)^(1/3) (analytic 1.06), rms deviation of the spectrum 0.235, rms |x|/(aτ0)^(1/3) = 1.125
+PASS  b1 slab: N_sc ∝ τ_0                N_sc = [19700.0, 53700.0, 172000.0] for τ_0 = [10000.0, 30000.0, 100000.0]: log-slope 0.940, N_sc/τ_0 = 1.973 1.791 1.718
+PASS  b2 slab: emergent spectrum         Harrington/Neufeld: peak 1.05 (1.06) × (aτ0)^(1/3), rms deviation 0.235 (700 packets-level noise)
+PASS  b3 sphere: analytic spectrum       aτ0 = 14913: peak 0.95 (0.92) × (aτ0)^(1/3), rms deviation 0.232, N_sc/τ0 = 0.934, skipped zones x_c = [3.0]
+   [b: 79 s]
+PASS  c1 first flight in a Hubble flow   τ_S = 0.1: MC 0.0484, Sobolev 0.0479; τ_S = 1: MC 0.3708, Sobolev 0.3640; τ_S = 10: MC 0.8982, Sobolev 0.8930
+PASS  c2 infall blue peak, mirror symmetry blue fraction 1.000 (infall) / 0.000 (outflow); <x> = 7.12 / -7.35; N_sc 7.52e+04 / 7.32e+04
+PASS  c3 energy exchange with the flow   gas energy change per photon -3.0527e-04 E_α against −<x>b/c = -3.0528e-04 (infall)
+   [c: 12 s]
+PASS  d1 Neufeld f_esc (absorption)      aτ0 = 1491, slab; τ_a = 0.01: 0.800 (Neufeld 0.800); τ_a = 0.03: 0.548 (Neufeld 0.553); τ_a = 0.1: 0.204 (Neufeld 0.221)
+PASS  d2 f_esc = exp(−ε N_sc), scaling invariance s = 1: f_esc 0.783 N_sc = 7.33e+05; s = 10: f_esc 0.760 N_sc = 8e+04; exp(−ε N̄) = 0.749 (N̄ = 9.65e+05 without destruction); (τ0, ε) → (τ0/10, 10 ε) gives the same f_esc
+PASS  d3 spectral collapse under x → x/λ, τ0 → τ0/λ³ rms x (bins of width ∝ (aτ0)^{1/3}) 9.58 vs 9.75 (same bins): ratio 0.982
+   [d: 53 s]
+PASS  e1 grey scattering: M_F = τ (exact) τ = 3: M_F(zones 2-10) = 2.79 (events 3.11; τ_total(9/10) = 2.70), zone forces/τ_zone 1.033 ± 0.037; τ = 30: M_F(zones 2-10) = 27.05 (events 30.30; τ_total(9/10) = 27.00), zone forces/τ_zone 1.002 ± 0.035
+PASS  e2 force multiplier of a static shell N_H = 1e+19: M_F = 39.7 (momentum balance; events 43.2) [D&L08 10.0, MT08 13.6, 3.51(aτ0)^(1/3) = 22.9]; N_H = 1e+20: M_F = 57.0 (momentum balance; events 71.2) [D&L08 27.5, MT08 29.3, 3.51(aτ0)^(1/3) = 49.4]; the cavity returns the reflected photons to the shell (N_H = 1e19: 18 crossings of the inner face per photon), M_F is 1.5-4× the D&L08 fit
+   [e: 55 s]
+PASS  f1 Wouthuysen–Field: T_c → T_k     T = 10 K (recoil 2g = 1.604e-02 per Doppler width), τ0 = 1e+05: T_c/T_k = [1.068, 1.016, 1.16] ± [0.044, 0.048, 0.098] in the inner zones, mean 1.056 ± 0.031 (1 = Field 1959; Hirata 2006 for the closed medium)
+PASS  f2 no recoil, no tilt              without recoil the fitted tilt is consistent with zero (T_c/T_k = 1.00 ± Inf, valid = false); with recoil 1.068 ± 0.044
+   [f: 105 s]
+PASS  g1 photon ledger                   out 0.6537 + in 0.0000 + 2γ 0.0000 + H⁻ 0.3463 + H₂ 0.0001 + cut 0.0e+00 = 1.000000000000001
+PASS  g2 energy ledger (moving medium)   E_emit − E_out − E_in − E_2γ − E_gas = -1.08e-15 E_emit (infall |V| = 5b: gas exchange 3.462e-01 E_emit)
+PASS  g3 momentum: events vs momentum balance Σ force c/L: 60.95 (events) vs 59.20 (momentum balance), thick static sphere T = 10 K, τ0 = 1e5
+   [g: 16 s]
+PASS  h1 noise vs packets                relative scatter of the total force (8 seeds) [0.015, 0.014, 0.0053] for N = [200, 800, 3200] packets: slope -0.37 (−0.5)
+PASS  h2 core skipping vs exact          f_esc 0.946/0.951, N_sc 2.76e+05/2.75e+05, rms x 15.83/15.88, Σ force c/L 75.9/74.9 (skip/exact); time 17.7 s (9600 packets) vs 29.6 s (2400); eligible zones 4/4
+   [h: 112 s]
+S8A: ALL PASS
