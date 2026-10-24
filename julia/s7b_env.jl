@@ -27,7 +27,8 @@ const FEX = envf("S7B_FEX", 0.01); const MSYNC = envf("S7B_MSYNC", 10.0) * Msun;
 const TINNER = envf("S7B_TINNER", 1.5e4); const NZIN = envi("S7B_NZIN", 300); const DIFFUSE = get(ENV, "S7B_DIFFUSE", "0") == "1"; const USELW = get(ENV, "S7B_LW", "1") == "1"
 const HEATFAC = envf("S7B_HEAT", 1.0); const HEATMODE = get(ENV, "S7B_HEATMODE", "abs"); const FORCE = get(ENV, "S7B_FORCE", "1") == "1"; const FEEDBACK = get(ENV, "S7B_FEEDBACK", "1") == "1"; const FORCEFAC = envf("S7B_FORCEFAC", 1.0)
 const MCAP = envf("S7B_MCAP", 1e9) * Msun; const MDOTSTOP = envf("S7B_MDOTSTOP", 0.0) * Msun / YR; const MDOTWIN = envf("S7B_MDOTWIN", 0.3)
-const STARVE = envf("S7B_STARVE", 3.0); const DTMAX = envf("S7B_DTMAX", 1e30) * 3.15576e7; const NPROF = envi("S7B_NPROF", 0); const LYASURV = get(ENV, "S7B_LYASURV", "0") == "1"
+const STARVE = envf("S7B_STARVE", 3.0); const STARVECUT = envf("S7B_STARVECUT", 0.0);      # FULL-1: STARVECUT = Q [0 = off]: once the last sink event is overdue by Q expected intervals the rate decays as exp(-(overdue - Q)) (the 1/t bound alone lets the star grow by ~ zone mass x ln(t/t_exp))
+ const DTMAX = envf("S7B_DTMAX", 1e30) * 3.15576e7; const NPROF = envi("S7B_NPROF", 0); const LYASURV = get(ENV, "S7B_LYASURV", "0") == "1"
 const TRACK = get(ENV, "S7B_TRACK", ""); const EXCH = TRACK == "" && get(ENV, "S7B_EXCH", "1") == "1"
 const SAVEAT = haskey(ENV, "S7B_SAVEAT") ? sort(parse.(Float64, split(ENV["S7B_SAVEAT"], ","))) .* Msun : Float64[]
 const PERFD = Dict{Symbol,Tuple{Int,Float64}}()
@@ -129,6 +130,7 @@ function mdot_window(t)
     den > 0 || return (NaN, NaN)
     Md = sum((ts .- tb) .* (ms .- mb)) / den
     Md > 0 || return (NaN, NaN)
+    Mfit = Md
     # the sink may starve (the infall halts): the line through the staircase would keep growing. Bound the rate by the average since the first event of the window, and the mass by the point mass
     t1, mlast = ev[n]; t0w, m0w = ev[k]
     t > t1 && (Md = min(Md, (mlast - m0w) / max(t - t0w, 1e-30)))
@@ -136,6 +138,7 @@ function mdot_window(t)
     # (the average since the first event of the window decays too slowly: the coupled star grew to 178 M☉ while the sink had stopped at 143, S7c-1). S7B_STARVE = 0 restores the S7c-1 estimator.
     if STARVE > 0 && t > t1 && n >= 2
         Md = min(Md, STARVE * (mlast - ev[n-1][2]) / max(t - t1, 1e-30))
+        STARVECUT > 0 && (Md *= exp(-max(0.0, (t - t1) * Mfit / (mlast - ev[n-1][2]) - STARVECUT)))
     end
     (Md, min(mb + Md * (t - tb), 4π * Main.TX.XMINT[][Int(Main.TF.getscalar(:ngrs))]))
 end
@@ -198,7 +201,13 @@ function lya_mc(rec, inner, src, g, rn, tn, dn, un, f, mz, ρs, redge, u_edge; o
     rate_win = S8.window_rates(g, inner.Lout, win)
     nHe = ρs / CN.μH(); t_in0 = time()
     if redge > 1.05 * Rst
-        inn = S8.inner_response!(Rst, RII, redge, nHe, u_edge, TINNER)
+        inn = try
+            S8.inner_response!(Rst, RII, redge, nHe, u_edge, TINNER)
+        catch err      # FULL-1: the scaled inner-column run failed once (InexactError: Int64(NaN) in LyaMC.Cwing at t_c = 11.8 kyr): report the inputs, keep the last valid response
+            @printf("S8A inner column FAILED (%s): R* = %.4e, R_II = %.4e, r_edge = %.4e, nH = %.4e, u_edge = %.4e, T = %.1f; INNER valid %s\n", sprint(showerror, err)[1:min(end, 200)], Rst, RII, redge, nHe, u_edge, TINNER, S8.INNER.valid)
+            S8.INNER.valid || rethrow()
+            S8.INNER
+        end
         Ncol = S8.column(nHe * (1 - S8.XE_IN), RII, redge); tau0 = Ncol * Lm.sig0(TINNER)
         emerge = S8.emergent(inn, rate_line, rate_win, tau0)
     else

@@ -1,0 +1,9 @@
+M2c collapse [IC abn02z19]: cooling lines, 200 shells (q = 1.1167, dm1 = 3e-7 Msun), R = 1.602e+20 cm, rho_c/rho_edge = 4334143273394344296448.0, T_edge = 1006.1 K, p_ext = 2.618e-14
+theta = 0.55, C_dyn = 0.01, k5 = pss, chemistry netatomicli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 1.623e-03 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+    108   21.253 2.1676e+07   17361.4       NaN  4.298e-02    -10.534  1.73e-04  3.46e+02  L_lines 6.272e+36  bins 133, thick lines 230
+    235   21.504 2.1676e+07   20936.7       NaN  4.089e-02    -11.513  2.36e-04  2.59e+02  L_lines 6.272e+36  bins 146, thick lines 230
+wall time: total 492.8 s, line transfer 422.2 s, chemistry 21.6 s (0 failed zone steps kept)
+implicit line cooling on 0 steps
+hybrid NLTE: 48 ALI calls
+integrator TR-BDF2, statistics Dict(:fail_tr => 0, :fail_bdf => 0, :steps => 240, :be_fallback => 0)

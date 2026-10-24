@@ -7,17 +7,25 @@
 #     ms          s5_run.jl                 HANDOFF = that star, no accretion, to central hydrogen exhaustion (X_c < 1e-3)
 #   Every stage writes its log (lib/popiii/*.log), its performance record lib/popiii/perf/<E2E_PERF>_<stage>_* and a marker <E2E_WORK>/<stage>.done; a stage with a marker is
 #   skipped (--force reruns it and everything after it). protostar and ms restart from their last checkpoint when they stop early (up to E2E_RETRIES times).
-#   S7b (feedback): set E2E_TAG / E2E_PERF to new names and put the feedback switches of the drivers into E2E_EXTRA_<STAGE> ("KEY=VAL KEY=VAL"), e.g. E2E_EXTRA_PROTOSTAR.
+#   FULL-1 (E2E_FB=1): the chain WITH feedback, stages  collapse -> formation -> coupled -> ms:
+#     coupled     popiii_m2c.jl (S7B=1, SINK=1, envelope) + s6b_run.jl (S7B_STAR=1, protostar) as two processes exchanging at barriers (S7b two-way scheme, S7c-1 precursor fixes PROTGAMMA 0.25,
+#                 S8a RT_LYMAN=1 RT_LYA=mc and the Mdot starvation estimator, HI21 inline, EDDCAP 0.95); ends when the envelope reports done (Mdot_win < E2E_MDOTSTOP [1e-3] or t_c > E2E_TCMAX [40000 yr]);
+#                 HANDOFF_OUT = the star at that time.  A dead star process is restarted from its last checkpoint with S7B_RESUME (replay of the recorded exchange) while the envelope waits at the barrier;
+#                 a dead envelope fails the stage (rerun it with --force: the envelope has no resume).
+#     ms          as below, from the hand-off of `coupled`.
+#   E2E_REUSE=<work dir of an earlier chain> imports its collapse / formation snapshots (the stages are then marked done with `reused=<dir>`).
+#   S7b (feedback, no-FB chain): set E2E_TAG / E2E_PERF to new names and put the feedback switches of the drivers into E2E_EXTRA_<STAGE> ("KEY=VAL KEY=VAL"), e.g. E2E_EXTRA_PROTOSTAR.
 # Environment: E2E_TAG [abn02z19_nofb], E2E_WORK [lib/popiii/e2e_work/<tag>] (snapshots, checkpoints, hand-off: not committed), E2E_THREADS [4], E2E_MCAP [250] Msun,
 #   E2E_MDOTSTOP [1e-5] Msun/yr, E2E_PERF [e2e], E2E_RETRIES [4].
 using Printf
 const J = @__DIR__; const ROOT = normpath(J, ".."); const LIB = joinpath(ROOT, "lib", "popiii")
-const TAG = get(ENV, "E2E_TAG", "abn02z19_nofb")
+const FB = get(ENV, "E2E_FB", "0") == "1"
+const TAG = get(ENV, "E2E_TAG", FB ? "abn02z19_fb" : "abn02z19_nofb")
 const WORK = get(ENV, "E2E_WORK", joinpath(LIB, "e2e_work", TAG)); mkpath(WORK); mkpath(joinpath(WORK, "ck"))
 const THREADS = get(ENV, "E2E_THREADS", "4")
 const MCAP = parse(Float64, get(ENV, "E2E_MCAP", "250")); const MDOTSTOP = get(ENV, "E2E_MDOTSTOP", "1e-5")
 const PERF = get(ENV, "E2E_PERF", "e2e"); const RETRIES = parse(Int, get(ENV, "E2E_RETRIES", "4"))
-const STAGES = ["collapse", "formation", "sink", "protostar", "ms"]
+const STAGES = FB ? ["collapse", "formation", "coupled", "ms"] : ["collapse", "formation", "sink", "protostar", "ms"]
 marker(st) = joinpath(WORK, st * ".done")
 done(st) = isfile(marker(st))
 readdone(st) = Dict(split(l, "=", limit = 2) |> p -> String(p[1]) => String(p[2]) for l in readlines(marker(st)) if occursin('=', l))
@@ -28,17 +36,20 @@ function writedone(st, d::Pair...)
     end
 end
 extra(st) = [String(p[1]) => String(p[2]) for p in (split(w, "=", limit = 2) for w in split(get(ENV, "E2E_EXTRA_" * uppercase(st), ""))) if length(p) == 2]
-"Run `julia -t THREADS --project=env script args` in J with the environment `env` (log to WORK/<stage>[_rN].out). Returns the exit status."
-function launch(stage, script, args, env; suffix = "")
+"The command of `julia -t THREADS --project=env script args` in J with the environment `env` (+ E2E_EXTRA_<STAGE>), log WORK/<stage>[suffix].out."
+function mkcmd(stage, script, args, env; suffix = "", threads = THREADS)
     full = Dict{String,String}(env); for (k, v) in extra(stage); full[k] = v; end
     full["TITAN_NOLIB"] = "1"
     out = joinpath(WORK, stage * suffix * ".out")
     # the child is started as `e2ejl ... -e include(ENV["E2E_SCRIPT"])`: a `pkill julia` / `pkill -f <driver>.jl` aimed at other jobs on this shared machine does not match it
     full["E2E_SCRIPT"] = joinpath(J, script)
-    cmd = setenv(`bash -c 'exec -a e2ejl julia -t "$0" --project=env -e "include(ENV[\"E2E_SCRIPT\"])" "$@"' $THREADS $args`, merge(Dict(ENV), full); dir = J)
+    cmd = setenv(`bash -c 'exec -a e2ejl julia -t "$0" --project=env -e "include(ENV[\"E2E_SCRIPT\"])" "$@"' $threads $args`, merge(Dict(ENV), full); dir = J)
     @printf("[e2e] %s: %s %s  (log %s)\n", stage, script, join(args, " "), out)
+    pipeline(ignorestatus(cmd); stdout = out, stderr = out)
+end
+function launch(stage, script, args, env; suffix = "", threads = THREADS)
     t0 = time()
-    p = run(pipeline(ignorestatus(cmd); stdout = out, stderr = out))
+    p = run(mkcmd(stage, script, args, env; suffix, threads))
     p.termsignal != 0 && (@printf("[e2e] %s: killed by signal %d after %.0f s\n", stage, p.termsignal, time() - t0); return -p.termsignal)
     @printf("[e2e] %s: exit %d after %.0f s\n", stage, p.exitcode, time() - t0)
     p.exitcode
@@ -75,13 +86,25 @@ function run_m2c(stage, tag0, env; resumable = true, nsh = "200", resume_env = D
     end
     error("$stage failed after $(RETRIES + 1) attempts, see $(WORK)/$stage*.out")
 end
+"E2E_REUSE=<work dir>: take the stage's snapshot from an earlier chain run (its <stage>.done), copy it here and mark the stage done."
+function reuse_stage(st)
+    src = get(ENV, "E2E_REUSE", ""); isempty(src) && return false
+    m = joinpath(src, st * ".done"); isfile(m) || return false
+    d = Dict(split(l, "=", limit = 2) |> p -> String(p[1]) => String(p[2]) for l in readlines(m) if occursin('=', l))
+    snap = d["snapshot"]; isfile(snap) || (snap = joinpath(src, basename(snap)))
+    isfile(snap) || return false
+    dst = joinpath(WORK, basename(snap)); isfile(dst) || cp(snap, dst)
+    writedone(st, "snapshot" => dst, "log" => get(d, "log", ""), "reused" => src); @printf("[e2e] %s: reused from %s\n", st, src); true
+end
 function stage_collapse()
+    reuse_stage("collapse") && return
     tag = "_e2e_$(TAG)_c1"
     env = merge(collapse_env(), Dict("TAG" => tag, "NSTOP" => "1e21", "SNAPEND" => "1", "PERF" => "$(PERF)_collapse", "PERFSTAGE" => "collapse", "MAXSTEPS" => "60000", "TSTOP" => "1e30"))
     tag = run_m2c("collapse", tag, env)
     writedone("collapse", "snapshot" => snapfile(tag), "log" => joinpath(LIB, "m2c_abn02z19_lines_n200$(tag).log"))
 end
 function stage_formation()
+    reuse_stage("formation") && return
     c = readdone("collapse"); tag = "_e2e_$(TAG)_c2"
     env = merge(collapse_env(), Dict("TAG" => tag, "RESTART" => c["snapshot"], "RESIDX" => "0", "LINEEVERY" => "5", "NSTOP" => "1e30", "TSTOP" => "1e30", "TMAXYR" => "10",
                                      "MAXSTEPS" => "3000", "SNAPEND" => "1", "PERF" => "$(PERF)_formation", "PERFSTAGE" => "formation", "SNAPS" => "1"))
@@ -147,9 +170,65 @@ function stage_protostar()
         rm(base["HANDOFF_OUT"]; force = true)
     end
 end
+# ----------------------------------------------------------------------------------------------------------------- FULL-1 stage 3+4: coupled envelope + protostar with feedback
+"Two-way coupled sink run (envelope, popiii_m2c.jl S7B=1) and protostar (s6b_run.jl S7B_STAR=1) of the S7b scheme, two processes of E2E_THREADS threads; see the header."
+function stage_coupled()
+    f = readdone("formation"); etag = "_e2e_$(TAG)_cpl"; X = joinpath(WORK, "x_cpl"); mkpath(X)
+    tcmax = get(ENV, "E2E_TCMAX", "40000"); mdotstop = get(ENV, "E2E_MDOTSTOP_FB", "1e-3"); lya = get(ENV, "E2E_LYA", "mc")
+    pre = get(ENV, "E2E_MDOTPRE", joinpath(LIB, "s6c__z19a2_mdot_smooth.csv"))      # Mdot(M*) of the collapse for the star until the coupling starts (M = 3 Msun); the S7b/S7c/S8a validations use this table
+    shared = Dict("S7B_TAG" => TAG, "S7B_DIR" => X, "S7B_MSYNC" => "3", "S7B_SLEWDN" => "0.2", "S7B_DTMAX" => "60", "S7B_PERFPREFIX" => PERF, "RT_LYMAN" => "1", "RT_LYA" => lya, "S7B_STARVECUT" => get(ENV, "E2E_STARVECUT", "3"))
+    envp = merge(collapse_env(), shared, Dict("TAG" => etag, "RESTART" => f["snapshot"], "RESIDX" => "0", "SINK" => "1", "SPLIT" => "2", "RSINKAU" => "5", "RSINKP" => "1", "RSMREF" => "1", "RSMFLOOR" => "0.01",
+        "CDYN" => "0.03", "NLTE" => "ep", "TMAXYR" => "1e5", "NSTOP" => "1e30", "TSTOP" => "1e30", "MAXSTEPS" => "600000", "SNAPS" => "0", "S7B" => "1", "S7B_TCMAX" => tcmax, "S7B_MDOTSTOP" => mdotstop,
+        "S7B_NPROF" => "12", "S7B_SAVEAT" => get(ENV, "E2E_SAVEAT", "10,30,50,75,100,120,130,140"), "HI21" => "1", "HI21EVERY" => get(ENV, "E2E_HI21EVERY", "200"), "HI21RUN" => "e2e_$(TAG)_coupled",
+        "PERF" => "$(PERF)_coupled_env", "PERFSTAGE" => "coupled_env"))
+    elog = joinpath(LIB, "m2c_abn02z19_lines_n200$(etag).log"); efinal = joinpath(X, "env_final.txt")
+    out0 = "e2e_$(TAG)_star"; ho = joinpath(WORK, "handoff_$(TAG).star"); slog(o) = joinpath(LIB, "s6b_$(o).log")
+    starbase = Dict("OUT" => out0, "PRECTHICK" => "1", "BCSMOOTH" => "0.03", "BCSLOPE" => "8", "BCFALLBACK" => "1", "ESLIM" => "1.05", "TOL" => "0.05", "NIN" => "80", "QC" => "1.083", "QSPLIT" => "0.3",
+        "NENV" => "70", "PSI" => "0", "MDOTFILE" => pre, "MDOTRAMP" => "4.41e-3", "M0GUESS" => "0.22", "MDOTRAMPP" => "2.5", "MAXSTEPS" => "600000", "EVERY" => "50", "CSVEVERY" => "200", "CKEVERY" => "100",
+        "CKDIR" => joinpath(WORK, "ck"), "SAVE" => "e2e_$(TAG)_cp", "S7B_STAR" => "1", "PROTGAMMA" => "0.25", "EDDCAP" => "0.95", "PROFM" => "1,3,10,30,60,100,150,200", "HANDOFF_OUT" => ho, "PERFSTAGE" => "coupled_star")
+    merge!(starbase, shared)
+    star_ok(log) = isfile(ho) && finished(log, "mass accretion check") && !finished(log, "STOPPED at step") && mtime(ho) >= mtime(log) - 600
+    env_ok() = m2c_ok(etag) && isfile(efinal)
+    t0 = time(); pe = nothing; ps = nothing; attempt = 0; slogf = slog(out0)
+    if !env_ok()
+        isfile(elog) && error("coupled: an unfinished envelope run exists ($elog): the envelope has no resume; rerun the stage with --force")
+        rm(X; recursive = true, force = true); mkpath(X)
+        pe = run(mkcmd("coupled_env", "popiii_m2c.jl", ["lines", "200"], envp; threads = THREADS); wait = false); @printf("[e2e] coupled: envelope pid %d\n", getpid(pe)); sleep(20)
+    end
+    if !star_ok(slogf)
+        ck0 = latest_ck("s6b", "e2e_$(TAG)_cp")
+        env = copy(starbase); env["PERF"] = "$(PERF)_coupled_star"
+        if ck0 !== nothing && env_ok(); attempt = 1; env["RESTART"] = ck0; env["S7B_RESUME"] = "1"; env["S7B_ENVDIR"] = X; env["OUT"] = "$(out0)_r1"; env["PERF"] *= "_r1"; slogf = slog(env["OUT"]); end
+        ps = run(mkcmd("coupled_star", "s6b_run.jl", String[], env; suffix = attempt == 0 ? "" : "_r$(attempt)"); wait = false); @printf("[e2e] coupled: star pid %d\n", getpid(ps))
+    end
+    while true
+        sleep(30)
+        e_run = pe !== nothing && process_running(pe); s_run = ps !== nothing && process_running(ps)
+        if pe !== nothing && !e_run && !env_ok()
+            ps !== nothing && s_run && kill(ps)
+            error("coupled: the envelope process ended without finishing (see $(WORK)/coupled_env.out, $elog)")
+        end
+        if ps !== nothing && !s_run
+            if star_ok(slogf)
+                ps = nothing
+            else
+                attempt += 1; ck = latest_ck("s6b", "e2e_$(TAG)_cp")
+                (attempt > RETRIES || ck === nothing) && (pe !== nothing && e_run && kill(pe); error("coupled: the star stopped early (see $(slogf)): $(logtail(slogf, 8))"))
+                env = copy(starbase); env["RESTART"] = ck; env["S7B_RESUME"] = "1"; env["S7B_ENVDIR"] = X; env["OUT"] = "$(out0)_r$(attempt)"; env["PERF"] = "$(PERF)_coupled_star_r$(attempt)"
+                slogf = slog(env["OUT"]); rm(ho; force = true)
+                @printf("[e2e] coupled: star stopped early; restart %d from checkpoint %s (envelope waits at its barrier)\n", attempt, ck)
+                ps = run(mkcmd("coupled_star", "s6b_run.jl", String[], env; suffix = "_r$(attempt)"); wait = false)
+            end
+        end
+        (pe === nothing || !e_run) && ps === nothing && break
+    end
+    env_ok() || error("coupled: envelope did not finish cleanly ($elog)")
+    star_ok(slogf) || error("coupled: no hand-off star (see $slogf)")
+    writedone("coupled", "handoff" => ho, "log" => slogf, "env_log" => elog, "env_csv" => joinpath(LIB, "s7b_$(TAG)_env.csv"), "attempts" => string(attempt + 1), "wall_s" => string(round(Int, time() - t0)))
+end
 # ----------------------------------------------------------------------------------------------------------------- stage 5: main sequence
 function stage_ms()
-    p = readdone("protostar"); out0 = "e2e_$(TAG)_ms"
+    p = readdone(FB ? "coupled" : "protostar"); out0 = "e2e_$(TAG)_ms"
     base = Dict("HANDOFF" => p["handoff"], "OUT" => out0, "INT" => "theta", "DXMAX" => "4e-3", "EFRAC" => "5", "CONV" => "1e-5", "XSTOP" => "1e-3", "MAXSTEPS" => "100000", "EVERY" => "50",
                 "CKEVERY" => "100", "CKDIR" => joinpath(WORK, "ck"), "SAVE" => "e2e_$(TAG)_ms", "PROFILE_X" => "0.7,0.5,0.3,0.1,0.01", "EDDCAP" => "0.95", "PERFSTAGE" => "ms", "TOL" => "0.01", "NITER" => "40")      # (TOL 0.03 / NITER 25: Newton fails at t = 1.9e4 yr, R = 7.3 Rsun, see notes E2E-A)
     ck0 = latest_ck("s5", "e2e_$(TAG)_ms")      # a run that was killed leaves its checkpoints: continue from the newest one
@@ -169,7 +248,7 @@ function stage_ms()
         restart = ck; @printf("[e2e] ms stopped early; restart %d from checkpoint %s\n", attempt, ck)
     end
 end
-const FN = Dict("collapse" => stage_collapse, "formation" => stage_formation, "sink" => stage_sink, "protostar" => stage_protostar, "ms" => stage_ms)
+const FN = Dict("coupled" => stage_coupled, "collapse" => stage_collapse, "formation" => stage_formation, "sink" => stage_sink, "protostar" => stage_protostar, "ms" => stage_ms)
 function main()
     args = filter(a -> !startswith(a, "--"), ARGS); force = "--force" in ARGS
     if "--status" in ARGS

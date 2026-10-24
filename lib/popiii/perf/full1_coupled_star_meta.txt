@@ -1,0 +1,17 @@
+cpu = apple-m1 (6 hw threads)
+date = 2026-10-23 17:59:45
+driver = s6b_run.jl
+git = 36ad6c7
+host = PHY-FD69NP6NG2
+julia = 1.12.6
+julia_threads = 4
+mdot = 
+mdotfile = /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-aa5e9cadc694d471b/lib/popiii/s6c__z19a2_mdot_smooth.csv
+nenv = 70
+nin = 80
+out = e2e_abn02z19_fb_star
+prec = 1
+run = full1_coupled_star
+stage = coupled_star
+tol = 0.05
+wall_s = 4810.174

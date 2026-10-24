@@ -1,0 +1,16 @@
+M = 100
+cpu = apple-m1 (6 hw threads)
+date = 2026-10-23 19:20:59
+driver = s5_run.jl
+git = 36ad6c7
+handoff = /Users/tabel/Projects/titan.jl/.claude/worktrees/agent-aa5e9cadc694d471b/lib/popiii/e2e_work/abn02z19_fb/handoff_abn02z19_fb.star
+host = PHY-FD69NP6NG2
+integ = theta
+julia = 1.12.6
+julia_threads = 4
+n = 140
+out = e2e_abn02z19_fb_ms
+run = full1_ms
+stage = ms
+tol = 0.01
+wall_s = 20647.118

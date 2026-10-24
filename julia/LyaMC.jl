@@ -324,6 +324,7 @@ end
 function trace!(rng, Z::Zones, Tl::Tally, o::Opts, isrc, r, μ, w, wt, k)
     nexp = 0
     cinv = 1 / c
+    (isfinite(w) && isfinite(μ) && isfinite(r) && isfinite(wt)) || (Tl.nlost += isfinite(wt) ? wt : 0.0; return)      # FULL-1: non-finite packet (source sampling)
     @inbounds while true
         rk = Z.r[k]; rk1 = Z.r[k+1]; rμ = r * μ
         sout = -rμ + sqrt(max(rμ * rμ + rk1 * rk1 - r * r, 0.0))
@@ -447,9 +448,10 @@ function trace!(rng, Z::Zones, Tl::Tally, o::Opts, isrc, r, μ, w, wt, k)
                 end
                 return
             end
-            Tl.hexch[k] += wt * E0 * bc * (x - xo); Tl.hrec[k] += wt * E0 * bc * g * N
             μn = 2 * rand(rng) - 1
             wn = xo * b + us * μn
+            isfinite(wn) || (Tl.nlost += wt; return)         # FULL-1: a non-finite photon frequency (found once, 1e4 yr into the production run) ends the packet as lost instead of the run
+            Tl.hexch[k] += wt * E0 * bc * (x - xo); Tl.hrec[k] += wt * E0 * bc * g * N
             Tl.Egas[k] += wt * (Ew - energy(wn))
             μ = μn; w = wn
             continue
@@ -461,6 +463,7 @@ function trace!(rng, Z::Zones, Tl::Tally, o::Opts, isrc, r, μ, w, wt, k)
         s2 = sqrt(max(1 - μsc * μsc, 0.0))
         μn = clamp(μsc * μ + s2 * sqrt(max(1 - μ * μ, 0.0)) * cos(2π * rand(rng)), -1.0, 1.0)
         wn = xo * b + us * μn
+        isfinite(wn) || (Tl.nlost += wt; return)
         Tl.hexch[k] += wt * E0 * bc * (x - xo); Tl.hrec[k] += wt * E0 * bc * g
         Tl.Egas[k] += wt * (Ew - energy(wn))
         μ = μn; w = wn

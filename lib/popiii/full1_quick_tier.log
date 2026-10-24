@@ -1,0 +1,9 @@
+running 8 tests (quick)
+regress_SOD    PASS  steps 464.0 (reference 464 on this machine)
+regress_SUBC   PASS  steps 587.0 (587)
+regress_SUPC   PASS  steps 713.0 (713)
+m1_static      PASS  max |Δr/r| = 0.00e+00, max |u|/c_s = 0.00e+00, max |Δρ/ρ| = 0.00e+00, r(centre) = 0
+m1_be_disc     PASS  max |Δρ/ρ| = 7.271e-10, max |u|/c_s = 1.259e-10, NaN false
+h2lines        PASS  thin 1.0; sphere total L ratio ∈ [0.9941, 1.0001]
+chem_saha_db   PASS  detailed-balance network T = 2217.9715 K vs Saha 2217.9715 K
+onezone_ra04   PASS  f_H2 at log ρ/m_H ≈ 12.4: 0.9707 (M2a: 0.971)
