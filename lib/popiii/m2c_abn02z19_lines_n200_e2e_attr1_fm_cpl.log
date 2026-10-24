@@ -1,0 +1,32 @@
+M2c collapse [IC abn02z19]: cooling lines, 250 shells (q = 1.1167, dm1 = 3e-7 Msun), R = 1.602e+20 cm, rho_c/rho_edge = 1550874514654548992.0, T_edge = 1006.1 K, p_ext = 2.618e-14
+theta = 0.55, C_dyn = 0.03, k5 = pss, chemistry netatomicli, equilibrium table where p ≥ 10000, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 2.403e-03 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+    500   15.161 2.1676e+07    2384.3    2032.5  5.699e-01    -14.610  6.04e-02  1.01e+05  L_lines 3.223e+36  bins 0, thick lines 0
+   1000   14.105 2.1676e+07    2479.6    1680.3  9.486e-02    -19.194  7.99e-02  1.29e+05  L_lines 2.780e+36  bins 0, thick lines 0
+   1500   13.338 2.1676e+07    4200.3    1450.6  3.357e-06    -25.600  6.32e-03  4.57e+04  L_lines 2.449e+36  bins 0, thick lines 0
+   2000   13.030 2.1676e+07    2497.2    1367.3  8.544e-03    -18.455  5.64e-02  9.51e+04  L_lines 2.431e+36  bins 0, thick lines 0
+   2500   12.580 2.1676e+07    6737.7    1254.1  5.581e-09    -29.349  1.03e-03  6.51e+04  L_lines 2.337e+36  bins 0, thick lines 0
+   3000   12.586 2.1676e+07    1880.6    1255.5  6.014e-01    -13.717  8.97e-02  1.33e+06  L_lines 3.140e+36  bins 0, thick lines 0
+   3500   12.315 2.1676e+07    1947.4    1191.9  3.388e-01    -16.377  9.11e-02  1.01e+06  L_lines 3.725e+36  bins 0, thick lines 0
+   4000   11.877 2.1676e+07    1860.4    1075.2  5.043e-01    -14.099  9.05e-02  2.32e+06  L_lines 3.894e+36  bins 0, thick lines 0
+   4500   11.175 2.1676e+07    2542.9     843.9  1.351e-02    -35.427  6.69e-02  1.26e+05  L_lines 1.738e+36  bins 0, thick lines 0
+   5000   11.216 2.1676e+07    5100.0     855.8  8.583e-07    -22.715  9.07e-02  1.05e+06  L_lines 1.808e+36  bins 0, thick lines 0
+   5500   10.579 2.1676e+07    6177.6     686.8  1.279e-06    -28.137  9.09e-02  2.77e+05  L_lines 8.975e+35  bins 0, thick lines 0
+   6000   10.767 2.1676e+07    5336.7     732.9  1.012e-06    -27.821  9.03e-02  1.76e+06  L_lines 8.293e+35  bins 0, thick lines 0
+   6500   10.236 2.1676e+07    6302.9     610.2  1.228e-06    -29.430  9.09e-02  7.78e+05  L_lines 7.126e+35  bins 0, thick lines 0
+   7000   10.054 2.1676e+07    2262.7     573.0  3.370e-02    -19.208  6.09e-02  2.95e+06  L_lines 1.168e+36  bins 0, thick lines 0
+   7500    9.895 2.1676e+07    5954.4     552.3  1.135e-06    -19.598  9.11e-02  3.11e+06  L_lines 4.491e+35  bins 0, thick lines 0
+   8000    9.434 2.1676e+07    7049.7     510.0  1.056e-06    -32.746  9.09e-02  3.72e+05  L_lines 2.279e+35  bins 0, thick lines 0
+   8500    9.333 2.1676e+07    6943.9     501.2  7.010e-07    -36.982  9.09e-02  3.08e+05  L_lines 2.130e+35  bins 0, thick lines 0
+   9000    9.370 2.1677e+07    5695.7     504.3  6.195e-07    -22.417  9.08e-02  5.51e+06  L_lines 2.102e+35  bins 0, thick lines 0
+   9500    9.010 2.1677e+07    6471.9     473.9  3.808e-07    -40.113  9.09e-02  7.10e+05  L_lines 1.674e+35  bins 0, thick lines 0
+  10000    8.925 2.1677e+07    6839.8     467.1  4.576e-07    -17.697  9.14e-02  8.26e+06  L_lines 1.631e+35  bins 0, thick lines 0
+  10500    8.593 2.1677e+07    7808.9     441.1  1.055e-07    -41.731  9.16e-02  1.94e+06  L_lines 1.082e+35  bins 0, thick lines 0
+  11000    8.486 2.1678e+07    8317.5     433.0  2.474e-07    -16.297  9.27e-02  2.47e+07  L_lines 7.153e+34  bins 0, thick lines 0
+  11500    8.167 2.1678e+07    8879.8     409.8  1.088e-07    -41.885  9.11e-02  1.12e+06  L_lines 4.345e+34  bins 0, thick lines 0
+  12000    7.867 2.1679e+07    7824.0     384.1  5.011e-08    -39.304  9.12e-02  1.99e+06  L_lines 1.127e+34  bins 0, thick lines 0
+  12500    7.806 2.1682e+07    7243.9     377.8  8.946e-08    -18.613  9.15e-02  2.68e+07  L_lines 1.176e+33  bins 0, thick lines 0
+  13000    5.604 2.1686e+07    9450.5     251.2  3.238e-11     -7.652  9.15e-02  1.14e+08  L_lines 1.499e+34  bins 0, thick lines 0
+wall time: total 5276.7 s, line transfer 606.0 s, chemistry 806.4 s (17 failed zone steps kept)
+implicit line cooling on 0 steps
+integrator TR-BDF2, statistics Dict(:fail_tr => 1, :fail_bdf => 12, :steps => 13006, :be_fallback => 0)

@@ -171,6 +171,21 @@ function stage_protostar()
     end
 end
 # ----------------------------------------------------------------------------------------------------------------- FULL-1 stage 3+4: coupled envelope + protostar with feedback
+const FREEZE = get(ENV, "E2E_STARFREEZE", "0") == "1"
+"E2E_STARFREEZE=1 (ATTR-1): a star process that is dead for good is replaced by repeating its last record star_<j>.txt for every barrier the envelope reaches (the S8a d4/d5 treatment: the star only enters through M, R, L*, T_eff)."
+function freeze_feeder(X, pe)
+    num(f, pre) = (m = match(Regex("^" * pre * "_(\\d+)\\.txt\$"), f); m === nothing ? -1 : parse(Int, m.captures[1]))
+    while process_running(pe)
+        fs = readdir(X); js = maximum(num.(fs, "star"); init = -1); je = maximum(num.(fs, "env"); init = -1)
+        if js >= 0 && je + 1 > js
+            last = joinpath(X, @sprintf("star_%05d.txt", js))
+            for j in (js + 1):(je + 1)
+                dst = joinpath(X, @sprintf("star_%05d.txt", j)); tmp = dst * ".tmp"; cp(last, tmp; force = true); mv(tmp, dst; force = true)
+            end
+        end
+        sleep(3)
+    end
+end
 "Two-way coupled sink run (envelope, popiii_m2c.jl S7B=1) and protostar (s6b_run.jl S7B_STAR=1) of the S7b scheme, two processes of E2E_THREADS threads; see the header."
 function stage_coupled()
     f = readdone("formation"); etag = "_e2e_$(TAG)_cpl"; X = joinpath(WORK, "x_cpl"); mkpath(X)
@@ -189,7 +204,7 @@ function stage_coupled()
     merge!(starbase, shared)
     star_ok(log) = isfile(ho) && finished(log, "mass accretion check") && !finished(log, "STOPPED at step") && mtime(ho) >= mtime(log) - 600
     env_ok() = m2c_ok(etag) && isfile(efinal)
-    t0 = time(); pe = nothing; ps = nothing; attempt = 0; slogf = slog(out0)
+    t0 = time(); pe = nothing; ps = nothing; attempt = 0; slogf = slog(out0); frozen = false
     if !env_ok()
         isfile(elog) && error("coupled: an unfinished envelope run exists ($elog): the envelope has no resume; rerun the stage with --force")
         rm(X; recursive = true, force = true); mkpath(X)
@@ -213,6 +228,10 @@ function stage_coupled()
                 ps = nothing
             else
                 attempt += 1; ck = latest_ck("s6b", "e2e_$(TAG)_cp")
+                if (attempt > RETRIES || ck === nothing) && FREEZE && pe !== nothing && e_run      # ATTR-1: the star cannot go on (S8a d4/d5: failure at 139-145 Msun): the envelope runs on with the last star record repeated
+                    @printf("[e2e] coupled: the star stopped for good (attempt %d); the envelope continues with the last star record repeated\n", attempt); frozen = true
+                    @async freeze_feeder(X, pe); ps = nothing; continue
+                end
                 (attempt > RETRIES || ck === nothing) && (pe !== nothing && e_run && kill(pe); error("coupled: the star stopped early (see $(slogf)): $(logtail(slogf, 8))"))
                 env = copy(starbase); env["RESTART"] = ck; env["S7B_RESUME"] = "1"; env["S7B_ENVDIR"] = X; env["OUT"] = "$(out0)_r$(attempt)"; env["PERF"] = "$(PERF)_coupled_star_r$(attempt)"
                 slogf = slog(env["OUT"]); rm(ho; force = true)
@@ -223,8 +242,8 @@ function stage_coupled()
         (pe === nothing || !e_run) && ps === nothing && break
     end
     env_ok() || error("coupled: envelope did not finish cleanly ($elog)")
-    star_ok(slogf) || error("coupled: no hand-off star (see $slogf)")
-    writedone("coupled", "handoff" => ho, "log" => slogf, "env_log" => elog, "env_csv" => joinpath(LIB, "s7b_$(TAG)_env.csv"), "attempts" => string(attempt + 1), "wall_s" => string(round(Int, time() - t0)))
+    frozen || star_ok(slogf) || error("coupled: no hand-off star (see $slogf)")
+    writedone("coupled", "frozen" => string(frozen), "handoff" => ho, "log" => slogf, "env_log" => elog, "env_csv" => joinpath(LIB, "s7b_$(TAG)_env.csv"), "attempts" => string(attempt + 1), "wall_s" => string(round(Int, time() - t0)))
 end
 # ----------------------------------------------------------------------------------------------------------------- stage 5: main sequence
 function stage_ms()

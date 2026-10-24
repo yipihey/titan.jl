@@ -1,0 +1,17 @@
+args = lines 200
+chem = netatomicli
+cpu = apple-m1 (6 hw threads)
+date = 2026-10-24 02:39:56
+driver = popiii_m2c.jl
+git = e5fbeea
+host = PHY-FD69NP6NG2
+ic = abn02z19
+integrator = trbdf2
+julia = 1.12.6
+julia_threads = 4
+nlte = ep
+run = attr1_fm_coupled_env
+sink = 1
+stage = coupled_env
+tag = _e2e_attr1_fm_cpl
+wall_s = 5282.847
