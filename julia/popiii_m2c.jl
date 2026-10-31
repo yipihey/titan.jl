@@ -14,6 +14,7 @@ include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "Prim
 include(joinpath(@__DIR__, "SCVH.jl")); include(joinpath(@__DIR__, "PopIIIEqEOS.jl"))
 include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl"))
 include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2Lines.jl"))
+include(joinpath(@__DIR__, "StellarOpacity.jl"))
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
 using ForwardDiff
@@ -28,7 +29,12 @@ cf = cool == "thin" ? PC.cool_H2_thin : cool == "ra04lines" ? PC.cool_H2_ra04 :
      cool == "lines" ? PC.cool_CIE_ra04 :                     # H₂ lines by transfer (H2Lines), continuum: RA04 CIE
      (ρ, T, y) -> PC.cool_H2_ra04(ρ, T, y) + PC.cool_CIE_ra04(ρ, T, y)
 haskey(ENV, "TCMB") && (cf = PC.cool_floor(cf, parse(Float64, ENV["TCMB"])))
-io = open(joinpath(TF.ROOT, "lib", "popiii", "m2c_$(get(ENV, "IC", "p100") == "p100" ? "" : get(ENV, "IC", "") * "_")$(cool)_n$(nsh)$(get(ENV, "TAG", "")).log"), "w")
+# S6-B: RAD=1 (with RADFROM=checkpoint) continues a run with TITAN's radiation (E_r, F_r, Eddington factors) and the
+# StellarOpacity continuum; the RA04 CIE escape-factor term is then not used (the continuum is in the transfer), the
+# H₂ lines stay as Λext
+const RAD = get(ENV, "RAD", "0") == "1"
+RAD && (cf = (ρ, T, y) -> zero(T))
+io = open(joinpath(TF.ROOT, "lib", "popiii", "m2c_$(get(ENV, "IC", "p100") == "p100" ? "" : get(ENV, "IC", "") * "_")$(cool)_n$(nsh)$(get(ENV, "TAG", "")).log"), haskey(ENV, "RESTART") ? "a" : "w")
 pr(f, a...) = (s = Printf.format(Printf.Format(f), a...); print(s); print(io, s); flush(io))
 
 # ---- n = 1.5 Lane–Emden θ(ξ), integrated to θ^1.5 = 1e-3
@@ -307,9 +313,110 @@ function linecool(rr, uu, dd, tt, nh2, k)
 end
 const HLL = cool == "lines" ? H2Lines.load() : nothing; const NBIN = parse(Int, get(ENV, "NBIN", "30")); const LLINE = Ref(0.0)
 Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(ENV, "NSTOP", "1e18"))
+# Checkpoint / restart (S6-A). SAVE=name: checkpoint at the end and every CKEVERY [500] steps (alternating
+# <name>_auto0/_auto1); RESTART=name: the set-up above runs as usual (same ENV), then the TITAN state, the material's
+# per-zone state, the driver's NLTE/cooling bookkeeping, the TR-BDF2 counters and the step number are replaced by the
+# checkpoint's, so the continuation is the uninterrupted run (checked bit for bit). Files: CKDIR [lib/popiii/ck].
+const CKDIR = get(ENV, "CKDIR", joinpath(TF.ROOT, "lib", "popiii", "ck"))
+const KOFF = Ref(0)
+matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope)) :
+             error("checkpoint: only the NetGas material (CHEM=net*) is supported")
+function checkpoint(name, k)
+    mkpath(CKDIR)
+    TF.save_state(joinpath(CKDIR, "m2c_$(name).tstate.gz"))
+    serialize(joinpath(CKDIR, "m2c_$(name).aux"), (; k, mat = matstate(), ALIFAC = copy(ALIFAC[]), ALILAST = ALILAST[], ALIINT = ALIINT[],
+        NALICALL = NALICALL[], NIMP = NIMP[], LLINE = LLINE[], nextln = nextln[], SNAPNEXT = SNAPNEXT[], SNAPS,
+        trb = (; STATS = copy(Trbdf2.STATS), BE_LEFT = Trbdf2.BE_LEFT[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV)))
+end
+# settings that must agree between a run and its restart (the set-up and the physics); the rest may change
+const CKENV = ("IC", "TCMB", "AVZONE", "AVQL1", "AVCQ2", "CHEM", "NLTE", "NALI", "NBIN", "K5", "MCLOUD", "LRJOIN", "DLNJOIN", "DM", "PSWITCH",
+               "IMPCOOL", "DTCOOL", "INTEGRATOR", "THETA", "CDYN", "XE0", "RAD")
+function restart!(name; allow = ())
+    aux = deserialize(joinpath(CKDIR, "m2c_$(name).aux"))
+    for (k_, v_) in aux.env
+        k_ in allow && continue
+        get(ENV, k_, nothing) == v_ || error("restart: ENV $k_ = $(repr(get(ENV, k_, nothing))) differs from the checkpoint's $(repr(v_))")
+    end
+    for k_ in CKENV; k_ in allow && continue; haskey(ENV, k_) && !haskey(aux.env, k_) && error("restart: ENV $k_ is set but was not in the checkpoint's run"); end
+    TF.load_state!(joinpath(CKDIR, "m2c_$(name).tstate.gz"))
+    s = aux.mat; mat.x .= deepcopy(s.x); mat.eqzone .= s.eqzone; mat.Λext .= s.Λext; mat.Tref .= s.Tref; mat.slope .= s.slope
+    ALIFAC[] = copy(aux.ALIFAC); ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
+    LLINE[] = aux.LLINE; nextln[] = aux.nextln; SNAPNEXT[] = aux.SNAPNEXT
+    SNAPS === nothing || aux.SNAPS === nothing || (empty!(SNAPS); append!(SNAPS, aux.SNAPS))
+    empty!(Trbdf2.STATS); merge!(Trbdf2.STATS, aux.trb.STATS); Trbdf2.BE_LEFT[] = aux.trb.BE_LEFT
+    TX.PEXT[] = aux.PEXT; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
+    TF.setscalar!(:tmax, 1e3tff)                   # a run stopped by TSTOP/NSTOP has tmax = its last time
+    KOFF[] = aux.k
+    pr("restarted from checkpoint %s at step %d, t = %.6e yr, log n_c = %.3f, T_c = %.1f K\n", name, aux.k, TF.getscalar(:timen) / 3.156e7,
+       log10(TF.var(:dn)[a] / PC.mH), TF.var(:tn)[a])
+end
+"""
+S6-B: continue a hydrodynamics-only checkpoint with TITAN's radiation. The checkpoint is restored (`restart!`), its profile
+(r, ρ, T, u) rebuilt as a radiating state (PS.build!, rad = true: the SUBC template, neqn = 7) with the time, Δt, step
+number, solver controls and the material's per-zone state carried over (zone index shifted to the new ngrs). Initial
+radiation field: E_r = a [T_CMB⁴ + (T⁴ − T_CMB⁴)(1 − e^{−τ_R})] (τ_R from the surface), F_r the diffusion flux
+−c ΔE_r/(3χρ Δr) flux-limited (|F| ≤ c E_r), 0 at the centre; the outer boundary sees the CMB (ximr = σT_CMB⁴/π).
+"""
+function radbuild!(name)
+    restart!(name; allow = ("RAD",))
+    t0, dt0, js = TF.getscalar(:timen), TF.getscalar(:dtime), TF.getscalar(:jstep)
+    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
+    rI = TF.var(:rn)[a:b+1]; ρz = TF.var(:dn)[a:b]; Tz = TF.var(:tn)[a:b]; uI = TF.var(:un)[a:b+1]
+    old = matstate(); pext = TX.PEXT[]; aold = a
+    X = 1 / (1 + 4PC.yHe)
+    PM.OPAC[] = (ρ, T) -> (StellarOpacity.kappa_R(ρ, T, X), StellarOpacity.kappa_P(ρ, T, X))
+    n = length(ρz); Tb = parse(Float64, get(ENV, "TCMB", "0")); ar = Z0.arad
+    χ = [PM.OPAC[](ρz[j], Tz[j])[1] * ρz[j] for j in 1:n]
+    τ = zeros(n); for j in n-1:-1:1; τ[j] = τ[j+1] + 0.5 * (χ[j] * (rI[j+1] - rI[j]) + χ[j+1] * (rI[j+2] - rI[j+1])); end
+    Er = [ar * (Tb^4 + (Tz[j]^4 - Tb^4) * (-expm1(-τ[j]))) for j in 1:n]
+    rc = [0.5 * (rI[j] + rI[j+1]) for j in 1:n]
+    Fr = zeros(n + 1)
+    for j in 2:n
+        gE = (Er[j] - Er[j-1]) / (rc[j] - rc[j-1]); Em = 0.5 * (Er[j] + Er[j-1])
+        Fr[j] = -Z0.c * gE / (3 * 0.5 * (χ[j] + χ[j-1]) + abs(gE) / Em) * (-expm1(-τ[j]))   # flux-limited diffusion, switched off where thin (isotropic CMB: F = 0)
+    end
+    Fr[n+1] = Fr[n]
+    # outside the photosphere (τ_R < 1) the steady free-streaming field of the photospheric luminosity on top of the CMB
+    # (starting from the CMB alone, the core's light front sweeps the thin envelope and Newton fails for Δt ≫ r/c)
+    jph = findfirst(<(1.0), τ); Lph = 0.0
+    if jph !== nothing && jph > 1
+        Lph = 4π * rI[jph]^2 * max(Fr[jph], 0.0)
+        for j in jph:n; Er[j] = max(Er[j], ar * Tb^4 + Lph / (4π * rc[j]^2 * Z0.c)); end
+        for j in jph:n+1; Fr[j] = Lph / (4π * rI[j]^2); end
+    end
+    PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lgrid = 3, inner = :wall, outer = :free, pext = 0.0,
+              selfgrav = true, material = mat, av)
+    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); d = a - aold
+    sh(v) = (w = similar(v); for k in eachindex(v); w[k] = v[clamp(k - d, 1, length(v))]; end; w)
+    mat.x .= sh(old.x); mat.eqzone .= sh(old.eqzone); mat.Λext .= sh(old.Λext); mat.Tref .= sh(old.Tref); mat.slope .= sh(old.slope)
+    TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
+    TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
+    PS.install_julia!(BlockSolver); TD.MSGIO[] = get(ENV, "MSG", "0") == "1" ? stdout : devnull
+    TX.PEXT[] = pext
+    for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
+    TF.setscalar!(:timen, t0); TF.setscalar!(:timeo, t0); TF.setscalar!(:dtime, dt0); TF.setscalar!(:jstep, js); TF.setscalar!(:tmax, 1e3tff)
+    TF.setscalar!(:ximr, Z0.σSB * Tb^4 / π)
+    TF.setscalar!(:ltran, parse(Int, get(ENV, "LTRAN", "1")))      # 1: formal solution for f, g; 2: Eddington approximation f = 1/3, g = 1/2
+    TC.ER_TAUMIN[] = parse(Float64, get(ENV, "ERTAUMIN", "1.0"))
+    # Δt cap: steps much longer than the light-crossing time of the nearly free-streaming layers outside the photosphere
+    # (r ~ 1e14 cm: r/c ~ 3e3 s) fail in Newton (Eddington factors lagged over the step); default 1500 s
+    dtr = parse(Float64, get(ENV, "DTRADMAX", "1500")); dtr > 0 && push!(TC.DT_HOOKS, () -> dtr)   # E_r of the optically thin envelope does not limit Δt
+    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
+    pr("RAD: rebuilt with radiation from %s: ngrs %d -> %d, tau_R(centre) = %.3e, E_r/aT^4 at centre %.3f, photosphere at zone %s (r = %.3e cm), L_ph = %.3e erg/s, ximr = %.3e\n",
+       name, aold, a, τ[1], Er[1] / (ar * Tz[1]^4), string(jph), jph === nothing ? NaN : rI[jph], Lph, TF.getscalar(:ximr))
+end
+if haskey(ENV, "RADFROM")
+    RAD || error("RADFROM needs RAD=1")
+    radbuild!(ENV["RADFROM"])
+elseif haskey(ENV, "RESTART")
+    restart!(ENV["RESTART"])
+end
+const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 try
-    TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k)
+    TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
+        k = k0 + KOFF[]; KLAST[] = k
         dT = PM.chem!(mat)
+        RAD && TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())   # T changed in chem!: Planck function, opacity, e_g + E_r/ρ
         if SNAPS !== nothing                         # profiles for post-processing: every 0.25 dex of n_c, and every SNAPEVERY steps
             lnc = log10(TF.var(:dn)[a] / PC.mH)
             if lnc >= SNAPNEXT[] || (SNAPEVERY > 0 && k % SNAPEVERY == 0)
@@ -344,6 +451,16 @@ try
             LLINE[] = Lr[end]
             TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin))
         end
+        if RAD && haskey(ENV, "ERDIAG") && k in parse.(Int, split(ENV["ERDIAG"], ","))     # radiation field across the grid
+            ern = TF.var(:ern); frn = TF.var(:frn); fe = TF.var(:fedd); ch = TF.var(:chifn); dd = TF.var(:dn); tt = TF.var(:tn); rr = TF.var(:rn)
+            Tb = parse(Float64, get(ENV, "TCMB", "0")); τ = 0.0; τs = zeros(b)
+            for kk in b:-1:a; τ += ch[kk] * dd[kk] * (rr[kk+1] - rr[kk]); τs[kk] = τ; end
+            pr("  radiation at step %d (geddr %.3f):\n", k, TF.getscalar(:geddr))
+            for kk in a:6:b
+                pr("    z %3d m %.3e r %.3e tau %.3e dtau %.2e E/aT4 %.3e E/aTcmb4 %.3e F/cE %+.3e f %.3f T %.1f\n", kk - a + 1, 4π * TX.XMINT[][kk+1] / Msun, rr[kk+1],
+                   τs[kk], ch[kk] * dd[kk] * (rr[kk+1] - rr[kk]), ern[kk] / (Z0.arad * tt[kk]^4), ern[kk] / (Z0.arad * Tb^4), frn[kk+1] / (Z0.c * ern[kk]), fe[kk], tt[kk])
+            end
+        end
         if haskey(ENV, "PROFAT") && k in parse.(Int, split(ENV["PROFAT"], ","))
             rr = TF.var(:rn); uu = TF.var(:un); dd = TF.var(:dn); tt = TF.var(:tn)
             pr("  profile at step %d, t = %.4e yr:\n", k, TF.getscalar(:timen) / 3.156e7)
@@ -354,7 +471,7 @@ try
             end
         end
         ρc_ = TF.var(:dn)[a]; Tc_ = TF.var(:tn)[a]; ln = log10(ρc_ / PC.mH)
-        if ln >= nextln[] || k % 500 == 0
+        if ln >= nextln[] || k % PRINTEVERY == 0
             umin = minimum(TF.var(:un)[a:b+1]) / 1e5
             pr("%7d %8.3f %10.4e %9.1f %9.1f %10.3e %10.3f %9.2e %9.2e%s\n", k, ln, TF.getscalar(:timen) / 3.156e7, Tc_, on98T(ln),
                2ycomp(a)[3], umin, dT, TF.getscalar(:dtime), cool == "lines" ? @sprintf("  L_lines %.3e  bins %d, thick lines %d", LLINE[], H2Lines.LAST[].nbins, H2Lines.LAST[].nthick) : "")
@@ -365,17 +482,20 @@ try
                    rr[ku] / 3.0857e18, 4π * TX.XMINT[][a+ku-1] / Msun, TF.var(:tn)[a+min(ku, nsh)-1], TF.var(:dn)[a+min(ku, nsh)-1] / (1.22 * PC.mH))
             end
             if get(ENV, "DTDIAG", "0") == "1"           # which variable/zone limits Δt (timstp: kx, dx per equation)
-                kx = TF.var(:kx); dx = TF.var(:dx); names = ("r", "m", "rho", "u", "T")
-                j = argmax(abs.(dx[1:5])); xs = TF.getscalar(:stol) / TF.getscalar(:smax)
-                pr("        dt limit: %s in zone %d (rel. change %.2e, stol/smax = %.2f)\n", names[j], kx[j], dx[j], xs)
+                kx = TF.var(:kx); dx = TF.var(:dx); names = ("r", "m", "rho", "u", "T", "E_r", "F_r"); ne_ = RAD ? 6 : 5   # (F_r is not in smax)
+                j = argmax(abs.(dx[[1, 2, 3, 5, 6][1:ne_-1]])); j = (1, 2, 3, 5, 6)[j]; xs = TF.getscalar(:stol) / TF.getscalar(:smax)
+                pr("        dt limit: %s in zone %d (rel. change %.2e, stol/smax = %.2f)%s\n", names[j], kx[j], dx[j], xs,
+                   RAD ? @sprintf("; E_r: zone %d %.2e, rho: zone %d %.2e", kx[6], dx[6], kx[3], dx[3]) : "")
             end
         end
         (Tc_ > Tstop || ρc_ / PC.mH > nstop) && TF.setscalar!(:tmax, TF.getscalar(:timen))
+        haskey(ENV, "SAVE") && CKEVERY > 0 && k % CKEVERY == 0 && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ CKEVERY) % 2), k)
     end)
 catch e
     pr("stopped: %s\n", sprint(showerror, e)[1:min(end, 400)])
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
+haskey(ENV, "SAVE") && (checkpoint(ENV["SAVE"], KLAST[]); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[]))
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))

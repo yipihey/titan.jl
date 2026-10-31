@@ -1884,3 +1884,80 @@ CNO self-production, 100 M☉ (t; X_CNO,c; ε_CNO/ε; T_c): 1e3 yr 1.5e-12, 0.04
 Evolution, 100 M☉ (X_c; t [yr]; R; log L; log Teff; T_c [1e8 K]): 0.745; 3.2e4; 4.28; 6.128; 4.977; 1.281 | 0.5; 1.38e6; 6.06; 6.234; 4.928; 1.190 | 0.3; 2.19e6; 9.2; 6.309; 4.856; 1.194 | 0.1; 2.78e6; 21.9; 6.367; 4.682; 1.225 | 1e-3; 3.026e6; 76.7; 6.406; 4.420; 1.382.
 15 M☉: 0.745; 1.09e5; 1.47; 4.362; 4.769; 0.994 | 0.5; 4.76e6; 1.87; 4.486; 4.747; 1.009 | 0.3; 7.52e6; 2.40; 4.577; 4.715; 1.017 | 0.1; 9.34e6; 3.23; 4.650; 4.669; 1.048 | 1e-3; 1.003e7; 3.56; 4.700; 4.661; 1.230.
 Ledger: cumulative closure 4.7e-5 (100 M☉; max 4e-4 after 1e4 yr) / 2.4e-5 (15 M☉); MS ⟨L_surf⟩/⟨L_nuc⟩ 0.9970 / 0.9967. Steps, last segment incl. 53/49 relaxation: 3375 / 1524, wall 1.16e4 s / 4.4e3 s (4 threads); whole 100 M☉ chain 5.9e3 steps.
+
+---
+
+## S6-A Checkpoint / restart of the collapse driver (30 Oct 2026) [run]
+
+`popiii_m2c.jl`: `SAVE=name` writes `lib/popiii/ck/m2c_<name>.tstate.gz` (TF.save_state) + `.aux` (serialized: the NetGas
+per-zone state x, eqzone, Λext, Tref, slope; the hybrid-NLTE bookkeeping ALIFAC/ALILAST/ALIINT/NALICALL; NIMP, LLINE,
+nextln, SNAPNEXT, SNAPS; Trbdf2.STATS and BE_LEFT; PEXT; the step number; the ENV of the settings in `CKENV`) at the end
+and every `CKEVERY` [500] steps (`<name>_auto0/1`). `RESTART=name` runs the set-up as usual (same ENV; a mismatch in
+`CKENV` is an error), then replaces state, material, bookkeeping and step number; tmax is reset (a TSTOP/NSTOP stop sets it to
+the last time). The log is appended to. NetGas only (CHEM=net*).
+
+**Test [run]** (z = 19 settings of the final2 run): 600 steps straight vs 300 + SAVE + RESTART + 300: all 591 TITAN state
+arrays, the material state and the bookkeeping identical bit for bit.
+
+**Rerun of z = 19 final2 on the Linux machine (Julia 1.12.6)** with SAVE (`m2c_abn02z19_lines_n200_s6base.log`): 9742 steps,
+1 BDF retry, the same as final2; the logged rows (e.g. steps 345, 500; T_c 1796 K at log n_c 14.14) agree digit for digit.
+Wall time ≈ 4 h (4 threads), ~16 s/step once the H₂ lines are thick (line transfer dominates).
+
+Data outside the repository, fetched on this machine into `~/Projects/popiii_lit/`: ExoMol RACPPK states/trans (exomol.com),
+Cloudy c25.00 `data/h2/coll_rates_*.dat` (gitlab.nublado.org, tag c25.00), SCVH95 `h_tab_i.dat`, `he_tab_i.dat` (yreclab/yrec
+`input/eos/scv/`; sha256 as in S2 above ✓), REACLIB `reaclib_default2_20250330` (pynucastro 3.1.0 `pynucastro/data/`;
+sha256 24e1f37c…ba862 ✓). HITRAN CIA not reachable (not needed by these runs: StellarOpacity is a table in the repo).
+`popiii_tests.jl`: `POPIII_PROJECT` selects the Julia project of the test processes (the repo env's RunConvention source path
+exists only on the Mac).
+
+## S6-B Second collapse with TITAN radiation: protostellar core (30–31 Oct 2026) [run]
+
+**Mode.** `RAD=1 RADFROM=<checkpoint>` restores a hydrodynamics-only checkpoint and rebuilds its profile (r, ρ, T, u) as a
+radiating state (`PS.build!(rad = true)`: SUBC template, neqn = 7, ngrs 4 → 5; the material's zone arrays shifted), carrying over
+time, Δt, step number and the solver controls (niter, ntry, omega, sigd, sige, stol, conv, thet). Opacity:
+`PopIIIMaterial.OPAC[] = StellarOpacity` κ_R, κ_P at X = 0.75 (own CIA/H⁻ means in chemical equilibrium below 10^3.8 K, OPAL
+above). The RA04 CIE escape-factor term is dropped (the continuum is in the transfer); the H₂ lines stay as Λext (H2Lines,
+hybrid NLTE). Outer boundary: incoming CMB intensity, ximr = σT_CMB⁴/π. Initial field: E_r = a[T_CMB⁴ + (T⁴ − T_CMB⁴)(1 − e^−τ_R)]
+inside the photosphere, outside it the steady free-streaming field of the photospheric luminosity on the CMB; F_r flux-limited
+diffusion inside, L_ph/4πr² outside.
+
+**Four things that had to be fixed** before the run went:
+1. **`xnen` (bug).** NetGas never set the electron density, so the formal solution's scattering term used the SUBC template's
+   4.7e14 cm⁻³ in zones 1–104 and 0 beyond: S = J where σ_e n_e ≫ χρ by 10⁷, an inconsistent seam at zone 104 and runaway
+   E_r with F/cE up to 165 in the thin envelope. `fill_opac!(::NetGas)` now sets xnen from the zone's H⁺ (table or network).
+2. **Δt from E_r of the thin envelope.** TITAN's timstp includes |ΔE_r/E_r| in every zone; in the optically thin envelope E_r
+   (≈ CMB + dilute photospheric light, decoupled from the gas) set Δt to ~50 s. `TitanCore.ER_TAUMIN[]` (default 0 = TITAN's
+   rule; RAD runs `ERTAUMIN` = 1) leaves zones with τ_R from the surface < 1 out of the criterion.
+3. **Newton failures for Δt ≳ r/c of the near-free-streaming layers** (r ~ 1e14 cm, ~3e3 s; Eddington factors lagged over the
+   step): cap `DTRADMAX` [1500 s] through `TC.DT_HOOKS`. Without the cap (after fix 1) still 10 divergences in the first 60
+   steps, similar progress; with it none. The collapse's own C_dyn limit is below 1500 s from log n_c ≈ 20.
+4. **Eddington approximation tried and rejected:** `LTRAN=2` (f = 1/3, g = ½) diverges on the first step for any Δt (10 retries).
+Diagnostics: `ERDIAG=steps` (radiation field per zone: τ, E/aT⁴, E/aT_CMB⁴, F/cE, f), `DTDIAG` now names the E_r limit,
+`MSG=1` prints Newton divergences with the last correction per equation (`TitanDriver.msg`, only when MSGIO is not devnull),
+`PRINTEVERY`.
+
+**Run** (`m2c_abn02z19_lines_n200_rad.log`, snapshots `snaps_abn02z19_lines_n200_rad.jls`, checkpoints `ck/m2c_z19rad*`): from the
+step-9500 checkpoint of S6-A (log n_c 18.55, T_c 3639 K, τ_R(centre) = 790, photosphere at zone 81, r = 4.1e12 cm,
+L_ph = 1.1e35 erg/s), TSTOP = 1e5, NSTOP = 1e25, TR-BDF2:
+
+| log n_c | 19.0 | 19.6 | 20.0 | 20.5 | 21.0 | 21.5 | 22.0 | 22.5 | 22.9 | 22.99 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| T_c [K] | 4087 | 4905 | 5943 | 8326 | 14272 | 20651 | 28560 | 41291 | 63245 | 71112 (step 18150) |
+| f_H₂,c | 0.56 | 0.43 | 0.31 | 0.15 | 0.053 | 0.046 | 0.048 | 0.038 | 0.027 | 0.025 |
+| u_min [km/s] | −6.7 | −7.2 | −7.6 | −8.2 | −9.7 | −11.8 | −13.0 | −13.6 | −13.6 | −13.5 |
+
+- Below log n_c = 20 the radiating run is 10–15 % below ON98, as the hydro-only run (T_c 4087 vs 3975 K at 18.9: radiation
+  transfer vs the RA04 escape factor changes T_c by ≲ 3 % here).
+- H₂ dissociation (f_H₂,c 0.6 → 0.05 between 1e19 and 1e21) drives the second collapse; T_c passes 1e4 K at log n_c 20.7.
+- **Protostellar core** (snapshot at step 10713, log n_c 21.7): the inner 2.4e-3 M☉ is nearly static (|u| ≤ 2 km/s), T_c = 2.5e4 K,
+  n_c = 5e21; accretion shock at m = 2.4e-3 M☉, r = 1.3 R☉ (infall −12.5 → −5 km/s, n 1e21 → 1e19 across interfaces 61–65).
+  1.7 d later (step 12365): 3.4e-3 M☉, 0.84 R☉, T_c 5.7e4 K, pre-shock −13.8 km/s; Ṁ ≈ 0.2 M☉/yr (shell-resolution limited,
+  ±30 %). Core mass and radius as ON98 / Yoshida, Omukai & Hernquist 2008 (few 1e-3 M☉, ~1 R☉) [comparison from memory of those
+  papers: check against the tables before quoting].
+- n_c saturates at 10^22.99 from step ~14000; the core contracts slowly (Δt ≈ 47 s, ~25 s/step: the H₂ line transfer with up to
+  200 bins dominates the cost).
+
+**Limits for the accretion phase (S6-C).** (i) The shock is resolved by 2–4 shells of ~3e-4 M☉; the geometric shells reach
+0.1 M☉ at 1 M☉ enclosed: conservative mass rezoning is needed (C2). (ii) Above ~1e5–1e6 K the core needs StarMaterial
+(StellarEOS, NucNet: D burning) instead of the chemistry gas (C1). (iii) Cost: the H₂ line transfer over the whole grid at
+every step; inside the continuum photosphere the lines can be dropped.

@@ -29,6 +29,8 @@ function msg(code, xs = 0.0)
     TF.BACKEND[] === :common && return fmsg(code, xs)
     io = MSGIO[]
     code == 1 && println(io, "  divergence. jtry = ", g(:jtry))
+    code == 1 && io !== devnull && (n = Int(g(:neqn)); println(io, "    last Newton corrections per equation (zone, value): ",
+                                   join(("($(TF.var(:kx)[i]), $(round(TF.var(:dx)[i], sigdigits = 3)))" for i in 1:n), " ")))
     code == 2 && error("TITAN step01: failure to converge after $(g(:ntry)) attempts (jstep $(g(:jstep)), t = $(g(:timen)))")
     code == 3 && println(io, "  changes over timestep ", xs, " times larger than limit")
     code == 4 && error("TITAN step02: total changes still too large after $(g(:nback)) attempts")

@@ -144,7 +144,30 @@ function TM.fill_eos!(m::NetGas)
     end
     nothing
 end
-TM.fill_opac!(::NetGas) = nothing
+"""
+S6: continuum opacity of `NetGas` when TITAN's radiation is on (popiii_m2c RAD=1): `OPAC[] = (ρ, T) -> (κ_R, κ_P)`
+[cm² g⁻¹], e.g. StellarOpacity (own CIA/H⁻ means in chemical equilibrium below 10^3.8 K, OPAL above). `nothing` (default):
+hydrodynamics only, no opacity calls. The H₂ lines stay outside the continuum (H2Lines, as Λext).
+"""
+const OPAC = Ref{Any}(nothing)
+@inline function TX.material_opac(m::NetGas, ρ, T)
+    κR, κP = OPAC[](ρ, T)
+    return κR, κP, κP
+end
+function TM.fill_opac!(m::NetGas)
+    OPAC[] === nothing && return nothing
+    dn, tn = TM.v(:dn), TM.v(:tn)
+    chifn, xken, xkpn, xnen = TM.v(:chifn), TM.v(:xken), TM.v(:xkpn), TM.v(:xnen)
+    @inbounds for k in TM.krange()
+        (dn[k] > 0 && tn[k] > 0) || continue
+        TX.ZONE[] = k
+        χ, κE, κP = TX.material_opac(m, dn[k], tn[k])
+        chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
+        # electrons for the scattering term of the formal solution (the template state's xnen is not ours)
+        xnen[k] = (m.eqzone[k] ? EQ.composition(dn[k], tn[k])[1] : CNn.full(m.x[k], m.net)[:Hp]) * dn[k] / CNn.μH()
+    end
+    nothing
+end
 
 "Free-species vector from the equilibrium table's composition (H₂, H⁺; H⁻ and Li⁺ in Saha with the table's electrons)."
 function x_from_table(m::NetGas, ρ, T)
