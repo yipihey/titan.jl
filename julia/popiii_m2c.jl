@@ -283,7 +283,7 @@ const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(EN
 # NLTE (line source functions): 1 = GP98/HM79 factor on S (old default), 0 = LTE, ep = statistical equilibrium with escape
 # probabilities (H2Levels), ali = statistical equilibrium coupled to the transfer (ALI, G6c), hyb = ALI every NALI steps
 # and EP × (ALI/EP per zone, from the last ALI) in between, the interval adaptive (see linecool)
-const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALIFAC = Ref{Vector{Float64}}(Float64[]); const ALILAST = Ref(-10^9); const ALIINT = Ref(1); const NALICALL = Ref(0)
+const ALIWMIN = parse(Float64, get(ENV, "ALIWMIN", "0")); const ALIGROW = parse(Float64, get(ENV, "ALIGROW", "0.01")); const ALISHRINK = parse(Float64, get(ENV, "ALISHRINK", "0.05")); const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALIFAC = Ref{Vector{Float64}}(Float64[]); const ALILAST = Ref(-10^9); const ALIINT = Ref(1); const NALICALL = Ref(0)
 NLTE in ("ep", "ali", "hyb") && include(joinpath(@__DIR__, "H2Levels.jl"))
 const HLV = NLTE in ("ep", "ali", "hyb") ? H2Levels.load() : nothing
 "Line cooling per zone (and Lr) for zone temperatures tt; step k (for NLTE=hyb)."
@@ -299,8 +299,11 @@ function linecool(rr, uu, dd, tt, nh2, k)
             Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali)
             fnew = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? Λa[j] / Λe[j] : 1.0 for j in 1:nsh]
             if length(ALIFAC[]) == nsh
-                δ = maximum(abs.(log.(fnew ./ ALIFAC[])))
-                ALIINT[] = δ > 0.05 ? max(1, ALIINT[] ÷ 2) : δ < 0.01 ? min(NALI, 2ALIINT[]) : ALIINT[]
+                # (S6-C2, ALIWMIN > 0, e.g. 1e-4) only over zones carrying ≥ ALIWMIN of the line luminosity: tiny zones (rezoned shock) with
+                # negligible cooling otherwise keep the interval at 1 and the ALI (≈ 50× an EP step) runs every step
+                wv = [abs(Λe[j]) * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nsh]; wmin = ALIWMIN * sum(wv)
+                δ = maximum((abs(log(fnew[j] / ALIFAC[][j])) for j in 1:nsh if wv[j] >= wmin); init = 0.0)
+                ALIINT[] = δ > ALISHRINK ? max(1, ALIINT[] ÷ 2) : δ < ALIGROW ? min(NALI, 2ALIINT[]) : ALIINT[]
             end
             ALIFAC[] = fnew; ALILAST[] = k; NALICALL[] += 1
             return Λa, Lra, xa

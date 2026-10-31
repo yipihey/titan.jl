@@ -1961,3 +1961,39 @@ L_ph = 1.1e35 erg/s), TSTOP = 1e5, NSTOP = 1e25, TR-BDF2:
 0.1 M☉ at 1 M☉ enclosed: conservative mass rezoning is needed (C2). (ii) Above ~1e5–1e6 K the core needs StarMaterial
 (StellarEOS, NucNet: D burning) instead of the chemistry gas (C1). (iii) Cost: the H₂ line transfer over the whole grid at
 every step; inside the continuum photosphere the lines can be dropped.
+
+## S6-C2 Conservative mass rezoning (31 Oct 2026) [run] — works, one open issue
+
+**Code.** `julia/Rezone.jl` (profile-level split/merge, see its docstring) + `popiii_m2c.jl` `rezone!` (REZONE=1, every
+REZEVERY [20] steps, RAD runs only): the TITAN state is rebuilt from the new profile by `rebuild!` (shared with the RAD rebuild)
+— no COMMON array is edited zone by zone. Split: equal-mass halves, minmod-limited linear reconstruction of ln ρ (interface from
+the inner half's mass), e (mass-weighted ±δ), ln E_r (volume-weighted); T of each half from the material EOS. Merge: mass-weighted
+e and composition, volume-weighted E_r and Λext, kinetic-energy change of the staggered grid into e. Criteria: indicator J = max
+over the zone and its neighbours of |second difference| of ln ρ, ln T and compression/c_s (a plain jump test flags every zone of
+the steep geometric envelope); split if J > REZJSPLIT [0.3] and Δm > REZFRAC [0.01] × enclosed mass; neighbouring masses within
+REZQMAX [2.5] (1.5 cascades: one split leaves the q = 1.12 neighbour 2.2× heavier); merges (J < 0.05, outside the inner 5 zones)
+only above REZNMAX [260] zones; hard limit mgr − 12; even zone count (PS.build!). REZDBG=1 lists the operations.
+A piecewise-constant split was tried first: its staircase re-triggers the curvature indicator at the edge of the refined band
+(splits 2, 6, 14, 22, 30, 38 per rezone, then 22 splits + 22 merges every time). With the linear reconstruction the refinement
+converges (26 splits in 5 rezones, then none).
+
+**Conservation [run]** (z = 19, from step 18100, measured over the changed zones only: whole-grid totals are dominated by the
+1e4 M☉ envelope): mass 1e-16, Eint + Ekin + Erad ≤ 1.4e-13 (after the rebuild, i.e. including the T inversion); momentum
+round-off for splits, ≤ 8e-4 of the local Σ m u when merges are involved. Standalone unit test (synthetic profile, 14 splits +
+2 merges): mass 2e-16, energy 8e-17, radiation energy 1e-16.
+
+**Validation [run]** (`*_rez.log`, `*_norez.log`, snapshots every 100 steps; both from checkpoint z19c2 = step 18100, 400 steps):
+- T_c identical to 0.5 K (71211.8 vs 71212.3 K at step 18300), pre-shock infall −13.47 vs −13.48 km/s.
+- Resolution at the core surface: zone Δm/m 0.014 (rezoned, 224 zones) vs 0.105.
+- The "accretion shock" at this stage is a broad settling layer (infall decelerates from −13.5 km/s to ~0 over m ≈ 0.0045–0.009
+  M☉, Δm/m ≈ 0.5), already resolved by ~6 zones of the original grid; n, T, u of both runs agree.
+- **Open issue:** the rezoned run has an outward velocity blip at the inner edge of the refined band (m ≈ 0.0046 M☉): +1.39 km/s
+  at step 18200, +1.63 at 18300 (none in the unrezoned run: its largest outward u near the core is 0). Suspects: the rebuild
+  resets the old-time/predictor arrays (dr/dt, AV) every rezone; the reconstructed halves are not in discrete hydrostatic balance;
+  AVZONE = 2 makes the viscous length 2 zone widths, so the finer zones are less damped. To be fixed before the accretion runs.
+
+**Cost.** The H₂ line ALI (≈ 50–70 s per call at 200–224 zones; an EP step ≈ 1 s) dominates every RAD step in this phase. The
+adaptive refresh (ALIINT) needs a factor drift < 1 % to grow and ALI noise is ~1–5 %, so it sits at 1–2: options ALIGROW,
+ALISHRINK (defaults 0.01, 0.05 as before) and ALIWMIN (weight the drift by line luminosity; default 0 = as before). ALIGROW = 0.03
++ ALIWMIN = 1e-4: ALI on 20 of 30 steps instead of 18 of 20, T_c unchanged. A real speed-up (lines only outside the continuum
+photosphere, fewer bins) is still to do.
