@@ -339,6 +339,7 @@ function restart!(name; allow = ())
     end
     for k_ in CKENV; k_ in allow && continue; haskey(ENV, k_) && !haskey(aux.env, k_) && error("restart: ENV $k_ is set but was not in the checkpoint's run"); end
     TF.load_state!(joinpath(CKDIR, "m2c_$(name).tstate.gz"))
+    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1   # (zone count may differ after rezoning)
     s = aux.mat; mat.x .= deepcopy(s.x); mat.eqzone .= s.eqzone; mat.Λext .= s.Λext; mat.Tref .= s.Tref; mat.slope .= s.slope
     ALIFAC[] = copy(aux.ALIFAC); ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
     LLINE[] = aux.LLINE; nextln[] = aux.nextln; SNAPNEXT[] = aux.SNAPNEXT
@@ -351,20 +352,63 @@ function restart!(name; allow = ())
        log10(TF.var(:dn)[a] / PC.mH), TF.var(:tn)[a])
 end
 """
+S6-B: settings of a radiating run (after a RAD rebuild and after restarting a RAD checkpoint): StellarOpacity continuum for
+NetGas, CMB intensity at the outer boundary, Eddington-factor mode, thin-envelope E_r out of the Δt rule, Δt cap.
+"""
+const DTRHOOK = Ref(false)
+function radsettings!()
+    X = 1 / (1 + 4PC.yHe)
+    PM.OPAC[] = (ρ, T) -> (StellarOpacity.kappa_R(ρ, T, X), StellarOpacity.kappa_P(ρ, T, X))
+    Tb = parse(Float64, get(ENV, "TCMB", "0"))
+    TF.setscalar!(:ximr, Z0.σSB * Tb^4 / π)
+    TF.setscalar!(:ltran, parse(Int, get(ENV, "LTRAN", "1")))      # 1: formal solution for f, g; 2: Eddington approximation f = 1/3, g = 1/2
+    TC.ER_TAUMIN[] = parse(Float64, get(ENV, "ERTAUMIN", "1.0"))   # E_r of the optically thin envelope does not limit Δt
+    # Δt cap: steps much longer than the light-crossing time of the nearly free-streaming layers outside the photosphere
+    # (r ~ 1e14 cm: r/c ~ 3e3 s) fail in Newton (Eddington factors lagged over the step); default 1500 s
+    dtr = parse(Float64, get(ENV, "DTRADMAX", "1500"))
+    dtr > 0 && !DTRHOOK[] && (push!(TC.DT_HOOKS, () -> dtr); DTRHOOK[] = true)
+    TD.MSGIO[] = get(ENV, "MSG", "0") == "1" ? stdout : devnull
+end
+"""
+Rebuild the TITAN state from a zone profile (interfaces rI, u, Fr; zones ρ, T, Er; `matz` = per-zone material state, NamedTuple
+of vectors x, eqzone, Λext, Tref, slope) with PS.build! (rad = true), keeping time, Δt, step number, the solver controls and
+PEXT. Used by the RAD rebuild (S6-B) and by the rezoning (S6-C2).
+"""
+function rebuild!(rI, ρz, Tz, uI, Er, Fr, matz)
+    t0, dt0, js = TF.getscalar(:timen), TF.getscalar(:dtime), TF.getscalar(:jstep)
+    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
+    pext = TX.PEXT[]
+    PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lgrid = 3, inner = :wall, outer = :free, pext = 0.0,
+              selfgrav = true, material = mat, av)
+    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
+    for j in 1:nsh
+        k = a + j - 1
+        mat.x[k] = copy(matz.x[j]); mat.eqzone[k] = matz.eqzone[j]; mat.Λext[k] = matz.Λext[j]; mat.Tref[k] = matz.Tref[j]; mat.slope[k] = matz.slope[j]
+    end
+    for k in 1:a-1; mat.x[k] = copy(mat.x[a]); mat.eqzone[k] = mat.eqzone[a]; end
+    for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end
+    TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
+    TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
+    PS.install_julia!(BlockSolver)
+    TX.PEXT[] = pext
+    for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
+    TF.setscalar!(:timen, t0); TF.setscalar!(:timeo, t0); TF.setscalar!(:dtime, dt0); TF.setscalar!(:jstep, js); TF.setscalar!(:tmax, 1e3tff)
+    radsettings!()
+    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
+    empty!(ALIFAC[])                                  # per-zone NLTE factors: recomputed at the next line-transfer call
+end
+"""
 S6-B: continue a hydrodynamics-only checkpoint with TITAN's radiation. The checkpoint is restored (`restart!`), its profile
-(r, ρ, T, u) rebuilt as a radiating state (PS.build!, rad = true: the SUBC template, neqn = 7) with the time, Δt, step
-number, solver controls and the material's per-zone state carried over (zone index shifted to the new ngrs). Initial
-radiation field: E_r = a [T_CMB⁴ + (T⁴ − T_CMB⁴)(1 − e^{−τ_R})] (τ_R from the surface), F_r the diffusion flux
-−c ΔE_r/(3χρ Δr) flux-limited (|F| ≤ c E_r), 0 at the centre; the outer boundary sees the CMB (ximr = σT_CMB⁴/π).
+(r, ρ, T, u) rebuilt as a radiating state (`rebuild!`: the SUBC template, neqn = 7). Initial radiation field:
+E_r = a [T_CMB⁴ + (T⁴ − T_CMB⁴)(1 − e^{−τ_R})] (τ_R from the surface), F_r the diffusion flux −c ΔE_r/(3χρ Δr)
+flux-limited (|F| ≤ c E_r), 0 at the centre; outside the photosphere the steady free-streaming field of the photospheric
+luminosity on top of the CMB.
 """
 function radbuild!(name)
     restart!(name; allow = ("RAD",))
-    t0, dt0, js = TF.getscalar(:timen), TF.getscalar(:dtime), TF.getscalar(:jstep)
-    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
+    radsettings!()
     rI = TF.var(:rn)[a:b+1]; ρz = TF.var(:dn)[a:b]; Tz = TF.var(:tn)[a:b]; uI = TF.var(:un)[a:b+1]
-    old = matstate(); pext = TX.PEXT[]; aold = a
-    X = 1 / (1 + 4PC.yHe)
-    PM.OPAC[] = (ρ, T) -> (StellarOpacity.kappa_R(ρ, T, X), StellarOpacity.kappa_P(ρ, T, X))
+    old = matstate(); aold = a
     n = length(ρz); Tb = parse(Float64, get(ENV, "TCMB", "0")); ar = Z0.arad
     χ = [PM.OPAC[](ρz[j], Tz[j])[1] * ρz[j] for j in 1:n]
     τ = zeros(n); for j in n-1:-1:1; τ[j] = τ[j+1] + 0.5 * (χ[j] * (rI[j+1] - rI[j]) + χ[j+1] * (rI[j+2] - rI[j+1])); end
@@ -384,32 +428,84 @@ function radbuild!(name)
         for j in jph:n; Er[j] = max(Er[j], ar * Tb^4 + Lph / (4π * rc[j]^2 * Z0.c)); end
         for j in jph:n+1; Fr[j] = Lph / (4π * rI[j]^2); end
     end
-    PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lgrid = 3, inner = :wall, outer = :free, pext = 0.0,
-              selfgrav = true, material = mat, av)
-    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); d = a - aold
-    sh(v) = (w = similar(v); for k in eachindex(v); w[k] = v[clamp(k - d, 1, length(v))]; end; w)
-    mat.x .= sh(old.x); mat.eqzone .= sh(old.eqzone); mat.Λext .= sh(old.Λext); mat.Tref .= sh(old.Tref); mat.slope .= sh(old.slope)
-    TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
-    TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
-    PS.install_julia!(BlockSolver); TD.MSGIO[] = get(ENV, "MSG", "0") == "1" ? stdout : devnull
-    TX.PEXT[] = pext
-    for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
-    TF.setscalar!(:timen, t0); TF.setscalar!(:timeo, t0); TF.setscalar!(:dtime, dt0); TF.setscalar!(:jstep, js); TF.setscalar!(:tmax, 1e3tff)
-    TF.setscalar!(:ximr, Z0.σSB * Tb^4 / π)
-    TF.setscalar!(:ltran, parse(Int, get(ENV, "LTRAN", "1")))      # 1: formal solution for f, g; 2: Eddington approximation f = 1/3, g = 1/2
-    TC.ER_TAUMIN[] = parse(Float64, get(ENV, "ERTAUMIN", "1.0"))
-    # Δt cap: steps much longer than the light-crossing time of the nearly free-streaming layers outside the photosphere
-    # (r ~ 1e14 cm: r/c ~ 3e3 s) fail in Newton (Eddington factors lagged over the step); default 1500 s
-    dtr = parse(Float64, get(ENV, "DTRADMAX", "1500")); dtr > 0 && push!(TC.DT_HOOKS, () -> dtr)   # E_r of the optically thin envelope does not limit Δt
-    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
+    zr = aold:aold+n-1
+    rebuild!(rI, ρz, Tz, uI, Er, Fr, (; x = old.x[zr], eqzone = old.eqzone[zr], Λext = old.Λext[zr], Tref = old.Tref[zr], slope = old.slope[zr]))
     pr("RAD: rebuilt with radiation from %s: ngrs %d -> %d, tau_R(centre) = %.3e, E_r/aT^4 at centre %.3f, photosphere at zone %s (r = %.3e cm), L_ph = %.3e erg/s, ximr = %.3e\n",
        name, aold, a, τ[1], Er[1] / (ar * Tz[1]^4), string(jph), jph === nothing ? NaN : rI[jph], Lph, TF.getscalar(:ximr))
+end
+include(joinpath(@__DIR__, "Rezone.jl"))
+"Gas energy of zone k's material at (ρ, T) with composition (x, eq)."
+gasu(ρ, T, x, eq) = eq ? EQ_eos(ρ, T)[1] : ChemNet.eos(ρ, T, x, mat.net)[1]
+EQ_eos(ρ, T) = PopIIIEqEOS.eos(ρ, T)
+"T with gasu(ρ, T) = e (bracketed Newton in ln T)."
+function T_of_e(ρ, e, T0, x, eq)
+    lo, hi = log(T0) - 3, log(T0) + 3; lT = log(T0)
+    for _ in 1:100
+        f = gasu(ρ, exp(lT), x, eq) - e
+        abs(f) <= 1e-12 * abs(e) && break
+        f > 0 ? (hi = lT) : (lo = lT)
+        h = 1e-6; d = (gasu(ρ, exp(lT + h), x, eq) - gasu(ρ, exp(lT), x, eq)) / h
+        lT1 = lT - f / d
+        lT = (d > 0 && lo < lT1 < hi) ? lT1 : 0.5 * (lo + hi)
+    end
+    exp(lT)
+end
+"Current zone profile for Rezone (E_r, F_r from the radiating state)."
+function profile_now()
+    rr = TF.var(:rn)[a:b+1]; rr[1] = 0.0
+    Rezone.Profile(rr, TF.var(:un)[a:b+1], TF.var(:frn)[a:b+1], TF.var(:dn)[a:b], TF.var(:egn)[a:b], TF.var(:tn)[a:b], TF.var(:ern)[a:b], TF.var(:asn)[a:b])
+end
+const REZ = (on = get(ENV, "REZONE", "0") == "1", every = parse(Int, get(ENV, "REZEVERY", "20")),
+             jsplit = parse(Float64, get(ENV, "REZJSPLIT", "0.3")), jmerge = parse(Float64, get(ENV, "REZJMERGE", "0.05")),
+             dmmin = parse(Float64, get(ENV, "REZDMMIN", "1e-7")) * Msun, qmax = parse(Float64, get(ENV, "REZQMAX", "2.5")),
+             nmax = parse(Int, get(ENV, "REZNMAX", "260")), nhard = TF.MGR - 12, fmin = parse(Float64, get(ENV, "REZFRAC", "0.01")), keepcentre = parse(Int, get(ENV, "REZKEEPC", "5")))
+const NREZ = Ref(0)
+"""
+S6-C2: rezone (Rezone.plan/apply) and rebuild. The material state of a split zone is copied; of a merged zone, mass-weighted
+(x), equilibrium flag if either was, Λext volume-weighted (it is per volume), Tref/slope of the heavier zone. Returns the
+numbers of splits and merges.
+"""
+function rezone!(k; force = nothing)
+    p = profile_now()
+    sp, mg = force === nothing ? Rezone.plan(p; REZ.jsplit, REZ.jmerge, REZ.dmmin, REZ.qmax, REZ.nmax, REZ.nhard, REZ.keepcentre, REZ.fmin) : force
+    (isempty(sp) && isempty(mg)) && return (0, 0)
+    if get(ENV, "REZDBG", "0") == "1"
+        J = Rezone.jumps(p); dm = Rezone.dmass(p); me = cumsum(dm)
+        pr("    splits (zone, m_enc, dm/m_enc, J): %s\n    merges: %s\n", join(("($i, $(round(me[i]/Msun, sigdigits=3)), $(round(dm[i]/me[i], sigdigits=2)), $(round(J[i], sigdigits=2)))" for i in sp), " "),
+           join(("($i, $(round(me[i]/Msun, sigdigits=3)))" for i in mg), " "))
+    end
+    old = matstate(); zx(i) = a + i - 1
+    Tofe(ρ, e, T0, srcj) = (eq = any(old.eqzone[zx(i)] for (i, _) in srcj);
+                           x = sum(w .* old.x[zx(i)] for (i, w) in srcj); T_of_e(ρ, e, T0, x, eq))
+    q, src = Rezone.apply(p, sp, mg; Tofe)
+    # conservation over the range of zones that changed (whole-grid totals are dominated by the 1e4 M☉ envelope)
+    ch = [j for (j, s_) in enumerate(src) if length(s_) > 1 || s_[1][1] in sp]
+    lo_n, hi_n = max(first(ch) - 1, 1), min(last(ch) + 1, length(q.ρ))
+    lo_o, hi_o = src[lo_n][1][1], src[hi_n][end][1]
+    t0 = Rezone.totals(p, lo_o, hi_o); t1 = Rezone.totals(q, lo_n, hi_n)
+    V(rI, j) = 4π / 3 * (rI[j+1]^3 - rI[j]^3)
+    matz = (; x = [sum(w .* old.x[zx(i)] for (i, w) in s) for s in src],
+              eqzone = [any(old.eqzone[zx(i)] for (i, _) in s) for s in src],
+              Λext = [sum(old.Λext[zx(i)] * V(p.rI, i) for (i, _) in s) / V(q.rI, j) for (j, s) in enumerate(src)],
+              Tref = [old.Tref[zx(s[argmax([w for (_, w) in s])][1])] for s in src],
+              slope = [old.slope[zx(s[argmax([w for (_, w) in s])][1])] for s in src])
+    nold = nsh
+    rebuild!(q.rI, q.ρ, q.T, q.u, q.Er, q.Fr, matz)
+    # the energies after the rebuild (e from the EOS at the new T): the T inversion's error is part of the check
+    pb = profile_now(); t2 = Rezone.totals(pb, lo_n, hi_n)
+    NREZ[] += 1
+    pr("  rezone at step %d: %d splits, %d merges, zones %d -> %d; zones %d-%d: dM/M %.1e, dE/(Eint+Ekin+Erad) %.1e (after rebuild %.1e), dP/P %.1e\n",
+       k, length(sp), length(mg), nold, nsh, lo_o, hi_o, (t1.M - t0.M) / t0.M,
+       (t1.Eint + t1.Ekin + t1.Erad - t0.Eint - t0.Ekin - t0.Erad) / (abs(t0.Eint) + t0.Ekin + t0.Erad),
+       (t2.Eint + t2.Ekin + t2.Erad - t0.Eint - t0.Ekin - t0.Erad) / (abs(t0.Eint) + t0.Ekin + t0.Erad), (t2.P - t0.P) / abs(t0.P))
+    (length(sp), length(mg))
 end
 if haskey(ENV, "RADFROM")
     RAD || error("RADFROM needs RAD=1")
     radbuild!(ENV["RADFROM"])
 elseif haskey(ENV, "RESTART")
     restart!(ENV["RESTART"])
+    RAD && Int(TF.getscalar(:lrad)) == 1 && (radsettings!(); TD.EOS[](); TD.OPAC[]())
 end
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 try
@@ -489,6 +585,7 @@ try
             end
         end
         (Tc_ > Tstop || ρc_ / PC.mH > nstop) && TF.setscalar!(:tmax, TF.getscalar(:timen))
+        REZ.on && RAD && k % REZ.every == 0 && rezone!(k)
         haskey(ENV, "SAVE") && CKEVERY > 0 && k % CKEVERY == 0 && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ CKEVERY) % 2), k)
     end)
 catch e
