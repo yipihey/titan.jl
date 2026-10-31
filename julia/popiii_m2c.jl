@@ -286,32 +286,60 @@ const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(EN
 const ALIWMIN = parse(Float64, get(ENV, "ALIWMIN", "0")); const ALIGROW = parse(Float64, get(ENV, "ALIGROW", "0.01")); const ALISHRINK = parse(Float64, get(ENV, "ALISHRINK", "0.05")); const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALIFAC = Ref{Vector{Float64}}(Float64[]); const ALILAST = Ref(-10^9); const ALIINT = Ref(1); const NALICALL = Ref(0)
 NLTE in ("ep", "ali", "hyb") && include(joinpath(@__DIR__, "H2Levels.jl"))
 const HLV = NLTE in ("ep", "ali", "hyb") ? H2Levels.load() : nothing
-"Line cooling per zone (and Lr) for zone temperatures tt; step k (for NLTE=hyb)."
+"""
+S6: H₂ line transfer outside the continuum photosphere only (RAD runs, LTAUCUT > 0 [10]): the zones deeper than continuum
+optical depth LTAUCUT from the surface are merged into one transparent central zone without H₂ for the line transfer (their
+line cooling is 0: the continuum carries the energy there and H₂ is dissociated); the cost ∝ zones² × bins drops (the hot core
+also set the velocity span of the frequency grid). Returns (Λ, Lr) on the full grid.
+"""
 function linecool(rr, uu, dd, tt, nh2, k)
+    jc = 0
+    if RAD && LTAUCUT > 0
+        ch = TF.var(:chifn); τ = 0.0
+        for j in nsh:-1:1
+            τ += ch[a+j-1] * dd[j] * (rr[j+1] - rr[j])
+            τ > LTAUCUT && (jc = j; break)
+        end
+        jc = jc >= nsh - 4 ? 0 : jc                  # (keep at least a few zones)
+    end
+    jc < 2 && return linecool_full(rr, uu, dd, tt, nh2, k, 0)
+    r2 = [0.0; rr[jc+1:end]]; u2 = [0.0; uu[jc+1:end]]
+    m_c = sum(dd[j] * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:jc); d2 = [m_c / (4π / 3 * rr[jc+1]^3); dd[jc+1:end]]
+    t2 = [tt[jc]; tt[jc+1:end]]; h2 = [0.0; nh2[jc+1:end]]
+    Λ2, L2, x2 = linecool_full(r2, u2, d2, t2, h2, k, jc)
+    Λ = zeros(nsh); Λ[jc+1:end] .= Λ2[2:end]; Lr = zeros(nsh + 1); Lr[jc+1:end] .= L2[2:end]
+    Λ, Lr, x2
+end
+const LTAUCUT = parse(Float64, get(ENV, "LTAUCUT", "10"))
+"Line cooling per zone (and Lr) for zone temperatures tt; step k (for NLTE=hyb); jc = number of core zones merged away."
+function linecool_full(rr, uu, dd, tt, nh2, k, jc)
+    nz_ = length(dd); zk(j) = j == 1 && jc > 0 ? a + jc - 1 : a + j - 1 + max(jc - 1, 0)   # TITAN zone of reduced zone j
     if NLTE in ("ep", "ali", "hyb")
-        yc = [ycomp(a + j - 1) for j in 1:nsh]; nHn = dd ./ PC.μH
-        nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nsh], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nsh])
+        yc = [ycomp(zk(j)) for j in 1:nz_]; nHn = dd ./ PC.μH
+        nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nz_], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nz_])
         NLTE != "hyb" && return H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep)
-        Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep)
+        tq = time(); Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep)
+        TIMING && k >= 0 && pr("        EP call %.1f s (nep %d)\n", time() - tq, H2Lines.LAST[].nep)
         # ALI refresh interval adaptive (≤ NALI): halved when the ALI/EP factor moved by > 5 % since the last refresh,
         # doubled when < 1 % — a factor frozen while the lines turn thick jumps at the refresh and kicks the core
-        if k >= 0 && (k - ALILAST[] >= ALIINT[] || length(ALIFAC[]) != nsh)
-            Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali)
-            fnew = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? Λa[j] / Λe[j] : 1.0 for j in 1:nsh]
-            if length(ALIFAC[]) == nsh
+        if k >= 0 && (k - ALILAST[] >= ALIINT[] || length(ALIFAC[]) != nz_)
+            tq = time(); Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali)
+            TIMING && pr("        ALI call %.1f s (nep %d, ALI iterations %d, converged %s)\n", time() - tq, H2Lines.LAST[].nep, H2Lines.LAST[].iters, H2Lines.LAST[].converged)
+            fnew = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? Λa[j] / Λe[j] : 1.0 for j in 1:nz_]
+            if length(ALIFAC[]) == nz_
                 # (S6-C2, ALIWMIN > 0, e.g. 1e-4) only over zones carrying ≥ ALIWMIN of the line luminosity: tiny zones (rezoned shock) with
                 # negligible cooling otherwise keep the interval at 1 and the ALI (≈ 50× an EP step) runs every step
-                wv = [abs(Λe[j]) * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nsh]; wmin = ALIWMIN * sum(wv)
-                δ = maximum((abs(log(fnew[j] / ALIFAC[][j])) for j in 1:nsh if wv[j] >= wmin); init = 0.0)
+                wv = [abs(Λe[j]) * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nz_]; wmin = ALIWMIN * sum(wv)
+                δ = maximum((abs(log(fnew[j] / ALIFAC[][j])) for j in 1:nz_ if wv[j] >= wmin); init = 0.0)
                 ALIINT[] = δ > ALISHRINK ? max(1, ALIINT[] ÷ 2) : δ < ALIGROW ? min(NALI, 2ALIINT[]) : ALIINT[]
             end
             ALIFAC[] = fnew; ALILAST[] = k; NALICALL[] += 1
             return Λa, Lra, xa
         end
-        return Λe .* ALIFAC[], Lr, x
+        return Λe .* (length(ALIFAC[]) == nz_ ? ALIFAC[] : 1.0), Lr, x     # (perturbed call right after the reduced grid changed: EP)
     end
     # NLTE=1: source function × f = 1/(1 + Λ_LTE/(n_H Λ_0)) (the GP98/HM79 combination of PrimordialChem.cool_H2_thin)
-    fnl = [1 / (1 + PC.Λ_H2_LTE_HM(tt[j]) / max(PC.xH(ycomp(a + j - 1)) * dd[j] / PC.μH * PC.Λ_H2_0_GP(tt[j]), 1e-300)) for j in 1:nsh]
+    fnl = [1 / (1 + PC.Λ_H2_LTE_HM(tt[j]) / max(PC.xH(ycomp(zk(j))) * dd[j] / PC.μH * PC.Λ_H2_0_GP(tt[j]), 1e-300)) for j in 1:nz_]
     H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, fnlte = NLTE == "1" ? fnl : nothing)
 end
 const HLL = cool == "lines" ? H2Lines.load() : nothing; const NBIN = parse(Int, get(ENV, "NBIN", "30")); const LLINE = Ref(0.0)
@@ -456,7 +484,7 @@ end
 "Current zone profile for Rezone (E_r, F_r from the radiating state)."
 function profile_now()
     rr = TF.var(:rn)[a:b+1]; rr[1] = 0.0
-    Rezone.Profile(rr, TF.var(:un)[a:b+1], TF.var(:frn)[a:b+1], TF.var(:dn)[a:b], TF.var(:egn)[a:b], TF.var(:tn)[a:b], TF.var(:ern)[a:b], TF.var(:asn)[a:b])
+    Rezone.Profile(rr, TF.var(:un)[a:b+1], TF.var(:frn)[a:b+1], TF.var(:dn)[a:b], TF.var(:egn)[a:b], TF.var(:tn)[a:b], TF.var(:ern)[a:b], TF.var(:asn)[a:b], TF.var(:pgn)[a:b])
 end
 const REZ = (on = get(ENV, "REZONE", "0") == "1", every = parse(Int, get(ENV, "REZEVERY", "20")),
              jsplit = parse(Float64, get(ENV, "REZJSPLIT", "0.3")), jmerge = parse(Float64, get(ENV, "REZJMERGE", "0.05")),
@@ -480,7 +508,11 @@ function rezone!(k; force = nothing)
     old = matstate(); zx(i) = a + i - 1
     Tofe(ρ, e, T0, srcj) = (eq = any(old.eqzone[zx(i)] for (i, _) in srcj);
                            x = sum(w .* old.x[zx(i)] for (i, w) in srcj); T_of_e(ρ, e, T0, x, eq))
-    q, src = Rezone.apply(p, sp, mg; Tofe)
+    function eosT(ρ, T, srcj)                         # (e, P) of the material with the composition of srcj
+        eq = any(old.eqzone[zx(i)] for (i, _) in srcj); x = sum(w .* old.x[zx(i)] for (i, w) in srcj)
+        u_, p_ = eq ? PopIIIEqEOS.eos(ρ, T) : ChemNet.eos(ρ, T, x, mat.net); (u_, p_)
+    end
+    q, src = Rezone.apply(p, sp, mg; Tofe, eosT = get(ENV, "REZPSPLIT", "1") == "1" ? eosT : nothing)
     # conservation over the range of zones that changed (whole-grid totals are dominated by the 1e4 M☉ envelope)
     ch = [j for (j, s_) in enumerate(src) if length(s_) > 1 || s_[1][1] in sp]
     lo_n, hi_n = max(first(ch) - 1, 1), min(last(ch) + 1, length(q.ρ))
@@ -510,11 +542,14 @@ elseif haskey(ENV, "RESTART")
     restart!(ENV["RESTART"])
     RAD && Int(TF.getscalar(:lrad)) == 1 && (radsettings!(); TD.EOS[](); TD.OPAC[]())
 end
+const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
+const TMARK = Ref(time()); const TOUT = Ref(0.0)
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 try
     TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k
-        dT = PM.chem!(mat)
+        tnow = time(); TSTEP[] += tnow - TMARK[] - TOUT[]; TOUT[] = 0.0
+        tc0 = time(); dT = PM.chem!(mat); TCHEM[] += time() - tc0
         RAD && TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())   # T changed in chem!: Planck function, opacity, e_g + E_r/ρ
         if SNAPS !== nothing                         # profiles for post-processing: every 0.25 dex of n_c, and every SNAPEVERY steps
             lnc = log10(TF.var(:dn)[a] / PC.mH)
@@ -530,7 +565,7 @@ try
             # H₂ line transfer on the new state (RHFC02 A2.4); Λ held fixed over the next step; Δt ≤ 0.1 u ρ/|Λ| (A2.2)
             rr = TF.var(:rn)[a:b+1]; uu = TF.var(:un)[a:b+1]; dd = TF.var(:dn)[a:b]; tt = TF.var(:tn)[a:b]
             nh2 = [dd[j] / PC.μH * ycomp(a + j - 1)[3] for j in 1:nsh]
-            Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k)
+            tl0 = time(); Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k); TLINE[] += time() - tl0
             tcmin = Inf
             for j in 1:nsh
                 mat.Λext[a+j-1] = Λl[j]; mat.Tref[a+j-1] = tt[j]; mat.slope[a+j-1] = 0.0
@@ -541,7 +576,7 @@ try
             # second transfer call with all T × (1 + ε) makes Λ_j (T/T_j)^s implicit in the chemistry step, and the cap
             # relaxes to Δt ≤ DTCOOL t_cool (default 1); otherwise Λ is held fixed (explicit, accurate there)
             if IMPCOOL && (IMPALWAYS || 0.1tcmin < TF.getscalar(:dtime))
-                ε = 0.02; Λp, _, _ = linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1)
+                ε = 0.02; tl0 = time(); Λp, _, _ = linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1); TLINE[] += time() - tl0
                 for j in 1:nsh
                     Λl[j] != 0 && Λp[j] / Λl[j] > 0 && (mat.slope[a+j-1] = clamp(log(Λp[j] / Λl[j]) / log(1 + ε), -10.0, 30.0))
                 end
@@ -589,6 +624,14 @@ try
         end
         (Tc_ > Tstop || ρc_ / PC.mH > nstop) && TF.setscalar!(:tmax, TF.getscalar(:timen))
         REZ.on && RAD && k % REZ.every == 0 && rezone!(k)
+        if TIMING && k % PRINTEVERY == 0
+            pr("        timing since last report: step (hydro+radiation) %.1f s, chemistry %.1f s, H2 lines %.1f s, other output %.1f s\n",
+               TSTEP[], TCHEM[], TLINE[], time() - tnow - 0.0 + TOTH[] - TCHEM[] - TLINE[])
+            TSTEP[] = TCHEM[] = TLINE[] = TOTH[] = 0.0
+        else
+            TOTH[] += time() - tnow
+        end
+        TMARK[] = time()
         haskey(ENV, "SAVE") && CKEVERY > 0 && k % CKEVERY == 0 && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ CKEVERY) % 2), k)
     end)
 catch e

@@ -36,7 +36,9 @@ struct Profile
     rI::Vector{Float64}; u::Vector{Float64}; Fr::Vector{Float64}     # n + 1 interfaces (rI[1] = 0: regular centre)
     ρ::Vector{Float64}; e::Vector{Float64}; T::Vector{Float64}; Er::Vector{Float64}   # n zones
     cs::Vector{Float64}                                              # sound speed per zone (criteria only)
+    P::Vector{Float64}                                               # gas pressure per zone (pressure-consistent split)
 end
+Profile(rI, u, Fr, ρ, e, T, Er, cs) = Profile(rI, u, Fr, ρ, e, T, Er, cs, fill(NaN, length(ρ)))
 nz(p::Profile) = length(p.ρ)
 vol(rI, k) = 4π / 3 * (rI[k+1]^3 - rI[k]^3)
 dmass(p::Profile) = [p.ρ[k] * vol(p.rI, k) for k in 1:nz(p)]
@@ -131,14 +133,15 @@ end
     apply(p, splits, merges; Tofe) -> (q::Profile, src)
 
 New profile `q` and, for each new zone j, `src[j]` = vector of (old zone, mass weight) pairs (weights sum to 1).
-`Tofe(ρ, e, T0, src_j)` returns T for a merged zone (material EOS with the mass-weighted composition of `src_j`).
+`Tofe(ρ, e, T0, src_j)` returns T for a merged or split zone (material EOS with the mass-weighted composition of `src_j`);
+`eosT(ρ, T, src_j) -> (e, P)` (optional) switches on the pressure-consistent split.
 Total mass, internal + kinetic + radiation energy are conserved to round-off (the kinetic-energy change of the staggered
 grid is moved into the internal energy of the zones involved).
 """
-function apply(p::Profile, splits, merges; Tofe)
+function apply(p::Profile, splits, merges; Tofe, eosT = nothing)
     n = nz(p); dm = dmass(p); isS = falses(n); isS[splits] .= true; isM = falses(n); isM[merges] .= true
     rI = [p.rI[1]]; u = [p.u[1]]; Fr = [p.Fr[1]]
-    ρ = Float64[]; e = Float64[]; T = Float64[]; Er = Float64[]; cs = Float64[]; src = Vector{Vector{Tuple{Int,Float64}}}()
+    ρ = Float64[]; e = Float64[]; T = Float64[]; Er = Float64[]; cs = Float64[]; P = Float64[]; src = Vector{Vector{Tuple{Int,Float64}}}()
     kept = Int[]                                    # for every new interface: the old interface it is (0 = new)
     push!(kept, 1)
     k = 1
@@ -147,7 +150,7 @@ function apply(p::Profile, splits, merges; Tofe)
             r0, r2 = p.rI[k], p.rI[k+2]; V = 4π / 3 * (r2^3 - r0^3); m = dm[k] + dm[k+1]
             push!(ρ, m / V); push!(e, (dm[k] * p.e[k] + dm[k+1] * p.e[k+1]) / m)
             push!(Er, (p.Er[k] * vol(p.rI, k) + p.Er[k+1] * vol(p.rI, k + 1)) / V)
-            push!(cs, max(p.cs[k], p.cs[k+1])); push!(src, [(k, dm[k] / m), (k + 1, dm[k+1] / m)])
+            push!(cs, max(p.cs[k], p.cs[k+1])); push!(P, NaN); push!(src, [(k, dm[k] / m), (k + 1, dm[k+1] / m)])
             push!(T, NaN)                           # from Tofe below, after the energy correction
             push!(rI, r2); push!(u, p.u[k+2]); push!(Fr, p.Fr[k+2]); push!(kept, k + 2)
             k += 2
@@ -159,23 +162,53 @@ function apply(p::Profile, splits, merges; Tofe)
             x = exp(-g); ρout = m * (1 + 1 / x) / (2V); ρin = x * ρout          # Δm/(2ρin) + Δm/(2ρout) = V
             rh = cbrt(p.rI[k]^3 + 3 / (4π) * m / (2ρin))
             δ = k == 1 || k == n ? 0.0 : 0.25 * minmod((p.e[k+1] - p.e[k]) / p.e[k], (p.e[k] - p.e[k-1]) / p.e[k])
+            Tin = Tout = NaN
+            if eosT !== nothing && 1 < k < n
+                # pressure-consistent split: P_in,out = P̄ ∓ ½ΔP with ΔP from the limited pressure slope in mass across the
+                # neighbours (the new interface sees the gradient of its surroundings: no hydrostatic kick), P̄ from the
+                # energy constraint e_in + e_out = 2e (equal masses); T of each half from P(ρ_half, T) = P_half
+                mc(i) = sum(dm[1:i-1]) + 0.5 * dm[i]
+                sP = minmod((p.P[k+1] - p.P[k]) / (mc(k + 1) - mc(k)), (p.P[k] - p.P[k-1]) / (mc(k) - mc(k - 1)))
+                ΔP = -sP * m / 2                              # P_in − P_out (half-zone centres Δm/2 apart)
+                srck = [(k, 1.0)]
+                Tof(ρh, Ph, T0) = (lo = log(T0) - 2; hi = log(T0) + 2;
+                    for _ in 1:80; mid = 0.5 * (lo + hi); eosT(ρh, exp(mid), srck)[2] > Ph ? (hi = mid) : (lo = mid); end; exp(0.5 * (lo + hi)))
+                function f(Pb)
+                    ti = Tof(ρin, Pb + ΔP / 2, p.T[k]); to = Tof(ρout, Pb - ΔP / 2, p.T[k])
+                    (eosT(ρin, ti, srck)[1] + eosT(ρout, to, srck)[1] - 2p.e[k], ti, to)
+                end
+                a_ = 0.98p.P[k]; b_ = 1.02p.P[k]; fa = f(a_)[1]; fb = f(b_)[1]
+                if fa * fb < 0 && abs(ΔP) < 0.5p.P[k]
+                    for _ in 1:60
+                        c_ = 0.5 * (a_ + b_); fc = f(c_)[1]
+                        fa * fc <= 0 ? (b_ = c_; fb = fc) : (a_ = c_; fa = fc)
+                    end
+                    _, Tin, Tout = f(0.5 * (a_ + b_))
+                end
+            end
             Vin = 4π / 3 * (rh^3 - p.rI[k]^3); Vout = V - Vin
             ε = k == 1 || k == n ? 0.0 : 0.25 * minmod(log(p.Er[k+1] / p.Er[k]), log(p.Er[k] / p.Er[k-1]))
             Ein = p.Er[k] * V / (Vin + Vout * exp(2ε)); Eout = Ein * exp(2ε)  # E_in V_in + E_out V_out = E_r V
             uh = 0.5 * (p.u[k] + p.u[k+1]); Fh = 0.5 * (p.Fr[k] + p.Fr[k+1])   # equal masses: linear in mass = mean
-            for (ρh, eh, Eh) in ((ρin, p.e[k] * (1 - δ), Ein), (ρout, p.e[k] * (1 + δ), Eout))
-                push!(ρ, ρh); push!(e, eh); push!(T, NaN); push!(Er, Eh); push!(cs, p.cs[k]); push!(src, [(k, 1.0)])
+            if isnan(Tin)
+                halves = ((ρin, p.e[k] * (1 - δ), Ein, NaN), (ρout, p.e[k] * (1 + δ), Eout, NaN))
+            else                                         # e of the halves from the EOS (their sum is 2e to the bisection tolerance)
+                ei = eosT(ρin, Tin, [(k, 1.0)])[1]; eo = eosT(ρout, Tout, [(k, 1.0)])[1]; c_ = 2p.e[k] / (ei + eo)
+                halves = ((ρin, ei * c_, Ein, NaN), (ρout, eo * c_, Eout, NaN))   # exact energy; T re-inverted below
+            end
+            for (ρh, eh, Eh, Th) in halves
+                push!(ρ, ρh); push!(e, eh); push!(T, Th); push!(Er, Eh); push!(cs, p.cs[k]); push!(P, NaN); push!(src, [(k, 1.0)])
             end
             push!(rI, rh); push!(u, uh); push!(Fr, Fh); push!(kept, 0)
             push!(rI, p.rI[k+1]); push!(u, p.u[k+1]); push!(Fr, p.Fr[k+1]); push!(kept, k + 1)
             k += 1
         else
-            push!(ρ, p.ρ[k]); push!(e, p.e[k]); push!(T, p.T[k]); push!(Er, p.Er[k]); push!(cs, p.cs[k]); push!(src, [(k, 1.0)])
+            push!(ρ, p.ρ[k]); push!(e, p.e[k]); push!(T, p.T[k]); push!(Er, p.Er[k]); push!(cs, p.cs[k]); push!(P, p.P[k]); push!(src, [(k, 1.0)])
             push!(rI, p.rI[k+1]); push!(u, p.u[k+1]); push!(Fr, p.Fr[k+1]); push!(kept, k + 1)
             k += 1
         end
     end
-    q = Profile(rI, u, Fr, ρ, e, T, Er, cs)
+    q = Profile(rI, u, Fr, ρ, e, T, Er, cs, P)
     # kinetic energy: total before − after, moved into the internal energy of the zones next to every changed interface
     # (in proportion to their masses), so Eint + Ekin is conserved
     dmq = dmass(q); miq = imass(dmq); mip = imass(dm)

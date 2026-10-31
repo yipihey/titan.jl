@@ -365,16 +365,18 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     end
     # opacity and source from populations
     function opac(Pc)
-        κ0 = zeros(nl, n); S = zeros(nl, n); nmaser = 0
-        for k in 1:n, i in 1:nl
-            pu = Pc[iu[i], k]; pl = Pc[il[i], k]; den = pl * Blu[i] - pu * Bul[i]
-            if den > 0
-                κ0[i, k] = h * ν[i] / (4π) * nH2[k] * den; S[i, k] = pu * LV.A[i] / den
-            else
-                nmaser += pu > 0 ? 1 : 0; S[i, k] = Bν(ν[i], T[k])
+        κ0 = zeros(nl, n); S = zeros(nl, n); nm = zeros(Int, n)
+        Threads.@threads for k in 1:n                 # (S6: threaded; zones independent)
+            for i in 1:nl
+                pu = Pc[iu[i], k]; pl = Pc[il[i], k]; den = pl * Blu[i] - pu * Bul[i]
+                if den > 0
+                    κ0[i, k] = h * ν[i] / (4π) * nH2[k] * den; S[i, k] = pu * LV.A[i] / den
+                else
+                    nm[k] += pu > 0 ? 1 : 0; S[i, k] = Bν(ν[i], T[k])
+                end
             end
         end
-        κ0, S, nmaser
+        κ0, S, sum(nm)
     end
     # escape probability per line and zone from the current per-line depths (EP mode): static part = profile-averaged
     # two-direction slab escape ½[E₂(τ_out φ̂) + E₂(τ_in φ̂)], φ̂ = e^{−x²}, with τ_out the line-centre depth along the radius to
@@ -384,7 +386,7 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     function epβ(κ0)
         βn = ones(nl, n)
         xg = 0.0:0.25:5.0; wg = [(x == 0 || x == 5.0 ? 0.5 : 1.0) * 0.25 * 2 / sqrt(π) * exp(-x^2) for x in xg]
-        for i in 1:nl
+        Threads.@threads for i in 1:nl                # (S6: threaded; lines independent)
             τs = zeros(n); acc = 0.0
             for k in n:-1:1
                 dτ = max(κ0[i, k], 0.0) / (sqrt(π) * vth[k] / c * ν[i]) * (r[k+1] - r[k])
