@@ -125,8 +125,31 @@ NetGas(x, net, photos, cooling; env, pswitch = 1e4) =
 import ..ChemNet
 const CNn = ChemNet
 
+"""
+S6-C1: hot branch of `NetGas` for the protostar (popiii_m2c HOT=1). `HOT[] = (; T1, T2, Δ0, gas, thermo)` with
+`gas(ρ, T, k) -> (p, e)` the stellar EOS of zone k's composition, `thermo(ρ, T, k) -> (∇_ad, c_P, δ)`. Between T1 and T2 p and e are
+blended with a C² weight in ln T, e_gas = e_table + w (e_star − Δ0 − e_table), Δ0 the zero-point difference of the two EOS
+(neutral atoms vs PopIIIEqEOS's zero), measured in the fully ionised dilute limit. The blend is not thermodynamically consistent
+inside the band, but e(ρ, T) and p(ρ, T) are continuous and differentiable, so a zone crossing it conserves energy.
+`nothing` (default): no change, the runs below T1 are identical.
+"""
+const HOT = Ref{Any}(nothing)
+@inline function hotw(T, T1, T2)
+    x = log(T / T1) / log(T2 / T1)
+    x * x * x * (x * (6x - 15) + 10)
+end
 @inline function TX.material_gas(m::NetGas, ρ, T)
     k = TX.ZONE[]
+    h = HOT[]
+    if h !== nothing && ForwardDiff.value(T) > h.T1
+        ps, es = h.gas(ρ, T, k); es -= h.Δ0
+        if ForwardDiff.value(T) >= h.T2
+            return ps, es, sqrt(5.0 / 3.0 * ps / ρ)
+        end
+        u, p = EQ.eos(ρ, T); w = hotw(T, h.T1, h.T2)
+        pb = p + w * (ps - p)
+        return pb, u + w * (es - u), sqrt(5.0 / 3.0 * pb / ρ)
+    end
     if m.eqzone[k]
         u, p = EQ.eos(ρ, T)
     else
@@ -134,6 +157,8 @@ const CNn = ChemNet
     end
     return p, u, sqrt(5.0 / 3.0 * p / ρ)
 end
+"MLT thermodynamics: only the hot branch convects (∇_ad = 10 below T1 switches the flux off in the chemistry gas)."
+TX.material_thermo(m::NetGas, ρ, T) = (h = HOT[]; (h === nothing || T <= h.T1) ? (10.0, 1e9, 1.0) : h.thermo(ρ, T, TX.ZONE[]))
 function TM.fill_eos!(m::NetGas)
     dn, tn, pgn, egn, asn = TM.v(:dn), TM.v(:tn), TM.v(:pgn), TM.v(:egn), TM.v(:asn)
     @inbounds for k in TM.krange()
@@ -164,7 +189,7 @@ function TM.fill_opac!(m::NetGas)
         χ, κE, κP = TX.material_opac(m, dn[k], tn[k])
         chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
         # electrons for the scattering term of the formal solution (the template state's xnen is not ours)
-        xnen[k] = (m.eqzone[k] ? EQ.composition(dn[k], tn[k])[1] : CNn.full(m.x[k], m.net)[:Hp]) * dn[k] / CNn.μH()
+        xnen[k] = (m.eqzone[k] ? EQ.composition(dn[k], min(tn[k], 1e6))[1] : CNn.full(m.x[k], m.net)[:Hp]) * dn[k] / CNn.μH()
     end
     nothing
 end
@@ -189,7 +214,12 @@ function chem!(m::NetGas)
     dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
     dn, tn, egn, pgn = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:pgn)
     dTmax = 0.0
+    h = HOT[]
     for k in a:b
+        if h !== nothing && tn[k] > h.T1             # hot branch: no chemistry, no re-solve of T with the table (driver: burn and mix)
+            m.x[k] = x_from_table(m, dn[k], min(tn[k], 1e6)); m.eqzone[k] = true
+            continue
+        end
         cool = zone_cooling(m, k)
         if pgn[k] >= m.pswitch
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))

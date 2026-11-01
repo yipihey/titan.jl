@@ -15,6 +15,11 @@ include(joinpath(@__DIR__, "SCVH.jl")); include(joinpath(@__DIR__, "PopIIIEqEOS.
 include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl"))
 include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2Lines.jl"))
 include(joinpath(@__DIR__, "StellarOpacity.jl"))
+# S6-C1: HOT=1: stellar EOS, nuclear network and convective mixing in the hot core (T > HOTT1), see PopIIIMaterial.HOT
+const HOTON = get(ENV, "HOT", "0") == "1"
+if HOTON
+    for f in ("StellarEOS", "NucNet", "StellarMaterial", "StarMaterial"); include(joinpath(@__DIR__, f * ".jl")); end
+end
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
 using ForwardDiff
@@ -349,8 +354,8 @@ Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(EN
 # per-zone state, the driver's NLTE/cooling bookkeeping, the TR-BDF2 counters and the step number are replaced by the
 # checkpoint's, so the continuation is the uninterrupted run (checked bit for bit). Files: CKDIR [lib/popiii/ck].
 const CKDIR = get(ENV, "CKDIR", joinpath(TF.ROOT, "lib", "popiii", "ck"))
-const KOFF = Ref(0)
-matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope)) :
+const KOFF = Ref(0); const SG = Ref{Any}(nothing)
+matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope), Y = HOTON ? copy(SG[].Y) : nothing) :
              error("checkpoint: only the NetGas material (CHEM=net*) is supported")
 function checkpoint(name, k)
     mkpath(CKDIR)
@@ -372,6 +377,7 @@ function restart!(name; allow = ())
     TF.load_state!(joinpath(CKDIR, "m2c_$(name).tstate.gz"))
     global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1   # (zone count may differ after rezoning)
     s = aux.mat; mat.x .= deepcopy(s.x); mat.eqzone .= s.eqzone; mat.Λext .= s.Λext; mat.Tref .= s.Tref; mat.slope .= s.slope
+    HOTON && hasproperty(s, :Y) && s.Y !== nothing && (SG[].Y .= s.Y)      # (a checkpoint from before HOT=1 keeps the initial abundances)
     ALIFAC[] = copy(aux.ALIFAC); ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
     LLINE[] = aux.LLINE; nextln[] = aux.nextln; SNAPNEXT[] = aux.SNAPNEXT
     SNAPS === nothing || aux.SNAPS === nothing || (empty!(SNAPS); append!(SNAPS, aux.SNAPS))
@@ -381,6 +387,67 @@ function restart!(name; allow = ())
     KOFF[] = aux.k
     pr("restarted from checkpoint %s at step %d, t = %.6e yr, log n_c = %.3f, T_c = %.1f K\n", name, aux.k, TF.getscalar(:timen) / 3.156e7,
        log10(TF.var(:dn)[a] / PC.mH), TF.var(:tn)[a])
+end
+if HOTON
+    const SM = StarMaterial; const NN = NucNet; const SE = StellarEOS
+    const HX = 1 / (1 + 4PC.yHe)
+    const DH = parse(Float64, get(ENV, "DH", "2.5e-5"))
+    SG[] = SM.StarGas(TF.MGR + 2; X = HX, Y = 1 - HX, Z = 0.0, opac = :stellar)
+    let Y0 = zeros(NN.NS)                             # primordial abundances (mol/g), as S5: D/H, ³He/H; ⁴He takes the rest of Y
+        Yp = HX / (1 + 2DH); Y0[NN.IDX[:p]] = Yp; Y0[NN.IDX[:d]] = DH * Yp
+        Y3 = 1e-5 * Yp; Y0[NN.IDX[:he3]] = Y3; Y0[NN.IDX[:he4]] = (1 - HX - 3Y3) / 4
+        for k in axes(SG[].Y, 2); SG[].Y[:, k] .= Y0; end
+    end
+    let g = (ρ, T, k) -> (st = SE.gas_state(ρ, T, SM.zonecomp(SG[], k)); (st.p, st.e)),
+        th = (ρ, T, k) -> (st = SE.eos(ρ, T; comp = SM.zonecomp(SG[], k), radiation = true); (st.∇ad, st.cP, st.δ))
+        ρr, Tr = 1e-4, 1e6                            # zero point of the two EOS in the fully ionised dilute limit
+        Δ0 = g(ρr, Tr, 1)[2] - PopIIIEqEOS.eos(ρr, Tr)[1]
+        PM.HOT[] = (; T1 = parse(Float64, get(ENV, "HOTT1", "3e5")), T2 = parse(Float64, get(ENV, "HOTT2", "9e5")), Δ0, gas = g, thermo = th)
+    end
+    pr("HOT: stellar branch above T1 = %.3g K (full at %.3g K), Delta0 = %.4e erg/g, D/H = %.2e\n", PM.HOT[].T1, PM.HOT[].T2, PM.HOT[].Δ0, DH)
+    "T with the installed material's e_gas(ρ, T) = e in zone k (safeguarded Newton in ln T)."
+    function T_hot(ρ, e, T0, k)
+        TX.ZONE[] = k; lT = log(T0); lo = lT - 1.5; hi = lT + 1.5
+        for _ in 1:60
+            f = TX.material_gas(mat, ρ, exp(lT))[2] - e
+            abs(f) <= 1e-12 * abs(e) && break
+            f > 0 ? (hi = lT) : (lo = lT)
+            d = (TX.material_gas(mat, ρ, exp(lT + 1e-6))[2] - TX.material_gas(mat, ρ, exp(lT))[2]) / 1e-6
+            lN = lT - f / d; lT = (d > 0 && lo < lN < hi) ? lN : 0.5 * (lo + hi)
+        end
+        exp(lT)
+    end
+    const EBURN = Ref(0.0); const HOTEFRAC = parse(Float64, get(ENV, "HOTEFRAC", "0.02"))
+    """
+    S6-C1: after a converged step and chem!: in zones above T1 the network over Δt at (ρ, T) (operator split), the release into e at
+    fixed ρ, T from the EOS; then convective mixing of the abundances (D from the MLT of `step_diag`, StarMaterial.mix_species!; e fixed).
+    Δt ≤ HOTEFRAC e/|ε| of the zones. Total energy (gas + cumulative release EBURN) conserved to the T inversion. Good for D burning; the
+    stiff CNO ignition needs the implicit source coupling of S5 (solve_step!) still.
+    """
+    function hotburn!(dt)
+        h = PM.HOT[]; dn, tn, egn, rn, dv = TF.var(:dn), TF.var(:tn), TF.var(:egn), TF.var(:rn), TF.var(:dvoln)
+        any(tn[k] > h.T1 for k in a:b) || return 0.0
+        sg = SG[]; frac = 0.0; ΣE = 0.0
+        for k in a:b
+            tn[k] > h.T1 || continue
+            res = NN.burn(sg.Y[:, k], dn[k], tn[k], dt; screen = sg.screen)
+            sg.Y[:, k] .= res.Y; de = res.ε * dt; ΣE += de * 4π * dn[k] * dv[k]
+            frac = max(frac, abs(de) / abs(egn[k]))
+            egn[k] += de; tn[k] = T_hot(dn[k], egn[k], tn[k], k)
+        end
+        EBURN[] += ΣE
+        sd = TX.step_diag(dt); n = b - a + 1; Di = zeros(n + 1)
+        for j in 2:n; k = a + j - 1; (sd.fcv[k] > 0 && sd.vcv[k] > 0 && tn[k] > h.T1 && tn[k-1] > h.T1) && (Di[j] = sd.vcv[k] * sd.lcv[k] / 3); end
+        if any(>(0), Di)
+            dm = [4π * dn[a+j-1] * dv[a+j-1] for j in 1:n]; ar = zeros(n + 1)
+            for j in 2:n; k = a + j - 1; ar[j] = 4π * rn[k]^2 * 0.5 * (dn[k-1] + dn[k]); end
+            Yz = sg.Y[:, a:b]; SM.mix_species!(Yz, Di, dm, ar, dt); sg.Y[:, a:b] .= Yz
+            for j in 1:n; k = a + j - 1; tn[k] > h.T1 && (tn[k] = T_hot(dn[k], egn[k], tn[k], k)); end     # (composition changed at fixed e)
+        end
+        SM.ghosts!(sg)
+        frac > 0 && TF.setscalar!(:dtime, min(TF.getscalar(:dtime), dt * HOTEFRAC / frac))
+        ΣE / dt
+    end
 end
 """
 S6-B: settings of a radiating run (after a RAD rebuild and after restarting a RAD checkpoint): StellarOpacity continuum for
@@ -396,6 +463,9 @@ function radsettings!()
     TC.ER_TAUMIN[] = parse(Float64, get(ENV, "ERTAUMIN", "1.0"))   # E_r of the optically thin envelope does not limit Δt
     # Δt cap: steps much longer than the light-crossing time of the nearly free-streaming layers outside the photosphere
     # (r ~ 1e14 cm: r/c ~ 3e3 s) fail in Newton (Eddington factors lagged over the step); default 1500 s
+    if HOTON                                          # convection (hot branch only: PM.material_thermo), as the S5 stars
+        TX.CONVECTION[] = true; TX.ALPHA_MLT[] = parse(Float64, get(ENV, "ALPHAMLT", "1.5")); TX.MLT_HSDISC[] = true; TX.MLT_RCAP[] = true
+    end
     dtr = parse(Float64, get(ENV, "DTRADMAX", "1500"))
     dtr > 0 && !DTRHOOK[] && (push!(TC.DT_HOOKS, () -> dtr); DTRHOOK[] = true)
     TD.MSGIO[] = get(ENV, "MSG", "0") == "1" ? stdout : devnull
@@ -415,6 +485,10 @@ function rebuild!(rI, ρz, Tz, uI, Er, Fr, matz)
     for j in 1:nsh
         k = a + j - 1
         mat.x[k] = copy(matz.x[j]); mat.eqzone[k] = matz.eqzone[j]; mat.Λext[k] = matz.Λext[j]; mat.Tref[k] = matz.Tref[j]; mat.slope[k] = matz.slope[j]
+    end
+    if HOTON
+        for j in 1:nsh; SG[].Y[:, a+j-1] .= matz.Y[j]; end
+        SM.ghosts!(SG[])
     end
     for k in 1:a-1; mat.x[k] = copy(mat.x[a]); mat.eqzone[k] = mat.eqzone[a]; end
     for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end
@@ -460,13 +534,14 @@ function radbuild!(name)
         for j in jph:n+1; Fr[j] = Lph / (4π * rI[j]^2); end
     end
     zr = aold:aold+n-1
-    rebuild!(rI, ρz, Tz, uI, Er, Fr, (; x = old.x[zr], eqzone = old.eqzone[zr], Λext = old.Λext[zr], Tref = old.Tref[zr], slope = old.slope[zr]))
+    rebuild!(rI, ρz, Tz, uI, Er, Fr, (; x = old.x[zr], eqzone = old.eqzone[zr], Λext = old.Λext[zr], Tref = old.Tref[zr], slope = old.slope[zr],
+                                         Y = HOTON ? [old.Y[:, k] for k in zr] : nothing))
     pr("RAD: rebuilt with radiation from %s: ngrs %d -> %d, tau_R(centre) = %.3e, E_r/aT^4 at centre %.3f, photosphere at zone %s (r = %.3e cm), L_ph = %.3e erg/s, ximr = %.3e\n",
        name, aold, a, τ[1], Er[1] / (ar * Tz[1]^4), string(jph), jph === nothing ? NaN : rI[jph], Lph, TF.getscalar(:ximr))
 end
 include(joinpath(@__DIR__, "Rezone.jl"))
 "Gas energy of zone k's material at (ρ, T) with composition (x, eq)."
-gasu(ρ, T, x, eq) = eq ? EQ_eos(ρ, T)[1] : ChemNet.eos(ρ, T, x, mat.net)[1]
+gasu(ρ, T, x, eq) = (PM.HOT[] !== nothing && T > PM.HOT[].T1) ? TX.material_gas(mat, ρ, T)[2] : eq ? EQ_eos(ρ, T)[1] : ChemNet.eos(ρ, T, x, mat.net)[1]
 EQ_eos(ρ, T) = PopIIIEqEOS.eos(ρ, T)
 "T with gasu(ρ, T) = e (bracketed Newton in ln T)."
 function T_of_e(ρ, e, T0, x, eq)
@@ -506,10 +581,11 @@ function rezone!(k; force = nothing)
            join(("($i, $(round(me[i]/Msun, sigdigits=3)))" for i in mg), " "))
     end
     old = matstate(); zx(i) = a + i - 1
-    Tofe(ρ, e, T0, srcj) = (eq = any(old.eqzone[zx(i)] for (i, _) in srcj);
+    Tofe(ρ, e, T0, srcj) = (TX.ZONE[] = zx(srcj[1][1]); eq = any(old.eqzone[zx(i)] for (i, _) in srcj);
                            x = sum(w .* old.x[zx(i)] for (i, w) in srcj); T_of_e(ρ, e, T0, x, eq))
     function eosT(ρ, T, srcj)                         # (e, P) of the material with the composition of srcj
-        eq = any(old.eqzone[zx(i)] for (i, _) in srcj); x = sum(w .* old.x[zx(i)] for (i, w) in srcj)
+        TX.ZONE[] = zx(srcj[1][1]); eq = any(old.eqzone[zx(i)] for (i, _) in srcj); x = sum(w .* old.x[zx(i)] for (i, w) in srcj)
+        if PM.HOT[] !== nothing && T > PM.HOT[].T1; p_, u_ = TX.material_gas(mat, ρ, T); return (u_, p_); end
         u_, p_ = eq ? PopIIIEqEOS.eos(ρ, T) : ChemNet.eos(ρ, T, x, mat.net); (u_, p_)
     end
     q, src = Rezone.apply(p, sp, mg; Tofe, eosT = get(ENV, "REZPSPLIT", "1") == "1" ? eosT : nothing)
@@ -524,7 +600,8 @@ function rezone!(k; force = nothing)
               eqzone = [any(old.eqzone[zx(i)] for (i, _) in s) for s in src],
               Λext = [sum(old.Λext[zx(i)] * V(p.rI, i) for (i, _) in s) / V(q.rI, j) for (j, s) in enumerate(src)],
               Tref = [old.Tref[zx(s[argmax([w for (_, w) in s])][1])] for s in src],
-              slope = [old.slope[zx(s[argmax([w for (_, w) in s])][1])] for s in src])
+              slope = [old.slope[zx(s[argmax([w for (_, w) in s])][1])] for s in src],
+              Y = HOTON ? [sum(w .* old.Y[:, zx(i)] for (i, w) in s) for s in src] : nothing)
     nold = nsh
     rebuild!(q.rI, q.ρ, q.T, q.u, q.Er, q.Fr, matz)
     # the energies after the rebuild (e from the EOS at the new T): the T inversion's error is part of the check
@@ -559,14 +636,16 @@ elseif haskey(ENV, "RESTART")
     restart!(ENV["RESTART"])
     RAD && Int(TF.getscalar(:lrad)) == 1 && (radsettings!(); TD.EOS[](); TD.OPAC[]())
 end
-const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
+const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 try
     TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k
         tnow = time(); TSTEP[] += tnow - TMARK[] - TOUT[]; TOUT[] = 0.0
-        tc0 = time(); dT = PM.chem!(mat); TCHEM[] += time() - tc0
+        tc0 = time(); dT = PM.chem!(mat)
+        HOTON && (LNUC[] = hotburn!(TF.getscalar(:timen) - TF.getscalar(:timeo)))
+        TCHEM[] += time() - tc0
         RAD && TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())   # T changed in chem!: Planck function, opacity, e_g + E_r/ρ
         if SNAPS !== nothing                         # profiles for post-processing: every 0.25 dex of n_c, and every SNAPEVERY steps
             lnc = log10(TF.var(:dn)[a] / PC.mH)
