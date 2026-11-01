@@ -198,6 +198,15 @@ end
 "Refresh ghost zones, EOS, opacity, E_r + e_g sums after the state arrays were changed by burn!/mix!."
 refresh!() = TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
 
+# ----------------------------------------------------------------------------------------------- hooks for a composite material
+"""
+S6: `StarGas` as the abundance holder of another installed material (PopIIIMaterial.NetGas, hot branch). `TSOLVE[] = (ρ, e, T0, comp) -> (T, err)`
+replaces `T_of_e` (the other material's e(ρ, T)); `ZONEOK[] = k -> Bool` restricts burn!/predict_cap to the zones the stellar physics applies to.
+`nothing` (default): S5 unchanged.
+"""
+const TSOLVE = Ref{Any}(nothing); const ZONEOK = Ref{Any}(nothing)
+@inline zok(k) = ZONEOK[] === nothing || ZONEOK[](k)
+@inline t_solve(m, ρ, e, T0, comp) = TSOLVE[] === nothing ? T_of_e(ρ, e, T0, comp; pairs = m.pairs, coulomb = m.coulomb) : TSOLVE[](ρ, e, T0, comp)
 # ----------------------------------------------------------------------------------------------- T from e
 "T such that e_gas(ρ, T; comp) = e (Newton in ln T with c_V, safeguarded). Returns (T, relative error of e)."
 function T_of_e(ρ, e, T0, comp; pairs = true, coulomb = true)
@@ -310,6 +319,7 @@ function burn!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd 
     Einj = 0.0; Ebur = 0.0; Eabs = 0.0; dcorr = 0.0; resid = 0.0; dXH = 0.0; dEfrac = 0.0; dEsp = 0.0
     fnew = ones(length(m.fscale)); slope_new = zeros(length(m.fscale))
     for k in a:b
+        zok(k) || continue
         ρ = dn[k]; mk = 4π * dn[k] * dvoln[k]
         Y0 = m.Y[:, k]
         Yk, eb = burn_zone(m, k, dt, tr, legacy)
@@ -323,7 +333,7 @@ function burn!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd 
         et = egn[k] + (eb * mk - ei) / mk
         m.Y[:, k] .= Yk
         comp = zonecomp(m, k)
-        Tn, er = T_of_e(ρ, et, tn[k], comp; pairs = m.pairs, coulomb = m.coulomb)
+        Tn, er = t_solve(m, ρ, et, tn[k], comp)
         resid = max(resid, er); tn[k] = Tn
         dXH = max(dXH, abs(NN.AA[IH] * (Yk[IH] - Y0[IH]) + NN.AA[ID] * (Yk[ID] - Y0[ID])))
         for i in 1:NS
@@ -438,6 +448,7 @@ function predict_cap(m::StarGas; verbose = false)
     cap = Inf
     fHs = zeros(b - a + 1); wts = [dn[k] * TM.v(:dvoln)[k] for k in a:b]
     for k in a:b
+        zok(k) || continue
         Yk = view(m.Y, :, k)
         kr = NN.rates_k(tn[k], dn[k], NN.Plasma(dn[k], Yk), NN.ye_of(Yk); screen = m.screen)
         f = NN.ydot(Yk, kr)
@@ -565,7 +576,7 @@ function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd =
                 any(ΔY[:, j] .!= 0) || continue
                 k = a + j - 1; Ys[:, k] .= Y0[:, j] .+ λ .* ΔY[:, j]
                 comp = (t = xyz(view(Ys, :, k)); SE.composition(t[1], t[2], t[3], m.zmix))
-                Tn, _ = T_of_e(dn[k], egn[k], tn[k], comp; pairs = m.pairs, coulomb = m.coulomb)
+                Tn, _ = t_solve(m, dn[k], egn[k], tn[k], comp)
                 mx = max(mx, abs(log(Tn / tn[k])))
             end
             mx
@@ -583,7 +594,7 @@ function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd =
         k = a + j - 1
         any(Y[:, j] .!= m.Y[:, k]) || continue
         m.Y[:, k] .= Y[:, j]
-        Tn, _ = T_of_e(dn[k], egn[k], tn[k], zonecomp(m, k); pairs = m.pairs, coulomb = m.coulomb)
+        Tn, _ = t_solve(m, dn[k], egn[k], tn[k], zonecomp(m, k))
         dEmax = max(dEmax, abs(Tn / tn[k] - 1)); tn[k] = Tn
     end
     ghosts!(m)

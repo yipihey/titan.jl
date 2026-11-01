@@ -1962,7 +1962,7 @@ L_ph = 1.1e35 erg/s), TSTOP = 1e5, NSTOP = 1e25, TR-BDF2:
 (StellarEOS, NucNet: D burning) instead of the chemistry gas (C1). (iii) Cost: the H₂ line transfer over the whole grid at
 every step; inside the continuum photosphere the lines can be dropped.
 
-## S6-C2 Conservative mass rezoning (31 Oct 2026) [run] — works, one open issue
+## S6-C2 Conservative mass rezoning (31 Oct 2026) [run]
 
 **Code.** `julia/Rezone.jl` (profile-level split/merge, see its docstring) + `popiii_m2c.jl` `rezone!` (REZONE=1, every
 REZEVERY [20] steps, RAD runs only): the TITAN state is rebuilt from the new profile by `rebuild!` (shared with the RAD rebuild)
@@ -1987,13 +1987,78 @@ round-off for splits, ≤ 8e-4 of the local Σ m u when merges are involved. Sta
 - Resolution at the core surface: zone Δm/m 0.014 (rezoned, 224 zones) vs 0.105.
 - The "accretion shock" at this stage is a broad settling layer (infall decelerates from −13.5 km/s to ~0 over m ≈ 0.0045–0.009
   M☉, Δm/m ≈ 0.5), already resolved by ~6 zones of the original grid; n, T, u of both runs agree.
-- **Open issue:** the rezoned run has an outward velocity blip at the inner edge of the refined band (m ≈ 0.0046 M☉): +1.39 km/s
-  at step 18200, +1.63 at 18300 (none in the unrezoned run: its largest outward u near the core is 0). Suspects: the rebuild
-  resets the old-time/predictor arrays (dr/dt, AV) every rezone; the reconstructed halves are not in discrete hydrostatic balance;
-  AVZONE = 2 makes the viscous length 2 zone widths, so the finer zones are less damped. To be fixed before the accretion runs.
+- **Velocity blip (open at first, resolved below, S6-C2b):** the rezoned run has an outward velocity at the inner edge of the
+  refined band (m ≈ 0.0046 M☉): +1.39 km/s at step 18200, +1.63 at 18300; none in the unrezoned run. Not the rebuild.
 
 **Cost.** The H₂ line ALI (≈ 50–70 s per call at 200–224 zones; an EP step ≈ 1 s) dominates every RAD step in this phase. The
 adaptive refresh (ALIINT) needs a factor drift < 1 % to grow and ALI noise is ~1–5 %, so it sits at 1–2: options ALIGROW,
 ALISHRINK (defaults 0.01, 0.05 as before) and ALIWMIN (weight the drift by line luminosity; default 0 = as before). ALIGROW = 0.03
 + ALIWMIN = 1e-4: ALI on 20 of 30 steps instead of 18 of 20, T_c unchanged. A real speed-up (lines only outside the continuum
 photosphere, fewer bins) is still to do.
+
+## S6-C2b Rezoning follow-ups, cost, resolution (31 Oct – 1 Nov 2026) [run]
+
+**The blip is refinement of a formed core, not the rebuild.** REZNULL=1 (rebuild with no zone change) moves the solution by 2e-8.
+A pressure-consistent split (REZPSPLIT) does not remove the blip. Static pre-refinement before the core forms (REFINE=mlo,mhi,frac)
+gives no outward motion. Cause: halves of a formed core are not in the discrete balance of the finer grid. Use REFINE for the
+core, and REZWIN=flo,fhi,frac (moving window around the shock, in units of its enclosed mass) for accretion.
+
+**Line transfer cost.** Line transfer was > 99 % of a step. LTAUCUT [10]: zones deeper than continuum τ = LTAUCUT merge into one
+transparent zone for the line transfer; with threaded opacity and escape probability, ALI 32 → 3.2 s (-t 16). T_c and L_lines
+unchanged in the printed digits. LTRAN=2 diverges (rejected).
+
+**L_lines printing bug (fixed 1 Nov).** On EP steps the printed L_lines was the EP Lr, not the Lr of the ALI-corrected Λ actually
+applied, so it flipped 2.90 ↔ 5.38e36 erg/s depending on whether the step was an ALI refresh (bins 0 = ALI). Diagnostic only; the
+ALI-consistent value is 2.9e36. Log values from before this date with bins > 0 are the uncorrected ones.
+
+**Δt.** Removing the Δt limits (CDYN 10–1000, DTRADMAX=0): no divergences; 800 steps → 0.5 yr, ≈ 315 steps per e-fold of core
+mass; then limited by stol at the accretion layer. CDYN 10 vs 1000: 4 K at 0.23 yr, ~1 % by 0.4 yr.
+
+**EOS switch limit cycle.** At PSWITCH a zone cycled (zone 98, T 8338 ↔ 9298 K, Δt → 0.01 s). PSWHYS=0.3 adds hysteresis.
+
+**Resolution of core formation** (z = 19; 200, 326 and 696 zones, the last two REFINE'd; values at T_c ≈ 42 000 K from snapshots):
+
+| zones | m(u_min) [M☉] | u_min [km/s] | m(u < −2 km/s) [M☉] | r there [R☉] |
+|---|---|---|---|---|
+| 200 | 4.7e-3 | −13.6 | 1.2e-3 | 0.39 |
+| 326 | 3.1e-3 | −22.0 | 2.6e-4 | 0.20 |
+| 696 | 3.0e-3 | −25.2 | 1.5e-4 | 0.16 |
+
+The mass at the fastest infall (the core's shock) is converged to ~3e-3 M☉ between 326 and 696 zones; the infall speed is still
+rising ~15 % per doubling; the u < −2 km/s mass is not a usable core mass (the core is still contracting and the measure jumps).
+T_c(n_c) is insensitive (46098 vs 46072 K at 10^22.64, 326 vs 200 zones). Not yet compared with published tables.
+
+**Central pulse in the 696-zone run.** T_c rises from 34 600 to 46 900 K and returns to 37 500 K over steps 10780–10830 (~3000 s),
+log n_c +0.33 and back, reproduced step for step from a checkpoint. At steps 10800 and 10804 the innermost zones themselves move
+in at > 2 km/s. Reading: a compression pulse focusing at the centre, on the sound-crossing time of the core. Not seen in the rows of
+the 326-zone run; origin of the pulse not traced, and whether it is physical is not established. T_c afterwards rejoins the trend.
+
+## S6-C1 Hot branch of NetGas and S5 implicit coupling (1 Nov 2026) [run]
+
+**Blend.** NetGas blends to StellarEOS over T1–T2 [3e5, 9e5 K] with an energy offset Δ0 = e_star − e_net at (1e-4, 1e6) = 1.092e13
+erg/g; chemistry skipped above T1; abundances (D/H 2.5e-5, ³He/H 1e-5) carried in a StarGas holder (`SG[]`); opacity from
+StellarOpacity (table logT 1.5–9.5).
+
+**Coupling (HOT=1).** The first version burned operator-split after each step. Now the S5 scheme: ε(ρ, T) in TITAN's energy row
+with ∂ε/∂T in the Jacobian (`TX.material_source`, zones above T1), level factor f_k, stage ledger, `SM.solve_step!` (TD.STEPFN),
+`burn!` along each step's T–ρ path, `mix!`, composition Δt caps. `StarMaterial` gets two hooks, TSOLVE (T from e through the blend) and
+ZONEOK (hot zones only); defaults keep S5 unchanged. Star state (fscale, fslope, fcur, Dmix, dtcap, capE, ledger, Yprev) is
+checkpointed and mapped through rezoning; older checkpoints load.
+
+**Validation against S5 [run].** 100 M☉, Z = 0, 140 zones, from the same S5 checkpoint (t = 2.01 yr, STARFROM), HOTT1=2e4 HOTT2=3e4 so
+the whole star is on the stellar branch, S5NUM=1 (S5's predictor and Δt rule), to 3400 yr:
+
+| t [yr] | T_c/1e8 hot | S5 | CNO_c hot | S5 | L_nuc hot [erg/s] | S5 ⟨L_nuc⟩ (10-step mean) |
+|---|---|---|---|---|---|---|
+| 1000 | 1.12625 | 1.12624 | 1.410e-12 | 1.409e-12 | 1.463e38 | 1.456e38 |
+| 2000 | 1.20321 | 1.20319 | 2.450e-11 | 2.447e-11 | 2.132e38 | 2.123e38 |
+| 3000 | 1.27893 | 1.27891 | 1.330e-10 | 1.331e-10 | 5.177e38 | 5.141e38 |
+| 3300 | 1.30015 | 1.30014 | 1.620e-10 | 1.622e-10 | 8.238e38 | 8.135e38 |
+
+max |ΔT_c/T_c| = 2e-5; integrator statistics identical (1622 steps, 1038 TR failures, 32 sticky BE, 4 fallbacks). CNO ≥ 90 % of ε from
+about 3000 yr. **Scope:** this tests the transplant of the numerics, not independent physics. It stops at L_nuc/L ≈ 0.16, before
+the T_c peak (1.33e8 K, ~1e4 yr). Burning through the blend band and rezoning with burning are not covered by it.
+
+**No effect below T1 [run].** HOT=1 vs off, 25 steps from step 18900 (T_c 112 682 K): printed rows identical; also identical to
+the same rows before the coupling. Full suite 19/20, S4 regression bit-identical, s5_zams15 pass; `stellaropacity` fails only for
+the missing OPAL GN93 file.

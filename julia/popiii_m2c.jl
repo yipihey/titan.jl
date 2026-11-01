@@ -341,7 +341,10 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc)
             ALIFAC[] = fnew; ALILAST[] = k; NALICALL[] += 1
             return Λa, Lra, xa
         end
-        return Λe .* (length(ALIFAC[]) == nz_ ? ALIFAC[] : 1.0), Lr, x     # (perturbed call right after the reduced grid changed: EP)
+        length(ALIFAC[]) == nz_ || return Λe, Lr, x                        # (perturbed call right after the reduced grid changed: EP)
+        Λs = Λe .* ALIFAC[]; Lrs = zeros(nz_ + 1)                          # Lr of the Λ actually applied (the EP Lr overstates L_lines by ~2)
+        for j in 1:nz_; Lrs[j+1] = Lrs[j] + Λs[j] * 4π / 3 * (rr[j+1]^3 - rr[j]^3); end
+        return Λs, Lrs, x
     end
     # NLTE=1: source function × f = 1/(1 + Λ_LTE/(n_H Λ_0)) (the GP98/HM79 combination of PrimordialChem.cool_H2_thin)
     fnl = [1 / (1 + PC.Λ_H2_LTE_HM(tt[j]) / max(PC.xH(ycomp(zk(j))) * dd[j] / PC.μH * PC.Λ_H2_0_GP(tt[j]), 1e-300)) for j in 1:nz_]
@@ -355,7 +358,8 @@ Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(EN
 # checkpoint's, so the continuation is the uninterrupted run (checked bit for bit). Files: CKDIR [lib/popiii/ck].
 const CKDIR = get(ENV, "CKDIR", joinpath(TF.ROOT, "lib", "popiii", "ck"))
 const KOFF = Ref(0); const SG = Ref{Any}(nothing)
-matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope), Y = HOTON ? copy(SG[].Y) : nothing) :
+matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope), Y = HOTON ? copy(SG[].Y) : nothing,
+                                     star = HOTON ? (; fscale = copy(SG[].fscale), fslope = copy(SG[].fslope), fcur = copy(SG[].fcur), Dmix = copy(SG[].Dmix), dtcap = SG[].dtcap, capE = SG[].capE, ledger = SG[].ledger, Yprev = copy(SG[].Yprev)) : nothing) :
              error("checkpoint: only the NetGas material (CHEM=net*) is supported")
 function checkpoint(name, k)
     mkpath(CKDIR)
@@ -378,6 +382,9 @@ function restart!(name; allow = ())
     global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1   # (zone count may differ after rezoning)
     s = aux.mat; mat.x .= deepcopy(s.x); mat.eqzone .= s.eqzone; mat.Λext .= s.Λext; mat.Tref .= s.Tref; mat.slope .= s.slope
     HOTON && hasproperty(s, :Y) && s.Y !== nothing && (SG[].Y .= s.Y)      # (a checkpoint from before HOT=1 keeps the initial abundances)
+    if HOTON && hasproperty(s, :star) && s.star !== nothing
+        t_ = s.star; g_ = SG[]; g_.fscale .= t_.fscale; g_.fslope .= t_.fslope; g_.fcur .= t_.fcur; g_.Dmix = t_.Dmix; g_.dtcap = t_.dtcap; g_.capE = t_.capE; g_.ledger = t_.ledger; g_.Yprev .= t_.Yprev
+    end
     ALIFAC[] = copy(aux.ALIFAC); ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
     LLINE[] = aux.LLINE; nextln[] = aux.nextln; SNAPNEXT[] = aux.SNAPNEXT
     SNAPS === nothing || aux.SNAPS === nothing || (empty!(SNAPS); append!(SNAPS, aux.SNAPS))
@@ -402,58 +409,64 @@ if HOTON
         th = (ρ, T, k) -> (st = SE.eos(ρ, T; comp = SM.zonecomp(SG[], k), radiation = true); (st.∇ad, st.cP, st.δ))
         ρr, Tr = 1e-4, 1e6                            # zero point of the two EOS in the fully ionised dilute limit
         Δ0 = g(ρr, Tr, 1)[2] - PopIIIEqEOS.eos(ρr, Tr)[1]
-        PM.HOT[] = (; T1 = parse(Float64, get(ENV, "HOTT1", "3e5")), T2 = parse(Float64, get(ENV, "HOTT2", "9e5")), Δ0, gas = g, thermo = th)
+        ee = (ρ, T, k) -> SG[].fcur[k] * SM.eps_nuc(ρ, T, view(SG[].Y, :, k); screen = SG[].screen)
+        PM.HOT[] = (; T1 = parse(Float64, get(ENV, "HOTT1", "3e5")), T2 = parse(Float64, get(ENV, "HOTT2", "9e5")), Δ0, gas = g, thermo = th, eps = ee)
     end
     pr("HOT: stellar branch above T1 = %.3g K (full at %.3g K), Delta0 = %.4e erg/g, D/H = %.2e\n", PM.HOT[].T1, PM.HOT[].T2, PM.HOT[].Δ0, DH)
-    "T with the installed material's e_gas(ρ, T) = e in zone k (safeguarded Newton in ln T)."
-    function T_hot(ρ, e, T0, k)
-        TX.ZONE[] = k; lT = log(T0); lo = lT - 1.5; hi = lT + 1.5
+    "e_gas of the blended material for an explicit stellar composition (the zone's, or a trial one in mix!)."
+    function e_blend(ρ, T, comp)
+        h = PM.HOT[]; T <= h.T1 && return PopIIIEqEOS.eos(ρ, T)[1]
+        es = SE.gas_state(ρ, T, comp).e - h.Δ0; T >= h.T2 && return es
+        u = PopIIIEqEOS.eos(ρ, T)[1]; u + PM.hotw(T, h.T1, h.T2) * (es - u)
+    end
+    "T with e_blend(ρ, T, comp) = e (safeguarded Newton in ln T), and the relative error of e."
+    function T_blend(ρ, e, T0, comp)
+        lT = log(T0); lo = lT - 1.5; hi = lT + 1.5; f = Inf
         for _ in 1:60
-            f = TX.material_gas(mat, ρ, exp(lT))[2] - e
+            e0 = e_blend(ρ, exp(lT), comp); f = e0 - e
             abs(f) <= 1e-12 * abs(e) && break
             f > 0 ? (hi = lT) : (lo = lT)
-            d = (TX.material_gas(mat, ρ, exp(lT + 1e-6))[2] - TX.material_gas(mat, ρ, exp(lT))[2]) / 1e-6
+            d = (e_blend(ρ, exp(lT + 1e-6), comp) - e0) / 1e-6
             lN = lT - f / d; lT = (d > 0 && lo < lN < hi) ? lN : 0.5 * (lo + hi)
         end
-        exp(lT)
+        exp(lT), abs(f) / abs(e)
     end
-    const EBURN = Ref(0.0); const HOTEFRAC = parse(Float64, get(ENV, "HOTEFRAC", "0.02"))
-    """
-    S6-C1: after a converged step and chem!: in zones above T1 the network over Δt at (ρ, T) (operator split), the release into e at
-    fixed ρ, T from the EOS; then convective mixing of the abundances (D from the MLT of `step_diag`, StarMaterial.mix_species!; e fixed).
-    Δt ≤ HOTEFRAC e/|ε| of the zones. Total energy (gas + cumulative release EBURN) conserved to the T inversion. Good for D burning; the
-    stiff CNO ignition needs the implicit source coupling of S5 (solve_step!) still.
-    """
+    SM.TSOLVE[] = T_blend; SM.ZONEOK[] = k -> TF.var(:tn)[k] > PM.HOT[].T1
+    # S5's coupling: every step through solve_step! (level factor f_k on ε iterated against the network), the stage ledger, Δt caps on composition
+    # and energy; after the step burn! (network along the T, ρ history of the step, the difference to what the residual injected into e) and mix!
+    SG[].nuc = true; SG[].dXmax = parse(Float64, get(ENV, "DXMAX", "4e-3")); SG[].efrac = parse(Float64, get(ENV, "EFRAC", "5"))
+    SM.REGION_CAP[] = true; SM.install_stage_hook!(SG[])
+    push!(TC.DT_HOOKS, () -> min(SG[].dtcap, SM.predict_cap(SG[])))
+    const SPLIT = (tol = parse(Float64, get(ENV, "SPLITTOL", "3e-3")), maxit = parse(Int, get(ENV, "SPLITIT", "4")), ztol = parse(Float64, get(ENV, "ZSPLITTOL", "3e-3")))
+    const LASTSPLIT = Ref((NaN, 0, NaN)); const STEP0 = TD.STEPFN[]
+    TD.STEPFN[] = () -> (LASTSPLIT[] = SM.solve_step!(SG[], STEP0; SPLIT...); nothing)
+    if get(ENV, "S5NUM", "0") == "1"                  # S5's numerics for quasi-static stars: T, E_r predictor, limited grid extrapolation, gentle Δt cut after a failure
+        SM.install_state_predictor!(); TC.EXTRAP_FRAC[] = 0.3; TC.PRED_LAGRHO[] = true; TD.FAIL_TFAC[] = 0.5; Trbdf2.TFAC[] = 0.5
+        TC.DT_RULE[] = function (dt0)                 # S5's rule: Δt on max |Δ ln T, ρ, r| per step, growth ≤ 1.6
+            tn, to, dn, do_, rn, ro = (TF.var(s_) for s_ in (:tn, :to, :dn, :do, :rn, :ro)); d = 0.0
+            for k in a:b; d = max(d, abs(log(tn[k] / to[k])), abs(log(dn[k] / do_[k]))); end
+            for k in a+1:b+1; d = max(d, abs(log(rn[k] / ro[k]))); end
+            f = clamp(0.9 * parse(Float64, get(ENV, "S5TOL", "0.03")) / max(d, 1e-12), 0.5, 1.6)
+            TF.getscalar(:iter) > 20 && (f = min(f, 0.8))
+            f * dt0
+        end
+    end
+    const HOTR = Ref{Any}((; Ebur = 0.0, corr = 0.0)); const HOTM = Ref{Any}((; nconv = 0)); const EBURN = Ref(0.0)
+    "S6-C1: after a converged step and chem!: burn! and mix! of the hot zones (S5)."
     function hotburn!(dt)
-        h = PM.HOT[]; dn, tn, egn, rn, dv = TF.var(:dn), TF.var(:tn), TF.var(:egn), TF.var(:rn), TF.var(:dvoln)
-        any(tn[k] > h.T1 for k in a:b) || return 0.0
-        sg = SG[]; frac = 0.0; ΣE = 0.0
-        for k in a:b
-            tn[k] > h.T1 || continue
-            res = NN.burn(sg.Y[:, k], dn[k], tn[k], dt; screen = sg.screen)
-            sg.Y[:, k] .= res.Y; de = res.ε * dt; ΣE += de * 4π * dn[k] * dv[k]
-            frac = max(frac, abs(de) / abs(egn[k]))
-            egn[k] += de; tn[k] = T_hot(dn[k], egn[k], tn[k], k)
-        end
-        EBURN[] += ΣE
-        sd = TX.step_diag(dt); n = b - a + 1; Di = zeros(n + 1)
-        for j in 2:n; k = a + j - 1; (sd.fcv[k] > 0 && sd.vcv[k] > 0 && tn[k] > h.T1 && tn[k-1] > h.T1) && (Di[j] = sd.vcv[k] * sd.lcv[k] / 3); end
-        if any(>(0), Di)
-            dm = [4π * dn[a+j-1] * dv[a+j-1] for j in 1:n]; ar = zeros(n + 1)
-            for j in 2:n; k = a + j - 1; ar[j] = 4π * rn[k]^2 * 0.5 * (dn[k-1] + dn[k]); end
-            Yz = sg.Y[:, a:b]; SM.mix_species!(Yz, Di, dm, ar, dt); sg.Y[:, a:b] .= Yz
-            for j in 1:n; k = a + j - 1; tn[k] > h.T1 && (tn[k] = T_hot(dn[k], egn[k], tn[k], k)); end     # (composition changed at fixed e)
-        end
-        SM.ghosts!(sg)
-        frac > 0 && TF.setscalar!(:dtime, min(TF.getscalar(:dtime), dt * HOTEFRAC / frac))
-        ΣE / dt
+        sg = SG[]
+        if !any(TF.var(:tn)[k] > PM.HOT[].T1 for k in a:b); sg.acc.nstage = 0; return 0.0; end
+        sd = TX.step_diag(dt)
+        HOTR[] = SM.burn!(sg; sd); EBURN[] += HOTR[].Ebur
+        HOTM[] = SM.mix!(sg; sd, capmix = false, bridge = 4, tmax = 0.02)
+        HOTR[].Ebur / dt
     end
 end
 """
 S6-B: settings of a radiating run (after a RAD rebuild and after restarting a RAD checkpoint): StellarOpacity continuum for
 NetGas, CMB intensity at the outer boundary, Eddington-factor mode, thin-envelope E_r out of the Δt rule, Δt cap.
 """
-const DTRHOOK = Ref(false)
+const DTRHOOK = Ref(false); const XMEXT = Ref{Any}(nothing)
 function radsettings!()
     X = 1 / (1 + 4PC.yHe)
     PM.OPAC[] = (ρ, T) -> (StellarOpacity.kappa_R(ρ, T, X), StellarOpacity.kappa_P(ρ, T, X))
@@ -480,15 +493,20 @@ function rebuild!(rI, ρz, Tz, uI, Er, Fr, matz)
     ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
     pext = TX.PEXT[]
     PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lgrid = 3, inner = :wall, outer = :free, pext = 0.0,
-              selfgrav = true, material = mat, av)
+              selfgrav = true, material = mat, av, xmext = XMEXT[])
     global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
     for j in 1:nsh
         k = a + j - 1
         mat.x[k] = copy(matz.x[j]); mat.eqzone[k] = matz.eqzone[j]; mat.Λext[k] = matz.Λext[j]; mat.Tref[k] = matz.Tref[j]; mat.slope[k] = matz.slope[j]
     end
     if HOTON
-        for j in 1:nsh; SG[].Y[:, a+j-1] .= matz.Y[j]; end
-        SM.ghosts!(SG[])
+        g_ = SG[]
+        for j in 1:nsh; g_.Y[:, a+j-1] .= matz.Y[j]; end
+        SM.ghosts!(g_); g_.Yprev .= g_.Y; g_.acc.nstage = 0
+        fill!(g_.fscale, 1.0); fill!(g_.fslope, 0.0); fill!(g_.fcur, 1.0); g_.Dmix = zeros(length(TF.var(:dn)))
+        if hasproperty(matz, :fslope)                 # (rezoning: level-factor slopes and the mixed regions follow the zones)
+            for j in 1:nsh; g_.fscale[a+j-1] = matz.fscale[j]; g_.fslope[a+j-1] = matz.fslope[j]; g_.Dmix[a+j-1] = matz.Dmix[j]; end
+        end
     end
     for k in 1:a-1; mat.x[k] = copy(mat.x[a]); mat.eqzone[k] = mat.eqzone[a]; end
     for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end
@@ -609,7 +627,9 @@ function rezone!(k; force = nothing)
               Λext = [sum(old.Λext[zx(i)] * V(p.rI, i) for (i, _) in s) / V(q.rI, j) for (j, s) in enumerate(src)],
               Tref = [old.Tref[zx(s[argmax([w for (_, w) in s])][1])] for s in src],
               slope = [old.slope[zx(s[argmax([w for (_, w) in s])][1])] for s in src],
-              Y = HOTON ? [sum(w .* old.Y[:, zx(i)] for (i, w) in s) for s in src] : nothing)
+              Y = HOTON ? [sum(w .* old.Y[:, zx(i)] for (i, w) in s) for s in src] : nothing,
+              fscale = HOTON ? [old.star.fscale[zx(s[1][1])] for s in src] : nothing, fslope = HOTON ? [old.star.fslope[zx(s[1][1])] for s in src] : nothing,
+              Dmix = HOTON ? [old.star.Dmix[zx(s[1][1])] for s in src] : nothing)
     nold = nsh
     rebuild!(q.rI, q.ρ, q.T, q.u, q.Er, q.Fr, matz)
     # the energies after the rebuild (e from the EOS at the new T): the T inversion's error is part of the check
@@ -636,7 +656,25 @@ function prerefine!(k, mlo, mhi, frac)
     end
     pr("REFINE: zones %d after pre-refinement of %g-%g Msun to dm/m <= %g\n", nsh, mlo, mhi, frac)
 end
-if haskey(ENV, "RADFROM")
+"""
+S6 validation: continue an S5 star (s5_run.jl checkpoint `STARFROM`, directory S5DIR) on the NetGas hot path: same profile, abundances, solver
+controls and time; then T_c, L, X_c(t) can be compared with S5's own continuation.
+"""
+function starfrom!(name)
+    dir = get(ENV, "S5DIR", "/tmp/s5"); TF.load_state!(joinpath(dir, "s5_$(name).tstate.gz"))
+    aux = deserialize(joinpath(dir, "s5_$(name).aux"))
+    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre))
+    rI = TF.var(:rn)[a:b+1]; ρz = TF.var(:dn)[a:b]; Tz = TF.var(:tn)[a:b]; uI = TF.var(:un)[a:b+1]; Er = TF.var(:ern)[a:b]; Fr = TF.var(:frn)[a:b+1]
+    n = b - a + 1; XMEXT[] = TF.getscalar(:xmext); TX.PEXT[] = 0.0; aold = a
+    matz = (; x = [PM.x_from_table(mat, ρz[j], min(Tz[j], 1e6)) for j in 1:n], eqzone = trues(n), Λext = zeros(n), Tref = ones(n), slope = zeros(n),
+              Y = [aux.Y[:, aold+j-1] for j in 1:n], fscale = ones(n), fslope = [aux.fslope[aold+j-1] for j in 1:n], Dmix = [aux.Dmix[aold+j-1] for j in 1:n])
+    rebuild!(rI, ρz, Tz, uI, Er, Fr, matz)
+    SG[].dtcap = aux.dtcap; SG[].capE = aux.capE; TF.setscalar!(:tmax, 1e30)
+    pr("STARFROM %s: %d zones, t = %.6e yr, T_c = %.5e K, rho_c = %.3f, X_c = %.5f\n", name, nsh, TF.getscalar(:timen) / 3.156e7, TF.var(:tn)[a], TF.var(:dn)[a], SG[].Y[SM.IH, a])
+end
+if haskey(ENV, "STARFROM")
+    starfrom!(ENV["STARFROM"])
+elseif haskey(ENV, "RADFROM")
     RAD || error("RADFROM needs RAD=1")
     radbuild!(ENV["RADFROM"])
     haskey(ENV, "REFINE") && prerefine!(KOFF[], parse.(Float64, split(ENV["REFINE"], ","))...)
@@ -725,6 +763,11 @@ try
             pr("%7d %8.3f %10.4e %9.1f %9.1f %10.3e %10.3f %9.2e %9.2e%s\n", k, ln, TF.getscalar(:timen) / 3.156e7, Tc_, on98T(ln),
                2ycomp(a)[3], umin, dT, TF.getscalar(:dtime), cool == "lines" ? @sprintf("  L_lines %.3e  bins %d, thick lines %d", LLINE[], H2Lines.LAST[].nbins, H2Lines.LAST[].nthick) : "")
             ln >= nextln[] && (nextln[] += 0.25)
+            if HOTON
+                g_ = SG[]; tn_ = TF.var(:tn); un_ = TF.var(:un); jc_ = findfirst(<(-2e5), un_[a:b+1]); ms_ = jc_ === nothing ? NaN : 4π * TX.XMINT[][a+jc_-1] / Msun; rs_ = jc_ === nothing ? NaN : TF.var(:rn)[a+jc_-1] / 6.957e10
+                pr("        hot: t %.6e yr, m* %.5g Msun, R* %.4g Rsun, L_nuc %.3e erg/s, X_c %.5f, D_c/D_0 %.3e, CNO_c %.2e, hot zones %d, conv %d, split %.1e/%d/%.1e, corr %.1e\n", TF.getscalar(:timen) / 3.156e7, ms_, rs_, LNUC[],
+                   g_.Y[SM.IH, a], g_.Y[NN.IDX[:d], a] / (DH * HX), SM.xyz(view(g_.Y, :, a))[3], count(k -> tn_[k] > PM.HOT[].T1, a:b), HOTM[].nconv, LASTSPLIT[]..., HOTR[].corr)
+            end
             if get(ENV, "UDIAG", "0") == "1"            # where the fastest infall is
                 uu = TF.var(:un)[a:b+1]; ku = argmin(uu); rr = TF.var(:rn)[a:b+1]
                 pr("        u_min %.3f km/s at interface %d of %d, r = %.3e pc, m = %.3e Msun, T(zone) = %.1f, n = %.3e\n", uu[ku] / 1e5, ku, nsh + 1,
