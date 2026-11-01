@@ -361,7 +361,7 @@ function checkpoint(name, k)
 end
 # settings that must agree between a run and its restart (the set-up and the physics); the rest may change
 const CKENV = ("IC", "TCMB", "AVZONE", "AVQL1", "AVCQ2", "CHEM", "NLTE", "NALI", "NBIN", "K5", "MCLOUD", "LRJOIN", "DLNJOIN", "DM", "PSWITCH",
-               "IMPCOOL", "DTCOOL", "INTEGRATOR", "THETA", "CDYN", "XE0", "RAD")
+               "IMPCOOL", "DTCOOL", "INTEGRATOR", "THETA", "XE0", "RAD")   # (not CDYN: the accretion phase relaxes the dynamical Δt limit at a restart)
 function restart!(name; allow = ())
     aux = deserialize(joinpath(CKDIR, "m2c_$(name).aux"))
     for (k_, v_) in aux.env
@@ -490,7 +490,7 @@ const REZ = (on = get(ENV, "REZONE", "0") == "1", every = parse(Int, get(ENV, "R
              jsplit = parse(Float64, get(ENV, "REZJSPLIT", "0.3")), jmerge = parse(Float64, get(ENV, "REZJMERGE", "0.05")),
              dmmin = parse(Float64, get(ENV, "REZDMMIN", "1e-7")) * Msun, qmax = parse(Float64, get(ENV, "REZQMAX", "2.5")),
              nmax = parse(Int, get(ENV, "REZNMAX", "260")), nhard = TF.MGR - 12, fmin = parse(Float64, get(ENV, "REZFRAC", "0.01")), keepcentre = parse(Int, get(ENV, "REZKEEPC", "5")))
-const NREZ = Ref(0)
+const NREZ = Ref(0); const REZNULL = get(ENV, "REZNULL", "0") == "1"
 """
 S6-C2: rezone (Rezone.plan/apply) and rebuild. The material state of a split zone is copied; of a merged zone, mass-weighted
 (x), equilibrium flag if either was, Λext volume-weighted (it is per volume), Tref/slope of the heavier zone. Returns the
@@ -498,8 +498,8 @@ numbers of splits and merges.
 """
 function rezone!(k; force = nothing)
     p = profile_now()
-    sp, mg = force === nothing ? Rezone.plan(p; REZ.jsplit, REZ.jmerge, REZ.dmmin, REZ.qmax, REZ.nmax, REZ.nhard, REZ.keepcentre, REZ.fmin) : force
-    (isempty(sp) && isempty(mg)) && return (0, 0)
+    sp, mg = REZNULL ? (Int[], Int[]) : force === nothing ? Rezone.plan(p; REZ.jsplit, REZ.jmerge, REZ.dmmin, REZ.qmax, REZ.nmax, REZ.nhard, REZ.keepcentre, REZ.fmin) : force
+    (isempty(sp) && isempty(mg)) && !REZNULL && return (0, 0)    # REZNULL=1: rebuild from the unchanged profile (test of the rebuild alone)
     if get(ENV, "REZDBG", "0") == "1"
         J = Rezone.jumps(p); dm = Rezone.dmass(p); me = cumsum(dm)
         pr("    splits (zone, m_enc, dm/m_enc, J): %s\n    merges: %s\n", join(("($i, $(round(me[i]/Msun, sigdigits=3)), $(round(dm[i]/me[i], sigdigits=2)), $(round(J[i], sigdigits=2)))" for i in sp), " "),
@@ -515,6 +515,7 @@ function rezone!(k; force = nothing)
     q, src = Rezone.apply(p, sp, mg; Tofe, eosT = get(ENV, "REZPSPLIT", "1") == "1" ? eosT : nothing)
     # conservation over the range of zones that changed (whole-grid totals are dominated by the 1e4 M☉ envelope)
     ch = [j for (j, s_) in enumerate(src) if length(s_) > 1 || s_[1][1] in sp]
+    isempty(ch) && (ch = [1, length(q.ρ)])
     lo_n, hi_n = max(first(ch) - 1, 1), min(last(ch) + 1, length(q.ρ))
     lo_o, hi_o = src[lo_n][1][1], src[hi_n][end][1]
     t0 = Rezone.totals(p, lo_o, hi_o); t1 = Rezone.totals(q, lo_n, hi_n)
@@ -535,9 +536,25 @@ function rezone!(k; force = nothing)
        (t2.Eint + t2.Ekin + t2.Erad - t0.Eint - t0.Ekin - t0.Erad) / (abs(t0.Eint) + t0.Ekin + t0.Erad), (t2.P - t0.P) / abs(t0.P))
     (length(sp), length(mg))
 end
+"""
+S6-C2: static pre-refinement while the gas is still smooth (REFINE=mlo,mhi,frac [M☉, M☉, Δm/m_enc]): zones with enclosed mass in
+[mlo, mhi] heavier than frac × m_enc are split, repeatedly, with the REZQMAX grading at the edges. Refining an already formed core
+makes it ring (its discrete hydrostatic balance belongs to the coarse grid); a core formed on the fine grid does not need it.
+"""
+function prerefine!(k, mlo, mhi, frac)
+    for pass in 1:8
+        p = profile_now(); dm = Rezone.dmass(p); me = cumsum(dm)
+        fl = [mlo * Msun <= me[j] <= mhi * Msun && dm[j] > frac * me[j] for j in eachindex(dm)]
+        any(fl) || break
+        sp, mg = Rezone.plan(p; jsplit = Inf, REZ.qmax, nhard = REZ.nhard, flag = fl)
+        rezone!(k; force = (sp, mg))
+    end
+    pr("REFINE: zones %d after pre-refinement of %g-%g Msun to dm/m <= %g\n", nsh, mlo, mhi, frac)
+end
 if haskey(ENV, "RADFROM")
     RAD || error("RADFROM needs RAD=1")
     radbuild!(ENV["RADFROM"])
+    haskey(ENV, "REFINE") && prerefine!(KOFF[], parse.(Float64, split(ENV["REFINE"], ","))...)
 elseif haskey(ENV, "RESTART")
     restart!(ENV["RESTART"])
     RAD && Int(TF.getscalar(:lrad)) == 1 && (radsettings!(); TD.EOS[](); TD.OPAC[]())

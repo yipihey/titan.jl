@@ -79,11 +79,12 @@ end
 Zones to split (indices in `p`) and the left zones of the pairs to merge (indices in `p`, disjoint from each other and from
 the splits). See the module docstring.
 """
-function plan(p::Profile; jsplit = 0.3, jmerge = 0.05, dmmin = 0.0, qmax = 1.5, nmax = typemax(Int), nhard = typemax(Int), keepcentre = 5, evenn = true, fmin = 0.0)
+function plan(p::Profile; jsplit = 0.3, jmerge = 0.05, dmmin = 0.0, qmax = 1.5, nmax = typemax(Int), nhard = typemax(Int), keepcentre = 5, evenn = true, fmin = 0.0, flag = nothing)
     n = nz(p); dm = dmass(p); J = jumps(p)
     split = falses(n)
     menc = cumsum(dm)                                # mass enclosed by the outer interface of each zone
     for k in 1:n; (J[k] > jsplit && dm[k] > max(2dmmin, fmin * menc[k])) && (split[k] = true); end
+    flag === nothing || (split .|= flag)             # zones the caller wants split regardless of J (static pre-refinement)
     # smooth mass grid: a zone heavier than qmax × a neighbour (after the neighbour's own split) is split too
     for _ in 1:50
         eff = [split[k] ? dm[k] / 2 : dm[k] for k in 1:n]; changed = false
