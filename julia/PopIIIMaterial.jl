@@ -208,6 +208,11 @@ function x_from_table(m::NetGas, ρ, T)
     out
 end
 
+"""
+S6: hysteresis of the EOS switch: a zone in the table regime stays there until p < PSWHYS × pswitch (1 = the sharp switch of G5). Warm gas
+of the accretion layer sitting on pswitch otherwise flips every step between table and network, which differ by ~10 % in T at fixed e.
+"""
+const PSWHYS = Ref(1.0)
 "After a converged hydro step: network step per zone in the ideal regime, equilibrium-table step where p ≥ pswitch."
 function chem!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
@@ -221,7 +226,7 @@ function chem!(m::NetGas)
             continue
         end
         cool = zone_cooling(m, k)
-        if pgn[k] >= m.pswitch
+        if pgn[k] >= m.pswitch || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch)
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
             _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true

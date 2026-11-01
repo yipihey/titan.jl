@@ -347,7 +347,7 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc)
     fnl = [1 / (1 + PC.Λ_H2_LTE_HM(tt[j]) / max(PC.xH(ycomp(zk(j))) * dd[j] / PC.μH * PC.Λ_H2_0_GP(tt[j]), 1e-300)) for j in 1:nz_]
     H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, fnlte = NLTE == "1" ? fnl : nothing)
 end
-const HLL = cool == "lines" ? H2Lines.load() : nothing; const NBIN = parse(Int, get(ENV, "NBIN", "30")); const LLINE = Ref(0.0)
+const HLL = cool == "lines" ? H2Lines.load() : nothing; const NBIN = parse(Int, get(ENV, "NBIN", "30")); const LLINE = Ref(0.0); const JCMIN = Ref(1)
 Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(ENV, "NSTOP", "1e18"))
 # Checkpoint / restart (S6-A). SAVE=name: checkpoint at the end and every CKEVERY [500] steps (alternating
 # <name>_auto0/_auto1); RESTART=name: the set-up above runs as usual (same ENV), then the TITAN state, the material's
@@ -565,7 +565,8 @@ const REZ = (on = get(ENV, "REZONE", "0") == "1", every = parse(Int, get(ENV, "R
              jsplit = parse(Float64, get(ENV, "REZJSPLIT", "0.3")), jmerge = parse(Float64, get(ENV, "REZJMERGE", "0.05")),
              dmmin = parse(Float64, get(ENV, "REZDMMIN", "1e-7")) * Msun, qmax = parse(Float64, get(ENV, "REZQMAX", "2.5")),
              nmax = parse(Int, get(ENV, "REZNMAX", "260")), nhard = TF.MGR - 12, fmin = parse(Float64, get(ENV, "REZFRAC", "0.01")), keepcentre = parse(Int, get(ENV, "REZKEEPC", "5")))
-const NREZ = Ref(0); const REZNULL = get(ENV, "REZNULL", "0") == "1"
+PM.PSWHYS[] = parse(Float64, get(ENV, "PSWHYS", "1"))
+const REZW = haskey(ENV, "REZWIN") ? parse.(Float64, split(ENV["REZWIN"], ",")) : nothing; const NREZ = Ref(0); const REZNULL = get(ENV, "REZNULL", "0") == "1"
 """
 S6-C2: rezone (Rezone.plan/apply) and rebuild. The material state of a split zone is copied; of a merged zone, mass-weighted
 (x), equilibrium flag if either was, Λext volume-weighted (it is per volume), Tref/slope of the heavier zone. Returns the
@@ -573,7 +574,14 @@ numbers of splits and merges.
 """
 function rezone!(k; force = nothing)
     p = profile_now()
-    sp, mg = REZNULL ? (Int[], Int[]) : force === nothing ? Rezone.plan(p; REZ.jsplit, REZ.jmerge, REZ.dmmin, REZ.qmax, REZ.nmax, REZ.nhard, REZ.keepcentre, REZ.fmin) : force
+    # moving window (REZWIN=flo,fhi,frac): zones with m_enc in [flo, fhi] × m★ (m★: inside the first interface falling faster than
+    # 2 km/s) and heavier than frac × m_enc are split while they are still smooth, ahead of the star
+    fl = nothing
+    if REZW !== nothing
+        dm_ = Rezone.dmass(p); me_ = cumsum(dm_); jc_ = findfirst(<(-2e5), p.u); mst = jc_ === nothing ? 0.0 : me_[max(jc_ - 1, 1)]
+        fl = [REZW[1] * mst <= me_[j] <= REZW[2] * mst && dm_[j] > REZW[3] * me_[j] for j in eachindex(dm_)]
+    end
+    sp, mg = REZNULL ? (Int[], Int[]) : force === nothing ? Rezone.plan(p; REZ.jsplit, REZ.jmerge, REZ.dmmin, REZ.qmax, REZ.nmax, REZ.nhard, REZ.keepcentre, REZ.fmin, flag = fl) : force
     (isempty(sp) && isempty(mg)) && !REZNULL && return (0, 0)    # REZNULL=1: rebuild from the unchanged profile (test of the rebuild alone)
     if get(ENV, "REZDBG", "0") == "1"
         J = Rezone.jumps(p); dm = Rezone.dmass(p); me = cumsum(dm)
@@ -636,14 +644,21 @@ elseif haskey(ENV, "RESTART")
     restart!(ENV["RESTART"])
     RAD && Int(TF.getscalar(:lrad)) == 1 && (radsettings!(); TD.EOS[](); TD.OPAC[]())
 end
-const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
+const CHEMDIAG = get(ENV, "CHEMDIAG", "0") == "1"; const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 try
     TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k
         tnow = time(); TSTEP[] += tnow - TMARK[] - TOUT[]; TOUT[] = 0.0
-        tc0 = time(); dT = PM.chem!(mat)
+        tc0 = time(); Tb4 = CHEMDIAG ? copy(TF.var(:tn)) : nothing; ub4 = CHEMDIAG ? copy(TF.var(:egn)) : nothing; dT = PM.chem!(mat)
+        if CHEMDIAG && dT > 0.01                      # the zones chem! moved most
+            tt_ = TF.var(:tn); jj = sort(collect(a:b); by = kk -> -abs(tt_[kk] / Tb4[kk] - 1))[1:3]
+            for kk in jj
+                pr("        chem! zone %d: T %.1f -> %.1f, m %.4e Msun, n %.3e, p %.3e, eq %s, e_before %.5e e_eos_after %.5e, dt %.2e\n", kk - a + 1, Tb4[kk], tt_[kk], 4π * TX.XMINT[][kk+1] / Msun,
+                   TF.var(:dn)[kk] / (1.22PC.mH), TF.var(:pgn)[kk], string(mat.eqzone[kk]), ub4[kk], TF.var(:egn)[kk], TF.getscalar(:timen) - TF.getscalar(:timeo))
+            end
+        end
         HOTON && (LNUC[] = hotburn!(TF.getscalar(:timen) - TF.getscalar(:timeo)))
         TCHEM[] += time() - tc0
         RAD && TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())   # T changed in chem!: Planck function, opacity, e_g + E_r/ρ
@@ -666,7 +681,7 @@ try
             for j in 1:nsh
                 mat.Λext[a+j-1] = Λl[j]; mat.Tref[a+j-1] = tt[j]; mat.slope[a+j-1] = 0.0
                 ue = TF.var(:egn)[a+j-1] + PC.UOFF_TH                 # thermal-ish energy scale (positive)
-                Λl[j] != 0 && (tcmin = min(tcmin, abs(ue * dd[j] / Λl[j])))
+                Λl[j] != 0 && abs(ue * dd[j] / Λl[j]) < tcmin && (tcmin = abs(ue * dd[j] / Λl[j]); JCMIN[] = j)
             end
             # G7 (IMPCOOL=1, default): where the explicit cap Δt ≤ 0.1 t_cool would bind, the slope d ln Λ/d ln T from a
             # second transfer call with all T × (1 + ε) makes Λ_j (T/T_j)^s implicit in the chemistry step, and the cap
@@ -679,6 +694,10 @@ try
                 NIMP[] += 1
             end
             LLINE[] = Lr[end]
+            if get(ENV, "DTDIAG", "0") == "1"
+                j_ = JCMIN[]; pr("        line cap: t_cool %.3e s at zone %d (m %.4e Msun, T %.1f, n %.3e, e+U %.3e, Lambda %.3e); dtime before %.3e, smax %.3e\n", tcmin, j_, 4π * TX.XMINT[][a+j_] / Msun, tt[j_], dd[j_] / (1.22PC.mH),
+                                TF.var(:egn)[a+j_-1] + PC.UOFF_TH, Λl[j_], TF.getscalar(:dtime), TF.getscalar(:smax))
+            end
             TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin))
         end
         if RAD && haskey(ENV, "ERDIAG") && k in parse.(Int, split(ENV["ERDIAG"], ","))     # radiation field across the grid
