@@ -338,6 +338,14 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc)
                 δ = maximum((abs(log(fnew[j] / ALIFAC[][j])) for j in 1:nz_ if wv[j] >= wmin); init = 0.0)
                 ALIINT[] = δ > ALISHRINK ? max(1, ALIINT[] ÷ 2) : δ < ALIGROW ? min(NALI, 2ALIINT[]) : ALIINT[]
             end
+            if get(ENV, "LLDIAG", "0") == "1"           # how the ALI correction factor f = Λa/Λe closes the line luminosity
+                vol = [4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nz_]; bad = [Λe[j] == 0 || Λa[j] / Λe[j] <= 0 for j in 1:nz_]
+                pr("        LLDIAG k %d: sum(Le) %.3e sum(La) %.3e sum(f Le) %.3e Lr_e %.3e Lr_a %.3e; sign-flip zones %d: sum(Le) %.3e sum(La) %.3e; +La %.3e -La %.3e; f median %.3f\n", k,
+                   sum(Λe .* vol), sum(Λa .* vol), sum(Λe .* fnew .* vol), Lr[end], Lra[end], count(bad), sum(Λe[bad] .* vol[bad]; init = 0.0), sum(Λa[bad] .* vol[bad]; init = 0.0),
+                   sum(max.(Λa, 0) .* vol), sum(min.(Λa, 0) .* vol), sort(fnew)[nz_÷2])
+                ib = sortperm(abs.((Λe .* fnew .- Λa) .* vol); rev = true)[1:min(5, nz_)]
+                for j in ib; pr("          zone %d (TITAN %d) r %.3e T %.1f n %.3e nH2 %.3e: Le %.3e La %.3e flag %s\n", j, zk(j), rr[j+1], tt[j], dd[j] / PC.mH, nh2[j], Λe[j] * vol[j], Λa[j] * vol[j], bad[j]); end
+            end
             ALIFAC[] = fnew; ALILAST[] = k; NALICALL[] += 1
             return Λa, Lra, xa
         end

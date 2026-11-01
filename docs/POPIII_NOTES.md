@@ -2007,9 +2007,13 @@ core, and REZWIN=flo,fhi,frac (moving window around the shock, in units of its e
 transparent zone for the line transfer; with threaded opacity and escape probability, ALI 32 → 3.2 s (-t 16). T_c and L_lines
 unchanged in the printed digits. LTRAN=2 diverges (rejected).
 
-**L_lines printing bug (fixed 1 Nov).** On EP steps the printed L_lines was the EP Lr, not the Lr of the ALI-corrected Λ actually
-applied, so it flipped 2.90 ↔ 5.38e36 erg/s depending on whether the step was an ALI refresh (bins 0 = ALI). Diagnostic only; the
-ALI-consistent value is 2.9e36. Log values from before this date with bins > 0 are the uncorrected ones.
+**L_lines and the hybrid ALI factor (1 Nov; LLDIAG=1 prints the closure).** At step 13001 (T_c 96 100 K): uncorrected EP Lr = 2.915e36,
+ALI Lr = 5.392e36 erg/s. Older logs printed the EP value on EP steps (bins 0) and the ALI value on ALI steps (bins > 0), hence the
+flip; the print now reports the Λ applied. That also exposed a real inconsistency, **not fixed**: Λ = f Λ_EP with f = Λ_ALI/Λ_EP falls
+back to f = 1 where the two differ in sign. Those are 8 cold far-envelope zones (T 240–390 K, r 4e18–1.6e19 cm) where ALI gives net line
+heating, −5.1e35 erg/s in total, and EP a negligible +4e32. So on EP steps Σ f Λ_EP V = 5.905e36, 10 % above ALI, and this heating is
+dropped; on ALI steps it is applied. In this phase ALI and EP steps are of comparable number. Negligible for the protostar over the
+years simulated (those zones have dynamical times ~1e6 yr), but it would matter for long integrations of the envelope.
 
 **Δt.** Removing the Δt limits (CDYN 10–1000, DTRADMAX=0): no divergences; 800 steps → 0.5 yr, ≈ 315 steps per e-fold of core
 mass; then limited by stol at the accretion layer. CDYN 10 vs 1000: 4 K at 0.23 yr, ~1 % by 0.4 yr.
