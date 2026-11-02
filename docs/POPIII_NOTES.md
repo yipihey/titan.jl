@@ -2094,3 +2094,20 @@ copy of step 13000 saved the run).
 from 6e-15 to 6e-74 in 60 iterations, λ → 4e-60, T and the rest frozen. `ChemNet.CLIPDEPTH` [4]: from that recursion depth a failed Newton is
 retried clipping each free abundance on its own. Runs that do not reach depth 4 are bit-identical. Passes step 14267.
 
+
+### S6-C1c: the Δt collapse at step 14800 was a false MLT flux
+
+The accretion run stalled again at step 14854 (Δt from 10³ s to 10⁻² s, no NaN). One zone pair exchanged energy: over steps
+14750–14850 every zone near it stays adiabatic (de = −p dV to 10⁻⁵), while zones 157 and 158 show exactly opposite residuals,
+growing from 3×10³³ to 2×10⁴⁰ erg/s, e-folding in seconds. The radiative flux between them is ~10²⁸ erg/s (τ ≈ 10¹³).
+
+Cause: below T1 `material_thermo(::NetGas)` "switched off" MLT with ∇_ad = 10, and ∇ = Δln T/Δln P at that interface crossed 10
+(9.98 at 14750, 10.003 at 14790, 13.0 at 14850) because of the T jump there (below). The flux then used the placeholder
+c_P = 10⁹. So below T1 HOT=1 was not strictly a no-op, as S6-C1 said; it was until ∇ reached 10. ∇_ad is now 10³⁰. The run from
+step 14700 repeats the rows up to 14790 and passes 14854 with Δt 10³–10⁴ s and no divergence; the quick suite passes (8/8).
+
+Still open: the T jumps themselves. Interior zones alternate by up to a factor of 2 in T, with ρ opposite and p continuous
+(step 14850: 72,800 / 147,100 / 124,400 / 67,000 / 48,000 K at m ≈ 0.018 M⊙). They are frozen entropy bands, from m ≈ 0.0036 M⊙
+outwards. T_max = 147,000 K is in such a band, so it is not a physical temperature peak of the star. They are older than the
+coupling and the rezoning: the HOT=0 run without rezoning has 6 jumps with |Δln T| > 0.2 at T_c = 71,000 K. There is no
+convection below T1 to remove them, although ∇ ≫ ∇_ad at their edges.

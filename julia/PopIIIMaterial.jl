@@ -163,8 +163,10 @@ number type, so ∂ε/∂T is in the Jacobian; 0 below T1).
 """
 TX.has_source(::NetGas) = HOT[] !== nothing
 TX.material_source(::NetGas, ρ, T) = (h = HOT[]; ForwardDiff.value(T) > h.T1 ? h.eps(ρ, T, TX.ZONE[]) : zero(T))
-"MLT thermodynamics: only the hot branch convects (∇_ad = 10 below T1 switches the flux off in the chemistry gas)."
-TX.material_thermo(m::NetGas, ρ, T) = (h = HOT[]; (h === nothing || T <= h.T1) ? (10.0, 1e9, 1.0) : h.thermo(ρ, T, TX.ZONE[]))
+"""MLT thermodynamics: only the hot branch convects. Below T1 the huge ∇_ad switches the flux off in the chemistry gas: it must be
+out of reach (it was 10, and at a T jump inside the protostar ∇ = Δln T/Δln P crossed it: an MLT flux with this placeholder c_P
+of up to 1e40 erg/s between two zones, and Newton diverged)."""
+TX.material_thermo(m::NetGas, ρ, T) = (h = HOT[]; (h === nothing || T <= h.T1) ? (1e30, 1e9, 1.0) : h.thermo(ρ, T, TX.ZONE[]))
 function TM.fill_eos!(m::NetGas)
     dn, tn, pgn, egn, asn = TM.v(:dn), TM.v(:tn), TM.v(:pgn), TM.v(:egn), TM.v(:asn)
     @inbounds for k in TM.krange()
