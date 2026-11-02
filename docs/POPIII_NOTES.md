@@ -2089,3 +2089,8 @@ at the 1e3 K level), ρ and T non-monotonic in the layer (z ~ 180 at 3–5 R☉)
 DTSTOP stops an unattended run whose Δt has collapsed, before the alternating checkpoints are overwritten with the dead state (it happened here; a
 copy of step 13000 saved the run).
 
+**ChemNet Newton freeze (step 14267).** Network zone at n_H = 8.9e15, T = 3315 K: every h down to dt/4096 failed. H₂ row far from balance
+(residual 16 at x_H₂ = 0.23), the linearised H₂⁺ update strongly negative, and the positivity limiter scaled the whole correction: λ ≈ 0.9 x/|δ|, x_H₂⁺
+from 6e-15 to 6e-74 in 60 iterations, λ → 4e-60, T and the rest frozen. `ChemNet.CLIPDEPTH` [4]: from that recursion depth a failed Newton is
+retried clipping each free abundance on its own. Runs that do not reach depth 4 are bit-identical. Passes step 14267.
+

@@ -271,6 +271,14 @@ function dxdt(x, nH, T, net, env, photo)
 end
 
 """
+From this recursion depth, a failed Newton is retried with each free abundance clipped on its own (x → 0.1 x) instead of scaling the
+whole correction. A trace species whose linearised update is strongly negative (H₂⁺ at n ≈ 1e16, T ≈ 3300 K, with the H₂ row far from
+balance) otherwise sets λ ≈ 0.9 x/|δ| for all unknowns: x falls by 10 % per iteration, λ → 1e-60, and Newton freezes for every h.
+Runs that never reach this depth are unchanged bit for bit.
+"""
+const CLIPDEPTH = 4
+
+"""
     step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing) -> (x, T)
 
 Chemistry and temperature together over dt at fixed ρ and u (u − dt Λ/ρ with `cooling(ρ, T, d)`, d the full composition).
@@ -288,13 +296,14 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
         ue = eos(ρ, T, x, net)[1] - u + (cooling === nothing ? zero(T) : h * cooling(ρ, T, full(x, net)) / ρ)
         vcat(r, ue / (kB * T / μH()))
     end
-    function attempt(x0, T0, h)
+    function attempt(x0, T0, h; clip = false)
         z = vcat(collect(Float64, x0), log(T0))
         for it in 1:maxit
             R = resid(z, x0, h)
             Jm = ForwardDiff.jacobian(zz -> resid(zz, x0, h), z)
             δ = -(Jm \ R); all(isfinite, δ) || return (z, false)
             λ = 1.0
+            clip && for i in 1:nf; z[i] + δ[i] < 0 && (δ[i] = -0.9 * z[i]); end
             # keep every abundance ≥ 0, incl. the eliminated H, Li, e (linear in x)
             for i in 1:nf; z[i] + λ * δ[i] < 0 && (λ = min(λ, 0.9 * z[i] / -δ[i])); end
             d0 = full(z[1:nf], net); d1 = full(z[1:nf] .+ δ[1:nf], net)
@@ -311,7 +320,11 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
     function adv(x0, T0, h, depth)
         z, ok = attempt(x0, T0, h)
         ok && return (z[1:nf], exp(z[nf+1]))
-        depth >= 12 && error("ChemNet.step: Newton failed (nH = $nH, T0 = $T0, dt = $dt)")
+        if depth >= CLIPDEPTH                        # (see the note at CLIPDEPTH)
+            z, ok = attempt(x0, T0, h; clip = true)
+            ok && return (z[1:nf], exp(z[nf+1]))
+        end
+        depth >= 12 && error("ChemNet.step: Newton failed (nH = $nH, T0 = $T0, dt = $dt, u = $u)")
         x1, T1 = adv(x0, T0, h / 2, depth + 1)
         adv(x1, T1, h / 2, depth + 1)
     end
