@@ -487,6 +487,7 @@ function radsettings!()
     # (r ~ 1e14 cm: r/c ~ 3e3 s) fail in Newton (Eddington factors lagged over the step); default 1500 s
     if HOTON                                          # convection (hot branch only: PM.material_thermo), as the S5 stars
         TX.CONVECTION[] = true; TX.ALPHA_MLT[] = parse(Float64, get(ENV, "ALPHAMLT", "1.5")); TX.MLT_HSDISC[] = true; TX.MLT_RCAP[] = true
+        PM.COLDMLT[] = parse(Float64, get(ENV, "COLDMLT", "0")); PM.COLDMLT[] > 0 && (TX.MLT_NOINFALL[] = true)
     end
     dtr = parse(Float64, get(ENV, "DTRADMAX", "1500"))
     dtr > 0 && !DTRHOOK[] && (push!(TC.DT_HOOKS, () -> dtr); DTRHOOK[] = true)

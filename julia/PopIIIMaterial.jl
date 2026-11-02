@@ -163,10 +163,31 @@ number type, so ∂ε/∂T is in the Jacobian; 0 below T1).
 """
 TX.has_source(::NetGas) = HOT[] !== nothing
 TX.material_source(::NetGas, ρ, T) = (h = HOT[]; ForwardDiff.value(T) > h.T1 ? h.eps(ρ, T, TX.ZONE[]) : zero(T))
-"""MLT thermodynamics: only the hot branch convects. Below T1 the huge ∇_ad switches the flux off in the chemistry gas: it must be
+"""
+S6-C1d (experiment): MLT also on the table EOS, in equilibrium zones with T > `COLDMLT[]` (0 = off, the default). `cold_thermo` is ∇_ad, c_P, δ of
+PopIIIEqEOS + equilibrium radiation, from derivatives of the table, generic in the number type.
+"""
+const COLDMLT = Ref(0.0)
+function cold_thermo(ρ, T)
+    arad = 7.565723e-15
+    pf(r, t) = EQ.eos(r, t)[2] + arad * t^4 / 3
+    ef(r, t) = EQ.eos(r, t)[1] + arad * t^4 / r
+    p = pf(ρ, T)
+    pT = ForwardDiff.derivative(t -> pf(ρ, t), T); pρ = ForwardDiff.derivative(r -> pf(r, T), ρ)
+    eT = ForwardDiff.derivative(t -> ef(ρ, t), T); eρ = ForwardDiff.derivative(r -> ef(r, T), ρ)
+    cP = eT - (eρ - p / ρ^2) * pT / pρ
+    δ = T / ρ * pT / pρ
+    return p * δ / (T * ρ * cP), cP, δ
+end
+"""MLT thermodynamics: only the hot branch convects (and, with `COLDMLT[]` > 0, the hot equilibrium zones of the table EOS). Below T1 the huge ∇_ad switches the flux off in the chemistry gas: it must be
 out of reach (it was 10, and at a T jump inside the protostar ∇ = Δln T/Δln P crossed it: an MLT flux with this placeholder c_P
 of up to 1e40 erg/s between two zones, and Newton diverged)."""
-TX.material_thermo(m::NetGas, ρ, T) = (h = HOT[]; (h === nothing || T <= h.T1) ? (1e30, 1e9, 1.0) : h.thermo(ρ, T, TX.ZONE[]))
+function TX.material_thermo(m::NetGas, ρ, T)
+    h = HOT[]
+    (h !== nothing && T > h.T1) && return h.thermo(ρ, T, TX.ZONE[])
+    (COLDMLT[] > 0 && T > COLDMLT[] && m.eqzone[TX.ZONE[]]) && return cold_thermo(ρ, T)
+    return (1e30, 1e9, 1.0)
+end
 function TM.fill_eos!(m::NetGas)
     dn, tn, pgn, egn, asn = TM.v(:dn), TM.v(:tn), TM.v(:pgn), TM.v(:egn), TM.v(:asn)
     @inbounds for k in TM.krange()
