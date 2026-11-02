@@ -2111,3 +2111,27 @@ Still open: the T jumps themselves. Interior zones alternate by up to a factor o
 outwards. T_max = 147,000 K is in such a band, so it is not a physical temperature peak of the star. They are older than the
 coupling and the rezoning: the HOT=0 run without rezoning has 6 jumps with |Δln T| > 0.2 at T_c = 71,000 K. There is no
 convection below T1 to remove them, although ∇ ≫ ∇_ad at their edges.
+
+### S6-C1d: the breathing is zoning; MLT below T1 removes the entropy bands
+
+Breathing (all from step 14200): u_min moves out exactly one zone per cycle, so it comes from the mass zoning, not the star. The
+interval between zones is close to Δm/Ṁ (Ṁ ≈ 0.1 M⊙/yr): 6.5 and 5.7 d at Δm = 0.00155 M⊙, 0.7–2.6 d at 0.00039; at 0.00078, during
+refinement, 4.5–5.2 d against 2.8 predicted. A 10× lower Δt cap (1000 s) keeps the cycle. Finer zones narrow the swing of r(u_min)
+from 33–63 to 25–33 R⊙ and of u_min from −19…−41 to −24…−33 km/s, but only ~9 d were run at the finest zoning and do not remove it.
+That run stopped at step 14848 (Δt collapse); it had the old ∇_ad = 10 code, and the cause there was not checked.
+`CDYN=10` is no test of Δt: it never limits, the rows equal CDYN=1000.
+
+`COLDMLT=<Tmin>` (default off): MLT also on the table EOS, in equilibrium zones with T > Tmin, `MLT_NOINFALL` on. From step 15000 (10⁴ K):
+
+| α | outcome |
+|---|---|
+| 1.5 from the banded state | Δt collapses in the first step |
+| 0.2 from the banded state | Δt ~1 s, no progress |
+| 0.05 | jumps with |Δln T| > 0.2: 36 → 3 in 33 d, T_max 152,000 → 126,000 K, no divergence |
+| ramp 0.05, 0.1, 0.2, 0.5, 1, 1.5 | no divergence in 1400 steps to 16400 (157 d), Δt up to 5×10⁴ s |
+
+At step 16400 with α = 1.5, m(u_min) = 0.115 M⊙, entropy rises outwards at all sampled zones from m = 0.0035 to 0.10 M⊙, and the only jumps left are the two at
+the surface. Small zone-to-zone T wiggles remain (a few %). T_max = 131,800 K at m = 0.0033 M⊙ against T_c = 114,700 K: this off-centre peak survives
+convection, not yet examined. The route through low α is a way past the banded state, and MLT at ∇ ≫ ∇_ad is outside its validity, so that history carries no
+physics; only what the run does at α = 1.5 afterwards counts. Breathing continues with MLT (u_min −19 to −41 km/s, r(u_min) up to 114 R⊙). Not done: the full test
+suite with these changes, an MLT run from the start of the protostar instead of from a banded state, a comparison with published protostar models.
