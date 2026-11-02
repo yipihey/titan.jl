@@ -2066,3 +2066,26 @@ the T_c peak (1.33e8 K, ~1e4 yr). Burning through the blend band and rezoning wi
 **No effect below T1 [run].** HOT=1 vs off, 25 steps from step 18900 (T_c 112 682 K): printed rows identical; also identical to
 the same rows before the coupling. Full suite 19/20, S4 regression bit-identical, s5_zams15 pass; `stellaropacity` fails only for
 the missing OPAL GN93 file.
+
+## S6-C1b Δt collapse in the accretion run: E_r of the thin envelope (1 Nov 2026) [run]
+
+The accretion run stalled at step ~13650 (T_c 100 744 K, m* ≈ 0.04 M☉): Δt fell from ~1e3 s to 1e-245 s over 3300 steps, then NaN. Replays
+from step 13000 with HOT=1 and HOT=0 agree in every printed row to step 13620, and HOT=0 stalls as well: not the S5 coupling. The Newton correction
+that does not shrink with Δt is relative E_r in thin zones (τ ~ 1e-4, z ≈ 249), through `dmax` it damps and blocks the whole grid. The radiation
+field there is unphysical: F/cE up to 440 (z 236–264 all > 1) with E/aT⁴ ≪ 1. Reading: E and F are nearly uncoupled there, E follows from
+integrating the Eddington factor inward from the CMB boundary, and the discretisation error over the transition from the core's beam to the
+isotropic field leaves E too low; the discrete solution wants E < 0. Growing L makes this worse with time.
+
+First fix, E_r correction ignored for τ < 0.01: results before the stall unchanged but the failure only moved to z 227, just inside that limit.
+**Fix (`TC.ER_TAUCONV`, driver ERTAUCONV [1], TitanCore default 0 = off):** for τ < ERTAUCONV, where E(1+δ) < |F|/c, E is set to |F|/c and that
+correction neither enters dmax nor is damped. From step 13620: through the stall, to 13920 (T_c 103 400 K, m* 0.041 M☉) with 1 divergence in 300
+steps. Rows to step 13180 identical to the run without the floor. The floor is a repair of a closure failure, not a solution of the thin transfer:
+E_r there is only a lower bound, and it enters the gas energy through χ_P c E with E/aT⁴ ≲ 0.03 in tiny χ.
+
+**Not understood yet:** since step ~12500 the accretion layer breathes (u_min between −20 and −37 km/s, R* 3–11 R☉, Δt 50–2e4 s, T_c not monotonic
+at the 1e3 K level), ρ and T non-monotonic in the layer (z ~ 180 at 3–5 R☉). Present with the old and new code. Whether this is physical
+(the ionization of H in the radiative precursor) or numerical has not been tested; the core's mean trend looks steady.
+
+DTSTOP stops an unattended run whose Δt has collapsed, before the alternating checkpoints are overwritten with the dead state (it happened here; a
+copy of step 13000 saved the run).
+

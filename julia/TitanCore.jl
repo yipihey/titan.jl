@@ -75,6 +75,14 @@ function reset!()
 end
 
 # ------------------------------------------------------------------ maxdel (maxdel.f)
+"""
+S6: causality floor for zones with Rosseland optical depth from the surface below `ER_TAUCONV[]` (default 0 = off, TITAN). Where E_r after
+the Newton correction would fall below |F|/c, it is set to |F|/c and that correction neither enters dmax nor is damped. In the thin
+envelope E and F are nearly uncoupled: E follows from integrating the Eddington factor inward from the boundary, the discretisation error
+over the transition from the core's beam to the isotropic CMB leaves E far too low (F/cE up to 440 seen), the discrete solution wants E < 0,
+the relative correction does not shrink with Δt, and through dmax it stopped the whole grid (Δt → 1e-245 s).
+"""
+const ER_TAUCONV = Ref(0.0)
 function maxdel!()
     a, b = gi(:ngrs), gi(:ngre); meqn = TF.PARAMS[:meqn]
     lhydr, lrad, ltur = gi(:lhydr), gi(:lrad), gi(:ltur)
@@ -85,6 +93,20 @@ function maxdel!()
     ltur == 0 || error("maxdel: ltur ≥ 1 not supported")
     flat = vec(rhs); base(i) = (a - 1) * meqn + i          # rhs(i, ngrs) in column-major
     pick!(i, n) = (kx[i] = isamax(n, flat, base(i), meqn); dx[i] = rhs[i, a + kx[i] - 1])
+    # S6: causality floor of E_r in the thin envelope (see ER_TAUCONV)
+    thin = Int[]; δthin = Float64[]
+    if lrad == 1 && ER_TAUCONV[] > 0
+        chifn, dn, ern, frn = vf(:chifn), vf(:dn), vf(:ern), vf(:frn); τ = 0.0
+        ie_ = gi(:ie); cl = 2.99792458e10
+        @inbounds for k in b:-1:a
+            τ += chifn[k] * dn[k] * (rn[k+1] - rn[k])
+            τ >= ER_TAUCONV[] && break
+            Ef = max(abs(frn[k]), abs(frn[k+1])) / cl
+            if ern[k] * (1 + rhs[ie_, k]) < Ef
+                push!(thin, k); push!(δthin, Ef / ern[k] - 1); rhs[ie_, k] = 0.0
+            end
+        end
+    end
     if lhydr == 1 && lrad == 1
         pick!(ir, ni); pick!(im, ni); pick!(id, nc); pick!(iu, ni); pick!(it, nc); pick!(ie, nc); pick!(iff, ni)
         dmax = max(abs(dx[ir]), abs(dx[im]), abs(dx[id]), abs(dx[it]), abs(dx[ie])) + 1.0e-30
@@ -108,13 +130,15 @@ function maxdel!()
     end
     s!(:cmax, cmax)
     lboos = gi(:lboos)
-    lboos == 1 && return nothing
+    restore!() = (@inbounds for (j, k) in enumerate(thin); rhs[ie, k] = δthin[j]; end)
+    lboos == 1 && (restore!(); return nothing)
     lboos > 1 && error("maxdel01")
     sc = min(min(1.0, gf(:dtol) / dmax), min(1.0, gf(:ctol) / cmax))
     if sc < 1.0
         neqn = gi(:neqn)
         @inbounds for k in a:b+1, i in 1:neqn; rhs[i, k] *= sc; end
     end
+    restore!()
     nothing
 end
 

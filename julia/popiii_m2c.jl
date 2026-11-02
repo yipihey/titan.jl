@@ -481,6 +481,7 @@ function radsettings!()
     Tb = parse(Float64, get(ENV, "TCMB", "0"))
     TF.setscalar!(:ximr, Z0.σSB * Tb^4 / π)
     TF.setscalar!(:ltran, parse(Int, get(ENV, "LTRAN", "1")))      # 1: formal solution for f, g; 2: Eddington approximation f = 1/3, g = 1/2
+    TC.ER_TAUCONV[] = parse(Float64, get(ENV, "ERTAUCONV", "1.0"))   # causality floor of E_r outside the photosphere
     TC.ER_TAUMIN[] = parse(Float64, get(ENV, "ERTAUMIN", "1.0"))   # E_r of the optically thin envelope does not limit Δt
     # Δt cap: steps much longer than the light-crossing time of the nearly free-streaming layers outside the photosphere
     # (r ~ 1e14 cm: r/c ~ 3e3 s) fail in Newton (Eddington factors lagged over the step); default 1500 s
@@ -692,6 +693,7 @@ elseif haskey(ENV, "RESTART")
 end
 const CHEMDIAG = get(ENV, "CHEMDIAG", "0") == "1"; const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
+const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended run whose Δt has collapsed, before the checkpoints are overwritten
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 try
     TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
@@ -751,7 +753,7 @@ try
             Tb = parse(Float64, get(ENV, "TCMB", "0")); τ = 0.0; τs = zeros(b)
             for kk in b:-1:a; τ += ch[kk] * dd[kk] * (rr[kk+1] - rr[kk]); τs[kk] = τ; end
             pr("  radiation at step %d (geddr %.3f):\n", k, TF.getscalar(:geddr))
-            for kk in a:6:b
+            for kk in (haskey(ENV, "ERDIAGZ") ? (zr = parse.(Int, split(ENV["ERDIAGZ"], ",")); (a - 1 + zr[1]):zr[2]:(a - 1 + zr[3])) : (a:6:b))     # ERDIAGZ=lo,step,hi (zones)
                 pr("    z %3d m %.3e r %.3e tau %.3e dtau %.2e E/aT4 %.3e E/aTcmb4 %.3e F/cE %+.3e f %.3f T %.1f\n", kk - a + 1, 4π * TX.XMINT[][kk+1] / Msun, rr[kk+1],
                    τs[kk], ch[kk] * dd[kk] * (rr[kk+1] - rr[kk]), ern[kk] / (Z0.arad * tt[kk]^4), ern[kk] / (Z0.arad * Tb^4), frn[kk+1] / (Z0.c * ern[kk]), fe[kk], tt[kk])
             end
@@ -789,6 +791,7 @@ try
             end
         end
         (Tc_ > Tstop || ρc_ / PC.mH > nstop) && TF.setscalar!(:tmax, TF.getscalar(:timen))
+        TF.getscalar(:dtime) < DTSTOP && (pr("stopped: dt = %.2e s below DTSTOP at step %d\n", TF.getscalar(:dtime), k); TF.setscalar!(:tmax, TF.getscalar(:timen)))
         REZ.on && RAD && k % REZ.every == 0 && rezone!(k)
         if TIMING && k % PRINTEVERY == 0
             pr("        timing since last report: step (hydro+radiation) %.1f s, chemistry %.1f s, H2 lines %.1f s, other output %.1f s\n",
