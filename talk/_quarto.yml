@@ -1,0 +1,23 @@
+project:
+  type: default
+  output-dir: _site
+  # the figures are made by scripts/make_figures.py and committed: the publish workflow has no run data
+  render:
+    - index.qmd
+
+format:
+  revealjs:
+    theme: [default, talk.scss]
+    width: 1600
+    height: 900
+    margin: 0.04
+    slide-number: c/t
+    hash: true
+    progress: true
+    center: false
+    transition: none
+    background-transition: none
+    menu: false
+    preview-links: false
+    html-math-method: katex
+    footer: "titan.jl · [the books](../index.html)"

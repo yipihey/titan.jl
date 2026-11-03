@@ -31,6 +31,8 @@ book:
     right:
       - text: "The short book"
         href: spectra/index.html
+      - text: "The talk"
+        href: talk/index.html
       - text: "Laboratory"
         href: app/index.html
       - icon: github

@@ -1,0 +1,38 @@
+/*-- scss:defaults --*/
+$body-bg: #ffffff;
+$body-color: #1f2328;
+$link-color: #0072b2;
+$presentation-heading-color: #1f2328;
+$presentation-font-size-root: 32px;
+$presentation-h2-font-size: 1.5em;
+$font-family-sans-serif: "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+/*-- scss:rules --*/
+.reveal .slides section h2 { font-weight: 700; margin-bottom: 0.45em; line-height: 1.15; }
+.reveal .slides section h1 { font-weight: 700; }
+.reveal .slide img { margin: 0; }
+.reveal .quarto-title-block .title, .reveal h1.title { font-size: 2.1em; }
+.reveal p { line-height: 1.32; }
+.reveal li { margin-bottom: 0.3em; line-height: 1.28; }
+.takeaway { font-size: 1.02em; color: #1f2328; margin-top: 0.45em; border-left: 8px solid #0072b2; padding-left: 0.6em; }
+.small { font-size: 0.8em; color: #5c6370; }
+.tag { display: inline-block; font-size: 0.68em; font-weight: 700; letter-spacing: 0.02em; padding: 0.12em 0.6em; border-radius: 1em; vertical-align: middle; white-space: nowrap; }
+.tag.tested { background: #d7f2ea; color: #006a4e; }
+.tag.computed { background: #d6e9f5; color: #005280; }
+.tag.wip { background: #fbe4d6; color: #a84a00; }
+.section-slide h1 { color: #0072b2; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; margin-top: 60px; }
+.stat .big { font-size: 2.3em; font-weight: 700; color: #0072b2; line-height: 1.1; }
+.stat .big.o { color: #d55e00; }
+.stat .big.g { color: #009e73; }
+.stat p { font-size: 0.86em; margin-top: 0.5em; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+.card { background: #f3f4f6; border-radius: 12px; padding: 22px 24px; font-size: 0.82em; line-height: 1.28; }
+.card b { display: block; font-size: 1.12em; margin-bottom: 0.25em; color: #0072b2; }
+.reveal table { font-size: 0.82em; width: 100%; }
+.reveal table th { border-bottom: 2px solid #1f2328; font-weight: 700; }
+.reveal table td { border-bottom: 1px solid #e3e5e8; padding: 0.34em 0.5em; vertical-align: top; }
+.yes { color: #006a4e; font-weight: 700; }
+.no { color: #a84a00; font-weight: 700; }
+.reveal .footer { font-size: 0.42em; }
+.reveal .slide-number { font-size: 0.42em; }
