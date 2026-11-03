@@ -1689,9 +1689,8 @@ extended 41 %, blends 3 %):
 - Conduction (all T, switched on over log ρ −6…−5 and log T 4…5): 1/κ = 1/κ_rad + w_c/κ_cond, κ_cond = 16σT³/(3ρK) with Cassisi's K,
   1/K = X/K_H + Y/K_He. Negligible except in degenerate matter: at ρ = 150, T = 1.5e7 (solar centre) κ_cond/κ_rad = 1000; a He core
   at ρ = 1e6, 1e7 K has κ_rad 390, κ_cond 6e-5 (conduction decides). During Pop III hydrogen burning ρ_c ≲ 1e2–1e3: irrelevant.
-- Planck mean: own means below 3.8; blend over 3.8–4.1; above, the Z0Physics continuum Planck mean for general X (Saha H/He, bound-free,
-  free-free with g = 1, H⁻), times the free-free Pauli factor above 1e6 K. **No lines** (a lower bound at 10⁴–10⁵ K, where lines raise κ_P
-  by a factor of a few), agrees with the Z0Physics table at X = 0.76 to ≤ 0.3 % for log R ≤ −4, log T 4.5–7.
+- Planck mean: own means below 3.8; blend over 3.8–4.1; above, the Z0Physics Planck mean with lines for general X, times the free-free
+  Pauli factor above 1e6 K. (Before S6-C1e this was a continuum mean with g = 1 and no lines, with a level-population bug: see there.)
 
 **High-T model** (`kappa_high`): κ_es = 0.2(1+X) f_T D with f_T = 1/(1+(T/4.5e8)^0.95) (Buchler–Yueh/Paczyński form; exponent refitted from
 0.86 to OPAL's R = 1e-8 column, 1 % over 1e6–3e8 K), D = 1/(1+2.7e11ρ/T²) (Paczyński degeneracy), plus free–free 3.68e22 g(T)(1+X)ρT^-3.5/
@@ -2077,7 +2076,7 @@ integrating the Eddington factor inward from the CMB boundary, and the discretis
 isotropic field leaves E too low; the discrete solution wants E < 0. Growing L makes this worse with time.
 
 First fix, E_r correction ignored for τ < 0.01: results before the stall unchanged but the failure only moved to z 227, just inside that limit.
-**Fix (`TC.ER_TAUCONV`, driver ERTAUCONV [1], TitanCore default 0 = off):** for τ < ERTAUCONV, where E(1+δ) < |F|/c, E is set to |F|/c and that
+**Fix (`TC.ER_TAUCONV`, driver ERTAUCONV [1], TitanCore default 0 = off):** for τ < ERTAUCONV, where E(1+δ) < |F|/c, E is set to |F|/c (wrong for inward flux; corrected in S6-C1e) and that
 correction neither enters dmax nor is damped. From step 13620: through the stall, to 13920 (T_c 103 400 K, m* 0.041 M☉) with 1 divergence in 300
 steps. Rows to step 13180 identical to the run without the floor. The floor is a repair of a closure failure, not a solution of the thin transfer:
 E_r there is only a lower bound, and it enters the gas energy through χ_P c E with E/aT⁴ ≲ 0.03 in tiny χ.
@@ -2135,3 +2134,29 @@ the surface. Small zone-to-zone T wiggles remain (a few %). T_max = 131,800 K at
 convection, not yet examined. The route through low α is a way past the banded state, and MLT at ∇ ≫ ∇_ad is outside its validity, so that history carries no
 physics; only what the run does at α = 1.5 afterwards counts. Breathing continues with MLT (u_min −19 to −41 km/s, r(u_min) up to 114 R⊙). Not done: the full test
 suite with these changes, an MLT run from the start of the protostar instead of from a banded state, a comparison with published protostar models.
+
+### S6-C1e: opacity physics, the E_r floor, and what they changed
+
+**Z0 opacity.** OPAL was right and Z0 wrong. `level_pops` normalized the Saha ground-state density across all levels, and there were no lines.
+Now: occupation probabilities, dissolved bound-free, van Hoof g_ff, Stobbe/Seaton g_bf, exact f_nn', Stark patterns, NIST He I. Details and limits in
+`Z0_EOS_OPACITY.md`. Both Z0 tables and the Planck part of `kaptable_stellar` were rebuilt; stellar log κ_R is unchanged (max |Δ| = 7e-15). Stellar Δlog κ_P: 1.5–2.6 at
+log T 4–4.5 (log R = −8), 0.3–1.1 at log T 5–6. The first Z0 build predated the U floor fix and had 44,815 NaN nodes at log T ≥ 6.075; those nodes were recomputed. Table against direct
+calculation at 966 off-node points: 99 % within 0.5 % (κ_R) and 1 % (κ_P), worst 1.29 at log T 4.75, log R 0.7. Z0 vs OPAL: ≤ 1.17 at log R ≤ −2, ×1.74 at log R = −1; dense gas (log R 0–1, log T 4.25–4.75) is ×1.6–6 low
+and stays unresolved. The Stark impact width has `IMPACT_CAL = 0.2`, calibrated to Gigosos 2003 widths whose coefficients were not checked against the paper.
+
+**E_r causality floor bug (commit 4b90c91, ER_TAUCONV).** The floor used |F|/c, so an inward flux set E, and E drove that flux: energy from nothing. The main run stopped at step 22462 (Δt → 2e-3 s); with DTSTOP lowered
+zone 218 reached 191,000 K at constant ρ, u (~1e45 erg gained). The floor now uses outward flux only, `max(F_k, F_k+1, 0)/c`, and otherwise only keeps E positive (`TC.ESRC_FLOORS` counts activations). The same stretch then runs at Δt 1e4–2e5 s with L ≈ 3–5e37 erg/s, against L_acc ≈ 8e37.
+
+Checks (each a restart comparison at equal time):
+| comparison | span | result |
+|---|---|---|
+| patched vs old floor | 16400 → 17400 (146 d) | T_c +31 K, T(0.03) +0.15 %, T(0.1) +0.7 %, entropy ≤ 0.001, R(u_min) 98.5 vs 101.9 R⊙ |
+| new vs old tables | ~22400 → 23200 | T_c 1 K, T(0.3) 0.02 %; largest at the surface zones: zone 218 −1.4 % |
+| κ_cond ×0.3, κ_rad ×3 beyond log R = 1 vs nominal | same | T_c 4 K of 129,000; R(u_min) 283.1 vs 284.5 R⊙ |
+
+κ_P changes little because the zones where it changed have e/(c κ_P a T⁴) ≲ 3e-6 s, so they are already at T = T_rad; the T drop through the photosphere (11,600 → 4,600 K, zones 217→218) is one zone, below the range where lines were added. So this
+says nothing about a resolved photosphere. The core test covers about a year; the core diffusion time was only estimated (~1e6 yr), not measured. Floor effect before step 16400 and after 17400 is not measured (run `_p2` extends it).
+
+Main run vs finer zones (`_mf`, to step 17900, day 151): T(0.1) differs by up to ±9 %, entropy ≤ 0.03 at m = 0.03, 0.1 and up to 0.18 at m = 0.12; breathing period ~15 d (fine) vs 18–26 d. Inconclusive: fine zones begin only at ~0.15 M⊙. The shock spans one zone.
+
+Open: m*(t), R*(t) are not results until the breathing is resolved or replaced by a boundary treatment. Not compared yet with Hosokawa+2012, Omukai & Palla 2003 tables in `popiii_lit/stellar`.

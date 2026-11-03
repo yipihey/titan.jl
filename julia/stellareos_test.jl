@@ -93,7 +93,7 @@ end
 
 # ---------------------------------------------------------------------------------------------------------------------
 println("D. Helmholtz (Timmes & Swesty 2000) comparison, fully ionised single-species ions (A = 1.3, Z = 1), log ρ −10…4, log T 4…9.5")
-const HDIR = joinpath(homedir(), "Projects", "popiii_lit", "helmholtz", "run")
+const HDIR = get(ENV, "HELMDIR", joinpath(homedir(), "Projects", "popiii_lit", "helmholtz", "run"))   # directory with helmdrv (arm64 Mac in the zip; build for Linux from ../build)
 function helm(pts, abar, zbar)
     out = Vector{Vector{Float64}}()
     for chunk in Iterators.partition(pts, 900)

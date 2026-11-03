@@ -477,7 +477,13 @@ NetGas, CMB intensity at the outer boundary, Eddington-factor mode, thin-envelop
 const DTRHOOK = Ref(false); const XMEXT = Ref{Any}(nothing)
 function radsettings!()
     X = 1 / (1 + 4PC.yHe)
-    PM.OPAC[] = (ρ, T) -> (StellarOpacity.kappa_R(ρ, T, X), StellarOpacity.kappa_P(ρ, T, X))
+    # OPACSENS="fcond,fext" (sensitivity test, default 1,1): κ_cond × fcond, and κ_rad × fext beyond OPAL's log R = 1 (over one dex in log R)
+    os_ = parse.(Float64, split(get(ENV, "OPACSENS", "1,1"), ","))
+    PM.OPAC[] = all(==(1.0), os_) ? ((ρ, T) -> (StellarOpacity.kappa_R(ρ, T, X), StellarOpacity.kappa_P(ρ, T, X))) : ((ρ, T) -> begin
+        κ = StellarOpacity.kappa_R(ρ, T, X); κr = StellarOpacity.kappa_R_rad(ρ, T, X); ic = max(1 / κ - 1 / κr, zero(κ))     # 1/κ_cond,eff
+        lR = log10(ρ) - 3 * (log10(T) - 6); w = clamp(lR - 1, 0.0, 1.0); w = w * w * (3 - 2w)
+        (1 / (1 / (κr * os_[2]^w) + ic / os_[1]), StellarOpacity.kappa_P(ρ, T, X))
+    end)
     Tb = parse(Float64, get(ENV, "TCMB", "0"))
     TF.setscalar!(:ximr, Z0.σSB * Tb^4 / π)
     TF.setscalar!(:ltran, parse(Int, get(ENV, "LTRAN", "1")))      # 1: formal solution for f, g; 2: Eddington approximation f = 1/3, g = 1/2

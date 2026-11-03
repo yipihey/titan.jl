@@ -77,12 +77,13 @@ end
 # ------------------------------------------------------------------ maxdel (maxdel.f)
 """
 S6: causality floor for zones with Rosseland optical depth from the surface below `ER_TAUCONV[]` (default 0 = off, TITAN). Where E_r after
-the Newton correction would fall below |F|/c, it is set to |F|/c and that correction neither enters dmax nor is damped. In the thin
+the Newton correction would fall below max(F, 0)/c (outward flux only) or 0.1 E, it is set to that value and that correction neither enters dmax nor is damped. In the thin
 envelope E and F are nearly uncoupled: E follows from integrating the Eddington factor inward from the boundary, the discretisation error
 over the transition from the core's beam to the isotropic CMB leaves E far too low (F/cE up to 440 seen), the discrete solution wants E < 0,
 the relative correction does not shrink with Δt, and through dmax it stopped the whole grid (Δt → 1e-245 s).
 """
 const ER_TAUCONV = Ref(0.0)
+const ESRC_FLOORS = Ref(0)      # number of floor activations (diagnostic)
 function maxdel!()
     a, b = gi(:ngrs), gi(:ngre); meqn = TF.PARAMS[:meqn]
     lhydr, lrad, ltur = gi(:lhydr), gi(:lrad), gi(:ltur)
@@ -101,9 +102,13 @@ function maxdel!()
         @inbounds for k in b:-1:a
             τ += chifn[k] * dn[k] * (rn[k+1] - rn[k])
             τ >= ER_TAUCONV[] && break
-            Ef = max(abs(frn[k]), abs(frn[k+1])) / cl
-            if ern[k] * (1 + rhs[ie_, k]) < Ef
-                push!(thin, k); push!(δthin, Ef / ern[k] - 1); rhs[ie_, k] = 0.0
+            # Outward flux only: |F| would make E follow an inward flux that E itself drives (energy from nothing, step 22462). Otherwise
+            # only keep E positive.
+            Ef = max(frn[k], frn[k+1], 0.0) / cl
+            Emin = max(Ef, 0.1 * ern[k])
+            if ern[k] * (1 + rhs[ie_, k]) < Emin
+                ESRC_FLOORS[] += 1
+                push!(thin, k); push!(δthin, Emin / ern[k] - 1); rhs[ie_, k] = 0.0
             end
         end
     end

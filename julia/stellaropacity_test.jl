@@ -140,21 +140,49 @@ let
     check("lowT_vs_ContinuumOpacity", abs(m.κP / mc.κP - 1) < 1e-3 && abs(m.κR / mc.κR - 1) < 0.02, @sprintf("κ_P ratio %.5f, κ_R ratio %.4f (He Rayleigh)", m.κP / mc.κP, m.κR / mc.κR))
 end
 
-# 7. comparison with the Z0Physics table (X = 0.76, continuum only) -------------------------------------------------------------------
+# 7. Z0 opacity physics against OPAL and published atomic data -----------------------------------------------------------------------
 let
-    z0 = Z0.table(); X = 0.76; rows = String[]; okP = true; okR = true
-    ratios = Dict{Float64,Vector{Float64}}()
-    for lT in 4.0:0.5:8.0
-        rR = Float64[]; rP = Float64[]
-        for lR in -8:1.0:1
-            T = 10^lT; ρ = 10^(lR + 3 * (lT - 6))
-            push!(rR, SO.kappa_R_rad(ρ, T, X) / Z0.kap(z0, ρ, T)); push!(rP, SO.kappa_P(ρ, T, X) / Z0.kapP(z0, ρ, T))
-        end
-        push!(rows, @sprintf("log T=%.1f: κ_R(OPAL)/κ_R(Z0) median %.2f (min %.2f, max %.2f); κ_P ours/Z0 median %.3f (min %.3f, max %.3f)", lT, median(rR), minimum(rR), maximum(rR), median(rP), minimum(rP), maximum(rP)))
-        lT >= 4.5 && lT <= 7.0 && (okP &= all(abs.(rP[1:5] .- 1) .< 0.01))          # log R ≤ −4: non-degenerate, same continuum physics
-        lT >= 5.0 && lT <= 5.0 && (okR &= maximum(rR) > 1.5)
+    # (a) oscillator strengths and sum rules
+    fok = true
+    for ((n, np), f) in Dict((1, 2) => 0.4162, (1, 3) => 0.0791, (2, 3) => 0.6407, (2, 4) => 0.1193, (3, 4) => 0.8421)
+        fok &= abs(Z0.hyd_f(n, np) / f - 1) < 2e-3
     end
-    check("vs_Z0Physics_table", okP && okR, "X = 0.76, log R −8…1:\n     " * join(rows, "\n     "))
+    trk = Float64[]
+    for n in 1:3
+        up = sum(Z0.hyd_f(n, np) for np in n+1:40); tail = Z0.hyd_f(n, 40) * 40^3 / (2 * 40.5^2)
+        dn = n > 1 ? sum(-Z0.hyd_f(k, n) * k^2 / n^2 for k in 1:n-1) : 0.0
+        νn = Z0.χH / (Z0.h * n^2); xs = exp.(range(0, log(1e5), length = 100001)); fb = 0.0
+        for i in 1:length(xs)-1; x = 0.5(xs[i] + xs[i+1]); fb += Z0.KRAMERS / (n^5 * (x * νn)^3) * Z0.gaunt_bf(n, x) * (xs[i+1] - xs[i]) * νn; end
+        push!(trk, up + tail + dn + fb / Z0.πe2mc)
+    end
+    check("atomic_f_and_TRK", fok && all(abs.(trk .- 1) .< 2e-3), @sprintf("f exact to 0.2 %%; TRK sum n=1,2,3: %.4f %.4f %.4f", trk...))
+    # (b) Stark patterns: f recovered, central components of Lyα/Hα and none in Lyβ/Hβ; Holtsmark norm; Gigosos et al. 2003 FWHM
+    pok = true
+    for (n, np) in ((1, 2), (1, 3), (2, 3), (2, 4), (3, 4), (3, 6)); pa = Z0.stark_pattern(n, np); pok &= abs((1 / 3) * (1 / n^2 - 1 / np^2) * pa.S / n^2 / Z0.hyd_f(n, np) - 1) < 1e-6; end
+    has0(n, np) = (pa = Z0.stark_pattern(n, np); sum(pa.I[pa.X .< 1e-6]))
+    pok &= abs(has0(1, 2) - 2 / 3) < 1e-6 && has0(1, 3) < 1e-6 && has0(2, 3) > 0.1 && has0(2, 4) < 1e-6
+    fw(n, np, lam, ne) = begin
+        T = 1e4; ν0 = Z0.c / lam; D = ν0 * sqrt(2Z0.kB * T / (Z0.mH * Z0.c^2)); C = Z0.ecgs * Z0.a0cm * 2.6031 * Z0.ecgs * ne^(2 / 3) / Z0.h; pa = Z0.stark_pattern(n, np)
+        pr = Z0.line_profile(ν0, 1.0, D, 0.0, Z0.impact_width(n, np, 1, ne, T), pa.X, pa.I, C, C); xs = exp.(range(log(1e6), log(3e15), length = 4000)); v = [Z0.prof_eval(pr, x) for x in xs]
+        2 * xs[findlast(v .>= maximum(v) / 2)] * lam^2 / Z0.c * 1e7
+    end
+    rα = [fw(2, 3, 6563e-8, ne) / (0.549 * (ne / 1e17)^0.67965) for ne in (1e16, 1e17, 1e18)]; rβ = [fw(2, 4, 4861e-8, ne) / (4.800 * (ne / 1e17)^0.68116) for ne in (1e16, 1e17, 1e18)]
+    check("stark_profiles", pok && all(abs.(rα .- 1) .< 0.25) && all(abs.(rβ .- 1) .< 0.05), @sprintf("patterns exact; FWHM/Gigosos Hα %.2f %.2f %.2f, Hβ %.2f %.2f %.2f", rα..., rβ...))
+    # (c) full recomputed κ_R (Z0 physics with lines) against OPAL, X = 0.76
+    z0 = Z0.table(); X = 0.76; worst = (0.0, 0.0, 0.0); worst2 = (0.0, 0.0, 0.0); bad = 0
+    for lT in 4.0:0.25:6.5, lR in -7:1.0:-1
+        T = 10^lT; ρ = 10^(lR + 3 * (lT - 6)); r = SO.kappa_R_rad(ρ, T, X) / Z0.kap(z0, ρ, T)
+        if lR <= -2; abs(log(r)) > abs(log(worst[1] == 0 ? 1.0 : worst[1])) && (worst = (r, lT, Float64(lR))); else; abs(log(r)) > abs(log(worst2[1] == 0 ? 1.0 : worst2[1])) && (worst2 = (r, lT, Float64(lR))); end
+    end
+    check("z0_vs_OPAL", abs(log(worst[1])) < log(1.3) && abs(log(worst2[1])) < log(2.0),
+          @sprintf("OPAL/Z0 worst, log R ≤ −2: %.2f at (%.2f, %.0f); log R = −1: %.2f at (%.2f, %.0f)", worst..., worst2...))
+    # (d) a mean-opacity inequality: κ_R ≤ κ_P + κ_es wherever both are from the same physics (Z0 table)
+    v = 0.0; at = (0.0, 0.0)
+    for lT in 3.5:0.05:7.5, lR in -10:0.5:1
+        T = 10^lT; ρ = 10^(lR + 3 * (lT - 6)); q = Z0.kap(z0, ρ, T) / (Z0.kapP(z0, ρ, T) + 0.2 * (1 + X))
+        q > v && (v = q; at = (lT, Float64(lR)))
+    end
+    check("kR_le_kP_plus_es", v < 1.02, @sprintf("max κ_R/(κ_P + κ_es) = %.3f at (%.2f, %.1f)", v, at...))
 end
 
 # 8. conduction -----------------------------------------------------------------------------------------------------------------------

@@ -92,19 +92,10 @@ function means(p, ρ, s)
 end
 means_at(ρ, T, X; li = true, n = 4000) = means(prep(T; n), ρ, equilibrium(ρ, T, X; li))
 
-"Z0Physics continuum Rosseland and Planck means for general X (Saha, no molecules)."
+"Z0Physics Rosseland (continuum) and Planck (continuum + lines) means for general X (Saha, occupation probabilities, no molecules)."
 function z0_means(ρ, T, X)
-    s = Z0.saha(ρ, T; comp = Z0.Comp(X, 1 - X)); pH, pHe = Z0.level_pops(T, s)
-    numR = 0.0; denR = 0.0; numP = 0.0; denP = 0.0
-    ug = Z0.ugrid_with_edges(T)
-    for i in 1:length(ug)-1
-        u = 0.5(ug[i] + ug[i+1]); du = ug[i+1] - ug[i]; ν = u * kB * T / h
-        wR = u^4 * exp(u) / expm1(u)^2; wP = u^3 / expm1(u)
-        ab, sc = Z0.kappa_nu(ν, T, s, pH, pHe)
-        numR += wR / (ab + sc) * du; denR += wR * du
-        numP += wP * ab * du; denP += wP * du
-    end
-    (; κR = denR / numR / ρ, κP = numP / denP / ρ)
+    κR, κP = Z0.kappa_means(ρ, T; comp = Z0.Comp(X, 1 - X), lines = true, lines_R = false)
+    (; κR, κP)
 end
 
 end # module
