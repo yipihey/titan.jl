@@ -19,6 +19,8 @@ book:
     right:
       - text: "The detailed book"
         href: ../index.html
+      - text: "The talk"
+        href: ../talk/index.html
       - text: "Laboratory"
         href: ../app/index.html
   sidebar:
