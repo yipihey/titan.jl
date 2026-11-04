@@ -336,10 +336,10 @@ Keeping the full infall on one mesh tells us where the star's light will go, wha
 
 ![](figures/growth.png){fig-align="center" height="600"}
 
-[in progress]{.tag .wip} <span class="small">Two runs stop at about 1.5 Suns, and a finer-mesh test is still running. These numbers are not final.</span>
+[in progress]{.tag .wip} <span class="small">Two runs stop at about 1.5 Suns. The finer-mesh test reached its step limit after only 0.2 years, so it does not yet check the mesh. These numbers are not final.</span>
 
 ::: notes
-[0.5 min, total 18.5] Mass grows at about 0.05 Suns per year, and the shock moves out to about 100 solar radii. The steps in radius are the mesh spacing. Both coarse runs stop near 1.5 Suns at the same place near the shock, and we are looking into why. We have not yet compared with the published tracks of Omukai & Palla or Hosokawa.
+[0.5 min, total 18.5] Mass grows at about 0.05 Suns per year, and the shock moves out to about 100 solar radii. The steps in radius are the mesh spacing. Both coarse runs stop near 1.5 Suns at the same place near the shock, and we are looking into why. The orange run has a finer mesh but took much shorter steps, so its allowance of 10,000 steps covered only 0.2 years, at about 0.53 Suns. We have not yet compared with the published tracks of Omukai & Palla or Hosokawa.
 :::
 
 ## Convection removes a false hot shell
@@ -394,6 +394,6 @@ Next: resolve the 1.5 Sun stop, check the mesh, compare with published tracks, t
 | Little Red Dots | W30 with non-equilibrium hydrogen | The short book, ch. 5 and 6 |
 | Collapse | `final2`, `rad`, `n3` | `docs/POPIII_NOTES.md` |
 | Finished stars | `s5_p15e`, `s5_p100e` | `docs/POPIII_NOTES.md`, S5 |
-| Young star | `c1`, `c2`, `c3` (uncommitted, ongoing) | `talk/data/accretion.csv` |
+| Young star | `c1`, `c2`, `c3` (uncommitted; all stopped) | `talk/data/accretion.csv` |
 
 Figures: `talk/scripts/make_figures.py`. Pop III data: `talk/scripts/export_data.jl`.
