@@ -924,7 +924,7 @@ try
                     ρ = TF.var(:dn)[a:b], T = TF.var(:tn)[a:b], e = TF.var(:egn)[a:b], y = [ycomp(a + j - 1) for j in 1:nsh],
                     m = 4π .* (ENVEUL === nothing ? TX.XMINT[][a:b+1] : envmenc()), Λext = copy(mat.Λext[a:b]), eq = [eqflag(a + j - 1) for j in 1:nsh],
                     er = TF.var(:ern)[a:b], fr = TF.var(:frn)[a:b+1], pg = TF.var(:pgn)[a:b], chi = TF.var(:chifn)[a:b],
-                    fedd = TF.var(:fedd)[a:b], qf = TF.var(:qf)[a:b], e = TF.var(:egn)[a:b], xp = [ycomp(a + j - 1)[1] for j in 1:nsh], xh2 = [ycomp(a + j - 1)[3] for j in 1:nsh], L_lines = LLINE[]))
+                    fedd = TF.var(:fedd)[a:b], qf = TF.var(:qf)[a:b], xp = [ycomp(a + j - 1)[1] for j in 1:nsh], xh2 = [ycomp(a + j - 1)[3] for j in 1:nsh], L_lines = LLINE[]))
                 lnc >= SNAPNEXT[] && (SNAPNEXT[] = lnc + 0.25)
                 serialize(SNAPFILE, SNAPS)
             end
