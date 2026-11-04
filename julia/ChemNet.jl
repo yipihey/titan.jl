@@ -29,7 +29,7 @@ using ForwardDiff, Printf
 
 const kB = 1.380649e-16; const hP = 6.62607015e-27; const c = 2.99792458e10; const eV = 1.602176634e-12
 const mH = 1.6735575e-24; const me = 9.1093837e-28; const mp = 1.67262192e-24
-const yHe = 1 / 12; const yLi = 4.15e-10
+const yHe = parse(Float64, get(ENV, "CHEM_YHE", string(1 / 12))); const yLi = 4.15e-10   # (CHEM_YHE=0: the pure-H benchmarks)
 
 # ------------------------------------------------------------------ species
 struct Species
@@ -169,7 +169,9 @@ function photorates(p::Photo, T, env; n = 200)
             Rl += 4π * σ * J / (hP * ν) * dν
             Al += 4π * σ / (hP * ν) * (2hP * ν^3 / c^2 + J) * exp(-(Ex + hP * ν) / (kB * T) - lnK) * dν
         end
-        R += w * exp(-Ex / (kB * T)) * Rl; A += w * Al
+        # env.caseB (on the spot): recombinations directly to a level with Ex = 0 of a multi-level atom make a photon that is reabsorbed nearby, so they do not count
+        caseB = hasproperty(env, :caseB) && env.caseB && Ex == 0 && length(p.levels) > 1
+        R += w * exp(-Ex / (kB * T)) * Rl; caseB || (A += w * Al)
     end
     R, A
 end
@@ -279,21 +281,26 @@ Runs that never reach this depth are unchanged bit for bit.
 const CLIPDEPTH = 4
 
 """
-    step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing) -> (x, T)
+    step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, Tfix = nothing) -> (x, T)
 
 Chemistry and temperature together over dt at fixed ρ and u (u − dt Λ/ρ with `cooling(ρ, T, d)`, d the full composition).
+`extra(x)`: added to dx/dt, a function of the new abundances (a photon-conserving ray, IonRay). `Tfix`: hold T at this value instead of solving for it (tests).
+`accepted(x, h)`: called after each accepted sub-step, so that a ray can count the photons used through the halvings.
 """
-function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, tol = 1e-10, maxit = 60)
+function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, Tfix = nothing, accepted = nothing, tol = 1e-10, maxit = 60)
     nH = ρ / μH(); nf = length(net.free)
     phT = Ref(NaN); phc = Ref{Any}(nothing)
+    ucur = Ref(Float64(u))                           # u at the start of the current sub-step: what cooling took in the earlier halves stays gone
     function resid(z, x0, h)
         x = z[1:nf]; T = exp(z[nf+1])
         Tv = ForwardDiff.value(T)                    # photo-rates lagged in T (Float), cached per T value
         Tv == phT[] || (phc[] = [(p, photorates_t(p, Tv, env)...) for p in photos]; phT[] = Tv)
         ph = phc[]
         f = dxdt(x, nH, T, net, env, ph)
+        extra === nothing || (f = f .+ extra(x))
         r = x .- x0 .- h .* f
-        ue = eos(ρ, T, x, net)[1] - u + (cooling === nothing ? zero(T) : h * cooling(ρ, T, full(x, net)) / ρ)
+        Tfix === nothing || return vcat(r, z[nf+1] - log(Tfix))
+        ue = eos(ρ, T, x, net)[1] - ucur[] + (cooling === nothing ? zero(T) : h * cooling(ρ, T, full(x, net)) / ρ)
         vcat(r, ue / (kB * T / μH()))
     end
     function attempt(x0, T0, h; clip = false)
@@ -319,13 +326,14 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
     end
     function adv(x0, T0, h, depth)
         z, ok = attempt(x0, T0, h)
-        ok && return (z[1:nf], exp(z[nf+1]))
+        ok && (accepted === nothing || accepted(z[1:nf], h); return (z[1:nf], exp(z[nf+1])))
         if depth >= CLIPDEPTH                        # (see the note at CLIPDEPTH)
             z, ok = attempt(x0, T0, h; clip = true)
-            ok && return (z[1:nf], exp(z[nf+1]))
+            ok && (accepted === nothing || accepted(z[1:nf], h); return (z[1:nf], exp(z[nf+1])))
         end
         depth >= 12 && error("ChemNet.step: Newton failed (nH = $nH, T0 = $T0, dt = $dt, u = $u)")
         x1, T1 = adv(x0, T0, h / 2, depth + 1)
+        cooling === nothing || Tfix !== nothing || (ucur[] = Float64(eos(ρ, T1, x1, net)[1]))
         adv(x1, T1, h / 2, depth + 1)
     end
     adv(x0, T0, dt, 0)

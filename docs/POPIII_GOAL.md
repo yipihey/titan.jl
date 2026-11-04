@@ -69,6 +69,19 @@ Notes for M3 from reading the code (4 Nov): the network's photo-rates already in
 
 M2 note: nuclear abundances now move with the same mass fluxes as the chemistry (`advect_species!`), untested until hot zones appear.
 
+M3 state (4 Nov). `julia/IonRay.jl`: multi-group radial ray, photon-conserving zone by zone, solved implicitly inside `ChemNet.step`, absorbers H and H₂ (AAZN97 cross section). What has passed and what has not:
+
+| Test | Result | Status |
+|---|---|---|
+| Iliev et al. 2006 test 1 (`ionfront_test.jl`; static, T fixed) | r_I/analytic with α_B = 2.59e-13: 1.00 at 10 Myr, 1.06 at 500 Myr; the network's own α_B is 2.48e-13 (n ≤ 15), giving 1.04. Unchanged for Δt = 0.5–10 Myr. The paper's codes stay within 5 %. Ionizations + recombinations exceed the photons by 1–2 %, not traced (collisional ionization is the candidate). | passed |
+| Iliev et al. 2009 test 5 (`ionfront_hydro.jl`; hydro on TITAN's fixed mesh, blackbody, no gray field) | r_I/r_S0 = 0.87 at 100 Myr, 1.12 at 200, 1.67 at 500, against 0.88, 1.15, about 1.55 (range about 1.5–1.65) read off their Fig. 18. Mass conserved to 1e-14. Shell peak n 1.5e-3 at r/L = 0.80 against ZEUS-MP's 2.5e-3 at 0.78 at the same Δr. | close, slightly fast at 500 Myr; finer mesh pending |
+| Coupled to the gray field (`RAY=1`: `RAYQ` removes the energy from the gray rows) | runs at 1e44 and 1e46 photons/s on the real state at 3 M☉, Δt falling with the rate. 1e47 and above stop at the first step: test light of 1e5 K on gas that is still 6000 K and opaque, which is not a state the star reaches. | not validated |
+| HII temperature with cooling through the gray field | not done | open |
+
+Not in the ray yet: helium (fixed neutral at y_He, so no absorption by He and no He⁺ heating), Lyman-Werner dissociation of H₂, and the diffuse field. Gray emission uses Planck means at LTE composition, so it includes recombination to the ground state, while the network is case B in lit zones.
+
+Bug found by test 5: when `ChemNet.step` halved a step, the second half restarted from the original u, dropping what cooling or heating did in the first half. Fixed. It touched any network zone with non-zero cooling (H₂ lines) whose Newton failed at full Δt, so runs before `_h5` have this energy error at those zones. `_h4` (old) against `_h5` (fixed) from one checkpoint measures its size; `_h6`, `_h7` restart the mesh check with the fix.
+
 ## Rules for this work
 
 - The infall stays on a fixed logarithmic mesh, and no part of it is dropped.
@@ -83,3 +96,4 @@ M2 note: nuclear abundances now move with the same mass fluxes as the chemistry 
 |---|---|
 | 2026-11-04 | Goal set. Best run 1.49 M☉ (`_c1`), 1.47 M☉ (`_c2`, with convection). M0 in progress. |
 | 2026-11-04 | **M0 passed.** Cause: when a zone's pressure crosses PSWITCH it changes from network to table at fixed e. At 7000–9500 K the network's H ionization is ×5 below Saha, so T drops up to 16 % (9520 → 7977 K) and κ falls ×9. E_r must relax in ~7 ms, Newton fails down to that Δt, and DTSTOP = 1e-2 stopped the run. Reproduced at the same step. Moved the switch to PSWITCH = 300 with T ≥ 4500 K (`PSWTMIN`), where the mismatch is ~1 %; M, T_c and L agree with the old switch to 0.04 % at t = 4.5 yr (restart comparison). Long run `_h1` started. Whether the network's low ionization or Saha is right in the switching gas has not been decided: the zones there are optically thick, which favours Saha. |
+| 2026-11-04 | `_h1` reached 3.2 M☉ with no stop, about 5800 steps per e-fold, 1.8 s per step, 78 % of it H₂ lines. M3 ray passes Iliev test 1; hydro test 5 close. |

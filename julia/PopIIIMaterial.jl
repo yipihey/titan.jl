@@ -245,18 +245,50 @@ const PSWHYS = Ref(1.0)
 const PSWTMIN = Ref(0.0)
 "After a converged hydro step: network step per zone in the ideal regime, equilibrium-table step where p ≥ pswitch."
 const CHEMFALLBACK = Ref(false); const NCHEMFB = Ref(0)
+"""
+M3: the star's ionizing light (IonRay), `nothing` = off. `RAY[] = (; start, source, env, Ec, Q, xmin)`: `start(a, b)` -> (photosphere zone, photons per group) or `nothing`; `source` as IonRay.source;
+`env`: ChemNet environment for lit zones (case B); `Q`: energy taken per zone, shared with TitanResidFast.RAYQ. Zones are done outward from the photosphere, each with the photons the last one left. A zone
+where the photons of one step could ionize more than `xmin` of its hydrogen stays on the network whatever its pressure, because the table assumes equilibrium.
+"""
+const RAY = Ref{Any}(nothing)
 function chem!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
     dn, tn, egn, pgn = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:pgn)
     dTmax = 0.0
     h = HOT[]
+    ray = RAY[]; kph = typemax(Int); Nin = nothing
+    if ray !== nothing
+        fill!(ray.Q, 0.0)
+        st = ray.start(a, b); st === nothing || ((kph, Nin) = st)
+    end
+    rn = TM.v(:rn)
     for k in a:b
         if h !== nothing && tn[k] > h.T1             # hot branch: no chemistry, no re-solve of T with the table (driver: burn and mix)
             m.x[k] = x_from_table(m, dn[k], min(tn[k], 1e6)); m.eqzone[k] = true
             continue
         end
         cool = zone_cooling(m, k)
+        if Nin !== nothing && k > kph
+            V = 4π / 3 * (rn[k+1]^3 - rn[k]^3)
+            if sum(Nin) * dt / (dn[k] / CNn.μH() * V) > ray.xmin
+                src = ray.source(dn[k], rn[k], rn[k+1], Nin)
+                cool2 = (ρ, T, d) -> (cool === nothing ? zero(T) : cool(ρ, T, d)) - src.heat(d)
+                m.eqzone[k] = false
+                x1, T1 = try
+                    CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = ray.env, photos = m.photos, cooling = cool2, extra = src.extra, accepted = src.accepted)
+                catch e
+                    println("ray zone failed: k ", k, " x ", m.x[k], " free ", m.net.free, " ρ ", dn[k], " u ", egn[k], " T ", tn[k], " dt ", dt, " Nin ", sum(Nin), " r ", rn[k], " ", rn[k+1])
+                    rethrow()
+                end
+                out = src.out(x1, dt)
+                ray.Q[k] = sum((Nin .- out) .* ray.Ec) / V
+                m.x[k] = x1; Nin = out
+                dTmax = max(dTmax, abs(T1 / tn[k] - 1)); tn[k] = T1
+                continue
+            end
+            Nin = nothing                                # the rest of the light cannot change any zone further out
+        end
         # PSWTMIN[] > 0: also require T above it (5 % hysteresis). Below ~5000 K ionization holds negligible energy, so the network and the table agree there
         # to ~1 % in T at fixed e; at 7000-9500 K the network's H ionization lags the table's Saha by ×5, and switching there drops T by up to 16 %.
         if (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[])

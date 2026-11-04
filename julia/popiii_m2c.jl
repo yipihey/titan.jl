@@ -14,7 +14,7 @@ include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "Prim
 include(joinpath(@__DIR__, "SCVH.jl")); include(joinpath(@__DIR__, "PopIIIEqEOS.jl"))
 include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl"))
 include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2Lines.jl"))
-include(joinpath(@__DIR__, "StellarOpacity.jl"))
+include(joinpath(@__DIR__, "StellarOpacity.jl")); include(joinpath(@__DIR__, "IonRay.jl"))
 # S6-C1: HOT=1: stellar EOS, nuclear network and convective mixing in the hot core (T > HOTT1), see PopIIIMaterial.HOT
 const HOTON = get(ENV, "HOT", "0") == "1"
 if HOTON
@@ -288,6 +288,33 @@ pr("%7s %8s %10s %9s %9s %10s %10s %9s %9s\n", "step", "log n_c", "t [yr]", "T_c
 nextln = Ref(log10(rho[1] / PC.mH) + 0.25)
 using Serialization
 const SNAPFILE = joinpath(TF.ROOT, "lib", "popiii", "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(get(ENV, "TAG", "")).jls")
+# M3: the star's ionizing light (IonRay). RAY=1: spectrum from the photosphere (τ_R = 2/3), a blackbody at T_eff from L and r there; no source below RAYTMIN.
+# RAYTEST="Q,Teff" (a stress test): that many photons/s above 13.6 eV from that blackbody, whatever the star is doing.
+if get(ENV, "RAY", "0") == "1" && mat isa PM.NetGas
+    const RG = IonRay.groups(; species = [:H, :H2])
+    const RAYTMIN = parse(Float64, get(ENV, "RAYTMIN", "1.5e4"))
+    const RAYTEST = haskey(ENV, "RAYTEST") ? parse.(Float64, split(ENV["RAYTEST"], ",")) : nothing
+    const RAYOUT = Ref((0, 0.0, 0.0, 0.0))                     # photosphere zone, L, T_eff, photons/s above 13.6 eV (last step)
+    function raystart(a, b)
+        ch, dd, rr, fr = TF.var(:chifn), TF.var(:dn), TF.var(:rn), TF.var(:frn)
+        τ = 0.0; k = b
+        while k > a
+            τ += ch[k] * dd[k] * (rr[k+1] - rr[k]); τ >= 2 / 3 && break; k -= 1
+        end
+        L = 4π * rr[k+1]^2 * fr[k+1]; Te = L > 0 ? (L / (4π * rr[k+1]^2 * IonRay.σSB))^0.25 : 0.0
+        if RAYTEST !== nothing
+            N = IonRay.blackbody(RG, 1.0, RAYTEST[2]); N .*= RAYTEST[1] / sum(N); Te = RAYTEST[2]
+        else
+            Te < RAYTMIN && (RAYOUT[] = (k, L, Te, 0.0); return nothing)
+            N = IonRay.blackbody(RG, L, Te)
+        end
+        RAYOUT[] = (k, L, Te, sum(N))
+        k, N
+    end
+    TX.RAYQ[] = zeros(length(mat.x))
+    PM.RAY[] = (; start = raystart, source = (ρ, r1, r2, Nin) -> IonRay.source(ρ, r1, r2, Nin, RG, mat.net), env = merge(mat.env, (; caseB = true)),
+                Ec = RG.Ec, Q = TX.RAYQ[], xmin = parse(Float64, get(ENV, "RAYXMIN", "1e-6")))
+end
 const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
 const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(ENV, "SNAPEVERY", "0"))
 # NLTE (line source functions): 1 = GP98/HM79 factor on S (old default), 0 = LTE, ep = statistical equilibrium with escape
@@ -897,7 +924,7 @@ try
                     ρ = TF.var(:dn)[a:b], T = TF.var(:tn)[a:b], e = TF.var(:egn)[a:b], y = [ycomp(a + j - 1) for j in 1:nsh],
                     m = 4π .* (ENVEUL === nothing ? TX.XMINT[][a:b+1] : envmenc()), Λext = copy(mat.Λext[a:b]), eq = [eqflag(a + j - 1) for j in 1:nsh],
                     er = TF.var(:ern)[a:b], fr = TF.var(:frn)[a:b+1], pg = TF.var(:pgn)[a:b], chi = TF.var(:chifn)[a:b],
-                    fedd = TF.var(:fedd)[a:b], qf = TF.var(:qf)[a:b]))
+                    fedd = TF.var(:fedd)[a:b], qf = TF.var(:qf)[a:b], e = TF.var(:egn)[a:b], xp = [ycomp(a + j - 1)[1] for j in 1:nsh], xh2 = [ycomp(a + j - 1)[3] for j in 1:nsh], L_lines = LLINE[]))
                 lnc >= SNAPNEXT[] && (SNAPNEXT[] = lnc + 0.25)
                 serialize(SNAPFILE, SNAPS)
             end

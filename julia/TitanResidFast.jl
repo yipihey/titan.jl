@@ -121,6 +121,8 @@ q = cqvis·cq2·l²·ρ·qv·(du/dr) ≈ cqvis·cq2·c²·ρ (Δr div u)², i.e.
 c_q = 4 needs c² ≈ 3/cq2). This mapping is derived here, not taken from the source. Default 0 = the old formula.
 """
 const AV_ZONE = Ref(0.0)
+"RAYQ[] (M3; empty = off): per zone, the energy the ray (IonRay) takes from the star's light [erg cm⁻³ s⁻¹]. The gas receives it in chemistry; here it leaves the gray field, so it is not counted twice."
+const RAYQ = Ref(Float64[])
 
 """
 AV_TENSION[] (default true = TITAN): keep the viscous stress of a zone that shrinks in volume (div u < 0) while it is stretched
@@ -753,6 +755,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
                 (pg[k] + er[k] * fedd[k]) * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] + qf[k] * dudr[k] * dvol[k] - src
+            isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egb[k+1] - (P.phil2 + er[k] * urel[k]) * rmu[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
@@ -792,6 +795,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] +
                 (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
             SHOCK_RAD[] && (w += shock_frac(u[k+1] - u[k]) * qf[k] * dudr[k] * dvol[k])
+            isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * er[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
