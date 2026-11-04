@@ -242,7 +242,9 @@ S6: hysteresis of the EOS switch: a zone in the table regime stays there until p
 of the accretion layer sitting on pswitch otherwise flips every step between table and network, which differ by ~10 % in T at fixed e.
 """
 const PSWHYS = Ref(1.0)
+const PSWTMIN = Ref(0.0)
 "After a converged hydro step: network step per zone in the ideal regime, equilibrium-table step where p ≥ pswitch."
+const CHEMFALLBACK = Ref(false); const NCHEMFB = Ref(0)
 function chem!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
@@ -255,13 +257,24 @@ function chem!(m::NetGas)
             continue
         end
         cool = zone_cooling(m, k)
-        if pgn[k] >= m.pswitch || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch)
+        # PSWTMIN[] > 0: also require T above it (5 % hysteresis). Below ~5000 K ionization holds negligible energy, so the network and the table agree there
+        # to ~1 % in T at fixed e; at 7000-9500 K the network's H ionization lags the table's Saha by ×5, and switching there drops T by up to 16 %.
+        if (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[])
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
             _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
         else
             m.eqzone[k] && (m.eqzone[k] = false)     # (back to the ideal regime: the network continues from the table composition)
-            x1, T1 = CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = m.env, photos = m.photos, cooling = cool)
+            x1, T1 = try
+                CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = m.env, photos = m.photos, cooling = cool)
+            catch e
+                # Fixed mesh: e and x are advected by different schemes, and e may then have no solution for the zone's x. Hot dense gas: table equilibrium, same e.
+                (CHEMFALLBACK[] && e isa ErrorException) || rethrow()
+                NCHEMFB[] += 1
+                coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
+                _, T2 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
+                (x_from_table(m, dn[k], T2), T2)
+            end
             m.x[k] = x1
         end
         dTmax = max(dTmax, abs(T1 / tn[k] - 1)); tn[k] = T1

@@ -121,6 +121,31 @@ q = cqvis·cq2·l²·ρ·qv·(du/dr) ≈ cqvis·cq2·c²·ρ (Δr div u)², i.e.
 c_q = 4 needs c² ≈ 3/cq2). This mapping is derived here, not taken from the source. Default 0 = the old formula.
 """
 const AV_ZONE = Ref(0.0)
+
+"""
+AV_TENSION[] (default true = TITAN): keep the viscous stress of a zone that shrinks in volume (div u < 0) while it is stretched
+radially relative to the mean (dudr > 0, the traceless form). Then q < 0, a tension. With l = AV_ZONE·Δr and Δr ~ r (the stretched
+zones outside an accretion shock) it can reach ~10× gravity and accelerate an infalling shell past the escape speed.
+false: viscosity only under radial compression.
+AV_CAP[] (default 0 = off): viscous length limited to AV_CAP × r̄.
+"""
+const AV_TENSION = Ref(true)
+const AV_CAP = Ref(0.0)
+"""
+SHOCK_RAD[] (S6, default false; lrad = 1, TITAN's gas + radiation row): sub-grid radiative shock. The viscous heat of a zone whose velocity jump
+would give a post-shock temperature T_s = (3/16) μ m_H Δu²/k above SHOCK_DU[] goes to the radiation energy row instead of the gas. Physically the gas
+behind such a shock cools in ≪ the flow time through a layer far thinner than a zone (lines above ≈ 6000 K), so the zone-averaged gas should not hold this heat.
+The total energy row is untouched, so energy is conserved; momentum (q in the gas momentum row) too. Fraction: smoothstep in log Δu between the two values.
+"""
+const SHOCK_RAD = Ref(false)
+const SHOCK_DU = Ref((1.47e6, 1.9e6))     # cm/s: T_s = 6000 K, 1e4 K at μ = 1.22
+@inline function shock_frac(du::T) where {T}
+    du1, du2 = SHOCK_DU[]
+    (val(du) >= -du1) && return zero(T)
+    (val(du) <= -du2) && return one(T)
+    x = log(-du / du1) / log(du2 / du1)
+    return x * x * (3 - 2x)
+end
 """
 EXTMASS[] (Population III): static external mass distribution (e.g. the dark-matter halo of ABN02), a function
 r -> M_ext(< r) per steradian, added to the gas interior mass in the gravity terms (evaluated at the θ-centred radius;
@@ -477,8 +502,9 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     @inbounds for k in ngrs:ngre
         dudr[k] = (u[k+1] - u[k]) / (r[k+1] - r[k]) - xmu4 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
         ql = AV_ZONE[] > 0 ? AV_ZONE[] * (r[k+1] - r[k]) : P.ql0 + P.ql1 * 0.5 * (r[k] + r[k+1])
+        AV_CAP[] > 0 && (ql = min(ql, AV_CAP[] * 0.5 * (r[k] + r[k+1])))
         div = (rmu[k+1] * u[k+1] - rmu[k] * u[k]) / dvol[k]
-        qv = decide(:vis, 0, k, val(div) < 0) ? div : zero(T)
+        qv = decide(:vis, 0, k, val(div) < 0 && (AV_TENSION[] || val(dudr[k]) < 0)) ? div : zero(T)
         qm = ql * (P.cq1 * as[k] - P.cq2 * ql * qv)
         qf[k] = -P.cqvis * d[k] * qm * dudr[k]
     end
@@ -765,6 +791,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 fedd[k] * er[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] +
                 (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
+            SHOCK_RAD[] && (w += shock_frac(u[k+1] - u[k]) * qf[k] * dudr[k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * er[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
