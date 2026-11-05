@@ -47,7 +47,7 @@ function node(lρ, lT)
     (log10(p1), log10(u1 + UOFF), f1, xp1, 0.0)
 end
 
-function build(; lρ0 = -12.0, lρ1 = 1.5, dlρ = 0.05, lT0 = 1.7, lT1 = 6.0, dlT = 0.02)
+function build(; lρ0 = -20.0, lρ1 = 1.5, dlρ = 0.05, lT0 = 1.7, lT1 = 6.0, dlT = 0.02)
     nρ = round(Int, (lρ1 - lρ0) / dlρ) + 1; nT = round(Int, (lT1 - lT0) / dlT) + 1
     lp = zeros(nρ, nT); lus = zeros(nρ, nT); f = zeros(nρ, nT); xp = zeros(nρ, nT); w = zeros(nρ, nT)
     Threads.@threads for i in 1:nρ
@@ -58,7 +58,7 @@ function build(; lρ0 = -12.0, lρ1 = 1.5, dlρ = 0.05, lT0 = 1.7, lT1 = 6.0, dl
     EqTable(lρ0, dlρ, nρ, lT0, dlT, nT, lp, lus, f, xp, w)
 end
 
-const CACHE = joinpath(homedir(), "Projects", "popiii_lit", "SCVH95", "eqeos_table.jls")
+const CACHE = joinpath(homedir(), "Projects", "popiii_lit", "SCVH95", "eqeos_table_lr20.jls")   # from log rho = -20: below the old edge at -12 the cubic extrapolated p by factors of thousands
 const TAB = Ref{Any}(nothing)
 "The table (built once and cached outside the repository; SCVH95 tables are not redistributable from here)."
 function table()
@@ -83,6 +83,7 @@ gy(t, lT) = (lT - t.lT0) / t.dlT + 1
 "(u [erg/g, our zero], p) at (ρ, T) in equilibrium."
 function eos(ρ, T)
     t = table(); x = gx(t, log10(ρ)); y = gy(t, log10(T))
+    ForwardDiff.value(x) >= 1 || error("PopIIIEqEOS.eos: rho = $(ForwardDiff.value(ρ)) below the table")
     (10^bicubic(t.lus, x, y) - UOFF, 10^bicubic(t.lp, x, y))
 end
 "Equilibrium composition y = (x_H⁺, 0, x_H₂, 0) at (ρ, T) (bilinear, Float64)."

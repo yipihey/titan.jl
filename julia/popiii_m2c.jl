@@ -887,7 +887,7 @@ if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Tr
 # EDDREAL=1: the moments of any radiation field obey K/J >= (H/J)^2, so f >= (F/cE)^2. Applied after the formal solution (f is lagged over the step anyway), with F, E of the current state: in thin
 # zones f from the formal solution can be too low for the E the F row integrates from it (E too low by 3, F/cE = 3, with Eddington factor 0.6). No effect in opaque zones, where (F/cE)^2 << 1/3.
 if get(ENV, "EDDREAL", "0") == "1"
-    let ef0 = TC.EDDFAC[], EDDTAU = parse(Float64, get(ENV, "EDDTAU", "0.3"))
+    let ef0 = TC.EDDFAC[], EDDTAU = parse(Float64, get(ENV, "EDDTAU", "0.3")), EDDRELAX = parse(Float64, get(ENV, "EDDRELAX", "1")), prev = zeros(length(TF.var(:fedd)))
         TC.EDDFAC[] = function ()
             ef0()
             fe = TF.var(:fedd); fr_ = TF.var(:frn); er_ = TF.var(:ern); cl = TF.getscalar(:cc)
@@ -896,7 +896,9 @@ if get(ENV, "EDDREAL", "0") == "1"
                 tau_ += chi_[k] * d_[k] * (r_[k+1] - r_[k])
                 tau_ > EDDTAU && break
                 x = max(fr_[k], fr_[k+1], 0.0) / (cl * er_[k])
-                fe[k] = max(fe[k], min(x * x, 1.0))
+                raw = fe[k]; lim = max(raw, min(x * x, 1.0))
+                prev[k] > 0 && (lim = prev[k] + EDDRELAX * (lim - prev[k]))      # under-relaxed over steps
+                fe[k] = max(raw, lim); prev[k] = fe[k]
             end
         end
     end
@@ -1034,6 +1036,10 @@ if haskey(ENV, "NEWTDBG")
                         pr("   CMP z %d p %.3e T %.1f e %.5e | T_tab(e) %.1f u_tab(T) %.5e u_net(T) %.5e | xH+ net %.4e tab %.4e | xH2 %.3e\n", z, TF.var(:pgn)[z], Tz, ez, Tt, utab, unet, xn[:Hp], PopIIIEqEOS.composition(ρz, Tz)[1], xn[:H2])
                     end
                 end
+                if Int(TF.getscalar(:iter)) == 1 || Int(TF.getscalar(:lboos)) == 1
+                    dualu = TitanResidFast.dualswitch(Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)), true, TitanResidFast.ETASW[])
+                    pr("   U: %s\n", join(("$(z): $(round(TF.var(:un)[z]/1e5, sigdigits=5)) gasrow=$(dualu[z]) pg=$(round(TF.var(:pgn)[z], sigdigits=4)) pr=$(round(TF.var(:ern)[z]/3, sigdigits=4))" for z in w[3]:w[4]), " | "))
+                end
                 for z in w[3]:w[4]
                     pr("   z %d T %.1f To %.1f rho %.4e E %.4e Eo %.4e F %.4e chi %.3e fedd %.3f eq %d\n", z, TF.var(:tn)[z], TF.var(:to)[z], TF.var(:dn)[z], TF.var(:ern)[z], TF.var(:ero)[z], TF.var(:frn)[z], TF.var(:chifn)[z], TF.var(:fedd)[z], eqflag(z))
                 end
@@ -1041,8 +1047,9 @@ if haskey(ENV, "NEWTDBG")
         end
     end
 end
+const RUNEND = Ref{Any}(nothing)
 try
-    TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
+    RUNEND[] = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k
         tnow = time(); TSTEP[] += tnow - TMARK[] - TOUT[]; TOUT[] = 0.0
         tc0 = time(); Tb4 = CHEMDIAG ? copy(TF.var(:tn)) : nothing; ub4 = CHEMDIAG ? copy(TF.var(:egn)) : nothing; ENVEUL !== nothing && advect_species!(); dT = PM.chem!(mat)
@@ -1173,6 +1180,7 @@ catch e
     pr("stopped: %s\n", sprint(showerror, e)[1:min(end, 400)])
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
+pr("run ended: %s; jstep %d jstepe %g timen %.6e tmax %.6e\n", string(RUNEND[]), Int(TF.getscalar(:jstep)), Float64(TF.getscalar(:jstepe)), TF.getscalar(:timen), TF.getscalar(:tmax))
 haskey(ENV, "SAVE") && (checkpoint(ENV["SAVE"], KLAST[]); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[]))
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
