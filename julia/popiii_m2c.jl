@@ -642,7 +642,7 @@ const REZ = (on = get(ENV, "REZONE", "0") == "1", every = parse(Int, get(ENV, "R
              nmax = parse(Int, get(ENV, "REZNMAX", "260")), nhard = TF.MGR - 12, fmin = parse(Float64, get(ENV, "REZFRAC", "0.01")), keepcentre = parse(Int, get(ENV, "REZKEEPC", "5")))
 PM.PSWHYS[] = parse(Float64, get(ENV, "PSWHYS", "1"))
 PM.PSWTMIN[] = parse(Float64, get(ENV, "PSWTMIN", "0"))
-PM.PSWTEX[] = parse(Float64, get(ENV, "PSWTEX", "0"))
+PM.PSWTEX[] = parse(Float64, get(ENV, "PSWTEX", "0")); PM.PSWTAU[] = parse(Float64, get(ENV, "PSWTAU", "0"))
 const REZW = haskey(ENV, "REZWIN") ? parse.(Float64, split(ENV["REZWIN"], ",")) : nothing; const NREZ = Ref(0); const REZNULL = get(ENV, "REZNULL", "0") == "1"
 """
 S6-C2: rezone (Rezone.plan/apply) and rebuild. The material state of a split zone is copied; of a merged zone, mass-weighted
@@ -884,6 +884,23 @@ haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
 haskey(ENV, "STOL") && TF.setscalar!(:stol, parse(Float64, ENV["STOL"]))
 haskey(ENV, "NTRY") && TF.setscalar!(:ntry, parse(Float64, ENV["NTRY"]))
 if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Trbdf2.TFAC[] = TD.FAIL_TFAC[]; end
+# EDDREAL=1: the moments of any radiation field obey K/J >= (H/J)^2, so f >= (F/cE)^2. Applied after the formal solution (f is lagged over the step anyway), with F, E of the current state: in thin
+# zones f from the formal solution can be too low for the E the F row integrates from it (E too low by 3, F/cE = 3, with Eddington factor 0.6). No effect in opaque zones, where (F/cE)^2 << 1/3.
+if get(ENV, "EDDREAL", "0") == "1"
+    let ef0 = TC.EDDFAC[], EDDTAU = parse(Float64, get(ENV, "EDDTAU", "0.3"))
+        TC.EDDFAC[] = function ()
+            ef0()
+            fe = TF.var(:fedd); fr_ = TF.var(:frn); er_ = TF.var(:ern); cl = TF.getscalar(:cc)
+            chi_ = TF.var(:chifn); d_ = TF.var(:dn); r_ = TF.var(:rn); tau_ = 0.0     # only above tau = EDDTAU: at the unresolved photosphere F/cE across one zone is a grid effect, and f = 1 there would destroy diffusion
+            for k in Int(TF.getscalar(:ngre)):-1:Int(TF.getscalar(:ngrs))
+                tau_ += chi_[k] * d_[k] * (r_[k+1] - r_[k])
+                tau_ > EDDTAU && break
+                x = max(fr_[k], fr_[k+1], 0.0) / (cl * er_[k])
+                fe[k] = max(fe[k], min(x * x, 1.0))
+            end
+        end
+    end
+end
 haskey(ENV, "ERTHICK") && (TC.ER_THICK[] = parse(Float64, ENV["ERTHICK"]))
 # ETOTAL=1: TITAN's conservative total-energy row (P4.2); the gas row stays where e/(e + KE) < ETASW, in the cold hypersonic infall, where T is a small difference
 get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW_EOFF[] = PC.UOFF_TH; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
@@ -943,6 +960,60 @@ if haskey(ENV, "JACCHK")
             end
             pr("JACCHK end\n")
             JACSAVE[] = (; E = map(copy, E), rhs = copy(TF.var(:rhs)), ne, nb, k0 = c.k0)
+        end
+    end
+end
+# NEWTSEC="k1,itmin,nmax": from step k1, for up to nmax iterations >= itmin: R(x+dx) - R(x) against J dx row by row (what the Jacobian misses, including offsets beyond +-2),
+# and R(x+dx; context of x) against R(x+dx; recomputed context) (what is lagged in the context). Debugging.
+if haskey(ENV, "NEWTSEC")
+    let w = parse.(Int, split(ENV["NEWTSEC"], ",")), mg0 = TD.ROUTINES[:matgen], sv = Ref{Any}(nothing), nout = Ref(0)
+        TD.ROUTINES[:matgen] = function ()
+            mg0()
+            TX = TitanResidFast
+            it_ = Int(TF.getscalar(:iter))
+            (KLAST[] + 1 < w[1] || nout[] >= w[3]) && (sv[] = nothing; return)
+            E = (TF.var(:em2), TF.var(:em1), TF.var(:e00), TF.var(:ep1), TF.var(:ep2))
+            c = TX.context(); ne = c.neqn; nb = c.nb; ws = TX.getws(Float64, c.mgr)
+            if sv[] !== nothing && it_ == sv[].it + 1
+                s = sv[]; Rnew = zeros(ne, nb); TX.residual!(Rnew, ws, c, zeros(ne * nb))
+                basenew = copy(c.base); cvwnew = copy(TX.BUFS[:cvw])
+                xa = zeros(ne * nb); nbad = Ref(0)
+                for kb in 1:nb, j in 1:ne
+                    k = c.k0 + kb - 1; cde = c.code[j]; cde == 0 && continue
+                    xa[(kb-1)*ne+j] = cde == 4 ? (basenew[k,4] - s.base[k,4]) / c.nomu[k] : cde == 7 ? (basenew[k,7] - s.base[k,7]) / c.nomf[k] : log(basenew[k,cde] / s.base[k,cde])
+                    isfinite(xa[(kb-1)*ne+j]) || (xa[(kb-1)*ne+j] = 0.0; nbad[] += 1)
+                end
+                c.base .= s.base; TX.BUFS[:cvw] .= s.cvw
+                Rlag = zeros(ne, nb); TX.residual!(Rlag, ws, c, xa)
+                c.base .= basenew; TX.BUFS[:cvw] .= cvwnew
+                jerr = zeros(ne, nb); lerr = zeros(ne, nb); sc = zeros(ne, nb); Jd = zeros(ne, nb); rs = zeros(ne, nb)
+                for kb in 1:nb, i in 1:ne
+                    k = c.k0 + kb - 1; Jdx = 0.0; m = abs(s.R[i,kb])
+                    for o in -2:2, j in 1:ne
+                        1 <= kb + o <= nb || continue
+                        t = s.E[o+3][i,j,k] * xa[(kb+o-1)*ne+j]; Jdx += t; m = max(m, abs(t))
+                    end
+                    sc[i,kb] = m
+                    Jd[i,kb] = Jdx; rs[i,kb] = maximum(abs, (s.E[3][i,jj,k] for jj in 1:ne))
+                    jerr[i,kb] = Rlag[i,kb] - s.R[i,kb] - Jdx        # nonlinearity + missing Jacobian
+                    lerr[i,kb] = Rnew[i,kb] - Rlag[i,kb]             # lagged context
+                end
+                pr("SEC k %d iter %d dt %.3e |x|max %.2e (nonfinite %d) cvw change %.1e floors so far %d\n", KLAST[]+1, it_, TF.getscalar(:dtime), maximum(abs, xa), nbad[], maximum(abs, cvwnew .- s.cvw), TC.ESRC_FLOORS[])
+                for kb in 1:nb
+                    k = c.k0 + kb - 1; kx = k - 4
+                    112 <= kx <= 126 || continue
+                    pr("   %d x:%s\n", kx, join((@sprintf("%9.1e", xa[(kb-1)*ne+j]) for j in 1:ne), ""))
+                    pr("      miss/Jdx:%s\n", join((@sprintf("%9.1e", jerr[i,kb] / (Jd[i,kb] == 0 ? 1.0 : abs(Jd[i,kb]))) for i in 1:ne), ""))
+                    pr("      R/row   :%s\n", join((@sprintf("%9.1e", Rnew[i,kb] / (rs[i,kb] + 1e-300)) for i in 1:ne), ""))
+                end
+                nout[] += 1
+            end
+            if it_ >= w[2] - 1
+                R0 = zeros(ne, nb); TX.residual!(R0, ws, c, zeros(ne * nb))
+                sv[] = (; it = it_, E = map(copy, E), R = R0, base = copy(c.base), cvw = copy(TX.BUFS[:cvw]))
+            else
+                sv[] = nothing
+            end
         end
     end
 end

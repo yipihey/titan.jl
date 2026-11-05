@@ -249,6 +249,12 @@ at 8500 K it holds x(H+) well below Saha at fixed e, and the recombination energ
 E_ion/E_th at rho = 1e-11..1e-10 is <= 4 % at 5000 K, 15-48 % at 6000 K. Zones the ray reaches go to the network before this test.
 """
 const PSWTEX = Ref(0.0)
+"""
+PSWTAU[] > 0: a zone with T >= PSWTEX[] and Rosseland depth from the surface >= PSWTAU[] (half that to stay) uses the table whatever its pressure. Where radiation is thermalised, J = B holds H at Saha.
+The network has no radiation field: at the outer edge of an opaque layer (p ~ 6, T ~ 1e4 K, 39 M_sun) it sits at coronal x(H+) ~ 0.05 against 0.99, Newton heats the zone by a factor of 2 at frozen
+composition and chem! brings it back each step, until Newton fails. On the table the ionization heat capacity is inside Newton. The switch at fixed e lowers T once; radiation reheats the zone.
+"""
+const PSWTAU = Ref(0.0)
 "After a converged hydro step: network step per zone in the ideal regime, equilibrium-table step where p ≥ pswitch."
 const CHEMFALLBACK = Ref(false); const NCHEMFB = Ref(0)
 """
@@ -269,6 +275,11 @@ function chem!(m::NetGas)
         st = ray.start(a, b); st === nothing || ((kph, Nin) = st)
     end
     rn = TM.v(:rn)
+    tauz = zeros(length(dn))
+    if PSWTAU[] > 0
+        chi_ = TM.v(:chifn); tt = 0.0
+        for k in b:-1:a; tt += chi_[k] * dn[k] * (rn[k+1] - rn[k]); tauz[k] = tt; end
+    end
     for k in a:b
         if h !== nothing && tn[k] > h.T1             # hot branch: no chemistry, no re-solve of T with the table (driver: burn and mix)
             m.x[k] = x_from_table(m, dn[k], min(tn[k], 1e6)); m.eqzone[k] = true
@@ -297,7 +308,7 @@ function chem!(m::NetGas)
         end
         # PSWTMIN[] > 0: also require T above it (5 % hysteresis). Below ~5000 K ionization holds negligible energy, so the network and the table agree there
         # to ~1 % in T at fixed e; at 7000-9500 K the network's H ionization lags the table's Saha by ×5, and switching there drops T by up to 16 %.
-        if (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[]) || (m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[])
+        if (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[]) || (m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
             _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
