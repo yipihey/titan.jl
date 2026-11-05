@@ -883,7 +883,7 @@ haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
 if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Trbdf2.TFAC[] = TD.FAIL_TFAC[]; end
 haskey(ENV, "ERTHICK") && (TC.ER_THICK[] = parse(Float64, ENV["ERTHICK"]))
 # ETOTAL=1: TITAN's conservative total-energy row (P4.2); the gas row stays where e/(e + KE) < ETASW, in the cold hypersonic infall, where T is a small difference
-get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
+get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW_EOFF[] = PC.UOFF_TH; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
 const LINEFRAC = parse(Float64, get(ENV, "LINEFRAC", "0")); const LINELAST = [-Inf, 0.0]
 # NEWTKX=1: the largest Newton correction of each equation at every iteration from the third on, with the zone it is in (debugging)

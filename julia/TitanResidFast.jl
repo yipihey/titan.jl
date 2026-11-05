@@ -62,6 +62,8 @@ const BUFS = Dict{Symbol,Any}()     # reused context buffers (allocation-free co
 "Defaults for the energy formulation (Phase 4 item 2); ETOTAL[] = true selects the total-energy row."
 const ETOTAL = Ref(false)
 const ETASW = Ref(0.0)
+"Added to e in the dual-energy test, for a material whose e has a negative zero point (Population III: −1e13 erg/g), where the ratio otherwise has no meaning and can be singular."
+const ETASW_EOFF = Ref(0.0)
 """
 GASROW[] (lrad = 1 only): energy row of the gas ALONE,
   Δ(m e_g)/dt + advection of e_g + p_g ∇·u + Q_visc + MLT flux = −(c κ_E E − 4π κ_P B) ρ dV,
@@ -167,7 +169,7 @@ function dualswitch(ngrs, ngre, lrad, ηsw)
     ηsw > 0 || return ui
     dO, dv, uo = v(:do), v(:dvolo), v(:uo); eo = lrad ? v(:egro) : v(:ego)
     for k in ngrs:ngre
-        m = dO[k] * dv[k]; ein = m * eo[k]; K = 0.25m * (uo[k]^2 + uo[k+1]^2)
+        m = dO[k] * dv[k]; ein = m * max(eo[k] + ETASW_EOFF[], 0.0); K = 0.25m * (uo[k]^2 + uo[k+1]^2)
         ui[k] = ein / (ein + K) < ηsw
     end
     ui
