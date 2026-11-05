@@ -965,6 +965,39 @@ if haskey(ENV, "JACCHK")
         end
     end
 end
+TC.EDD_SCATTER[] = get(ENV, "EDDSCAT", "0") == "1"
+TC.EDDG_MU0[] = get(ENV, "EDDGMU0", "0") == "1"
+# EDDCHI=1: extinction of the formal solution at most kappa_P + electron scattering. It takes S from kappa_P and scattering; with chi >> kappa_P (thin network zones: chi uses LTE tables, 50-1000 x kappa_P) it would emit
+# chi B where the energy rows emit kappa_P B, and that isotropic light lowers f (0.8 at 1000-25000 R_sun), so E comes out below F/c when the F row integrates it inward.
+if get(ENV, "EDDCHI", "0") == "1"
+    let ef0 = TC.EDDFAC[], sv = Float64[]
+        TC.EDDFAC[] = function ()
+            chi, kp, ne, d_ = TF.var(:chifn), TF.var(:xkpn), TF.var(:xnen), TF.var(:dn); cs = TF.getscalar(:csige)
+            resize!(sv, length(chi)); copyto!(sv, chi)
+            for k in Int(TF.getscalar(:ngrs)):Int(TF.getscalar(:ngre)); chi[k] = min(chi[k], kp[k] + cs * ne[k] / d_[k]); end
+            try ef0() finally copyto!(chi, sv) end
+        end
+    end
+end
+# EDDDBG=k: at step k, the formal solution's J (as 4 pi J / c) and f beside the moment system's E, F, with the opacities and the two emissivities, zone by zone (debugging)
+if haskey(ENV, "EDDDBG")
+    let ks = parse(Int, ENV["EDDDBG"]), ef0 = TC.EDDFAC[], done = Ref(false)
+        TC.EDDFAC[] = function ()
+            ef0()
+            (done[] || KLAST[] + 1 < ks) && return
+            done[] = true
+            xm0, xm2 = TF.var(:xmom0), TF.var(:xmom2); fe, E, Fr = TF.var(:fedd), TF.var(:ern), TF.var(:frn)
+            chi, ke, kp, dn_, tn_, rn_, pl, ne = TF.var(:chifn), TF.var(:xken), TF.var(:xkpn), TF.var(:dn), TF.var(:tn), TF.var(:rn), TF.var(:plfn), TF.var(:xnen)
+            cl = TF.getscalar(:cc); cpi = TF.getscalar(:cpi); cs = TF.getscalar(:csige); tau = 0.0
+            for k in Int(TF.getscalar(:ngre)):-1:Int(TF.getscalar(:ngrs))
+                tau += chi[k] * dn_[k] * (rn_[k+1] - rn_[k])
+                tau > 3 && break
+                pr("EDD %d r %.3e T %.0f tau %.2e chi %.3e kE %.3e kP %.3e sige/rho %.2e | 4piB/c %.3e 4piJ/c %.3e E %.3e F/c %.3e | f %.3f K/J %.3f\n", k - 4, rn_[k] / 6.957e10, tn_[k], tau, chi[k], ke[k], kp[k], cs * ne[k] / dn_[k],
+                   4cpi * pl[k] / cl, 4cpi * xm0[k] / cl, E[k], max(Fr[k], Fr[k+1]) / cl, fe[k], xm2[k] / xm0[k])
+            end
+        end
+    end
+end
 # NEWTSEC="k1,itmin,nmax": from step k1, for up to nmax iterations >= itmin: R(x+dx) - R(x) against J dx row by row (what the Jacobian misses, including offsets beyond +-2),
 # and R(x+dx; context of x) against R(x+dx; recomputed context) (what is lagged in the context). Debugging.
 if haskey(ENV, "NEWTSEC")

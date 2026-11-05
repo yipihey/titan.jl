@@ -83,6 +83,16 @@ over the transition from the core's beam to the isotropic CMB leaves E far too l
 the relative correction does not shrink with Δt, and through dmax it stopped the whole grid (Δt → 1e-245 s).
 """
 const ER_TAUCONV = Ref(0.0)
+"""
+EDD_SCATTER[]: in the formal solution all of chi above kappa_P is scattering: S = (kappa_P B + (chi - kappa_P) J) / chi. Otherwise only electrons scatter, so where chi >> kappa_P + sigma_e (cool thin gas) chi emits at S ~ B:
+50-1000 times the energy rows' emission, and that isotropic light lowers f and makes E < F/c when the F row integrates E inward.
+"""
+const EDD_SCATTER = Ref(false)
+"""
+EDDG_MU0[]: the outer g integrates down to mu = 0, as f does. TITAN stops at the last ray: on a log mesh that is mu = sqrt(2 dlnr) ~ 0.33 at dlnr = 0.06, so an isotropic field gives g = 0.65 for 0.5 and,
+through the boundary condition E / aT^4 = (2g + 1) / 4g, E 12 % below the CMB. The F row carries that deficit inward with E ~ r^-2 where f ~ 1, as F/cE > 1.
+"""
+const EDDG_MU0 = Ref(false)
 const ESRC_FLOORS = Ref(0)      # number of floor activations (diagnostic)
 function maxdel!()
     a, b = gi(:ngrs), gi(:ngre); meqn = TF.PARAMS[:meqn]
@@ -599,7 +609,9 @@ function eddfac!()
     nang = gi(:nang); lribc, lrobc = gi(:lribc), gi(:lrobc)
     xkpn = vf(:xkpn); matsrc = TD.EDD_MATERIAL_SOURCE[]
     source!(k) = (sf[k] = matsrc ?
-                      (xkpn[k] * dn[k] * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) / (xkpn[k] * dn[k] + csige * xnen[k]) :
+                      (EDD_SCATTER[] && chifn[k] * dn[k] > xkpn[k] * dn[k] + csige * xnen[k] ?
+                       (xkpn[k] * plfn[k] + (chifn[k] - xkpn[k]) * ern[k] * cc / (4.0 * cpi)) / chifn[k] :
+                       (xkpn[k] * dn[k] * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) / (xkpn[k] * dn[k] + csige * xnen[k])) :
                       ((chifn[k] * dn[k] - csige * xnen[k]) * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) /
                           (chifn[k] * dn[k]);
                   dtau[k] = chifn[k] * dn[k] * (rn[k+1] - rn[k]))
@@ -738,7 +750,10 @@ function eddfac!()
             fedd[k] = edpos() && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 :
                       max(0.0, min(xmom2[k] / xmom0[k], 1.0))
         end
-        l == lmax && s!(:geddr, _eddg(nj, xang, xip))
+        if l == lmax
+            EDDG_MU0[] && (xang[nj+1] = 0.0; xip[nj+1] = xip[nj])
+            s!(:geddr, _eddg(EDDG_MU0[] ? nj + 1 : nj, xang, xip))
+        end
         s!(:geddr, max(0.5, min(gf(:geddr), 1.0)))
     end
     nothing
