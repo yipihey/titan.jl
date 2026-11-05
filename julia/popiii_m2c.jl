@@ -642,6 +642,7 @@ const REZ = (on = get(ENV, "REZONE", "0") == "1", every = parse(Int, get(ENV, "R
              nmax = parse(Int, get(ENV, "REZNMAX", "260")), nhard = TF.MGR - 12, fmin = parse(Float64, get(ENV, "REZFRAC", "0.01")), keepcentre = parse(Int, get(ENV, "REZKEEPC", "5")))
 PM.PSWHYS[] = parse(Float64, get(ENV, "PSWHYS", "1"))
 PM.PSWTMIN[] = parse(Float64, get(ENV, "PSWTMIN", "0"))
+PM.PSWTEX[] = parse(Float64, get(ENV, "PSWTEX", "0"))
 const REZW = haskey(ENV, "REZWIN") ? parse.(Float64, split(ENV["REZWIN"], ",")) : nothing; const NREZ = Ref(0); const REZNULL = get(ENV, "REZNULL", "0") == "1"
 """
 S6-C2: rezone (Rezone.plan/apply) and rebuild. The material state of a split zone is copied; of a merged zone, mass-weighted
@@ -896,6 +897,52 @@ if get(ENV, "NEWTKX", "0") == "1"
             it_ = Int(TF.getscalar(:iter))
             it_ >= 3 && pr("KX dt %.3e iter %d dmax %.2e: %s\n", TF.getscalar(:dtime), it_, TF.getscalar(:dmax),
                            join(("$(TF.var(:kx)[i]):$(round(TF.var(:dx)[i], sigdigits = 2))" for i in 1:Int(TF.getscalar(:neqn))), " "))
+        end
+    end
+end
+const JACSAVE = Ref{Any}(nothing)
+# JACCHK="k,z,iter": at step k, Newton iteration iter, finite differences of the residual against the assembled Jacobian for the variables of absolute zone z (debugging)
+if haskey(ENV, "JACCHK")
+    let w = parse.(Int, split(ENV["JACCHK"], ",")), mg0 = TD.ROUTINES[:matgen], done = Ref(false)
+        ms0 = TD.ROUTINES[:matslv]
+        TD.ROUTINES[:matslv] = function ()                 # residual of the linear solve just done, per row, for the saved system
+            sv = JACSAVE[]
+            ms0()
+            sv === nothing && return
+            JACSAVE[] = nothing
+            x = TF.var(:rhs); worst = zeros(sv.ne); wz = zeros(Int, sv.ne)
+            for kb in 1:sv.nb, i in 1:sv.ne
+                k = sv.k0 + kb - 1; sm = 0.0; sc = abs(sv.rhs[i, k])
+                for o in -2:2
+                    1 <= kb + o <= sv.nb || continue
+                    for j in 1:sv.ne; t = sv.E[o + 3][i, j, k] * x[j, k + o]; sm += t; sc = max(sc, abs(t)); end
+                end
+                r = min(abs(sm - sv.rhs[i, k]), abs(sm + sv.rhs[i, k])) / (sc + 1e-300)
+                r > worst[i] && (worst[i] = r; wz[i] = k)
+            end
+            pr("SOLVE worst |A dx - b| / largest term per row: %s\n", join(("$i: $(round(worst[i], sigdigits = 2)) (zone $(wz[i]))" for i in 1:sv.ne), ", "))
+        end
+        TD.ROUTINES[:matgen] = function ()
+            mg0()
+            (done[] || KLAST[] + 1 < w[1] || Int(TF.getscalar(:iter)) != w[3]) && return
+            done[] = true
+            TX = TitanResidFast; c = TX.context(); ne = c.neqn; nb = c.nb; x0 = zeros(ne * nb); ws = TX.getws(Float64, c.mgr)
+            Rp = zeros(ne, nb); Rm = zeros(ne, nb); R0 = zeros(ne, nb); TX.residual!(R0, ws, c, x0)
+            E = (TF.var(:em2), TF.var(:em1), TF.var(:e00), TF.var(:ep1), TF.var(:ep2))
+            z = w[2]; kbz = z - c.k0 + 1
+            pr("JACCHK step %d iter %d zone %d dt %.3e (rows: 1 r 2 m 3 rho 4 u 5 T 6 E 7 F; code of each variable %s)\n", KLAST[] + 1, w[3], z, TF.getscalar(:dtime), string(c.code))
+            for j in 1:ne
+                h = 1e-5; x = copy(x0); ix = (kbz - 1) * ne + j
+                x[ix] = h; TX.residual!(Rp, ws, c, x); x[ix] = -h; TX.residual!(Rm, ws, c, x)
+                for kb in max(1, kbz - 3):min(nb, kbz + 3), i in 1:ne
+                    fd = (Rp[i, kb] - Rm[i, kb]) / 2h; o = kbz - kb
+                    ad = abs(o) <= 2 ? E[o + 3][i, j, c.k0 + kb - 1] : 0.0
+                    scale = maximum(abs, (E[3][i, jj, c.k0 + kb - 1] for jj in 1:ne)) + 1e-300
+                    abs(fd - ad) > 1e-3 * scale && pr("   row %d zone %d var %d (offset %d): FD %.5e AD %.5e, largest diagonal entry of the row %.3e\n", i, c.k0 + kb - 1, j, o, fd, ad, scale)
+                end
+            end
+            pr("JACCHK end\n")
+            JACSAVE[] = (; E = map(copy, E), rhs = copy(TF.var(:rhs)), ne, nb, k0 = c.k0)
         end
     end
 end

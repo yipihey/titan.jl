@@ -243,6 +243,12 @@ of the accretion layer sitting on pswitch otherwise flips every step between tab
 """
 const PSWHYS = Ref(1.0)
 const PSWTMIN = Ref(0.0)
+"""
+Table to network, falling pressure: PSWTEX[] > 0 keeps a table zone on the table until T < PSWTEX[], whatever its pressure. The network has no photoionization by the local radiation field, so
+at 8500 K it holds x(H+) well below Saha at fixed e, and the recombination energy went into heat: T 8509 -> 13938 K in one step at the surface of a 28 M_sun protostar, then Newton failed at every dt.
+E_ion/E_th at rho = 1e-11..1e-10 is <= 4 % at 5000 K, 15-48 % at 6000 K. Zones the ray reaches go to the network before this test.
+"""
+const PSWTEX = Ref(0.0)
 "After a converged hydro step: network step per zone in the ideal regime, equilibrium-table step where p ≥ pswitch."
 const CHEMFALLBACK = Ref(false); const NCHEMFB = Ref(0)
 """
@@ -291,7 +297,7 @@ function chem!(m::NetGas)
         end
         # PSWTMIN[] > 0: also require T above it (5 % hysteresis). Below ~5000 K ionization holds negligible energy, so the network and the table agree there
         # to ~1 % in T at fixed e; at 7000-9500 K the network's H ionization lags the table's Saha by ×5, and switching there drops T by up to 16 %.
-        if (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[])
+        if (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[]) || (m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[])
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
             _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
