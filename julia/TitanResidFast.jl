@@ -268,6 +268,16 @@ const DEC = Dict{Tuple{Symbol,Int},Vector{Bool}}()
     @inbounds return v[k]
 end
 
+"""
+EXCAP[] > 0: factor on the gas-radiation exchange of the two energy rows, so that c κ_E ρ Δt never exceeds EXCAP[]. In an opaque zone that product can be
+1e20 and the rows carry it as round-off; E = aT⁴ there holds to about 1/EXCAP anyway. The same factor in both rows keeps energy conserved. A constant of the iteration (no derivative).
+"""
+const EXCAP = Ref(0.0)
+@inline function excap(cc, κ, ρ, dt)
+    EXCAP[] > 0 || return 1.0
+    return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
+end
+
 "van Leer interpolation (advectc: centred=true, advecti: centred=false)."
 @inline function advect!(qb, qsn, qn, qo, qso, flow, θ, cadv, eps, ngrs, ngre, centred::Bool, id::Int = 0)
     T = eltype(qb)
@@ -740,7 +750,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
                 dfe[k+1] + dfe[k] + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
                 pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k] -
-                (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k] - src
+                excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k] - src
             if k == ngrs
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
@@ -793,7 +803,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             w = (ern[k] * dvoln[k] - c.ero[k] * c.dvolo[k]) / dt + rmu[k+1] * fr[k+1] - rmu[k] * fr[k] +
                 fedd[k] * er[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] +
-                (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
+                excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
             SHOCK_RAD[] && (w += shock_frac(u[k+1] - u[k]) * qf[k] * dudr[k] * dvol[k])
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
             if k == ngrs
@@ -873,13 +883,26 @@ kinetic-energy, work and viscous pieces of the adjacent zone.
     end
     Fl
 end
+"ETOT_GRAV[]: the total-energy row includes the work of gravity (self-gravity or P.g). Default false, as in the tests and ledgers that book the potential energy themselves."
+const ETOT_GRAV = Ref(false)
 "Conservative total-energy row of zone k: Δ[m(e_g [+E_r/ρ]) + m(u_k²+u_{k+1}²)/4]/dt + Φ_{k+1} − Φ_k."
 @inline function etot_row(k, c, W, ::Type{T}) where {T}
     dn, un, dvoln = W.dn, W.un, W.dvoln
     en = c.lrad ? W.egrn[k] : W.egn[k]; eo = c.lrad ? c.egro[k] : c.ego[k]
-    (dn[k] * dvoln[k] * (en + 0.25 * (un[k]^2 + un[k+1]^2)) -
-     c.do_[k] * c.dvolo[k] * (eo + 0.25 * (c.uo[k]^2 + c.uo[k+1]^2))) / c.p.dt +
-    eflux(k + 1, c, W, T) - eflux(k, c, W, T)
+    w = (dn[k] * dvoln[k] * (en + 0.25 * (un[k]^2 + un[k+1]^2)) -
+         c.do_[k] * c.dvolo[k] * (eo + 0.25 * (c.uo[k]^2 + c.uo[k+1]^2))) / c.p.dt +
+        eflux(k + 1, c, W, T) - eflux(k, c, W, T)
+    if ETOT_GRAV[]
+        # Work of gravity on the mass that actually crosses each face (the continuity row's flux r² u ρ_b), over half a zone on each side: the rows sum to
+        # Σ_faces (mass flux) g Δr, the change of Σ m Φ, so gas + kinetic + potential energy is conserved. The momentum row's force g m_k with m_k the mean of the
+        # neighbouring zones differs from this where ρ is steep across a face (the accretion shock on a fixed mesh), and that difference must not create energy.
+        xmu = Float64(c.mu); P = c.p
+        gi_(j) = 2xmu * P.cpi * P.cgrav * W.xm[j] / W.rmu[j] + (1 - 0.5xmu) * P.g
+        Δr = 0.5 * (W.r[k+1] - W.r[k])
+        k > c.ngrs && (w += W.rmu[k] * W.urel[k] * W.db[k] * gi_(k) * Δr)
+        k < c.ngre && (w += W.rmu[k+1] * W.urel[k+1] * W.db[k+1] * gi_(k + 1) * Δr)
+    end
+    w
 end
 
 """

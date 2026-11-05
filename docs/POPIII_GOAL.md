@@ -74,13 +74,32 @@ M3 state (4 Nov). `julia/IonRay.jl`: multi-group radial ray, photon-conserving z
 | Test | Result | Status |
 |---|---|---|
 | Iliev et al. 2006 test 1 (`ionfront_test.jl`; static, T fixed) | r_I/analytic with α_B = 2.59e-13: 1.00 at 10 Myr, 1.06 at 500 Myr; the network's own α_B is 2.48e-13 (n ≤ 15), giving 1.04. Unchanged for Δt = 0.5–10 Myr. The paper's codes stay within 5 %. Ionizations + recombinations exceed the photons by 1–2 %, not traced (collisional ionization is the candidate). | passed |
-| Iliev et al. 2009 test 5 (`ionfront_hydro.jl`; hydro on TITAN's fixed mesh, blackbody, no gray field) | r_I/r_S0 = 0.87 at 100 Myr, 1.12 at 200, 1.67 at 500, against 0.88, 1.15, about 1.55 (range about 1.5–1.65) read off their Fig. 18. Mass conserved to 1e-14. Shell peak n 1.5e-3 at r/L = 0.80 against ZEUS-MP's 2.5e-3 at 0.78 at the same Δr. | close, slightly fast at 500 Myr; finer mesh pending |
+| Iliev et al. 2009 test 5 (`ionfront_hydro.jl`; hydro on TITAN's fixed mesh, blackbody, no gray field) | r_I/r_S0 = 0.87 at 100 Myr, 1.12 at 200, 1.67 at 500, against 0.88, 1.15, about 1.55 (range about 1.5–1.65) read off their Fig. 18. r_I unchanged at 256 zones and half the Δt (9.02 against 9.01 kpc at 500 Myr), so the excess is not mesh error. Mass conserved to 1e-13. Shell peak n 1.5e-3 at r/L = 0.80 against ZEUS-MP's 2.5e-3 at 0.78 at the same Δr (128 zones). | close, slightly fast at 500 Myr, converged in mesh |
 | Coupled to the gray field (`RAY=1`: `RAYQ` removes the energy from the gray rows) | runs at 1e44 and 1e46 photons/s on the real state at 3 M☉, Δt falling with the rate. 1e47 and above stop at the first step: test light of 1e5 K on gas that is still 6000 K and opaque, which is not a state the star reaches. | not validated |
 | HII temperature with cooling through the gray field | not done | open |
 
 Not in the ray yet: helium (fixed neutral at y_He, so no absorption by He and no He⁺ heating), Lyman-Werner dissociation of H₂, and the diffuse field. Gray emission uses Planck means at LTE composition, so it includes recombination to the ground state, while the network is case B in lit zones.
 
 Bug found by test 5: when `ChemNet.step` halved a step, the second half restarted from the original u, dropping what cooling or heating did in the first half. Fixed. It touched any network zone with non-zero cooling (H₂ lines) whose Newton failed at full Δt, so runs before `_h5` have this energy error at those zones. `_h4` (old) against `_h5` (fixed) from one checkpoint measures its size; `_h6`, `_h7` restart the mesh check with the fix.
+
+Size of that bug: `_h4` against `_h5` from step 35500 (3.5 M☉) to 5.2 M☉ differ by under 0.2 % in M, up to about 1 % in L, one zone in R.
+
+## Numerics found on the way to M1 (4 Nov)
+
+Runs were not gaining from longer accretion times: Δt followed a sawtooth (×2.5 per step up to 2e6 s, then ÷50–100), mean 5e5 s, which projected to months. Causes, each measured from the checkpoint at step 40000 (5.2 M☉, 400–800 step tests):
+
+| Cause | Measured | Change |
+|---|---|---|
+| A failed attempt cut Δt by 20 | NITER=25 alone no gain; FAILTFAC=0.5 doubles mean Δt | `FAILTFAC=0.5`, `NITER=25` |
+| Round-off from the gas-radiation exchange: c κ ρ Δt reaches 1e20 in the opaque core, so Newton stalled near 1e-4 in zones 3–12, growing with Δt. The upwind flip was the first suspect; freezing the branches changed nothing (95 failures against 94) | capping that product at 1e8: 0 failures in 400 steps (from 95). 1e4 is too low, stalling at the shock | `EXCAP=1e8` (same factor in both energy rows, so energy is conserved; E = aT⁴ holds to about 1e-8) |
+| `CDYN=1000`, 1000 × central dynamical time, capped Δt at 2.8e6 s | no longer binds at 1e4 or 1e5 | `CDYN=1e5` |
+| H₂ line transfer every step, 75 % of the cost | every 0.1 t_cool: M and infall ρ agree within 6e-4, cost halved at this stage, and falling as Δt grows | `LINEFRAC=0.1` |
+
+All together against the old numerics, `_h8` against `_h5` from 5.2 to 7 M☉: M within 0.4 %, about what the snapshot time offset gives, and L within a few %, inside the star's fluctuations. Δt then reaches 1e7–6e7 s by 10–18 M☉ (`_h9`, `_h8`), set by E_r in the zones under the photosphere. `ERTHICK=10` removes that repeat of the T criterion, for ×1.4 net at 5 M☉; left off for now.
+
+**The energy budget did not close, and this is a physical matter, not bookkeeping.** `popiii_track.jl` books a fixed sphere around the star against what crosses its face. With the gas energy row, energy appeared at the accretion shock: +7 % of the radiated energy at 6–7 M☉ on the 0.03 mesh, +24 % on the 0.06 mesh (growing to +33 % at 14 M☉), all between 150 and 240 R☉. So L above GMṀ/R in those runs, and the swelling they show, were at least partly numerical; `_h9` reached L/L_acc = 1.8 at 15 M☉, and that number should not be used.
+
+Fix, with TITAN's own total-energy row (P4.2, `ETOTAL=1`, gas row kept in the hypersonic infall, `ETASW=0.1`). It had no gravity work, as it had never run with self-gravity. Work computed from the momentum row's force g m_k still left +5 %, because m_k, the mean of the neighbouring zones, is not the mass crossing the face where ρ is steep. Computing it from the continuity row's mass flux (`ETOT_GRAV`) conserves gas + kinetic + potential energy by construction: imbalance now −3 % (0.03 mesh) and −1 % (0.06 mesh) at 1000 R☉, from an 800-step test after a restart. Longer windows are to come from the runs below. The whole-run test restarts from 0.5 M☉, because earlier stars carry the shock error in their history: `_i3` (0.03), `_i6` (0.06), `_i1` (0.015).
 
 ## Rules for this work
 
@@ -97,3 +116,4 @@ Bug found by test 5: when `ChemNet.step` halved a step, the second half restarte
 | 2026-11-04 | Goal set. Best run 1.49 M☉ (`_c1`), 1.47 M☉ (`_c2`, with convection). M0 in progress. |
 | 2026-11-04 | **M0 passed.** Cause: when a zone's pressure crosses PSWITCH it changes from network to table at fixed e. At 7000–9500 K the network's H ionization is ×5 below Saha, so T drops up to 16 % (9520 → 7977 K) and κ falls ×9. E_r must relax in ~7 ms, Newton fails down to that Δt, and DTSTOP = 1e-2 stopped the run. Reproduced at the same step. Moved the switch to PSWITCH = 300 with T ≥ 4500 K (`PSWTMIN`), where the mismatch is ~1 %; M, T_c and L agree with the old switch to 0.04 % at t = 4.5 yr (restart comparison). Long run `_h1` started. Whether the network's low ionization or Saha is right in the switching gas has not been decided: the zones there are optically thick, which favours Saha. |
 | 2026-11-04 | `_h1` reached 3.2 M☉ with no stop, about 5800 steps per e-fold, 1.8 s per step, 78 % of it H₂ lines. M3 ray passes Iliev test 1; hydro test 5 close. |
+| 2026-11-04 | Numerics above. On the gas row, R(shock) against the adiabatic scaling (Hosokawa & Omukai 2009 eq. 9): ratio 0.66 at 0.7 M☉, 0.81 at 1.5, 0.92 at 3, 0.98 at 5 M☉, at Ṁ about 0.035–0.05 M☉/yr; to be repeated on `_i3`. Interior T peaks off centre (3.5e5 K at m = 0.55 M☉, 5 M☉), near the virial estimate. Deuterium is not in the network; Hosokawa & Omukai find it unimportant at such rates. |

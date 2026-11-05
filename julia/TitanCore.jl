@@ -166,6 +166,8 @@ interface is limited to EXTRAP_FRAC × (its smaller adjacent zone width) / |dr/d
 less than a fraction of a zone per step. Replaces the all-or-nothing STATIC_FALLBACK.
 """
 const EXTRAP_FRAC = Ref(Inf)
+"Zones of Rosseland optical thickness above `ER_THICK[]` are left out of the E_r criterion of timstp! (0 = TITAN's rule)."
+const ER_THICK = Ref(0.0)
 "S6: zones with Rosseland optical depth from the surface below `ER_TAUMIN[]` are left out of the E_r criterion of timstp! (0 = TITAN's rule)."
 const ER_TAUMIN = Ref(0.0)
 function timstp!()
@@ -197,6 +199,12 @@ function timstp!()
             @inbounds for k in b:-1:a
                 τ += chifn[k] * dn[k] * (rn[k+1] - rn[k])
                 τ < ER_TAUMIN[] && (sx[k, ie] = 0.0)
+            end
+        end
+        if lrad == 1 && ER_THICK[] > 0         # E_r = aT⁴ in an opaque zone, so ΔE/E = 4 ΔT/T repeats the criterion on T four times tighter
+            chifn = vf(:chifn)
+            @inbounds for k in a:b
+                chifn[k] * dn[k] * (rn[k+1] - rn[k]) > ER_THICK[] && (sx[k, ie] = 0.0)
             end
         end
         pick!(ir, ni); pick!(im, ni); pick!(id, nc); pick!(iu, ni); pick!(it, nc)

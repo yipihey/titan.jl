@@ -878,6 +878,25 @@ const CHEMDIAG = get(ENV, "CHEMDIAG", "0") == "1"; const LNUC = Ref(0.0); const 
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
 const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended run whose Δt has collapsed, before the checkpoints are overwritten
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
+# Newton controls, applied after any restart: NITER (iterations per attempt), FAILTFAC (Δt factor after a failed attempt)
+haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
+if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Trbdf2.TFAC[] = TD.FAIL_TFAC[]; end
+haskey(ENV, "ERTHICK") && (TC.ER_THICK[] = parse(Float64, ENV["ERTHICK"]))
+# ETOTAL=1: TITAN's conservative total-energy row (P4.2); the gas row stays where e/(e + KE) < ETASW, in the cold hypersonic infall, where T is a small difference
+get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
+haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
+const LINEFRAC = parse(Float64, get(ENV, "LINEFRAC", "0")); const LINELAST = [-Inf, 0.0]
+# NEWTKX=1: the largest Newton correction of each equation at every iteration from the third on, with the zone it is in (debugging)
+if get(ENV, "NEWTKX", "0") == "1"
+    let md0 = TD.ROUTINES[:maxdel]
+        TD.ROUTINES[:maxdel] = function ()
+            md0()
+            it_ = Int(TF.getscalar(:iter))
+            it_ >= 3 && pr("KX dt %.3e iter %d dmax %.2e: %s\n", TF.getscalar(:dtime), it_, TF.getscalar(:dmax),
+                           join(("$(TF.var(:kx)[i]):$(round(TF.var(:dx)[i], sigdigits = 2))" for i in 1:Int(TF.getscalar(:neqn))), " "))
+        end
+    end
+end
 # NEWTDBG="k1,k2,z1,z2": per-iteration state of zones z1:z2 during steps k1:k2 (debugging)
 if haskey(ENV, "NEWTDBG")
     let w = parse.(Int, split(ENV["NEWTDBG"], ",")), up0 = TD.ROUTINES[:update]
@@ -933,6 +952,10 @@ try
             # H₂ line transfer on the new state (RHFC02 A2.4); Λ held fixed over the next step; Δt ≤ 0.1 u ρ/|Λ| (A2.2)
             rr = TF.var(:rn)[a:b+1]; uu = TF.var(:un)[a:b+1]; dd = TF.var(:dn)[a:b]; tt = TF.var(:tn)[a:b]
             nh2 = [dd[j] / PC.μH * ycomp(a + j - 1)[3] for j in 1:nsh]
+            # LINEFRAC > 0: keep the last Λ until LINEFRAC × (shortest t_cool) has elapsed; transfer is most of a step's cost
+            if LINEFRAC > 0 && TF.getscalar(:timen) - LINELAST[1] < LINEFRAC * LINELAST[2]
+                TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * LINELAST[2]))
+            else
             tl0 = time(); Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k); TLINE[] += time() - tl0
             tcmin = Inf
             for j in 1:nsh
@@ -956,6 +979,12 @@ try
                                 TF.var(:egn)[a+j_-1] + PC.UOFF_TH, Λl[j_], TF.getscalar(:dtime), TF.getscalar(:smax))
             end
             TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin))
+            LINELAST[1] = TF.getscalar(:timen); LINELAST[2] = tcmin
+            end
+        end
+        if get(ENV, "STEPKX", "0") == "1"             # which equation and zone set the step's relative change (timstp!)
+            pr("STEP %d dt %.3e smax %.3e: %s\n", k, TF.getscalar(:dtime), TF.getscalar(:smax),
+               join(("$(TF.var(:kx)[i]):$(round(TF.var(:dx)[i], sigdigits = 2))" for i in 1:Int(TF.getscalar(:neqn))), " "))
         end
         if RAD && haskey(ENV, "ERDIAG") && k in parse.(Int, split(ENV["ERDIAG"], ","))     # radiation field across the grid
             ern = TF.var(:ern); frn = TF.var(:frn); fe = TF.var(:fedd); ch = TF.var(:chifn); dd = TF.var(:dn); tt = TF.var(:tn); rr = TF.var(:rn)
