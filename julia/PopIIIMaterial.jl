@@ -505,7 +505,11 @@ function chem!(m::NetGas)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
         else
             eqprev = m.eqzone[k]
-            m.eqzone[k] && (m.eqzone[k] = false)     # (back to the ideal regime: the network continues from the table composition)
+            # (back to the ideal regime: the network continues from the table composition). With the three-level atom, from the table composition
+            # at the zone's current T, not m.x: m.x of a table zone is still advected, and took in the ionized network gas upstream (x_e 0.3–0.4)
+            # while the table's e had radiated that energy away; the network then started 3e12 erg/g below u(10 K, x) (zones at 1800–1900 R_sun).
+            eqprev && STARLIGHT[] !== nothing && hasproperty(STARLIGHT[], :tl3) && STARLIGHT[].tl3 && (m.x[k] = x_from_table(m, dn[k], tn[k]))
+            m.eqzone[k] && (m.eqzone[k] = false)
             exs, cools = slterms(k, nothing, cool)
             p3 = (slrates === nothing || m.eqzone[k]) ? nothing : SLDIAG[].tl3[k]
             envk, phk = m.env, m.photos; fb = false
@@ -526,6 +530,7 @@ function chem!(m::NetGas)
                 STARLIGHT[] !== nothing && !(e isa ErrorException) && println("starlight zone failed: k ", k, " x ", m.x[k], " ρ ", dn[k], " u ", egn[k], " T ", tn[k], " dt ", dt, " rates ", slrates(k), " eq ", m.eqzone[k], " E_r ", TM.v(:ern)[k])
                 (CHEMFALLBACK[] && (e isa ErrorException || (p3 !== nothing && e isa ArgumentError))) || rethrow()
                 NCHEMFB[] += 1; fb = true
+                TL3DBG[] > 0 && @printf("tl3fb k %d r %.3e T %.0f tauz %.2e eqprev %s xe %.2e u %.4e u(10K,x) %.4e u(T,x) %.4e: %s\n", k, rn[k] / 6.957e10, tn[k], tauz[k], eqprev, CNn.full(m.x[k], m.net)[:e], egn[k], CNn.eos(dn[k], 10.0, m.x[k], m.net)[1], CNn.eos(dn[k], tn[k], m.x[k], m.net)[1], first(sprint(showerror, e), 60))
                 coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
                 _, T2 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
                 (x_from_table(m, dn[k], T2), T2)

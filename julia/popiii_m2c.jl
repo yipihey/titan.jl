@@ -782,6 +782,40 @@ function envsink!()
     φ0 = -Md / TF.var(:rn)[a]^2
     TF.setscalar!(:phil0, φ0); TF.setscalar!(:phil2, φ0 * (TF.var(:egn)[a] + TF.var(:pgn)[a] / TF.var(:dn)[a]))
 end
+# XADV2=1 (default with SL3=1): the abundances cross each interface with the van Leer interface value TITAN uses for e (`advect!`, centred,
+# cadv; start-of-step values), explicitly, instead of the donor value. With x_e ~ 0.1–0.5 the first-order scheme carried a different amount of
+# ionization energy across each interface than e did: up to ~1 eV per H a step, enough to leave e below u(10 K, x). Falls back to the
+# Applied as an explicit correction to the implicit upwind step, at interfaces where less than the donor zone's mass crosses, and per species
+# only if it keeps that species ≥ 0 everywhere; `NXADV1` counts the steps where some species lost the correction.
+const XADV2 = get(ENV, "XADV2", get(ENV, "SL3", "0")) == "1"; const NXADV1 = Ref(0)
+"Second-order correction to the implicit upwind result `xnew` (vectors per zone, from the start-of-step `X`): see the XADV2 note."
+function xadv2_correct!(xnew, X, F, M, n)
+    cadv = TF.getscalar(:cadv); nf = length(X[1])
+    S = [zeros(nf) for _ in 1:n]
+    for j in 2:n-1, i in 1:nf
+        da = X[j][i] - X[j-1][i]; db = X[j+1][i] - X[j][i]
+        S[j][i] = da * db > 0 ? cadv * da * db / (da + db) : 0.0
+    end
+    # antidiffusive flux through interior interface j (between zones j-1, j): F (x_face − x_donor), only where |F| < the donor's mass
+    G = [zeros(nf) for _ in 1:n+1]
+    for j in 2:n
+        if F[j] >= 0
+            F[j] < M[j-1] && (G[j] .= F[j] .* 0.5 .* S[j-1])
+        else
+            -F[j] < M[j] && (G[j] .= F[j] .* (-0.5) .* S[j])
+        end
+    end
+    ok = trues(nf); xc = [xnew[j] .+ (G[j] .- G[j+1]) ./ M[j] for j in 1:n]
+    for j in 1:n, i in 1:nf; xc[j][i] < 0 && (ok[i] = false); end
+    for j in 1:n
+        for i in 1:nf; ok[i] || (xc[j][i] = xnew[j][i]); end
+        d = ChemNet.full(xc[j], mat.net)
+        (d[:H] >= 0 && d[:e] >= 0) || (xc[j] = copy(xnew[j]))
+    end
+    all(ok) || (NXADV1[] += 1)
+    for j in 1:n; xnew[j] = xc[j]; end
+    nothing
+end
 """
 Implicit upwind transport of mat.x with the mass that crossed each interface in the converged step (change of the exterior mass m_e), so
 that it is the discrete continuity equation applied to the mass fractions: a uniform composition stays uniform and elements are conserved.
@@ -804,6 +838,7 @@ function advect_species!()
     xnew[1] = xnew[1] ./ den[1]
     for j in 2:n; xnew[j] = (xnew[j] .- lo[j] .* xnew[j-1]) ./ den[j]; end
     for j in n-1:-1:1; xnew[j] = xnew[j] .- cp_[j] .* xnew[j+1]; end
+    XADV2 && mat isa PM.NetGas && xadv2_correct!(xnew, [copy(mat.x[a+j-1]) for j in 1:n], F, M, n)
     for j in 1:n; mat.x[a+j-1] = xnew[j]; end
     if HOTON                                                                 # the nuclear abundances move with the same fluxes
         Y = SG[].Y; ynew = M0[1] .* Y[:, a]; ys = Vector{Vector{Float64}}(undef, n); ys[1] = ynew ./ den[1]
@@ -1211,6 +1246,18 @@ try
                 j_ = envsurface(); uu = TF.var(:un)[a:b+1]; ku = argmin(uu); rr = TF.var(:rn)[a:b+1]; mm = 4π .* envmenc() ./ Msun
                 pr("        env: chem fallbacks %d, t %.6e yr, Mc+grid(<surf) %.4f Msun, sink %.2e Msun/yr, surface r %.1f R_sun, u_min %.1f km/s at r %.1f (v_esc %.1f), dt %.2e s\n", PM.NCHEMFB[], TF.getscalar(:timen) / 3.156e7, mm[j_],
                    4π * ENVMDOT[] / Msun * 3.156e7, rr[j_] / Rsun, uu[ku] / 1e5, rr[ku] / Rsun, sqrt(2Z0.G * mm[ku] * Msun / rr[ku]) / 1e5, TF.getscalar(:dtime))
+                # radiation force on the infall: Γ = χF/c / (G m/r²) per zone outside 2 × the surface; Ṁ = −4π r² ρ u at the surface and at 1e5 R_sun
+                let fr_ = TF.var(:frn)[a:b+1], ch_ = TF.var(:chifn)[a:b], dn_ = TF.var(:dn)[a:b], Γ = zeros(nsh)
+                    for j in 1:nsh
+                        rr[j] > 2rr[j_] || continue
+                        rc = 0.5(rr[j] + rr[j+1]); Γ[j] = ch_[j] * 0.5(fr_[j] + fr_[j+1]) / ChemNet.c / (Z0.G * 0.5(mm[j] + mm[j+1]) * Msun / rc^2)
+                    end
+                    jg = argmax(Γ); w5 = findfirst(>=(1e5 * Rsun), rr); w4 = findfirst(>=(1e4 * Rsun), rr)
+                    mdot(j) = j === nothing || j > nsh ? NaN : -4π * rr[j]^2 * 0.5(dn_[max(j-1, 1)] + dn_[min(j, nsh)]) * uu[j] / Msun * 3.156e7
+                    pr("        feedback: Gamma_max %.3f at r %.0f R_sun; Gamma(1e4) %.3f, Gamma(1e5) %.3f; Mdot surface %.3e, 1e4 %.3e, 1e5 %.3e Msun/yr; xadv1 %d\n",
+                       Γ[jg], 0.5(rr[jg] + rr[jg+1]) / Rsun, w4 === nothing || w4 > nsh ? NaN : Γ[w4], w5 === nothing || w5 > nsh ? NaN : Γ[w5],
+                       mdot(j_), mdot(w4), mdot(w5), NXADV1[])
+                end
                 if PM.SLDIAG[] !== nothing
                     sd_ = PM.SLDIAG[]; rz_ = TF.var(:rn); xs_ = String[]
                     for lr in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0)
