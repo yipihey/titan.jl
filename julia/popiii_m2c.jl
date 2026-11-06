@@ -330,6 +330,13 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
     PM.STARLIGHT[].tl3 && isempty(TX.RAYQ[]) && (TX.RAYQ[] = zeros(length(mat.x)))
     PM.STARLIGHT[].tl3 && PM.STARLIGHT[].pH !== nothing && error("SL3=1 replaces SLH=1 (the Boltzmann n ≥ 2 photoionization); set one")
     PM.STARLIGHT[].tl3 && pr("STARLIGHT: three-level H (Peebles C factor, Sobolev Lya escape, e collisions) in the lit network zones\n")
+    # NLOPAC=1 (with SL3): network zones take the non-LTE opacity of their own composition (PM.NLOPAC: Saha/Boltzmann table × lagged ratio, frozen-composition T slope)
+    PM.NLOPAC[] = PM.STARLIGHT[].tl3 && get(ENV, "NLOPAC", "0") == "1"
+    PM.PSWAGREE[] = PM.STARLIGHT[].tl3 ? parse(Float64, get(ENV, "PSWAGREE", "0")) : 0.0
+    PM.SLBLEND[] = get(ENV, "SLBLEND", "0") == "1"
+    PM.SLBLEND[] && pr("SLBLEND: star-light colour temperature T_eff (tau <= 0.3) to T_r (tau >= 3), smooth in log tau\n")
+    PM.PSWAGREE[] > 0 && pr("PSWAGREE: below the pressure switch, table only where it agrees with the three-level network to %.3f in T\n", PM.PSWAGREE[])
+    PM.NLOPAC[] && pr("NLOPAC: non-LTE opacity in the three-level network zones (no H bound-free in kappa_P; n=2 of the three-level atom in kappa_R)\n")
     pr("STARLIGHT: H- detachment%s, LW (shield %s) from the star's light in network zones\n", PM.STARLIGHT[].pH === nothing ? "" : ", H(n>=2) ionization", String(PM.STARLIGHT[].shield))
 end
 const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
@@ -1254,9 +1261,9 @@ try
                     end
                     jg = argmax(Γ); w5 = findfirst(>=(1e5 * Rsun), rr); w4 = findfirst(>=(1e4 * Rsun), rr)
                     mdot(j) = j === nothing || j > nsh ? NaN : -4π * rr[j]^2 * 0.5(dn_[max(j-1, 1)] + dn_[min(j, nsh)]) * uu[j] / Msun * 3.156e7
-                    pr("        feedback: Gamma_max %.3f at r %.0f R_sun; Gamma(1e4) %.3f, Gamma(1e5) %.3f; Mdot surface %.3e, 1e4 %.3e, 1e5 %.3e Msun/yr; xadv1 %d\n",
+                    pr("        feedback: Gamma_max %.3f at r %.0f R_sun; Gamma(1e4) %.3f, Gamma(1e5) %.3f; Mdot surface %.3e, 1e4 %.3e, 1e5 %.3e Msun/yr; xadv1 %d; to table %d, from table %d\n",
                        Γ[jg], 0.5(rr[jg] + rr[jg+1]) / Rsun, w4 === nothing || w4 > nsh ? NaN : Γ[w4], w5 === nothing || w5 > nsh ? NaN : Γ[w5],
-                       mdot(j_), mdot(w4), mdot(w5), NXADV1[])
+                       mdot(j_), mdot(w4), mdot(w5), NXADV1[], PM.NSWIN[], PM.NSWOUT[])
                 end
                 if PM.SLDIAG[] !== nothing
                     sd_ = PM.SLDIAG[]; rz_ = TF.var(:rn); xs_ = String[]

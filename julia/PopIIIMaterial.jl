@@ -204,7 +204,109 @@ S6: continuum opacity of `NetGas` when TITAN's radiation is on (popiii_m2c RAD=1
 hydrodynamics only, no opacity calls. The H₂ lines stay outside the continuum (H2Lines, as Λext).
 """
 const OPAC = Ref{Any}(nothing)
+"""
+Non-LTE opacity of the network zones of a three-level run (SL3=1, `NLOPAC[] = true`). `OPAC[]` is a table in chemical *and* excitation
+equilibrium: its electrons are Saha's at the gas T and its H levels Boltzmann's. Outside the photosphere neither holds. At 36 M☉ just outside
+τ = 1 (T ≈ 5700 K, ρ ≈ 2e-12) 83 % of κ_P is H bound–free (n = 1 and n ≥ 2 from Boltzmann populations ∝ e^{−10.2 eV/kT}), so κ_P ∝ T²²
+while the network zone's heat capacity at frozen composition is 9× below the table's: Newton solved an emission ∝ T²⁶ there and diverged
+every few steps (Δt 1e3–5e4 s, `_sl3b`). In the three-level atom n = 2 is set by recombination and the radiation field (4 n_e q21 ≪ β):
+it hardly depends on the gas T at fixed composition, and its bound–free energy exchange is already in the chemistry (tl3_heat, GASQ/RAYQ).
+
+So in every network zone with three-level parameters, from the end of `chem!` (T0, final composition), for the next hydro step
+(TITAN's exchange term is c κ_E E − 4π κ_P B):
+- κ_E (absorption): continuum Planck mean of the zone's own composition: the network's H⁻ (photodetachment, associative detachment),
+  H⁻ ff, H ff, CIA, no H bound–free (case B: Lyman continuum in detailed balance; n ≥ 2 in the three-level atom);
+- κ_P (emission): the same with H⁻ bound–free from H⁻ in Saha with the zone's own H and electrons (Kirchhoff–Milne for radiative
+  attachment with Maxwellian electrons: emission ∝ n_H n_e, whatever n_H⁻ is). With the network's E0 the gas keeps −kT per attachment;
+  the table, with equilibrium (molecular, electron-poor) gas, had no such emission in the cold infall while the network released 0.754 eV
+  into heat per attachment;
+- κ_R: Rosseland mean of the extinction with the network's H⁻ and H bound–free from the non-LTE n = 2 of the three-level atom (n ≥ 3
+  with the same departure coefficient as n = 2: an approximation, these levels matter only through the Paschen continuum), Thomson on the
+  zone's electrons;
+- each as a ratio to the table at (ρ0, T0) below 6000 K (where the table is the same continuum code in equilibrium composition, agreement
+  ≤ 3 %), above to the continuum code in equilibrium composition (so the table's calibration, OPAL and lines above 6300 K, is kept); then
+  κ = κ_table(ρ, T0) × ratio × (T/T0)^q with q the frozen-composition slope of the continuum code, so Newton sees frozen composition in
+  the EOS and in the opacity alike. No threshold in T: a T switch of κ made zones bistable (sawtooth 2900/4000 K at 3000–3500 K).
+Deep in (τ ≳ 1, W = 1, T_c = T) the three-level n = 2 is Boltzmann's (b2 ≈ 0.8–1.1 at 36 M☉), the electrons are Saha's, and only the
+dropped H bound–free of κ_P differs from the table zones: at zone 129 (τ 0.2) the three-level bound–free heating, 2.1e-5 erg cm⁻³ s⁻¹,
+and the LTE κ_P,Hbf (B − J) it replaces, 5.2e-5, agree in sign and order; further out the diluted 6000 K starlight heats by n = 2
+photoionization where the gray LTE term (T > T_r) cooled.
+"""
+const NLOPAC = Ref(false)
+const NLOPC = Ref{Vector{Any}}(Any[])          # per zone: (; T0, RE, qE, RP, qP, RR, qR) or nothing
+import ..ContinuumOpacity
+const COp = ContinuumOpacity
+const NLGRID = Ref{Vector{Float64}}(Float64[])
+"H bound–free absorption [cm⁻¹] (Kramers, as ContinuumOpacity.α_H_kramers) from n1 and the population of n = 2; n ≥ 3 Boltzmann relative to n = 2."
+function hbf_nlte(ν, T, n1, n2)
+    χ = 13.598 * EVERG; σ0 = 7.906e-18; hν = COp.h * ν; α = 0.0
+    hν >= χ && (α += n1 * σ0 * (χ / hν)^3)
+    for n in 2:30
+        hν >= χ / n^2 || continue
+        nn = n2 * (n^2 / 4) * exp(-χ * (0.25 - 1 / n^2) / (CNn.kB * T))
+        α += nn * σ0 * n * (χ / n^2 / hν)^3
+    end
+    α
+end
+"""Planck means of absorption (κ_E, H⁻ bf from nHm) and emission (κ_P, H⁻ bf from nHmS), H bound–free in both or neither (`hbfP`), and
+Rosseland mean of the extinction (H⁻ from nHm, H bound–free always) [cm² g⁻¹]; number densities in cm⁻³."""
+function nlte_means(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP)
+    isempty(NLGRID[]) && (NLGRID[] = COp.grid(; n = 1000))
+    νs = NLGRID[]; t = COp.tables(); sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0
+    cia = nH2 > 1e-3 * n1; acia = 0.0
+    for i in 1:length(νs)-1
+        ν = 0.5 * (νs[i] + νs[i+1]); dν = νs[i+1] - νs[i]; σ = ν / COp.c; λμ = 1e4 / σ
+        stim = -expm1(-COp.h * ν / (COp.kB * T))
+        # CIA bands are broad (≳ 100 cm⁻¹; the grid step is 1 %): evaluated on every 8th point, held in between (cost: 30 ms per call otherwise)
+        cia && i % 8 == 1 && (acia = COp.k_h2h2(t, σ, T) * nH2^2 + COp.kcia(t.H2He, σ, T) * nH2 * nHe + COp.kcia(t.H2H, σ, T) * nH2 * n1)
+        a0 = acia + COp.k_Hm_ff(λμ, T) * n1 * ne * COp.kB * T + 3.692e8 * ne * nHp / (sqrt(T) * ν^3) * stim
+        σhm = COp.σ_Hm_bf(λμ) * stim
+        ab = hbf_nlte(ν, T, n1, n2) * stim
+        sca = COp.σ_ray_H2(λμ * 1e3) * nH2 + COp.σ_ray_H(λμ * 1e4) * n1 + COp.σT * ne
+        B = COp.Bν(ν, T); D = COp.dBdT(ν, T); h = hbfP ? ab : 0.0
+        sE += (a0 + σhm * nHm + h) * B * dν; sP += (a0 + σhm * nHmS + h) * B * dν; sB += B * dν
+        sR += D / max(a0 + σhm * nHm + ab + sca, 1e-300) * dν; sD += D * dν
+    end
+    (sE / sB / ρ, sP / sB / ρ, sD / sR / ρ)
+end
+"n = 2 population [cm⁻³] of the three-level atom (2s + 2p, 4 n_2s) in steady state for the zone's n1, n_e, n_p and lagged radiation p3."
+function n2_tl3(T, n1, ne, np, p)
+    D = p.RL + LAM2S + 4ne * q21_H(T)
+    4 * (n1 * (ne * q12_H(T) + p.P12) + alphaB_recfast(T) * ne * np) / (D + p.β)
+end
+"(κ_E, κ_P, κ_R) of the continuum code for zone composition d (full species fractions) or, with `d = nothing`, equilibrium composition."
+function nlte_kappas(ρ, T, d, p)
+    nH = ρ / CNn.μH(); nHe = PC.yHe * nH
+    if d === nothing
+        y = EQ.composition(ρ, T); xp = y[1]; xh2 = y[3]; n1 = nH * max(1 - xp - 2xh2, 0.0); ne = nH * xp
+        n2 = 4n1 * exp(-E21 / (CNn.kB * T)); nHm = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
+        return nlte_means(ρ, T; n1, n2, nH2 = nH * xh2, nHe, nHp = ne, ne, nHm, nHmS = nHm, hbfP = true)
+    end
+    n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
+    nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
+    nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
+    nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false)
+end
+"Lagged non-LTE opacity factors of zone k at T0 (see NLOPAC)."
+function nlopc(ρ, T0, d, p)
+    f = 1.02
+    E0, P0, R0 = nlte_kappas(ρ, T0, d, p); E1, P1, R1 = nlte_kappas(ρ, T0 * f, d, p)
+    if T0 < 6000
+        Rt, Pt = OPAC[](ρ, T0); Pe, Re = Pt, Rt
+    else
+        _, Pe, Re = nlte_kappas(ρ, T0, nothing, p)
+    end
+    lf = log(f)
+    (; T0, RE = E0 / Pe, qE = log(E1 / E0) / lf, RP = P0 / Pe, qP = log(P1 / P0) / lf, RR = R0 / Re, qR = log(R1 / R0) / lf)
+end
 @inline function TX.material_opac(m::NetGas, ρ, T)
+    if NLOPAC[]
+        k = TX.ZONE[]; c = NLOPC[]
+        if k <= length(c) && !m.eqzone[k] && (o = c[k]) !== nothing
+            κR0, κP0 = OPAC[](ρ, o.T0); s = T / o.T0
+            return κR0 * o.RR * s^o.qR, κP0 * o.RE * s^o.qE, κP0 * o.RP * s^o.qP
+        end
+    end
     κR, κP = OPAC[](ρ, T)
     return κR, κP, κP
 end
@@ -255,6 +357,49 @@ The network has no radiation field: at the outer edge of an opaque layer (p ~ 6,
 composition and chem! brings it back each step, until Newton fails. On the table the ionization heat capacity is inside Newton. The switch at fixed e lowers T once; radiation reheats the zone.
 """
 const PSWTAU = Ref(0.0)
+"""
+PSWAGREE[] = ε > 0 (three-level runs): below the pressure switch the table is used only where it agrees with the network. The τ rule (PSWTAU)
+flipped bands of zones in the extended photosphere of the non-LTE opacity (τ 1 → 0.4 over nine zones): a zone left the table at τ < 0.5, the
+three-level atom ionized it in one step (x_e 3e-3 → 4.5e-2: the diluted 6000 K star light is hotter than the gas), its κ took τ back over 1,
+the table reset x_e to Saha, T jumped, and Δt fell to ~1e5 s. Now, at T ≥ PSWTEX[] and with three-level parameters for the zone:
+- a network zone goes to the table only if the table's T at its u is within ε of the network T, *and* relaxing the table composition to the
+  three-level steady state (x_ss, H only, `xss_tl3`) at fixed u would move T by less than ε (it would not leave again at once);
+- a table zone stays while x_ss moves T by less than 2ε (hysteresis); leaving is seamless (the network starts from the table composition);
+- at τ ≥ PSWTAUDEEP[] the table always (thermalised radiation, see there).
+The switch then happens only where both models give the same state to ε in T. The pressure rule (EOS validity) is unchanged.
+"""
+const PSWAGREE = Ref(0.0)
+# At τ ≥ PSWTAUDEEP[] (3, where SLBLEND reaches T_c = T_r, W = 1) the table always: there a network zone, whose n = 2 bound–free coupling to
+# the radiation is in the explicit three-level terms (κ_P without H bound–free), fell 1800 K below T_r at τ ≈ 20, so x_ss ≠ Saha(T) kept it off the
+# table and the disagreement ran inward (`_nlo4`, first try).
+const PSWTAUDEEP = Ref(3.0)
+"SLBLEND[]: star-light colour temperature and dilution blended smoothly in τ (see starlight_setup); false: switch at the τ = 2/3 zone."
+const SLBLEND = Ref(false)
+const NSWIN = Ref(0); const NSWOUT = Ref(0)
+"H⁺ fraction of the three-level atom in steady state at (ρ, T) for the lagged radiation p (H only, n_e = n_H⁺)."
+function xss_tl3(ρ, T, p)
+    nH = ρ / CNn.μH(); q = q12_H(T); a = alphaB_recfast(T)
+    f(y) = (ne = nH * y; C = tl3_C(T, (; RL = p.RL, ne, β = p.β)); (1 - C) * (1 - y) * (ne * q + p.P12) - C * a * ne * y)
+    lo, hi = 1e-14, 1 - 1e-12
+    for _ in 1:200; mid = sqrt(lo * hi); f(mid) > 0 ? (lo = mid) : (hi = mid); hi / lo - 1 < 1e-6 && break; end
+    sqrt(lo * hi)
+end
+"""T at fixed (ρ, u) of the three-level atom in steady state: u(ρ, T, x(T)) = u with x(T) the table composition and H⁺ = x_ss(T)
+(the three-level model's own equilibrium, ionization heat capacity included; bisection in ln T), NaN without a bracket."""
+function T_ss_at_u(m::NetGas, ρ, u, p, T0, iHp)
+    xT(T) = (x = x_from_table(m, ρ, T); x[iHp] = xss_tl3(ρ, T, p); x)
+    T_at_u(ρ, u, T -> xT(T), m.net, T0)
+end
+"T at fixed (ρ, u) for network composition x (a vector, or a function of T), bisection in ln T, NaN without a bracket."
+function T_at_u(ρ, u, x, net, T0)
+    F(T) = CNn.eos(ρ, T, x isa Function ? x(T) : x, net)[1] - u
+    lo, hi = T0 / 1.5, T0 * 1.5
+    while F(lo) > 0 && lo > 20; lo /= 1.5; end
+    while F(hi) < 0 && hi < 1e7; hi *= 1.5; end
+    (F(lo) > 0 || F(hi) < 0) && return NaN
+    for _ in 1:100; mid = sqrt(lo * hi); F(mid) > 0 ? (hi = mid) : (lo = mid); hi / lo - 1 < 1e-9 && break; end
+    sqrt(lo * hi)
+end
 "After a converged hydro step: network step per zone in the ideal regime, equilibrium-table step where p ≥ pswitch."
 const CHEMFALLBACK = Ref(false); const NCHEMFB = Ref(0)
 """
@@ -394,7 +539,15 @@ function starlight_setup(m::NetGas, a, b, tauz_)
     tl3on = hasproperty(sl, :tl3) && sl.tl3
     SLDIAG[] = diag
     function rates(k)
-        if k > kph && Te > 0
+        if SLBLEND[] && Te > 0
+            # smooth in τ (no jump at the moving τ = 2/3 zone): colour temperature from T_eff (τ ≤ 0.3) to the local T_r (τ ≥ 3), log blend,
+            # dilution W from the local energy density (W = 1 at T_c = T_r). The sharp switch changed x_ss of the zone just outside τ = 2/3
+            # by ×2 at equal energy density (diluted 6500 K vs a 4750 K blackbody).
+            Tr = (max(er[k], Ecmb) / arad)^0.25
+            wq = clamp((log10(max(tauz_[k], 1e-30)) + log10(1 / 0.3)) / 1.0, 0.0, 1.0); wq = wq * wq * (3 - 2wq)
+            Tc = Te^(1 - wq) * Tr^wq
+            W = wq >= 1 ? 1.0 : min(max(CNn.c * (er[k] - Ecmb), 0.0) / (4 * 5.670374419e-5 * Tc^4), 1.0)
+        elseif k > kph && Te > 0
             Tc = Te; W = max(CNn.c * (er[k] - Ecmb), 0.0) / (4 * 5.670374419e-5 * Te^4)
         else
             Tc = (max(er[k], Ecmb) / arad)^0.25; W = 1.0
@@ -469,6 +622,11 @@ function chem!(m::NetGas)
     slrates === nothing || isempty(TX.GASQ[]) || fill!(TX.GASQ[], 0.0)
     ray === nothing && !isempty(TX.RAYQ[]) && fill!(TX.RAYQ[], 0.0)            # (RAYQ also carries the three-level H's photon energy)
     ph3 = filter(p -> p.R !== :H, m.photos)                                 # three-level zones: no Boltzmann-level H photo pair
+    tl3sw = slrates !== nothing && hasproperty(STARLIGHT[], :tl3) && STARLIGHT[].tl3; iHpf = findfirst(==(:Hp), m.net.free)
+    if NLOPAC[]
+        length(NLOPC[]) == length(dn) || (NLOPC[] = Any[nothing for _ in dn])
+        fill!(NLOPC[], nothing)
+    end
     for k in a:b
         if h !== nothing && tn[k] > h.T1             # hot branch: no chemistry, no re-solve of T with the table (driver: burn and mix)
             m.x[k] = x_from_table(m, dn[k], min(tn[k], 1e6)); m.eqzone[k] = true
@@ -499,7 +657,28 @@ function chem!(m::NetGas)
         end
         # PSWTMIN[] > 0: also require T above it (5 % hysteresis). Below ~5000 K ionization holds negligible energy, so the network and the table agree there
         # to ~1 % in T at fixed e; at 7000-9500 K the network's H ionization lags the table's Saha by ×5, and switching there drops T by up to 16 %.
-        if (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[]) || (m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])
+        ptab = (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[])
+        ag = nothing                                  # PSWAGREE: table only where it agrees with the network (see PSWAGREE)
+        if !ptab && PSWAGREE[] > 0 && tl3sw && tn[k] >= PSWTEX[]
+            slrates(k); p = SLDIAG[].tl3[k]
+            if tauz[k] >= PSWTAUDEEP[]
+                ag = true                     # thermalised (J = B): the table's implicit LTE coupling; the three-level n = 2 exchange is explicit
+            elseif p !== nothing
+                # the two equilibrium models at the zone's u: table (Saha) and three-level steady state, both with their ionization heat
+                # capacity; u from the network EOS at the table composition (offset to the table EOS ≤ 0.3 % in T)
+                ε = PSWAGREE[]; _, Ttab = EQ.step(dn[k], egn[k], tn[k], dt)
+                u0 = CNn.eos(dn[k], Ttab, x_from_table(m, dn[k], Ttab), m.net)[1]
+                Tq = T_ss_at_u(m, dn[k], u0, p, Ttab, iHpf)
+                if m.eqzone[k]
+                    ag = isfinite(Tq) && abs(Tq / Ttab - 1) < 2ε
+                    ag || (NSWOUT[] += 1)
+                else
+                    ag = abs(Ttab / tn[k] - 1) < ε && isfinite(Tq) && abs(Tq / Ttab - 1) < ε
+                    ag && (NSWIN[] += 1)
+                end
+            end
+        end
+        if ptab || (ag === nothing ? ((m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])) : ag)
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
             _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
@@ -541,6 +720,7 @@ function chem!(m::NetGas)
                 isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
                 isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
                 SLDIAG[].tl3[k] = merge(p3, (; chemq = cq, cycq = yq))
+                NLOPAC[] && (NLOPC[][k] = nlopc(dn[k], T1, CNn.full(x1, m.net), p3))
                 if TL3DBG[] > 0 && TF.getscalar(:jstep) % TL3DBG[] == 0 && k % 6 == 0
                     d0 = CNn.full(m.x[k], m.net); d1 = CNn.full(x1, m.net)
                     @printf("tl3dbg k %d r %.3e tauz %.2e T %.0f -> %.0f  xe %.2e -> %.2e  C %.2e β %.2e RL %.2e  chemq %.2e cycq %.2e  u %.3e  u(T0,x0) %.3e  eqprev %s\n", k, rn[k] / 6.957e10, tauz[k], tn[k], T1, d0[:e], d1[:e], tl3_C(T1, p3), p3.β, p3.RL, cq, yq, egn[k], CNn.eos(dn[k], tn[k], m.x[k], m.net)[1], eqprev)
