@@ -263,6 +263,90 @@ M3: the star's ionizing light (IonRay), `nothing` = off. `RAY[] = (; start, sour
 where the photons of one step could ionize more than `xmin` of its hydrogen stays on the network whatever its pressure, because the table assumes equilibrium.
 """
 const RAY = Ref{Any}(nothing)
+"""
+M3a: the star's light below the Lyman edge in the network zones (`STARLIGHT[] = (; pHm, pH, shield)`, `nothing` = off). Each zone sees
+J_ν = W B_ν(T_col): outside the photosphere (τ_R = 2/3, from the outside) T_col = T_eff of the star and W = c(E_r − aT_CMB⁴)/(4σT_eff⁴), so the
+dilution and attenuation are those of TITAN's own transfer; inside it T_col = (E_r/a)^¼ and W = 1. Rates, lagged over the step (start-of-step T):
+- H⁻ + γ → H + e (`pHm`, John 1988), and optionally (`pH`, `nothing` = off, the default) H(n ≥ 2) + γ → H⁺ + e (the network's H levels without
+  n = 1: Lyman-continuum photons are IonRay's, photon-conserving; a dilute Wien tail applied locally would ionize every zone). No extra heat for
+  these: in RAD runs the network has no radiative cooling either, all radiative energy exchange is the gray κ_P term (LTE opacities), and ChemNet
+  pays the binding energy out of u. That is harmless for H⁻ (x ~ 1e-8, 0.75 eV) but not for H(n ≥ 2): near the photosphere k_H ~ 1 s⁻¹ ionizes
+  in ≪ dt what u cannot pay for (13.6 eV per H against ~1 eV of thermal energy), T collapses and ChemNet's Newton fails (zone at 7700 K, 2026-11-05).
+  Doing it right needs the H bound-free heating and recombination losses in the network and the H bound-free part removed from κ_P there.
+- Lyman-Werner H₂ dissociation (two-step Solomon), k = 1.1e8 F_ν(12.87 eV) s⁻¹ (AAZN97 k27, F_ν = 4πJ_ν), times the H₂ self-shielding
+  f_sh(N_H2, T) of Wolcott-Green, Haiman & Bryan (2011, eq. 10, α = 1.1) and the shielding by H I Lyman lines, their eq. 13 (β = 1.6, γ = 0.15,
+  N_HI/2.85e23 cm⁻²); fits valid to a factor 2 for 1e13 < N_H2 < 1e21, 1e22 < N_HI < 1e24, 500 < T < 5000 K, static gas. Columns from the
+  photosphere out to the zone centre (start-of-step composition). `shield = :static` (that), `:sobolev` (the H₂ column of one Sobolev length
+  n v_th/|du/dr| when smaller: the infall's Doppler shifts move the H₂ lines out of the shielding; N_HI stays static, since the H I Lyman lines
+  shield through damping wings thousands of km/s wide at N_HI ~ 1e24), `:none` (no shielding), `:off` (no LW). Heat
+  4.48 + 0.4 eV per dissociation (binding + fragment kinetic energy; UV-pumping heat in dense gas is left out), moved from E_r to the gas in the
+  hydro step (TitanResidFast.GASQ), not in the chemistry: there, without the gas's radiative cooling, the H⁻ → H₂ → LW cycle heated a zone by
+  ×2.5 in one step.
+`SLDIAG[]`: per-step diagnostics (photosphere zone, T_eff, and per zone k_H⁻, k_H, k_LW, f_sh).
+"""
+const STARLIGHT = Ref{Any}(nothing); const SLDIAG = Ref{Any}(nothing)
+const EVERG = 1.602176634e-12
+_bnu(ν, T) = (x = CNn.hP * ν / (CNn.kB * T); x > 700 ? 0.0 : 2CNn.hP * ν^3 / CNn.c^2 / expm1(x))
+"H₂ self-shielding, Wolcott-Green, Haiman & Bryan (2011) eq. (10) with α = 1.1; b = (2kT/m_H₂)^½."
+fsh_h2(N, T) = (x = N / 5e14; b5 = sqrt(CNn.kB * T / 1.6735575e-24) / 1e5; 0.965 / (1 + x / b5)^1.1 + 0.035 / sqrt(1 + x) * exp(-8.5e-4 * sqrt(1 + x)))
+"Shielding of H₂ by H I Lyman-series lines, Wolcott-Green & Haiman (2011) eq. (13)."
+fsh_hi(N) = (x = N / 2.85e23; (1 + x)^-1.6 * exp(-0.15x))
+"Per-step star-light setup: photosphere, T_eff, and the LW columns; returns a function k -> (kHm, kH, kLW, fsh) for a network zone k."
+function starlight_setup(m::NetGas, a, b, tauz_)
+    sl = STARLIGHT[]; dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); er, fr, un = TM.v(:ern), TM.v(:frn), TM.v(:un)
+    kph = a; for k in b:-1:a; tauz_[k] >= 2 / 3 && (kph = k; break); end
+    L = 4π * rn[kph+1]^2 * fr[kph+1]; Te = L > 0 ? (L / (4π * rn[kph+1]^2 * 5.670374419e-5))^0.25 : 0.0
+    arad = 7.565723e-15; Ecmb = arad * sl.tcmb^4
+    nz = length(dn); NH2 = zeros(nz); NHI = zeros(nz)
+    s2 = 0.0; s1 = 0.0
+    for k in kph+1:b
+        d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH(); dr = rn[k+1] - rn[k]
+        nh2 = nH * max(d[:H2], 0.0); nhi = nH * max(d[:H], 0.0)
+        NH2[k] = s2 + 0.5nh2 * dr; NHI[k] = s1 + 0.5nhi * dr
+        if sl.shield === :sobolev
+            dudr = abs(un[k+1] - un[k]) / dr
+            if dudr > 0
+                vth = sqrt(2CNn.kB * tn[k] / 1.6735575e-24)
+                NH2[k] = min(NH2[k], nh2 * vth / sqrt(2) / dudr)     # (N_HI stays static: its Lyman lines shield through Lorentz wings ≫ the infall's Δv)
+            end
+        end
+        s2 += nh2 * dr; s1 += nhi * dr
+    end
+    νLW = 12.87 * EVERG / CNn.hP
+    diag = (; kph, Te, L, kHm = zeros(nz), kH = zeros(nz), kLW = zeros(nz), fsh = ones(nz))
+    SLDIAG[] = diag
+    function rates(k)
+        if k > kph && Te > 0
+            Tc = Te; W = max(CNn.c * (er[k] - Ecmb), 0.0) / (4 * 5.670374419e-5 * Te^4)
+        else
+            Tc = (max(er[k], Ecmb) / arad)^0.25; W = 1.0
+        end
+        (W > 0 && Tc > 0) || return (0.0, 0.0, 0.0, 1.0)
+        env = (Trad = Tc, J = ν -> W * _bnu(ν, Tc))
+        kHm = sl.pHm === nothing ? 0.0 : CNn.photorates(sl.pHm, tn[k], env)[1]; kH = sl.pH === nothing ? 0.0 : CNn.photorates(sl.pH, tn[k], env)[1]
+        f = 1.0; kLW = 0.0
+        if k > kph && sl.shield !== :off
+            f = sl.shield === :none ? 1.0 : fsh_h2(NH2[k], tn[k]) * fsh_hi(NHI[k])
+            kLW = 1.1e8 * 4π * W * _bnu(νLW, Tc) * f
+        end
+        diag.kHm[k] = kHm; diag.kH[k] = kH; diag.kLW[k] = kLW; diag.fsh[k] = f
+        (kHm, kH, kLW, f)
+    end
+    rates
+end
+"dx/dt of the star-light reactions (rates lagged) for ChemNet.step's `extra`. No heat here: the LW energy goes to TitanResidFast.GASQ (see `lwheat`)."
+function starlight_terms(m::NetGas, ρ, kHm, kH, kLW)
+    fr_ = m.net.free; iHp = findfirst(==(:Hp), fr_); iHm = findfirst(==(:Hm), fr_); iH2 = findfirst(==(:H2), fr_)
+    nH = ρ / CNn.μH()
+    extra = x -> begin
+        f = zeros(eltype(x), length(x)); d = CNn.full(x, m.net)
+        iHm === nothing || (f[iHm] -= kHm * x[iHm])
+        f[iHp] += kH * max(d[:H], zero(d[:H]))
+        iH2 === nothing || (f[iH2] -= kLW * x[iH2])
+        f
+    end
+    extra
+end
 function chem!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
@@ -276,10 +360,26 @@ function chem!(m::NetGas)
     end
     rn = TM.v(:rn)
     tauz = zeros(length(dn))
-    if PSWTAU[] > 0
+    if PSWTAU[] > 0 || STARLIGHT[] !== nothing
         chi_ = TM.v(:chifn); tt = 0.0
         for k in b:-1:a; tt += chi_[k] * dn[k] * (rn[k+1] - rn[k]); tauz[k] = tt; end
     end
+    slrates = STARLIGHT[] === nothing ? nothing : starlight_setup(m, a, b, tauz)
+    # the star-light terms of zone k for ChemNet.step: (extra, cooling) composed with the ray's / the zone's own
+    function slterms(k, extra0, cool0)
+        slrates === nothing && return extra0, cool0
+        kHm, kH, kLW, _ = slrates(k)
+        all(isfinite, (kHm, kH, kLW)) || error("starlight: non-finite rates in zone $k: kHm $kHm kH $kH kLW $kLW, T $(tn[k]), ρ $(dn[k]), E_r $(TM.v(:ern)[k])")
+        (kHm == 0 && kH == 0 && kLW == 0) && return extra0, cool0
+        ex = starlight_terms(m, dn[k], kHm, kH, kLW)
+        ex2 = extra0 === nothing ? ex : (x -> extra0(x) .+ ex(x))
+        ex2, cool0
+    end
+    # LW energy absorbed in zone k over the step, from the end-of-step H₂ (steady under LW): 4.48 eV binding + 0.4 eV fragment kinetic energy
+    # per dissociation (UV pumping heat left out); the chemistry is energy-neutral (it takes the binding energy from u and gives it back on re-formation)
+    lwheat!(k, x1) = (slrates === nothing || isempty(TX.GASQ[])) ? nothing :
+        (TX.GASQ[][k] = SLDIAG[].kLW[k] * max(CNn.full(x1, m.net)[:H2], 0.0) * dn[k] / CNn.μH() * (4.48 + 0.4) * EVERG; nothing)
+    slrates === nothing || isempty(TX.GASQ[]) || fill!(TX.GASQ[], 0.0)
     for k in a:b
         if h !== nothing && tn[k] > h.T1             # hot branch: no chemistry, no re-solve of T with the table (driver: burn and mix)
             m.x[k] = x_from_table(m, dn[k], min(tn[k], 1e6)); m.eqzone[k] = true
@@ -292,12 +392,14 @@ function chem!(m::NetGas)
                 src = ray.source(dn[k], rn[k], rn[k+1], Nin)
                 cool2 = (ρ, T, d) -> (cool === nothing ? zero(T) : cool(ρ, T, d)) - src.heat(d)
                 m.eqzone[k] = false
+                ex3, cool3 = slterms(k, src.extra, cool2)
                 x1, T1 = try
-                    CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = ray.env, photos = m.photos, cooling = cool2, extra = src.extra, accepted = src.accepted)
+                    CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = ray.env, photos = m.photos, cooling = cool3, extra = ex3, accepted = src.accepted)
                 catch e
                     println("ray zone failed: k ", k, " x ", m.x[k], " free ", m.net.free, " ρ ", dn[k], " u ", egn[k], " T ", tn[k], " dt ", dt, " Nin ", sum(Nin), " r ", rn[k], " ", rn[k+1])
                     rethrow()
                 end
+                lwheat!(k, x1)
                 out = src.out(x1, dt)
                 ray.Q[k] = sum((Nin .- out) .* ray.Ec) / V
                 m.x[k] = x1; Nin = out
@@ -314,16 +416,21 @@ function chem!(m::NetGas)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
         else
             m.eqzone[k] && (m.eqzone[k] = false)     # (back to the ideal regime: the network continues from the table composition)
+            exs, cools = slterms(k, nothing, cool)
             x1, T1 = try
-                CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = m.env, photos = m.photos, cooling = cool)
+                xs1, Ts1 = CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = m.env, photos = m.photos, cooling = cools, extra = exs)
+                (STARLIGHT[] !== nothing && !(all(isfinite, xs1) && isfinite(Ts1))) && error("starlight: non-finite chemistry in zone $k: x $xs1 T $Ts1 from x $(m.x[k]) T $(tn[k]) ρ $(dn[k]) rates $(slrates(k))")
+                (xs1, Ts1)
             catch e
                 # Fixed mesh: e and x are advected by different schemes, and e may then have no solution for the zone's x. Hot dense gas: table equilibrium, same e.
+                STARLIGHT[] !== nothing && !(e isa ErrorException) && println("starlight zone failed: k ", k, " x ", m.x[k], " ρ ", dn[k], " u ", egn[k], " T ", tn[k], " dt ", dt, " rates ", slrates(k), " eq ", m.eqzone[k], " E_r ", TM.v(:ern)[k])
                 (CHEMFALLBACK[] && e isa ErrorException) || rethrow()
                 NCHEMFB[] += 1
                 coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
                 _, T2 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
                 (x_from_table(m, dn[k], T2), T2)
             end
+            m.eqzone[k] || lwheat!(k, x1)
             m.x[k] = x1
         end
         dTmax = max(dTmax, abs(T1 / tn[k] - 1)); tn[k] = T1

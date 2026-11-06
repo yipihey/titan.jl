@@ -315,6 +315,17 @@ if get(ENV, "RAY", "0") == "1" && mat isa PM.NetGas
     PM.RAY[] = (; start = raystart, source = (ρ, r1, r2, Nin) -> IonRay.source(ρ, r1, r2, Nin, RG, mat.net), env = merge(mat.env, (; caseB = true)),
                 Ec = RG.Ec, Q = TX.RAYQ[], xmin = parse(Float64, get(ENV, "RAYXMIN", "1e-6")))
 end
+# M3a: the star's light below the Lyman edge in the network zones (PM.STARLIGHT): H⁻ photodetachment, H(n ≥ 2) photoionization, Lyman-Werner
+# H₂ dissociation with shielding. STARLIGHT=1; SLSHIELD = static (default) | sobolev | none (no shielding) | off (no LW); SLH=1 adds H(n ≥ 2) (energy-unsafe, see PM.STARLIGHT).
+if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
+    let ph = mat.photos, pH = ph[findfirst(p -> p.R === :H, ph)]
+        PM.STARLIGHT[] = (; pHm = get(ENV, "SLHM", "1") == "1" ? ph[findfirst(p -> p.R === :Hm, ph)] : nothing,
+                          pH = get(ENV, "SLH", "0") == "1" ? ChemNet.Photo(pH.name * " (n ≥ 2)", :H, pH.P, pH.levels[2:end], pH.Z, false) : nothing,
+                          shield = Symbol(get(ENV, "SLSHIELD", "static")), tcmb = parse(Float64, get(ENV, "TCMB", "0")))
+    end
+    PM.STARLIGHT[].shield === :off || (TX.GASQ[] = zeros(length(mat.x)))
+    pr("STARLIGHT: H- detachment%s, LW (shield %s) from the star's light in network zones\n", PM.STARLIGHT[].pH === nothing ? "" : ", H(n>=2) ionization", String(PM.STARLIGHT[].shield))
+end
 const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
 const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(ENV, "SNAPEVERY", "0"))
 # NLTE (line source functions): 1 = GP98/HM79 factor on S (old default), 0 = LTE, ep = statistical equilibrium with escape
@@ -1194,6 +1205,15 @@ try
                 j_ = envsurface(); uu = TF.var(:un)[a:b+1]; ku = argmin(uu); rr = TF.var(:rn)[a:b+1]; mm = 4π .* envmenc() ./ Msun
                 pr("        env: chem fallbacks %d, t %.6e yr, Mc+grid(<surf) %.4f Msun, sink %.2e Msun/yr, surface r %.1f R_sun, u_min %.1f km/s at r %.1f (v_esc %.1f), dt %.2e s\n", PM.NCHEMFB[], TF.getscalar(:timen) / 3.156e7, mm[j_],
                    4π * ENVMDOT[] / Msun * 3.156e7, rr[j_] / Rsun, uu[ku] / 1e5, rr[ku] / Rsun, sqrt(2Z0.G * mm[ku] * Msun / rr[ku]) / 1e5, TF.getscalar(:dtime))
+                if PM.SLDIAG[] !== nothing
+                    sd_ = PM.SLDIAG[]; rz_ = TF.var(:rn); xs_ = String[]
+                    for lr in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0)
+                        kk = findfirst(k -> rz_[k] / Rsun >= 10^lr, sd_.kph+1:length(sd_.kLW))
+                        kk === nothing && continue; kk += sd_.kph
+                        push!(xs_, @sprintf("r 1e%.1f: kHm %.1e kH %.1e kLW %.1e fsh %.1e", lr, sd_.kHm[kk], sd_.kH[kk], sd_.kLW[kk], sd_.fsh[kk]))
+                    end
+                    pr("        light: photosphere zone %d r %.0f R_sun, T_eff %.0f K; %s\n", sd_.kph, TF.var(:rn)[sd_.kph+1] / Rsun, sd_.Te, join(xs_, "; "))
+                end
             end
         end
         (Tc_ > Tstop || ρc_ / PC.mH > nstop) && TF.setscalar!(:tmax, TF.getscalar(:timen))
