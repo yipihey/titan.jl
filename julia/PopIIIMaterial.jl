@@ -250,9 +250,9 @@ function hbf_nlte(ν, T, n1, n2)
 end
 """Planck means of absorption (κ_E, H⁻ bf from nHm) and emission (κ_P, H⁻ bf from nHmS), H bound–free in both or neither (`hbfP`), and
 Rosseland mean of the extinction (H⁻ from nHm, H bound–free always) [cm² g⁻¹]; number densities in cm⁻³."""
-function nlte_means(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP)
+function nlte_means(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T)
     isempty(NLGRID[]) && (NLGRID[] = COp.grid(; n = 1000))
-    νs = NLGRID[]; t = COp.tables(); sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0
+    νs = NLGRID[]; t = COp.tables(); sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0; wJ = Tw != T
     cia = nH2 > 1e-3 * n1; acia = 0.0
     for i in 1:length(νs)-1
         ν = 0.5 * (νs[i] + νs[i+1]); dν = νs[i+1] - νs[i]; σ = ν / COp.c; λμ = 1e4 / σ
@@ -264,10 +264,11 @@ function nlte_means(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP)
         ab = hbf_nlte(ν, T, n1, n2) * stim
         sca = COp.σ_ray_H2(λμ * 1e3) * nH2 + COp.σ_ray_H(λμ * 1e4) * n1 + COp.σT * ne
         B = COp.Bν(ν, T); D = COp.dBdT(ν, T); h = hbfP ? ab : 0.0
-        sE += (a0 + σhm * nHm + h) * B * dν; sP += (a0 + σhm * nHmS + h) * B * dν; sB += B * dν
+        BJ = wJ ? COp.Bν(ν, Tw) : B
+        sE += (a0 + σhm * nHm + h) * BJ * dν; sW += BJ * dν; sP += (a0 + σhm * nHmS + h) * B * dν; sB += B * dν
         sR += D / max(a0 + σhm * nHm + ab + sca, 1e-300) * dν; sD += D * dν
     end
-    (sE / sB / ρ, sP / sB / ρ, sD / sR / ρ)
+    (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
 end
 "n = 2 population [cm⁻³] of the three-level atom (2s + 2p, 4 n_2s) in steady state for the zone's n1, n_e, n_p and lagged radiation p3."
 function n2_tl3(T, n1, ne, np, p)
@@ -285,7 +286,8 @@ function nlte_kappas(ρ, T, d, p)
     n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
-    nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false)
+    Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
+    nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw)
 end
 "Lagged non-LTE opacity factors of zone k at T0 (see NLOPAC)."
 function nlopc(ρ, T0, d, p)
@@ -352,6 +354,12 @@ E_ion/E_th at rho = 1e-11..1e-10 is <= 4 % at 5000 K, 15-48 % at 6000 K. Zones t
 """
 const PSWTEX = Ref(0.0)
 """
+PSWSTAY[] = false drops the PSWTEX "stay" rule above, so a table zone below the pressure switch stays on the table only by the τ rule (PSWTAU).
+With the three-level network (SL3) the network carries the star-light ionization the rule was written to stand in for; the rule otherwise holds table
+zones out to τ ≈ 0.4 while T ≥ PSWTEX, so the boundary becomes a temperature switch in the zones where table and network disagree most.
+"""
+const PSWSTAY = Ref(true)
+"""
 PSWTAU[] > 0: a zone with T >= PSWTEX[] and Rosseland depth from the surface >= PSWTAU[] (half that to stay) uses the table whatever its pressure. Where radiation is thermalised, J = B holds H at Saha.
 The network has no radiation field: at the outer edge of an opaque layer (p ~ 6, T ~ 1e4 K, 39 M_sun) it sits at coronal x(H+) ~ 0.05 against 0.99, Newton heats the zone by a factor of 2 at frozen
 composition and chem! brings it back each step, until Newton fails. On the table the ionization heat capacity is inside Newton. The switch at fixed e lowers T once; radiation reheats the zone.
@@ -375,6 +383,19 @@ const PSWAGREE = Ref(0.0)
 const PSWTAUDEEP = Ref(3.0)
 "SLBLEND[]: star-light colour temperature and dilution blended smoothly in τ (see starlight_setup); false: switch at the τ = 2/3 zone."
 const SLBLEND = Ref(false)
+"""
+SLEB[] (with SLBLEND): the star-light colour temperature of zone k is local, T_r at τ_k + 2/3 (Eddington–Barbier: the outward light at depth τ_k
+comes from about Δτ = 2/3 further in), interpolated in log τ, in place of the photosphere's T_eff. In the extended precursor τ is nearly flat
+(0.8 → 0.4 over 400–1400 R_sun at 36 M_sun), the τ = 2/3 zone hopped between 122 and 130 from step to step, and T_eff = (L/4πr²σ)^¼ there
+swung 5580 ↔ 7100 K at constant L: every lit zone's spectrum jumped by 1500 K, faster than its ionization relaxes (C α_B n_e ~ 1e-5 s⁻¹).
+"""
+const SLEB = Ref(false)
+"""
+NLOPACJ[] (with NLOPAC): κ_E of a network zone, the absorption mean of the gray E_r, weighted with the star light's spectrum B_ν(T_c) (T_c of
+the three-level parameters) in place of B_ν(T_gas). In the precursor T_gas ≈ 4800 K under T_c ≈ 6000 K light; H⁻ bound–free stops at 1.64 μm,
+where B(4800 K) has more of its energy than B(6000 K).
+"""
+const NLOPACJ = Ref(false)
 const NSWIN = Ref(0); const NSWOUT = Ref(0)
 "H⁺ fraction of the three-level atom in steady state at (ρ, T) for the lagged radiation p (H only, n_e = n_H⁺)."
 function xss_tl3(ρ, T, p)
@@ -538,14 +559,27 @@ function starlight_setup(m::NetGas, a, b, tauz_)
     diag = (; kph, Te, L, kHm = zeros(nz), kH = zeros(nz), kLW = zeros(nz), fsh = ones(nz), tl3 = Vector{Any}(nothing, nz))
     tl3on = hasproperty(sl, :tl3) && sl.tl3
     SLDIAG[] = diag
+    # T_r at optical depth τ (log–log interpolation in the zones a..b; τ beyond the innermost zone: its T_r), for SLEB
+    function tr_at_tau(τ)
+        τ >= tauz_[a] && return (max(er[a], Ecmb) / arad)^0.25
+        for j in a:b-1
+            if tauz_[j] >= τ > tauz_[j+1]
+                t1, t2 = log(max(tauz_[j], 1e-30)), log(max(tauz_[j+1], 1e-30)); w = t1 > t2 ? (log(τ) - t2) / (t1 - t2) : 0.0
+                l1, l2 = log(max(er[j], Ecmb, 1e-300)), log(max(er[j+1], Ecmb, 1e-300))
+                return (exp(l2 + w * (l1 - l2)) / arad)^0.25
+            end
+        end
+        (max(er[b], Ecmb) / arad)^0.25
+    end
     function rates(k)
         if SLBLEND[] && Te > 0
             # smooth in τ (no jump at the moving τ = 2/3 zone): colour temperature from T_eff (τ ≤ 0.3) to the local T_r (τ ≥ 3), log blend,
             # dilution W from the local energy density (W = 1 at T_c = T_r). The sharp switch changed x_ss of the zone just outside τ = 2/3
             # by ×2 at equal energy density (diluted 6500 K vs a 4750 K blackbody).
             Tr = (max(er[k], Ecmb) / arad)^0.25
+            Tsrc = SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te
             wq = clamp((log10(max(tauz_[k], 1e-30)) + log10(1 / 0.3)) / 1.0, 0.0, 1.0); wq = wq * wq * (3 - 2wq)
-            Tc = Te^(1 - wq) * Tr^wq
+            Tc = Tsrc^(1 - wq) * Tr^wq
             W = wq >= 1 ? 1.0 : min(max(CNn.c * (er[k] - Ecmb), 0.0) / (4 * 5.670374419e-5 * Tc^4), 1.0)
         elseif k > kph && Te > 0
             Tc = Te; W = max(CNn.c * (er[k] - Ecmb), 0.0) / (4 * 5.670374419e-5 * Te^4)
@@ -568,7 +602,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             τS = 3A21LYA * LYA_LAM^3 * n1 / (8π * max(g, 1e-30))
             RL = 3A21LYA * (τS < 1e-6 ? 1.0 : -expm1(-τS) / τS)
             nb = W / expm1(E21 / (CNn.kB * Tc))
-            diag.tl3[k] = (; β = W * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc))
+            diag.tl3[k] = (; β = W * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
         end
         (kHm, kH, kLW, f)
     end
@@ -678,7 +712,7 @@ function chem!(m::NetGas)
                 end
             end
         end
-        if ptab || (ag === nothing ? ((m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])) : ag)
+        if ptab || (ag === nothing ? ((PSWSTAY[] && m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])) : ag)
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
             _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
