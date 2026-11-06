@@ -183,7 +183,8 @@ every zone (`env.static == true`, e.g. the CMB or none); otherwise direct. Table
 const PHTAB = IdDict{Any,Any}()
 function photorates_t(p::Photo, T, env)
     (hasproperty(env, :static) && env.static) || return photorates(p, T, env)
-    tab = get!(PHTAB, (p, env)) do
+    # env.tabkey: a per-zone env (extra fields for reactions) that shares the static J of `tabkey`, and so its table
+    tab = get!(PHTAB, (p, hasproperty(env, :tabkey) ? env.tabkey : env)) do
         lT = collect(0.0:0.005:6.0)
         v = [photorates(p, 10^x, env) for x in lT]
         (lT, [log(max(a[1], 1e-300)) for a in v], [log(max(a[2], 1e-300)) for a in v])

@@ -11,7 +11,7 @@ Hydrodynamics only for now (no opacities: neqn = 5).
 module PopIIIMaterial
 
 import ..TitanDriver, ..TitanResidFast, ..TitanMaterials, ..TitanCore, ..PrimordialChem, ..PopIIIEqEOS
-using ForwardDiff
+using ForwardDiff, Printf
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const TM = TitanMaterials; const TC = TitanCore
 const PC = PrimordialChem; const EQ = PopIIIEqEOS
 
@@ -291,6 +291,83 @@ _bnu(ν, T) = (x = CNn.hP * ν / (CNn.kB * T); x > 700 ? 0.0 : 2CNn.hP * ν^3 / 
 fsh_h2(N, T) = (x = N / 5e14; b5 = sqrt(CNn.kB * T / 1.6735575e-24) / 1e5; 0.965 / (1 + x / b5)^1.1 + 0.035 / sqrt(1 + x) * exp(-8.5e-4 * sqrt(1 + x)))
 "Shielding of H₂ by H I Lyman-series lines, Wolcott-Green & Haiman (2011) eq. (13)."
 fsh_hi(N) = (x = N / 2.85e23; (1 + x)^-1.6 * exp(-0.15x))
+"""
+Three-level hydrogen (1s, n = 2, continuum) for the network zones under STARLIGHT (`STARLIGHT[].tl3`): the Peebles (1968) C factor as coded in
+ChemistryKernels.jl (recombination.jl, `_peebles_k2_from_beta`, RECFAST constants), with the Hubble rate replaced by the Sobolev velocity
+gradient of the flow and electron collisions added. Per 2s atom (2s and 2p in statistical equilibrium, n_2p = 3 n_2s):
+  C = (R_Lyα + Λ_2s + 4 n_e q21) / (R_Lyα + Λ_2s + 4 n_e q21 + β),
+R_Lyα = 3A_21 (1 − e^{−τ_S})/τ_S, τ_S = 3A_21 λ_α³ n_1s / (8π (dv/dr)) (→ 8π (dv/dr)/(λ_α³ n_1s), CK's 1/(K n_1s) with H → dv/dr), dv/dr the
+angle mean (|∂u/∂r| + 2|u|/r)/3; Λ_2s = 8.2245809 s⁻¹; β = W α_B(T_c) (C_R T_c)^{3/2} e^{−χ_2/kT_c} (RECFAST's Milne β of a blackbody, diluted by W);
+α_B the RECFAST fit (CK `recfast_alpha`); q12 = Λ_ceHI/E_21 from Black (1981, via Cen 1992, as EmissionKernels ceHI: 7.5e-19 e^{−118348/T}
+/(1 + (T/1e5)^½) erg cm³ s⁻¹), q21 = q12 e^{E_21/kT}/4. Net rate per volume
+  dn_p/dt = (1 − C) n_1s (n_e q12 + P12) − C α_B n_e n_p,   P12 = (R_Lyα + Λ_2s) n̄_α,  n̄_α = W/(e^{E_21/kT_c} − 1)
+(pumping by the local field at Lyα). These replace the Boltzmann (LTE) excited levels of the H photo pair and, on the spot, the 1s recombination
+(Lyman-continuum photons: IonRay). With T_c = T, W = 1 the pair gives Saha exactly (ground g = 2, the network's Z_H = 2 to 1e-6 below 1e4 K);
+with collisions dominant (n_e q21 ≫ R_Lyα, Λ, β) n_2 is Boltzmann at T and the old LTE treatment is recovered.
+Energy: ChemNet pays χ_H out of u per net ionization (E0). The chemistry also gets, per ionization through n = 2, the photon energy ⟨hν⟩ (Balmer
+continuum mean, σ ∝ ν⁻³ in W B(T_c)) + E_21 P12/(n_e q12 + P12) (the pumped share of the excitation), and per net recombination loses
+χ_H + 0.75 kT to radiation; that energy leaves (or enters) the gray field through RAYQ. Inside the chemistry so that the collisional-excitation
+cost (10.2 eV per ionization, ≫ kT) limits the rate implicitly in T. The recombine/re-ionize cycle's heat (1 − C) α_B n_e n_p (⟨hν⟩ − χ_2 −
+0.75 kT) goes to the gas in the hydro step (GASQ), where it meets the gas's radiative cooling. Left out: H–H collisional excitation (Drawin),
+n ≥ 3 except through α_B, and the Lyα cooling of excitations that do not ionize (in the gray κ_P's lines).
+"""
+const TL3DBG = Ref(parse(Int, get(ENV, "TL3DBG", "0")))
+const LYA_LAM = 1.215668e-5; const LAM2S = 8.2245809; const A21LYA = 6.2648e8
+const E21 = 10.19881 * EVERG; const CHI2 = CNn.χH - E21; const CR_REC = 1.799920e10      # 2π m_e k/h² [cm⁻² K⁻¹]
+alphaB_recfast(T) = (t = T / 1e4; 4.309e-13 * t^-0.6166 / (1 + 0.6703 * t^0.53))          # cm³ s⁻¹ (= CK recfast_alpha × 1e6)
+beta2s_bb(Tc) = alphaB_recfast(Tc) * (CR_REC * Tc)^1.5 * exp(-CHI2 / (CNn.kB * Tc))         # s⁻¹ per 2s atom, J = B(T_c)
+q12_H(T) = 7.5e-19 * exp(-118348.0 / T) / (1 + sqrt(T / 1e5)) / E21
+q21_H(T) = 7.5e-19 / (1 + sqrt(T / 1e5)) / E21 / 4
+tl3_C(T, p) = (D = p.RL + LAM2S + 4p.ne * q21_H(T); D / (D + p.β))
+"Mean photon energy of n = 2 photoionization (σ ∝ ν⁻³) in J ∝ B(T_c)."
+function balmer_mean(Tc)
+    ν0 = CHI2 / CNn.hP; s0 = 0.0; s1 = 0.0
+    νs = [ν0 * exp(x) for x in range(0.0, log(1 + 40CNn.kB * Tc / CHI2), length = 101)]
+    for i in 1:100
+        ν = 0.5(νs[i] + νs[i+1]); w = _bnu(ν, Tc) / ν^4 * (νs[i+1] - νs[i]); s0 += w; s1 += w * CNn.hP * ν
+    end
+    s0 > 0 ? s1 / s0 : CHI2
+end
+"The three reactions of the three-level H atom (zero unless the zone's env carries `tl3`)."
+function tl3_reactions()
+    on(env) = hasproperty(env, :tl3) && env.tl3 !== nothing
+    [CNn.Reaction("H + e → H(n=2) + e, then n = 2 photoionization (three-level, (1−C) q12)", [:H, :e], [:Hp, :e, :e],
+                  (T, env) -> on(env) ? (1 - tl3_C(T, env.tl3)) * q12_H(T) : zero(T)),
+     CNn.Reaction("H + γ(Lyα) → H(n=2), then n = 2 photoionization (three-level, (1−C) P12)", [:H], [:Hp, :e],
+                  (T, env) -> on(env) ? (1 - tl3_C(T, env.tl3)) * env.tl3.P12 + zero(T) : zero(T)),
+     CNn.Reaction("H+ + e → H(n≥2) → H(1s) (three-level, C α_B)", [:Hp, :e], [:H],
+                  (T, env) -> on(env) ? tl3_C(T, env.tl3) * alphaB_recfast(T) : zero(T))]
+end
+"""
+The network with the three-level H atom: `tl3_reactions` added, and mutual neutralization H⁻ + H⁺ → 2H (GA08 k5) split by the same C: it
+leaves one H in n ≥ 2 (mostly n = 3), which the star light ionizes again with probability 1 − C, so in lit zones only C of it recombines
+(the rest is H⁻ + H⁺ → H + H⁺ + e). Without the split, at x_e ~ 0.4 it recombined ~1 % of the H per step and put 12.9 eV per event into
+the gas (the network has no radiative losses in RAD runs). Its detailed-balance reverse is unchanged.
+"""
+function tl3_network(net)
+    on(env) = hasproperty(env, :tl3) && env.tl3 !== nothing
+    rx = CNn.Reaction[]
+    for r in net.reactions
+        if startswith(r.name, "H- + H+ → 2H") && !occursin("reverse", r.name)
+            k0 = r.k
+            push!(rx, CNn.Reaction(r.name * " × C (three-level)", r.R, r.P, (T, env) -> on(env) ? tl3_C(T, env.tl3) * k0(T, env) : k0(T, env)))
+            push!(rx, CNn.Reaction("H- + H+ → H(n≥2) + H+, re-ionized: H + H+ + e ((1−C) × GA08 k5)", [:Hm, :Hp], [:H, :Hp, :e],
+                                   (T, env) -> on(env) ? (1 - tl3_C(T, env.tl3)) * k0(T, env) : zero(T)))
+        else
+            push!(rx, r)
+        end
+    end
+    CNn.Network(net.species, net.free, vcat(rx, tl3_reactions()))
+end
+"Energy terms of the three-level atom per volume: (chemistry heat, cycle heat for GASQ) at (ρ, T, full composition d)."
+function tl3_heat(ρ, T, d, p)
+    nH = ρ / CNn.μH(); C = tl3_C(T, p); xH = max(d[:H], zero(T)); xe = max(d[:e], zero(T)); xp = max(d[:Hp], zero(T))
+    Q12 = nH * xe * q12_H(T); I = (1 - C) * xH * (Q12 + p.P12); rec = alphaB_recfast(T) * nH * xe * xp
+    Ein = p.hν + E21 * p.P12 / (Q12 + p.P12 + 1e-300)
+    chemq = nH * (I * Ein - C * rec * (CNn.χH + 0.75CNn.kB * T))
+    cycq = nH * (1 - C) * rec * (p.hν - CHI2 - 0.75CNn.kB * T)
+    chemq, cycq
+end
 "Per-step star-light setup: photosphere, T_eff, and the LW columns; returns a function k -> (kHm, kH, kLW, fsh) for a network zone k."
 function starlight_setup(m::NetGas, a, b, tauz_)
     sl = STARLIGHT[]; dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); er, fr, un = TM.v(:ern), TM.v(:frn), TM.v(:un)
@@ -313,7 +390,8 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         s2 += nh2 * dr; s1 += nhi * dr
     end
     νLW = 12.87 * EVERG / CNn.hP
-    diag = (; kph, Te, L, kHm = zeros(nz), kH = zeros(nz), kLW = zeros(nz), fsh = ones(nz))
+    diag = (; kph, Te, L, kHm = zeros(nz), kH = zeros(nz), kLW = zeros(nz), fsh = ones(nz), tl3 = Vector{Any}(nothing, nz))
+    tl3on = hasproperty(sl, :tl3) && sl.tl3
     SLDIAG[] = diag
     function rates(k)
         if k > kph && Te > 0
@@ -330,6 +408,15 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             kLW = 1.1e8 * 4π * W * _bnu(νLW, Tc) * f
         end
         diag.kHm[k] = kHm; diag.kH[k] = kH; diag.kLW[k] = kLW; diag.fsh[k] = f
+        if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
+            d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH(); n1 = nH * max(d[:H], 1e-30)
+            rc = 0.5(rn[k] + rn[k+1]); ub = 0.5(un[k] + un[k+1])
+            g = (abs(un[k+1] - un[k]) / (rn[k+1] - rn[k]) + 2abs(ub) / rc) / 3
+            τS = 3A21LYA * LYA_LAM^3 * n1 / (8π * max(g, 1e-30))
+            RL = 3A21LYA * (τS < 1e-6 ? 1.0 : -expm1(-τS) / τS)
+            nb = W / expm1(E21 / (CNn.kB * Tc))
+            diag.tl3[k] = (; β = W * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc))
+        end
         (kHm, kH, kLW, f)
     end
     rates
@@ -380,6 +467,8 @@ function chem!(m::NetGas)
     lwheat!(k, x1) = (slrates === nothing || isempty(TX.GASQ[])) ? nothing :
         (TX.GASQ[][k] = SLDIAG[].kLW[k] * max(CNn.full(x1, m.net)[:H2], 0.0) * dn[k] / CNn.μH() * (4.48 + 0.4) * EVERG; nothing)
     slrates === nothing || isempty(TX.GASQ[]) || fill!(TX.GASQ[], 0.0)
+    ray === nothing && !isempty(TX.RAYQ[]) && fill!(TX.RAYQ[], 0.0)            # (RAYQ also carries the three-level H's photon energy)
+    ph3 = filter(p -> p.R !== :H, m.photos)                                 # three-level zones: no Boltzmann-level H photo pair
     for k in a:b
         if h !== nothing && tn[k] > h.T1             # hot branch: no chemistry, no re-solve of T with the table (driver: burn and mix)
             m.x[k] = x_from_table(m, dn[k], min(tn[k], 1e6)); m.eqzone[k] = true
@@ -415,22 +504,43 @@ function chem!(m::NetGas)
             _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
         else
+            eqprev = m.eqzone[k]
             m.eqzone[k] && (m.eqzone[k] = false)     # (back to the ideal regime: the network continues from the table composition)
             exs, cools = slterms(k, nothing, cool)
+            p3 = (slrates === nothing || m.eqzone[k]) ? nothing : SLDIAG[].tl3[k]
+            envk, phk = m.env, m.photos; fb = false
+            if p3 !== nothing
+                envk = merge(m.env, (; tabkey = m.env, tl3 = p3)); phk = ph3
+                c0 = cools
+                cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, p3)[1]
+            end
             x1, T1 = try
-                xs1, Ts1 = CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = m.env, photos = m.photos, cooling = cools, extra = exs)
+                # u below the zone's own composition at 10 K (x and e advected by different schemes; with x_e ~ 0.1-0.5 from the three-level
+                # atom the mismatch reaches ~1 eV per H): no solution for this x, take the fallback below
+                p3 !== nothing && egn[k] < CNn.eos(dn[k], 10.0, m.x[k], m.net)[1] && error("tl3: u below u(10 K, x) in zone $k")
+                xs1, Ts1 = CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = envk, photos = phk, cooling = cools, extra = exs)
                 (STARLIGHT[] !== nothing && !(all(isfinite, xs1) && isfinite(Ts1))) && error("starlight: non-finite chemistry in zone $k: x $xs1 T $Ts1 from x $(m.x[k]) T $(tn[k]) ρ $(dn[k]) rates $(slrates(k))")
                 (xs1, Ts1)
             catch e
                 # Fixed mesh: e and x are advected by different schemes, and e may then have no solution for the zone's x. Hot dense gas: table equilibrium, same e.
                 STARLIGHT[] !== nothing && !(e isa ErrorException) && println("starlight zone failed: k ", k, " x ", m.x[k], " ρ ", dn[k], " u ", egn[k], " T ", tn[k], " dt ", dt, " rates ", slrates(k), " eq ", m.eqzone[k], " E_r ", TM.v(:ern)[k])
-                (CHEMFALLBACK[] && e isa ErrorException) || rethrow()
-                NCHEMFB[] += 1
+                (CHEMFALLBACK[] && (e isa ErrorException || (p3 !== nothing && e isa ArgumentError))) || rethrow()
+                NCHEMFB[] += 1; fb = true
                 coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
                 _, T2 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
                 (x_from_table(m, dn[k], T2), T2)
             end
             m.eqzone[k] || lwheat!(k, x1)
+            if p3 !== nothing && !m.eqzone[k] && !fb
+                cq, yq = tl3_heat(dn[k], T1, CNn.full(x1, m.net), p3)
+                isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
+                isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
+                SLDIAG[].tl3[k] = merge(p3, (; chemq = cq, cycq = yq))
+                if TL3DBG[] > 0 && TF.getscalar(:jstep) % TL3DBG[] == 0 && k % 6 == 0
+                    d0 = CNn.full(m.x[k], m.net); d1 = CNn.full(x1, m.net)
+                    @printf("tl3dbg k %d r %.3e tauz %.2e T %.0f -> %.0f  xe %.2e -> %.2e  C %.2e β %.2e RL %.2e  chemq %.2e cycq %.2e  u %.3e  u(T0,x0) %.3e  eqprev %s\n", k, rn[k] / 6.957e10, tauz[k], tn[k], T1, d0[:e], d1[:e], tl3_C(T1, p3), p3.β, p3.RL, cq, yq, egn[k], CNn.eos(dn[k], tn[k], m.x[k], m.net)[1], eqprev)
+                end
+            end
             m.x[k] = x1
         end
         dTmax = max(dTmax, abs(T1 / tn[k] - 1)); tn[k] = T1
