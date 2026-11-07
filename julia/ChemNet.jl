@@ -280,6 +280,13 @@ balance) otherwise sets λ ≈ 0.9 x/|δ| for all unknowns: x falls by 10 % per 
 Runs that never reach this depth are unchanged bit for bit.
 """
 const CLIPDEPTH = 4
+"""Non-finite Jacobian = failed attempt (halve h), and the clipped retry clips trace Li on its own species (ENV CHEMROBUST=1, default off;
+off keeps the old behaviour: `\\` throws, and Li → 0 sets λ for every unknown)."""
+const ROBUST = Ref(get(ENV, "CHEMROBUST", "0") != "0")
+"Print the first N non-finite Jacobians of `step` (ENV CHEMNANDBG; diagnostics)."
+const NANDBG = Ref(parse(Int, get(ENV, "CHEMNANDBG", "0")))
+"Print the Newton iterations of the first N failed steps (ENV CHEMTRACE; diagnostics)."
+const TRACEDBG = Ref(parse(Int, get(ENV, "CHEMTRACE", "0")))
 
 """
     step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, Tfix = nothing) -> (x, T)
@@ -304,11 +311,17 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
         ue = eos(ρ, T, x, net)[1] - ucur[] + (cooling === nothing ? zero(T) : h * cooling(ρ, T, full(x, net)) / ρ)
         vcat(r, ue / (kB * T / μH()))
     end
-    function attempt(x0, T0, h; clip = false)
+    function attempt(x0, T0, h; clip = false, trace = false)
         z = vcat(collect(Float64, x0), log(T0))
         for it in 1:maxit
             R = resid(z, x0, h)
+            trace && println("  trace it ", it, " T ", exp(z[nf+1]), " x ", z[1:nf], " R ", R)
             Jm = ForwardDiff.jacobian(zz -> resid(zz, x0, h), z)
+            # a non-finite Jacobian is a failed attempt like a non-finite δ (halve h): `\` would throw an ArgumentError past the retry
+            if ROBUST[] && !(all(isfinite, Jm) && all(isfinite, R))
+                NANDBG[] > 0 && (NANDBG[] -= 1; println("ChemNet nonfinite: h ", h, " T ", exp(z[nf+1]), " x ", z[1:nf], " R ", R, " bad J cols ", [j for j in axes(Jm, 2) if !all(isfinite, Jm[:, j])], " bad J rows ", [i for i in axes(Jm, 1) if !all(isfinite, Jm[i, :])]))
+                return (z, false)
+            end
             δ = -(Jm \ R); all(isfinite, δ) || return (z, false)
             λ = 1.0
             clip && for i in 1:nf; z[i] + δ[i] < 0 && (δ[i] = -0.9 * z[i]); end
@@ -317,7 +330,14 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
             d0 = full(z[1:nf], net); d1 = full(z[1:nf] .+ δ[1:nf], net)
             for s in (:H, :Li, :e)
                 haskey(d0, s) || continue
-                dv = d1[s] - d0[s]; d0[s] + λ * dv < 0 && (λ = min(λ, 0.9 * d0[s] / -dv))
+                dv = d1[s] - d0[s]
+                if ROBUST[] && clip && s === :Li && d0[s] + dv < 0
+                    # Li is a trace element: clip only its own species (Li fully ionized by star light, Li → 0 froze every unknown)
+                    cc = compiled(net); f = 0.9 * d0[s] / -dv
+                    for i in 1:nf; cc.elLi[i] != 0 && (δ[i] *= f); end
+                    continue
+                end
+                d0[s] + λ * dv < 0 && (λ = min(λ, 0.9 * d0[s] / -dv))
             end
             abs(δ[nf+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[nf+1]))
             z .+= λ .* δ
@@ -332,6 +352,7 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
             z, ok = attempt(x0, T0, h; clip = true)
             ok && (accepted === nothing || accepted(z[1:nf], h); return (z[1:nf], exp(z[nf+1])))
         end
+        depth >= 12 && TRACEDBG[] > 0 && (TRACEDBG[] -= 1; println("ChemNet trace: h ", h, " T0 ", T0, " x0 ", x0, " ρ ", ρ, " u ", ucur[], " u(T0,x0) ", eos(ρ, T0, x0, net)[1]); println("  free ", net.free); attempt(x0, T0, h; trace = true); println("  clip:"); attempt(x0, T0, h; clip = true, trace = true))
         depth >= 12 && error("ChemNet.step: Newton failed (nH = $nH, T0 = $T0, dt = $dt, u = $u)")
         x1, T1 = adv(x0, T0, h / 2, depth + 1)
         cooling === nothing || Tfix !== nothing || (ucur[] = Float64(eos(ρ, T1, x1, net)[1]))
