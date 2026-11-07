@@ -478,6 +478,8 @@ cost (10.2 eV per ionization, ≫ kT) limits the rate implicitly in T. The recom
 n ≥ 3 except through α_B, and the Lyα cooling of excitations that do not ionize (in the gray κ_P's lines).
 """
 const TL3DBG = Ref(parse(Int, get(ENV, "TL3DBG", "0")))
+"Print the chemistry/table step of this zone every step (ENV ZONEDBG; diagnostics)."
+const ZONEDBG = Ref(parse(Int, get(ENV, "ZONEDBG", "0")))
 const LYA_LAM = 1.215668e-5; const LAM2S = 8.2245809; const A21LYA = 6.2648e8
 const E21 = 10.19881 * EVERG; const CHI2 = CNn.χH - E21; const CR_REC = 1.799920e10      # 2π m_e k/h² [cm⁻² K⁻¹]
 alphaB_recfast(T) = (t = T / 1e4; 4.309e-13 * t^-0.6166 / (1 + 0.6703 * t^0.53))          # cm³ s⁻¹ (= CK recfast_alpha × 1e6)
@@ -762,6 +764,7 @@ function chem!(m::NetGas)
             end
             m.x[k] = x1
         end
+        k == ZONEDBG[] && @printf("zonedbg step %d k %d p %.4e T %.1f -> %.1f eq %s tauz %.3e u %.5e dt %.3e\n", TF.getscalar(:jstep), k, pgn[k], tn[k], T1, m.eqzone[k], tauz[k], egn[k], dt)
         dTmax = max(dTmax, abs(T1 / tn[k] - 1)); tn[k] = T1
     end
     for k in a-2:a-1; k >= 1 && (m.x[k] = m.x[a]; m.eqzone[k] = m.eqzone[a]); end

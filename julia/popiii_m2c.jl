@@ -438,7 +438,9 @@ Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(EN
 const CKDIR = get(ENV, "CKDIR", joinpath(TF.ROOT, "lib", "popiii", "ck"))
 const KOFF = Ref(0); const SG = Ref{Any}(nothing)
 matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope), Y = HOTON ? copy(SG[].Y) : nothing,
-                                     star = HOTON ? (; fscale = copy(SG[].fscale), fslope = copy(SG[].fslope), fcur = copy(SG[].fcur), Dmix = copy(SG[].Dmix), dtcap = SG[].dtcap, capE = SG[].capE, ledger = SG[].ledger, Yprev = copy(SG[].Yprev)) : nothing) :
+                                     star = HOTON ? (; fscale = copy(SG[].fscale), fslope = copy(SG[].fslope), fcur = copy(SG[].fcur), Dmix = copy(SG[].Dmix), dtcap = SG[].dtcap, capE = SG[].capE, ledger = SG[].ledger, Yprev = copy(SG[].Yprev)) : nothing,
+                                     # lagged over one step (set in chemistry, used by the next hydro step): without them a restart is not exact
+                                     lag = (; NLOPC = deepcopy(PM.NLOPC[]), GASQ = copy(TX.GASQ[]), RAYQ = copy(TX.RAYQ[]), SLDIAG = deepcopy(PM.SLDIAG[]))) :
              error("checkpoint: only the NetGas material (CHEM=net*) is supported")
 function checkpoint(name, k)
     mkpath(CKDIR)
@@ -463,6 +465,10 @@ function restart!(name; allow = ())
     HOTON && hasproperty(s, :Y) && s.Y !== nothing && (SG[].Y .= s.Y)      # (a checkpoint from before HOT=1 keeps the initial abundances)
     if HOTON && hasproperty(s, :star) && s.star !== nothing
         t_ = s.star; g_ = SG[]; g_.fscale .= t_.fscale; g_.fslope .= t_.fslope; g_.fcur .= t_.fcur; g_.Dmix = t_.Dmix; g_.dtcap = t_.dtcap; g_.capE = t_.capE; g_.ledger = t_.ledger; g_.Yprev .= t_.Yprev
+    end
+    if hasproperty(s, :lag)                        # (older checkpoints: these start empty, so the first step after a restart differs)
+        l_ = s.lag; PM.NLOPC[] = deepcopy(l_.NLOPC); PM.SLDIAG[] = deepcopy(l_.SLDIAG)
+        length(l_.GASQ) == length(TX.GASQ[]) && (TX.GASQ[] .= l_.GASQ); length(l_.RAYQ) == length(TX.RAYQ[]) && (TX.RAYQ[] .= l_.RAYQ)
     end
     ALIFAC[] = copy(aux.ALIFAC); ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
     LLINE[] = aux.LLINE; nextln[] = aux.nextln; SNAPNEXT[] = aux.SNAPNEXT
