@@ -274,6 +274,7 @@ Network integration of zone k over the step along the T/ρ history booked by the
 function burn_zone(m::StarGas, k, dt, tr::Bool, legacy::Bool)
     dn, tn, to, do_ = TM.v(:dn), TM.v(:tn), TM.v(:to), TM.v(:do)
     acc = m.acc; ρ = dn[k]; Y0 = m.Y[:, k]
+    dt > 0 || return Y0, 0.0                    # Δt below the resolution of t (ulp(t) = 0.125 s at 7e14 s): timen − timeo = 0, nothing burns
     if m.burnT === :end || legacy
         res = NN.burn(Y0, ρ, tn[k], dt; screen = m.screen); return res.Y, res.ε * dt
     end
@@ -287,6 +288,10 @@ function burn_zone(m::StarGas, k, dt, tr::Bool, legacy::Bool)
         Tj = exp(pathval(sj, l0, lg, l1, tr)); ρj = exp(pathval(sj, r0, rg, r1, tr))
         res = NN.burn(Yk, ρj, Tj, dt / ns; screen = m.screen)
         eb += res.ε * dt / ns; Yk = res.Y
+    end
+    if !(isfinite(eb) && all(isfinite, Yk))     # report the knots, keep the zone's composition, book no release
+        println("burn_zone: non-finite release in zone $k (tr $tr, ns $ns, dt $dt): T_o $(to[k]) T_g $(tr ? acc.Tg[k] : NaN) T_n $(tn[k]) ρ_o $(do_[k]) ρ_g $(tr ? acc.dg[k] : NaN) ρ_n $ρ Y0 finite $(all(isfinite, Y0)) eb $eb"); flush(stdout)
+        return Y0, 0.0
     end
     Yk, eb
 end
@@ -576,6 +581,10 @@ function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd =
                 any(ΔY[:, j] .!= 0) || continue
                 k = a + j - 1; Ys[:, k] .= Y0[:, j] .+ λ .* ΔY[:, j]
                 comp = (t = xyz(view(Ys, :, k)); SE.composition(t[1], t[2], t[3], m.zmix))
+                if !(isfinite(dn[k]) && isfinite(egn[k]) && isfinite(tn[k]) && all(isfinite, view(Ys, :, k)))
+                    println("mix!: non-finite state in zone $k (λ $λ): ρ $(dn[k]) e $(egn[k]) T $(tn[k]) Y $(Ys[:, k]) ΔY $(ΔY[:, j])"); flush(stdout)
+                    return Inf
+                end
                 Tn, _ = t_solve(m, dn[k], egn[k], tn[k], comp)
                 mx = max(mx, abs(log(Tn / tn[k])))
             end
