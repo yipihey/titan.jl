@@ -984,6 +984,98 @@ elseif haskey(ENV, "RESTART")
         Int(TF.getscalar(:lgrid)) == 3 ? envbuild!() : (envflags!(); ENVMS0[] = parse(Float64, ENV["ENVMS0"]) * Msun / 4π)
     end
 end
+"""
+ENVSPLIT=r1,r2,k (radii in R☉; with RESTART of a fixed-mesh run): split every zone whose centre lies in [r1, r2] into k zones of equal Δln r,
+and the zones beyond either end into k−1, k−2, … 2 (graded), keeping the zone count even. The rest of the mesh is unchanged. Conservative
+piecewise-constant remap: each sub-zone takes its parent's ρ, T, E_r, composition, nuclear abundances and per-zone material and driver state
+(mass, internal and radiation energy unchanged); u and the luminosity are linear in r inside the parent. Restart the split run's own
+checkpoints WITHOUT ENVSPLIT (it would split again).
+"""
+function envsplit!(r1, r2, kmax)
+    kmax = Int(kmax); r0 = TF.var(:rn)[a:b+1]; n0 = nsh; a0 = a; b0 = b
+    rc = [0.5 * (r0[j] + r0[j+1]) for j in 1:n0]
+    inw = [r1 * Rsun <= rc[j] <= r2 * Rsun for j in 1:n0]; any(inw) || error("ENVSPLIT: no zone centre in [$r1, $r2] R_sun")
+    j1 = findfirst(inw); j2 = findlast(inw)
+    f = [max(1, kmax - (j < j1 ? j1 - j : j > j2 ? j - j2 : 0)) for j in 1:n0]
+    if isodd(sum(f) - n0)                                                       # (an even zone count, as envbuild!)
+        jx = findfirst(j -> j > j2 && f[j] == 1, 1:n0); jx === nothing && error("ENVSPLIT: window too close to the outer edge")
+        f[jx] = 2
+    end
+    u0 = TF.var(:un)[a:b+1]; L0 = 4π .* r0 .^ 2 .* TF.var(:frn)[a:b+1]
+    d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]
+    rI = [r0[1]]; uI = [u0[1]]; LI = [L0[1]]; P = Int[]
+    for j in 1:n0
+        for i in 1:f[j]
+            w = i / f[j]; r_ = f[j] == 1 ? r0[j+1] : exp((1 - w) * log(r0[j]) + w * log(r0[j+1]))
+            i == f[j] && (r_ = r0[j+1]); wl = (r_ - r0[j]) / (r0[j+1] - r0[j])
+            push!(rI, r_); push!(uI, (1 - wl) * u0[j] + wl * u0[j+1]); push!(LI, (1 - wl) * L0[j] + wl * L0[j+1]); push!(P, j)
+        end
+    end
+    n = length(P); n + 2 <= TF.MGR || error("ENVSPLIT: $n zones exceed mgr = $(TF.MGR)")
+    Fr = [rI[j] > 0 ? LI[j] / (4π * rI[j]^2) : 0.0 for j in eachindex(rI)]
+    # per-zone state of the old mesh (TITAN index k = a + j − 1; ghosts beyond b keep their offset from b)
+    kmap(knew) = knew < a0 ? knew : knew <= a0 + n - 1 ? a0 + P[knew-a0+1] - 1 : b0 + (knew - (a0 + n - 1))
+    remap(v) = (o = copy(v); [o[clamp(kmap(k), 1, length(o))] for k in eachindex(o)])
+    mx = deepcopy(mat.x); meq = copy(mat.eqzone); mΛ = copy(mat.Λext); mTr = copy(mat.Tref); msl = copy(mat.slope)
+    lagF = Dict(:GASQ => TX.GASQ[], :RAYQ => TX.RAYQ[], :CHEMB => TX.CHEMB[], :CHEMBON => TX.CHEMBON[])
+    lagold = Dict(s_ => copy(v_) for (s_, v_) in lagF)
+    nlo = copy(PM.NLOPC[])
+    xmext = TF.getscalar(:xmext); xmt0 = TF.getscalar(:xmtot)
+    t0 = TF.getscalar(:timen); dt0 = TF.getscalar(:dtime); js = TF.getscalar(:jstep)
+    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
+    ρz = [d0[P[j]] for j in 1:n]; Tz = [T0[P[j]] for j in 1:n]; Er = [E0[P[j]] for j in 1:n]
+    Mold = sum(4π / 3 * d0[j] * (r0[j+1]^3 - r0[j]^3) for j in 1:n0); Mnew = sum(4π / 3 * ρz[j] * (rI[j+1]^3 - rI[j]^3) for j in 1:n)
+    Eold = sum(4π / 3 * E0[j] * (r0[j+1]^3 - r0[j]^3) for j in 1:n0); Enew = sum(4π / 3 * Er[j] * (rI[j+1]^3 - rI[j]^3) for j in 1:n)
+    TX.GASROW[] = true
+    PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lum = ENVCENTRE ? nothing : abs(LI[1]), lgrid = 2, inner = :wall, outer = :wall,
+              Mc = ENVCENTRE ? 0.0 : 4π * (xmt0 - TF.var(:xmen)[a0]) , selfgrav = true, material = mat, av, xmext)
+    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
+    a == a0 || error("ENVSPLIT: ngrs moved")
+    for k in eachindex(mat.x)
+        ko = clamp(kmap(k), 1, length(mx))
+        mat.x[k] = copy(mx[ko]); mat.eqzone[k] = meq[ko]; mat.Λext[k] = mΛ[ko]; mat.Tref[k] = mTr[ko]; mat.slope[k] = msl[ko]
+    end
+    for (s_, v_) in lagF                                                        # (in place: PM.RAY etc. hold these arrays)
+        o = lagold[s_]; isempty(o) && continue
+        for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end
+    end
+    length(nlo) == length(TF.var(:dn)) && (PM.NLOPC[] = Any[nlo[clamp(kmap(k), 1, length(nlo))] for k in eachindex(nlo)])
+    if HOTON
+        g_ = SG[]; Yo = copy(g_.Y); Ypo = copy(g_.Yprev)
+        for k in axes(g_.Y, 2); ko = clamp(kmap(k), 1, size(Yo, 2)); g_.Y[:, k] .= Yo[:, ko]; g_.Yprev[:, k] .= Ypo[:, ko]; end
+        for v_ in (g_.fscale, g_.fslope, g_.fcur); o = copy(v_); for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end; end
+        g_.Dmix = zeros(length(TF.var(:dn))); g_.acc.nstage = 0
+        SM.ghosts!(g_)
+    end
+    TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
+    PS.install_julia!(BlockSolver)
+    for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
+    TF.setscalar!(:timen, t0); TF.setscalar!(:timeo, t0); TF.setscalar!(:dtime, min(dt0, parse(Float64, get(ENV, "ENVDT0", "1e4")))); TF.setscalar!(:jstep, js); TF.setscalar!(:tmax, 1e3tff)
+    radsettings!()
+    envflags!()
+    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
+    empty!(ALIFAC[]); empty!(ALIFIX[])
+    pr("ENVSPLIT: zones %d -> %d (old zones %d..%d with centres in %.4g..%.4g R_sun into %d; graded %s), M %.6e -> %.6e Msun, E_rad %.6e -> %.6e erg, xmtot %.6e -> %.6e\n",
+       n0, n, j1, j2, rc[j1] / Rsun, rc[j2] / Rsun, kmax, string(f[max(1, j1 - kmax):min(n0, j2 + kmax)]), Mold / Msun, Mnew / Msun, Eold, Enew, xmt0, TF.getscalar(:xmtot))
+end
+"""
+DTENV=r1,r2,C (R☉): cap Δt at C × min over the interfaces with r1 ≤ r ≤ r2 of the dynamical time (r³/Gm)^½ (m interior mass). TITAN's
+DT_DYN (CDYN) takes the minimum over the whole mesh, so the stellar core sets it and the accretion runs relax it (CDYN = 1e5); this one
+follows only the envelope (its edge collapses and re-expands on its dynamical time). Reported on the DTDIAG line.
+"""
+const DTENV = haskey(ENV, "DTENV") ? parse.(Float64, split(ENV["DTENV"], ",")) : nothing; const DTENVLAST = Ref((Inf, 0))
+if DTENV !== nothing
+    push!(TC.DT_HOOKS, function ()
+        rn = TF.var(:rn); xmn = TF.var(:xmn); G4π = TF.getscalar(:cgrav) * 4π; td = Inf; kd = 0
+        for k in a:b+1
+            (DTENV[1] * Rsun <= rn[k] <= DTENV[2] * Rsun && xmn[k] > 0) || continue
+            t_ = sqrt(rn[k]^3 / (G4π * xmn[k])); t_ < td && (td = t_; kd = k)
+        end
+        DTENVLAST[] = (DTENV[3] * td, kd); DTENV[3] * td
+    end)
+    pr("DTENV: dt <= %g x dynamical time over %g..%g R_sun\n", DTENV[3], DTENV[1], DTENV[2])
+end
+haskey(ENV, "ENVSPLIT") && ENVEUL !== nothing && haskey(ENV, "RESTART") && Int(TF.getscalar(:lgrid)) == 2 && envsplit!(parse.(Float64, split(ENV["ENVSPLIT"], ","))...)
 const CHEMDIAG = get(ENV, "CHEMDIAG", "0") == "1"; const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
 const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended run whose Δt has collapsed, before the checkpoints are overwritten
@@ -1210,11 +1302,30 @@ try
                 pr("        ZDIAG %d: T %.1f (To %.1f) e %.5e (eo %.5e) rho %.3e (do %.3e) | per g over dt %.2e: kE cE-kP 4sT4 %.3e, GASQ %.3e, RAYQ %.3e, Lambda_ext %.3e, -p d(1/rho) %.3e; kP %.3e kE %.3e chi %.3e eq %s, cbar %.3e\n",
                    z, Tz, TF.var(:to)[z], TF.var(:egn)[z], TF.var(:ego)[z], ρz, TF.var(:do)[z], dt_, xch, gq, rq, mat.Λext[z] * dt_ / ρz,
                    -TF.var(:pgn)[z] * (1 / ρz - 1 / TF.var(:do)[z]), kp, ke, TF.var(:chifn)[z], string(mat.eqzone[z]), isempty(TX.CHEMB[]) ? 0.0 : TX.CHEMB[][z] * dt_)
+                if ENVEUL !== nothing && !isempty(XMEPREV[])     # Eulerian budget: Δ(M e) per g vs exchange + advection (F e_b through both faces) + p dV; rest = MLT, diffusion, viscosity, …
+                    xn = TF.var(:xmen); xo = XMEPREV[]; Mn = xn[z] - xn[z+1]; Mo = xo[z] - xo[z+1]; eb = TF.var(:egb)
+                    Fi = xn[z] - xo[z]; Fo = xn[z+1] - xo[z+1]
+                    adv = (Fi * eb[z] - Fo * eb[z+1]) / Mn; dME = (Mn * TF.var(:egn)[z] - Mo * TF.var(:ego)[z]) / Mn
+                    rr_ = TF.var(:rn); uu_ = TF.var(:un); pdv = -TF.var(:pgn)[z] * (rr_[z+1]^2 * uu_[z+1] - rr_[z]^2 * uu_[z]) * dt_ / Mn   # (fixed mesh: p ∇·u, new u)
+                    pr("        ZBUD %d: d(Me)/M %.3e = exch %.3e + adv %.3e (e_b in %.4e out %.4e, e %.4e, F in/M %.2e out/M %.2e) + GASQ %.3e + pdV %.3e + rest %.3e | x_H2 %.3e x_p %.3e\n",
+                       z, dME, xch, adv, eb[z], eb[z+1], TF.var(:egn)[z], Fi / Mn, Fo / Mn, gq, pdv, dME - xch - adv - gq - pdv, ChemNet.full(mat.x[z], mat.net)[:H2], ChemNet.full(mat.x[z], mat.net)[:Hp])
+                end
             end
         end
         tc0 = time(); Tb4 = CHEMDIAG ? copy(TF.var(:tn)) : nothing; ub4 = CHEMDIAG ? copy(TF.var(:egn)) : nothing; ENVEUL !== nothing && advect_species!()
         EB = isempty(TX.CHEMB[]) ? nothing : copy(TF.var(:egn))
+        SLZ_ = haskey(ENV, "SLZ") ? parse.(Int, split(ENV["SLZ"], ",")) : nothing
+        if SLZ_ !== nothing; xb_ = [copy(mat.x[z]) for z in SLZ_[1]:SLZ_[2]]; Tb_ = TF.var(:tn)[SLZ_[1]:SLZ_[2]]; end
         dT = PM.chem!(mat)
+        if SLZ_ !== nothing && PM.SLDIAG[] !== nothing      # S6: starlight and chemistry of zones z1..z2 over this step's chem! (molecular-edge onset)
+            sd = PM.SLDIAG[]; dtq = TF.getscalar(:timen) - TF.getscalar(:timeo)
+            pr("        SLZ k %d dt %.3e: photosphere zone %d T_eff %.0f\n", k, dtq, sd.kph, sd.Te)
+            for (i, z) in enumerate(SLZ_[1]:SLZ_[2])
+                d0_ = ChemNet.full(xb_[i], mat.net); d1_ = ChemNet.full(mat.x[z], mat.net)
+                pr("        SLZ %d: n %.3e T %.1f -> %.1f  xH2 %.3e -> %.3e  xp %.3e -> %.3e  xHm %.2e | kLW %.3e fsh %.3e kHm %.3e eq %s E_r %.3e\n", z, TF.var(:dn)[z] / PC.μH,
+                   Tb_[i], TF.var(:tn)[z], d0_[:H2], d1_[:H2], d0_[:Hp], d1_[:Hp], d1_[:Hm], sd.kLW[z], sd.fsh[z], sd.kHm[z], string(mat.eqzone[z]), TF.var(:ern)[z])
+            end
+        end
         if EB !== nothing                            # BALSPLIT: c̄ ← c̄ + Δe_chem/Δt where the zone stayed on the network
             eg_ = TF.var(:egn); dtc_ = TF.getscalar(:timen) - TF.getscalar(:timeo); cb_ = TX.CHEMB[]; on_ = TX.CHEMBON[]
             for kk in eachindex(cb_)
@@ -1320,7 +1431,8 @@ try
                 kx = TF.var(:kx); dx = TF.var(:dx); names = ("r", "m", "rho", "u", "T", "E_r", "F_r"); ne_ = RAD ? 6 : 5   # (F_r is not in smax)
                 j = argmax(abs.(dx[[1, 2, 3, 5, 6][1:ne_-1]])); j = (1, 2, 3, 5, 6)[j]; xs = TF.getscalar(:stol) / TF.getscalar(:smax)
                 pr("        dt limit: %s in zone %d (rel. change %.2e, stol/smax = %.2f)%s\n", names[j], kx[j], dx[j], xs,
-                   RAD ? @sprintf("; E_r: zone %d %.2e, rho: zone %d %.2e", kx[6], dx[6], kx[3], dx[3]) : "")
+                   (RAD ? @sprintf("; E_r: zone %d %.2e, rho: zone %d %.2e", kx[6], dx[6], kx[3], dx[3]) : "") *
+                   (DTENV === nothing ? "" : @sprintf("; DTENV cap %.2e s at interface %d", DTENVLAST[]...)))
             end
         end
         if ENVEUL !== nothing
