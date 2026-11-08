@@ -835,6 +835,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         R[ie, kb(ngre+2)] = -ern[ngre+1] + ern[ngre+2]
         # ------------------------------------------------------------ RADIATION MOMENTUM
         qF = W.qF
+        tie = TD.FLUXTIE[][2] > 0 && length(TD.TIEW) >= ngre + 1 && length(TD.HEDD) >= ngre + 1
         @inbounds for k in ngrs+1:ngre
             qFo = c.fro[k] * 2 / (c.do_[k] + c.do_[k-1])
             R[iF, kb(k)] =
@@ -845,6 +846,14 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 0.5 * rmu[k] * (fr[k] / cc^2) * (u[k+1] - u[k-1]) +
                 (0.25xmu / r[k]) * ((3fedd[k-1] - 1) * er[k-1] * dvol[k-1] + (3fedd[k] - 1) * er[k] * dvol[k]) +
                 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
+            wt = tie ? TD.TIEW[k] : 0.0
+            if wt > 0                                # FLUXTIE: F = h c E (TitanDriver.FLUXTIE)
+                rcm = (0.5 * (r[k-1] + r[k]))^mu; rcp = (0.5 * (r[k] + r[k+1]))^mu
+                # upwind (donor cell): outward light from the zone inside, inward from the zone outside, diluted as r^-2. The centred
+                # average ½(hE_(k−1) + hE_k) cannot see an odd–even E mode, which nothing damps in thin gas (E → 0 at zone 214, step 87126)
+                B = rmu[k] * fr[k] / cc - (rcm * max(TD.HEDD[k-1], 0.0) * er[k-1] + rcp * min(TD.HEDD[k], 0.0) * er[k])
+                R[iF, kb(k)] = (1 - wt) * R[iF, kb(k)] + wt * B
+            end
         end
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)

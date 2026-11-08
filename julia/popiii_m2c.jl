@@ -1037,6 +1037,12 @@ if haskey(ENV, "JACCHK")
     end
 end
 TC.EDD_SCATTER[] = get(ENV, "EDDSCAT", "0") == "1"
+if haskey(ENV, "FLUXTIE")
+    let v = parse.(Float64, split(ENV["FLUXTIE"], ","))
+        TD.FLUXTIE[] = (v[1], v[2])
+        pr("FLUXTIE: radiation momentum row -> F = h c E (h = H/J of the formal solution) where tau from the outer boundary <= %g, blended to the moment equation by tau = %g\n", v[1], v[2])
+    end
+end
 TC.EDDG_MU0[] = get(ENV, "EDDGMU0", "0") == "1"
 # EDDCHI=1: extinction of the formal solution at most kappa_P + electron scattering. It takes S from kappa_P and scattering; with chi >> kappa_P (thin network zones: chi uses LTE tables, 50-1000 x kappa_P) it would emit
 # chi B where the energy rows emit kappa_P B, and that isotropic light lowers f (0.8 at 1000-25000 R_sun), so E comes out below F/c when the F row integrates it inward.
@@ -1277,6 +1283,22 @@ try
                        Γ[jg], 0.5(rr[jg] + rr[jg+1]) / Rsun, w4 === nothing || w4 > nsh ? NaN : Γ[w4], w5 === nothing || w5 > nsh ? NaN : Γ[w5],
                        mdot(j_), mdot(w4), mdot(w5), NXADV1[], PM.NSWIN[], PM.NSWOUT[])
                 end
+                # causality of the radiation field outside the surface: F/cE at the interfaces (FLUXTIE or not)
+                let fz = TF.var(:frn), ez = TF.var(:ern), rz = TF.var(:rn), q = 0.0, kq = 0, k1 = 0
+                    for k in a+1:b
+                        rz[k] > 2rr[j_] || continue
+                        v = fz[k] / (ChemNet.c * 0.5(ez[k-1] + ez[k])); v > q && (q = v; kq = k)
+                    end
+                    if TD.FLUXTIE[][2] > 0 && length(TD.TIEW) >= b
+                        k1 = something(findfirst(k -> TD.TIEW[k] > 0, a+1:b), 0); k1 > 0 && (k1 += a)
+                    end
+                    pr("        causality: max F/cE %.3f at zone %d (r %.0f R_sun)%s\n", q, kq, kq > 0 ? rz[kq] / Rsun : NaN,
+                       k1 > 0 ? @sprintf("; flux tie from zone %d (r %.0f R_sun, h %.3f)", k1, rz[k1] / Rsun, TD.HEDD[k1]) : "")
+                    if haskey(ENV, "FLUXTIEDIAG") && length(TD.HEDD) >= b
+                        zr = parse.(Int, split(ENV["FLUXTIEDIAG"], ","))     # first, step, last zone
+                        pr("        h vs F/cE (zone centre): %s\n", join((@sprintf("%d:%.3f/%.3f", k, TD.HEDD[k], 0.5(fz[k] + fz[k+1]) / (ChemNet.c * ez[k])) for k in zr[1]:zr[2]:min(b, zr[3])), " "))
+                    end
+                end
                 if PM.SLDIAG[] !== nothing
                     sd_ = PM.SLDIAG[]; rz_ = TF.var(:rn); xs_ = String[]
                     for lr in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0)
@@ -1308,6 +1330,7 @@ end
 pr("run ended: %s; jstep %d jstepe %g timen %.6e tmax %.6e\n", string(RUNEND[]), Int(TF.getscalar(:jstep)), Float64(TF.getscalar(:jstepe)), TF.getscalar(:timen), TF.getscalar(:tmax))
 haskey(ENV, "SAVE") && (checkpoint(ENV["SAVE"], KLAST[]); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[]))
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
+Trbdf2.DAMP[] && pr("damped Newton: %s\n", string(Trbdf2.DSTATS))
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
 close(io)

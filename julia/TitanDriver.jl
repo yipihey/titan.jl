@@ -80,6 +80,19 @@ function 1e9 times J, so the formal solution returns garbage (f clamped to 0 or 
 true (set by `TitanMaterials.use!` for non-built-in materials): S = (κ_P ρ B + σ_T n_e J)/(κ_P ρ + σ_T n_e).
 """
 const EDD_MATERIAL_SOURCE = Ref(false)
+"""
+`FLUXTIE[] = (τ1, τ2)` (S6, ENV FLUXTIE="τ1,τ2", default (0, 0) = off, TITAN): in optically thin zones the radiation momentum
+row becomes the flux-factor closure F = h c E, h = H/J from the same formal solution that gives f = K/J (TitanCore.eddfac!,
+spherical rays only), upwinded: r_k²F_k/c = r_c²(k−1) max(h, 0)_(k−1) E_(k−1) + r_c²(k) min(h, 0)_k E_k with zone-centre radii r_c
+(a centred average leaves an undamped odd–even E mode). With f → 1 the two moment
+equations decouple and r²E is pinned only by the outer boundary: F/cE reached 1.2 in quiet phases and 6–25 (E_r → 1e-7 at
+step 87450) after the 107.5 M_sun shell fell back, with a near-null Newton direction (residual 2e-7, E_r correction ×1.5 per
+iteration). The row is (1 − w) × moment equation + w × tie, w = 1 where the flux-mean optical depth from the outer boundary
+τ ≤ τ1, 0 where τ ≥ τ2, smooth in log τ between. h and w are frozen with f for the step. The gas still feels χρF/c.
+"""
+const FLUXTIE = Ref((0.0, 0.0))
+const HEDD = Float64[]          # h = H/J at zone centres (eddfac!, spherical)
+const TIEW = Float64[]          # weight of the tie at interface k
 bitwise!(on::Bool = true) = (FIX_CLOCK[] = !on; FIX_ENERGY[] = !on; nothing)
 get(ENV, "TITAN_BITWISE", "0") == "1" && bitwise!(true)
 

@@ -581,6 +581,15 @@ edpos() = EDD_POSITIVE[] === :auto ? TD.EDD_MATERIAL_SOURCE[] : EDD_POSITIVE[]::
     xmom0[k] = s0; xmom2[k] = s2
     nothing
 end
+"First moment of xi over ang[1:n] (the s1 of _eddg)."
+@inline function _mom1(n, ang, xi)
+    s1 = 0.0
+    @inbounds for i in 1:n-1
+        a, b = ang[i], ang[i+1]; x, y = xi[i], xi[i+1]
+        s1 += (x * b - y * a) * (a + b) / 2.0 + (y - x) * (a^2 + a * b + b^2) / 3.0
+    end
+    s1
+end
 "eddg.f: first moment / zeroth moment of xi over ang[1:n]."
 @inline function _eddg(n, ang, xi)
     s0 = 0.0; s1 = 0.0
@@ -701,6 +710,8 @@ function eddfac!()
     end
     lmax = 2 * (b - a + 1) + 1
     rp[lmax] = rn[b+1]
+    tie = TD.FLUXTIE[][2] > 0; HE = TD.HEDD
+    tie && (length(HE) < length(fedd) && resize!(HE, length(fedd)); fill!(HE, 0.0))
     for j in 1:ncor; p[j] = Float64(j - 1) * rp[1] / Float64(ncor); end
     nray = (ncor + 1) + 2 * (b + 1 - a)
     for j in ncor+1:nray; p[j] = rp[j - ncor]; end
@@ -720,6 +731,7 @@ function eddfac!()
             k = a + (l - 1) ÷ 2
             xmom0[k] = 0.0; xmom2[k] = 0.0
             _eddf!(nj, xang, xip, xmom0, xmom2, k)
+            tie && (HE[k] = -_mom1(nj, xang, xip))          # inward-moving rays: −∫ I |μ| dμ
         end
         l == 1 && s!(:geddl, _eddg(nj, xang, xip))
     end
@@ -747,6 +759,7 @@ function eddfac!()
             k = a + (l - 1) ÷ 2
             xang[nj+1] = 0.0
             _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
+            tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / xmom0[k]; HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
             fedd[k] = edpos() && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 :
                       max(0.0, min(xmom2[k] / xmom0[k], 1.0))
         end
@@ -755,6 +768,25 @@ function eddfac!()
             s!(:geddr, _eddg(EDDG_MU0[] ? nj + 1 : nj, xang, xip))
         end
         s!(:geddr, max(0.5, min(gf(:geddr), 1.0)))
+    end
+    tie && tiew!(a, b, dtau)
+    if tie && haskey(ENV, "FLUXTIEDIAG") && TIEDIAG_N[] < 3
+        TIEDIAG_N[] += 1; zr = parse.(Int, split(ENV["FLUXTIEDIAG"], ","))
+        println("eddfac FLUXTIE (call $(TIEDIAG_N[])) zone: h / F/cE / f / w / dtau: ", join((string(k, ":", round(HE[k], digits = 3), "/",
+            round(0.5(frn[k] + frn[k+1]) / (cc * ern[k]), digits = 3), "/", round(fedd[k], digits = 3), "/", round(TD.TIEW[k], digits = 2), "/",
+            round(dtau[k], sigdigits = 2)) for k in zr[1]:zr[2]:min(b, zr[3])), " "))
+    end
+    nothing
+end
+const TIEDIAG_N = Ref(0)
+"FLUXTIE weights per interface from the flux-mean optical depth measured from the outer boundary (TD.FLUXTIE)."
+function tiew!(a, b, dtau)
+    τ1, τ2 = TD.FLUXTIE[]; W = TD.TIEW
+    length(W) < length(dtau) && resize!(W, length(dtau)); fill!(W, 0.0)
+    τ = 0.0
+    @inbounds for k in b:-1:a+1
+        τ += dtau[k]
+        W[k] = τ <= τ1 ? 1.0 : τ >= τ2 ? 0.0 : (q = log(τ2 / τ) / log(τ2 / τ1); q * q * (3 - 2q))
     end
     nothing
 end
