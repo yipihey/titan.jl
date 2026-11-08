@@ -355,6 +355,13 @@ const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(EN
 # probabilities (H2Levels), ali = statistical equilibrium coupled to the transfer (ALI, G6c), hyb = ALI every NALI steps
 # and EP × (ALI/EP per zone, from the last ALI) in between, the interval adaptive (see linecool)
 const ALIWMIN = parse(Float64, get(ENV, "ALIWMIN", "0")); const ALIGROW = parse(Float64, get(ENV, "ALIGROW", "0.01")); const ALISHRINK = parse(Float64, get(ENV, "ALISHRINK", "0.05")); const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALIFAC = Ref{Vector{Float64}}(Float64[]); const ALILAST = Ref(-10^9); const ALIINT = Ref(1); const NALICALL = Ref(0)
+# LINECOLL=1 (S6): the gas term of the line transfer is the net collisional exchange with the H₂ levels at the converged ALI populations
+# (H2Levels.collcool; = their net radiative rate in statistical equilibrium), zone by zone, not −∇·F of the formal solution: the latter
+# is the difference of the line flux across a zone, and where a large flux crosses dilute zones its discretisation error (pumped,
+# fluorescent and maser lines included) was booked as gas heating or cooling up to 1e5 × the real exchange (91001: 1e-19 against
+# 1e-24 erg cm⁻³ s⁻¹ at 3e7 R_sun; ΣΛV 4.5e35 against 1.7e35). Between ALI calls Λ = Λ_EP × (Λcoll/Λ_EP) as before, except where the
+# two differ in sign (heated zones: escape probability can only cool): there Λcoll of the last ALI call is held (ALIFIX).
+const LINECOLL = get(ENV, "LINECOLL", "0") == "1"; const ALIFIX = Ref{Vector{Float64}}(Float64[])
 NLTE in ("ep", "ali", "hyb") && include(joinpath(@__DIR__, "H2Levels.jl"))
 const HLV = NLTE in ("ep", "ali", "hyb") ? H2Levels.load() : nothing
 """
@@ -374,17 +381,21 @@ function linecool(rr, uu, dd, tt, nh2, k)
         jc = jc >= nsh - 4 ? 0 : jc                  # (keep at least a few zones)
     end
     jc < 2 && return linecool_full(rr, uu, dd, tt, nh2, k, 0)
-    r2 = [0.0; rr[jc+1:end]]; u2 = [0.0; uu[jc+1:end]]
-    m_c = sum(dd[j] * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:jc); d2 = [m_c / (4π / 3 * rr[jc+1]^3); dd[jc+1:end]]
-    t2 = [tt[jc]; tt[jc+1:end]]; h2 = [0.0; nh2[jc+1:end]]
-    Λ2, L2, x2 = linecool_full(r2, u2, d2, t2, h2, k, jc)
-    Λ = zeros(nsh); Λ[jc+1:end] .= Λ2[2:end]; Lr = zeros(nsh + 1); Lr[jc+1:end] .= L2[2:end]
+    # the merged core is NCORE transparent zones with interfaces uniform in p² (LINECORE, S6): impact parameters through the core, so the
+    # inner nodes have rays over all μ (with one core zone the inner edge saw a single ray through the centre); u linear in r inside
+    nc = LINECORE; rin = rr[jc+1]
+    rcz = [rin * sqrt((i - 1) / nc) for i in 1:nc]
+    r2 = [rcz; rr[jc+1:end]]; u2 = [uu[jc+1] .* rcz ./ rin; uu[jc+1:end]]
+    m_c = sum(dd[j] * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:jc); d2 = [fill(m_c / (4π / 3 * rin^3), nc); dd[jc+1:end]]
+    t2 = [fill(tt[jc], nc); tt[jc+1:end]]; h2 = [zeros(nc); nh2[jc+1:end]]
+    Λ2, L2, x2 = linecool_full(r2, u2, d2, t2, h2, k, jc, nc)
+    Λ = zeros(nsh); Λ[jc+1:end] .= Λ2[nc+1:end]; Lr = zeros(nsh + 1); Lr[jc+1:end] .= L2[nc+1:end]
     Λ, Lr, x2
 end
-const LTAUCUT = parse(Float64, get(ENV, "LTAUCUT", "10"))
+const LTAUCUT = parse(Float64, get(ENV, "LTAUCUT", "10")); const LINECORE = parse(Int, get(ENV, "LINECORE", "1"))
 "Line cooling per zone (and Lr) for zone temperatures tt; step k (for NLTE=hyb); jc = number of core zones merged away."
-function linecool_full(rr, uu, dd, tt, nh2, k, jc)
-    nz_ = length(dd); zk(j) = j == 1 && jc > 0 ? a + jc - 1 : a + j - 1 + max(jc - 1, 0)   # TITAN zone of reduced zone j
+function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
+    nz_ = length(dd); zk(j) = j <= ncz ? a + jc - 1 : a + (j - ncz) + jc - 1   # TITAN zone of reduced zone j (ncz merged-core zones first)
     if NLTE in ("ep", "ali", "hyb")
         yc = [ycomp(zk(j)) for j in 1:nz_]; nHn = dd ./ PC.μH
         nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nz_], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nz_])
@@ -396,10 +407,20 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc)
         # (fixed mesh: the photosphere only moves the inner end of the reduced grid; the factors stay with their zones, aligned from the outside)
         if ENVEUL !== nothing && k >= 0 && !isempty(ALIFAC[]) && length(ALIFAC[]) != nz_
             o_ = ALIFAC[]; ALIFAC[] = [j + length(o_) - nz_ >= 1 ? o_[j+length(o_)-nz_] : 1.0 for j in 1:nz_]
+            if length(ALIFIX[]) == length(o_)
+                q_ = ALIFIX[]; ALIFIX[] = [j + length(q_) - nz_ >= 1 ? q_[j+length(q_)-nz_] : NaN for j in 1:nz_]
+            end
         end
         if k >= 0 && (k - ALILAST[] >= ALIINT[] || length(ALIFAC[]) != nz_)
             tq = time(); Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali)
             TIMING && pr("        ALI call %.1f s (nep %d, ALI iterations %d, converged %s)\n", time() - tq, H2Lines.LAST[].nep, H2Lines.LAST[].iters, H2Lines.LAST[].converged)
+            Λfs = Λa                                     # −∇·F of the formal solution (diagnostics)
+            if LINECOLL
+                P_ = H2Lines.LAST[].pops
+                Λa = [H2Levels.collcool(HLV, tt[j], view(P_, :, j), nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j]) for j in 1:nz_]
+                Lra = zeros(nz_ + 1); for j in 1:nz_; Lra[j+1] = Lra[j] + Λa[j] * 4π / 3 * (rr[j+1]^3 - rr[j]^3); end
+                ALIFIX[] = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? NaN : Λa[j] for j in 1:nz_]
+            end
             fnew = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? Λa[j] / Λe[j] : 1.0 for j in 1:nz_]
             if length(ALIFAC[]) == nz_
                 # (S6-C2, ALIWMIN > 0, e.g. 1e-4) only over zones carrying ≥ ALIWMIN of the line luminosity: tiny zones (rezoned shock) with
@@ -421,11 +442,23 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc)
                 ib = sortperm(abs.((Λe .* fnew .- Λa) .* vol); rev = true)[1:min(5, nz_)]
                 for j in ib; pr("          zone %d (TITAN %d) r %.3e T %.1f n %.3e nH2 %.3e: Le %.3e La %.3e flag %s\n", j, zk(j), rr[j+1], tt[j], dd[j] / PC.mH, nh2[j], Λe[j] * vol[j], Λa[j] * vol[j], bad[j]); end
             end
+            if get(ENV, "LINECONS", "0") == "1"         # per-zone consistency: −∇·F (Λa), net radiative rate (Λrate), net collisional (gas) exchange
+                P_ = H2Lines.LAST[].pops; Λr_ = H2Lines.LAST[].Λrate; vol = [4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nz_]
+                Λc_ = [H2Levels.collcool(HLV, tt[j], view(P_, :, j), nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j]) for j in 1:nz_]
+                pr("        LINECONS k %d: sum V*(Λa %.3e, Λrate %.3e, Λcoll %.3e) Lr %.3e; sum|Λa-Λcoll|V %.3e; maser lines %d, ALI it %d conv %s\n", k,
+                   sum(Λfs .* vol), sum(Λr_ .* vol), sum(Λc_ .* vol), Lra[end], sum(abs.(Λfs .- Λc_) .* vol), H2Lines.LAST[].nmaser, H2Lines.LAST[].iters, H2Lines.LAST[].converged)
+                for j in sortperm(abs.((Λfs .- Λc_) .* vol); rev = true)[1:min(6, nz_)]
+                    pr("          zone %d (TITAN %d) r %.3e R_sun T %.1f nH2 %.2e: Λa %+.3e Λrate %+.3e Λcoll %+.3e\n", j, zk(j), rr[j] / 6.957e10, tt[j], nh2[j], Λfs[j], Λr_[j], Λc_[j])
+                end
+            end
             ALIFAC[] = fnew; ALILAST[] = k; NALICALL[] += 1
             return Λa, Lra, xa
         end
         length(ALIFAC[]) == nz_ || return Λe, Lr, x                        # (perturbed call right after the reduced grid changed: EP)
-        Λs = Λe .* ALIFAC[]; Lrs = zeros(nz_ + 1)                          # Lr of the Λ actually applied (the EP Lr overstates L_lines by ~2)
+        Λs = Λe .* ALIFAC[]; Lrs = zeros(nz_ + 1)
+        if LINECOLL && length(ALIFIX[]) == nz_
+            for j in 1:nz_; isnan(ALIFIX[][j]) || (Λs[j] = ALIFIX[][j]); end
+        end                          # Lr of the Λ actually applied (the EP Lr overstates L_lines by ~2)
         for j in 1:nz_; Lrs[j+1] = Lrs[j] + Λs[j] * 4π / 3 * (rr[j+1]^3 - rr[j]^3); end
         return Λs, Lrs, x
     end
@@ -449,7 +482,7 @@ matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzon
 function checkpoint(name, k)
     mkpath(CKDIR)
     TF.save_state(joinpath(CKDIR, "m2c_$(name).tstate.gz"))
-    serialize(joinpath(CKDIR, "m2c_$(name).aux"), (; k, mat = matstate(), ALIFAC = copy(ALIFAC[]), ALILAST = ALILAST[], ALIINT = ALIINT[],
+    serialize(joinpath(CKDIR, "m2c_$(name).aux"), (; k, mat = matstate(), ALIFAC = copy(ALIFAC[]), ALIFIX = copy(ALIFIX[]), ALILAST = ALILAST[], ALIINT = ALIINT[],
         NALICALL = NALICALL[], NIMP = NIMP[], LLINE = LLINE[], nextln = nextln[], SNAPNEXT = SNAPNEXT[], SNAPS,
         trb = (; STATS = copy(Trbdf2.STATS), BE_LEFT = Trbdf2.BE_LEFT[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV)))
 end
@@ -475,7 +508,7 @@ function restart!(name; allow = ())
         length(l_.GASQ) == length(TX.GASQ[]) && (TX.GASQ[] .= l_.GASQ); length(l_.RAYQ) == length(TX.RAYQ[]) && (TX.RAYQ[] .= l_.RAYQ)
         hasproperty(l_, :CHEMB) && length(l_.CHEMB) == length(TX.CHEMB[]) && (TX.CHEMB[] .= l_.CHEMB)
     end
-    ALIFAC[] = copy(aux.ALIFAC); ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
+    ALIFAC[] = copy(aux.ALIFAC); ALIFIX[] = hasproperty(aux, :ALIFIX) ? copy(aux.ALIFIX) : Float64[]; ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
     LLINE[] = aux.LLINE; nextln[] = aux.nextln; SNAPNEXT[] = aux.SNAPNEXT
     SNAPS === nothing || aux.SNAPS === nothing || (empty!(SNAPS); append!(SNAPS, aux.SNAPS))
     empty!(Trbdf2.STATS); merge!(Trbdf2.STATS, aux.trb.STATS); Trbdf2.BE_LEFT[] = aux.trb.BE_LEFT
@@ -1171,11 +1204,12 @@ try
             zz = parse.(Int, split(ENV["ZDIAG"], ",")); dt_ = TF.getscalar(:timen) - TF.getscalar(:timeo)
             for z in zz[1]:zz[2]
                 ρz = TF.var(:dn)[z]; Tz = TF.var(:tn)[z]; kp = TF.var(:xkpn)[z]; Ez = TF.var(:ern)[z]
-                xch = kp * ChemNet.c * (Ez - 4 * 5.670374e-5 / ChemNet.c * Tz^4) * dt_            # κ_P c (E − aT⁴) Δt  [erg/g]
+                ke = TF.var(:xken)[z]
+                xch = (ke * ChemNet.c * Ez - kp * 4 * 5.670374e-5 * Tz^4) * dt_            # (κ_E c E − κ_P 4σT⁴) Δt, the hydro exchange [erg/g]
                 gq = isempty(TX.GASQ[]) ? 0.0 : TX.GASQ[][z] * dt_ / ρz; rq = isempty(TX.RAYQ[]) ? 0.0 : TX.RAYQ[][z] * dt_ / ρz
-                pr("        ZDIAG %d: T %.1f (To %.1f) e %.5e (eo %.5e) rho %.3e (do %.3e) | per g over dt %.2e: kP c(E-aT4) %.3e, GASQ %.3e, RAYQ %.3e, Lambda_ext %.3e, -p d(1/rho) %.3e; kP %.3e chi %.3e eq %s, cbar %.3e\n",
+                pr("        ZDIAG %d: T %.1f (To %.1f) e %.5e (eo %.5e) rho %.3e (do %.3e) | per g over dt %.2e: kE cE-kP 4sT4 %.3e, GASQ %.3e, RAYQ %.3e, Lambda_ext %.3e, -p d(1/rho) %.3e; kP %.3e kE %.3e chi %.3e eq %s, cbar %.3e\n",
                    z, Tz, TF.var(:to)[z], TF.var(:egn)[z], TF.var(:ego)[z], ρz, TF.var(:do)[z], dt_, xch, gq, rq, mat.Λext[z] * dt_ / ρz,
-                   -TF.var(:pgn)[z] * (1 / ρz - 1 / TF.var(:do)[z]), kp, TF.var(:chifn)[z], string(mat.eqzone[z]), isempty(TX.CHEMB[]) ? 0.0 : TX.CHEMB[][z] * dt_)
+                   -TF.var(:pgn)[z] * (1 / ρz - 1 / TF.var(:do)[z]), kp, ke, TF.var(:chifn)[z], string(mat.eqzone[z]), isempty(TX.CHEMB[]) ? 0.0 : TX.CHEMB[][z] * dt_)
             end
         end
         tc0 = time(); Tb4 = CHEMDIAG ? copy(TF.var(:tn)) : nothing; ub4 = CHEMDIAG ? copy(TF.var(:egn)) : nothing; ENVEUL !== nothing && advect_species!()

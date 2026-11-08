@@ -230,7 +230,19 @@ Formal solution of one line on the offsets `xs` (observer-frame velocity): Fν[k
 [erg cm⁻² s⁻¹]; Jz[k] profile-averaged mean intensity of zone k (average of its two interfaces, each with the zone's
 comoving profile) and Λz[k] the local operator in the same weighting (zero if `lam = false`).
 """
-function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam)
+# LINESRC=zone (S6): the source is constant across each zone's segment (the zone's own S from its populations), not linear between
+# interface values interpolated from neighbouring zones. Then a segment's emergent I = I e^{−Δτ} + S_zone (1 − e^{−Δτ}) exactly: a zone thick by
+# itself absorbs the incoming intensity exponentially and re-emits at its own S, and emission κS and absorption κI in a zone use that
+# zone's κ and S only (photon conservation per zone; with linear interpolation a thick zone next to a thin one whose S is large, e.g. near
+# inversion, radiated at the neighbour's S).
+const SRCZONE = Ref(get(ENV, "LINESRC", "linear") == "zone")
+# LINEQUAD=p2 (S6): flux at node k as a trapezoid in μ² (∝ p², impact parameters fixed): every ray keeps its weight from node to node, so
+# 4π r²F(k+1) − 4π r²F(k) is exactly the energy the segments of zone k took from or gave to the rays (linear in μ, the default, is more
+# accurate for F itself in the thin limit but reweights the rays at each node: the difference of a large flux crossing dilute zones was noise)
+const QUADP2 = Ref(get(ENV, "LINEQUAD", "mu") == "p2")
+@inline shz(I, Δτ, S) = Δτ < 1e-4 ? I * (1 - Δτ) + Δτ * S : (e = exp(-Δτ); I * e + S * (1 - e))
+@inline ψz(Δτ) = Δτ < 1e-4 ? Δτ : -expm1(-Δτ)
+function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing)
     n = length(vth); nb = length(xs); dv = step(xs)
     Fν = zeros(n + 1); Jz = zeros(n); Λz = zeros(n)
     ΔI = zeros(n + 1, n); QJ = zeros(n + 1, n, 2); QΛ = zeros(n + 1, n, 2)
@@ -254,11 +266,19 @@ function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam)
             end
             Iin = zeros(nk); ψin = zeros(nk); Iout = zeros(nk); ψout = zeros(nk); I = 0.0
             for m in nk-1:-1:1
-                I = sh(I, dti[m], Si[j+m], Si[j+m-1]); Iin[m] = I; ψin[m] = ψloc(dti[m])
+                if Sz === nothing
+                    I = sh(I, dti[m], Si[j+m], Si[j+m-1]); Iin[m] = I; ψin[m] = ψloc(dti[m])
+                else
+                    I = shz(I, dti[m], Sz[j+m-1]); Iin[m] = I; ψin[m] = ψz(dti[m])
+                end
             end
             Iout[1] = Iin[1]; ψout[1] = ψin[1]; I = Iin[1]
             for m in 2:nk
-                I = sh(I, dto[m-1], Si[j+m-2], Si[j+m-1]); Iout[m] = I; ψout[m] = ψloc(dto[m-1])
+                if Sz === nothing
+                    I = sh(I, dto[m-1], Si[j+m-2], Si[j+m-1]); Iout[m] = I; ψout[m] = ψloc(dto[m-1])
+                else
+                    I = shz(I, dto[m-1], Sz[j+m-2]); Iout[m] = I; ψout[m] = ψz(dto[m-1])
+                end
             end
             for m in 1:nk
                 k = j + m - 1; ΔI[k, j] = m == 1 ? 0.0 : Iout[m] - Iin[m]
@@ -277,8 +297,12 @@ function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam)
                 μa = sqrt(max(1 - (r[j+1] / r[k])^2, 0.0)); μb = sqrt(max(1 - (r[j] / r[k])^2, 0.0))
                 Ia = j + 1 <= n ? ΔI[k, j+1] : 0.0; Ib = ΔI[k, j]
                 d = μb - μa; d <= 0 && continue
-                s1 = (Ib - Ia) / d
-                acc += Ia * (μb^2 - μa^2) / 2 + s1 * ((μb^3 - μa^3) / 3 - μa * (μb^2 - μa^2) / 2)
+                if QUADP2[]                      # trapezoid in μ² = 1 − p²/r_k²: ray weights ∝ Δp², the same at every node
+                    acc += 0.25 * (Ia + Ib) * (μb^2 - μa^2)
+                else
+                    s1 = (Ib - Ia) / d
+                    acc += Ia * (μb^2 - μa^2) / 2 + s1 * ((μb^3 - μa^3) / 3 - μa * (μb^2 - μa^2) / 2)
+                end
             end
             Fν[k] += 2π * acc * (dv / c * ν0)
         end
@@ -455,7 +479,7 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                 nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth[ka]))) + 1, nbin, nbinmax)
                 Threads.atomic_max!(nb_t, nb)
                 xs = range(-vspan, vspan, length = nb)
-                Fν, Jz, Λz = transfer_line(r, u, vth, κl, Si, ν0, xs, lam == :diag)
+                Fν, Jz, Λz = transfer_line(r, u, vth, κl, Si, ν0, xs, lam == :diag; Sz = SRCZONE[] ? S[i, :] : nothing)
                 for k in 1:n+1; Lline[i, k] = 4π * r[k]^2 * Fν[k]; end
                 Jfs[i, :] .= Jz; Lam[i, :] .= Λz
                 Threads.atomic_add!(nth_t, 1)

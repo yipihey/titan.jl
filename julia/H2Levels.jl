@@ -237,6 +237,27 @@ function cooling(L::Levels, pops, n_H2; β = nothing)
     n_H2 * s
 end
 
+"""
+    collcool(L, T, pops, n_H, n_H2, n_He, n_Hp) -> erg cm⁻³ s⁻¹
+
+Net energy the gas loses to the H₂ levels by collisions, n_H2 Σ_{i≠j} n_i C_ij (E_j − E_i), at the populations `pops`
+(fractions; the ortho share taken from them for the H₂ collider, as `populations`). This is the gas's line cooling
+(negative: heating). In statistical equilibrium it equals the net radiative loss Σ hν [n_u A − (n_l B_lu − n_u B_ul) J̄]
+of the same populations, however the levels are pumped: radiative pumping and fluorescence move no gas energy.
+"""
+function collcool(L::Levels, T, pops, n_H, n_H2, n_He, n_Hp)
+    n_H2 > 0 || return 0.0
+    n = length(L.E); Q = zeros(n, n); xo = sum(pops[L.ortho])
+    collrates!(Q, L, T, [:H => Float64(n_H), :He => Float64(n_He), :Hp => Float64(n_Hp), :H2o => n_H2 * xo, :H2p => n_H2 * (1 - xo)])
+    s = 0.0
+    @inbounds for j in 1:n, i in 1:n
+        i == j && continue
+        q = Q[i, j]; q == 0 && continue
+        s += pops[i] * q * (L.E[j] - L.E[i])
+    end
+    n_H2 * s
+end
+
 "LTE (Boltzmann) fractions over the 63 levels."
 function lte(L::Levels, T)
     w = L.g .* exp.(-(L.E .- L.E[1]) ./ (kB * T)); w ./ sum(w)
