@@ -131,6 +131,16 @@ GASQ[] (M3a; empty = off): per zone, energy moved from the gray field to the gas
 its radiative cooling is: given to the gas in the chemistry step (no cooling there in RAD runs) it heated a zone near the photosphere from
 7300 to 18500 K over one step. Rad row +GASQ, gas-only row −GASQ, total rows nothing (an internal transfer)."""
 const GASQ = Ref(Float64[])
+"""
+CHEMB[] (S6, ENV BALSPLIT=1; empty = off): balanced operator splitting (Speth, Green, MacNamara & Strang 2013) of the gas energy between this
+hydro step and the network chemistry. Per zone, c̄ [erg g⁻¹ s⁻¹] = the chemistry's net specific heating rate of the last step; the gas
+energy row gets +ρ c̄ (here, all variants) and the chemistry integrates its heating − c̄ (PopIIIMaterial.chem!, network zones), so the sum
+is the unsplit equations and in a steady state neither operator moves T. Without it, at 107.5 M_sun, the first network zone outside the
+photosphere was heated 6227 → 8097 K in every hydro step (lagged three-level cycle heat GASQ against its radiative cooling) and cooled
+back by its recombination losses in the chemistry: the 30 % excursion held Δt at the STOL limit (~2e3 s) for tens of thousands of steps.
+c̄ ← c̄ + Δe_chem/Δt after each chemistry step in zones that stayed on the network (zero elsewhere). CHEMBON[k]: zone k was balanced.
+"""
+const CHEMB = Ref(Float64[]); const CHEMBON = Ref(Bool[])
 
 """
 AV_TENSION[] (default true = TITAN): keep the viscous stress of a zone that shrinks in volume (div u < 0) while it is stretched
@@ -798,6 +808,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 w += -dmdt[k+1] * egb[k+1] + dmdt[k] * egb[k]
             end
         end
+        isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
         R[it, kb(k)] = w
     end
     R[it, 1] = X(it, k0)

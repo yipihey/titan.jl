@@ -328,6 +328,10 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
     end
     (PM.STARLIGHT[].shield !== :off || PM.STARLIGHT[].tl3) && (TX.GASQ[] = zeros(length(mat.x)))
     PM.STARLIGHT[].tl3 && isempty(TX.RAYQ[]) && (TX.RAYQ[] = zeros(length(mat.x)))
+    if get(ENV, "BALSPLIT", "0") == "1"
+        TX.CHEMB[] = zeros(length(mat.x)); TX.CHEMBON[] = fill(false, length(mat.x))
+        pr("BALSPLIT: balanced splitting of the gas energy between hydro and network chemistry (lagged mean chemistry heating in both)\n")
+    end
     PM.STARLIGHT[].tl3 && PM.STARLIGHT[].pH !== nothing && error("SL3=1 replaces SLH=1 (the Boltzmann n ≥ 2 photoionization); set one")
     PM.STARLIGHT[].tl3 && pr("STARLIGHT: three-level H (Peebles C factor, Sobolev Lya escape, e collisions) in the lit network zones\n")
     # NLOPAC=1 (with SL3): network zones take the non-LTE opacity of their own composition (PM.NLOPAC: Saha/Boltzmann table × lagged ratio, frozen-composition T slope)
@@ -440,7 +444,7 @@ const KOFF = Ref(0); const SG = Ref{Any}(nothing)
 matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope), Y = HOTON ? copy(SG[].Y) : nothing,
                                      star = HOTON ? (; fscale = copy(SG[].fscale), fslope = copy(SG[].fslope), fcur = copy(SG[].fcur), Dmix = copy(SG[].Dmix), dtcap = SG[].dtcap, capE = SG[].capE, ledger = SG[].ledger, Yprev = copy(SG[].Yprev)) : nothing,
                                      # lagged over one step (set in chemistry, used by the next hydro step): without them a restart is not exact
-                                     lag = (; NLOPC = deepcopy(PM.NLOPC[]), GASQ = copy(TX.GASQ[]), RAYQ = copy(TX.RAYQ[]), SLDIAG = deepcopy(PM.SLDIAG[]))) :
+                                     lag = (; NLOPC = deepcopy(PM.NLOPC[]), GASQ = copy(TX.GASQ[]), RAYQ = copy(TX.RAYQ[]), SLDIAG = deepcopy(PM.SLDIAG[]), CHEMB = copy(TX.CHEMB[]))) :
              error("checkpoint: only the NetGas material (CHEM=net*) is supported")
 function checkpoint(name, k)
     mkpath(CKDIR)
@@ -469,6 +473,7 @@ function restart!(name; allow = ())
     if hasproperty(s, :lag)                        # (older checkpoints: these start empty, so the first step after a restart differs)
         l_ = s.lag; PM.NLOPC[] = deepcopy(l_.NLOPC); PM.SLDIAG[] = deepcopy(l_.SLDIAG)
         length(l_.GASQ) == length(TX.GASQ[]) && (TX.GASQ[] .= l_.GASQ); length(l_.RAYQ) == length(TX.RAYQ[]) && (TX.RAYQ[] .= l_.RAYQ)
+        hasproperty(l_, :CHEMB) && length(l_.CHEMB) == length(TX.CHEMB[]) && (TX.CHEMB[] .= l_.CHEMB)
     end
     ALIFAC[] = copy(aux.ALIFAC); ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
     LLINE[] = aux.LLINE; nextln[] = aux.nextln; SNAPNEXT[] = aux.SNAPNEXT
@@ -1162,7 +1167,26 @@ try
     RUNEND[] = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k
         tnow = time(); TSTEP[] += tnow - TMARK[] - TOUT[]; TOUT[] = 0.0
-        tc0 = time(); Tb4 = CHEMDIAG ? copy(TF.var(:tn)) : nothing; ub4 = CHEMDIAG ? copy(TF.var(:egn)) : nothing; ENVEUL !== nothing && advect_species!(); dT = PM.chem!(mat)
+        if haskey(ENV, "ZDIAG")                     # S6: energy terms of the hydro step per gas mass in zones z1..z2 (before chem!)
+            zz = parse.(Int, split(ENV["ZDIAG"], ",")); dt_ = TF.getscalar(:timen) - TF.getscalar(:timeo)
+            for z in zz[1]:zz[2]
+                ρz = TF.var(:dn)[z]; Tz = TF.var(:tn)[z]; kp = TF.var(:xkpn)[z]; Ez = TF.var(:ern)[z]
+                xch = kp * ChemNet.c * (Ez - 4 * 5.670374e-5 / ChemNet.c * Tz^4) * dt_            # κ_P c (E − aT⁴) Δt  [erg/g]
+                gq = isempty(TX.GASQ[]) ? 0.0 : TX.GASQ[][z] * dt_ / ρz; rq = isempty(TX.RAYQ[]) ? 0.0 : TX.RAYQ[][z] * dt_ / ρz
+                pr("        ZDIAG %d: T %.1f (To %.1f) e %.5e (eo %.5e) rho %.3e (do %.3e) | per g over dt %.2e: kP c(E-aT4) %.3e, GASQ %.3e, RAYQ %.3e, Lambda_ext %.3e, -p d(1/rho) %.3e; kP %.3e chi %.3e eq %s, cbar %.3e\n",
+                   z, Tz, TF.var(:to)[z], TF.var(:egn)[z], TF.var(:ego)[z], ρz, TF.var(:do)[z], dt_, xch, gq, rq, mat.Λext[z] * dt_ / ρz,
+                   -TF.var(:pgn)[z] * (1 / ρz - 1 / TF.var(:do)[z]), kp, TF.var(:chifn)[z], string(mat.eqzone[z]), isempty(TX.CHEMB[]) ? 0.0 : TX.CHEMB[][z] * dt_)
+            end
+        end
+        tc0 = time(); Tb4 = CHEMDIAG ? copy(TF.var(:tn)) : nothing; ub4 = CHEMDIAG ? copy(TF.var(:egn)) : nothing; ENVEUL !== nothing && advect_species!()
+        EB = isempty(TX.CHEMB[]) ? nothing : copy(TF.var(:egn))
+        dT = PM.chem!(mat)
+        if EB !== nothing                            # BALSPLIT: c̄ ← c̄ + Δe_chem/Δt where the zone stayed on the network
+            eg_ = TF.var(:egn); dtc_ = TF.getscalar(:timen) - TF.getscalar(:timeo); cb_ = TX.CHEMB[]; on_ = TX.CHEMBON[]
+            for kk in eachindex(cb_)
+                cb_[kk] = (on_[kk] && dtc_ > 0) ? cb_[kk] + (eg_[kk] - EB[kk]) / dtc_ : 0.0
+            end
+        end
         if CHEMDIAG && dT > 0.01                      # the zones chem! moved most
             tt_ = TF.var(:tn); jj = sort(collect(a:b); by = kk -> -abs(tt_[kk] / Tb4[kk] - 1))[1:3]
             for kk in jj

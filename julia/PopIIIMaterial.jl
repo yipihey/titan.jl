@@ -657,6 +657,7 @@ function chem!(m::NetGas)
         (TX.GASQ[][k] = SLDIAG[].kLW[k] * max(CNn.full(x1, m.net)[:H2], 0.0) * dn[k] / CNn.μH() * (4.48 + 0.4) * EVERG; nothing)
     slrates === nothing || isempty(TX.GASQ[]) || fill!(TX.GASQ[], 0.0)
     ray === nothing && !isempty(TX.RAYQ[]) && fill!(TX.RAYQ[], 0.0)            # (RAYQ also carries the three-level H's photon energy)
+    isempty(TX.CHEMB[]) || fill!(TX.CHEMBON[], false)
     ph3 = filter(p -> p.R !== :H, m.photos)                                 # three-level zones: no Boltzmann-level H photo pair
     tl3sw = slrates !== nothing && hasproperty(STARLIGHT[], :tl3) && STARLIGHT[].tl3; iHpf = findfirst(==(:Hp), m.net.free)
     if NLOPAC[]
@@ -733,6 +734,12 @@ function chem!(m::NetGas)
                 c0 = cools
                 cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, p3)[1]
             end
+            if !isempty(TX.CHEMB[])                  # BALSPLIT: the hydro step already gave the zone c̄ (TitanResidFast.CHEMB)
+                cb = eqprev ? 0.0 : TX.CHEMB[][k]; TX.CHEMBON[][k] = !eqprev
+                if cb != 0
+                    c1 = cools; cools = (ρ, T, d) -> (c1 === nothing ? zero(T) : c1(ρ, T, d)) + ρ * cb
+                end
+            end
             x1, T1 = try
                 # u below the zone's own composition at 10 K (x and e advected by different schemes; with x_e ~ 0.1-0.5 from the three-level
                 # atom the mismatch reaches ~1 eV per H): no solution for this x, take the fallback below
@@ -750,6 +757,7 @@ function chem!(m::NetGas)
                 _, T2 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
                 (x_from_table(m, dn[k], T2), T2)
             end
+            fb && !isempty(TX.CHEMB[]) && (TX.CHEMBON[][k] = false)
             m.eqzone[k] || lwheat!(k, x1)
             if p3 !== nothing && !m.eqzone[k] && !fb
                 cq, yq = tl3_heat(dn[k], T1, CNn.full(x1, m.net), p3)
