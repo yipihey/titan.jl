@@ -22,6 +22,10 @@ Notes:
   controls (`NITER=25 STOL=0.3 NTRY=25 FAILTFAC=0.5`) 61 % of TR stages diverge from step 1 (15 % with the collapse
   controls), and `full1` died at step 3375 (log n_c 5.43): BDF2 failed on every step from 3363, Δt fell from 3e10 to 350 s,
   then NaN everywhere and a NaN Jacobian in the chemistry. The checkpoint carries the controls, so a restart must set them.
+- Phase A runs without `ETOTAL=1` (and `ETASW`, `EXCAP`). With it, `full1` died twice at the same physical time
+  (t = 3.309e14 s, log n_c 5.43, steps 3375 and 5196 with different solver controls): in the cold supersonic outer infall
+  (n ~ 1e4, u ≈ −4 km/s, kinetic ≫ thermal energy) two zones cooled in the hydro step from ~35 K to 17 K, below T_CMB,
+  until Newton failed. Without it the same checkpoint passes. Phase B keeps it.
 - Open: the divergences that remain have Newton corrections of 1e17–1e21 in the central zones 1–3 (dm 3e-7 M☉).
 - `MSG=1` now prints Newton messages from the start (they were silent until RAD switched on).
 - `fullrun.sh <run> [checkpoint | B:<checkpoint>] [threads]` resumes phase A or B; every attempt saves under a fresh name.
