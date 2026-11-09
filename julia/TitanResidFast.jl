@@ -961,6 +961,8 @@ kinetic-energy, work and viscous pieces of the adjacent zone.
 end
 "ETOT_GRAV[]: the total-energy row includes the work of gravity (self-gravity or P.g). Default false, as in the tests and ledgers that book the potential energy themselves."
 const ETOT_GRAV = Ref(false)
+"ETOT_GRAV_GRID[] (ENV ETOTGRAVGRID=1; default off): with ETOT_GRAV[], also the work of gravity on mass carried by moving faces. Without it the total-energy row of a Lagrangian zone has no gravity work at all, and the kinetic energy gravity gives the gas is taken from its thermal energy (cloud-phase test of 2026-11-09)."
+const ETOT_GRAV_GRID = Ref(false)
 "Conservative total-energy row of zone k: Δ[m(e_g [+E_r/ρ]) + m(u_k²+u_{k+1}²)/4]/dt + Φ_{k+1} − Φ_k."
 @inline function etot_row(k, c, W, ::Type{T}) where {T}
     dn, un, dvoln = W.dn, W.un, W.dvoln
@@ -979,6 +981,13 @@ const ETOT_GRAV = Ref(false)
         uf(j) = GRIDWIN[] === nothing ? W.urel[j] : W.u[j]
         k > c.ngrs && (w += W.rmu[k] * uf(k) * W.db[k] * gi_(k) * Δr)
         k < c.ngre && (w += W.rmu[k+1] * uf(k + 1) * W.db[k+1] * gi_(k + 1) * Δr)
+        if ETOT_GRAV_GRID[] && GRIDWIN[] === nothing
+            # Mass carried by moving faces (Lagrangian zones: urel = 0, so the term above vanishes): the momentum row's force g_j (m_{j-1} + m_j)/2 does the work
+            # u_grid,j g_j (m_{j-1} + m_j)/2 at face j, half of it in each neighbouring zone, matching the zone's kinetic energy m(u_k² + u_{k+1}²)/4. Zero on a fixed mesh.
+            mh = 0.5 * W.d[k] * W.dvol[k]
+            k > c.ngrs && (w += mh * (W.u[k] - W.urel[k]) * gi_(k))
+            w += mh * (W.u[k+1] - W.urel[k+1]) * gi_(k + 1)
+        end
     end
     w
 end

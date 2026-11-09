@@ -26,7 +26,8 @@ Notes:
 - Phase A runs without `ETOTAL=1` (and `ETASW`, `EXCAP`). With it, `full1` died twice at the same physical time
   (t = 3.309e14 s, log n_c 5.43, steps 3375 and 5196 with different solver controls): in the cold supersonic outer infall
   (n ~ 1e4, u ≈ −4 km/s, kinetic ≫ thermal energy) two zones cooled in the hydro step from ~35 K to 17 K, below T_CMB,
-  until Newton failed. Without it the same checkpoint passes. Phase B keeps it.
+  until Newton failed. Without it the same checkpoint passes. Phase B keeps it. The row has no gravity work
+  on Lagrangian zones (see "The total-energy row on the Lagrangian mesh").
 - `MSG=1` now prints Newton messages from the start (they were silent until RAD switched on).
 - `fullrun.sh <run> [checkpoint | B:<checkpoint>] [threads]` resumes phase A or B; every attempt saves under a fresh name.
 - `m*`/`R*` in the `hot:` line and perf.csv are meaningful only after the remap (they take the first interface with
@@ -53,8 +54,8 @@ are set in `phaseA.env` only. `EPGRAD=thermal` is the code default since 9 Nov 2
    solver controls, with 61 % of the TR stages diverging) and collapsed about twice too fast: log n_c 16.9 at 10.77 Myr,
    where the October collapse that the production history starts from (`C_dyn = 0.01`) reached log n_c 23.4 at 21.86 Myr.
    At 8.9 Myr `full1` had log n_c 4.21 and T_c 186 K; the October run 3.73 and 151 K; `full2` 3.71 and 154 K (step 1000
-   in both). Which of the three settings sped `full1` up was not separated. The offsets above are measured from a common
-   checkpoint of `full1` at log n_c 5.06, so they stand, but `full1` itself is not a valid collapse history.
+   in both). The offsets above are measured from a common checkpoint of `full1` at log n_c 5.06, so they stand, but
+   `full1` itself is not a valid collapse history. The cause is `ETOTAL=1` on the Lagrangian mesh (next section).
 3. **Ringing of the core while it turns molecular (log n_c 10.5–13), `EPGRAD=thermal`.** Once the H₂ lines are thick the
    cooling depends on the escape probability, whose Sobolev velocity gradient was taken from zone-local quantities
    (|Δu|/Δr across the zone and |ū|/r_c). In the subsonic core (|u| ~ 0.01 km/s, v_th ≈ 3 km/s) both are noise: a 10 m/s
@@ -77,6 +78,46 @@ are set in `phaseA.env` only. `EPGRAD=thermal` is the code default since 9 Nov 2
    test (1e-10 per species) was never met at any sub-step. A stagnated iterate is now accepted after 60 full Newton steps
    if it is converged to 1e-6 in the abundances and 1e-8 in ln T. Steps that converged before are unchanged bit for bit.
    This one is not an option: it applies to every run.
+
+## The total-energy row on the Lagrangian mesh (why `full1`'s envelope differs)
+
+`full1` and `full2` differ from the first Myr and out to the edge of the cloud (in `full1` the shells at 2–4e3 M☉ are
+2–3× colder at 6 Myr and fall at Mach 1.1 instead of below 0.5). Single-variable tests from the initial condition, 700 steps
+each (6.7 Myr), with the energy budget of Lagrangian shells (`de + ∫p dV`, what the gas lost other than by expansion):
+
+| test | setting | result |
+|---|---|---|
+| `t_e_old` | `phaseA.env` with `ADVREL=0 EPGRAD=zone TCOOLTH=0` | shell budget equal to `full2` in every printed digit: the three new options do not act on the cloud |
+| `t_e_c3` | `CDYN=0.003` | equal to `full2` (shell budgets within 3 %, log n_c 3.577 and T_c 155.6 K at 6.94 Myr): converged in Δt |
+| `t_e_dt` | `CDYN=1000 STOL=0.3`, accretion solver controls | 0.25 dex per step, unresolved, and slower than `full2`, not faster |
+| `t_e_etot` | `ETOTAL=1 ETASW=0.6 EXCAP=1e8` | reproduces `full1`: the shells lose 1.3–6.4e10 erg/g (thermal energy 5–10e10) |
+| `t_e_eg` | the same with `ETOTGRAVGRID=1` | equal to `full2` (budgets within 5 % or 0.01e10 erg/g, except the edge shell) |
+
+The gravity work of the total-energy row (`ETOT_GRAV`) is written for the fixed accretion mesh: it acts on the mass that
+crosses a face, r² u_rel ρ. On Lagrangian zones u_rel = 0, the row has no gravity work at all, and the kinetic energy
+that gravity gives the gas is taken from its thermal energy. In the envelope the dark matter dominates gravity
+(M_DM/M_gas = 15–23 outside 2500 M☉ with the read-off halo profile), so the loss is large, and it equals the work of
+gravity ∫ G(m + M_DM)/r² |dr|: at 6300 and 7900 M☉ the loss beyond `full2`'s is 3.7 and 2.4e10 erg/g, the work of gravity
+3.8 and 2.5e10. The cooled envelope then falls in under the external
+pressure. The cooling below T_CMB in the supersonic infall that killed `full1` at log n_c 5.43 is probably the same
+loss (not tested separately).
+
+`ETOTGRAVGRID=1` (default off) adds the work on mass carried by moving faces, u_grid g (m_{j-1} + m_j)/2 per face, the
+work of the momentum row's force; it is zero on a fixed mesh. With it the total-energy and the internal-energy rows give
+the same cloud. The edge shell still differs (+0.33e10 against −0.06e10 erg/g): probably because the boundary flux of the row
+uses the pressure of the last zone where the free-surface momentum row uses `PEXT`. Not fixed; phase A does not use `ETOTAL`.
+
+Independent check of `full2`: its shell losses equal the optically thin H₂ cooling (Galli & Palla 1998, from the
+recorded T, ρ, x(H₂)) in the outer shells: −0.06, −0.09, −0.10, −0.42, −2.00e10 erg/g against −0.06, −0.09, −0.15,
+−0.53, −2.12 at log m = 3.97, 3.9, 3.8, 3.6, 3.4. (Further in the fit is used below its range and overestimates.)
+
+Phase B is not affected by this defect: its mesh is fixed in every zone (checked on the `fx3` history, all 286
+interfaces), so u_rel = u and the gravity work is complete.
+
+Open: in the `fx3` history the gas at 1–6 pc cooled by 9–22 % during the first 500 yr of the accretion phase (steps
+23 250–25 350; e.g. 271 → 212 K at log r = 8.0 R☉) at constant density and velocity, and then stayed within 0.1 %
+for the next 5400 yr. H₂ cooling is three orders of magnitude too slow for that. Those steps were run with October
+code and settings; `full2` will show whether the present code does it after the remap.
 
 ## Recording (`RUNREC=<dir>`)
 
