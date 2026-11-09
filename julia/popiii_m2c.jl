@@ -39,7 +39,9 @@ haskey(ENV, "TCMB") && (cf = PC.cool_floor(cf, parse(Float64, ENV["TCMB"])))
 # H₂ lines stay as Λext
 const RAD = get(ENV, "RAD", "0") == "1"
 RAD && (cf = (ρ, T, y) -> zero(T))
-io = open(joinpath(TF.ROOT, "lib", "popiii", "m2c_$(get(ENV, "IC", "p100") == "p100" ? "" : get(ENV, "IC", "") * "_")$(cool)_n$(nsh)$(get(ENV, "TAG", "")).log"), haskey(ENV, "RESTART") ? "a" : "w")
+# POPIII_OUT: directory for the run log and the snapshot file (default lib/popiii); checkpoints follow CKDIR
+const OUTDIR = get(ENV, "POPIII_OUT", joinpath(TF.ROOT, "lib", "popiii")); mkpath(OUTDIR)
+io = open(joinpath(OUTDIR, "m2c_$(get(ENV, "IC", "p100") == "p100" ? "" : get(ENV, "IC", "") * "_")$(cool)_n$(nsh)$(get(ENV, "TAG", "")).log"), haskey(ENV, "RESTART") ? "a" : "w")
 pr(f, a...) = (s = Printf.format(Printf.Format(f), a...); print(s); print(io, s); flush(io))
 
 # ---- n = 1.5 Lane–Emden θ(ξ), integrated to θ^1.5 = 1e-3
@@ -289,7 +291,7 @@ on98T(ln) = (j = findfirst(p -> p[1] >= ln, on98); j === nothing ? NaN : j == 1 
 pr("%7s %8s %10s %9s %9s %10s %10s %9s %9s\n", "step", "log n_c", "t [yr]", "T_c", "ON98 T_c", "f_H2,c", "u_c [km/s]", "max dT/T", "dt [s]")
 nextln = Ref(log10(rho[1] / PC.mH) + 0.25)
 using Serialization
-const SNAPFILE = joinpath(TF.ROOT, "lib", "popiii", "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(get(ENV, "TAG", "")).jls")
+const SNAPFILE = joinpath(OUTDIR, "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(get(ENV, "TAG", "")).jls")
 # M3: the star's ionizing light (IonRay). RAY=1: spectrum from the photosphere (τ_R = 2/3), a blackbody at T_eff from L and r there; no source below RAYTMIN.
 # RAYTEST="Q,Teff" (a stress test): that many photons/s above 13.6 eV from that blackbody, whatever the star is doing.
 if get(ENV, "RAY", "0") == "1" && mat isa PM.NetGas
