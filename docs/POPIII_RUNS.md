@@ -49,6 +49,12 @@ the accretion production runs are unchanged.
    density change ~10 % per step and the collapse comes late. Offset of the collapse time against `full1` at equal
    log n_c: `CDYN=1000` +46 000 yr, `0.03` +7 000 yr (T_c within 1 %), `0.01` +1 950 yr (T_c within 0.1 %), `0.003`
    +165 yr (to log n_c 10). `CDYN=0.01` (Δt ≤ 0.01 × the shortest √(r³/Gm)) takes ~125 steps per dex of central density.
+   The cloud phase needs it too. `full1` ran its first 3000 steps with `CDYN=1000` (and `ETOTAL=1` and the accretion
+   solver controls, with 61 % of the TR stages diverging) and collapsed about twice too fast: log n_c 16.9 at 10.77 Myr,
+   where the October collapse that the production history starts from (`C_dyn = 0.01`) reached log n_c 23.4 at 21.86 Myr.
+   At 8.9 Myr `full1` had log n_c 4.21 and T_c 186 K; the October run 3.73 and 151 K; `full2` 3.71 and 154 K (step 1000
+   in both). Which of the three settings sped `full1` up was not separated. The offsets above are measured from a common
+   checkpoint of `full1` at log n_c 5.06, so they stand, but `full1` itself is not a valid collapse history.
 3. **Ringing of the core while it turns molecular (log n_c 10.5–13), `EPGRAD=thermal`.** Once the H₂ lines are thick the
    cooling depends on the escape probability, whose Sobolev velocity gradient was taken from zone-local quantities
    (|Δu|/Δr across the zone and |ū|/r_c). In the subsonic core (|u| ~ 0.01 km/s, v_th ≈ 3 km/s) both are noise: a 10 m/s
