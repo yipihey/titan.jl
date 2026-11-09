@@ -248,12 +248,23 @@ function hbf_nlte(ν, T, n1, n2)
     end
     α
 end
+"The same with the n = 2…30 populations precomputed (`nn[n-1]`, independent of ν): bit-identical to `hbf_nlte`, without 29 exp per frequency."
+function hbf_nlte_pre(ν, n1, nn)
+    χ = 13.598 * EVERG; σ0 = 7.906e-18; hν = COp.h * ν; α = 0.0
+    hν >= χ && (α += n1 * σ0 * (χ / hν)^3)
+    for n in 2:30
+        hν >= χ / n^2 || continue
+        α += nn[n-1] * σ0 * n * (χ / n^2 / hν)^3
+    end
+    α
+end
+hbf_levels(T, n2) = ntuple(i -> (n = i + 1; n2 * (n^2 / 4) * exp(-13.598 * EVERG * (0.25 - 1 / n^2) / (CNn.kB * T))), 29)
 """Planck means of absorption (κ_E, H⁻ bf from nHm) and emission (κ_P, H⁻ bf from nHmS), H bound–free in both or neither (`hbfP`), and
 Rosseland mean of the extinction (H⁻ from nHm, H bound–free always) [cm² g⁻¹]; number densities in cm⁻³."""
 function nlte_means(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T)
     isempty(NLGRID[]) && (NLGRID[] = COp.grid(; n = 1000))
     νs = NLGRID[]; t = COp.tables(); sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0; wJ = Tw != T
-    cia = nH2 > 1e-3 * n1; acia = 0.0
+    cia = nH2 > 1e-3 * n1; acia = 0.0; nnl = hbf_levels(T, n2)
     for i in 1:length(νs)-1
         ν = 0.5 * (νs[i] + νs[i+1]); dν = νs[i+1] - νs[i]; σ = ν / COp.c; λμ = 1e4 / σ
         stim = -expm1(-COp.h * ν / (COp.kB * T))
@@ -261,7 +272,7 @@ function nlte_means(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T)
         cia && i % 8 == 1 && (acia = COp.k_h2h2(t, σ, T) * nH2^2 + COp.kcia(t.H2He, σ, T) * nH2 * nHe + COp.kcia(t.H2H, σ, T) * nH2 * n1)
         a0 = acia + COp.k_Hm_ff(λμ, T) * n1 * ne * COp.kB * T + 3.692e8 * ne * nHp / (sqrt(T) * ν^3) * stim
         σhm = COp.σ_Hm_bf(λμ) * stim
-        ab = hbf_nlte(ν, T, n1, n2) * stim
+        ab = hbf_nlte_pre(ν, n1, nnl) * stim
         sca = COp.σ_ray_H2(λμ * 1e3) * nH2 + COp.σ_ray_H(λμ * 1e4) * n1 + COp.σT * ne
         B = COp.Bν(ν, T); D = COp.dBdT(ν, T); h = hbfP ? ab : 0.0
         BJ = wJ ? COp.Bν(ν, Tw) : B
@@ -648,6 +659,9 @@ function starlight_terms(m::NetGas, ρ, kHm, kH, kLW)
     end
     extra
 end
+"CHEMTHREADS=1: the zones of `chem!(::NetGas)` in parallel (Threads.@threads) when no ray is set (the ray's photons pass the zones in order). Default off."
+const CHEMTHREADS = Ref(get(ENV, "CHEMTHREADS", "0") == "1")
+const CHEMLOCK = ReentrantLock()
 function chem!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
@@ -689,10 +703,11 @@ function chem!(m::NetGas)
         length(NLOPC[]) == length(dn) || (NLOPC[] = Any[nothing for _ in dn])
         fill!(NLOPC[], nothing)
     end
-    for k in a:b
+    dTz = zeros(length(tn))
+    function zone!(k)
         if h !== nothing && tn[k] > h.T1             # hot branch: no chemistry, no re-solve of T with the table (driver: burn and mix)
             m.x[k] = x_from_table(m, dn[k], min(tn[k], 1e6)); m.eqzone[k] = true
-            continue
+            return nothing
         end
         cool = zone_cooling(m, k)
         if Nin !== nothing && k > kph
@@ -712,8 +727,8 @@ function chem!(m::NetGas)
                 out = src.out(x1, dt)
                 ray.Q[k] = sum((Nin .- out) .* ray.Ec) / V
                 m.x[k] = x1; Nin = out
-                dTmax = max(dTmax, abs(T1 / tn[k] - 1)); tn[k] = T1
-                continue
+                dTz[k] = abs(T1 / tn[k] - 1); tn[k] = T1
+                return nothing
             end
             Nin = nothing                                # the rest of the light cannot change any zone further out
         end
@@ -733,10 +748,10 @@ function chem!(m::NetGas)
                 Tq = T_ss_at_u(m, dn[k], u0, p, Ttab, iHpf)
                 if m.eqzone[k]
                     ag = isfinite(Tq) && abs(Tq / Ttab - 1) < 2ε
-                    ag || (NSWOUT[] += 1)
+                    ag || lock(() -> (NSWOUT[] += 1), CHEMLOCK)
                 else
                     ag = abs(Ttab / tn[k] - 1) < ε && isfinite(Tq) && abs(Tq / Ttab - 1) < ε
-                    ag && (NSWIN[] += 1)
+                    ag && lock(() -> (NSWIN[] += 1), CHEMLOCK)
                 end
             end
         end
@@ -776,7 +791,7 @@ function chem!(m::NetGas)
                 # Fixed mesh: e and x are advected by different schemes, and e may then have no solution for the zone's x. Hot dense gas: table equilibrium, same e.
                 STARLIGHT[] !== nothing && !(e isa ErrorException) && println("starlight zone failed: k ", k, " x ", m.x[k], " ρ ", dn[k], " u ", egn[k], " T ", tn[k], " dt ", dt, " rates ", slrates(k), " eq ", m.eqzone[k], " E_r ", TM.v(:ern)[k])
                 (CHEMFALLBACK[] && (e isa ErrorException || (p3 !== nothing && e isa ArgumentError))) || rethrow()
-                NCHEMFB[] += 1; fb = true
+                lock(() -> (NCHEMFB[] += 1), CHEMLOCK); fb = true
                 TL3DBG[] > 0 && @printf("tl3fb k %d r %.3e T %.0f tauz %.2e eqprev %s xe %.2e u %.4e u(10K,x) %.4e u(T,x) %.4e: %s\n", k, rn[k] / 6.957e10, tn[k], tauz[k], eqprev, CNn.full(m.x[k], m.net)[:e], egn[k], CNn.eos(dn[k], 10.0, m.x[k], m.net)[1], CNn.eos(dn[k], tn[k], m.x[k], m.net)[1], first(sprint(showerror, e), 60))
                 coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
                 _, T2 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
@@ -798,8 +813,15 @@ function chem!(m::NetGas)
             m.x[k] = x1
         end
         k == ZONEDBG[] && @printf("zonedbg step %d k %d p %.4e T %.1f -> %.1f eq %s tauz %.3e u %.5e dt %.3e\n", TF.getscalar(:jstep), k, pgn[k], tn[k], T1, m.eqzone[k], tauz[k], egn[k], dt)
-        dTmax = max(dTmax, abs(T1 / tn[k] - 1)); tn[k] = T1
+        dTz[k] = abs(T1 / tn[k] - 1); tn[k] = T1
+        nothing
     end
+    if CHEMTHREADS[] && ray === nothing && Threads.nthreads() > 1    # zones are independent (start-of-step state, per-zone outputs)
+        Threads.@threads :dynamic for k in a:b; zone!(k); end
+    else
+        for k in a:b; zone!(k); end
+    end
+    dTmax = maximum(view(dTz, a:b))
     for k in a-2:a-1; k >= 1 && (m.x[k] = m.x[a]; m.eqzone[k] = m.eqzone[a]); end
     for k in b+1:b+2; m.x[k] = m.x[b]; m.eqzone[k] = m.eqzone[b]; end
     tn[a-1] = tn[a]; tn[b+1] = tn[b]; tn[b+2] = tn[b]

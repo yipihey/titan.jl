@@ -523,6 +523,25 @@ function restart!(name; allow = ())
     pr("restarted from checkpoint %s at step %d, t = %.6e yr, log n_c = %.3f, T_c = %.1f K\n", name, aux.k, TF.getscalar(:timen) / 3.156e7,
        log10(TF.var(:dn)[a] / PC.mH), TF.var(:tn)[a])
 end
+"""
+THCHAIN=1 (default): the stellar EOS's p, e and MLT coefficients (∇_ad, c_P, δ) inside the Jacobian sweep are evaluated at the zone's values with a
+2-partial derivative in (ρ, T), and passed into the outer Dual by the chain rule. Same values and same first derivatives as evaluating
+StellarEOS.eos on the outer Dual (whose own nested derivative then carries all of the sweep's partials through every operation), at a
+fraction of the cost (it was ~40 % of the run time). THCHAIN=0: the direct evaluation.
+"""
+const THCHAIN = get(ENV, "THCHAIN", "1") == "1"
+struct ThTag end
+function thchain(f, ρ, T, k)
+    (ρ isa ForwardDiff.Dual || T isa ForwardDiff.Dual) || return f(ρ, T, k)
+    Dout = typeof(ρ + T)
+    (ForwardDiff.valtype(Dout) === Float64 && (!(ρ isa ForwardDiff.Dual) || typeof(ρ) === Dout) && (!(T isa ForwardDiff.Dual) || typeof(T) === Dout)) || return f(ρ, T, k)   # nested / mixed tags: direct
+    ρv, Tv = ForwardDiff.value(ρ), ForwardDiff.value(T)
+    D2 = ForwardDiff.Dual{typeof(ForwardDiff.Tag(ThTag(), Float64)),Float64,2}
+    o = f(D2(ρv, ForwardDiff.Partials((1.0, 0.0))), D2(Tv, ForwardDiff.Partials((0.0, 1.0))), k)
+    pρ = ρ isa ForwardDiff.Dual ? ForwardDiff.partials(ρ) : zero(ForwardDiff.partials(T))
+    pT = T isa ForwardDiff.Dual ? ForwardDiff.partials(T) : zero(ForwardDiff.partials(ρ))
+    map(x -> Dout(ForwardDiff.value(x), ForwardDiff.partials(x, 1) * pρ + ForwardDiff.partials(x, 2) * pT), o)
+end
 if HOTON
     const SM = StarMaterial; const NN = NucNet; const SE = StellarEOS
     const HX = 1 / (1 + 4PC.yHe)
@@ -533,8 +552,10 @@ if HOTON
         Y3 = 1e-5 * Yp; Y0[NN.IDX[:he3]] = Y3; Y0[NN.IDX[:he4]] = (1 - HX - 3Y3) / 4
         for k in axes(SG[].Y, 2); SG[].Y[:, k] .= Y0; end
     end
-    let g = (ρ, T, k) -> (st = SE.gas_state(ρ, T, SM.zonecomp(SG[], k)); (st.p, st.e)),
-        th = (ρ, T, k) -> (st = SE.eos(ρ, T; comp = SM.zonecomp(SG[], k), radiation = true); (st.∇ad, st.cP, st.δ))
+    let g0 = (ρ, T, k) -> (st = SE.gas_state(ρ, T, SM.zonecomp(SG[], k)); (st.p, st.e)),
+        g = THCHAIN ? ((ρ, T, k) -> thchain(g0, ρ, T, k)) : g0,
+        th0 = (ρ, T, k) -> (st = SE.eos(ρ, T; comp = SM.zonecomp(SG[], k), radiation = true); (st.∇ad, st.cP, st.δ)),
+        th = THCHAIN ? ((ρ, T, k) -> thchain(th0, ρ, T, k)) : th0
         ρr, Tr = 1e-4, 1e6                            # zero point of the two EOS in the fully ionised dilute limit
         Δ0 = g(ρr, Tr, 1)[2] - PopIIIEqEOS.eos(ρr, Tr)[1]
         ee = (ρ, T, k) -> SG[].fcur[k] * SM.eps_nuc(ρ, T, view(SG[].Y, :, k); screen = SG[].screen)
