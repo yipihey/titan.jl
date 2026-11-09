@@ -35,6 +35,20 @@ function lineage(dir)
     reverse(K)
 end
 
+"Old-format history (SNAPS=1 file, e.g. snaps_abn02z19_lines_n200_fx3.jls) as RUNREC-style snapshots, surviving branch only."
+function lineage_old(file)
+    A = deserialize(file); K = Any[A[end]]
+    for x in reverse(A[1:end-1]); x.t < K[end].t && push!(K, x); end
+    K = reverse(K)
+    map(K) do x
+        n = length(x.ρ)
+        Y = vcat([y[1] for y in x.y]', [y[2] for y in x.y]', [y[3] for y in x.y]', [y[4] for y in x.y]')
+        (; step = x.step, t = x.t, dt = NaN, r = x.r, u = x.u, m = x.m, ρ = x.ρ, T = x.T, e = x.e, pg = x.pg, er = x.er, fr = x.fr,
+           chi = x.chi, kp = fill(NaN, n), fedd = x.fedd, qf = x.qf, eq = x.eq, Λext = x.Λext, spn = [:Hp, :Hm, :H2, :H2p], Y,
+           gasq = Float64[], hotY = nothing, Lnuc = NaN, Llines = x.L_lines, nchemfb = 0, kph = 0, Teff = NaN)
+    end
+end
+
 sp(x, s) = (i = findfirst(==(s), x.spn); i === nothing ? zeros(size(x.Y, 2)) : x.Y[i, :])
 avg(v) = 0.5 .* (v[1:end-1] .+ v[2:end])
 
@@ -70,8 +84,8 @@ function frame(x)
     F, S
 end
 
-function export_frames(dir; every = 1)
-    L = lineage(dir); out = joinpath(dir, "export"); mkpath(out)
+function export_frames(dir; every = 1, old = nothing, out = joinpath(dir, "export"))
+    L = old === nothing ? lineage(dir) : lineage_old(old); mkpath(out)
     sel = L[1:every:end]; (isempty(sel) || sel[end] !== L[end]) && !isempty(L) && push!(sel, L[end])
     fr = Any[]; off = 0
     open(joinpath(out, "frames.f32"), "w") do io
@@ -95,5 +109,10 @@ function export_frames(dir; every = 1)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    export_frames(ARGS[1]; every = length(ARGS) > 1 ? parse(Int, ARGS[2]) : 1)
+    # runrec.jl <dir> [every]   or   runrec.jl --old <snaps file> <outdir> [every]
+    if ARGS[1] == "--old"
+        export_frames(ARGS[3]; old = ARGS[2], out = ARGS[3], every = length(ARGS) > 3 ? parse(Int, ARGS[4]) : 1)
+    else
+        export_frames(ARGS[1]; every = length(ARGS) > 1 ? parse(Int, ARGS[2]) : 1)
+    end
 end
