@@ -27,7 +27,8 @@ end
 
 "All snapshots of the run's surviving branch, in time order."
 function lineage(dir)
-    fs = sort(filter(f -> startswith(f, "snaps_") && endswith(f, ".jls"), readdir(dir)))
+    # in write order (attempts restarted from the same step share k0; the newest file holds the surviving branch's end)
+    fs = sort(filter(f -> startswith(f, "snaps_") && endswith(f, ".jls"), readdir(dir)); by = f -> mtime(joinpath(dir, f)))
     all = Any[]; for f in fs; append!(all, readstream(joinpath(dir, f))); end
     isempty(all) && return all
     K = Any[all[end]]
