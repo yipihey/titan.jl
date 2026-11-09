@@ -136,7 +136,7 @@ function maxdel!()
     end
     s!(:dmax, dmax)
     cmax = 1.0e-30
-    if gi(:lgrid) == 1
+    if gi(:lgrid) == 1 || GRIDMOVE[]
         @inbounds for k in a:b
             cx[k] = (rhs[ir, k+1] * rn[k+1] - rhs[ir, k] * rn[k]) / (rn[k+1] - rn[k])
         end
@@ -160,6 +160,8 @@ end
 # ------------------------------------------------------------------ timstp (timstp.f)
 "S4: when the velocity extrapolation of peq would make the grid non-monotonic, start Newton from the old grid instead of halving dtime (default false: TITAN)."
 const STATIC_FALLBACK = Ref(false)
+"Moving interfaces on lgrid = 2 (TitanResidFast.GRIDWIN window): maxdel limits the relative zone-width change per Newton iteration to ctol, TR-BDF2 combines the radii."
+const GRIDMOVE = Ref(false)
 "S4: functions `() -> dt_max` consulted at the end of timstp! (e.g. the composition criterion of StarMaterial). Empty = TITAN's rule."
 const DT_HOOKS = Function[]
 """

@@ -185,7 +185,7 @@ end
 function bdf_old!()
     a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1
     dn, dvn, egn, un, xmen = vf(:dn), vf(:dvoln), vf(:egn), vf(:un), vf(:xmen)
-    lag = Int(g(:lgrid)) == 3
+    lag = Int(g(:lgrid)) == 3 || TitanCore.GRIDMOVE[]     # (fixed interfaces: cb(r, r) = r exactly)
     d0, dv0, eg0, u0, xm0 = SAVE[:do], SAVE[:dvolo], SAVE[:ego], SAVE[:uo], SAVE[:xmeo]
     do_, ego, uo, xmeo = vf(:do), vf(:ego), vf(:uo), vf(:xmeo)
     dvo = vf(:dvolo)                   # old zone volume read by the residual (y_n's; recomputed from r* when lagrangian)

@@ -114,6 +114,18 @@ zone with a constant external pressure PEXT[] outside (RHFC02 App. A2.3) instead
 """
 const PEXT = Ref(NaN)
 """
+GRIDWIN[] (lgrid = 2 only): adaptive window on the fixed mesh. `nothing` (default) = every interface fixed. Otherwise a
+NamedTuple (; k1, k2, tau, alph, wd, wt, gmax): interfaces k1 and k2 stay fixed and bound the window; the interfaces in between
+obey a Dorfi–Drury grid equation, equal arc length per zone, n̂_j = x̃_j / sqrt(1 + ν_j² S_j) equal for neighbouring zones,
+with ν_j = r̄_j/Δr_j (logarithmic baseline, as ladx = 2), S_j = wd (½ Δ ln ρ)² + wt (½ Δ ln T)² with the centred
+differences Δy_j = y_{j+1} − y_{j−1}, spatial smoothing x̃ = ν − α(1+α) Δ²ν (α = alph; neighbouring zones then differ
+by at most (1+α)/α) and time smoothing x̃ → (1 + τ/Δt) x̃ − (τ/Δt) x̃_old (τ = tau). The gradient term G² = ν² S is capped smoothly,
+G² gmax²/(G² + gmax²): a front that keeps steepening would otherwise pull zones without limit (Δt then follows the shrinking zones). The zones next to the window enter the
+smoothing with their fixed widths. Everything else in the residual is TITAN's moving-grid form (u_rel = u − ṙ, fluxes
+through the moving faces), which the fixed mesh had reduced to u_rel = u.
+"""
+const GRIDWIN = Ref{Any}(nothing)
+"""
 AV_ZONE[] (G1): viscous length proportional to the local zone width. When > 0, zone k uses the length
 l_k = AV_ZONE[] × (r[k+1] − r[k]) (θ-centred radii, ForwardDiff-differentiable) instead of ql0 + ql1 r̄; ql0, ql1 are then
 ignored (cq1, cq2, cqvis still apply). On grids where Δr/r varies (geometric mass grids) l ∝ r does not follow the zone
@@ -461,6 +473,22 @@ function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
 end
 
 # ------------------------------------------------------------------ residual
+"Grid-equation rows of the adaptive window (see GRIDWIN) for the interfaces k1+1 … k2−1."
+function gridwin_rows!(R, ir, k0, rn, ro, dn, tn, dt, gw)
+    α = gw.alph * (1 + gw.alph); gam = gw.tau / dt
+    ν(j) = (rn[j+1] + rn[j]) / (2 * (rn[j+1] - rn[j])); νo(j) = (ro[j+1] + ro[j]) / (2 * (ro[j+1] - ro[j]))
+    function nhat(j)
+        xnt = ν(j) - α * (ν(j-1) - 2ν(j) + ν(j+1)); xnto = νo(j) - α * (νo(j-1) - 2νo(j) + νo(j+1))
+        S = gw.wd * (0.5 * log(dn[j+1] / dn[j-1]))^2 + gw.wt * (0.5 * log(tn[j+1] / tn[j-1]))^2
+        G2 = ν(j)^2 * S; G2 = isfinite(gw.gmax) ? G2 * gw.gmax^2 / (G2 + gw.gmax^2) : G2   # gradient cap: zones at most √(1+gmax²) finer than in smooth gas
+        ((1 + gam) * xnt - gam * xnto) / sqrt(1 + G2)
+    end
+    @inbounds for k in gw.k1+1:gw.k2-1
+        R[ir, k - k0 + 1] = nhat(k) - nhat(k - 1)
+    end
+    nothing
+end
+
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
     ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
     P = c.p; θ = P.θ; dt = P.dt; xmu = Float64(mu); xmup1 = xmu + 1; cc = P.cc
@@ -622,6 +650,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         P.llobc > 0 && (R[ir, kb(ngre+1)] = (rn[ngre+1] - c.ro[ngre+1]) / dt - u[ngre+1])
     elseif P.lgrid == 2
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k]; end
+        GRIDWIN[] === nothing || gridwin_rows!(R, ir, k0, rn, c.ro, dn, tn, dt, GRIDWIN[])
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
     end
@@ -930,8 +959,10 @@ const ETOT_GRAV = Ref(false)
         xmu = Float64(c.mu); P = c.p
         gi_(j) = 2xmu * P.cpi * P.cgrav * W.xm[j] / W.rmu[j] + (1 - 0.5xmu) * P.g
         Δr = 0.5 * (W.r[k+1] - W.r[k])
-        k > c.ngrs && (w += W.rmu[k] * W.urel[k] * W.db[k] * gi_(k) * Δr)
-        k < c.ngre && (w += W.rmu[k+1] * W.urel[k+1] * W.db[k+1] * gi_(k + 1) * Δr)
+        # (moving window, GRIDWIN: the lab-frame mass flux r² u ρ_b; zones carried by the grid also change Σ m Φ)
+        uf(j) = GRIDWIN[] === nothing ? W.urel[j] : W.u[j]
+        k > c.ngrs && (w += W.rmu[k] * uf(k) * W.db[k] * gi_(k) * Δr)
+        k < c.ngre && (w += W.rmu[k+1] * uf(k + 1) * W.db[k+1] * gi_(k + 1) * Δr)
     end
     w
 end

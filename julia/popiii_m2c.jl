@@ -1079,6 +1079,44 @@ if DTENV !== nothing
     pr("DTENV: dt <= %g x dynamical time over %g..%g R_sun\n", DTENV[3], DTENV[1], DTENV[2])
 end
 haskey(ENV, "ENVSPLIT") && ENVEUL !== nothing && haskey(ENV, "RESTART") && Int(TF.getscalar(:lgrid)) == 2 && envsplit!(parse.(Float64, split(ENV["ENVSPLIT"], ","))...)
+"""
+GRIDWIN=r1,r2[,tau[,wd,wt[,alph[,ctol[,fmove[,gmax]]]]]] (R☉; fixed mesh only): the interfaces nearest r1 and r2 stay fixed, the ones in between
+follow TITAN's adaptive grid equation (TitanResidFast.GRIDWIN: equal arc length in (ln r, √wd ln ρ, √wt ln T), spatial smoothing alph,
+time smoothing tau [s]). Defaults tau 1e7, wd 0.3, wt 1, alph 1.5, ctol 0.3 (maxdel: relative zone-width change per Newton iteration),
+fmove 0.3 (Δt such that no window interface moves more than fmove × its smaller neighbouring zone per step), gmax Inf
+(cap on the resolved gradient: zones at most √(1+gmax²) finer than in smooth gas). Chemistry and nuclear
+abundances already move with the mass crossing each interface (advect_species!); the total-energy row's gravity work uses the lab-frame
+mass flux. Restart a window checkpoint with the same r1, r2 (the end interfaces never move, so they are found again).
+"""
+const GRIDWINP = haskey(ENV, "GRIDWIN") ? parse.(Float64, split(ENV["GRIDWIN"], ",")) : nothing
+const GWLAST = Ref((0.0, 0, Inf))     # (max displacement / zone width over the last step, interface, Δt cap)
+if GRIDWINP !== nothing
+    Int(TF.getscalar(:lgrid)) == 2 || error("GRIDWIN needs the fixed mesh (lgrid = 2)")
+    let p = GRIDWINP, rn = TF.var(:rn), gwp(i, d) = length(p) >= i ? p[i] : d
+        k1 = a - 1 + argmin(abs.(rn[a:b+1] .- p[1] * Rsun)); k2 = a - 1 + argmin(abs.(rn[a:b+1] .- p[2] * Rsun))
+        (k1 - 1 > a && k2 + 1 < b + 1 && k2 - k1 >= 4) || error("GRIDWIN: window $k1..$k2 too small or too close to the mesh ends")
+        TX.GRIDWIN[] = (; k1, k2, tau = gwp(3, 1e7), wd = gwp(4, 0.3), wt = gwp(5, 1.0), alph = gwp(6, 1.5), gmax = gwp(9, Inf))
+        TC.GRIDMOVE[] = true; TF.setscalar!(:ctol, gwp(7, 0.3)); fmove = gwp(8, 0.3)
+        push!(TC.DT_HOOKS, function ()
+            rn_ = TF.var(:rn); ro_ = TF.var(:ro); f = 0.0; kf = 0
+            for k in k1+1:k2-1
+                w = min(ro_[k] - ro_[k-1], ro_[k+1] - ro_[k]); q = abs(rn_[k] - ro_[k]) / w; q > f && (f = q; kf = k)
+            end
+            cap = f > 0 ? fmove / f * TF.getscalar(:dtime) : Inf
+            GWLAST[] = (f, kf, cap); cap
+        end)
+        pr("GRIDWIN: adaptive interfaces %d..%d (r %.4g..%.4g R_sun, %d zones), tau %.3g s, weights ln rho %.3g ln T %.3g, alph %.3g, ctol %.3g, fmove %.3g, gmax %.3g\n",
+           k1 + 1, k2 - 1, rn[k1] / Rsun, rn[k2] / Rsun, k2 - k1, TX.GRIDWIN[].tau, TX.GRIDWIN[].wd, TX.GRIDWIN[].wt, TX.GRIDWIN[].alph, TF.getscalar(:ctol), fmove, TX.GRIDWIN[].gmax)
+    end
+end
+"Window state for the progress print: narrowest zone (Δ ln r, r), widest, last-step displacement."
+function gridwin_line()
+    gw = TX.GRIDWIN[]; rn = TF.var(:rn)
+    dl = [log(rn[j+1] / rn[j]) for j in gw.k1:gw.k2-1]; jm = argmin(dl); jx = argmax(dl)
+    f, kf, cap = GWLAST[]
+    @sprintf("        grid window: dln r min %.2e at %.0f R_sun (zone %d), max %.2e at %.0f; last step moved %.3f zone widths (interface %d, dt cap %.2e)\n",
+             dl[jm], rn[gw.k1+jm-1] / Rsun, gw.k1 + jm - 1, dl[jx], rn[gw.k1+jx-1] / Rsun, f, kf, cap)
+end
 const CHEMDIAG = get(ENV, "CHEMDIAG", "0") == "1"; const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
 const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended run whose Δt has collapsed, before the checkpoints are overwritten
@@ -1466,6 +1504,7 @@ try
                        Γ[jg], 0.5(rr[jg] + rr[jg+1]) / Rsun, w4 === nothing || w4 > nsh ? NaN : Γ[w4], w5 === nothing || w5 > nsh ? NaN : Γ[w5],
                        mdot(j_), mdot(w4), mdot(w5), NXADV1[], PM.NSWIN[], PM.NSWOUT[])
                 end
+                TX.GRIDWIN[] === nothing || pr("%s", gridwin_line())
                 # causality of the radiation field outside the surface: F/cE at the interfaces (FLUXTIE or not)
                 let fz = TF.var(:frn), ez = TF.var(:ern), rz = TF.var(:rn), q = 0.0, kq = 0, k1 = 0
                     for k in a+1:b
