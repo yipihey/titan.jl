@@ -334,6 +334,7 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
     end
     PM.STARLIGHT[].tl3 && PM.STARLIGHT[].pH !== nothing && error("SL3=1 replaces SLH=1 (the Boltzmann n ≥ 2 photoionization); set one")
     PM.STARLIGHT[].tl3 && pr("STARLIGHT: three-level H (Peebles C factor, Sobolev Lya escape, e collisions) in the lit network zones\n")
+    PM.STARLIGHT[].tl3 && PM.LYABB[] && pr("LYABB: three-level H bound-bound (Lya pumping / collisional de-excitation, collisional excitation / Lya + 2-photon escape) heat in the chemistry\n")
     # NLOPAC=1 (with SL3): network zones take the non-LTE opacity of their own composition (PM.NLOPAC: Saha/Boltzmann table × lagged ratio, frozen-composition T slope)
     PM.NLOPAC[] = PM.STARLIGHT[].tl3 && get(ENV, "NLOPAC", "0") == "1"
     PM.PSWAGREE[] = PM.STARLIGHT[].tl3 ? parse(Float64, get(ENV, "PSWAGREE", "0")) : 0.0
@@ -1324,6 +1325,9 @@ try
                 d0_ = ChemNet.full(xb_[i], mat.net); d1_ = ChemNet.full(mat.x[z], mat.net)
                 pr("        SLZ %d: n %.3e T %.1f -> %.1f  xH2 %.3e -> %.3e  xp %.3e -> %.3e  xHm %.2e | kLW %.3e fsh %.3e kHm %.3e eq %s E_r %.3e\n", z, TF.var(:dn)[z] / PC.μH,
                    Tb_[i], TF.var(:tn)[z], d0_[:H2], d1_[:H2], d0_[:Hp], d1_[:Hp], d1_[:Hm], sd.kLW[z], sd.fsh[z], sd.kHm[z], string(mat.eqzone[z]), TF.var(:ern)[z])
+                t3_ = sd.tl3[z]
+                (t3_ !== nothing && hasproperty(t3_, :qbb)) && pr("        SLZ %d tl3: T_c %.0f P12 %.2e RL %.2e beta %.2e ne %.2e | chemq %.3e cycq %.3e Lya-bb %.3e erg/cm3/s, Lya-bb dt/(rho e) %.2e\n", z,
+                    t3_.Tc, t3_.P12, t3_.RL, t3_.β, t3_.ne, t3_.chemq, t3_.cycq, t3_.qbb, t3_.qbb * dtq / (TF.var(:dn)[z] * TF.var(:egn)[z]))
             end
         end
         if EB !== nothing                            # BALSPLIT: c̄ ← c̄ + Δe_chem/Δt where the zone stayed on the network

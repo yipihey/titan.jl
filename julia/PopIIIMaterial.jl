@@ -534,8 +534,26 @@ function tl3_heat(ρ, T, d, p)
     Ein = p.hν + E21 * p.P12 / (Q12 + p.P12 + 1e-300)
     chemq = nH * (I * Ein - C * rec * (CNn.χH + 0.75CNn.kB * T))
     cycq = nH * (1 - C) * rec * (p.hν - CHI2 - 0.75CNn.kB * T)
+    LYABB[] && (chemq += lya_bb(ρ, T, d, p))
     chemq, cycq
 end
+"Bound–bound n = 1 ↔ 2 heat of the three-level atom per volume [erg cm⁻³ s⁻¹] (see LYABB)."
+function lya_bb(ρ, T, d, p)
+    nH = ρ / CNn.μH(); C = tl3_C(T, p); xH = max(d[:H], zero(T)); xe = max(d[:e], zero(T)); xp = max(d[:Hp], zero(T))
+    rec = alphaB_recfast(T) * nH * xe * xp; D = p.RL + LAM2S + 4p.ne * q21_H(T)
+    nH * E21 * C * ((xH * p.P12 + rec) * 4nH * xe * q21_H(T) - xH * nH * xe * q12_H(T) * (p.RL + LAM2S)) / D
+end
+"""
+LYABB=1: the bound–bound energy exchange of the three-level atom with the gas, missing from tl3_heat's ionization bookkeeping. The atom's
+exact radiative balance with the gas is E21 [n1 P12 − n2s (R_Lyα + Λ_2s)] + β n2s ⟨hν⟩ − α_B n_e n_p (χ_2 + 0.75 kT) (n2s in steady state);
+tl3_heat's chemq + cycq differ from it by
+  E21 C [(n1 P12 + α_B n_e n_p) 4 n_e q21 − n1 n_e q12 (R_Lyα + Λ_2s)] / D,   D = R_Lyα + Λ_2s + 4 n_e q21:
+n = 2 atoms made by Lyα/two-photon pumping (excitation temperature of the diluted starlight T_c) or by recombination that are collisionally
+de-excited heat the gas; collisional excitations that decay radiatively (Lyα escape, two-photon continuum) cool it. With W = 1, T_c = T the
+sum vanishes (detailed balance; without the term, LTE gas lost E21 β n2s 4 n_e q21/(D+β)). The energy goes to/from the gray field via RAYQ
+with the rest of chemq, implicit in T in the chemistry. Left out: H–H (Drawin) collisions.
+"""
+const LYABB = Ref(get(ENV, "LYABB", "0") == "1")
 "Per-step star-light setup: photosphere, T_eff, and the LW columns; returns a function k -> (kHm, kH, kLW, fsh) for a network zone k."
 function starlight_setup(m::NetGas, a, b, tauz_)
     sl = STARLIGHT[]; dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); er, fr, un = TM.v(:ern), TM.v(:frn), TM.v(:un)
@@ -763,7 +781,7 @@ function chem!(m::NetGas)
                 cq, yq = tl3_heat(dn[k], T1, CNn.full(x1, m.net), p3)
                 isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
                 isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
-                SLDIAG[].tl3[k] = merge(p3, (; chemq = cq, cycq = yq))
+                SLDIAG[].tl3[k] = merge(p3, (; chemq = cq, cycq = yq, qbb = lya_bb(dn[k], T1, CNn.full(x1, m.net), p3)))
                 NLOPAC[] && (NLOPC[][k] = nlopc(dn[k], T1, CNn.full(x1, m.net), p3))
                 if TL3DBG[] > 0 && TF.getscalar(:jstep) % TL3DBG[] == 0 && k % 6 == 0
                     d0 = CNn.full(m.x[k], m.net); d1 = CNn.full(x1, m.net)
