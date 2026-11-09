@@ -99,14 +99,15 @@ function lya_transfer!(m::NetGas, a, b, tauz, kph, rates, diag)
     L_k = Int[]; L_T = Float64[]; L_sub = Bool[]; r = [rn[kin]]
     for k in K
         τz = chi[k] * dn[k] * (rn[k+1] - rn[k]); τtop = tauz[k] - τz
-        if nsub > 0 && m.eqzone[k] && τz > 1 && τtop < subtop
-            Teff = (abs(fr[k+1]) / 5.670374419e-5)^0.25; τ0 = 0.01
+        Teff = (abs(fr[k+1]) / 5.670374419e-5)^0.25
+        if nsub > 0 && m.eqzone[k] && τz > 1 && τtop < subtop && Teff > 100      # (no flux yet, e.g. right after ENVSPLIT: no rebuild)
+            τ0 = 0.01
             f(q) = τ0 * (q^nsub - 1) / (q - 1) - τz; lo, hi = 1.0 + 1e-9, 100.0
             for _ in 1:200; mid = 0.5(lo + hi); f(mid) > 0 ? (hi = mid) : (lo = mid); end
             q = 0.5(lo + hi); te = [τ0 * (q^j - 1) / (q - 1) for j in 0:nsub]; te[end] = τz       # τ below the zone's top
             for j in nsub:-1:1                                                                    # inner → outer
                 tm = τtop + 0.5(te[j] + te[j+1])
-                push!(L_k, k); push!(L_T, min(tn[k], (0.75 * Teff^4 * (tm + 2 / 3))^0.25)); push!(L_sub, true)
+                push!(L_k, k); push!(L_T, min(tn[k], max((0.75 * Teff^4 * (max(tm, 0.0) + 2 / 3))^0.25, 100.0))); push!(L_sub, true)
                 push!(r, j == 1 ? rn[k+1] : rn[k+1] - te[j] / (chi[k] * dn[k]))
             end
         else
