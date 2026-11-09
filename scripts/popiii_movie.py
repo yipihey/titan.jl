@@ -45,11 +45,19 @@ PANELS = [("Temperature (log K)", [("logT", "gas", BLUE), ("logTrad", "radiation
           ("Inflow rate Ṁ (M☉ yr⁻¹)", [("Mdot", None, BLUE)], "log", None)]
 
 
+def steps(f, xk, y):
+    """A zone's value across the zone, inner to outer interface (the first zone from its centre)."""
+    xo = f.get(xk + "_o")
+    if xo is None: return f[xk], y
+    xi = np.concatenate([[f[xk][0]], xo[:-1]])
+    return np.column_stack([xi, xo]).ravel(), np.repeat(y, 2)
+
+
 def ranges(frames, xk):
     def pr(vals, lo=1, hi=99):
         v = np.concatenate([x[np.isfinite(x)] for x in vals])
         return (np.percentile(v, lo), np.percentile(v, hi)) if v.size else (0.0, 1.0)
-    xr = pr([f[xk] for f, _ in frames], 0, 100)
+    xr = pr([f[xk] for f, _ in frames] + [f[xk + "_o"] for f, _ in frames if xk + "_o" in f], 0, 100)
     yr = []
     for title, curves, mode, ref in PANELS:
         if isinstance(mode, tuple): yr.append(mode); continue
@@ -89,7 +97,7 @@ def main():
             for k, lab, c in curves:
                 y = f[k].astype(float)
                 if mode == "log": y = np.where(y > 0, y, np.nan)
-                ax.plot(f[xk], y, color=c, lw=1.6, label=lab)
+                ax.plot(*steps(f, xk, y), color=c, lw=1.6, label=lab)
             if mode == "log": ax.set_yscale("log")
             if mode == "symlog": ax.set_yscale("symlog", linthresh=1.0)
             ax.set_xlim(*xr); ax.set_ylim(ylo, yhi)

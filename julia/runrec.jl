@@ -58,7 +58,8 @@ const FIELDS = [("logr", "log r [R_sun] (cell centre)"), ("logm", "log m [M_sun]
     ("u", "u [km/s]"), ("L", "L [L_sun] = 4 pi r^2 F"), ("xHp", "x(H+)"), ("xH2", "x(H2) (per H nucleus)"),
     ("logxHm", "log x(H-)"), ("logtau", "log tau (Rosseland/flux mean, from outside)"), ("Gamma", "kappa L / 4 pi G m c"),
     ("FcE", "F / cE"), ("logkap", "log chi [cm^2 g^-1]"), ("logkapP", "log kappa_P [cm^2 g^-1]"),
-    ("Mdot", "Mdot = -4 pi r^2 rho u [M_sun/yr]"), ("eq", "equilibrium (table) zone flag"), ("logLam", "log |line cooling| (Lambda_ext) [erg/s/g]")]
+    ("Mdot", "Mdot = -4 pi r^2 rho u [M_sun/yr]"), ("eq", "equilibrium (table) zone flag"), ("logLam", "log |line cooling| (Lambda_ext) [erg/s/g]"),
+    ("logr_o", "log r of the zone's outer interface [R_sun]"), ("logm_o", "log m at the zone's outer interface [M_sun]")]
 const SCAL = ["step", "t_yr", "dt_s", "logn_c", "T_c", "M_star", "R_star", "r_ph", "T_eff_lum", "T_eff_sl", "L_ph", "Mdot_1e4", "u_min", "L_nuc", "L_lines", "nz", "nchemfb"]
 
 function frame(x)
@@ -74,7 +75,8 @@ function frame(x)
     F = Dict("logr" => l10(rc ./ Rs), "logm" => l10(mc ./ Ms), "logrho" => l10(x.ρ), "logT" => l10(x.T),
         "logTrad" => l10((max.(x.er, 0) ./ arad) .^ 0.25), "u" => avg(x.u) ./ 1e5, "L" => Lc, "xHp" => sp(x, :Hp), "xH2" => sp(x, :H2),
         "logxHm" => l10(sp(x, :Hm)), "logtau" => l10(τc), "Gamma" => Γ, "FcE" => fce, "logkap" => l10(x.chi), "logkapP" => l10(x.kp),
-        "Mdot" => avg(md), "eq" => Float64.(x.eq), "logLam" => l10(abs.(x.Λext)))
+        "Mdot" => avg(md), "eq" => Float64.(x.eq), "logLam" => l10(abs.(x.Λext)),
+        "logr_o" => l10(r[2:n+1] ./ Rs), "logm_o" => l10(m[2:n+1] ./ Ms))
     # scalars
     js = findfirst(<(-2e5), x.u); Mst = js === nothing ? NaN : m[js] / Ms; Rst = js === nothing ? NaN : r[js] / Rs
     kph = findlast(>(2 / 3), τ); rph = kph === nothing ? NaN : r[kph] / Rs
