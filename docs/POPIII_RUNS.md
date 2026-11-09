@@ -35,8 +35,8 @@ Notes:
 
 ## Stability of the collapse (phase A)
 
-Three defects showed in `full1` between log n_c 5 and 17. Each has its own option; all are off by default, so phase B and
-the accretion production runs are unchanged.
+Three defects showed in `full1` between log n_c 5 and 17. Each has its own option. `ADVREL`, `CDYN=0.01` and `TCOOLTH`
+are set in `phaseA.env` only. `EPGRAD=thermal` is the code default since 9 Nov 2026 (`EPGRAD=zone` gives the old method).
 
 1. **Newton divergences (one per ~6 steps), `ADVREL=1`.** With frozen interior masses the interfaces move with the gas
    only at convergence. In an unconverged iterate the continuity row carries mass r² u_rel ρ across the interfaces, but
@@ -67,6 +67,11 @@ the accretion production runs are unchanged.
    interval of the full line-transfer calls, rezoning and Δt alone were each tested and are not the cause.
    `TCOOLTH=1` (cooling-time rule from the thermal energy instead of the energy above cold H₂) made no difference
    once the gradient was fixed; it is kept as the physically meant rule.
+   `full2`, on its own history from the cloud, passes log n_c 10–12.5 with std of ln ρ 1e-4 to 6e-4.
+   In the accretion phase the choice has no effect: the H₂ lines of the infalling envelope are thin (x(H₂) ≤ 1e-3), so
+   the escape probability is 1 whatever the gradient. From an `fx3` checkpoint at 99.5 M☉ (step 187 550), 400 steps with
+   `zone` and with `thermal` gave the same line cooling in every zone to three decimals in the log and temperatures equal
+   to 5e-7 dex. `fx3` takes the new default at its next segment (`z19fx3d`).
 4. **Chemistry failure at log n_c 16.9** (`ChemNet.step: Newton failed`, where `full1` stopped): H⁺ ≈ 4e-12 in fast
    equilibrium flips in its 10th digit between Newton iterations while T and every other abundance are converged, so the
    test (1e-10 per species) was never met at any sub-step. A stagnated iterate is now accepted after 60 full Newton steps

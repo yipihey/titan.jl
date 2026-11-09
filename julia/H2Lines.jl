@@ -331,8 +331,8 @@ function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing)
 end
 
 # EPGRAD (escape-probability mode, the Sobolev part): which radial velocity gradient a zone's lines escape through.
-#   zone (default): the difference of the zone's two interface velocities, |Δu|/Δr.
-#   thermal: v_th/ℓ, ℓ the distance from the zone centre to the nearest radius (inwards or outwards) where the velocity differs from
+#   zone: the difference of the zone's two interface velocities, |Δu|/Δr, and |ū|/r of the zone (the method up to Nov 2026).
+#   thermal (default): v_th/ℓ, ℓ the distance from the zone centre to the nearest radius (inwards or outwards) where the velocity differs from
 #     the zone's by one thermal width v_th; no radial term if it never does. Where the flow is resolved and supersonic this is |du/dr|;
 #     in a subsonic core (Δu across a zone ≪ v_th, Sobolev length ≫ zone) a line photon does not see the zone's own Δu, and |Δu|/Δr
 #     carries the zone-to-zone velocity noise amplified by r/Δr into β and so into the cooling: a zone compressing slightly faster
@@ -342,7 +342,7 @@ end
 #     and a 10 m/s sound wave (Mach 0.003) changed it, and with it the EP cooling of the central zones, by 40 % from one step to the next
 #     (t_f7, steps 3742 → 3744, n_c = 1.7e11: Λ_EP 2.5e-11 → 3.6e-11 while the ALI cooling moved 5.65e-11 → 6.00e-11).
 #   flow: no radial term at all, only the tangential one |u|/r (diagnostic).
-const EPGRAD = Ref(Symbol(get(ENV, "EPGRAD", "zone")))
+const EPGRAD = Ref(Symbol(get(ENV, "EPGRAD", "thermal")))
 "Exponential integral E₂(x) = e^{−x} − x E₁(x), x ≥ 0 (series for x ≤ 1, continued fraction above)."
 function E2(x)
     x <= 0 && return 1.0
