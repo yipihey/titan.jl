@@ -18,6 +18,13 @@ A segment that ends any other way than `:maxsteps` stops the chain; `procedure.l
 
 Notes:
 - `NLOPAC=1` from the cloud needed a guard (5337e9f): before RAD's opacity tables exist the non-LTE factors are skipped.
+- Phase A uses the collapse solver controls `NITER=10 STOL=0.1 NTRY=10` (those of the old collapse). With the accretion
+  controls (`NITER=25 STOL=0.3 NTRY=25 FAILTFAC=0.5`) 61 % of TR stages diverge from step 1 (15 % with the collapse
+  controls), and `full1` died at step 3375 (log n_c 5.43): BDF2 failed on every step from 3363, Δt fell from 3e10 to 350 s,
+  then NaN everywhere and a NaN Jacobian in the chemistry. The checkpoint carries the controls, so a restart must set them.
+- Open: the divergences that remain have Newton corrections of 1e17–1e21 in the central zones 1–3 (dm 3e-7 M☉).
+- `MSG=1` now prints Newton messages from the start (they were silent until RAD switched on).
+- `fullrun.sh <run> [checkpoint | B:<checkpoint>] [threads]` resumes phase A or B; every attempt saves under a fresh name.
 - `m*`/`R*` in the `hot:` line and perf.csv are meaningful only after the remap (they take the first interface with
   u < −2 km/s, which in the cloud is the infall front).
 - Checkpoints of a run live in `runs/<run>/ck` (`CKDIR`), apart from the shared `ck/`.

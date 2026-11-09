@@ -265,7 +265,7 @@ TX.AV_CAP[] = parse(Float64, get(ENV, "AVCAP", "0"))
 haskey(ENV, "SHOCKDU") && (TX.SHOCK_DU[] = Tuple(1e5 .* parse.(Float64, split(ENV["SHOCKDU"], ","))))
 TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))    # G1: viscous length = AVZONE × zone width (0 = ql1 r̄ above)
 TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
-PS.install_julia!(BlockSolver); TD.MSGIO[] = devnull
+PS.install_julia!(BlockSolver); TD.MSGIO[] = get(ENV, "MSG", "0") == "1" ? stdout : devnull   # (Newton messages also before RAD switches on)
 a = Int(TF.getscalar(:ngrs)); b = Int(TF.getscalar(:ngre))
 TX.PEXT[] = TF.var(:pgn)[b]
 if get(ENV, "FORCECHECK", "0") == "1"           # initial force balance: −r²Δp / (G m m̄/r²) per interface
