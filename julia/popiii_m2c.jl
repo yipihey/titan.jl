@@ -292,6 +292,73 @@ pr("%7s %8s %10s %9s %9s %10s %10s %9s %9s\n", "step", "log n_c", "t [yr]", "T_c
 nextln = Ref(log10(rho[1] / PC.mH) + 0.25)
 using Serialization
 const SNAPFILE = joinpath(OUTDIR, "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(get(ENV, "TAG", "")).jls")
+# RUNREC=<dir>: record the run for movies, interactive panels and cost accounting (off by default). Each process segment
+# (start step k0, pid) writes snaps_<k0>_<pid>.jls, one serialized snapshot every SNAPEVERY steps, appended and never
+# rewritten (a restart opens a new file; readers keep the surviving branch by scanning back in time), and meta_<k0>_<pid>.txt
+# (the settings the code reads, git state, threads). perf.csv gets one row per PRINTEVERY steps (needs TIMING=1): the wall-time
+# split, Newton/TR-BDF2 counters, ALI calls, chemistry fallbacks, GC time and allocations, the Δt limiter and the core state.
+const RUNREC = get(ENV, "RUNREC", "")
+isempty(RUNREC) || mkpath(RUNREC)
+const REC = (on = !isempty(RUNREC), io = Ref{Any}(nothing), wall0 = time(), klast = Ref(-1), gct = Ref(Base.gc_num().total_time), gcb = Ref(Base.gc_bytes()),
+             dtlim = Ref(""), mstar = Ref(NaN), rstar = Ref(NaN), spn = Ref{Vector{Symbol}}(Symbol[]))
+"ENV keys any of the julia/ sources reads (only these go into the meta file)."
+function recenvkeys()
+    ks = Set{String}()
+    for f in readdir(@__DIR__; join = true)
+        endswith(f, ".jl") || continue
+        for m in eachmatch(r"ENV(?:, |\[)\"([A-Z][A-Z0-9_]*)\"", read(f, String)); push!(ks, m[1]); end
+    end
+    ks
+end
+function recopen!(k)
+    tag = @sprintf("%09d_%d", k, getpid())
+    REC.io[] = open(joinpath(RUNREC, "snaps_$(tag).jls"), "w")
+    open(joinpath(RUNREC, "meta_$(tag).txt"), "w") do io
+        gitc(c) = try strip(read(Cmd(vcat(["git", "-C", TF.ROOT], c)), String)) catch; "?" end
+        println(io, "start_step ", k, "\nstart_t_s ", TF.getscalar(:timen), "\nhost ", gethostname(), "\nthreads ", Threads.nthreads(), "\njulia ", VERSION)
+        println(io, "git ", gitc(["rev-parse", "HEAD"]), " ", gitc(["rev-parse", "--abbrev-ref", "HEAD"]))
+        println(io, "git_dirty_julia ", isempty(gitc(["status", "--short", "julia"])) ? "no" : "yes")
+        ks = recenvkeys()
+        for key in sort(collect(keys(ENV))); key in ks && println(io, "env ", key, "=", ENV[key]); end
+    end
+    pf = joinpath(RUNREC, "perf.csv")
+    isfile(pf) || open(pf, "w") do io
+        println(io, "step,t_yr,dt_s,wall_s,pid,nsteps,t_step,t_chem,t_lines,t_other,gc_s,alloc_GB,ndiv,nrepeat,tr_steps,fail_tr,fail_bdf,be_fallback,nali,nchemfb,nthreads,nz,log_nc,Tc,mstar,rstar,umin_kms,dtlim")
+    end
+end
+"One snapshot into the RUNREC stream: everything needed to redraw any profile panel offline."
+function recsnap!(k)
+    REC.io[] === nothing && recopen!(k)
+    d = [ChemNet.full(mat.x[j], mat.net) for j in a:b]
+    isempty(REC.spn[]) && (REC.spn[] = sort(collect(keys(d[1]))))
+    sp = REC.spn[]
+    sd = PM.SLDIAG[]
+    snap = (; step = k, t = TF.getscalar(:timen), dt = TF.getscalar(:dtime), a, b,
+            r = TF.var(:rn)[a:b+1], u = TF.var(:un)[a:b+1], m = 4π .* (ENVEUL === nothing ? TX.XMINT[][a:b+1] : envmenc()),
+            ρ = TF.var(:dn)[a:b], T = TF.var(:tn)[a:b], e = TF.var(:egn)[a:b], pg = TF.var(:pgn)[a:b],
+            er = TF.var(:ern)[a:b], fr = TF.var(:frn)[a:b+1], chi = TF.var(:chifn)[a:b], kp = TF.var(:xkpn)[a:b],
+            fedd = TF.var(:fedd)[a:b], qf = TF.var(:qf)[a:b], eq = [eqflag(j) for j in a:b], Λext = copy(mat.Λext[a:b]),
+            spn = sp, Y = Float64[Float64(ForwardDiff.value(d[j][s])) for s in sp, j in eachindex(d)],
+            gasq = copy(TX.GASQ[]), hotY = HOTON ? SG[].Y[:, a:b] : nothing, Lnuc = LNUC[], Llines = LLINE[],
+            nchemfb = PM.NCHEMFB[], kph = sd === nothing ? 0 : sd.kph, Teff = sd === nothing ? NaN : Float64(sd.Te))
+    serialize(REC.io[], snap); flush(REC.io[])
+end
+"One perf.csv row (called at the TIMING report, before the accumulators are reset)."
+function recperf!(k, tnow)
+    REC.io[] === nothing && recopen!(k)
+    gct = Base.gc_num().total_time; gcb = Base.gc_bytes()
+    st = Trbdf2.STATS; un_ = TF.var(:un)[a:b+1]
+    oth = time() - tnow + TOTH[] - TCHEM[] - TLINE[]
+    ns = REC.klast[] < 0 ? 0 : k - REC.klast[]
+    open(joinpath(RUNREC, "perf.csv"), "a") do io
+        @printf(io, "%d,%.8e,%.4e,%.1f,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%.6e,%.6g,%.6g,%.3f,%s\n",
+                k, TF.getscalar(:timen) / 3.156e7, TF.getscalar(:dtime), time() - REC.wall0, getpid(), ns, TSTEP[], TCHEM[], TLINE[], oth,
+                (gct - REC.gct[]) / 1e9, (gcb - REC.gcb[]) / 2^30, TD.NDIV[], TD.NREP[], get(st, :steps, 0), get(st, :fail_tr, 0), get(st, :fail_bdf, 0),
+                get(st, :be_fallback, 0), NALICALL[], PM.NCHEMFB[], Threads.nthreads(), b - a + 1, log10(TF.var(:dn)[a] / PC.mH), TF.var(:tn)[a],
+                REC.mstar[], REC.rstar[], minimum(un_) / 1e5, REC.dtlim[])
+    end
+    REC.klast[] = k; REC.gct[] = gct; REC.gcb[] = gcb
+end
 # M3: the star's ionizing light (IonRay). RAY=1: spectrum from the photosphere (τ_R = 2/3), a blackbody at T_eff from L and r there; no source below RAYTMIN.
 # RAYTEST="Q,Teff" (a stress test): that many photons/s above 13.6 eV from that blackbody, whatever the star is doing.
 if get(ENV, "RAY", "0") == "1" && mat isa PM.NetGas
@@ -1416,6 +1483,7 @@ try
         HOTON && (LNUC[] = hotburn!(TF.getscalar(:timen) - TF.getscalar(:timeo)))
         TCHEM[] += time() - tc0
         RAD && TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())   # T changed in chem!: Planck function, opacity, e_g + E_r/ρ
+        REC.on && SNAPEVERY > 0 && k % SNAPEVERY == 0 && recsnap!(k)
         if SNAPS !== nothing                         # profiles for post-processing: every 0.25 dex of n_c, and every SNAPEVERY steps
             lnc = log10(TF.var(:dn)[a] / PC.mH)
             if lnc >= SNAPNEXT[] || (SNAPEVERY > 0 && k % SNAPEVERY == 0)
@@ -1493,6 +1561,7 @@ try
             ln >= nextln[] && (nextln[] += 0.25)
             if HOTON
                 g_ = SG[]; tn_ = TF.var(:tn); un_ = TF.var(:un); jc_ = findfirst(<(-2e5), un_[a:b+1]); ms_ = jc_ === nothing ? NaN : 4π * xmi(a+jc_-1) / Msun; rs_ = jc_ === nothing ? NaN : TF.var(:rn)[a+jc_-1] / 6.957e10
+                REC.mstar[] = ms_; REC.rstar[] = rs_
                 pr("        hot: t %.6e yr, m* %.5g Msun, R* %.4g Rsun, L_nuc %.3e erg/s, X_c %.5f, D_c/D_0 %.3e, CNO_c %.2e, hot zones %d, conv %d, split %.1e/%d/%.1e, corr %.1e\n", TF.getscalar(:timen) / 3.156e7, ms_, rs_, LNUC[],
                    g_.Y[SM.IH, a], g_.Y[NN.IDX[:d], a] / (DH * HX), SM.xyz(view(g_.Y, :, a))[3], count(k -> tn_[k] > PM.HOT[].T1, a:b), HOTM[].nconv, LASTSPLIT[]..., HOTR[].corr)
             end
@@ -1504,6 +1573,7 @@ try
             if get(ENV, "DTDIAG", "0") == "1"           # which variable/zone limits Δt (timstp: kx, dx per equation)
                 kx = TF.var(:kx); dx = TF.var(:dx); names = ("r", "m", "rho", "u", "T", "E_r", "F_r"); ne_ = RAD ? 6 : 5   # (F_r is not in smax)
                 j = argmax(abs.(dx[[1, 2, 3, 5, 6][1:ne_-1]])); j = (1, 2, 3, 5, 6)[j]; xs = TF.getscalar(:stol) / TF.getscalar(:smax)
+                REC.dtlim[] = string(names[j], "@", kx[j])
                 pr("        dt limit: %s in zone %d (rel. change %.2e, stol/smax = %.2f)%s\n", names[j], kx[j], dx[j], xs,
                    (RAD ? @sprintf("; E_r: zone %d %.2e, rho: zone %d %.2e", kx[6], dx[6], kx[3], dx[3]) : "") *
                    (DTENV === nothing ? "" : @sprintf("; DTENV cap %.2e s at interface %d", DTENVLAST[]...)))
@@ -1561,6 +1631,7 @@ try
         if TIMING && k % PRINTEVERY == 0
             pr("        timing since last report: step (hydro+radiation) %.1f s, chemistry %.1f s, H2 lines %.1f s, other output %.1f s\n",
                TSTEP[], TCHEM[], TLINE[], time() - tnow - 0.0 + TOTH[] - TCHEM[] - TLINE[])
+            REC.on && recperf!(k, tnow)
             TSTEP[] = TCHEM[] = TLINE[] = TOTH[] = 0.0
         else
             TOTH[] += time() - tnow

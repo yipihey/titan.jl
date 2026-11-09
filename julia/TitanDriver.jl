@@ -25,9 +25,12 @@ fmsg(code, xs = 0.0) = ccall(fptr(:port_msg_), Cvoid, (Ref{Int32}, Ref{Float64})
 "Where Julia-backend messages go (TITAN writes them to the terminal and the .out file)."
 const MSGIO = Ref{IO}(stdout)
 "step.f messages; Fortran port_msg on the COMMON backend, Julia text (and errors instead of STOP) on the Julia backend."
+# counts of Newton divergences (msg 1) and repeated steps (msg 5) on the Julia backend, for cost accounting (RUNREC)
+const NDIV = Ref(0); const NREP = Ref(0)
 function msg(code, xs = 0.0)
     TF.BACKEND[] === :common && return fmsg(code, xs)
     io = MSGIO[]
+    code == 1 && (NDIV[] += 1); code == 5 && (NREP[] += 1)
     code == 1 && println(io, "  divergence. jtry = ", g(:jtry))
     code == 1 && io !== devnull && (n = Int(g(:neqn)); println(io, "    last Newton corrections per equation (zone, value): ",
                                    join(("($(TF.var(:kx)[i]), $(round(TF.var(:dx)[i], sigdigits = 3)))" for i in 1:n), " ")))
