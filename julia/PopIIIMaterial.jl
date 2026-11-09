@@ -539,9 +539,13 @@ function tl3_heat(ρ, T, d, p)
 end
 "Bound–bound n = 1 ↔ 2 heat of the three-level atom per volume [erg cm⁻³ s⁻¹] (see LYABB)."
 function lya_bb(ρ, T, d, p)
-    nH = ρ / CNn.μH(); C = tl3_C(T, p); xH = max(d[:H], zero(T)); xe = max(d[:e], zero(T)); xp = max(d[:Hp], zero(T))
-    rec = alphaB_recfast(T) * nH * xe * xp; D = p.RL + LAM2S + 4p.ne * q21_H(T)
-    nH * E21 * C * ((xH * p.P12 + rec) * 4nH * xe * q21_H(T) - xH * nH * xe * q12_H(T) * (p.RL + LAM2S)) / D
+    nH = ρ / CNn.μH(); xH = max(d[:H], zero(T)); xe = max(d[:e], zero(T)); xp = max(d[:Hp], zero(T))
+    # branching of n = 2 as in the reactions and in chemq: C and D with the lagged p.ne, so the de-excited share 4 p.ne q21/(D + β) ≤ 1 of
+    # every n = 2 atom is the one the network's C assumes (with the current n_e in the collisional term and p.ne in D, a zone ionizing
+    # within the step de-excited 41× its n = 2 atoms: energy from nothing, 3654 K → 5e5 K, l2 step 99005); collisional excitation with
+    # the current n_e (as the network's H + e → H(n=2) rate), its radiative share (R + Λ)/(D + β) ≤ 1
+    rec = alphaB_recfast(T) * nH * xe * xp; D = p.RL + LAM2S + 4p.ne * q21_H(T); C = D / (D + p.β)
+    nH * E21 * C * ((xH * p.P12 + rec) * 4p.ne * q21_H(T) - xH * nH * xe * q12_H(T) * (p.RL + LAM2S)) / D
 end
 """
 LYABB=1: the bound–bound energy exchange of the three-level atom with the gas, missing from tl3_heat's ionization bookkeeping. The atom's
@@ -623,11 +627,14 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             RL = 3A21LYA * (τS < 1e-6 ? 1.0 : -expm1(-τS) / τS)
             nb = W / expm1(E21 / (CNn.kB * Tc))
             diag.tl3[k] = (; β = W * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
+            ov_ = LYAOVR[]; (k <= length(ov_) && ov_[k] !== nothing) && (diag.tl3[k] = merge(diag.tl3[k], ov_[k]))   # LYART: transferred Lyα
         end
         (kHm, kH, kLW, f)
     end
+    tl3on && LYART[] && lya_transfer!(m, a, b, tauz_, kph, rates, diag)
     rates
 end
+include(joinpath(@__DIR__, "LyaTransfer.jl"))
 "dx/dt of the star-light reactions (rates lagged) for ChemNet.step's `extra`. No heat here: the LW energy goes to TitanResidFast.GASQ (see `lwheat`)."
 function starlight_terms(m::NetGas, ρ, kHm, kH, kLW)
     fr_ = m.net.free; iHp = findfirst(==(:Hp), fr_); iHm = findfirst(==(:Hm), fr_); iH2 = findfirst(==(:H2), fr_)

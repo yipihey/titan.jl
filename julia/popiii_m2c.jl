@@ -334,6 +334,8 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
     end
     PM.STARLIGHT[].tl3 && PM.STARLIGHT[].pH !== nothing && error("SL3=1 replaces SLH=1 (the Boltzmann n ≥ 2 photoionization); set one")
     PM.STARLIGHT[].tl3 && pr("STARLIGHT: three-level H (Peebles C factor, Sobolev Lya escape, e collisions) in the lit network zones\n")
+    PM.STARLIGHT[].tl3 && PM.LYART[] && pr("LYART: Lya transfer (Voigt, CRD core / coherent wings, ALI with the three-level atom) from tau >= %g outward\n", PM.LYATAU[])
+    PM.LYART[] && !PM.STARLIGHT[].tl3 && error("LYART=1 needs STARLIGHT=1 SL3=1")
     PM.STARLIGHT[].tl3 && PM.LYABB[] && pr("LYABB: three-level H bound-bound (Lya pumping / collisional de-excitation, collisional excitation / Lya + 2-photon escape) heat in the chemistry\n")
     # NLOPAC=1 (with SL3): network zones take the non-LTE opacity of their own composition (PM.NLOPAC: Saha/Boltzmann table × lagged ratio, frozen-composition T slope)
     PM.NLOPAC[] = PM.STARLIGHT[].tl3 && get(ENV, "NLOPAC", "0") == "1"
@@ -1321,6 +1323,8 @@ try
         if SLZ_ !== nothing && PM.SLDIAG[] !== nothing      # S6: starlight and chemistry of zones z1..z2 over this step's chem! (molecular-edge onset)
             sd = PM.SLDIAG[]; dtq = TF.getscalar(:timen) - TF.getscalar(:timeo)
             pr("        SLZ k %d dt %.3e: photosphere zone %d T_eff %.0f\n", k, dtq, sd.kph, sd.Te)
+            ld_ = PM.LYADIAG[]
+            ld_ === nothing || pr("        SLZ Lya: zones %d..%d (%d layers; photosphere rebuilt in zones %s, top T %.0f), %d bins, %d ALI iterations (dS %.1e), %.2f s\n", ld_.kin, ld_.kin + ld_.n - 1, ld_.nlayer, string(ld_.ksub), ld_.Tsurf, ld_.nb, ld_.it, ld_.δ, ld_.time)
             for (i, z) in enumerate(SLZ_[1]:SLZ_[2])
                 d0_ = ChemNet.full(xb_[i], mat.net); d1_ = ChemNet.full(mat.x[z], mat.net)
                 pr("        SLZ %d: n %.3e T %.1f -> %.1f  xH2 %.3e -> %.3e  xp %.3e -> %.3e  xHm %.2e | kLW %.3e fsh %.3e kHm %.3e eq %s E_r %.3e\n", z, TF.var(:dn)[z] / PC.μH,
@@ -1328,6 +1332,11 @@ try
                 t3_ = sd.tl3[z]
                 (t3_ !== nothing && hasproperty(t3_, :qbb)) && pr("        SLZ %d tl3: T_c %.0f P12 %.2e RL %.2e beta %.2e ne %.2e | chemq %.3e cycq %.3e Lya-bb %.3e erg/cm3/s, Lya-bb dt/(rho e) %.2e\n", z,
                     t3_.Tc, t3_.P12, t3_.RL, t3_.β, t3_.ne, t3_.chemq, t3_.cycq, t3_.qbb, t3_.qbb * dtq / (TF.var(:dn)[z] * TF.var(:egn)[z]))
+                if ld_ !== nothing && t3_ !== nothing && ld_.kin <= z < ld_.kin + ld_.n && !isnan(ld_.nJ[z-ld_.kin+1])
+                    i_ = z - ld_.kin + 1; Tx_(nb) = nb > 0 ? 10.19881 * 1.602176634e-12 / (1.380649e-16 * log1p(1 / nb)) : 0.0
+                    pr("        SLZ %d Lya: nbar(Jbar) %.3e (T_exc %.0f) nbar(S_L) %.3e (T_exc %.0f) nbar(J_ext) %.3e | R_Lya %.3e (Sobolev %.3e) P12 %.3e (Sobolev %.3e)\n", z,
+                       ld_.nJ[i_], Tx_(ld_.nJ[i_]), ld_.nS[i_], Tx_(ld_.nS[i_]), ld_.Jext[i_], 3 * 6.2648e8 * ld_.oml[i_], ld_.Rsob[i_], t3_.P12, ld_.Psob[i_])
+                end
             end
         end
         if EB !== nothing                            # BALSPLIT: c̄ ← c̄ + Δe_chem/Δt where the zone stayed on the network
