@@ -41,7 +41,7 @@ const RAD = get(ENV, "RAD", "0") == "1"
 RAD && (cf = (ρ, T, y) -> zero(T))
 # POPIII_OUT: directory for the run log and the snapshot file (default lib/popiii); checkpoints follow CKDIR
 const OUTDIR = get(ENV, "POPIII_OUT", joinpath(TF.ROOT, "lib", "popiii")); mkpath(OUTDIR)
-io = open(joinpath(OUTDIR, "m2c_$(get(ENV, "IC", "p100") == "p100" ? "" : get(ENV, "IC", "") * "_")$(cool)_n$(nsh)$(get(ENV, "TAG", "")).log"), haskey(ENV, "RESTART") ? "a" : "w")
+io = open(joinpath(OUTDIR, "m2c_$(get(ENV, "IC", "p100") == "p100" ? "" : get(ENV, "IC", "") * "_")$(cool)_n$(nsh)$(get(ENV, "TAG", "")).log"), haskey(ENV, "RESTART") || haskey(ENV, "RADFROM") ? "a" : "w")   # (a continued run appends)
 pr(f, a...) = (s = Printf.format(Printf.Format(f), a...); print(s); print(io, s); flush(io))
 
 # ---- n = 1.5 Lane–Emden θ(ξ), integrated to θ^1.5 = 1e-3
@@ -1077,10 +1077,14 @@ elseif haskey(ENV, "RADFROM")
     haskey(ENV, "REFINE") && prerefine!(KOFF[], parse.(Float64, split(ENV["REFINE"], ","))...)
 elseif haskey(ENV, "RESTART")
     restart!(ENV["RESTART"]; allow = ENVEUL === nothing ? () : ("PSWITCH",))
-    RAD && Int(TF.getscalar(:lrad)) == 1 && (radsettings!(); TD.EOS[](); TD.OPAC[]())
+    RAD && Int(TF.getscalar(:lrad)) != 1 && error("RAD=1, but checkpoint $(ENV["RESTART"]) has no radiation field: build it with RAD=1 RADFROM=<checkpoint>")
+    RAD && (radsettings!(); TD.EOS[](); TD.OPAC[]())
     if ENVEUL !== nothing
         Int(TF.getscalar(:lgrid)) == 3 ? envbuild!() : (envflags!(); ENVMS0[] = parse(Float64, ENV["ENVMS0"]) * Msun / 4π)
     end
+elseif RAD
+    # RAD=1 switches the CIE continuum cooling off; without a rebuild there is no radiation field to take its place
+    error("RAD=1 from the initial condition: run with RAD=0 first, then RAD=1 RADFROM=<checkpoint> (scripts/popiii_run/fullrun.sh)")
 end
 """
 ENVSPLIT=r1,r2,k (radii in R☉; with RESTART of a fixed-mesh run): split every zone whose centre lies in [r1, r2] into k zones of equal Δln r,
@@ -1214,6 +1218,9 @@ function gridwin_line()
 end
 const CHEMDIAG = get(ENV, "CHEMDIAG", "0") == "1"; const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
+# MSTOP [M☉]: stop when the mass inside the first interface falling faster than 2 km/s (the star, as REZWIN and the performance
+# record define it) exceeds this: the hand-over from the Lagrangian core-growth stage to the accretion mesh (scripts/popiii_run)
+const MSTOP = parse(Float64, get(ENV, "MSTOP", "0"))
 const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended run whose Δt has collapsed, before the checkpoints are overwritten
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 # Newton controls, applied after any restart: NITER (iterations per attempt), FAILTFAC (Δt factor after a failed attempt)
@@ -1650,6 +1657,10 @@ try
         end
         (Tc_ > Tstop || ρc_ / PC.mH > nstop) && (pr("stopped: T_c %.4e K (TSTOP %.2e), n_c %.4e (NSTOP %.2e) at step %d\n", Tc_, Tstop, ρc_ / PC.mH, nstop, k); TF.setscalar!(:tmax, TF.getscalar(:timen)))
         TF.getscalar(:dtime) < DTSTOP && (pr("stopped: dt = %.2e s below DTSTOP at step %d\n", TF.getscalar(:dtime), k); TF.setscalar!(:tmax, TF.getscalar(:timen)))
+        if MSTOP > 0
+            jm_ = findfirst(<(-2e5), TF.var(:un)[a:b+1]); mm_ = jm_ === nothing ? 0.0 : 4π * xmi(a + jm_ - 1) / Msun
+            mm_ > MSTOP && (pr("stopped: M_star %.4f Msun (MSTOP %.3f) at step %d\n", mm_, MSTOP, k); TF.setscalar!(:tmax, TF.getscalar(:timen)))
+        end
         REZ.on && RAD && k % REZ.every == 0 && rezone!(k)
         if TIMING && k % PRINTEVERY == 0
             pr("        timing since last report: step (hydro+radiation) %.1f s, chemistry %.1f s, H2 lines %.1f s, other output %.1f s\n",

@@ -1,8 +1,9 @@
 # Running the Pop III protostar from scratch
 
 How to run `popiii_m2c.jl` from the cloud to the accreting protostar with the current physics, record it, and see where the
-time goes. Runs with this procedure: `full1` (2026-11-09, earlier phase A settings, stopped at log n_c 16.9) and `full2`
-(2026-11-09, the phase A settings below).
+time goes. Runs of 2026-11-09: `full1` (total-energy row in the collapse, stopped at log n_c 16.9; not a valid collapse),
+`full2` (single-stage phase A; valid below log n_c ≈ 14 only, see "Radiation must be switched on by a rebuild") and
+`full3` (the staged procedure below).
 
 ## Procedure
 
@@ -10,10 +11,16 @@ time goes. Runs with this procedure: `full1` (2026-11-09, earlier phase A settin
 `$DATA/runs/<run>`, default `DATA=/zpool/nvme/data/tabel_scratch/titan_popiii`). It writes `procedure.log` with every phase
 start, its full settings and how it ended.
 
-| Phase | Mesh | Settings | Ends |
+| Stage | What runs | Settings | Ends |
 |---|---|---|---|
-| A: collapse | Lagrangian, rezoned every 20 steps (`REZONE=1`) | `phaseA.env`: the production physics without the accretion-only Δt rule `DTENV`, with `CDYN=0.01 ADVREL=1 EPGRAD=thermal TCOOLTH=1` (see "Stability of the collapse") | at n_c = 2.55e23 cm⁻³ (log 23.41, where the earlier history switched), final checkpoint `z19<run>A` |
+| A1: cloud collapse | Lagrangian mesh, 200 zones. Hydrodynamics, chemistry, H₂ line transfer, RA04 CIE continuum cooling. No radiation field (`RAD=0`) | `phaseA.env` + `stageA1.env` (`CDYN=0.01 ADVREL=1 EPGRAD=thermal TCOOLTH=1`, see "Stability of the collapse") | n_c = 3.5e18 cm⁻³ (log 18.54) |
+| A2: radiation, core formation | `RAD=1 RADFROM=<A1 checkpoint>`: E_r and F_r are built from the hydro state and the StellarOpacity continuum replaces the CIE escape-factor term. The future core is pre-refined while it is still smooth (`REFINE=1e-3,0.1,0.03`: 1e-3 to 0.1 M☉ to Δm/m ≤ 0.03) | `phaseA.env` + `stageA2.env` (`DTRADMAX=1500`, `CDYN=0.01`) | T_c = 5e4 K (the core has formed) |
+| A3: core growth | Lagrangian mesh with a moving refinement window ahead of the star (`REZWIN=1.3,4,0.03 REZNMAX=340`), dynamical Δt limit relaxed (`CDYN=1000 DTRADMAX=0`): with `CDYN=0.01` the core's own density holds Δt at ~90 s | `phaseA.env` + `stageA3.env` | M* = 0.5 M☉ (`MSTOP`: mass inside the first interface falling faster than 2 km/s) |
 | B: accretion | remapped onto the fixed accretion mesh at the restart (`ENVEUL=0,0.03,0.1,1000`; `REZONE=0`) | `phaseB.env`: the production flags | segments of 100 000 steps, each from the previous segment's final checkpoint `z19<run>B<n>`; `ENVMS0` is read from the remap line in the log |
+
+Stages A1–A3 are the sequence that produced the production history in October (S6-A/B/C in `POPIII_NOTES.md`: `z19base` →
+`RADFROM=z19s9500` with `REFINE` → accretion with `REZWIN` → `z19n1`), with the present code and options. The October
+hand-over was at log n_c 23.407 (M* ≈ 0.5 M☉); the stage now ends on the mass, which is what the remap needs.
 
 A segment that ends any other way than `:maxsteps` stops the chain; `procedure.log` says how.
 
@@ -29,7 +36,9 @@ Notes:
   until Newton failed. Without it the same checkpoint passes. Phase B keeps it. The row has no gravity work
   on Lagrangian zones (see "The total-energy row on the Lagrangian mesh").
 - `MSG=1` now prints Newton messages from the start (they were silent until RAD switched on).
-- `fullrun.sh <run> [checkpoint | B:<checkpoint>] [threads]` resumes phase A or B; every attempt saves under a fresh name.
+- `fullrun.sh <run> <stage>:<checkpoint> [threads]` resumes: `A1:`, `A2:`, `A3:` or `B:` continue (or start) that stage from
+  a checkpoint, `R:` starts A2 with the rebuild from a hydro-only checkpoint. Every attempt saves under a fresh name
+  (`z19<run>_<stage>_<n>`).
 - `m*`/`R*` in the `hot:` line and perf.csv are meaningful only after the remap (they take the first interface with
   u < −2 km/s, which in the cloud is the infall front).
 - Checkpoints of a run live in `runs/<run>/ck` (`CKDIR`), apart from the shared `ck/`.
@@ -52,7 +61,7 @@ are set in `phaseA.env` only. `EPGRAD=thermal` is the code default since 9 Nov 2
    +165 yr (to log n_c 10). `CDYN=0.01` (Δt ≤ 0.01 × the shortest √(r³/Gm)) takes ~125 steps per dex of central density.
    The cloud phase needs it too. `full1` ran its first 3000 steps with `CDYN=1000` (and `ETOTAL=1` and the accretion
    solver controls, with 61 % of the TR stages diverging) and collapsed about twice too fast: log n_c 16.9 at 10.77 Myr,
-   where the October collapse that the production history starts from (`C_dyn = 0.01`) reached log n_c 23.4 at 21.86 Myr.
+   where the October history that production starts from reached log n_c 23.4 at 21.86 Myr.
    At 8.9 Myr `full1` had log n_c 4.21 and T_c 186 K; the October run 3.73 and 151 K; `full2` 3.71 and 154 K (step 1000
    in both). The offsets above are measured from a common checkpoint of `full1` at log n_c 5.06, so they stand, but
    `full1` itself is not a valid collapse history. The cause is `ETOTAL=1` on the Lagrangian mesh (next section).
@@ -78,6 +87,35 @@ are set in `phaseA.env` only. `EPGRAD=thermal` is the code default since 9 Nov 2
    test (1e-10 per species) was never met at any sub-step. A stagnated iterate is now accepted after 60 full Newton steps
    if it is converged to 1e-6 in the abundances and 1e-8 in ln T. Steps that converged before are unchanged bit for bit.
    This one is not an option: it applies to every run.
+
+## Radiation must be switched on by a rebuild (why `full2` is wrong above log n_c ≈ 14)
+
+`RAD=1` does two things in the driver: it removes the RA04 CIE continuum cooling ("the continuum is in the transfer"), and
+it applies the radiation settings to a state that already has a radiation field. The field itself is only created by
+`RADFROM=<hydro-only checkpoint>` (`radbuild!`). `phaseA.env` as first written (5934c9e) set `RAD=1` from the initial
+condition with no rebuild, so `full1`, `full2` and the `t_e_*` tests had **no continuum cooling and no radiation at all**
+(no `RAD: rebuilt` line in the log; T_rad and τ are NaN and L = 0 in every recorded zone). Nothing warned.
+
+Effect on `full2`, T_c against the October collapse at equal central density:
+
+| log n_c | ≤ 14 | 15 | 16 | 17 | 19 | 19.9 | 22.2 |
+|---|---|---|---|---|---|---|---|
+| T_c `full2` / October | 1.002–1.005 | 1.016 | 1.07 | 1.13 | 1.20 | 1.8 | 1.6 (51 165 against 31 726 K) |
+
+Below log n_c ≈ 14 the continuum is negligible and the run is valid; above, the centre is too hot and H₂ too dissociated.
+`full2` was stopped at log n_c 22.45. Results obtained below log n_c 14 or independent of the continuum stand: the
+total-energy row finding, `ADVREL`, the Δt convergence, `EPGRAD=thermal`, the chemistry round-off fix.
+
+The driver now refuses both ways of getting there: `RAD=1` from the initial condition, and `RAD=1 RESTART=<checkpoint>`
+of a checkpoint without a radiation field, stop with an error that names `RADFROM`. Checked on 9 Nov: a `RAD=1` start
+from the initial condition stops with that error, and a restart of a production checkpoint (`z19fx3c_auto1`) runs as before.
+
+A second defect of the single-stage phase A: after the core forms, `CDYN=0.01` limits Δt to 0.01 × the dynamical time
+of the core itself (87 s at log n_c 22.45). October relaxed the limit to `CDYN=1000` for the core-growth stage.
+
+Timing of the cloud collapse: `t_e_old` (the three new options off) follows `full2` to 2e-4 Myr up to log n_c 6.3
+(23.1323 against 23.1325 Myr), so the options do not change the collapse time. Both are 1.5 Myr later than the October
+collapse, the difference arising between log n_c 4 and 6. Its cause is not known (October code and settings).
 
 ## The total-energy row on the Lagrangian mesh (why `full1`'s envelope differs)
 
