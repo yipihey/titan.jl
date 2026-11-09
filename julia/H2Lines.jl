@@ -330,6 +330,19 @@ function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing)
     Fν, Jz, Λz
 end
 
+# EPGRAD (escape-probability mode, the Sobolev part): which radial velocity gradient a zone's lines escape through.
+#   zone (default): the difference of the zone's two interface velocities, |Δu|/Δr.
+#   thermal: v_th/ℓ, ℓ the distance from the zone centre to the nearest radius (inwards or outwards) where the velocity differs from
+#     the zone's by one thermal width v_th; no radial term if it never does. Where the flow is resolved and supersonic this is |du/dr|;
+#     in a subsonic core (Δu across a zone ≪ v_th, Sobolev length ≫ zone) a line photon does not see the zone's own Δu, and |Δu|/Δr
+#     carries the zone-to-zone velocity noise amplified by r/Δr into β and so into the cooling: a zone compressing slightly faster
+#     cooled more, lost pressure and compressed faster still (growth time a few zone sound crossings; the central noise of full1
+#     from n_c = 1e10, when the lines turn thick; the ALI populations, from the real transfer, do not show it).
+#     The tangential term is taken over a thermal width too (not |u|/r of the zone): in the core |u|/r is a ratio of two small numbers
+#     and a 10 m/s sound wave (Mach 0.003) changed it, and with it the EP cooling of the central zones, by 40 % from one step to the next
+#     (t_f7, steps 3742 → 3744, n_c = 1.7e11: Λ_EP 2.5e-11 → 3.6e-11 while the ALI cooling moved 5.65e-11 → 6.00e-11).
+#   flow: no radial term at all, only the tangential one |u|/r (diagnostic).
+const EPGRAD = Ref(Symbol(get(ENV, "EPGRAD", "zone")))
 "Exponential integral E₂(x) = e^{−x} − x E₁(x), x ≥ 0 (series for x ≤ 1, continued fraction above)."
 function E2(x)
     x <= 0 && return 1.0
@@ -407,6 +420,34 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     # the surface and τ_in that along the inward radius through the centre to the surface; Sobolev part (velocity gradient
     # g = max(|du/dr|, |u/r|)): (1 − e^{−τ_S})/τ_S, τ_S = κ0 c/(ν0 g); β = the larger of the two (a photon leaves by the
     # easier route). β = 1 where κ0 ≤ 0.
+    # EPGRAD=thermal: the radial gradient over the distance in which the velocity changes by one thermal width (see EPGRAD)
+    gth = zeros(n); gtn = zeros(n)
+    if EPGRAD[] == :thermal
+        for k in 1:n
+            rc = 0.5 * (r[k] + r[k+1]); uc = 0.5 * (u[k] + u[k+1]); ℓ = Inf
+            for (js, rev) in ((k+1:n+1, false), (k:-1:1, true))
+                rp = rc; dp = 0.0
+                for j in js
+                    dj = abs(u[j] - uc)
+                    if dj >= vth[k]
+                        ℓ = min(ℓ, abs(rp + (r[j] - rp) * (vth[k] - dp) / (dj - dp) - rc)); break
+                    end
+                    rp = r[j]; dp = dj
+                end
+            end
+            gth[k] = vth[k] / ℓ
+            # the same along the tangent: at path length s from the zone centre the line-of-sight velocity is u(r') s/r', r' = √(rc² + s²)
+            # (zero at the tangent point); for homologous flow u = −a r this gives a, as |u|/r does, and |u|/r where |u| ≫ v_th
+            sp = 0.0; vp = 0.0
+            for j in k+1:n+1
+                sj = sqrt(max(r[j]^2 - rc^2, 0.0)); vj = abs(u[j]) * sj / r[j]
+                if vj >= vth[k]
+                    gtn[k] = vth[k] / (sp + (sj - sp) * (vth[k] - vp) / (vj - vp)); break
+                end
+                sp = sj; vp = vj
+            end
+        end
+    end
     function epβ(κ0)
         βn = ones(nl, n)
         xg = 0.0:0.25:5.0; wg = [(x == 0 || x == 5.0 ? 0.5 : 1.0) * 0.25 * 2 / sqrt(π) * exp(-x^2) for x in xg]
@@ -422,7 +463,9 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                 τo = τs[k]; τi = (τtot - τs[k]) + τtot
                 b = 0.0
                 for (x, w) in zip(xg, wg); φ̂ = exp(-x^2); b += w * 0.5 * (E2(τo * φ̂) + E2(τi * φ̂)); end
-                rc = 0.5 * (r[k] + r[k+1]); g = max(abs(u[k+1] - u[k]) / (r[k+1] - r[k]), abs(0.5 * (u[k] + u[k+1])) / max(rc, 1e-300))
+                rc = 0.5 * (r[k] + r[k+1])
+                g = EPGRAD[] == :thermal ? max(gth[k], gtn[k]) :
+                    max(EPGRAD[] == :flow ? 0.0 : abs(u[k+1] - u[k]) / (r[k+1] - r[k]), abs(0.5 * (u[k] + u[k+1])) / max(rc, 1e-300))
                 if g > 0
                     τS = κ0[i, k] * c / (ν[i] * g); b = max(b, τS < 1e-6 ? 1 - τS / 2 : -expm1(-τS) / τS)
                 end

@@ -312,7 +312,7 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
         vcat(r, ue / (kB * T / μH()))
     end
     function attempt(x0, T0, h; clip = false, trace = false)
-        z = vcat(collect(Float64, x0), log(T0))
+        z = vcat(collect(Float64, x0), log(T0)); rel = Inf; dT = Inf; λ = 0.0
         for it in 1:maxit
             R = resid(z, x0, h)
             trace && println("  trace it ", it, " T ", exp(z[nf+1]), " x ", z[1:nf], " R ", R)
@@ -341,8 +341,14 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
             end
             abs(δ[nf+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[nf+1]))
             z .+= λ .* δ
-            λ == 1.0 && maximum(abs.(δ[1:nf]) ./ max.(abs.(z[1:nf]), 1e-20)) < tol && abs(δ[nf+1]) < tol && return (z, true)   # 1e-20: abundance floor
+            rel = maximum(abs.(δ[1:nf]) ./ max.(abs.(z[1:nf]), 1e-20)); dT = abs(δ[nf+1])                                # 1e-20: abundance floor
+            λ == 1.0 && rel < tol && dT < tol && return (z, true)
         end
+        # Stagnated at round-off: a trace species in fast equilibrium (H⁺ ≈ 4e-12 at n = 6.5e16, T = 2850 K) flips in its 10th digit
+        # from one iteration to the next while T and all other abundances are converged to the last digit; the test above (1e-10 per
+        # species) is then never met for any h, and the halving ended in "Newton failed" at depth 12. Accepted only after maxit
+        # full Newton steps, so steps that converged before are unchanged bit for bit.
+        λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (z, true)
         (z, false)
     end
     function adv(x0, T0, h, depth)

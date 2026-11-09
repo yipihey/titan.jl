@@ -231,7 +231,12 @@ if yz !== nothing
 end
 const IMPCOOL = get(ENV, "IMPCOOL", "1") in ("1", "2")               # G7: transfer cooling implicit in T (linearised in ln T)
 const DTCOOL = parse(Float64, get(ENV, "DTCOOL", "1.0"))
-const IMPALWAYS = get(ENV, "IMPCOOL", "1") == "2"                  # IMPCOOL=2: slope every step
+const IMPALWAYS = get(ENV, "IMPCOOL", "1") == "2" || get(ENV, "IMPALWAYS", "0") == "1"   # IMPCOOL=2 (or IMPALWAYS=1, which a restart may change): slope every step
+# TCOOLTH=1: the line-cooling time of the Δt rules below from the thermal energy (3/2 p/ρ) instead of e + UOFF_TH. The latter
+# is the energy above cold H₂, which in atomic gas is ~12× the thermal energy (the H₂ binding energy, 2.24 eV per H), so
+# while the gas turns molecular the explicit Λ was used up to Δt ≈ 1.2 thermal cooling times: beyond ~0.4 of it (2/(d ln Λ/
+# d ln T)) T overshoots from step to step and the core rings. Default off (the accretion production runs are unchanged).
+const TCOOLTH = get(ENV, "TCOOLTH", "0") == "1"
 const NIMP = Ref(0)                                                  # steps with implicit line cooling
 const CHEM = get(ENV, "CHEM", "rhfc02")     # rhfc02: PrimordialGas (RHFC02 network, ρ_eq switch); net / netmodern / netmodernli: NetGas (G5)
 if CHEM == "rhfc02"
@@ -1297,6 +1302,23 @@ if haskey(ENV, "JACCHK")
         end
     end
 end
+# JACDUMP="k,iter,file": at step k, Newton iteration iter (first stage tried), the assembled block Jacobian, right-hand side and state to a file (debugging;
+# every later matgen of that step is appended to the same list, so the stages and retries of the step can be compared)
+if haskey(ENV, "JACDUMP")
+    let w = split(ENV["JACDUMP"], ","), mg0 = TD.ROUTINES[:matgen], acc = Any[]
+        ks = parse(Int, w[1]); its = parse(Int, w[2])
+        TD.ROUTINES[:matgen] = function ()
+            mg0()
+            (KLAST[] + 1 == ks && Int(TF.getscalar(:iter)) == its) || return
+            c = TitanResidFast.context()
+            push!(acc, (; E = map(copy, (TF.var(:em2), TF.var(:em1), TF.var(:e00), TF.var(:ep1), TF.var(:ep2))), rhs = copy(TF.var(:rhs)), ne = c.neqn, nb = c.nb, k0 = c.k0,
+                         code = copy(c.code), dtime = TF.getscalar(:dtime), thet = TF.getscalar(:thet), jtry = Int(TF.getscalar(:jtry)),
+                         r = copy(TF.var(:rn)), d = copy(TF.var(:dn)), T = copy(TF.var(:tn)), u = copy(TF.var(:un)), p = copy(TF.var(:pgn)), m = copy(TF.var(:xmen)),
+                         ro = copy(TF.var(:ro)), d_o = copy(TF.var(:do)), To = copy(TF.var(:to)), uo = copy(TF.var(:uo)), unom = copy(TF.var(:unom))))
+            Serialization.serialize(String(w[3]), acc)
+        end
+    end
+end
 TC.EDD_SCATTER[] = get(ENV, "EDDSCAT", "0") == "1"
 if haskey(ENV, "FLUXTIE")
     let v = parse.(Float64, split(ENV["FLUXTIE"], ","))
@@ -1508,7 +1530,7 @@ try
             tcmin = Inf
             for j in 1:nsh
                 mat.Λext[a+j-1] = Λl[j]; mat.Tref[a+j-1] = tt[j]; mat.slope[a+j-1] = 0.0
-                ue = TF.var(:egn)[a+j-1] + PC.UOFF_TH                 # thermal-ish energy scale (positive)
+                ue = TCOOLTH ? 1.5 * TF.var(:pgn)[a+j-1] / dd[j] : TF.var(:egn)[a+j-1] + PC.UOFF_TH     # energy scale of the cooling time
                 Λl[j] != 0 && abs(ue * dd[j] / Λl[j]) < tcmin && (tcmin = abs(ue * dd[j] / Λl[j]); JCMIN[] = j)
             end
             # G7 (IMPCOOL=1, default): where the explicit cap Δt ≤ 0.1 t_cool would bind, the slope d ln Λ/d ln T from a

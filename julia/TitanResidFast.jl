@@ -108,6 +108,16 @@ Empty (default) = TITAN's x_mtot − x_me.
 """
 const XMINT = Ref(Float64[])
 """
+ADV_REL[] (ENV ADVREL=1; default off): on the Lagrangian grid with frozen interior masses (XMINT) the interfaces move with the gas only at convergence. In
+an unconverged iterate u_rel = u − Δr/Δt ≠ 0 and the continuity row carries mass r² u_rel ρ_b across the interfaces, but with dm_e/dt = 0 that mass carried no
+momentum and no energy. The energy row then holds e × (the zone's mass defect), which depends on the zero point of e: with e = 0 for ionised gas, neutral gas
+has e ≈ −1e13 erg/g ≈ 400 c_v T at 250 K, so a zone that gains 1e-3 of its mass in the linearised step is heated by 40 %. Above a critical Δt that feedback
+makes the Jacobian singular at the predicted state (one singular value 1e-15, a zone-to-zone mode in u of the central zones) and Newton diverges from its first
+iteration. With ADV_REL the same mass flux advects momentum and energy (dm_e/dt := −r² u_rel ρ_b in those rows), as on TITAN's own grids. The converged
+solution is unchanged (u_rel = 0 there).
+"""
+const ADV_REL = Ref(get(ENV, "ADVREL", "0") == "1")
+"""
 PEXT[] (lgrid = 3, llobc = 1): free outer boundary. The outermost interface obeys the momentum equation of its half
 zone with a constant external pressure PEXT[] outside (RHFC02 App. A2.3) instead of the piston u = uextr. NaN
 (default) = TITAN's piston.
@@ -568,9 +578,15 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     end
     # advection
     db, dsn, fl, ub, usn, flu, fle, egb, egsn = W.db, W.dsn, W.fl, W.ub, W.usn, W.flu, W.fle, W.egb, W.egsn
-    @inbounds for k in ngrs+1:ngre+1; fl[k] = urel[k]; fle[k] = -dmdt[k]; end
-    @inbounds for k in ngrs:ngre; flu[k] = -(dmdt[k] + dmdt[k+1]); end
+    @inbounds for k in ngrs+1:ngre+1; fl[k] = urel[k]; end
     advect!(db, dsn, dn, c.do_, c.dso, fl, θ, P.cadv, P.eps, ngrs, ngre, true, 1)
+    # ADV_REL: with frozen interior masses the continuity row still moves mass across the interior interfaces of an unconverged iterate (r² u_rel ρ_b);
+    # momentum and energy follow it, as they follow dm_e/dt on TITAN's own grids
+    if ADV_REL[] && !isempty(XMINT[])
+        @inbounds for k in ngrs+1:ngre; dmdt[k] = -rmu[k] * urel[k] * db[k]; end
+    end
+    @inbounds for k in ngrs+1:ngre+1; fle[k] = -dmdt[k]; end
+    @inbounds for k in ngrs:ngre; flu[k] = -(dmdt[k] + dmdt[k+1]); end
     advect!(ub, usn, un, c.uo, c.uso, flu, θ, P.cadv, P.eps, ngrs, ngre, false, 2)
     if c.lrad
         advect!(egb, egsn, egrn, c.egro, c.egrso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 3)
