@@ -357,9 +357,11 @@ quantitatively.
 
 ## From the initial conditions to 0.5 M☉: `full3` and `full4` (9–10 Nov)
 
-Both from-scratch runs finished the collapse (stages A1–A3) without a solver failure and started the accretion phase
-(`z19full3B1`, `z19full4B1`) on the evening of 9 Nov. The two stage-A3 failures in `procedure.log` at 17:02 and 17:23 were
-launcher and script errors, fixed before the 17:27 restart; neither was a failure of the solver.
+Both from-scratch runs finished the collapse (stages A1–A3) and started the accretion phase (`z19full3B1`, `z19full4B1`)
+on the evening of 9 Nov. Each died once at the start of stage A3 (17:02 and 17:23 in `procedure.log`) on a failed chemistry
+network step in the H₂ dissociation layer; that is the failure fixed by `CHEMFBDENSE=1` (see Procedure). After the 17:27
+restart with the fallback, stage A3 ran to the remap without stopping (the fallback was taken 63 times in `full3` and 37
+times in `full4`).
 
 | | `full3` | `full4` | October run |
 |---|---|---|---|
