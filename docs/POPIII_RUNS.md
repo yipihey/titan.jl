@@ -313,3 +313,44 @@ What the spectra show for the collapse: until the continuum transport is on, the
 cooling (6e-4 against 0.3–0.6 L☉), and still 0.227 against 516 L☉ at step 9280, just below log n_c 14.
 
 Open: one zone where the run's κ_P is 2.5e-14 against the spectral 3.35e-12 cm² g⁻¹ (energetically negligible).
+
+## The envelope oscillation at 101 M☉ and the stop of `fx3` (9 Nov)
+
+The production line `fx3` stopped at step 226129, M* = 101.3 M☉ (R* 19.96 R☉, T_c 6.06e7 K, L_nuc 2.8e38 erg/s):
+`TITAN step01: failure to converge after 25 attempts`. Continued as `z19fx3d` from the final checkpoint with `NTRY=60`
+(now also in `phaseB.env`).
+
+**The stop was the retry limit, not a state without a solution.** The 25 halvings took Δt from 3.5e5 s to 0.02 s with
+the last corrections of one zone stuck at −46 % in T and +34 % in E_r for every Δt between 2700 s and 1 s, shrinking only
+below 0.2 s. The zone (mesh zone 144, 1789 R☉) had just changed from the network to the table at T = 7600 K with
+T_rad = 5416 K; on the table κ_P = 9 cm² g⁻¹ at ρ = 7.4e-12 g cm⁻³, so gas and radiation equilibrate in 1/(c κ_P ρ) ≈ 0.5 s
+and no larger step has a nearby solution. Restarts with the unchanged code pass: from the final checkpoint the first step
+(Δt = 7.7e-3 s after a restart) changes the zone by 24 % and Δt is back at 5.9e5 s within 40 steps (`t_stop1`); from the
+checkpoint 129 steps earlier 400 steps run with 54 divergences, none beyond 10 attempts (`t_stop0`). The path is chaotic,
+so the failing step itself does not recur.
+
+**What the envelope does** (old-format history `snaps/snaps_abn02z19_lines_n200_fx3.jls`; tables by
+`fx3stop.jl`/`fx3prof.jl`, kept in the session scratchpad, not in the repository):
+
+- From 93 to 100.9 M☉ the flow is steady. L_ph rises from 3.2e6 to 3.6e6 L☉, which is 0.92 to 0.97 of the
+  electron-scattering Eddington luminosity (3.77e6 L☉ at 101 M☉ for κ = 0.35 cm² g⁻¹). With the run's opacity Γ = χL/4πGmc
+  is 1.03–1.07 locally (235–250 R☉ and at the H ionization zone, 1050–1800 R☉). Ṁ is 7.5e-3 M☉/yr at 10⁴ R☉ and
+  6.0–6.7e-3 M☉/yr onto the star.
+- The accretion shock stands at about 115 R☉, far above the hydrostatic surface at 21 R☉. Between them lies a hot
+  settling layer (u ≈ −20 km/s, T 1e5–3e5 K, ρ 1e-9–7e-9 g cm⁻³, Γ = 0.98, of order 1e-3 M☉).
+- Between steps 216900 and 217050 (100.96 M☉) that layer falls onto the star: infall reaches −230 to −250 km/s at
+  25–30 R☉, the density there drops 15-fold, and a dense shell (ρ 5e-11 g cm⁻³, u = +1.8 km/s, Γ = 1.18) appears at
+  545 R☉. The Γ > 1 shell moves outwards, 513 → 1556 R☉ in 11 yr.
+- Once it reaches the photosphere (step ~218500, 101.04 M☉) the region 300–3000 R☉ oscillates with a period of a year or
+  less: Γ up to 2.8 at 1300–1900 R☉, Ṁ at 10³ R☉ between −0.26 and +0.16 M☉/yr, gas piling up at 1000–2500 R☉ (ρ up to
+  1e-11 against 2e-13 g cm⁻³ in the steady state), the photosphere hopping between zones 141 and 151 (1450–2400 R☉) with
+  T_eff 4200–6300 K, and one mesh zone carrying an optical depth of 30 next to one of 0.2. Ṁ onto the star is
+  2.6–5.7e-3 M☉/yr. Ṁ at 10⁴ and 10⁵ R☉ has not changed (7.50e-3, 7.34e-3 M☉/yr).
+
+**Not established:** that the star is ending its accretion. The inflow at 10⁴ R☉ is untouched after 45 yr, no energy
+budget of the envelope has been done, and the photosphere is not resolved during the oscillation (Δln r = 0.07 against a
+jump of 30 in τ per zone). Earlier lines without the star-light and non-LTE terms passed this mass (`_q9`, `_a8`), others
+broke down at 107–113 M☉ (`nlo8r`, `_gf1`, `_g9`). Omukai & Palla (2003, ApJ 589, 677) find for steady rates above
+4e-3 M☉/yr that the luminosity reaches the Eddington limit before hydrogen ignition and the star expands, possibly
+reversing the flow near 100 M☉; this run is above that rate at this mass, but the comparison has not been made
+quantitatively.
