@@ -242,50 +242,105 @@ const SRCZONE = Ref(get(ENV, "LINESRC", "linear") == "zone")
 const QUADP2 = Ref(get(ENV, "LINEQUAD", "mu") == "p2")
 @inline shz(I, Δτ, S) = Δτ < 1e-4 ? I * (1 - Δτ) + Δτ * S : (e = exp(-Δτ); I * e + S * (1 - e))
 @inline ψz(Δτ) = Δτ < 1e-4 ? Δτ : -expm1(-Δτ)
-function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing)
+"""
+Ray geometry of `transfer_line`: everything that depends on r and u only, so it is the same for every line, frequency and ALI
+iteration of a call. Ray j is tangent at r[j]; its nodes m = 1..n+2−j are the interfaces j..n+1.
+dz[m, j]: path length of segment m; μu[m, j]: μ·u at the segment midpoint; μku[m, j]: μ·u at node m;
+μa[k, j], μb[k, j]: direction cosines at interface k of the rays tangent at r[j+1] and r[j] (the angle quadrature).
+"""
+struct RayGeom
+    dz::Matrix{Float64}; μu::Matrix{Float64}; μku::Matrix{Float64}; μa::Matrix{Float64}; μb::Matrix{Float64}
+end
+function raygeom(r, u)
+    n = length(r) - 1
+    dz = zeros(n + 1, n); μu = zeros(n + 1, n); μku = zeros(n + 1, n); μa = zeros(n + 1, n); μb = zeros(n + 1, n)
+    zk = zeros(n + 1)
+    for j in 1:n
+        p = r[j]; nk = n + 2 - j
+        for m in 1:nk; zk[m] = sqrt(max(r[j+m-1]^2 - p^2, 0.0)); end
+        for m in 1:nk-1
+            kz = j + m - 1
+            zm = 0.5 * (zk[m] + zk[m+1]); rm = sqrt(p^2 + zm^2)
+            w = clamp((rm - r[kz]) / (r[kz+1] - r[kz]), 0.0, 1.0)
+            ur = (1 - w) * u[kz] + w * u[kz+1]
+            μ = rm > 0 ? zm / rm : 0.0
+            dz[m, j] = zk[m+1] - zk[m]; μu[m, j] = μ * ur
+        end
+        for m in 1:nk
+            k = j + m - 1; μk = r[k] > 0 ? zk[m] / r[k] : 0.0
+            μku[m, j] = μk * u[k]
+        end
+    end
+    for k in 2:n+1, j in 1:k-1
+        μa[k, j] = sqrt(max(1 - (r[j+1] / r[k])^2, 0.0)); μb[k, j] = sqrt(max(1 - (r[j] / r[k])^2, 0.0))
+    end
+    RayGeom(dz, μu, μku, μa, μb)
+end
+
+# (Nov 2026: the geometry is taken from `G`, the optical-depth prefactors are formed once per line and the work arrays once per call;
+# the arithmetic of every value is unchanged, so the results are the same to the last bit. Before, the three per-ray arrays were
+# allocated for every ray and frequency: 16 GB per ALI call at 150 zones and 100 thick lines.)
+function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing, G::RayGeom = raygeom(r, u))
     n = length(vth); nb = length(xs); dv = step(xs)
     Fν = zeros(n + 1); Jz = zeros(n); Λz = zeros(n)
     ΔI = zeros(n + 1, n); QJ = zeros(n + 1, n, 2); QΛ = zeros(n + 1, n, 2)
-    φv(v, k) = exp(-(v / vth[k])^2) / (sqrt(π) * vth[k])
-    for ib in 1:nb
+    dz = G.dz; μu = G.μu; μku = G.μku; Ma = G.μa; Mb = G.μb
+    spv = [sqrt(π) * vth[k] for k in 1:n]                      # profile normalisation: φ(v, k) = exp(−(v/vth[k])²) / spv[k]
+    pre = zeros(n + 1, n)
+    for j in 1:n, m in 1:n+1-j
+        kz = j + m - 1; pre[m, j] = κ0[kz] * dz[m, j] / (sqrt(π) * vth[kz] / c * ν0)
+    end
+    dti = zeros(n + 1); dto = zeros(n + 1); Iin = zeros(n + 1); ψin = zeros(n + 1); Iout = zeros(n + 1); ψout = zeros(n + 1)
+    quadp2 = QUADP2[]
+    @inbounds for ib in 1:nb
         vb = xs[ib]
         fill!(ΔI, 0.0)
         for j in 1:n
-            p = r[j]; nk = n + 2 - j
-            zk = [sqrt(max(r[k]^2 - p^2, 0.0)) for k in j:n+1]
-            dti = zeros(nk - 1); dto = zeros(nk - 1)
+            nk = n + 2 - j
             for m in 1:nk-1
-                kz = j + m - 1
-                zm = 0.5 * (zk[m] + zk[m+1]); rm = sqrt(p^2 + zm^2)
-                w = clamp((rm - r[kz]) / (r[kz+1] - r[kz]), 0.0, 1.0)
-                ur = (1 - w) * u[kz] + w * u[kz+1]
-                μ = rm > 0 ? zm / rm : 0.0
-                pre = κ0[kz] * (zk[m+1] - zk[m]) / (sqrt(π) * vth[kz] / c * ν0)
-                dti[m] = pre * exp(-((vb + μ * ur) / vth[kz])^2)          # inward (dir = −1)
-                dto[m] = pre * exp(-((vb - μ * ur) / vth[kz])^2)          # outward
+                kz = j + m - 1; vt = vth[kz]; q = μu[m, j]; pr = pre[m, j]
+                dti[m] = pr * exp(-((vb + q) / vt)^2)          # inward (dir = −1)
+                dto[m] = pr * exp(-((vb - q) / vt)^2)          # outward
             end
-            Iin = zeros(nk); ψin = zeros(nk); Iout = zeros(nk); ψout = zeros(nk); I = 0.0
-            for m in nk-1:-1:1
-                if Sz === nothing
-                    I = sh(I, dti[m], Si[j+m], Si[j+m-1]); Iin[m] = I; ψin[m] = ψloc(dti[m])
-                else
+            Iin[nk] = 0.0; ψin[nk] = 0.0; I = 0.0
+            if Sz === nothing
+                for m in nk-1:-1:1
+                    Δτ = dti[m]; Sin = Si[j+m]; Sout = Si[j+m-1]
+                    if Δτ < 1e-4                               # `sh` and `ψloc` with their common exponential taken once
+                        I = I * (1 - Δτ) + 0.5Δτ * (Sin + Sout); ψin[m] = 0.5Δτ
+                    else
+                        e = exp(-Δτ); w0 = 1 - e; w1 = w0 - Δτ * e
+                        I = I * e + Sout * (w0 - w1 / Δτ) + Sin * (w1 / Δτ); ψin[m] = w0 - w1 / Δτ
+                    end
+                    Iin[m] = I
+                end
+                Iout[1] = Iin[1]; ψout[1] = ψin[1]; I = Iin[1]
+                for m in 2:nk
+                    Δτ = dto[m-1]; Sin = Si[j+m-2]; Sout = Si[j+m-1]
+                    if Δτ < 1e-4
+                        I = I * (1 - Δτ) + 0.5Δτ * (Sin + Sout); ψout[m] = 0.5Δτ
+                    else
+                        e = exp(-Δτ); w0 = 1 - e; w1 = w0 - Δτ * e
+                        I = I * e + Sout * (w0 - w1 / Δτ) + Sin * (w1 / Δτ); ψout[m] = w0 - w1 / Δτ
+                    end
+                    Iout[m] = I
+                end
+            else
+                for m in nk-1:-1:1
                     I = shz(I, dti[m], Sz[j+m-1]); Iin[m] = I; ψin[m] = ψz(dti[m])
                 end
-            end
-            Iout[1] = Iin[1]; ψout[1] = ψin[1]; I = Iin[1]
-            for m in 2:nk
-                if Sz === nothing
-                    I = sh(I, dto[m-1], Si[j+m-2], Si[j+m-1]); Iout[m] = I; ψout[m] = ψloc(dto[m-1])
-                else
+                Iout[1] = Iin[1]; ψout[1] = ψin[1]; I = Iin[1]
+                for m in 2:nk
                     I = shz(I, dto[m-1], Sz[j+m-2]); Iout[m] = I; ψout[m] = ψz(dto[m-1])
                 end
             end
             for m in 1:nk
                 k = j + m - 1; ΔI[k, j] = m == 1 ? 0.0 : Iout[m] - Iin[m]
-                μk = r[k] > 0 ? zk[m] / r[k] : 0.0; uk = u[k]
-                for (s, zs) in ((1, k - 1), (2, k))
+                q = μku[m, j]
+                for s in 1:2
+                    zs = k - 2 + s                             # the zone inside (s = 1) and outside (s = 2) interface k
                     (zs < 1 || zs > n) && continue
-                    pin = φv(vb + μk * uk, zs); pout = φv(vb - μk * uk, zs)
+                    pin = exp(-((vb + q) / vth[zs])^2) / spv[zs]; pout = exp(-((vb - q) / vth[zs])^2) / spv[zs]
                     QJ[k, j, s] = pin * Iin[m] + pout * Iout[m]
                     lam && (QΛ[k, j, s] = pin * ψin[m] + pout * ψout[m])
                 end
@@ -294,10 +349,10 @@ function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing)
         for k in 2:n+1
             acc = 0.0
             for j in 1:k-1
-                μa = sqrt(max(1 - (r[j+1] / r[k])^2, 0.0)); μb = sqrt(max(1 - (r[j] / r[k])^2, 0.0))
+                μa = Ma[k, j]; μb = Mb[k, j]
                 Ia = j + 1 <= n ? ΔI[k, j+1] : 0.0; Ib = ΔI[k, j]
                 d = μb - μa; d <= 0 && continue
-                if QUADP2[]                      # trapezoid in μ² = 1 − p²/r_k²: ray weights ∝ Δp², the same at every node
+                if quadp2                        # trapezoid in μ² = 1 − p²/r_k²: ray weights ∝ Δp², the same at every node
                     acc += 0.25 * (Ia + Ib) * (μb^2 - μa^2)
                 else
                     s1 = (Ib - Ia) / d
@@ -307,7 +362,8 @@ function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing)
             Fν[k] += 2π * acc * (dv / c * ν0)
         end
         # mean intensity at the nodes: J = ½ ∫₀¹ (Q_in + Q_out) dμ, trapezoid in μ between the rays (Q includes the profile)
-        for k in 1:n+1, (s, zs) in ((1, k - 1), (2, k))
+        for k in 1:n+1, s in 1:2
+            zs = k - 2 + s
             (zs < 1 || zs > n) && continue
             if k == 1
                 Jz[zs] += 0.25 * QJ[1, 1, s] * dv; lam && (Λz[zs] += 0.25 * QΛ[1, 1, s] * dv)
@@ -315,7 +371,7 @@ function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing)
             end
             aJ = 0.0; aΛ = 0.0
             for j in 1:k-1
-                μa = sqrt(max(1 - (r[j+1] / r[k])^2, 0.0)); μb = sqrt(max(1 - (r[j] / r[k])^2, 0.0))
+                μa = Ma[k, j]; μb = Mb[k, j]
                 d = μb - μa; d <= 0 && continue
                 qa = j + 1 <= n ? QJ[k, j+1, s] : 0.0
                 aJ += 0.5 * (qa + QJ[k, j, s]) * d
@@ -493,11 +549,12 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
         iters = nep
     else
         Jfs = zeros(nl, n); Lam = zeros(nl, n); β .= 1; Jeff .= 0
+        geom = raygeom(r, u)
         for it in 1:maxit
             κ0, S, nmaser = opac(P)
             fill!(Jfs, 0.0); fill!(Lam, 0.0); fill!(Lline, 0.0)
             nb_t = Threads.Atomic{Int}(0); nth_t = Threads.Atomic{Int}(0)
-            Threads.@threads for i in 1:nl
+            Threads.@threads :greedy for i in 1:nl                  # one line per task: the thick lines are neighbours in the list
                 ν0 = ν[i]; κl = κ0[i, :]
                 τc = sum(κl[k] / (sqrt(π) * vth[k] / c * ν0) * (r[k+1] - r[k]) for k in 1:n)
                 if τc < τthin
@@ -522,7 +579,7 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                 nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth[ka]))) + 1, nbin, nbinmax)
                 Threads.atomic_max!(nb_t, nb)
                 xs = range(-vspan, vspan, length = nb)
-                Fν, Jz, Λz = transfer_line(r, u, vth, κl, Si, ν0, xs, lam == :diag; Sz = SRCZONE[] ? S[i, :] : nothing)
+                Fν, Jz, Λz = transfer_line(r, u, vth, κl, Si, ν0, xs, lam == :diag; Sz = SRCZONE[] ? S[i, :] : nothing, G = geom)
                 for k in 1:n+1; Lline[i, k] = 4π * r[k]^2 * Fν[k]; end
                 Jfs[i, :] .= Jz; Lam[i, :] .= Λz
                 Threads.atomic_add!(nth_t, 1)
