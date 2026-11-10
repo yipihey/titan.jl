@@ -154,9 +154,55 @@ function collrates!(Q, L::Levels, T, dens::Vector{Pair{Symbol,Float64}}; reactiv
     Q
 end
 
+const COLLKEYS = (:H, :He, :Hp, :H2o, :H2p)          # the collider order of `populations`
+"""
+Work arrays of `populations` for one task (`ws = PopWS(L)`): the rate matrix, the copy that `gth` reduces, and per collider
+the de-excitation coefficients and Boltzmann factors at the zone's temperature, which the ortho:para iteration reuses
+(they do not depend on the ortho fraction). The arithmetic and its order are those of the path without `ws`: the
+populations are bit-identical.
+"""
+struct PopWS
+    Q::Matrix{Float64}; P::Matrix{Float64}; s::Vector{Float64}
+    k::Vector{Vector{Float64}}; ex::Vector{Vector{Float64}}; have::Vector{Bool}
+    o::Vector{Int}; p::Vector{Int}
+end
+PopWS(L::Levels) = (n = length(L.E); PopWS(zeros(n, n), zeros(n, n), zeros(n), [zeros(length(L.colls[c].pu)) for c in COLLKEYS],
+    [zeros(length(L.colls[c].pu)) for c in COLLKEYS], fill(false, length(COLLKEYS)), findall(L.ortho), findall(.!L.ortho)))
+
+"`kde` into k (the same interpolation, element by element)."
+function kde!(k::Vector{Float64}, t::CollTable, T)
+    x = clamp(log(T), t.lT[1], t.lT[end]); nT = length(t.lT)
+    i = clamp(searchsortedlast(t.lT, x), 1, nT - 1); w = (x - t.lT[i]) / (t.lT[i+1] - t.lT[i])
+    @inbounds for p in eachindex(k); k[p] = exp((1 - w) * t.lk[p, i] + w * t.lk[p, i+1]); end
+    k
+end
+
+"`collrates!` with the densities in the order of COLLKEYS and the coefficients of `ws` (filled on first use at this T)."
+function collrates!(Q, L::Levels, T, ns::NTuple{5,Float64}, ws::PopWS; reactive = true)
+    for (c, key) in enumerate(COLLKEYS)
+        n = ns[c]; n > 0 || continue
+        t = L.colls[key]; k = ws.k[c]; ex = ws.ex[c]
+        if !ws.have[c]
+            kde!(k, t, T)
+            for p in eachindex(k); ex[p] = exp(-(L.E[t.pu[p]] - L.E[t.pl[p]]) / (kB * T)); end
+            ws.have[c] = true
+        end
+        for p in eachindex(k)
+            u = t.pu[p]; lo = t.pl[p]
+            (!reactive && L.ortho[u] != L.ortho[lo]) && continue
+            Q[u, lo] += n * k[p]
+            Q[lo, u] += n * k[p] * L.g[u] / L.g[lo] * ex[p]
+        end
+    end
+    Q
+end
+
 "Stationary distribution of the Markov generator with off-diagonal rates Q[i,j] (i→j), by GTH state reduction."
-function gth(Q0::AbstractMatrix)
-    n = size(Q0, 1); P = Matrix{Float64}(Q0); s = zeros(n)
+gth(Q0::AbstractMatrix) = gth!(Matrix{Float64}(Q0), zeros(size(Q0, 1)))
+"`gth` on work arrays: P is overwritten with Q0 and reduced, s is scratch (same arithmetic as `gth(Q0)`)."
+gth(Q0::AbstractMatrix, P::Matrix{Float64}, s::Vector{Float64}) = gth!(copyto!(P, Q0), fill!(s, 0.0))
+function gth!(P::Matrix{Float64}, s::Vector{Float64})
+    n = size(P, 1)
     for i in 1:n; P[i, i] = 0.0; end
     for k in n:-1:2
         sk = 0.0; for j in 1:k-1; sk += P[k, j]; end
@@ -187,11 +233,11 @@ function radrates!(Q, L::Levels, β, Jbar)
     Q
 end
 
-function solve_Q(L::Levels, Q, opr)
-    n = length(L.E); o = findall(L.ortho); p = findall(.!L.ortho)
+function solve_Q(L::Levels, Q, opr, ws = nothing)
+    n = length(L.E); o = ws === nothing ? findall(L.ortho) : ws.o; p = ws === nothing ? findall(.!L.ortho) : ws.p
     cross = (sum(@view Q[o, p]) + sum(@view Q[p, o])) > 0
     if cross && opr === nothing
-        return gth(Q)
+        return ws === nothing ? gth(Q) : gth(Q, ws.P, ws.s)
     end
     xo = opr === nothing ? 0.75 : opr / (1 + opr)
     π = zeros(n)
@@ -207,14 +253,20 @@ densities in cm⁻³ (no electron collisions). β: escape probability (scalar or
 per line [erg s⁻¹ cm⁻² Hz⁻¹ sr⁻¹] (scalar or per line, default 0). `opr`: fixed ortho:para ratio (conversion rates dropped), see
 the module docs.
 """
-function populations(L::Levels, T, n_H, n_H2, n_He, n_Hp; β = nothing, Jbar = nothing, opr = nothing)
+function populations(L::Levels, T, n_H, n_H2, n_He, n_Hp; β = nothing, Jbar = nothing, opr = nothing, ws::Union{Nothing,PopWS} = nothing)
     n = length(L.E)
+    ws === nothing || fill!(ws.have, false)
     function solve_for(xo)
-        Q = zeros(n, n)
-        collrates!(Q, L, T, [:H => Float64(n_H), :He => Float64(n_He), :Hp => Float64(n_Hp),
-                             :H2o => n_H2 * xo, :H2p => n_H2 * (1 - xo)]; reactive = opr === nothing)
+        if ws === nothing
+            Q = zeros(n, n)
+            collrates!(Q, L, T, [:H => Float64(n_H), :He => Float64(n_He), :Hp => Float64(n_Hp),
+                                 :H2o => n_H2 * xo, :H2p => n_H2 * (1 - xo)]; reactive = opr === nothing)
+        else                                         # work arrays of the task (PopWS): no allocation, coefficients kept over the iteration
+            Q = fill!(ws.Q, 0.0)
+            collrates!(Q, L, Float64(T), (Float64(n_H), Float64(n_He), Float64(n_Hp), Float64(n_H2 * xo), Float64(n_H2 * (1 - xo))), ws; reactive = opr === nothing)
+        end
         radrates!(Q, L, β, Jbar)
-        solve_Q(L, Q, opr)
+        solve_Q(L, Q, opr, ws)
     end
     opr !== nothing && return solve_for(opr / (1 + opr))
     n_H2 > 0 || return solve_for(0.75)

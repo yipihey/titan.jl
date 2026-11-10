@@ -798,15 +798,48 @@ A sampling profile of 600 steps from the production checkpoint `z19fx3e_auto1` (
   `ForwardDiff.Dual` numbers with 42 partials (6 colours × 7 equations, `_assemble!(…, Val{42})`). In the first stage of the
   step the material calls inside it (the equation of state, the nuclear rates, the thermodynamic chain of the network gas,
   `_material!` lines 474–479) are 7.0k of 11.7k assembly samples: functions of (ρ, T) of one zone, evaluated with 42 partials.
-- **Chemistry threads** (84.7k samples): `ChemNet.photorates_t` rebuilds its rate list (`collect` over generators and an
-  `IdDict` lookup) on every call, 18.3k; the network Jacobian 7.2k; the non-LTE opacity means 8.0k, with `kcia`
-  (`searchsortedfirst`) 8.1k.
+- **Chemistry threads** (84.7k samples): 18.3k are the start-up build of the star-light photo-rate table in
+  `ChemNet.photorates_t`, not a per-step cost (measured afterwards: the table is built once per process, 4.8 s for H⁻, H and
+  Li, and a lookup takes 1–15 µs; in the first step all 16 chemistry threads built the same table at once). Of the other 66k:
+  the network Jacobian 7.2k; the non-LTE opacity means 8.0k, with `kcia` (`searchsortedfirst`) 8.1k. That is 0.55 CPU-s per
+  step, for which the main task waited 0.23 s; evenly spread over 16 threads it would be 0.034 s.
 - **Line threads** (160k samples): `H2Lines.transfer_line` (the exponentials; 12.6k in a two-index `setindex!`),
   `H2Levels.populations` 29.8k with `gth` allocating a fresh array per call (5.2k).
 - `exp` is 5.2 % of all samples.
 
-Changes that leave the results bit-identical (not yet made): build the photo-rate list once, reuse work arrays in
-`H2Levels` and the line solver, thread the Jacobian assembly over zones. A change at rounding level in the Jacobian only:
-evaluate the material functions with two partials and apply the chain rule. None of these has been timed. A GPU does not
-fit the problem (a few hundred zones, small dense blocks, a time-sequential implicit solve), and single precision cannot
-hold it (Δt/t is 1e-10 to 1e-12 at t = 2e7 yr).
+A change at rounding level in the Jacobian only, not made: evaluate the material functions with two partials and apply the
+chain rule. A GPU does not fit the problem (a few hundred zones, small dense blocks, a time-sequential implicit solve), and
+single precision cannot hold it (Δt/t is 1e-10 to 1e-12 at t = 2e7 yr).
+
+### Bit-identical changes, measured (10 Nov)
+
+All of these leave every number of a run unchanged. The check is a 600-step run from a frozen copy of the production
+checkpoint `z19fx3e_auto1` (step 297550, 16 threads) against the same run on commit 3564bda (`t_ref6`): all 12 snapshots
+bit-identical (T, ρ, u, E_r, F_r, r, χ, species, line cooling), all non-timing columns of `perf.csv` identical, the logs
+identical apart from timing strings and the checkpoint name. The same holds for a 300-step pair in stage A3 from the
+`full6` checkpoint (`t_a3r`, `t_a3d`, 4 threads, 15 snapshots).
+
+| change | switch | effect |
+|---|---|---|
+| Chemistry zones handed out one at a time from a shared counter instead of `Threads.@threads` blocks. The expensive zones (sub-cycled, fallback) are neighbours, so a few tasks carried most of the work. | `CHEMSCHED=zone` (default), `chunk` | chemistry 0.29 → 0.13 s per step |
+| Material calls of the residual and Jacobian sweep (`_material!`) on tasks, one zone at a time, each task with its own zone cell | `MATTHREADS=<n>` (default 0: serial) | solve 0.31 → 0.22 s |
+| MLT coefficients (∇_ad, c_P, δ, κ_R at the interfaces) evaluated in a threaded pre-pass | with `MATTHREADS` | solve 0.22 → 0.18 s |
+| Work arrays in `H2Levels.populations` (`PopWS`): no rate-matrix allocations, collision coefficients and Boltzmann factors kept over the ortho:para iteration. Checked directly as well: 4000 random cases bit-identical, 216 → 29 KB and 620 → 500 µs per call. | automatic with `LINESCHED=zone` (default) | lines 0.076 → 0.051 s, allocation 0.32 → 0.26 GB |
+| Level populations distributed one zone at a time | `LINESCHED=zone` (default), `chunk` | none measurable |
+| Star-light rate of the chemistry step computed without the unused heating integral (`ChemNet.photorate`) | none | none measurable (2 % of the chemistry samples) |
+| Photo-rate table built once under a lock | none | 4.8 s × 15 threads of start-up work |
+
+Per step over steps 297700–298100 (the runs shared the machine with each other, load 40–45: read the numbers to 10 %):
+
+| | wall | solve | chemistry | H₂ lines | garbage collection | allocated |
+|---|---|---|---|---|---|---|
+| commit 3564bda (`t_ref6`) | 0.67 s | 0.30 s | 0.29 s | 0.076 s | 0.096 s | 0.32 GB |
+| new defaults (`t_finC`, without `PopWS`) | 0.51 s | 0.30 s | 0.13 s | 0.072 s | 0.088 s | 0.32 GB |
+| all, `MATTHREADS=16` (`t_finD`) | 0.37 s | 0.18 s | 0.14 s | 0.051 s | 0.085 s | 0.26 GB |
+| stage A3, 4 threads, 3564bda (`t_a3r`) | 1.22 s | 0.17 s | 0.60 s | 0.41 s | 0.042 s | 0.31 GB |
+| stage A3, 4 threads, all, `MATTHREADS=4` (`t_a3d`) | 0.78 s | 0.11 s | 0.24 s | 0.39 s | 0.032 s | 0.25 GB |
+
+Production: 1.8 times faster per step. `MATTHREADS` is off by default because only the Pop III material has been checked
+for calls from several tasks; `phaseA.env` and `phaseB.env` set it (the number of tasks is the smaller of `MATTHREADS` and
+the thread count). What is left in production: the serial Newton iteration (assembly and block solve), the slowest single
+chemistry zone of a step, and garbage collection, which is now a quarter of the wall time.

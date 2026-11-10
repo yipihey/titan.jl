@@ -288,7 +288,8 @@ end
 const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn, :xken, :xkpn, :plfn,
     :egrn, :r, :u, :fr, :xm, :dmdt, :urel, :rmu, :rmup1, :d, :pg, :eg, :as, :er, :egr, :chif, :xke,
     :xkp, :plf, :dvol, :dvoln, :avchi, :qf, :dudr, :db, :dsn, :fl, :ub, :usn, :flu, :fle, :egb, :egsn,
-    :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv)
+    :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv,
+    :mnad, :mcp, :mdl, :mkp)                # MLT coefficients of the threaded pre-pass (MATTHREADS)
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
     xnuo::Vector{Float64}
@@ -360,7 +361,17 @@ Otherwise a material object for which `material_gas(m, ρ, T) -> (p_gas, e_gas, 
 """
 const MATERIAL = Ref{Any}(nothing)
 "Zone index of the current material call (set by `_material!` and by the fills), for materials with a composition per zone."
-const ZONE = Ref(0)
+struct ZoneCell end
+const ZONE = ZoneCell(); const ZONE0 = Ref(0); const ZTASK = Ref(false)
+# `ZONE[]` is one global cell, except inside a threaded material sweep (ZTASK[]), where every task has its own
+@inline Base.getindex(::ZoneCell) = ZTASK[] ? (task_local_storage(:titan_zone)::Int) : ZONE0[]
+@inline Base.setindex!(::ZoneCell, k) = (ZTASK[] ? task_local_storage(:titan_zone, Int(k)) : (ZONE0[] = k); k)
+"""
+MATTHREADS = n > 1: the material sweep of the residual (`_material!`: EOS, nuclear source and opacity of every zone, in the Jacobian's
+Dual numbers ~70 % of the implicit solve) on n tasks. The zones are independent and each writes only its own entries, so the result is
+bit-identical to the serial sweep. 0 or 1 (the default): serial.
+"""
+const MAT_THREADS = Ref(parse(Int, get(ENV, "MATTHREADS", "0")))
 function material_gas end
 "`material_gasne(m, ρ, T) -> (p_gas, e_gas, a_s, n_e)`; default: material_gas and n_e = 0 (no Compton exchange)."
 material_gasne(m, ρ, T) = (material_gas(m, ρ, T)..., zero(ρ))
@@ -458,14 +469,12 @@ made Newton converge only linearly (factor ⅓ per iteration) in the central zon
 """
 const MLT_HSDISC = Ref(false)
 "Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
-function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
-    pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
-    hassrc = has_source(m)
-    @inbounds for k in k0:ngre+2
+@inline function _matzone!(m, W, c, P, dn, tn, ern, k, hassrc)
+    @inbounds begin
         if !(ForwardDiff.value(dn[k]) > 0 && ForwardDiff.value(tn[k]) > 0)   # unused ghost zones (e.g. ngrs-2)
-            pgn[k] = zero(dn[k]); egn[k] = zero(dn[k]); asn[k] = zero(dn[k]); hassrc && (W.snuc[k] = zero(dn[k]))
-            c.lrad && (chifn[k] = zero(dn[k]); xken[k] = zero(dn[k]); xkpn[k] = zero(dn[k]); plfn[k] = zero(dn[k]); egrn[k] = zero(dn[k]))
-            continue
+            W.pgn[k] = zero(dn[k]); W.egn[k] = zero(dn[k]); W.asn[k] = zero(dn[k]); hassrc && (W.snuc[k] = zero(dn[k]))
+            c.lrad && (W.chifn[k] = zero(dn[k]); W.xken[k] = zero(dn[k]); W.xkpn[k] = zero(dn[k]); W.plfn[k] = zero(dn[k]); W.egrn[k] = zero(dn[k]))
+            return false
         end
         ZONE[] = k
         if COMPTON[]
@@ -473,16 +482,93 @@ function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
         else
             pg, eg, as_ = material_gas(m, dn[k], tn[k])
         end
-        pgn[k] = pg; egn[k] = eg; asn[k] = as_
+        W.pgn[k] = pg; W.egn[k] = eg; W.asn[k] = as_
         hassrc && (W.snuc[k] = material_source(m, dn[k], tn[k]))
         if c.lrad
             χ, κE, κP = material_opac(m, dn[k], tn[k])
-            chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
+            W.chifn[k] = χ; W.xken[k] = κE; W.xkpn[k] = κP
             t2 = tn[k] * tn[k]
-            plfn[k] = P.csigr * (t2 * t2) / P.cpi
-            egrn[k] = egn[k] + ern[k] / dn[k]
+            W.plfn[k] = P.csigr * (t2 * t2) / P.cpi
+            W.egrn[k] = W.egn[k] + ern[k] / dn[k]
         end
     end
+    true
+end
+"""
+MATTHREADS pre-pass of the MLT loop: ∇_ad, c_P, δ and κ_R at the interface state (the means of the two zones, as in the
+loop) of every interface with an MLT weight, on `nt` tasks. A zone whose evaluation throws is left unmarked and the serial
+loop evaluates it itself, in order: the loop then behaves as without the pre-pass, exception included.
+"""
+function _mlt_pre!(m, W, cvw, mok, dn, tn, ngrs, ngre, nt)
+    fill!(mok, false); next = Threads.Atomic{Int}(ngrs + 1)
+    ZTASK[] = true
+    try
+        @sync for it in 1:nt
+            Threads.@spawn begin
+                while true
+                    k = Threads.atomic_add!(next, 1)
+                    k > ngre && break
+                    @inbounds cvw[k] > 0 || continue
+                    try
+                        @inbounds begin
+                            Ti = 0.5 * (tn[k-1] + tn[k]); ρi = 0.5 * (dn[k-1] + dn[k])
+                            ZONE[] = k
+                            nad, cpk, δk = material_thermo(m, ρi, Ti)
+                            W.mnad[k] = nad; W.mcp[k] = cpk; W.mdl[k] = δk; W.mkp[k] = material_opac(m, ρi, Ti)[1]
+                            mok[k] = true
+                        end
+                    catch
+                    end
+                end
+            end
+        end
+    finally
+        ZTASK[] = false
+    end
+    nothing
+end
+function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
+    hassrc = has_source(m)
+    nt = min(MAT_THREADS[], Threads.nthreads())
+    (nt > 1 && ngre + 3 - k0 >= 4nt && !ZTASK[]) && return _material_mt!(m, W, c, P, dn, tn, ern, k0, ngre, hassrc, nt)
+    for k in k0:ngre+2
+        _matzone!(m, W, c, P, dn, tn, ern, k, hassrc)
+    end
+    nothing
+end
+"""
+The sweep of `_material!` on `nt` tasks, which take zones one at a time from a shared counter (the cost per zone is very uneven: stellar
+EOS + network + opacity table in the hot core, a few table lookups outside). An exception in a zone is rethrown as in the serial sweep:
+the one of the lowest zone, unwrapped, after all tasks have ended (the Newton iteration's `catch` then sees what it always saw).
+"""
+function _material_mt!(m, W, c, P, dn, tn, ern, k0, ngre, hassrc, nt)
+    kend = ngre + 2; next = Threads.Atomic{Int}(k0)
+    kerr = fill(typemax(Int), nt); errs = Vector{Any}(nothing, nt)
+    ZTASK[] = true
+    try
+        @sync for it in 1:nt
+            Threads.@spawn begin
+                while true
+                    k = Threads.atomic_add!(next, 1)
+                    k > kend && break
+                    try
+                        _matzone!(m, W, c, P, dn, tn, ern, k, hassrc)
+                    catch e
+                        k < kerr[it] && (kerr[it] = k; errs[it] = e)
+                    end
+                end
+            end
+        end
+    finally
+        ZTASK[] = false
+    end
+    kmin, imin = findmin(kerr)
+    if kmin < typemax(Int)
+        ZONE0[] = kmin
+        throw(errs[imin])
+    end
+    kl = kend; @inbounds while kl >= k0 && !(ForwardDiff.value(dn[kl]) > 0 && ForwardDiff.value(tn[kl]) > 0); kl -= 1; end
+    kl >= k0 && (ZONE0[] = kl)                # what the serial sweep leaves behind
     nothing
 end
 
@@ -772,6 +858,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     if c.conv
         nadv, cpv, δv, κv = c.cv; cvw = BUFS[:cvw]::Vector{Float64}
         arad = 4P.csigr / cc
+        ntm = min(MAT_THREADS[], Threads.nthreads())
+        mpre = MLT_AD[] && ntm > 1 && ngre - ngrs >= 4ntm && !ZTASK[]
+        mok = get!(() -> fill(false, length(cvw)), BUFS, :mltok)::Vector{Bool}
+        mpre && _mlt_pre!(MATERIAL[], W, cvw, mok, dn, tn, ngrs, ngre, ntm)
         @inbounds for k in ngrs+1:ngre
             Pm = pgn[k-1] + c.fedd[k-1] * ern[k-1]; Pp = pgn[k] + c.fedd[k] * ern[k]
             wτ = cvw[k]; wτ > 0 || continue          # optically thin: no MLT flux
@@ -794,8 +884,12 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             ∇ = log(tn[k] / tn[k-1]) / lp
             if MLT_AD[]                              # coefficients on the current state, differentiated
                 ZONE[] = k
-                th = material_thermo(MATERIAL[], ρi, Ti); nad, cpk, δk = th
-                κk = material_opac(MATERIAL[], ρi, Ti)[1]
+                if mpre && mok[k]                    # from the threaded pre-pass: the same calls on the same arguments
+                    nad, cpk, δk, κk = W.mnad[k], W.mcp[k], W.mdl[k], W.mkp[k]
+                else
+                    th = material_thermo(MATERIAL[], ρi, Ti); nad, cpk, δk = th
+                    κk = material_opac(MATERIAL[], ρi, Ti)[1]
+                end
             else                                     # lagged: from the Newton iterate, constant in the Jacobian
                 nad, cpk, δk, κk = nadv[k], cpv[k], δv[k], κv[k]
                 cpk > 0 || continue

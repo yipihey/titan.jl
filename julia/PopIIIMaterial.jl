@@ -646,7 +646,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         end
         (W > 0 && Tc > 0) || return (0.0, 0.0, 0.0, 1.0)
         env = (Trad = Tc, J = ν -> W * _bnu(ν, Tc))
-        kHm = sl.pHm === nothing ? 0.0 : CNn.photorates(sl.pHm, tn[k], env)[1]; kH = sl.pH === nothing ? 0.0 : CNn.photorates(sl.pH, tn[k], env)[1]
+        kHm = sl.pHm === nothing ? 0.0 : CNn.photorate(sl.pHm, tn[k], env); kH = sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, tn[k], env)
         f = 1.0; kLW = 0.0
         if k > kph && sl.shield !== :off
             f = sl.shield === :none ? 1.0 : fsh_h2(NH2[k], tn[k]) * fsh_hi(NHI[k])
@@ -685,6 +685,12 @@ end
 "CHEMTHREADS=1: the zones of `chem!(::NetGas)` in parallel (Threads.@threads) when no ray is set (the ray's photons pass the zones in order). Default off."
 const CHEMTHREADS = Ref(get(ENV, "CHEMTHREADS", "0") == "1")
 const CHEMLOCK = ReentrantLock()
+"""
+CHEMSCHED=zone (default): the chemistry tasks take zones one at a time from a shared counter. `chunk`: `Threads.@threads`,
+which gives every task one contiguous block of zones; the expensive zones (sub-cycled, fallback) are neighbours, so a few
+tasks then carry most of the work. The zones are independent: the results are the same.
+"""
+const CHEMSCHED = Ref(Symbol(get(ENV, "CHEMSCHED", "zone")))
 """
 CHEMSUB=fT,fx (default off): a three-level (tl3) network zone whose single backward-Euler chemistry step changes T by more than the factor
 fT, or n_e by more than the factor fx (with x_e > 1e-4 at either end), is integrated again in halved sub-steps, each held to the same test
@@ -884,7 +890,18 @@ function chem!(m::NetGas)
         nothing
     end
     if CHEMTHREADS[] && ray === nothing && Threads.nthreads() > 1    # zones are independent (start-of-step state, per-zone outputs)
-        Threads.@threads :dynamic for k in a:b; zone!(k); end
+        if CHEMSCHED[] === :zone
+            next = Threads.Atomic{Int}(a)
+            @sync for _ in 1:Threads.nthreads()
+                Threads.@spawn while true
+                    kz = Threads.atomic_add!(next, 1)
+                    kz > b && break
+                    zone!(kz)
+                end
+            end
+        else
+            Threads.@threads :dynamic for k in a:b; zone!(k); end
+        end
     else
         for k in a:b; zone!(k); end
     end

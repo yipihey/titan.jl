@@ -177,17 +177,48 @@ function photorates(p::Photo, T, env; n = 200)
 end
 
 """
+Photo-rate R of `photorates` alone: the same arithmetic in the same order (R is bit-identical), without the integrand of the
+Milne coefficient. For callers that use only R (the star-light rates of every zone and step: the unused α was half of their cost).
+"""
+function photorate(p::Photo, T, env; n = 200)
+    Z = p.Z(T); R = 0.0
+    for (Ex, g, Eth, σf) in p.levels
+        Rl = _photoR(σf, env.J, Eth / hP, range(0.0, log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), length = n + 1), n)
+        w = g / Z
+        R += w * exp(-Ex / (kB * T)) * Rl
+    end
+    R
+end
+# function barrier: compiled for the concrete cross-section and J closures (σf is an untyped field of Photo)
+function _photoR(σf::F, Jf::G, ν0, xs, n) where {F,G}
+    Rl = 0.0; νa = ν0 * exp(xs[1])
+    for i in 1:n
+        νb = ν0 * exp(xs[i+1]); ν = 0.5 * (νa + νb); dν = νb - νa; σ = σf(ν); J = Jf(ν)
+        Rl += 4π * σ * J / (hP * ν) * dν; νa = νb
+    end
+    Rl
+end
+
+"""
 photorates through a table in log T (1–1e6 K, 0.005 dex, Catmull–Rom in ln R and ln α) when the radiation field is the same in
 every zone (`env.static == true`, e.g. the CMB or none); otherwise direct. Table vs direct ≤ 3e-3 at 20 K–9e5 K (H, H⁻, Li; J = B(54 K)); the larger differences, H⁻ α above 7e4 K, are the direct quadrature's own (n = 200 vs 800: 3 %).
 """
-const PHTAB = IdDict{Any,Any}()
+const PHTAB = IdDict{Any,Any}(); const PHLOCK = ReentrantLock()
 function photorates_t(p::Photo, T, env)
     (hasproperty(env, :static) && env.static) || return photorates(p, T, env)
     # env.tabkey: a per-zone env (extra fields for reactions) that shares the static J of `tabkey`, and so its table
-    tab = get!(PHTAB, (p, hasproperty(env, :tabkey) ? env.tabkey : env)) do
-        lT = collect(0.0:0.005:6.0)
-        v = [photorates(p, 10^x, env) for x in lT]
-        (lT, [log(max(a[1], 1e-300)) for a in v], [log(max(a[2], 1e-300)) for a in v])
+    key = (p, hasproperty(env, :tabkey) ? env.tabkey : env)
+    tab = get(PHTAB, key, nothing)
+    if tab === nothing
+        # built once, under a lock: the chemistry threads all arrive here in the first step (they used to build the table 16
+        # times over, 5 s each, and to insert into the IdDict concurrently)
+        tab = lock(PHLOCK) do
+            get!(PHTAB, key) do
+                lT = collect(0.0:0.005:6.0)
+                v = [photorates(p, 10^x, env) for x in lT]
+                (lT, [log(max(a[1], 1e-300)) for a in v], [log(max(a[2], 1e-300)) for a in v])
+            end
+        end
     end
     lT, lR, lA = tab; n = length(lT); x = clamp(log10(T), 0.0, 6.0); i = clamp(Int(floor(x / 0.005)) + 1, 2, n - 2); w = (x - lT[i]) / 0.005
     function cr(f)                                                 # Catmull–Rom

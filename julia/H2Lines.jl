@@ -399,6 +399,8 @@ end
 #     (t_f7, steps 3742 → 3744, n_c = 1.7e11: Λ_EP 2.5e-11 → 3.6e-11 while the ALI cooling moved 5.65e-11 → 6.00e-11).
 #   flow: no radial term at all, only the tangential one |u|/r (diagnostic).
 const EPGRAD = Ref(Symbol(get(ENV, "EPGRAD", "thermal")))
+"LINESCHED=zone (default): the level populations of the zones are distributed one zone at a time; `chunk`: `Threads.@threads` blocks. Same results."
+const ZSCHED = Ref(get(ENV, "LINESCHED", "zone") == "zone")
 "Exponential integral E₂(x) = e^{−x} − x E₁(x), x ≥ 0 (series for x ≤ 1, continued fraction above)."
 function E2(x)
     x <= 0 && return 1.0
@@ -451,8 +453,22 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     iu = LV.iu; il = LV.il; Bul = LV.Bul; Blu = LV.Blu; ν = L.ν
     P = zeros(nlev, n); β = ones(nl, n); Jeff = zeros(nl, n)
     function solve!(Pn)
-        Threads.@threads for k in 1:n
-            Pn[:, k] .= HV.populations(LV, T[k], nlte.nH[k], nH2[k], nlte.nHe[k], nlte.nHp[k]; β = β[:, k], Jbar = Jeff[:, k])
+        if ZSCHED[]                                   # one zone at a time from a shared counter: the ortho:para iteration count varies between zones
+            next = Threads.Atomic{Int}(1)
+            @sync for _ in 1:Threads.nthreads()
+                Threads.@spawn begin
+                    ws = HV.PopWS(LV)                 # work arrays of this task
+                    while true
+                        kz = Threads.atomic_add!(next, 1)
+                        kz > n && break
+                        Pn[:, kz] .= HV.populations(LV, T[kz], nlte.nH[kz], nH2[kz], nlte.nHe[kz], nlte.nHp[kz]; β = view(β, :, kz), Jbar = view(Jeff, :, kz), ws)
+                    end
+                end
+            end
+        else
+            Threads.@threads for k in 1:n
+                Pn[:, k] .= HV.populations(LV, T[k], nlte.nH[k], nH2[k], nlte.nHe[k], nlte.nHp[k]; β = β[:, k], Jbar = Jeff[:, k])
+            end
         end
         Pn
     end
