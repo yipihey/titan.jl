@@ -117,6 +117,62 @@ Timing of the cloud collapse: `t_e_old` (the three new options off) follows `ful
 (23.1323 against 23.1325 Myr), so the options do not change the collapse time. Both are 1.5 Myr later than the October
 collapse, the difference arising between log n_c 4 and 6. Its cause is not known (October code and settings).
 
+## When to switch the continuum transport on (`full4` against `full3`, 9 Nov)
+
+Between log n_c ≈ 14 and 18.5 the October sequence cools the gas with the RA04 fit of the H₂ collision-induced emission
+times its escape factor, and only then builds the radiation field. The alternative is to build the field while the cloud
+is still thin and let the transfer with our own continuum opacity do the cooling throughout. `full4` is that run: a
+branch of `full3` at step 9500 (log n_c 14.007), `fullrun.sh full4 R:z19full4_A1_s9500` with `A2X="DTRADMAX=0"`.
+
+- `A2X="<settings>"` (environment of `fullrun.sh`) appends settings to the rebuild stage; they override `stageA2.env`.
+- `DTRADMAX` is a cap on Δt in seconds (1500 by default with `RAD=1`), not a ratio. At log n_c 14 the step is ~1e6 s, so
+  an early rebuild needs `DTRADMAX=0`. With it the run went from log n_c 14 to 18.6 with 3 Newton divergences and 4
+  failed trapezoidal stages in total, all recovered.
+- The rebuild in a thin cloud: τ_R(centre) = 3.7e-3, E_r/aT⁴ = 0.004 at the centre, no photosphere, L_ph = 0.
+  For comparison `full3`'s rebuild at log n_c 18.55: τ_R(centre) = 528, photosphere at zone 80, L_ph = 9.74e34 erg/s
+  (October: 790, zone 81, 1.113e35 erg/s, with T_c 3639 K against 3523 K now).
+
+T_c at equal central density:
+
+| log n_c | 14.5 | 15.0 | 15.5 | 16.0 | 16.5 | 17.0 | 17.5 | 18.0 | 18.546 |
+|---|---|---|---|---|---|---|---|---|---|
+| `full4` (transport from 14) [K] | 1891.5 | 2020.3 | 2133.7 | 2212.2 | 2314.6 | 2528.7 | 2795.9 | 3107.5 | 3523.8 |
+| `full3` (RA04 × escape factor) [K] | 1895.3 | 2031.2 | 2157.3 | 2247.3 | 2324.2 | 2526.9 | 2793.7 | 3105.2 | 3518.9 |
+| ratio | 0.998 | 0.995 | 0.989 | 0.984 | 0.996 | 1.001 | 1.001 | 1.001 | 1.001 |
+
+The transport run is at most 1.6 % cooler (log n_c 16) and the two agree to 0.1 % from log n_c 17, where the centre is
+optically thick and neither loses energy. This is the sign and size a static comparison of the two coolants gives: thin
+emission of our opacity, 4σT⁴κ_P ρ at equilibrium composition, over the RA04 fit is 0.95 (log n 12, 1100 K), 1.11 (13),
+1.15 (14), 1.29 (15), 1.28 (16), 1.23 (17), 1.04 (18), 1.10 (18.5); the RA04 escape factor is 1.0 to log n 15, 0.85 at 16,
+4.7e-3 at 17. (Only the centre is compared here.)
+
+Cost: the pre-refinement to 326 zones comes with the rebuild, so the early rebuild carries the finer mesh through four
+more decades of density, and a full line-transfer solve takes 23 s at 326 zones against 7.6 s at 200.
+
+## The H₂ line cooling follows the level populations (checked 9 Nov)
+
+`H2Levels.jl` solves statistical equilibrium for 63 levels (v = 0–2, J = 0–20) with collisions with H (Wrathmall, Gusdorf
+& Flower 2007), ortho- and para-H₂ (Le Bourlot et al. 1999), He and H⁺ (Gerlich 1990), no electron collisions, and the
+radiative rates from the line transfer (`NLTE=hyb`); the gas cooling is the net collisional exchange at those populations
+(`LINECOLL=1`). Cooling per molecule over its LTE value, optically thin, x(H₂) = 1e-3, x(H⁺) = 1e-4:
+
+| T [K] | n = 1e2 | 1e3 | 1e4 | 1e5 | 1e6 | 1e7 | n at half LTE [cm⁻³] |
+|---|---|---|---|---|---|---|---|
+| 200 | 0.092 | 0.358 | 0.794 | 0.965 | 0.996 | 1.000 | 2.0e3 |
+| 300 | 0.067 | 0.306 | 0.662 | 0.910 | 0.988 | 0.999 | 3.3e3 |
+| 500 | 0.044 | 0.180 | 0.469 | 0.808 | 0.944 | 0.990 | 1.2e4 |
+| 1000 | 0.012 | 0.060 | 0.214 | 0.582 | 0.921 | 0.991 | 6.6e4 |
+| 2000 | 0.010 | 0.067 | 0.367 | 0.844 | 0.982 | 0.998 | 1.8e4 |
+
+In the run (`full3`, step 8180, log n_c 8.01; `julia/h2crit_check.jl <run dir> 8.0`) the recorded line cooling per molecule
+over the local statistical-equilibrium thin value is 1.002–1.004 below n_H = 1e4 cm⁻³, 0.999 at 1.2e5, 0.996 at 3e6 and
+0.991 in the core (7.7e7 cm⁻³, 630 K); the run's value includes the line transfer, the comparison value does not.
+Relative to LTE it is 0.001 at n = 2.3, 0.03 at 45, 0.33 at 1.5e3 (244 K), 0.84 at 1.2e5 (349 K), 0.96 at 3e6 (507 K),
+0.989 in the core. Newer H–H₂ rates (Lique 2015) are in the Cloudy data set next to the ones used and have not been
+evaluated.
+
+The recorded `Λext` is per volume (erg cm⁻³ s⁻¹); the export label said erg/s/g until 9 Nov.
+
 ## The total-energy row on the Lagrangian mesh (why `full1`'s envelope differs)
 
 `full1` and `full2` differ from the first Myr and out to the edge of the cloud (in `full1` the shells at 2–4e3 M☉ are

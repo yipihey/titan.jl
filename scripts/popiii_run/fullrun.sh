@@ -16,6 +16,7 @@
 # Usage: fullrun.sh <run> [<stage>:<checkpoint>] [threads]
 #   A1:<ck> continue A1 from its checkpoint      R:<ck>  start A2 (rebuild) from a hydro-only checkpoint
 #   A2:<ck> continue A2                          A3:<ck> start or continue A3        B:<ck> start or continue B
+# A2X="<settings>" (environment): extra settings of the rebuild stage (they override stageA2.env)
 HERE=$(cd "$(dirname "$0")" && pwd); JLENV=${JLENV:?set JLENV to a julia project with the repository packages}; DATA=${DATA:-/zpool/nvme/data/tabel_scratch/titan_popiii}
 RUN=$1; FROM=${2:-}; TH=${3:-4}; SEG=100000; REFINE=${REFINE:-1e-3,0.1,0.03}
 R=$DATA/runs/$RUN; CK=$R/ck; mkdir -p $CK
@@ -39,7 +40,7 @@ if [ $st = A1 ]; then
   stage A1 'stopped: T_c' $(cat $HERE/stageA1.env) ${ck:+RESTART=$ck}; st=R
 fi
 if [ $st = R ]; then
-  stage A2 'stopped: T_c' $(cat $HERE/stageA2.env) RADFROM=$ck REFINE=$REFINE
+  stage A2 'stopped: T_c' $(cat $HERE/stageA2.env) RADFROM=$ck REFINE=$REFINE ${A2X:-}
   grep -q 'RAD: rebuilt' $out || { log "stage A2 ($save) has no radiation rebuild"; exit 1; }; st=A3
 elif [ $st = A2 ]; then
   stage A2 'stopped: T_c' $(cat $HERE/stageA2.env) RESTART=$ck; st=A3
