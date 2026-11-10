@@ -766,3 +766,38 @@ with the remap onto the fixed mesh. Two other attempts did not work: splitting 4
 (`t_saz`, `t_saz2`: the radiation rows diverge far outside the split range; `t_saz3`, `REZWIN=1.3,4,0.02` with
 `REZNMAX=420`: 60 divergences in 1500 steps) and splitting by Δr/r as well (`REZDR=0.2`, `t_sad`: 44 divergences in 1100
 steps, Δt 2e2–1e3 s, and the surface found at 3 R☉ and 0.027 M☉ at step 16500 where the control has 7.4 R☉ and 0.044 M☉).
+
+## Where the time of a step goes: a profile of production (10 Nov)
+
+Per step, from `perf.csv`:
+
+| run | threads | zones | solve | chemistry | H₂ lines | garbage collection | allocated |
+|---|---|---|---|---|---|---|---|
+| `fx3` (103.6 M☉, 3000 steps) | 16 | 286 | 0.43 s | 0.14–0.24 s | 0.085 s | 0.087 s | 0.4 GB |
+| `full4` (8.1 M☉) | 4 | 370 | 0.22 s | 0.86 s | 1.95 s | 0.29 s | 2.7 GB |
+| `full6` (0.22 M☉, stage A3) | 4 | 340 | 0.18 s | 0.44 s | 0.69 s | 0.16 s | 1.1 GB |
+
+In production the implicit solve is the largest item; in the runs from the initial conditions the line transfer is.
+
+A sampling profile of 600 steps from the production checkpoint `z19fx3e_auto1` (`t_prf`, 16 threads, 5 ms sampling,
+`Profile` around the whole run; flat and tree listings in `runs/t_prf/prof.txt` and `prof.txt.tree`):
+
+- **80 % of all thread samples are idle.** With 16 threads the run uses about three cores' worth.
+- Main task, 101.7k samples: the implicit solve 49.6k (`TitanDriver.jl:188`), the chemistry and line closure 46.1k (`:189`), of
+  which 27.4k waiting for the threaded chemistry and 14.7k waiting for the line threads.
+- **Solve** (serial): the Jacobian assembly is 27k of the 49.6k, the residual 16.7k. The assembly is one residual sweep in
+  `ForwardDiff.Dual` numbers with 42 partials (6 colours × 7 equations, `_assemble!(…, Val{42})`). In the first stage of the
+  step the material calls inside it (the equation of state, the nuclear rates, the thermodynamic chain of the network gas,
+  `_material!` lines 474–479) are 7.0k of 11.7k assembly samples: functions of (ρ, T) of one zone, evaluated with 42 partials.
+- **Chemistry threads** (84.7k samples): `ChemNet.photorates_t` rebuilds its rate list (`collect` over generators and an
+  `IdDict` lookup) on every call, 18.3k; the network Jacobian 7.2k; the non-LTE opacity means 8.0k, with `kcia`
+  (`searchsortedfirst`) 8.1k.
+- **Line threads** (160k samples): `H2Lines.transfer_line` (the exponentials; 12.6k in a two-index `setindex!`),
+  `H2Levels.populations` 29.8k with `gth` allocating a fresh array per call (5.2k).
+- `exp` is 5.2 % of all samples.
+
+Changes that leave the results bit-identical (not yet made): build the photo-rate list once, reuse work arrays in
+`H2Levels` and the line solver, thread the Jacobian assembly over zones. A change at rounding level in the Jacobian only:
+evaluate the material functions with two partials and apply the chain rule. None of these has been timed. A GPU does not
+fit the problem (a few hundred zones, small dense blocks, a time-sequential implicit solve), and single precision cannot
+hold it (Δt/t is 1e-10 to 1e-12 at t = 2e7 yr).

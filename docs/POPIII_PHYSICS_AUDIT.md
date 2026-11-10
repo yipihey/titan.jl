@@ -65,9 +65,46 @@ temperature, independent of the H₂ level populations.
    factor 2–3 too little heat per detachment for 6000 K light on 3000 K gas; this is the dominant envelope heating inside
    5e4 R☉ (`POPIII_RUNS.md`, "What heats the infalling envelope"). `NLOPACJ=1` exists and is untested in production.
 6. **Lyα is local** (no trapping, no pressure). 7. **Compton exchange off; table zones use one κ_P for absorption and
-   emission.** 8. **Shock spectrum grey.** 9. **H₂ cooling limits** (v ≤ 2, no electron collisions, rates frozen above
+   emission.** 8. **Shock spectrum grey** (see "The accretion shock" below: at 7–8 M☉ the shock supplies the whole
+   luminosity from optical depth below one). 9. **H₂ cooling limits** (v ≤ 2, no electron collisions, rates frozen above
    6000 K): adequate below about 3000 K. 10. **No D/HD, HeH⁺, H₃⁺.** 11. **Hot-branch opacity at X = 0.75**: irrelevant
    until hydrogen burns.
+
+## The accretion shock (10 Nov)
+
+Zones around the shock in the last snapshots (`shockz.jl`, `shockx.jl` in the session scratchpad):
+
+| | `full3`, `full4` (7.3, 8.1 M☉) | `fx3` (103.6 M☉) |
+|---|---|---|
+| infall speed before the shock | 111–115 km/s | 162 km/s (522 km/s in the fall-back phase of the oscillation, step 285550) |
+| strong-shock temperature 3μm_H u²/16k, μ = 0.6 | 1.7e5–1.8e5 K (15 eV) | 3.6e5 K (31 eV); 3.7e6 K (320 eV) in fall-back |
+| τ_R outside the fastest infall | 0.17–0.20 | 750 (319 in fall-back) |
+| column outside | 1860 g cm⁻² | 3340 g cm⁻² (2070) |
+| P_rad / P_gas ahead of the shock | 0.05 | 149 |
+| T_gas / T_rad through the shock | 0.97–1.10 | 1.00 |
+| T_gas in the shock zones | 4700–7900 K | 1.5e5–2.4e5 K |
+| GM★Ṁ/R★ over L at the photosphere | 1.9–2.0 | 0.19 |
+| zones the viscosity spreads the shock over | 5 (Δr 6 R☉ each); τ_R rises from 0.2 to 500 across them | 5 (Δr 1.2 R☉ each) |
+
+- **`fx3`.** The shock is 750 to 1600 Rosseland depths inside, radiation pressure is 150 times the gas pressure, and
+  c/|u| = 1850 exceeds τ_R, so radiation diffuses ahead of the shock faster than the flow carries it in. Gas and radiation
+  have one temperature on both sides. The strong-shock temperature is not reached and the two-moment grey transport holds
+  the structure. Free fall onto the present R★ would be 1450 km/s (2.9e7 K, 2.5 keV); the column outside is 2000–3300 g cm⁻²
+  (Thomson depth about 10³), and it scales as Ṁ/√(M r). Reasoning from these numbers, not a calculation: in spherical
+  symmetry keV photons could reach the infalling gas only after the accretion rate has fallen by about 10³.
+- **`full3`, `full4`.** The shock sits at the photosphere and supplies the whole luminosity. Its upstream side is at
+  τ_R = 0.2. Physically this is a Mach 20 gas shock with a post-shock layer at 1.7e5 K; its cooling length is of order
+  1e4 cm (estimate: n = 1.4e14 cm⁻³, Λ = 1e-22 erg cm³ s⁻¹, post-shock speed 29 km/s) against zones of 4e11 cm. The model
+  has no such layer: the viscous heat is spread over five zones and exchanged with the grey radiation field, and the gas
+  stays within 10 % of T_rad. The energy is conserved; the spectrum is not represented. The escaping light is treated as
+  a blackbody at the photospheric temperature (5400 K), while about half of it should be the reprocessed emission of a
+  1.7e5 K layer seen through τ_R = 0.2. Not evaluated: the emergent spectrum, the change of the photo-rates in the
+  envelope (H⁻, H₂⁺, Lyman-Werner), the ionization of the gas just ahead of the shock and its H⁻ opacity.
+- No mesh resolves the cooling layer (seven orders of magnitude). A finer mesh does narrow the five-zone numerical shock,
+  which in `full3`/`full4` is as wide as the whole transition from τ_R = 0.2 to 500, so the position of the photosphere
+  relative to the shock is not independent of the zone size there.
+- `SHOCKRAD=1` sends the viscous heat of a strong shock to the radiation energy row instead of the gas row
+  (`TitanResidFast.jl:181–189, 883`). It is grey and changes no spectrum. Untested in production.
 
 ## Checked and found consistent
 
@@ -79,5 +116,5 @@ network zones (`hbfP = false`, the three-level atom carries it).
 
 `StellarEOS.jl`, `SCVH.jl`, the opacity table build, `NucNet` rates, MLT; rate fits against the literature (the H Rayleigh
 fit is marked unverified in `ContinuumOpacity.jl`); whether the energy zero is identical across the network/table switch;
-whether lagging the non-LTE opacity factors conserves energy; what `SHOCKRAD`, `PSWRAD` do when on. Impact statements
+whether lagging the non-LTE opacity factors conserves energy; what `PSWRAD` does when on; `SHOCKRAD` in a run. Impact statements
 other than the numbers quoted in gaps 1 and 3 are reasoning, not measurements.
