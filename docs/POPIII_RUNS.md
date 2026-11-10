@@ -354,3 +354,43 @@ broke down at 107–113 M☉ (`nlo8r`, `_gf1`, `_g9`). Omukai & Palla (2003, ApJ
 4e-3 M☉/yr that the luminosity reaches the Eddington limit before hydrogen ignition and the star expands, possibly
 reversing the flow near 100 M☉; this run is above that rate at this mass, but the comparison has not been made
 quantitatively.
+
+## From the initial conditions to 0.5 M☉: `full3` and `full4` (9–10 Nov)
+
+Both from-scratch runs finished the collapse (stages A1–A3) without a solver failure and started the accretion phase
+(`z19full3B1`, `z19full4B1`) on the evening of 9 Nov. The two stage-A3 failures in `procedure.log` at 17:02 and 17:23 were
+launcher and script errors, fixed before the 17:27 restart; neither was a failure of the solver.
+
+| | `full3` | `full4` | October run |
+|---|---|---|---|
+| step at the remap (M* ≥ 0.5 M☉) | 29773 | 29632 | 23250 |
+| M* there | 0.5133 M☉ | 0.5118 M☉ | |
+| log n_c | 23.377 | 23.368 | 23.374 |
+| T_c | 118 100 K | 116 800 K | 123 800 K |
+| Newton divergences in A3 | 1431 | 1479 | |
+
+The central temperature is 5–6 % below October's at the same central density. The cause has not been traced. The remap
+onto the accretion mesh itself lowers T_c by 4 % (122 717 → 117 753 K in `full3`) and log n_c from 23.403 to 23.375.
+
+**Where the wall time went** (`perf.csv`, 4 threads; fractions of the summed step time):
+
+| stage | steps | zones | wall | hydro + radiation | chemistry | lines |
+|---|---|---|---|---|---|---|
+| A1, to log n_c 17.9 (`full3`) | 9900 | 200 | 0.9 h | 10 % | 17 % | 73 % |
+| A2, to T_c 5e4 K (`full3`) | 1600 | 260 | 0.6 h | 11 % | 47 % | 41 % |
+| A2 from log n_c 14 (`full4`) | 1700 | 260 | 1.1 h | 7 % | 27 % | 66 % |
+| A3, to 0.5 M☉ (`full3`) | 17900 | 340 | 5.9 h | 15 % | 27 % | 57 % |
+| A3 (`full4`) | 18200 | 340 | 6.0 h | 15 % | 29 % | 56 % |
+| B, first 1800 steps (`full3`) | 1800 | 370 | 1.7 h | 18 % | 18 % | 64 % |
+
+The line transfer is the largest cost in every stage. Stage A3 (the adiabatic core growing from formation to 0.5 M☉) is
+two thirds of the wall time to the remap. Switching the continuum transport on at log n_c 14 instead of 17.9 (`full4`)
+costs half an hour more in A2 and nothing afterwards.
+
+**Accretion phase so far** (10 Nov 01:00; `full3` at 0.66 M☉, `full4` at 0.69 M☉): about 600–1000 steps per hour, with
+700 divergences each in the first 1300–1800 steps and up to 28 halvings on one step (`NTRY=60`). The failing corrections
+are E_r and F_r in the first zones outside the stellar surface (zones 113–125), where one zone has τ ≈ 900 and T = 8500 K
+and the next has τ ≈ 0.008 and T = 3100 K with T_rad = 930 K, and where the zone flag changes from table to network. When Δt
+falls to seconds there L_ph falls from about 3000 to about 10 L☉. This is the same unresolved surface that the production
+line has at 101 M☉ (previous section). The mass still grows at the October pace (about 6000 steps per e-folding), so
+nothing has been changed.
