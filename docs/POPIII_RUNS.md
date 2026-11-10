@@ -585,13 +585,81 @@ serial because the star-light ray passes the zones in order, 0.07 s lines; rough
 
 **Projection.** 300 M☉ at 6e-3 M☉/yr is 33 000 yr more. On the `DTENV` cap that is 9.5e5 steps, about 140 h. At the mean
 Δt of the oscillating phase (2.5e5 s) it is 4e6 steps, 600–800 h. `fx3` itself is making 16.5 yr/h at 102.6 M☉ (220 yr in
-13.35 h), which would be 2000 h. Whether the `AVTENSION=0` line keeps its 30–50 yr/h deeper in the oscillation is being
-tested by `t_px1` (the `fx3` state at 102.65 M☉ continued with `AVTENSION=0 CHEMSUB=1.3,3`).
+13.35 h), which would be 2000 h. `t_px1` (the `fx3` state at 102.65 M☉ continued with `AVTENSION=0 CHEMSUB=1.3,3`) showed
+that the difference to the 30–50 yr/h of the `AVTENSION=0` line was the cost per step, not Δt; see the next section, which
+replaces this projection.
 
 **`CHEMROBUST=1` with `CHEMSUB`** (`t_fb8`, from `z19full4B3_auto1` at 4.8 M☉): 0 fallbacks against about 5 per step in
 `full4`, Δt 9e4 s limited by the T change of zone 141, about 25 times less model time per step. This is the result of
 6 Nov (`POPIII_GOAL.md`) again; `CHEMSUB` does not change it. The fallbacks of `full4` are at zones 144–149, the shock
 layer just outside the photosphere (168–200 R☉, τ 2–0.1, T 5700–4300 K, n ≈ 1e14 cm⁻³).
+
+## Deep in the oscillation: the line transfer, the production switch, and the step at the front (10 Nov)
+
+**`t_px1`** (the `fx3` state at step 272020, 102.65 M☉, continued with `AVTENSION=0 CHEMSUB=1.3,3`, 4 threads): 1780 steps
+to 102.73 M☉ with 289 divergences and 11 chemistry fallbacks, mean Δt 2.5e5 s. `fx3` with its own flags over the same
+stretch: 15–47 divergences per 100 steps (`t_px1`: 16), mean Δt about 3.5e5 s. So the switch can be made in place at this
+mass, and by itself it changes neither Δt nor the pace. Stopped by hand at step 273800.
+
+**Where the time went: the ALI line-transfer call.** In the last 13.7 h segment of `fx3` 38 % of the wall time was
+`t_lines`, and 50–240 s of about 240 s per 100 steps towards its end (`t_px1`: 177–228 s of 263 s). The oscillation leaves
+a cold molecular shell at 2700–6500 R☉ (T 1300–1800 K, x(H₂) 0.14–0.32, falling at 46–90 km/s). There 100–113 H₂ lines are
+optically thick, the velocity span puts each on the maximum of 200 frequency bins, and the adaptive refresh interval of
+the full solution (`ALIINT`) drops to 1–8 steps. One call cost 10–14 s at 4 threads. The lines cannot be dropped there:
+they are 2–20 % of the net continuum heating in the shell.
+
+**The line solver was made cheaper without changing a bit of its result** (commit 0222371, `H2Lines.jl`): the ray geometry
+(path lengths, direction cosines) is built once per call instead of once per line and ray, `transfer_line` keeps its work
+arrays for the whole line, the exponential of each ray segment is taken once, and the lines are distributed over threads
+one task per line (`@threads :greedy`, since the thick lines are neighbours in the list). All floating-point expressions
+are in the original order. One call at step 272600 of `t_px1` (107 thick lines, 200 bins, 2 iterations):
+
+| threads | before | after |
+|---|---|---|
+| 4 | 14.5 s | 8.3 s |
+| 8 | | 3.3 s |
+| 16 | 7.1–7.9 s | 1.8 s |
+
+Allocation per call 16.5 GB → 0.32 GB (the allocation was what kept the old version from scaling with threads). Checked:
+the edge and photosphere line luminosities, the level populations and the total and collisional cooling are identical
+(sha1 of the arrays, and the sums to 17 digits) at steps 272400 and 272600, in the default mode, with `LINESRC=zone` and
+with `LINEQUAD=p2`; and a 300-step run from the production state (`t_pt16b` against `t_pt16`, 16 threads) is bit-identical
+in all 15 snapshots (T, ρ, u, E_r, species, line cooling) and in every non-timing column of `perf.csv`. In that pair the
+wall time per 100 steps went from 89 to 59 s and from 126 to 83 s.
+
+**Production switched to the standard flags at step 273550 (102.69 M☉, 08:41 on 10 Nov).** The segment `z19fx3d`
+(`AVTENSION=1`, no `CHEMSUB`, 4 threads) was stopped by hand; `z19fx3e` continues from `z19fx3d_auto1` with
+`AVTENSION=0 CHEMSUB=1.3,3 NTRY=60`, 16 threads, the new line solver, and `RUNREC` into `runs/fx3` (snapshots every 50
+steps, `perf.csv`). The first 600 steps (to 102.73 M☉): 0.59 s per step, mean Δt 3.3e5 s, 63 model yr per wall hour
+against 16.5 before; 82 divergences, 4 fallbacks. Per 100 steps: hydrodynamics and transport solve 22–58 s, chemistry
+17–27 s, lines 4–10 s, garbage collection 7–13 s. The solve is now the largest item (0.2–0.6 s per step for about 160
+zones, including the repeated steps); it has not been profiled.
+
+**Projection (replaces the one above).** 33 000 yr at 63 yr/h is about 520 h, three weeks, if the pace of the first 600
+steps holds; on the `DTENV` cap it would be about 140 h.
+
+**The step at the ionization front** (`t_px1`, steps 272020–273000, `DTDIAG=1`):
+
+- Δt is always limited by the 30 % rule on T or ρ in zones 137–155, the zones the front, the shock and the photosphere
+  pass through (1200–5000 R☉).
+- Distribution of Δt: below 1e4 s 4 % of the steps, 1e4–3e4 s 11 %, 3e4–1e5 s 18 %, 1e5–3e5 s 35 %, 3e5–1e6 s 31 %, above
+  1 %. The steps below 1e5 s are a third of all steps and advance 5 % of the model time.
+- The mesh there is fixed in radius with Δln r = 0.07–0.10, zones 150–300 R☉ wide. Gas falling at 50–100 km/s crosses a
+  zone in about 1.6e6 s; the `DTENV` cap is 1.08e6 s. The run is at an advective Courant number of 0.15–0.5 in these zones
+  even on the cap, so the implicit solver is not being used for steps far above the flow time there.
+- The front is one interface wide: T 10 000–12 900 K and x(H⁺) ≈ 1 on the inner side, 1830–2070 K and x(H⁺) = 2–3e-5 on
+  the outer (steps 272660, 272700, 272980). The photosphere is in the same zone and moves between 1450 and 2400 R☉ in
+  whole-zone jumps within about 7 yr. When the front crosses a zone, that zone goes from neutral to ionized in one or two
+  steps, which is what the 30 % rule reacts to.
+
+So time adaptivity is already there globally (`STOL`), and zone-local sub-stepping of chemistry and temperature is what
+`CHEMSUB` does. Sub-cycling the hydrodynamics and radiation of the front zones alone could save at most the third of the
+steps that are short, and the radiation couples those zones implicitly to all others. What is missing is spatial
+resolution that follows the front, so that no zone has to change its state in one step. The code has TITAN's adaptive
+grid equation in a window on the fixed mesh (`GRIDWIN=r1,r2,…`). It was tried once, on 8 Nov, together with a threefold
+`ENVSPLIT` (`gw5`, from 107.5 M☉ of an earlier line: `ENVSPLIT=1000,8000,3 GRIDWIN=500,8000,1e5,0.3,1,1.5,0.3,0.3,30`);
+Δt collapsed to 2e-7 s and the test was stopped without a diagnosis. The static split alone (`t_am1` above) was 5–7 times
+slower. `GRIDWIN` alone has not been tested.
 
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 
