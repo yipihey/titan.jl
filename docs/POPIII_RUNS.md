@@ -451,3 +451,124 @@ segment `z19full3B2`; the final checkpoint `z19full3B1` was written after the fa
 failed the same way at 03:13 (step 33178, 1.30 M☉; its process predated the guard) and continues from `z19full4B1_auto0`
 as `z19full4B2`. The guard removes the crash, not the stall: by 04:00 the restarted segments had met steps of zero
 duration 6 and 8 times and passed them.
+
+## The spurious hot root of the chemistry step: `CHEMSUB` (10 Nov)
+
+`full3` (step 34704, 2.6 M☉) and `full4` (step ~34400, 4.3 M☉) both stopped with `failure to converge after 60 attempts`.
+Cause, traced in `full3`: the photosphere zone in the accretion shock (zone 157, r = 256 R☉, n = 9.3e13 cm⁻³, p = 100–250,
+below `PSWITCH`) left the table at step 34702; the hydro step 34704 heated it to 6965 K and the chemistry step then took it
+to 2.6e6 K, fully ionized, +5.5e14 erg/g. The network integrator (`ChemNet.jl`) is one backward-Euler step in (x, ln T) at
+fixed ρ and u with no accuracy control, and the three-level atom's Peebles factor C uses the electron density of the start
+of the step (C ≈ 1.7e-3 there). The ionization avalanche has an e-folding time of about 6 s against Δt = 1.1e4 s, and the
+single step converged on a root that the resolved evolution never reaches. The energy went into E_r and Newton failed on
+the following steps.
+
+`CHEMSUB=fT,fx` (in `phaseA.env` and `phaseB.env` as `CHEMSUB=1.3,3`): a three-level network zone whose single step changes
+T by more than the factor fT, or x_e by more than fx (and by more than 1e-4), is integrated in halved sub-steps
+(recursively, to depth 16), each with its own start-of-step electron density. With it the same zones (n 5e13–2.4e14,
+T 5300–5500 K at the start of the step) end at x_e 2e-4–1.6e-3 with T 4–5 % lower and no step heats (`t_cs1`, steps
+34700–34900; `t_cs4` for `full4`, smooth to 4.26 M☉). Where the single step still converges on the right branch it
+overshoots x_e by 2–5×. Both chains continue from autosaves before the failure (`z19full3B3` from step 33000,
+`z19full4B3` from step 34000).
+
+Not removed by it: the rough spell of `full3` at 1.12 M☉ (steps 33100–33300, Δt 1e1–1e4 s, limited by T in the shock
+zone 141) recurs with a similar number of divergences (170 against 161 by step 33200).
+
+Cost on the production state (99.5 M☉): zones 148/149 at the ionization front (1.9e3 R☉, n 7.7e10, x_e 0.46) are
+sub-stepped to depth 16 on almost every step, with the same result as the single step (the hydro step cools the zone to
+~4800 K, the chemistry step heats it back to ~7000 K); the step costs 0.53 s against 0.49 s. The trigger could skip zones
+where the sub-stepped and single results agree; not done.
+
+`CHEMSUB` in phase A is exercised first by `full6`.
+
+## What heats the infalling envelope, and the tension viscosity (10 Nov)
+
+Production state at 99.46 M☉; rates in erg g⁻¹ s⁻¹:
+
+| r [R☉] | T (T_rad) [K] | x_e | κ_E cE | −κ_P 4σT⁴ | artificial viscosity | recombination-cycle heat (`GASQ`) | p dV |
+|---|---|---|---|---|---|---|---|
+| 2.9e3 | 5419 (3444) | 1.7e-2 | +2.27e6 | −3.22e6 | +6.56e5 | +2.84e5 | +2.8e4 |
+| 1e4 | 5418 (1824) | 7.1e-3 | +1.47e5 | −2.04e5 | +5.05e4 | +7.5e3 | +4.5e3 |
+| 2.9e4 | 5477 (1043) | 2.1e-3 | +8.9e3 | −1.19e4 | +2.74e3 | +1.2e2 | +7.9e2 |
+| 9.7e4 (front) | 4671 (569) | 7e-5 | +52 | −63 | +80 | 0.05 | +110 |
+| 2e5 | 1812 (399) | 2e-5 | net −1.5 | | +16.7 | | +13; H₂ lines −18.9 |
+| 3e5 | 1401 | | net −0.44 | | +5.4 | | +5.1; H₂ lines −6.4 |
+| 1e6 | 716 | | | | +0.11 | | +0.26; H₂ lines −0.18 |
+
+Inside ~5e4 R☉ the gas is heated by absorption of the star's continuum by H⁻ (photodetachment; κ_E/κ_P ≈ 56 because
+the diluted light is far hotter in colour than T_rad) and cooled by H⁻ radiative attachment at the gas temperature. The
+electrons (x_e 1e-3–1e-2) come from the three-level atom: Lyα is trapped, n = 2 is photoionized by the Balmer continuum.
+Direct Lyα bound–bound heating is ≲ 1 %, the recombination-cycle heat 3–9 %, Lyman–Werner heating negligible (H₂ is gone,
+which also removes the molecular cooling). Outside the front compression and viscosity heat and H₂ lines cool.
+
+**The viscosity term is numerical.** With `AVTENSION=1` (TITAN's default) a zone whose volume shrinks (div u < 0) keeps its
+viscous stress while it is stretched radially (∂u/∂r − u/r > 0), which is the state of smooth free fall; with `AVZONE=2`
+that supplied 20–25 % of the heating at 3e3–5e4 R☉ and as much as p dV out to 3e5 R☉. `AVTENSION=0` keeps the viscosity
+only where the zone is also compressed radially, that is in shocks. Test `t_avt0` from `z19fx3b` (99.46 → 100.22 M☉, 3000
+steps), against production at the same time:
+
+| r [R☉] | T, `AVTENSION=0` | T, production |
+|---|---|---|
+| 300 | 26647 | 27074 |
+| 1e3 | 10521 | 10392 |
+| 3e3 | 4174 | 5388 |
+| 1e4 | 4367 | 5398 |
+| 3e4 | 5059 | 5488 |
+| 1e5 | 2003 | 3923 |
+| 2e5 | 1469 | 1706 |
+| 3e5 | 1234 | 1324 |
+| 1e6 | 683 | 685 |
+
+T_rad is unchanged (3231 against 3261 K at 3e3 R☉), x(H⁺) is 3.6e-3 against 1.6e-2 at 3e3 R☉ and 1.5e-3 against 6.8e-3 at
+1e4 R☉, the infall slightly faster (−110 against −102 km/s at 3e3 R☉). Δt was 1.09e6 s with one divergence; production
+took 14 650 steps (mean 1.93e5 s) for the same interval.
+
+**`AVTENSION=0` is the standard from 10 Nov** (`phaseA.env`, `phaseB.env`; decided with T. Abel: the viscosity is there for
+the shocks). `full3` and `full4` keep `AVTENSION=1` through their `run.env`. The test continues past the mass where `fx3`
+stopped as `t_avt1`. In the collapse phase the setting is first used by `full6`.
+
+This corrects the 6 Nov note "Precursor temperature" in `POPIII_GOAL.md`: the mechanism (photodetachment heating with
+H⁻ above Saha) stands, but about 1000 K of the 5400 K plateau at 3e3–1e4 R☉, and the extent of the warm region beyond
+5e4 R☉, were viscous heating.
+
+## Table entry with T_gas = T_rad (`PSWRAD`) and a finer envelope mesh: tests from 99.46 M☉ (10 Nov)
+
+The zone on which `fx3` stopped at 101.3 M☉ had entered the table by the τ rule at 7600 K with T_rad = 5416 K (see "The
+envelope oscillation at 101 M☉"). `PSWRAD=ε[,phard]` (default off): a network zone enters the table only if
+|T_rad/T − 1| ≤ ε, unless p ≥ phard × `PSWITCH` (default 1: only entries below the pressure switch are tested). Staying
+and leaving are unchanged.
+
+Tests from `z19fx3b`, all with `ENVMS0=0.4737` and `AVTENSION=1` (started before the standard changed):
+
+| test | change | state after ~1000 steps |
+|---|---|---|
+| `t_pr1` | `PSWRAD=0.05` | Δt at the production mean (1.7e5 s), 0 divergences; the test has not yet rejected an entry |
+| `t_ms1` | `ENVSPLIT=300,3000,3` (286 → 360 zones; old zones 115–150 split in three) | mean Δt 5.4e4 s, limited by T in the split zones 201–205; 0 divergences |
+| `t_mp1` | both | as `t_ms1` |
+
+None has reached 100.96 M☉ (onset of the oscillation) or 101.3 M☉; nothing is established yet. A restart from a
+checkpoint written with `ENVSPLIT` must not set it again.
+
+## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
+
+`MCLOUD` (default 1e4 M☉) sets the gas mass on the mesh. The ABN02 read-off n(r) ends at 93 pc, which encloses 1.5e4 M☉;
+beyond, the builder continues the power law. T(M) and v(M) reach 2.2e4 M☉. `MCLOUD=2e4` puts the edge at 166.9 pc
+(T_edge 786 K, ρ_c/ρ_edge 1.6e5, 200 shells with mass ratio 1.12), with the outer quarter by mass on the extrapolated
+density.
+
+Dark matter is included (`DM=1`, default): the enclosed dark mass enters the hydrostatic interior and the momentum
+equation (`EXTMASS`). M_DM/M_gas is ≈ 77 inside 0.01 pc (a slope −1 continuation inwards, not a measured profile), 6.5 at
+0.5 pc, 3 at 2–4 pc and 15–22 outside 16 pc. The initial transient is not missing gravity. The model is hydrostatic only
+inside the splice at 4.77 pc; outside, the read-off profile is used as it is. Pressure gradient over gravity (gas + dark
+matter) in the first snapshot with `MCLOUD=2e4`: 0.985 at 3.5 pc, 0.79 at 7.1 pc, 0.075 at 16 pc, 0.40 at 27.6 pc, 1.00 at
+49 pc, 1.58 at 130 pc. So the gas between 7 and 30 pc falls (with the imposed −0.3 to −1 km/s), and the extrapolated outer
+part is over-pressured and expands against the constant-pressure boundary. Measured radial profiles of the ABN02 halo
+(gas, temperature, velocity, enclosed dark mass) to the virial radius would remove both the inner dark-matter guess and
+the outer extrapolation.
+
+`full5` (`MCLOUD=2e4`, radiation from log n_c 14, `AVTENSION=1`) was stopped at step 3200 (log n_c 4.45) when the viscosity standard
+changed; up to there log n_c followed `full3` to 0.002. `full6` is the same run with `AVTENSION=0`
+(`A1X="NSTOP=1e14" A2X="DTRADMAX=0"`, `runs/full6/run.env` = `MCLOUD=2e4`).
+
+New in `fullrun.sh`: `A1X="<settings>"` (appended to stage A1, as `A2X` for A2) and `<run directory>/run.env` (appended
+to the settings of every stage and restart; read when the chain starts).
