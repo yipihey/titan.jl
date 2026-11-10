@@ -42,6 +42,16 @@ Notes:
 - `m*`/`R*` in the `hot:` line and perf.csv are meaningful only after the remap (they take the first interface with
   u < −2 km/s, which in the cloud is the infall front).
 - Checkpoints of a run live in `runs/<run>/ck` (`CKDIR`), apart from the shared `ck/`.
+- `CHEMFBDENSE=1` (default, new on 9 Nov): a zone at p ≥ `PSWITCH` that is still on the network (T < `PSWTMIN`) and whose
+  network step fails takes the equilibrium-table step instead, in every phase; counted in `nchemfb` (perf.csv). Before, that
+  fallback existed only in phase B (`CHEMFALLBACK`), and both `full3` and `full4` died in stage A3: `full3` at step 11935,
+  `ChemNet.step: Newton failed` in the H₂ dissociation layer just below `PSWTMIN` (n_H 4.5e18 cm⁻³, T 4346 K, Δt 515 s,
+  twelve halvings without convergence); `full4` between steps 11700 and 11800 in the same way. Reproduced from the A2
+  checkpoint (`t_a3b`) and run through the failure step with the fallback (`t_a3c`). Both restarted stages
+  (`z19full3_A3_2`, `z19full4_A3_1`) are past it; the fallback is taken a few times per 100 steps (38 times by step 13000 in
+  `full3`, 18 by step 12400 in `full4`). `CHEMFBDENSE=0` restores the old behaviour.
+- A run that ends on an exception prints the first 400 characters of the message. That used a byte slice, which threw a
+  `StringIndexError` on a message with a multi-byte character at byte 400 and hid `full4`'s failure; now `first(msg, 400)`.
 
 ## Stability of the collapse (phase A)
 
@@ -236,3 +246,70 @@ and zone that limit Δt.
 - `python scripts/popiii_movie.py runs/<run> [--x r|m] [--fps 24]`: nine profile panels and the track, fixed axes, mp4.
 - The interactive explorer (artifact "Pop III Run Explorer") reads the same export, base64-encoded, with the run's perf.csv;
   it overlays another run matched by protostar mass (by central density before the protostar).
+- `julia -t 8 --project=<env> julia/snapspec.jl runs/<run> [stepmod]` computes emergent spectra of the snapshots (below) and
+  writes `export/spec.json` and `spec.f32`; the explorer shows them under "Emergent spectrum".
+
+## What the optical depth is
+
+The τ in the exports, the explorer and the driver (`logtau`, `r_ph`, `T_eff_lum`, `LTAUCUT`) is the grey continuum
+optical depth
+
+    τ_R(r_k) = Σ_{j ≥ k} χ_j ρ_j Δr_j ,
+
+summed from the outer mesh boundary inwards, with τ_R = 0 at the boundary: gas beyond the mesh does not count. χ is the
+Rosseland mean of the extinction (absorption plus Rayleigh and Thomson scattering) from the equilibrium opacity table,
+multiplied in the network zones by the lagged non-LTE ratio for the zone's own composition (`nlte_kappas`). The photosphere
+is the outermost interface with τ_R > 2/3 (none while the whole mesh is thinner than that: until step ~9760 in `full4`); `T_eff_lum` is (L/4πr²σ)^¼ there with the run's L.
+
+It is not a line optical depth and not a depth at any one wavelength. The H₂ lines have their own transfer, line by line;
+the continuum enters it only through the merging of the zones deeper than τ_R = `LTAUCUT` (10). The monochromatic depth
+τ_ν = ∫(κ_ν + σ_ν) ρ dr and the radius where it reaches 2/3 come with the spectra.
+
+## Emergent spectra (`snapspec.jl`)
+
+Post-processing of the recorded snapshots; nothing feeds back into a run. For each selected snapshot (`step % stepmod == 0`,
+default 160, plus the last) the continuum L_ν at 216 wavelengths from 0.05 to 1000 μm and the luminosity of each of the 231
+H₂ lines, both at the outer mesh boundary ("edge": what leaves the computed volume) and through the run's photosphere
+(τ_R = 2/3), and the radius where τ_ν = 2/3 at each wavelength. About 3 s per snapshot on 8 threads; results are cached in
+`runs/<run>/spec/`.
+
+- Continuum: static spherical transfer (tangent rays, Feautrier, accelerated Λ-iteration; a direct solve where Rayleigh
+  scattering dominates) on the snapshot's ρ, T_gas and network composition. Opacity: collision-induced absorption of H₂,
+  H⁻ bound–free and free–free, H bound–free and H⁺ free–free, Rayleigh and Thomson scattering (coherent, isotropic).
+  No atomic lines, no helium opacity.
+- Emission is thermal at T_gas except in the bound–free continua, which emit by radiative attachment (H⁻) and recombination
+  (H) of the zone's own electrons. LTE emission instead made the collisionally ionised gas outside the photosphere of the
+  accreting star 16 times brighter than the run in the Balmer continuum. These continua are averaged over each 4.7 %
+  frequency band: in cold gas the recombination emission falls off above a threshold within much less than a band, and
+  sampled at the grid frequency alone, the solver and the optically thin volume sum disagreed by a factor 6 and the
+  spectrum peaked at 0.36 μm instead of 1.5 μm.
+- Absorption by the excited levels of H is approximate: the run's three-level populations are not recorded, so the smaller
+  of the Saha (from the zone's n_e n_p) and Boltzmann (from the zone's n = 1) populations is used.
+- H₂ lines: the run's line transfer (ALI) on the snapshot. No continuum extinction of the lines. The run cools by the
+  collisional loss at the ALI populations (`LINECOLL=1`), which where lines are thick is 0.53 to 0.56 of the formal line
+  flux; the exported line luminosities are the formal ones scaled to the collisional total (`lscale`), so the sticks add up
+  to what the gas loses.
+- Zones deeper than τ_R = 300 are replaced by a thermal inner boundary.
+
+The temperature structure is the grey run's, so ∫L_ν dν need not equal the run's luminosity; both are exported and the
+ratio is the check.
+
+| Run, phase | ∫L_ν dν / run's L, edge | photosphere |
+|---|---|---|
+| `full4`, core formation (steps 10240–12000; T_eff ≈ 2050 K, L_edge ≈ 250 L☉) | 0.79–0.82 | 0.80–0.82 |
+| `full4`, first frame after the rebuild (step 9760) | 0.87 (109 against 126 L☉) | |
+| reference, 146 frames (0.5 to 97 M☉) | median 1.19; within 0.5–2 in 131 | median 0.93; within 0.5–2 in 137 |
+| reference, last frame (step 139400, T_eff 6051 K) | 1.01 (3.56e6 against 3.53e6 L☉) | 0.79 (2.66e6 against 3.35e6 L☉) |
+
+Optically thin frames agree with the direct volume sum of the emissivity to 2–3 % (2.89e30 against 2.96e30 erg/s at step
+1180 of `full4`). The H₂ line total reproduces the run's `L_lines` to 0.990–1.026 in `full4`.
+
+Where it does not hold: the first ~10 000 steps of the reference's accretion phase (steps < 34 000). The photosphere sits
+inside the accretion shock, where τ_R goes from below 2/3 to above 300 within one zone, so the "photosphere" spectrum is
+that of the first thick zone (69 times the run's L at step 28800); and the run's flux at the edge is a light-travel
+transient there (1.3e9 L☉ at step 24000, negative at step 33600), which a static solution cannot have.
+
+What the spectra show for the collapse: until the continuum transport is on, the continuum is 0.1–0.2 % of the H₂ line
+cooling (6e-4 against 0.3–0.6 L☉), and still 0.227 against 516 L☉ at step 9280, just below log n_c 14.
+
+Open: one zone where the run's κ_P is 2.5e-14 against the spectral 3.35e-12 cm² g⁻¹ (energetically negligible).

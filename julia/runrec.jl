@@ -56,7 +56,7 @@ avg(v) = 0.5 .* (v[1:end-1] .+ v[2:end])
 const FIELDS = [("logr", "log r [R_sun] (cell centre)"), ("logm", "log m [M_sun] (enclosed, cell centre)"),
     ("logrho", "log rho [g cm^-3]"), ("logT", "log T_gas [K]"), ("logTrad", "log T_rad = (E/a)^1/4 [K]"),
     ("u", "u [km/s]"), ("L", "L [L_sun] = 4 pi r^2 F"), ("xHp", "x(H+)"), ("xH2", "x(H2) (per H nucleus)"),
-    ("logxHm", "log x(H-)"), ("logtau", "log tau (Rosseland/flux mean, from outside)"), ("Gamma", "kappa L / 4 pi G m c"),
+    ("logxHm", "log x(H-)"), ("logtau", "log tau_R: grey continuum optical depth (Rosseland-mean extinction, absorption + scattering), integrated inwards from the outer mesh boundary"), ("Gamma", "kappa L / 4 pi G m c"),
     ("FcE", "F / cE"), ("logkap", "log chi [cm^2 g^-1]"), ("logkapP", "log kappa_P [cm^2 g^-1]"),
     ("Mdot", "Mdot = -4 pi r^2 rho u [M_sun/yr]"), ("eq", "equilibrium (table) zone flag"), ("logLam", "log |line cooling| (Lambda_ext) [erg cm^-3 s^-1]"),
     ("logr_o", "log r of the zone's outer interface [R_sun]"), ("logm_o", "log m at the zone's outer interface [M_sun]")]
