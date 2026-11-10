@@ -680,7 +680,7 @@ if HOTON
         sd = TX.step_diag(dt)
         HOTR[] = SM.burn!(sg; sd); EBURN[] += HOTR[].Ebur
         HOTM[] = SM.mix!(sg; sd, capmix = false, bridge = 4, tmax = 0.02)
-        HOTR[].Ebur / dt
+        dt > 0 ? HOTR[].Ebur / dt : 0.0      # a step of zero duration (Δt below the Float64 spacing of t) burns nothing
     end
 end
 """

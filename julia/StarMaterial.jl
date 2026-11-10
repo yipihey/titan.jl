@@ -538,7 +538,12 @@ end
 Convective mixing over the step just taken (see the module docstring). `tmax` (S5): partial mixing, at most the fraction of the composition change that shifts T of any zone by ≤ tmax in the fixed-e re-solve (the rest follows next step). `bridge = nb` (S5): convective regions are contiguous: gaps of ≤ nb interfaces (∇ ≤ ∇_ad at a single noisy interface) are filled with D = min of the neighbours, and a core is extended to the centre; without it the intermittently unmixed core drifted in composition and the next mixing re-solved T at fixed e (ΔT/T up to 24 % in the central zone). `capmix = false` (S5): mixing does not limit dt. The net (burn + mixing) change of X_H per zone limited dt to dXmax per step, but a redistribution of composition conserves the mass of every species: when the convective core switched off and on between steps (its flux is zero for ∇ ≤ ∇_ad), the step that mixed a core burnt unmixed for one step moved X_H by 0.1 in a zone and cut dt to 1e-6 yr, which kept the core unmixed: a death spiral (15 and 100 M☉ runs). Returns (cons = max_i |Δ(Σ dm Y_i)|/Σ dm Y_i,
 nconv = number of interfaces with D > 0, Dmax, t_turn = min over convective interfaces of ℓ/v, dEmax = max zone energy change).
 """
-function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd = TX.step_diag(dt), D = nothing, capmix = true, bridge = 0, tmax = Inf)
+function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd = nothing, D = nothing, capmix = true, bridge = 0, tmax = Inf)
+    # A step of zero duration mixes nothing. It happens when the retry loop has halved Δt below the spacing of Float64 at the
+    # current time (0.125 s at t = 7e14 s), so that timen == timeo; dm/dt in mix_species! is then infinite and the compositions
+    # of the convective zones come back NaN (same case as the dt > 0 guard of burn_zone).
+    (isfinite(dt) && dt > 0) || (println("mix!: step of zero duration (dt = $dt), no mixing"); return (; cons = 0.0, nconv = 0, Dmax = 0.0, t_turn = Inf, dEmax = 0.0))
+    sd === nothing && (sd = TX.step_diag(dt))
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dn, tn, egn, rn, dvoln = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:rn), TM.v(:dvoln)
     n = b - a + 1

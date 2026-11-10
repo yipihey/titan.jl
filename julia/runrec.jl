@@ -100,9 +100,9 @@ function export_frames(dir; every = 1, old = nothing, out = joinpath(dir, "expor
     end
     open(joinpath(out, "track.csv"), "w") do io
         println(io, join(SCAL, ","))
-        for (S, _, _) in fr; println(io, join((@sprintf("%.6g", v) for v in S), ",")); end
+        for (S, _, _) in fr; println(io, join((@sprintf("%.12g", v) for v in S), ",")); end    # 12 digits: Δt of 1e4 s at t = 2e7 yr
     end
-    js(v) = isfinite(v) ? @sprintf("%.6g", v) : "null"
+    js(v) = isfinite(v) ? @sprintf("%.12g", v) : "null"
     open(joinpath(out, "frames.json"), "w") do io
         print(io, "{\"fields\":[", join(("[\"$k\",\"$d\"]" for (k, d) in FIELDS), ","), "],\"scalars\":[", join(("\"$s\"" for s in SCAL), ","), "],\"frames\":[")
         print(io, join(("{\"n\":$n,\"off\":$o,\"s\":[" * join(js.(S), ",") * "]}" for (S, n, o) in fr), ","))

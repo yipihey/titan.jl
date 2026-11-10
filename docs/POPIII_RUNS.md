@@ -394,5 +394,23 @@ costs half an hour more in A2 and nothing afterwards.
 are E_r and F_r in the first zones outside the stellar surface (zones 113–125), where one zone has τ ≈ 900 and T = 8500 K
 and the next has τ ≈ 0.008 and T = 3100 K with T_rad = 930 K, and where the zone flag changes from table to network. When Δt
 falls to seconds there L_ph falls from about 3000 to about 10 L☉. This is the same unresolved surface that the production
-line has at 101 M☉ (previous section). The mass still grows at the October pace (about 6000 steps per e-folding), so
-nothing has been changed.
+line has at 101 M☉ (previous section).
+
+**Slower and more extended than the October history** (correction, 10 Nov 03:00; an earlier version of this paragraph
+said the mass grew at the October pace, which was not checked and is wrong). The October history, which is the start of
+the production lineage, took 900 steps from 0.52 to 1.88 M☉ and had R* = 84.5 R☉, r_ph = 95 R☉ and L_ph = 4500 L☉ at
+1.0 M☉. `full3` and `full4` took 3400 steps (12 yr) from 0.51 to 1.12 M☉ and have R* = 149 R☉ and r_ph = 158 R☉ at
+1.0 M☉, with about 1500 L☉ leaving the accretion shock. The October run crossed this mass range before the star-light
+set (`STARLIGHT`, `SL3`, `NLOPAC`, `SLBLEND`, `SLEB`, `LYABB`), the flux tie at the outer photosphere (`FLUXTIE`) and the
+envelope Δt rule (`DTENV`) existed; these were developed between 36 and 100 M☉ and `phaseB.env` applies them from the
+remap on. Which of them changes the early accretion is being tested from the remap checkpoint (`z19full3_A3_2`), one
+switch at a time. Until that is known, the 0.5–2 M☉ part of the from-scratch runs is not a reproduction of October.
+
+**`full3` crash at 1.12 M☉** (10 Nov 02:38, step 33216): `PopIIIEqEOS.eos: rho = 9.2e-21 below the table`. The run had
+stalled at the accretion shock (0.3 yr in 600 steps, Δt limited by T in zone 141, where τ falls from 575 to 0.1 across one
+zone). One step needed 18 halvings, which brought Δt to 4.6e-3 s. At t = 7.4e14 s the spacing of Float64 is 0.125 s, so
+the step had `timen == timeo`. `mix!` divides the zone mass by the step duration, the compositions of the convective core
+came back NaN, and the next equation-of-state call failed. Fix: `mix!` returns without mixing when the step duration is
+not positive (the same guard `burn_zone` has since 81105fc). `full3` continues from the autosave `z19full3B1_auto0` as
+segment `z19full3B2`; the final checkpoint `z19full3B1` was written after the failure and must not be used. The guard
+removes the crash, not the stall.
