@@ -17,10 +17,12 @@
 #   A1:<ck> continue A1 from its checkpoint      R:<ck>  start A2 (rebuild) from a hydro-only checkpoint
 #   A2:<ck> continue A2                          A3:<ck> start or continue A3        B:<ck> start or continue B
 # A2X="<settings>" (environment): extra settings of the rebuild stage (they override stageA2.env)
+# A1X="<settings>" (environment): the same for stage A1 (e.g. A1X="NSTOP=1e14" A2X="DTRADMAX=0": continuum transport from log n_c 14)
+# <run directory>/run.env: settings of this run for every stage and every restart (e.g. MCLOUD=2e4); they override the stage files
 HERE=$(cd "$(dirname "$0")" && pwd); JLENV=${JLENV:?set JLENV to a julia project with the repository packages}; DATA=${DATA:-/zpool/nvme/data/tabel_scratch/titan_popiii}
 RUN=$1; FROM=${2:-}; TH=${3:-4}; SEG=100000; REFINE=${REFINE:-1e-3,0.1,0.03}
 R=$DATA/runs/$RUN; CK=$R/ck; mkdir -p $CK
-COMMON="RUNREC=$R POPIII_OUT=$R CKDIR=$CK SNAPEVERY=20 PRINTEVERY=100 SNAPS=0 TIMING=1 DTDIAG=1 MSG=1 TAG=_$RUN"
+COMMON="RUNREC=$R POPIII_OUT=$R CKDIR=$CK SNAPEVERY=20 PRINTEVERY=100 SNAPS=0 TIMING=1 DTDIAG=1 MSG=1 TAG=_$RUN $([ -f $R/run.env ] && cat $R/run.env)"
 cd $HERE/../../julia
 log() { echo "$(date '+%F %T') $*" >> $R/procedure.log; }
 run() { local out=$1; shift; env "$@" setsid julia -t $TH --project=$JLENV popiii_m2c.jl lines 200 > $out 2>&1 < /dev/null; }
@@ -37,7 +39,7 @@ stage() {
 A="$(cat $HERE/phaseA.env)"; st=A1; ck=
 case "$FROM" in "") ;; A1:*|R:*|A2:*|A3:*|B:*) st=${FROM%%:*}; ck=${FROM#*:} ;; *) echo "unknown start $FROM" >&2; exit 2 ;; esac
 if [ $st = A1 ]; then
-  stage A1 'stopped: T_c' $(cat $HERE/stageA1.env) ${ck:+RESTART=$ck}; st=R
+  stage A1 'stopped: T_c' $(cat $HERE/stageA1.env) ${A1X:-} ${ck:+RESTART=$ck}; st=R
 fi
 if [ $st = R ]; then
   stage A2 'stopped: T_c' $(cat $HERE/stageA2.env) RADFROM=$ck REFINE=$REFINE ${A2X:-}
