@@ -760,9 +760,18 @@ blocks −0.106 against −0.131, and to the half-split zone outside −0.135 ag
 removed, on a profile with curvature. Whether the entropy steps behind the shock go with it is open until those zones
 have passed the shock.
 
-Two things limit how far this matters in `full6`. `REZNMAX=340` is reached at step 16500 (0.044 M☉), so nothing beyond
-m ≈ 0.24 M☉ is split: those zones carry no sawtooth, and they cross the shock as 10.8 % zones. Stage A3 ends at 0.5 M☉
-with the remap onto the fixed mesh. Two other attempts did not work: splitting 40 or more zones in one pass by mass
+**Outcome (13:20 on 10 Nov): the split rule does not change the entropy steps behind the shock.** `t_sml` and `t_sm0`
+ran 6000 steps, to 0.22 M☉. The gas accreted after 0.1 M☉ was split after step 16020, so with the two different rules.
+Compared at M★ = 0.2228 (`stcmp.jl`), `t_sml` / `t_sm0` / `full6`: roughness of ln s over the 25 zones accreted since
+0.1 M☉ 0.037 / 0.038 / 0.035, over the 8 zones since 0.16 M☉ 0.048 / 0.050 / 0.045; largest step 0.141 / 0.138 / 0.136;
+mean step across block edges 0.066 / 0.068 / 0.068 and inside blocks 0.032 / 0.031 / 0.032. The steps at the block edges
+are twice those inside with either rule, so the density sawtooth of the split is not what sets them. What does is open.
+
+A statement made here earlier was wrong: that with `REZNMAX=340` reached at step 16500 nothing beyond 0.24 M☉ is split.
+The window keeps splitting as the star grows (the zone at 0.24 M☉ went from 26.9e-3 to 6.7e-3 M☉ between steps 16500
+and 18000; by step 24000 everything inside 1.0 M☉ has been split twice), so all the gas that crosses the shock in stage
+A3 arrives in 2.8 % zones in blocks of four. Stage A3 ends at 0.5 M☉ with the remap onto the fixed mesh. Two other
+attempts did not work: splitting 40 or more zones in one pass by mass
 (`t_saz`, `t_saz2`: the radiation rows diverge far outside the split range; `t_saz3`, `REZWIN=1.3,4,0.02` with
 `REZNMAX=420`: 60 divergences in 1500 steps) and splitting by Δr/r as well (`REZDR=0.2`, `t_sad`: 44 divergences in 1100
 steps, Δt 2e2–1e3 s, and the surface found at 3 R☉ and 0.027 M☉ at step 16500 where the control has 7.4 R☉ and 0.044 M☉).
