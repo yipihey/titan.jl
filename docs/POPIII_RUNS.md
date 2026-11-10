@@ -546,8 +546,52 @@ Tests from `z19fx3b`, all with `ENVMS0=0.4737` and `AVTENSION=1` (started before
 | `t_ms1` | `ENVSPLIT=300,3000,3` (286 → 360 zones; old zones 115–150 split in three) | mean Δt 5.4e4 s, limited by T in the split zones 201–205; 0 divergences |
 | `t_mp1` | both | as `t_ms1` |
 
-None has reached 100.96 M☉ (onset of the oscillation) or 101.3 M☉; nothing is established yet. A restart from a
-checkpoint written with `ENVSPLIT` must not set it again.
+None reached 100.96 M☉ (onset of the oscillation) before the viscosity standard changed; `t_pr1` was stopped at
+100.16 M☉ with 0 divergences. The same switches on the `AVTENSION=0` line are in the next section.
+A restart from a checkpoint written with `ENVSPLIT` must not set it again.
+
+## The `AVTENSION=0` line from 100.2 to 101 M☉: the same oscillation, and what a step costs (10 Nov)
+
+`z19avt0` (the `AVTENSION=0` branch of `z19fx3b`, 100.23 M☉) was continued in four variants, all with `ENVMS0=0.4737` on
+4 threads. Numbers from each test's `perf.csv`, state at 08:00 on 10 Nov:
+
+| test | added to `AVTENSION=0` | 100.24 → 100.63 M☉ (smooth) | from 100.63 M☉ (oscillating) |
+|---|---|---|---|
+| `t_avt1` | nothing | 1500 steps, mean Δt 9.9e5 s, 0 divergences | to 101.08 M☉: 9100 steps, mean Δt 2.5e5 s, 946 divergences, 60 chemistry fallbacks, 42 model yr per wall hour (31 in the last 0.15 M☉) |
+| `t_ac1` | `CHEMSUB=1.3,3` | 3900 steps, mean Δt 3.7e5 s, 1 divergence | to 100.77 M☉: 2700 steps, mean Δt 2.6e5 s, 35 divergences, 0 fallbacks, 54 yr/h (`t_avt1` over the same mass: 168 divergences, 46 yr/h) |
+| `t_ap1` | `CHEMSUB`, `PSWRAD=0.05` | identical to `t_ac1` line by line to 100.75 M☉ (step 195400): the test never rejects an entry. Stopped. | |
+| `t_am1` | `CHEMSUB`, `ENVSPLIT=300,3000,3` | 5900 steps for 0.07 M☉: mean Δt 4.8e4 s, limited by T in the split zones (200–204), 67 fallbacks. 10 yr/h. | not reached |
+
+- **The oscillation is not caused by the tension viscosity.** Without it the envelope leaves the steady state at
+  100.63 M☉ (`fx3`: 100.96 M☉). `t_avt1` at 100.87 M☉: the ionized, optically thick layer between 25 and 2000 R☉ has
+  Γ = 0.93–1.24, the inflow is brought to rest near 750 R☉, and the gas between 1200 and 2070 R☉ moves outwards at 10 to
+  26 km/s. `fx3` at 102.55 M☉: Γ = 0.98–1.00 from 25 to 740 R☉ and a dense cold shell at 2800–3900 R☉. L is
+  3.4–3.8e6 L☉ against an electron-scattering Eddington luminosity of 3.82e6 L☉. In both lines the mass of the star keeps
+  growing at the rate it had before, 6.2e-3 M☉/yr (`t_avt1` 100.63 → 101.08 M☉ in 71 yr; `fx3` 101.3 → 102.65 M☉ in
+  220 yr). No energy budget of the envelope has been made; that the accretion is ending is still not established.
+- Before the oscillation the hydrogen ionization front is one mesh zone wide (zones 148 → 149: x(H⁺) 0.84 → 0.012,
+  τ 0.74 → 0.05).
+- The steady state does not depend on Δt: `t_avt1` (Δt 1.09e6 s) and `t_ac1` (4.3e5 s) at 100.30 M☉ agree to about 1 %
+  in the profiles (4 % at zone 148).
+- `CHEMSUB` removes most divergences and all chemistry fallbacks at this mass, and costs a factor 2.7 in Δt in the smooth
+  phase (cause not traced). `PSWRAD` and the split mesh bring nothing here.
+
+**What sets the step.** In the smooth phase Δt sits on the `DTENV=1000,1e5,0.2` cap: 0.2 of the shortest free-fall time
+(r³/Gm)^½ outside 1000 R☉, 1.09e6 s at 100 M☉. In the oscillation Δt is set by the 30 % limit (`STOL`) on the temperature
+change of the zones the ionization front crosses (`dtlim` T@143–151), not by the divergences. The free-fall time at
+1500 R☉ is 1.4e7 s and the oscillation period is of that order, so the oscillating envelope is followed with about 50
+steps per dynamical time. One step costs 0.55–0.67 s (calm: 0.23 s hydrodynamics and transport solve, 0.27 s chemistry,
+serial because the star-light ray passes the zones in order, 0.07 s lines; rough: 0.42/0.31/0.30 s).
+
+**Projection.** 300 M☉ at 6e-3 M☉/yr is 33 000 yr more. On the `DTENV` cap that is 9.5e5 steps, about 140 h. At the mean
+Δt of the oscillating phase (2.5e5 s) it is 4e6 steps, 600–800 h. `fx3` itself is making 16.5 yr/h at 102.6 M☉ (220 yr in
+13.35 h), which would be 2000 h. Whether the `AVTENSION=0` line keeps its 30–50 yr/h deeper in the oscillation is being
+tested by `t_px1` (the `fx3` state at 102.65 M☉ continued with `AVTENSION=0 CHEMSUB=1.3,3`).
+
+**`CHEMROBUST=1` with `CHEMSUB`** (`t_fb8`, from `z19full4B3_auto1` at 4.8 M☉): 0 fallbacks against about 5 per step in
+`full4`, Δt 9e4 s limited by the T change of zone 141, about 25 times less model time per step. This is the result of
+6 Nov (`POPIII_GOAL.md`) again; `CHEMSUB` does not change it. The fallbacks of `full4` are at zones 144–149, the shock
+layer just outside the photosphere (168–200 R☉, τ 2–0.1, T 5700–4300 K, n ≈ 1e14 cm⁻³).
 
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 
@@ -567,8 +611,18 @@ part is over-pressured and expands against the constant-pressure boundary. Measu
 the outer extrapolation.
 
 `full5` (`MCLOUD=2e4`, radiation from log n_c 14, `AVTENSION=1`) was stopped at step 3200 (log n_c 4.45) when the viscosity standard
-changed; up to there log n_c followed `full3` to 0.002. `full6` is the same run with `AVTENSION=0`
+changed; up to there log n_c followed `full3` to 0.005. `full6` is the same run with `AVTENSION=0`
 (`A1X="NSTOP=1e14" A2X="DTRADMAX=0"`, `runs/full6/run.env` = `MCLOUD=2e4`).
+
+`full6` to 08:00 on 10 Nov, the first from-IC run with `AVTENSION=0` and `CHEMSUB=1.3,3`: stage A1 to log n_c 14 in
+9171 steps (40 min, 0 divergences), stage A2 to T_c = 5e4 K at step 10739 (55 min, 3 divergences, n_c 4.9e22 cm⁻³), 0
+chemistry fallbacks in both; stage A3 (core growth) running, 0.004 M☉ at step 11400 with 0 divergences. Core formation at
+t = 2.27067718e7 yr (`full4`, `MCLOUD=1e4` and `AVTENSION=1`: 2.33773179e7 yr).
+
+`full3` and `full4` in phase B (both `AVTENSION=1` by their `run.env`, with `CHEMSUB`): `full3` pass 3 took about 1650
+divergences between 1.1 and 1.25 M☉ (steps 33000–35000, Δt 10–1000 s; the one-zone photosphere and shock layer at
+160–185 R☉, zones 141–146) and has run freely since, 3.2 M☉ at step 35400 with Δt 6e6 s. `full4` is at 7.8 M☉ (step
+35500) with 59 divergences and about 5 chemistry fallbacks per step (see the `CHEMROBUST` note above).
 
 New in `fullrun.sh`: `A1X="<settings>"` (appended to stage A1, as `A2X` for A2) and `<run directory>/run.env` (appended
 to the settings of every stage and restart; read when the chain starts).
