@@ -396,15 +396,39 @@ and the next has τ ≈ 0.008 and T = 3100 K with T_rad = 930 K, and where the z
 falls to seconds there L_ph falls from about 3000 to about 10 L☉. This is the same unresolved surface that the production
 line has at 101 M☉ (previous section).
 
-**Slower and more extended than the October history** (correction, 10 Nov 03:00; an earlier version of this paragraph
-said the mass grew at the October pace, which was not checked and is wrong). The October history, which is the start of
-the production lineage, took 900 steps from 0.52 to 1.88 M☉ and had R* = 84.5 R☉, r_ph = 95 R☉ and L_ph = 4500 L☉ at
-1.0 M☉. `full3` and `full4` took 3400 steps (12 yr) from 0.51 to 1.12 M☉ and have R* = 149 R☉ and r_ph = 158 R☉ at
-1.0 M☉, with about 1500 L☉ leaving the accretion shock. The October run crossed this mass range before the star-light
-set (`STARLIGHT`, `SL3`, `NLOPAC`, `SLBLEND`, `SLEB`, `LYABB`), the flux tie at the outer photosphere (`FLUXTIE`) and the
-envelope Δt rule (`DTENV`) existed; these were developed between 36 and 100 M☉ and `phaseB.env` applies them from the
-remap on. Which of them changes the early accretion is being tested from the remap checkpoint (`z19full3_A3_2`), one
-switch at a time. Until that is known, the 0.5–2 M☉ part of the from-scratch runs is not a reproduction of October.
+**Same mass growth as October, larger radius, more steps** (10 Nov 03:20; an earlier version of this paragraph said the
+mass grew at the October pace per step, which was not checked and is wrong). Time is counted from M* = 0.52 M☉; R*, r_ph
+and L_ph are medians over seven snapshots (`cmpacc.jl` on the recorded histories):
+
+| M* | | October lineage | `full3` | `full4` |
+|---|---|---|---|---|
+| 0.60 M☉ | t [yr] / steps | 1.46 / 400 | 1.32 / 1280 | 1.22 / 860 |
+| | R* [R☉] | 71 | 82 | 82 |
+| 0.80 M☉ | t / steps | 5.2 / 500 | 5.0 / 1900 | 5.4 / 1520 |
+| | R* | 75 | 121 | 125 |
+| 1.00 M☉ | t / steps | 9.6 / 600 | 9.7 / 2240 | 10.1 / 1880 |
+| | R* / r_ph | 84.5 / 95 | 149 / 159 | 154 / 163 |
+| 1.10 M☉ | t / steps | 12.3 / 650 | 11.3 / 2640 | 11.7 / 2620 |
+
+The mass grows at the same rate in time (0.05 M☉/yr averaged from 0.52 M☉; 0.023–0.033 M☉/yr through 10⁴ R☉) in all
+three. The new runs need three to four times as many steps, because of the stalls at the accretion shock, and the star
+is 1.8 times larger at 1.0 M☉. In October 3000–4000 L☉ left the photosphere at these masses; in the new runs about
+1500 L☉ leaves the shock and the luminosity at the τ = 2/3 interface flickers between 10 and a few thousand L☉ as that
+interface hops across the shock. The radius has not been compared with published tracks.
+
+The October run crossed this mass range on 3–4 Nov, before the star-light set (`STARLIGHT`, `SL3`, `NLOPAC`, `SLBLEND`,
+`SLEB`, `LYABB`), the flux tie at the outer photosphere (`FLUXTIE`) and the envelope Δt rule (`DTENV`) existed; these
+were developed between 36 and 100 M☉ and `phaseB.env` applies them from the remap on. Tests from the remap checkpoint
+`z19full3_A3_2` (`t_<tag>` run directories), one switch at a time:
+
+| test | result |
+|---|---|
+| `FLUXTIE` removed | worse: Δt falls to 1e-8 s at 0.534 M☉, failure to converge after 60 attempts at step 30448 |
+| `DTENV` removed | identical to `full3` for the first 600 steps |
+| star-light set off (`STARLIGHT=0 SL3=0 NLOPAC=0 SLBLEND=0 SLEB=0 LYABB=0`), with or without `FLUXTIE` | fails on the first step (20 divergences, then a non-finite Jacobian) |
+| `LYABB=0`; `NLOPAC=0 SLBLEND=0` | running |
+
+So neither the flux tie nor the envelope Δt rule causes the difference. The cause of the larger radius is not known.
 
 **`full3` crash at 1.12 M☉** (10 Nov 02:38, step 33216): `PopIIIEqEOS.eos: rho = 9.2e-21 below the table`. The run had
 stalled at the accretion shock (0.3 yr in 600 steps, Δt limited by T in zone 141, where τ falls from 575 to 0.1 across one
