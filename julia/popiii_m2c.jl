@@ -265,7 +265,10 @@ PS.build!(; rI, rho, T = Tz, u = uI, geom = 2, lgrid = 3, inner = :wall, outer =
           selfgrav = true, material = mat, av)
 # SHOCKRAD=1: sub-grid radiative shock (TitanResidFast.SHOCK_RAD); SHOCKDU="du1,du2" in km/s
 TX.SHOCK_RAD[] = get(ENV, "SHOCKRAD", "0") == "1"
-TX.AV_TENSION[] = get(ENV, "AVTENSION", "1") == "1"
+TX.AV_TENSION[] = get(ENV, "AVTENSION", "1") == "1"       # 1 (TITAN) | 0 | f in (0,1) | radial | radial,f  (TX.AV_TFRAC)
+let p = split(get(ENV, "AVTENSION", "1"), ","), f = tryparse(Float64, p[end])
+    TX.AV_TRAD[] = p[1] == "radial"; TX.AV_TFRAC[] = f !== nothing && 0 < f < 1 ? f : 0.0
+end
 TX.AV_CAP[] = parse(Float64, get(ENV, "AVCAP", "0"))
 haskey(ENV, "SHOCKDU") && (TX.SHOCK_DU[] = Tuple(1e5 .* parse.(Float64, split(ENV["SHOCKDU"], ","))))
 TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))    # G1: viscous length = AVZONE × zone width (0 = ql1 r̄ above)
@@ -822,6 +825,7 @@ S6-C2: rezone (Rezone.plan/apply) and rebuild. The material state of a split zon
 numbers of splits and merges.
 """
 const REZDR = parse(Float64, get(ENV, "REZDR", "0"))
+Rezone.SLOPE_LNR[] = get(ENV, "REZSLOPE", "") == "lnr"      # slopes of a split per unit of ln r (Rezone.SLOPE_LNR)
 function rezone!(k; force = nothing)
     p = profile_now()
     # moving window (REZWIN=flo,fhi,frac): zones with m_enc in [flo, fhi] × m★ (m★: inside the first interface falling faster than

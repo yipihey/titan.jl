@@ -31,6 +31,14 @@ module Rezone
 export Profile, plan, apply, totals
 
 minmod(a, b) = a * b <= 0 ? 0.0 : (abs(a) < abs(b) ? a : b)
+"""
+SLOPE_LNR[] (REZSLOPE=lnr; default false): the limited slopes of a split (ln ρ, e, ln E_r) are taken per unit of ln r and
+multiplied by the distance of the two half centres. The default takes them per zone index (half the smaller neighbour
+difference), which is the same thing only on a mesh of equal ratios: next to a zone that was already split (centres 0.6–0.75
+of a zone apart) it underestimates the slope by that factor, and every split zone keeps a flat interior with a jump at its
+edges (the period-4 density sawtooth of the twice-split infall, POPIII_RUNS.md).
+"""
+const SLOPE_LNR = Ref(false)
 
 struct Profile
     rI::Vector{Float64}; u::Vector{Float64}; Fr::Vector{Float64}     # n + 1 interfaces (rI[1] = 0: regular centre)
@@ -163,6 +171,22 @@ function apply(p::Profile, splits, merges; Tofe, eosT = nothing)
             x = exp(-g); ρout = m * (1 + 1 / x) / (2V); ρin = x * ρout          # Δm/(2ρin) + Δm/(2ρout) = V
             rh = cbrt(p.rI[k]^3 + 3 / (4π) * m / (2ρin))
             δ = k == 1 || k == n ? 0.0 : 0.25 * minmod((p.e[k+1] - p.e[k]) / p.e[k], (p.e[k] - p.e[k-1]) / p.e[k])
+            ε = k == 1 || k == n ? 0.0 : 0.25 * minmod(log(p.Er[k+1] / p.Er[k]), log(p.Er[k] / p.Er[k-1]))
+            if SLOPE_LNR[] && 1 < k < n
+                # limited slopes per unit of ln r (x: ln of the volume-centred radius), times the distance of the two half
+                # centres (which depends on g through r_h: fixed point, converged in a few passes)
+                xc(i) = log(0.5 * (p.rI[i]^3 + p.rI[i+1]^3)) / 3
+                xo = xc(k + 1) - xc(k); xi = xc(k) - xc(k - 1)
+                sρ = minmod(log(p.ρ[k+1] / p.ρ[k]) / xo, log(p.ρ[k] / p.ρ[k-1]) / xi)
+                dxh = 0.0
+                for _ in 1:6
+                    dxh = (log(0.5 * (rh^3 + p.rI[k+1]^3)) - log(0.5 * (p.rI[k]^3 + rh^3))) / 3
+                    g = sρ * dxh; x = exp(-g); ρout = m * (1 + 1 / x) / (2V); ρin = x * ρout
+                    rh = cbrt(p.rI[k]^3 + 3 / (4π) * m / (2ρin))
+                end
+                δ = 0.5 * dxh * minmod((p.e[k+1] - p.e[k]) / xo, (p.e[k] - p.e[k-1]) / xi) / p.e[k]
+                ε = 0.5 * dxh * minmod(log(p.Er[k+1] / p.Er[k]) / xo, log(p.Er[k] / p.Er[k-1]) / xi)
+            end
             Tin = Tout = NaN
             if eosT !== nothing && 1 < k < n
                 # pressure-consistent split: P_in,out = P̄ ∓ ½ΔP with ΔP from the limited pressure slope in mass across the
@@ -188,7 +212,6 @@ function apply(p::Profile, splits, merges; Tofe, eosT = nothing)
                 end
             end
             Vin = 4π / 3 * (rh^3 - p.rI[k]^3); Vout = V - Vin
-            ε = k == 1 || k == n ? 0.0 : 0.25 * minmod(log(p.Er[k+1] / p.Er[k]), log(p.Er[k] / p.Er[k-1]))
             Ein = p.Er[k] * V / (Vin + Vout * exp(2ε)); Eout = Ein * exp(2ε)  # E_in V_in + E_out V_out = E_r V
             uh = 0.5 * (p.u[k] + p.u[k+1]); Fh = 0.5 * (p.Fr[k] + p.Fr[k+1])   # equal masses: linear in mass = mean
             if isnan(Tin)

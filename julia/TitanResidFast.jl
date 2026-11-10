@@ -170,9 +170,13 @@ radially relative to the mean (dudr > 0, the traceless form). Then q < 0, a tens
 zones outside an accretion shock) it can reach ~10× gravity and accelerate an infalling shell past the escape speed.
 false: viscosity only under radial compression.
 AV_CAP[] (default 0 = off): viscous length limited to AV_CAP × r̄.
+AV_TFRAC[], AV_TRAD[] (default 0, false = off; used with AV_TENSION[] = false): a reduced tension. AV_TFRAC = f in (0, 1): the stress of
+the tension zones is kept, times f. AV_TRAD: it is kept only where the zone is compressed radially in the plain sense (∂u/∂r < 0: the
+ramp of a shock whose zones are wide, Δr ~ r), not in smooth free fall (∂u/∂r > 0); times AV_TFRAC if that is set.
 """
 const AV_TENSION = Ref(true)
 const AV_CAP = Ref(0.0)
+const AV_TFRAC = Ref(0.0); const AV_TRAD = Ref(false)
 """
 SHOCK_RAD[] (S6, default false; lrad = 1, TITAN's gas + radiation row): sub-grid radiative shock. The viscous heat of a zone whose velocity jump
 would give a post-shock temperature T_s = (3/16) μ m_H Δu²/k above SHOCK_DU[] goes to the radiation energy row instead of the gas. Physically the gas
@@ -572,7 +576,13 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         ql = AV_ZONE[] > 0 ? AV_ZONE[] * (r[k+1] - r[k]) : P.ql0 + P.ql1 * 0.5 * (r[k] + r[k+1])
         AV_CAP[] > 0 && (ql = min(ql, AV_CAP[] * 0.5 * (r[k] + r[k+1])))
         div = (rmu[k+1] * u[k+1] - rmu[k] * u[k]) / dvol[k]
-        qv = decide(:vis, 0, k, val(div) < 0 && (AV_TENSION[] || val(dudr[k]) < 0)) ? div : zero(T)
+        if AV_TFRAC[] > 0 || AV_TRAD[]            # reduced tension (see AV_TFRAC)
+            rc = val(div) < 0 && val(dudr[k]) < 0
+            ten = val(div) < 0 && !rc && (!AV_TRAD[] || val(u[k+1]) < val(u[k]))
+            qv = decide(:vis, 0, k, rc) ? div : decide(:vis, 1, k, ten) ? (AV_TFRAC[] > 0 ? AV_TFRAC[] : 1.0) * div : zero(T)
+        else
+            qv = decide(:vis, 0, k, val(div) < 0 && (AV_TENSION[] || val(dudr[k]) < 0)) ? div : zero(T)
+        end
         qm = ql * (P.cq1 * as[k] - P.cq2 * ql * qv)
         qf[k] = -P.cqvis * d[k] * qm * dudr[k]
     end

@@ -659,7 +659,34 @@ resolution that follows the front, so that no zone has to change its state in on
 grid equation in a window on the fixed mesh (`GRIDWIN=r1,r2,…`). It was tried once, on 8 Nov, together with a threefold
 `ENVSPLIT` (`gw5`, from 107.5 M☉ of an earlier line: `ENVSPLIT=1000,8000,3 GRIDWIN=500,8000,1e5,0.3,1,1.5,0.3,0.3,30`);
 Δt collapsed to 2e-7 s and the test was stopped without a diagnosis. The static split alone (`t_am1` above) was 5–7 times
-slower. `GRIDWIN` alone has not been tested.
+slower. `GRIDWIN` alone was tested on 10 Nov (next section).
+
+## The adaptive grid in a window (`t_gw1`–`t_gw3`, 10 Nov)
+
+Strategy. Most of the mass crosses the accretion shock, so the mesh there has to be close to Eulerian; a Lagrangian mesh
+loses its zones into the star. The fixed log mesh is that frame. What it lacks is resolution that follows the two thin
+layers (shock, ionization front with the photosphere). `GRIDWIN=r1,r2,tau,wd,wt` lets the interfaces between r1 and r2
+follow TITAN's grid equation (equal arc length in ln r, √wd ln ρ, √wt ln T, time constant tau) with both window ends
+fixed, so mass still flows through.
+
+Tests from `z19avt0` (100.23 M☉, step 189000), 1400 steps, window 800–6000 R☉, against the same steps on the fixed mesh:
+
+| run | tau [s], wd, wt | model yr | mean Δt [s] | steps with Δt < 1e5 s | r_ph mean ± sd [R☉] | L_ph [L☉] | T_eff [K] | Δln r at the photosphere | div. |
+|---|---|---|---|---|---|---|---|---|---|
+| `t_ac1` (fixed mesh) | — | 16.6 | 3.73e5 | 0.29 | 1788 ± 72 | 3.581e6 | 5943 | 0.071 | 0 |
+| `t_gw1` | 1e7, 0.3, 1 | 11.6 | 2.64e5 | 0.39 | 1758 ± 111 | 3.583e6 | 5999 | 0.065 | 2 |
+| `t_gw2` | 1e5, 0.3, 1 | 6.6 | 1.47e5 | 0.49 | 1764 ± 77 | 3.591e6 | 5987 | 0.066 | 2 |
+| `t_gw3` | 1e5, 0, 10 | 4.9 | 1.14e5 | 0.06 | 1734 ± 38 | 3.571e6 | 6027 | 0.041 | 4 |
+
+The grid moves without the Δt collapse of 8 Nov. Luminosity and T_eff agree to 0.5 % and 1.4 %. With the weight on
+temperature (`t_gw3`) the photosphere zone is 1.7 times finer and the photosphere's scatter halves: the front no longer
+jumps by whole zones. It does not buy time step: Δt falls in proportion to the width of the front zone, and in `t_gw3` it
+is the 30 % temperature rule that sets nearly every step. That rule is applied to the state after the hydrodynamic step
+and before the chemistry step (`CHEMSUB`): the hydrodynamic step moves the front zone's temperature at the old
+composition, and the chemistry step brings it back. So the limit acts on an intermediate state of the operator split,
+not on the change over the step. Ways out, none adopted: apply the 30 % test in network zones after the chemistry step;
+`BALSPLIT=1` (the ionization balance inside the hydrodynamic step; it drove an edge flicker on 8 Nov); a chemistry sweep
+that follows the flow through the front. `GRIDWIN` stays off in production.
 
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 
@@ -694,3 +721,48 @@ divergences between 1.1 and 1.25 M☉ (steps 33000–35000, Δt 10–1000 s; the
 
 New in `fullrun.sh`: `A1X="<settings>"` (appended to stage A1, as `A2X` for A2) and `<run directory>/run.env` (appended
 to the settings of every stage and restart; read when the chain starts).
+
+## The entropy staircase behind the shock in `full6`, and the zone split (10 Nov)
+
+With `AVTENSION=0` the settled gas behind the accretion shock of `full6` (stage A3, 0.04–0.08 M☉) shows steps in entropy
+and density. The question was whether a reduced tension viscosity would smooth them. Tests from `full6`'s checkpoint at
+step 16020 (0.0359 M☉, 336 zones), 1500 steps each (`AVTENSION=f`: the stress of the tension
+zones, div u < 0 with the traceless ∂u/∂r − u/r > 0, is kept times f; `radial`: it is kept only where ∂u/∂r < 0 in the
+plain sense; both new, and the standard 0 and 1 are unchanged):
+
+| test | `AVTENSION` | div. | M★ at step 17500 | T at 2 R★ [K] | q/p min | q/p max | largest entropy step, new zones | roughness |
+|---|---|---|---|---|---|---|---|---|
+| `t_sa0` | 0 (= `full6`) | 0 | 0.0636 | 2470–2720 | 0 | 10–45 | 0.13 / 0.14 | 0.038 / 0.039 |
+| `t_sa1` | 1 | 149 | 0.0584 | 3100–11400 | −9.5 … −63 | 0.9–2.5 | 0.40 / 0.37 | 0.153 / 0.134 |
+| `t_saf` | 0.25 | 8 | 0.0949 | 3000–8400 | −9 … −16 | 2.6–3.9 | 0.23 / 0.25 | 0.084 / 0.060 |
+| `t_sar` | radial | 17 | 0.0537 | 2500–3080 | 0 … −0.2 (spikes −54, −84) | 6–32 | 0.16 / 0.11 | 0.050 / 0.054 |
+
+(Entropy step: |Δln s| between neighbouring zones accreted during the test, at two epochs; s is a p/ρ^γ proxy, not an
+adiabatic invariant in partly ionized gas, so the numbers compare runs and are not absolute.) Any tension makes it worse:
+the stretched infall ahead of the shock is heated by the viscosity (T at 20 R☉ at M★ = 0.0567: 2899 K with 0, 8791 K with
+0.25, 12999 K with 1), the shock spreads, the solver diverges, and the steps behind the shock grow. `AVTENSION=0` stays.
+
+The steps have a strict period of four zones, which is one zone of the initial mesh after its two splits (`REZWIN`), and
+the infall carries the pattern before it reaches the shock: in `t_sa0` at step 17500 the difference of ln ρ between
+neighbours is −0.13 to −0.14 across the edge of each block of four and −0.056 to −0.081 inside (smooth would be about
+−0.07 everywhere). The seed is the split itself. `Rezone.apply` gives the two halves of a split zone the limited slope
+`0.5·minmod(Δln ρ to the outer zone, Δln ρ to the inner zone)` per zone index. The split window moves outward in mass, so
+a zone is split when its inner neighbour already has been; that neighbour's centre is 0.6–0.75 of a zone away, the
+difference to it is that much smaller, minmod takes it, and the halves come out too flat with the missing jump left at
+the block edge. A sequence of such splits of a power law (ρ ∝ r^−2.2, mass ratio 0.1078) gives Δln ρ = −0.0515 inside a
+block and −0.127 between blocks, where the exact values on that mesh are −0.072, −0.070, −0.069 and −0.071.
+
+`REZSLOPE=lnr` (default off) takes the slopes of ln ρ, e and ln E_r per unit of ln r and multiplies by the distance of
+the half centres. In the same sequence it gives −0.0705, −0.0684, −0.0667 inside and −0.0759 between blocks (errors of
+ln ρ ten times smaller). In a run (`t_sml` against the control `t_sm0`, both with `REZNMAX=420` from step 16020; the two
+blocks split by step 16680, still in free fall): inside the blocks −0.071 to −0.090 against −0.054 to −0.083, between the
+blocks −0.106 against −0.131, and to the half-split zone outside −0.135 against −0.177. The sawtooth is reduced, not
+removed, on a profile with curvature. Whether the entropy steps behind the shock go with it is open until those zones
+have passed the shock.
+
+Two things limit how far this matters in `full6`. `REZNMAX=340` is reached at step 16500 (0.044 M☉), so nothing beyond
+m ≈ 0.24 M☉ is split: those zones carry no sawtooth, and they cross the shock as 10.8 % zones. Stage A3 ends at 0.5 M☉
+with the remap onto the fixed mesh. Two other attempts did not work: splitting 40 or more zones in one pass by mass
+(`t_saz`, `t_saz2`: the radiation rows diverge far outside the split range; `t_saz3`, `REZWIN=1.3,4,0.02` with
+`REZNMAX=420`: 60 divergences in 1500 steps) and splitting by Δr/r as well (`REZDR=0.2`, `t_sad`: 44 divergences in 1100
+steps, Δt 2e2–1e3 s, and the surface found at 3 R☉ and 0.027 M☉ at step 16500 where the control has 7.4 R☉ and 0.044 M☉).
