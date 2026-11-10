@@ -396,7 +396,7 @@ and the next has τ ≈ 0.008 and T = 3100 K with T_rad = 930 K, and where the z
 falls to seconds there L_ph falls from about 3000 to about 10 L☉. This is the same unresolved surface that the production
 line has at 101 M☉ (previous section).
 
-**Same mass growth as October, larger radius, more steps** (10 Nov 03:20; an earlier version of this paragraph said the
+**Same mass growth as October; a swollen, dim transient from 0.6 to 1.2 M☉** (10 Nov 04:10; an earlier version of this paragraph said the
 mass grew at the October pace per step, which was not checked and is wrong). Time is counted from M* = 0.52 M☉; R*, r_ph
 and L_ph are medians over seven snapshots (`cmpacc.jl` on the recorded histories):
 
@@ -408,13 +408,22 @@ and L_ph are medians over seven snapshots (`cmpacc.jl` on the recorded histories
 | | R* | 75 | 121 | 125 |
 | 1.00 M☉ | t / steps | 9.6 / 600 | 9.7 / 2240 | 10.1 / 1880 |
 | | R* / r_ph | 84.5 / 95 | 149 / 159 | 154 / 163 |
-| 1.10 M☉ | t / steps | 12.3 / 650 | 11.3 / 2640 | 11.7 / 2620 |
+| 1.20 M☉ | t / steps | 14.6 / 700 | 13.4 / 3720 | 13.9 / 3100 |
+| | R* / L_ph [L☉] | 90 / 4500 | 125 / 4600 | 132 / 4450 |
+| 1.5 M☉ | t / steps | 21.4 / 750 | 21.4 / 3800 | |
+| | R* / L_ph | 108 / 4650 | 117 / 5000 | |
+| 2.1 M☉ | t / steps | 34.6 / 950 | 34.8 / 3860 | |
+| | R* / L_ph | 129 / 5500 | 125 / 5700 | |
+| 2.5 M☉ | t / steps | 45.3 / 1050 | 45.5 / 3920 | |
+| | R* / r_ph | 129 / 145 | 132 / 145 | |
 
 The mass grows at the same rate in time (0.05 M☉/yr averaged from 0.52 M☉; 0.023–0.033 M☉/yr through 10⁴ R☉) in all
-three. The new runs need three to four times as many steps, because of the stalls at the accretion shock, and the star
-is 1.8 times larger at 1.0 M☉. In October 3000–4000 L☉ left the photosphere at these masses; in the new runs about
-1500 L☉ leaves the shock and the luminosity at the τ = 2/3 interface flickers between 10 and a few thousand L☉ as that
-interface hops across the shock. The radius has not been compared with published tracks.
+three. The difference is a transient between 0.6 and 1.2 M☉: the star swells to 1.8 times the October radius while
+little luminosity leaves it (the luminosity at the τ = 2/3 interface is between 10 and 2000 L☉ and flickers as that
+interface hops across the accretion shock; about 1500 L☉ leaves the shock), and the solver stalls at the shock
+(3000–3700 steps where October took 700). At about 1.2 M☉ the photospheric luminosity reaches the October value, the
+radius falls back, and from there `full3` follows October: at 2.1 M☉ the time agrees to 0.3 yr in 35, R* to 3 % and L_ph
+to 3 %, and 1.2 → 2.5 M☉ took 200 steps. The radius has not been compared with published tracks.
 
 The October run crossed this mass range on 3–4 Nov, before the star-light set (`STARLIGHT`, `SL3`, `NLOPAC`, `SLBLEND`,
 `SLEB`, `LYABB`), the flux tie at the outer photosphere (`FLUXTIE`) and the envelope Δt rule (`DTENV`) existed; these
@@ -424,11 +433,13 @@ were developed between 36 and 100 M☉ and `phaseB.env` applies them from the re
 | test | result |
 |---|---|
 | `FLUXTIE` removed | worse: Δt falls to 1e-8 s at 0.534 M☉, failure to converge after 60 attempts at step 30448 |
-| `DTENV` removed | identical to `full3` for the first 600 steps |
+| `DTENV` removed | identical to `full3` for 600 steps; after 1200 steps 0.563 M☉ at 0.7 yr with 299 divergences (`full3`: 0.564 M☉, 334) |
 | star-light set off (`STARLIGHT=0 SL3=0 NLOPAC=0 SLBLEND=0 SLEB=0 LYABB=0`), with or without `FLUXTIE` | fails on the first step (20 divergences, then a non-finite Jacobian) |
-| `LYABB=0`; `NLOPAC=0 SLBLEND=0` | running |
+| `LYABB=0` | after 1100 steps 0.562 M☉ at 0.7 yr, 281 divergences: as `full3` |
+| `NLOPAC=0 SLBLEND=0` | after 1200 steps 0.568 M☉ at 0.9 yr, 190 divergences: as `full3` |
 
-So neither the flux tie nor the envelope Δt rule causes the difference. The cause of the larger radius is not known.
+No single switch removes the stalls of the first year (the tests cover 0.50–0.57 M☉, where the transient begins; none
+was run to 1.2 M☉). The flux tie is needed. What produces the swollen, dim state between 0.6 and 1.2 M☉ is not known.
 
 **`full3` crash at 1.12 M☉** (10 Nov 02:38, step 33216): `PopIIIEqEOS.eos: rho = 9.2e-21 below the table`. The run had
 stalled at the accretion shock (0.3 yr in 600 steps, Δt limited by T in zone 141, where τ falls from 575 to 0.1 across one
@@ -436,5 +447,7 @@ zone). One step needed 18 halvings, which brought Δt to 4.6e-3 s. At t = 7.4e14
 the step had `timen == timeo`. `mix!` divides the zone mass by the step duration, the compositions of the convective core
 came back NaN, and the next equation-of-state call failed. Fix: `mix!` returns without mixing when the step duration is
 not positive (the same guard `burn_zone` has since 81105fc). `full3` continues from the autosave `z19full3B1_auto0` as
-segment `z19full3B2`; the final checkpoint `z19full3B1` was written after the failure and must not be used. The guard
-removes the crash, not the stall.
+segment `z19full3B2`; the final checkpoint `z19full3B1` was written after the failure and must not be used. `full4`
+failed the same way at 03:13 (step 33178, 1.30 M☉; its process predated the guard) and continues from `z19full4B1_auto0`
+as `z19full4B2`. The guard removes the crash, not the stall: by 04:00 the restarted segments had met steps of zero
+duration 6 and 8 times and passed them.
