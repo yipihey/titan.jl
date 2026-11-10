@@ -41,7 +41,7 @@ using Printf
 import Main.H2Lines as HL
 
 const h = HL.h; const c = HL.c; const kB = HL.kB
-const DIR = joinpath(homedir(), "Projects", "popiii_lit", "H2coll", "cloudy", "c25.00_extract", "data", "h2")
+const DIR = joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "H2coll", "cloudy", "c25.00_extract", "data", "h2")
 
 "One collider's de-excitation table on the 63 levels (pairs u > l in energy)."
 struct CollTable
@@ -92,7 +92,7 @@ end
 The 63 levels v ≤ 2, J ≤ 20 (sorted by energy), the 231 radiative lines of `H2Lines.load()` and the collision tables.
 `he = :LeBourlot` selects the Le Bourlot et al. 1999 He–H₂ table (9 T points, v ≤ 3, J ≤ 16) instead of the ORNL one.
 """
-function load(; he = :ORNL, dir_lines = joinpath(homedir(), "Projects", "popiii_lit", "H2lines"), dir_coll = DIR)
+function load(; he = :ORNL, dir_lines = joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "H2lines"), dir_coll = DIR)
     HLL = HL.load(dir_lines; vmax = 2, Jmax = 20)
     # v, J of the ExoMol states (H2Lines.LineList does not keep them)
     vJ = Dict{Int,Tuple{Int,Int}}()

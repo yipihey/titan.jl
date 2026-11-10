@@ -58,7 +58,7 @@ function build(; lρ0 = -20.0, lρ1 = 1.5, dlρ = 0.05, lT0 = 1.7, lT1 = 6.0, dl
     EqTable(lρ0, dlρ, nρ, lT0, dlT, nT, lp, lus, f, xp, w)
 end
 
-const CACHE = joinpath(homedir(), "Projects", "popiii_lit", "SCVH95", "eqeos_table_lr20.jls")   # from log rho = -20: below the old edge at -12 the cubic extrapolated p by factors of thousands
+const CACHE = joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "SCVH95", "eqeos_table_lr20.jls")   # from log rho = -20: below the old edge at -12 the cubic extrapolated p by factors of thousands
 const TAB = Ref{Any}(nothing)
 "The table (built once and cached outside the repository; SCVH95 tables are not redistributable from here)."
 function table()

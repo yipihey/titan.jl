@@ -59,7 +59,7 @@ function at(tb::Table, lT, lP, c)
 end
 
 const TABS = Ref{Any}(nothing)
-const DIR = Ref(joinpath(homedir(), "Projects", "popiii_lit", "SCVH95"))
+const DIR = Ref(joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "SCVH95"))
 tables() = (TABS[] === nothing && (TABS[] = (read_table(joinpath(DIR[], "h_tab_i.dat")),
                                              read_table(joinpath(DIR[], "he_tab_i.dat")))); TABS[])
 

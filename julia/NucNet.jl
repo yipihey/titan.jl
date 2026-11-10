@@ -28,7 +28,7 @@ const kB = 1.380649e-16
 const hbar = 1.054571817e-27
 const qe = 4.803204712570263e-10           # esu
 const mu_u = 1.66053906660e-24             # g
-const REACLIB_FILE = get(ENV, "NUCNET_REACLIB", joinpath(homedir(), "Projects", "popiii_lit", "reaclib", "reaclib_default2_20250330"))
+const REACLIB_FILE = get(ENV, "NUCNET_REACLIB", joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "reaclib", "reaclib_default2_20250330"))
 
 # --- species ---------------------------------------------------------------------------------------------------------
 const SP = [:p, :d, :he3, :he4, :li7, :be7, :b8, :c12, :c13, :n13, :n14, :n15, :o15, :o16, :o17, :f17, :o18, :f18, :f19]

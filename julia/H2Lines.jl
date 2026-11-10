@@ -29,7 +29,7 @@ struct LineList
     iu::Vector{Int}; il::Vector{Int}; A::Vector{Float64}; ν::Vector{Float64}
 end
 
-function load(dir = joinpath(homedir(), "Projects", "popiii_lit", "H2lines"); vmax = 2, Jmax = 20)
+function load(dir = joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "H2lines"); vmax = 2, Jmax = 20)
     st = [split(l) for l in readlines(joinpath(dir, "1H2__RACPPK.states")) if !isempty(strip(l))]
     n = length(st); E = zeros(n); g = zeros(n); J = zeros(Int, n); v = zeros(Int, n)
     for s in st
