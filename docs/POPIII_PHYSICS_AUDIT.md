@@ -41,9 +41,10 @@ temperature, independent of the H₂ level populations.
 ## Gaps, ranked for a star accreting to 100–300 M☉
 
 1. **No Lyman continuum.** Quiet today: a blackbody at the present photospheres gives 4e38 photons s⁻¹ (`full4`, 8 M☉,
-   T_eff 5009 K) and 2e30 s⁻¹ (`fx3`, 103.4 M☉, 2842 K in the expanded phase of the oscillation) against 1e48 hydrogen
-   atoms s⁻¹ falling in. It decides the goal, though: accretion is halted by an H II region once the star contracts and
-   T_eff rises above about 3e4 K, and the run has nothing that can form one. `IonRay.jl` passes the static and the
+   T_eff 5009 K) and 2e30 s⁻¹ (`fx3`, 103.4 M☉, 2842 K in the expanded phase of the oscillation) against 2e47 hydrogen
+   atoms s⁻¹ falling in at 6e-3 M☉/yr. It decides the goal, though: the feedback expected to end the accretion once the
+   star contracts and becomes hot is an H II region with the radiation force at its front, and the run has nothing that
+   can form one. `IonRay.jl` passes the static and the
    hydrodynamic Iliev tests but its coupling to the grey field is not validated, the H II temperature is open, and it has
    no helium, no diffuse field and no momentum (`POPIII_GOAL.md`, M3).
 2. **Radiation force is grey.** In the optically thick ionized layer the Rosseland force is the right one. In thin
