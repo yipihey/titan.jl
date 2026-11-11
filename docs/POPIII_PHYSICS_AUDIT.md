@@ -36,7 +36,7 @@ temperature, independent of the H₂ level populations.
 | Continuum transport | yes | grey two-moment (E_r, F_r) with a variable Eddington factor from a grey tangent-ray formal solution; CMB incident at the outer edge | grey; `EDDSCAT` counts all opacity above κ_P as scattering; `FLUXTIE` in thin zones; Compton exchange off | `TitanResidFast.jl:822–926`, `TitanCore.jl:611–783` |
 | Radiation force | yes, one term | χ_F F_r / c in the momentum equation, the same term in the radiation momentum row; radiation pressure work through f E div u | χ_F is the harmonic mean of the zones' Rosseland (table) or non-LTE means, weighted at T_gas; no Lyα, line or ionizing-photon force | `TitanResidFast.jl:744, 760, 899–923` |
 | Accretion-shock radiation | partly | viscous heat into the gas row, grey exchange | no hard post-shock spectrum, no ionizing precursor (`SHOCKRAD` off) | `TitanResidFast.jl:733–746` |
-| Other | | Li chemistry yes; D and HD no (D only in the nuclear network); free-free yes; nuclear burning in the hot branch; no cosmic rays, X-rays or dust (none expected); hot-branch opacity at fixed X = 0.75 whatever the burned composition | | `popiii_m2c.jl:694–699`, `NucNet.jl` |
+| Other | | Li chemistry yes; D, D⁺, HD and HD cooling behind the default-off switch `HDCHEM` (11 Nov; `docs/POPIII_RUNS.md`), otherwise D only in the nuclear network; free-free yes; nuclear burning in the hot branch; no cosmic rays, X-rays or dust (none expected); hot-branch opacity at fixed X = 0.75 whatever the burned composition | | `popiii_m2c.jl:694–699`, `NucNet.jl` |
 
 ## Gaps, ranked for a star accreting to 100–300 M☉
 
@@ -67,7 +67,7 @@ temperature, independent of the H₂ level populations.
 6. **Lyα is local** (no trapping, no pressure). 7. **Compton exchange off; table zones use one κ_P for absorption and
    emission.** 8. **Shock spectrum grey** (see "The accretion shock" below: at 7–8 M☉ the shock supplies the whole
    luminosity from optical depth below one). 9. **H₂ cooling limits** (v ≤ 2, no electron collisions, rates frozen above
-   6000 K): adequate below about 3000 K. 10. **No D/HD, HeH⁺, H₃⁺.** 11. **Hot-branch opacity at X = 0.75**: irrelevant
+   6000 K): adequate below about 3000 K. 10. **No D/HD, HeH⁺, H₃⁺** (D/HD since 11 Nov as the default-off `HDCHEM`). 11. **Hot-branch opacity at X = 0.75**: irrelevant
    until hydrogen burns.
 
 ## The accretion shock (10 Nov)

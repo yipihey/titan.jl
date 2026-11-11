@@ -349,6 +349,7 @@ function recsnap!(k)
             spn = sp, Y = Float64[Float64(ForwardDiff.value(d[j][s])) for s in sp, j in eachindex(d)],
             gasq = copy(TX.GASQ[]), hotY = HOTON ? SG[].Y[:, a:b] : nothing, Lnuc = LNUC[], Llines = LLINE[],
             nchemfb = PM.NCHEMFB[], kph = sd === nothing ? 0 : sd.kph, Teff = sd === nothing ? NaN : Float64(sd.Te))
+    mat isa PM.NetGas && PM.HDCHEM[] && (snap = merge(snap, (; hd = PM.hd_snap(mat, a, b))))     # HDCHEM=1: x_D+, x_HD, HD cooling
     serialize(REC.io[], snap); flush(REC.io[])
 end
 "One perf.csv row (called at the TIMING report, before the accumulators are reset)."
@@ -1002,6 +1003,7 @@ Implicit upwind transport of mat.x with the mass that crossed each interface in 
 that it is the discrete continuity equation applied to the mass fractions: a uniform composition stays uniform and elements are conserved.
 """
 function advect_species!()
+    mat isa PM.NetGas && PM.HDCHEM[] && PM.hd_pad!(mat)                       # (first step after a restart from a run without HD)
     xme = TF.var(:xmen); old = XMEPREV[]; n = nsh
     F = [xme[a+j-1] - old[a+j-1] for j in 1:n+1]                              # > 0: mass moved outwards through interface j
     M = [xme[a+j-1] - xme[a+j] for j in 1:n]

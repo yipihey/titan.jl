@@ -40,8 +40,10 @@ ext_cooling(m, k) = (Λx = m.Λext[k]; Λx == 0 ? nothing :
 "Cooling function for zone k: the material's own plus the transfer term."
 function zone_cooling(m, k)
     f = ext_cooling(m, k)
-    f === nothing && return m.cooling
-    m.cooling === nothing ? ((ρ, T, y) -> f(T)) : ((ρ, T, y) -> m.cooling(ρ, T, y) + f(T))
+    c = f === nothing ? m.cooling : m.cooling === nothing ? ((ρ, T, y) -> f(T)) : ((ρ, T, y) -> m.cooling(ρ, T, y) + f(T))
+    (HDCHEM[] && k <= length(HDX[]) && HDX[][k] > 0) || return c
+    xhd = HDX[][k]                                   # HDCHEM=1: HD cooling with the x_HD of the start of the step
+    c === nothing ? ((ρ, T, y) -> hd_cool(ρ, T, y, xhd)) : ((ρ, T, y) -> c(ρ, T, y) + hd_cool(ρ, T, y, xhd))
 end
 
 @inline function TX.material_gas(m::PrimordialGas, ρ, T)
@@ -712,7 +714,8 @@ in the accretion shock; the radiation spike that followed stopped the run). With
 """
 const CHEMSUB = Ref{Union{Nothing,NTuple{2,Float64}}}(let s = get(ENV, "CHEMSUB", "0"); s == "0" ? nothing : (v = parse.(Float64, split(s, ",")); (v[1], length(v) > 1 ? v[2] : 3.0)) end)
 const CHEMSUBMAX = Ref(parse(Int, get(ENV, "CHEMSUBMAX", "16"))); const NCHEMSUB = Ref(0)
-function chem!(m::NetGas)
+"The chemistry–temperature step of the H network (`chem!` adds the deuterium trace network with HDCHEM=1)."
+function chem_core!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
     dn, tn, egn, pgn = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:pgn)
@@ -918,6 +921,139 @@ function chem!(m::NetGas)
     tn[a-1] = tn[a]; tn[b+1] = tn[b]; tn[b+2] = tn[b]
     TM.fill_eos!(m)
     dTmax
+end
+
+# ------------------------------------------------------------------------------------------ deuterium and HD (HDCHEM=1)
+"""
+HDCHEM=1 (default off): D, D⁺ and HD as a trace network carried with the H network, and optically thin HD cooling.
+
+State per zone: (x_D⁺, x_HD) per H nucleus, appended to the zone's `m.x[k]` behind the free species of the network (the advection
+and every remap treat `m.x[k]` as a vector; `ChemNet.full` and `fullvec` read only the free species). x_D = y_D − x_D⁺ − x_HD with
+y_D = D/H by number (ENV `DH`, the variable the nuclear network uses; 2.5e-5).
+After the chemistry–temperature step of a zone the three-state linear system takes one backward-Euler step at the zone's new T and
+composition: rates k50–k56 of ChemistryKernels.jl (Savin 2002; Galli & Palla 2002; Clark et al. 2011; Kreckel et al. 2010 form for
+D + H⁻), D ionisation and recombination with the H rates, HD photodissociation with the zone's Lyman–Werner rate. The step is written
+as the stationary state of the chain with a restart at rate 1/Δt to the old state: sums of positive products only, exact for any
+rate × Δt, and y_D is conserved. Table and hot zones: the stationary state.
+Cooling: n_HD [W(T) − W(T_CMB)], W = Λ_LTE/(1 + Λ_LTE/(n_HI Λ_low)) (Coppola et al. 2011; Wrathmall, Gusdorf & Flower 2007: HD–H
+collisions only), inside the implicit chemistry–temperature step, with the x_HD of the start of the step.
+Zones without the two entries (restart from a run without HD, a rebuilt mesh): table zones get the stationary state; network zones
+the stationary state with `HDINIT=eq` (default), or with `HDINIT=<x_HD>` that HD abundance and D⁺/D = H⁺/H.
+Not included: HD in the EOS (binding energy, particle number: 2.5e-5 of H), HD–H₂ and HD–He collisions, HD line optical depths,
+pumping of HD by the star, the nuclear network's deuterium (the star's zones are fully ionised, so their D is D⁺ here either way).
+"""
+const HDCHEM = Ref(get(ENV, "HDCHEM", "0") == "1")
+const HDYD = Ref(parse(Float64, get(ENV, "DH", "2.5e-5")))
+const HDINIT = Ref(get(ENV, "HDINIT", "eq"))
+const HDTCMB = Ref(parse(Float64, get(ENV, "TCMB", "0")))
+const HDX = Ref(Float64[])                 # per zone: x_HD at the start of the step (the cooling term of zone_cooling)
+const HDLAM = Ref(Float64[])               # per zone: HD cooling at the end of the step [erg cm⁻³ s⁻¹] (diagnostic)
+const HDNPAD = Ref(0)
+hd_k50(T) = T <= 2e5 ? max(0.0, 2.0e-10 * T^0.402 * exp(-37.1 / T) - 3.31e-17 * T^1.48) : 2.5e-8 * (T / 2e5)^0.402      # H⁺ + D → H + D⁺
+hd_k51(T) = 2.06e-10 * T^0.396 * exp(-33.0 / T) + 2.03e-9 * T^-0.332                                                    # H + D⁺ → H⁺ + D
+hd_k52(T) = T <= 1e4 ? (l = log10(T); max(0.0, 1.0e-9 * (0.417 + 0.846l - 0.137l^2))) : 1.609e-9                        # H₂ + D⁺ → HD + H⁺
+hd_k53(T) = 1.1e-9 * exp(-488.0 / T)                                                                                    # HD + H⁺ → H₂ + D⁺
+hd_k54(T) = T <= 2e3 ? (l = log10(T); exp10(-56.4737 + l * (5.88886 + l * (7.19692 + l * (2.25069 + l * (-2.16903 + l * 0.317887)))))) :
+                       3.17e-10 * exp(-5207.0 / T)                                                                      # H₂ + D → HD + H
+# (the published fit turns upward below 78.5 K: below 200 K an Arrhenius tail matched in value and slope, as ChemistryKernels.jl)
+hd_k55(T) = T <= 200 ? exp(log(5.25e-11) - 4430.0 / 200 + 173900.0 / 200^2 - (4430.0 - 2 * 173900.0 / 200) * (1 / T - 1 / 200)) :
+                       5.25e-11 * exp(-4430.0 / T + 173900.0 / T^2)                                                     # HD + H → H₂ + D
+hd_k56(T) = 1.35e-9 * (T^0.098493 + 0.32852 * T^0.5561 + 2.771e-7 * T^2.1826) /
+            (1 + 6.191e-3 * T^1.0461 + 8.9712e-11 * T^3.0424 + 3.2576e-14 * T^3.7741)                                   # D + H⁻ → HD + e
+"HD cooling per molecule in LTE [erg/s] (Coppola et al. 2011) and the low-density coefficient for HD–H [erg cm³/s] (Wrathmall et al. 2007)."
+hd_lte(T) = (t = min(max(T, 10.0), 3.0e4); l = log10(t); exp10(min(-55.5725 + l * (56.649 + l * (-37.9102 + l * (12.698 + l * (-2.02424 + l * 0.122393)))), 0.0)))
+hd_low(T) = (t = min(max(T, 10.0), 6.0e3); l = log10(t / 1e3); exp10(-23.175780 + l * (1.5035261 + l * (0.40871403 + l * (0.17849311 + l * (-0.077291388 + l * 0.10031326))))))
+hd_w(T, nHI) = (l = hd_lte(T); lo = nHI * hd_low(T); (l > 0 && lo > 0) ? l / (1 + l / lo) : zero(l * lo))
+"HD cooling [erg cm⁻³ s⁻¹] of gas with composition d (ChemNet.full; nothing: table zone, no HD) and x_HD; < 0 below T_CMB."
+function hd_cool(ρ, T, d, xHD)
+    d === nothing && return zero(T)
+    nH = ρ / CNn.μH(); nHI = nH * max(d[:H], 0.0); Tc = HDTCMB[]
+    nH * xHD * (hd_w(T, nHI) - (Tc > 0 ? hd_w(Tc, nHI) : 0.0))
+end
+"Transition rates [1/s] between the states (D, D⁺, HD): (D→D⁺, D⁺→D, D⁺→HD, HD→D⁺, D→HD, HD→D)."
+function hd_rates(T, nH, d, kLW)
+    t = min(max(Float64(T), 10.0), 1e6)
+    g(s) = max(Float64(get(d, s, 0.0)), 0.0)
+    xH, xp, xe, xH2, xm = g(:H), g(:Hp), g(:e), g(:H2), g(:Hm)
+    (nH * (PC.k1_aazn(t) * xe + hd_k50(t) * xp), nH * (PC.k2_aazn(t) * xe + hd_k51(t) * xH), nH * hd_k52(t) * xH2,
+     nH * hd_k53(t) * xp, nH * (hd_k54(t) * xH2 + hd_k56(t) * xm), nH * hd_k55(t) * xH + kLW)
+end
+"""
+One backward-Euler step of the chain from p0 = fractions (D, D⁺, HD) of y_D, idt = 1/Δt (0: the stationary state). p(I − Δt Q) = p0 is
+the stationary state of the chain with every state restarting at rate 1/Δt into p0; for three states that is a sum over spanning trees.
+"""
+function hd_step(q, p0, idt)
+    q12, q21, q23, q32, q13, q31 = q
+    if idt > 0
+        isfinite(idt) || return p0
+        q21 += idt * p0[1]; q31 += idt * p0[1]; q12 += idt * p0[2]; q32 += idt * p0[2]; q13 += idt * p0[3]; q23 += idt * p0[3]
+    end
+    w1 = q21 * q31 + q21 * q32 + q23 * q31
+    w2 = q12 * q32 + q12 * q31 + q32 * q13
+    w3 = q13 * q23 + q13 * q21 + q23 * q12
+    s = w1 + w2 + w3
+    (isfinite(s) && s > 0) || return p0
+    (w1 / s, w2 / s, w3 / s)
+end
+hd_fracs(xDp, xHD) = (yD = HDYD[]; p2 = clamp(xDp / yD, 0.0, 1.0); p3 = clamp(xHD / yD, 0.0, 1.0 - p2); (1.0 - p2 - p3, p2, p3))
+function hd_default(m, k, x)
+    dn, tn = TM.v(:dn), TM.v(:tn); yD = HDYD[]
+    d = CNn.full(x, m.net); nH = dn[k] / CNn.μH()
+    if m.eqzone[k] || HDINIT[] == "eq"
+        p = hd_step(hd_rates(tn[k], nH, d, 0.0), (1.0, 0.0, 0.0), 0.0)
+        return (yD * p[2], yD * p[3])
+    end
+    xhd = min(parse(Float64, HDINIT[]), yD); xH = max(Float64(d[:H]), 0.0); xp = max(Float64(d[:Hp]), 0.0)
+    ((yD - xhd) * (xH + xp > 0 ? xp / (xH + xp) : 0.0), xhd)
+end
+"Give every zone its (x_D⁺, x_HD) entries (no-op where they are present)."
+function hd_pad!(m::NetGas)
+    nf = length(m.net.free); n = 0
+    a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
+    for k in a:b
+        length(m.x[k]) == nf || continue
+        p = hd_default(m, k, m.x[k]); m.x[k] = vcat(m.x[k], p[1], p[2]); n += 1
+    end
+    for k in eachindex(m.x)                                        # ghosts and the unused tail of the arrays: as the nearest zone
+        (a <= k <= b || length(m.x[k]) != nf) && continue
+        j = k < a ? a : b; m.x[k] = vcat(m.x[k], m.x[j][nf+1], m.x[j][nf+2])
+    end
+    n > 0 && (HDNPAD[] += n; @printf("HDCHEM: (x_D+, x_HD) set in %d zones (HDINIT=%s, D/H = %.3g)\n", n, HDINIT[], HDYD[]))
+    m
+end
+hd_strip!(m::NetGas) = (nf = length(m.net.free); for k in eachindex(m.x); length(m.x[k]) > nf && (m.x[k] = m.x[k][1:nf]); end; m)
+"Per-zone HD record for the snapshots (zones a:b): x_D⁺, x_HD and the HD cooling."
+function hd_snap(m::NetGas, a, b)
+    hd_pad!(m); nf = length(m.net.free); lam = HDLAM[]
+    (; Dp = [m.x[k][nf+1] for k in a:b], HD = [m.x[k][nf+2] for k in a:b], Λ = length(lam) >= b ? lam[a:b] : zeros(b - a + 1))
+end
+function chem!(m::NetGas)
+    nf = length(m.net.free)
+    if !HDCHEM[]
+        any(x -> length(x) != nf, m.x) && hd_strip!(m)             # (restart from a run with HDCHEM=1)
+        return chem_core!(m)
+    end
+    a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
+    dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
+    dn, tn = TM.v(:dn), TM.v(:tn)
+    hd_pad!(m)
+    pas = [(x[nf+1], x[nf+2]) for x in m.x]
+    hd_strip!(m)                                                   # the network step sees its own free species only
+    HDX[] = [max(p[2], 0.0) for p in pas]
+    dT = chem_core!(m)
+    yD = HDYD[]; lam = zeros(length(m.x)); sd = STARLIGHT[] === nothing ? nothing : SLDIAG[]
+    for k in a:b
+        d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH()
+        kLW = (sd === nothing || k > length(sd.kLW)) ? 0.0 : sd.kLW[k]
+        p0 = hd_fracs(pas[k]...)
+        p = hd_step(hd_rates(tn[k], nH, d, kLW), p0, m.eqzone[k] ? 0.0 : (dt > 0 ? 1 / dt : Inf))
+        m.x[k] = vcat(m.x[k], yD * p[2], yD * p[3])
+        lam[k] = Float64(hd_cool(dn[k], tn[k], d, yD * p[3]))
+    end
+    for k in 1:a-1; m.x[k] = copy(m.x[a]); end
+    for k in b+1:length(m.x); m.x[k] = copy(m.x[b]); end
+    HDLAM[] = lam
+    dT
 end
 
 end # module

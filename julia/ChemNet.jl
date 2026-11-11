@@ -275,14 +275,14 @@ compiled(net) = get!(COMPILED, net) do
              [s == :H ? 0.0 : Float64(SPECIES[s].el[1]) for s in net.free], [Float64(SPECIES[s].el[3]) for s in net.free],
              [Float64(SPECIES[s].q) for s in net.free], [SPECIES[s].cv for s in sp], [SPECIES[s].E0 for s in sp], [s == :H2 for s in sp])
 end
-"Full composition as a vector over compiled(net).sp (same elimination as `full`)."
+"Full composition as a vector over compiled(net).sp (same elimination as `full`); entries of x behind the free species are ignored."
 function fullvec(x, c::Compiled)
     v = zeros(eltype(x), length(c.sp))
     for (i, j) in enumerate(c.free); v[j] = x[i]; end
     v[c.iHe] = yHe
-    c.iH > 0 && (v[c.iH] = 1 - sum(c.elH[i] * x[i] for i in eachindex(x)))
-    c.iLi > 0 && (v[c.iLi] = yLi - sum(c.elLi[i] * x[i] for i in eachindex(x)))
-    c.ie > 0 && (v[c.ie] = sum(c.q[i] * x[i] for i in eachindex(x)))
+    c.iH > 0 && (v[c.iH] = 1 - sum(c.elH[i] * x[i] for i in eachindex(c.free)))
+    c.iLi > 0 && (v[c.iLi] = yLi - sum(c.elLi[i] * x[i] for i in eachindex(c.free)))
+    c.ie > 0 && (v[c.ie] = sum(c.q[i] * x[i] for i in eachindex(c.free)))
     v
 end
 

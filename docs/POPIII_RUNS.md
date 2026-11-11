@@ -1056,7 +1056,8 @@ the network, be locked in by real cooling: one more reason to remove the artefac
 
 **Decisions (T. Abel, 11 Nov 05:45): all four.** (1) production with `ETASWTIE=0.5`; (2) reset the artefact-cooled zones at that
 restart; (3) D, D⁺, HD and HD cooling behind a default-off switch, side run first; (4) the CMB and the diluted continuum as incident
-radiation of the line transfer. (1) and (2) are done; (4) is in the code as the default-off switch `LINEINC` (next section); (3) is in work.
+radiation of the line transfer. (1) and (2) are done; (4) is in the code as the default-off switch `LINEINC` (next section); (3) is in the code as the
+default-off switch `HDCHEM` (the section after it). Neither switch is on in production.
 
 **The reset (`TRESET`, commit 397801f).** History of the outer zones on the 146-zone mesh, first snapshot (step 347 050, the mesh
 switch) → step 511 900:
@@ -1138,6 +1139,77 @@ pumping once the star is hotter or the gas colder. Production still runs with `L
 B_ν(T_eff) at every line frequency, although on the 146-zone mesh the photospheric zone is at 20 100 K. In the formal solution the edge of the stellar disc
 is resolved to one zone width. Held zones have no temperature slope between ALI calls. `snapspec.jl` does not pass the incident
 field yet (spectra of a `LINEINC` run would be computed without it).
+
+## Deuterium and HD (`HDCHEM`, 11 Nov)
+
+The network had no deuterium chemistry (deuterium existed only in the nuclear network). `HDCHEM=1` (default off: the code path is
+bit-identical to before) adds D, D⁺ and HD and optically thin HD cooling, ported from ChemistryKernels.jl.
+
+**Method.** Each zone carries two extra numbers, x_D⁺ and x_HD per H nucleus, appended to the zone's abundance vector behind the
+species of the H network, so the advection and every remap move them with the gas. x_D = y_D − x_D⁺ − x_HD, with y_D = D/H from `DH`
+(2.5e-5, the variable the nuclear network uses). Deuterium is a trace: it does not enter the H network, the electron balance or the
+EOS. After the chemistry–temperature step of a zone, the three-state linear system D ⇌ D⁺ ⇌ HD ⇌ D takes one backward-Euler step at
+the zone's new temperature and composition, with the rates k50–k56 of ChemistryKernels.jl (H⁺ + D ⇌ H + D⁺, H₂ + D⁺ ⇌ HD + H⁺,
+H₂ + D ⇌ HD + H, D + H⁻ → HD + e), D ionisation and recombination with the H rates, and HD photodissociation with the zone's
+Lyman–Werner rate. The step is evaluated as the stationary state of the chain with a restart to the old state at rate 1/Δt, which
+uses sums of positive products only: it is exact for any rate × Δt and conserves y_D. Table zones and hot zones take the stationary
+state. HD cooling is n_HD [W(T) − W(T_CMB)] with W = Λ_LTE/(1 + Λ_LTE/(n_HI Λ_low)) (the `HDlte` and `HDlow` fits of
+ChemistryKernels.jl). It sits inside the implicit chemistry–temperature step and uses the x_HD of the start of the step.
+
+| switch | meaning |
+|---|---|
+| `HDCHEM=1` | D, D⁺, HD and HD cooling on (default `0`) |
+| `HDINIT=eq` (default) or `HDINIT=<x_HD>` | state of zones that have no deuterium entries yet (restart from a run without HD): the stationary state, or the given x_HD with D⁺/D = H⁺/H |
+| `DH` | D/H by number, 2.5e-5 |
+
+Snapshots of an `HDCHEM` run carry a field `hd = (; Dp, HD, Λ)` (x_D⁺, x_HD, Λ_HD per volume); `runrec.jl` reads runs with and
+without it. A run with the switch off that restarts from an `HDCHEM` checkpoint drops the two entries.
+
+**Offline checks** (`julia/hdchem_check.jl`). The ported rates agree with ChemistryKernels.jl to 6e-14 over 10–1e6 K, the cooling fits to 2e-13.
+The chain step against a BigFloat solve of the backward-Euler system, 20 000 random cases (rates 1e-30–1e10 s⁻¹ including zeros,
+Δt 1e-10–1e20 s): largest relative error 6.7e-16, |Σp − 1| ≤ 2.2e-16. The long-step limit is the stationary state, and repeated
+steps converge to the matrix exponential. The cooling vanishes at T = T_CMB and heats below it.
+
+**Side runs** (3000 steps = 96 yr from step 526 000, 130.83 M☉, production flags; all ran clean to 131.147 M☉ with no divergence
+and no measurable cost: 582–594 s with the switch on, 583 s with it off).
+
+- `t_hd0`, patched code with the switch off: every snapshot equal bit for bit to the unpatched reference `t_inc0`.
+- `t_hd1b`, `HDCHEM=1 HDINIT=eq`: HD radiates 6.50e33 erg/s, 9.3 % of the H₂ lines (6.98e34 erg/s). Largest temperature change
+  0.18 %: −4.6 K at 4085 K, −3.7 K at 2015 K, −1.0 K at 1314 K, below 0.1 K outside 0.07 pc (the run is far shorter than the cooling time out there, which is 1.4–3 infall times).
+  Λ_HD/Λ_H₂ by radius: 1–2 % at 2e-4–0.03 pc, 3–10 % at 0.04–0.17 pc, 14 % at 0.23 pc, 23–36 % at 0.3–0.8 pc, 72 % at 1.04 pc
+  (187 K), 5–28 % at 1.4–3.5 pc, below 2 % outside 4.7 pc. x_HD is 4–8e-8 at 0.003–0.17 pc and peaks at 2.45e-7 at 1.04 pc: at most 1 % of
+  the deuterium is in HD, because the gas is only 1e-3 molecular out there. In the hot zones all deuterium is D⁺.
+- `t_hd2b`, `HDINIT=1e-9`: inside 0.1 pc the same state as the equilibrium start within the 96 yr; outside 0.13 pc x_HD stays near
+  the seed (the relaxation time there is longer than the run, see the table).
+- `t_hd3`, `t_hd4`: restart from the `HDCHEM` checkpoint with the switch on (entries carried) and off (entries dropped), both clean.
+
+**Which start is right.** The relaxation time of the deuterium chain (the slowest non-zero eigenvalue of the rate matrix, `relax.jl`)
+against the infall time r/|u|, last snapshot of `t_hd2b`:
+
+| r [pc] | n_H [cm⁻³] | T [K] | stationary x_HD | t_relax [yr] | t_infall [yr] | ratio |
+|---|---|---|---|---|---|---|
+| 0.0034 | 7.1e7 | 2012 | 8.1e-8 | 7e-5 | 1.6e2 | 5e-7 |
+| 0.021 | 5.6e6 | 945 | 5.5e-8 | 1e-2 | 3.3e3 | 3e-6 |
+| 0.094 | 3.9e5 | 479 | 4.4e-8 | 7.4 | 5.3e4 | 1e-4 |
+| 0.23 | 4.5e4 | 328 | 5.1e-8 | 1.5e3 | 2.2e5 | 7e-3 |
+| 0.42 | 1.0e4 | 260 | 1.2e-7 | 2.0e4 | 5.3e5 | 0.04 |
+| 1.04 | 1.2e3 | 187 | 2.5e-7 | 1.3e5 | 1.9e6 | 0.07 |
+| 1.9 | 2.9e2 | 206 | 1.9e-7 | 1.7e5 | 5.0e6 | 0.03 |
+| 4.7 | 37 | 342 | 6.6e-8 | 1.1e5 | 2.0e7 | 0.005 |
+| 11.5 | 5.1 | 601 | 2.0e-8 | 7e4 | 1.1e8 | 6e-4 |
+
+The chain relaxes at the sum of the forward and backward rates, 14 to more than 1e6 times faster than the gas falls in (the formation time
+alone, 1e7 yr at 1 pc, is the wrong measure). So the infalling gas is in deuterium equilibrium everywhere, `HDINIT=eq` is the
+state to restart with, and the numbers of `t_hd1b` are the relevant ones. What 96 yr cannot show is the thermal response at
+0.2–3 pc, where HD adds 14–72 % to the cooling and the cooling time is 1.4–3 infall times (3e5 yr and more): that needs a long
+stretch of the run.
+
+**What it does not do.** Chemistry deuterium is not coupled to the nuclear network's deuterium (burning in the star does not lower
+y_D here; the star's zones are fully ionised, so their deuterium is D⁺ either way). HD–H collisions only, no HD–H₂ or HD–He. The
+rate fits are not in exact detailed balance. HD lines are optically thin and are not pumped by the star or the CMB beyond the
+W(T_CMB) term. HD is not in the EOS. HD photodissociation uses the zone's H₂ Lyman–Werner rate, with the H₂ shielding. In the
+5000 K zones the fits are used at the edge of their range (the temperature is clamped to 10–1e6 K). The explorer does not show
+x_HD yet.
 
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 
