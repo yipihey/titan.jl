@@ -46,8 +46,19 @@ function Zrot_H2(T)
     Zr = zero(T); for J in 0:60; Zr += (iseven(J) ? 1 : 3) * (2J + 1) * exp(-J * (J + 1) * θrot_H2 / T); end; Zr
 end
 Zvib(T, θ) = 1 / (1 - exp(-θ / T))
-"RHFC02 A9 (ON98): 1/(γ_H₂ − 1) = 5/2 + x² eˣ/(eˣ − 1)², x = 6100 K/T — energy per H₂ (thermal) = this × kT."
-u_H2(T) = (x = 6100 / T; 5 / 2 + x^2 * exp(x) / expm1(x)^2)
+"""
+RHFC02 A9 (ON98): 1/(γ_H₂ − 1) = 5/2 + x² eˣ/(eˣ − 1)², x = 6100 K/T — energy per H₂ (thermal) = this × kT.
+For x ≥ 100 (T ≤ 61 K) the vibrational term is written x² e⁻ˣ/(1 − e⁻ˣ)², the same function. The first form overflows there:
+its automatic derivative is NaN below 17.3 K (eˣ·(eˣ − 1)·∂x exceeds 1.8e308; a NaN Jacobian stopped the 146-zone run at step
+415553 on 11 Nov 2026, when a zone at 2.6 pc reached 17.35 K) and its value is NaN below 8.6 K. For x < 100 nothing changes,
+bit for bit; for x ≥ 100 the term is below 1e-39 of the 5/2.
+"""
+function u_H2(T)
+    x = 6100 / T
+    ForwardDiff.value(x) < 100 && return 5 / 2 + x^2 * exp(x) / expm1(x)^2
+    em = exp(-x)
+    5 / 2 + x^2 * em / (1 - em)^2
+end
 const χH = 13.598eV; const EA_H = 0.754eV; const D0_H2 = 4.478eV; const D0_H2p = 2.65eV
 const χLi = 5.3917eV
 "Levels of atomic H kept in its partition function and photo-ionisation (n ≤ NH_LEVELS; the sum diverges without a

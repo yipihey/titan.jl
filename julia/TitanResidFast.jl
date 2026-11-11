@@ -65,6 +65,14 @@ const ETASW = Ref(0.0)
 "Added to e in the dual-energy test, for a material whose e has a negative zero point (Population III: −1e13 erg/g), where the ratio otherwise has no meaning and can be singular."
 const ETASW_EOFF = Ref(0.0)
 """
+ETASW_TH[] (`ETASWTH`, default 0 = off): a zone also keeps the internal-energy row where its thermal energy 3p/2ρ is less than this fraction of
+3p/2ρ + E_r/ρ + K/m. There the total-energy row gives the gas energy as a small difference, and it is not the first law of the gas: total row minus
+kinetic energy minus radiation-energy row leaves −u [∂(fE)/∂r + (3f − 1)E/r + χρF/c] on the gas, which vanishes only if the radiation momentum equation
+holds in its static form. In transparent zones with a gradient of E_r it does not (the row is `FLUXTIE`'s there), and inflow against the gradient
+cools the gas: 0.12 K/yr at 2.6 pc in the 146-zone run, to 17 K and then 11.7 K, where the run stopped twice (11 Nov 2026; docs/POPIII_RUNS.md).
+"""
+const ETASW_TH = Ref(0.0)
+"""
 GASROW[] (lrad = 1 only): energy row of the gas ALONE,
   Δ(m e_g)/dt + advection of e_g + p_g ∇·u + Q_visc + MLT flux = −(c κ_E E − 4π κ_P B) ρ dV,
 instead of TITAN's row for gas + radiation, Δ(m(e_g + E/ρ))/dt + … (from which the gas energy is the difference
@@ -213,6 +221,15 @@ function dualswitch(ngrs, ngre, lrad, ηsw)
     for k in ngrs:ngre
         m = dO[k] * dv[k]; ein = m * max(eo[k] + ETASW_EOFF[], 0.0); K = 0.25m * (uo[k]^2 + uo[k+1]^2)
         ui[k] = ein / (ein + K) < ηsw
+    end
+    ηth = ETASW_TH[]
+    if ηth > 0 && lrad
+        pgo, ero = v(:pgo), v(:ero)
+        for k in ngrs:ngre
+            ui[k] && continue
+            eth = 1.5 * pgo[k] / dO[k]
+            ui[k] = eth < ηth * (eth + ero[k] / dO[k] + 0.25 * (uo[k]^2 + uo[k+1]^2))
+        end
     end
     ui
 end
