@@ -323,9 +323,28 @@ const EXCAP = Ref(0.0)
     return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
 end
 
+"""
+`UPFREEZE=n` (default 0 = off): from Newton iteration n of a solve on, every interface keeps the upwind direction that iteration
+n − 1 found.  Where the flow relative to the grid is near zero (a moving grid window that follows a contact: `GRIDWIN`), the hard
+donor choice makes the residual's slope jump at zero flow by the ratio of the two zones' densities, and the Newton iteration
+alternates between the two directions for ever (traced 10 Nov 2026: `up` of four advected quantities flipping at one interface in
+every iteration, correction constant at 2e-5).  The flux itself is continuous at zero flow, so the frozen direction changes the
+converged state by the product of that near-zero flow and the jump.
+"""
+const UPFREEZE = Ref(parse(Int, get(ENV, "UPFREEZE", "0")))
+const UPHOLD = Ref(false)
+const UPDEC = Dict{Int,Vector{Bool}}()
+@inline function upwind(uf, hold::Bool, id::Int, k::Int, x::Bool)
+    up = decide(:up, id, k, x)
+    uf === nothing && return up
+    hold && return @inbounds uf[k]
+    @inbounds uf[k] = up
+    up
+end
 "van Leer interpolation (advectc: centred=true, advecti: centred=false)."
 @inline function advect!(qb, qsn, qn, qo, qso, flow, θ, cadv, eps, ngrs, ngre, centred::Bool, id::Int = 0)
     T = eltype(qb)
+    uf = UPFREEZE[] > 0 ? get!(() -> fill(true, TF.MGR), UPDEC, id) : nothing; hold = UPHOLD[]
     @inbounds for k in ngrs:ngre+1
         a = qn[k] - qn[k-1]; b = qn[k+1] - qn[k]; sdq = a + b
         den = sdq + (decide(:sgn, id, k, val(sdq) >= 0) ? eps : -eps)
@@ -333,13 +352,13 @@ end
     end
     if centred
         @inbounds for k in ngrs+1:ngre+1
-            s = decide(:up, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
+            s = upwind(uf, hold, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
             qb[k] = (0.5 + s) * (θ * (qn[k-1] + 0.5qsn[k-1]) + (1 - θ) * (qo[k-1] + 0.5qso[k-1])) +
                     (0.5 - s) * (θ * (qn[k]   - 0.5qsn[k])   + (1 - θ) * (qo[k]   - 0.5qso[k]))
         end
     else
         @inbounds for k in ngrs:ngre
-            s = decide(:up, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
+            s = upwind(uf, hold, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
             qb[k] = (0.5 + s) * (θ * (qn[k]   + 0.5qsn[k])   + (1 - θ) * (qo[k]   + 0.5qso[k])) +
                     (0.5 - s) * (θ * (qn[k+1] - 0.5qsn[k+1]) + (1 - θ) * (qo[k+1] - 0.5qso[k+1]))
         end
@@ -590,6 +609,7 @@ function gridwin_rows!(R, ir, k0, rn, ro, dn, tn, dt, gw)
 end
 
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
+    UPFREEZE[] > 0 && (UPHOLD[] = TF.getscalar(:iter) >= UPFREEZE[])
     ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
     P = c.p; θ = P.θ; dt = P.dt; xmu = Float64(mu); xmup1 = xmu + 1; cc = P.cc
     ir, im, id, iu, it, ie, iF = c.ix

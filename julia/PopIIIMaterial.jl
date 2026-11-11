@@ -313,16 +313,23 @@ function nlopc(ρ, T0, d, p)
     lf = log(f)
     (; T0, RE = E0 / Pe, qE = log(E1 / E0) / lf, RP = P0 / Pe, qP = log(P1 / P0) / lf, RR = R0 / Re, qR = log(R1 / R0) / lf)
 end
+"""
+Diagnostic switch, off by default: `CHICAP=κ[,Tmax]` caps the flux-mean opacity χ at κ [cm²/g] where T < Tmax (default 5e4 K). The energy
+means κ_E, κ_P are not changed. With κ = electron scattering it removes the H/H⁻ opacity peak from the radiation force and the diffusion,
+to test what drives the envelope cycle at L ≈ L_Edd. Not physics.
+"""
+const CHICAP = let s = split(get(ENV, "CHICAP", "0"), ","); (parse(Float64, s[1]), length(s) > 1 ? parse(Float64, s[2]) : 5e4); end
+@inline chicap(κ, T) = (CHICAP[1] > 0 && T < CHICAP[2]) ? min(κ, CHICAP[1]) : κ
 @inline function TX.material_opac(m::NetGas, ρ, T)
     if NLOPAC[]
         k = TX.ZONE[]; c = NLOPC[]
         if k <= length(c) && !m.eqzone[k] && (o = c[k]) !== nothing
             κR0, κP0 = OPAC[](ρ, o.T0); s = T / o.T0
-            return κR0 * o.RR * s^o.qR, κP0 * o.RE * s^o.qE, κP0 * o.RP * s^o.qP
+            return chicap(κR0 * o.RR * s^o.qR, T), κP0 * o.RE * s^o.qE, κP0 * o.RP * s^o.qP
         end
     end
     κR, κP = OPAC[](ρ, T)
-    return κR, κP, κP
+    return chicap(κR, T), κP, κP
 end
 function TM.fill_opac!(m::NetGas)
     OPAC[] === nothing && return nothing

@@ -316,6 +316,9 @@ Open: one zone where the run's κ_P is 2.5e-14 against the spectral 3.35e-12 cm�
 
 ## The envelope oscillation at 101 M☉ and the stop of `fx3` (9 Nov)
 
+*Mesh tests of 10 Nov show that the amplitude and period of this oscillation are not resolved on the production mesh:
+see "Is the envelope cycle at 104 M☉ resolved?" below.*
+
 The production line `fx3` stopped at step 226129, M* = 101.3 M☉ (R* 19.96 R☉, T_c 6.06e7 K, L_nuc 2.8e38 erg/s):
 `TITAN step01: failure to converge after 25 attempts`. Continued as `z19fx3d` from the final checkpoint with `NTRY=60`
 (now also in `phaseB.env`).
@@ -552,6 +555,9 @@ A restart from a checkpoint written with `ENVSPLIT` must not set it again.
 
 ## The `AVTENSION=0` line from 100.2 to 101 M☉: the same oscillation, and what a step costs (10 Nov)
 
+*Mesh tests of 10 Nov show that the amplitude and period of this oscillation are not resolved on the production mesh:
+see "Is the envelope cycle at 104 M☉ resolved?" below.*
+
 `z19avt0` (the `AVTENSION=0` branch of `z19fx3b`, 100.23 M☉) was continued in four variants, all with `ENVMS0=0.4737` on
 4 threads. Numbers from each test's `perf.csv`, state at 08:00 on 10 Nov:
 
@@ -687,6 +693,95 @@ composition, and the chemistry step brings it back. So the limit acts on an inte
 not on the change over the step. Ways out, none adopted: apply the 30 % test in network zones after the chemistry step;
 `BALSPLIT=1` (the ionization balance inside the hydrodynamic step; it drove an edge flicker on 8 Nov); a chemistry sweep
 that follows the flow through the front. `GRIDWIN` stays off in production.
+
+## Is the envelope cycle at 104 M☉ resolved? (`t_pd1`–`t_pd8`, `t_pm1`–`t_pm5`, 10 Nov)
+
+Question: `fx3` shows the photosphere swinging between 1360 and 7300 R☉ (T_eff 1900–8200 K) with a period growing from 3
+to 7 yr over 272 yr of record. Is that physical? All tests start from one frozen production state
+(`t_ref6/ck/m2c_z19fx3e_auto1`, step 297500, 103.80 M☉, t0 = 2.18640451e7 yr) with the production flags
+(`AVTENSION=0 CHEMSUB=1.3,3`), 8 threads. Diagnostics per snapshot by `pulse2.jl`, events by `events.py`, the energy
+budget by `bounce.py` (session scratchpad, not in the repository).
+
+**Answer so far: the loading of the envelope is robust, what happens to the loaded shell is not resolved on any mesh
+tried.** This replaces the description of the oscillation in the two sections above ("The envelope oscillation at
+101 M☉", "The `AVTENSION=0` line from 100.2 to 101 M☉") where they differ.
+
+What holds on every mesh and step limit:
+
+- With L at 40 R☉ pinned at 3.82e6 L☉ = 0.98 of the electron-scattering Eddington luminosity, the infalling gas is
+  stopped at 300–3000 R☉ and about 0.9–1.0 M☉ collects there within 0.8 yr (0.1 → 0.9 M☉ between t0 + 1.0 and 1.8 yr in
+  every run).
+- The energy budget of the envelope (40–10⁴ R☉) closes to 0.4 % of L on the production mesh (`t_pd1`).
+- The cycle does not need the H/H⁻ opacity peak: with the flux-mean opacity capped at electron scattering below 5e4 K
+  (`CHICAP=0.35`, `t_pd5`) it persists (6.4–8.4 yr, ±20 km/s).
+- The star grows at 5.88e-3 M☉/yr (`t_pd1`, 16.9 yr), 5.89e-3 (`t_pd2`, 18.7 yr), 6.32e-3 (`t_pd6`, 18.6 yr).
+
+What differs. A loaded shell does one of two things: a soft rebound (velocity at 1000 R☉ stays above about −60 km/s,
+photosphere stays outside 1400 R☉), or it falls nearly freely (−165 to −177 km/s at 1000 R☉; free fall is 199 km/s)
+through its own photosphere onto the hot layer and bounces. Collapse events (inflow at 300 R☉ above 0.5 M☉/yr), times in
+yr after t0, rates in M☉/yr:
+
+| run | mesh | t | shell mass [M☉] | r_ph min [R☉] | Ṁ max at 300 / 100 / 30 R☉ | L_ph min–max [L☉] |
+|---|---|---|---|---|---|---|
+| `t_pd1` | 286 zones, fixed (production) | none in 16.9 yr (max Ṁ at 300 R☉ 0.23) | 0.99 | 1478 | | |
+| `t_pd2` | same, `STOL=0.1` | 15.82 | 0.97 | 1229 | 1.3 / 0.24 / 0.04 | 5.9e4–1.4e7 |
+| `t_pd6` | `ENVSPLIT=300,8000,2` (334) | 1.83 | 0.92 | 869 | 4.1 / 0.54 / 0.08 | 5.5e4–2.5e7 |
+| | | 4.92 | 0.96 | 262 | 10 / 9.5 / 1.0 | 1.8e4–2.4e7 |
+| `t_pd4` | `ENVSPLIT=300,8000,3` (382) | 1.88 | 0.95 | 302 | 11 / 6.5 / 0.79 | 1.2e4–3.2e7 |
+| | | 4.51 (run at 4.55) | 0.68 | 362 | 30 / 52 / 0.36 | |
+| `t_pd7` | `ENVSPLIT=800,8000,3` (350) | 1.87 (run ended 2.00) | 0.95 | 369 | 7.8 / 3.9 / 0.54 | |
+| `t_pm5` | 286, moving, `gmax` 5 | none in 4.65 yr (max 0.15) | 0.96 | 1379 | | |
+| `t_pm4` | 334, moving, `gmax` 2.5 | 1.80 | 0.88 | 1195 | 1.7 / 0.11 / 0.02 | 2.1e5–2.5e7 |
+| `t_pm3` | 334, moving, `gmax` 5 | 1.76 (stopped at 2.4) | 0.83 | 1219 | 1.1 / 0.07 / 0.01 | |
+
+Median Δln r of the photosphere zone: 0.075 (`t_pd1`), 0.035 (`t_pd6`), 0.025 (`t_pd4`), 0.024 (`t_pm3`), 0.031
+(`t_pm4`), 0.036 (`t_pm5`). The outcome does not converge monotonically with the mesh and is not set by the resolution at
+the photosphere alone (`t_pm3` has the photosphere resolution of `t_pd4` and the partial collapse of `t_pd6`). On the
+production mesh the photosphere sits on one zone for most of the cycle (d ln r_ph / d ln L_ph = −0.07 to 0.12 on the
+fixed 286-zone runs against 0.29–0.47 on the finer or moving ones), so the photosphere and T_eff excursions of `fx3` are
+not to be trusted.
+
+**The bounce conserves energy and is a compression rebound** (`t_pd4`, first event; control volume 18–10⁴ R☉, where only
+0.0015 M☉ crosses the inner boundary; with the boundary at 25 or 40 R☉ the donor-cell estimate of the advected energy
+fails, not the code). Between t0 + 1.65 and 1.97 yr E_grav falls by 20.3e47 erg, E_rad rises by 19.4e47, E_gas by 0.96e47,
+E_kin by 0.6e47; the star supplies 1.07e47, 0.33e47 leaves as light. Total energy against the integrated boundary terms:
+1.1e46 erg, 0.5 % of the energy converted. So 96 % of the gravitational energy released is stored as trapped radiation and
+the rebound is its re-expansion. Profiles: free-falling neutral gas (−226 to −343 km/s, 2400–4700 K, about 2 M☉/yr)
+outside 300 R☉, a shock at 228–294 R☉, a hot pile-up at 50–170 R☉ (ρ 1.5–2.6e-7 g cm⁻³, 2.4e5–6.8e5 K); then an outward
+shock (294 → 540 R☉ in 0.03 yr, +12 to +120 km/s behind it, local Γ 2–13, L up to 4.7e7 L☉). L inside 100 R☉ stays at
+3.7–3.8e6 L☉. The flash at the photosphere (to 3.2e7 L☉) carries 1.6e47 erg, 8 % of the stored energy.
+
+**After a deep event** (`t_pd6`, 18.6 yr): the bounce of t0 + 4.9 yr drives gas outwards at up to 84 km/s at 5000 R☉
+(escape speed there 89 km/s). From 6.8 to 12.1 yr mass leaves through 10⁴ R☉ (up to 0.29 M☉/yr) and the mass between 40
+and 10⁴ R☉ falls from 0.98 to 0.44 M☉. From 8.9 to 15 yr the shell at 300–3000 R☉ is nearly empty (0.04–0.08 M☉) and the
+star accretes steadily at 5.5–6e-3 M☉/yr. The gas returns from 12.6 yr and the shell is loaded again at 18 yr. The cycle
+of the finer mesh is therefore longer and irregular, not a 3 yr limit cycle.
+
+**The moving mesh** (`GRIDWIN=40,8000,1e5,0,10 UPFREEZE=4`, without and with `ENVSPLIT=300,8000,2`: `t_pm1`, `t_pm2`)
+stalled at t0 + 0.47 and 0.34 yr: about 60 zones with Δln r < 1e-3 collected on the thin radiative shock near 5060 R☉ and
+left Δln r = 0.13–0.26 inside 1000 R☉. A ninth `GRIDWIN` parameter `gmax` caps the resolved gradient (zones at most
+√(1 + gmax²) finer than in smooth gas); with 5 or 2.5 the runs proceed at Δt of order 1e4–2e5 s outside the events (`t_pm3`–`t_pm5`).
+
+**Cost.** `t_pd4` took 8700 steps for 4.55 yr (Δt 24–300 s inside a collapse, 2.8 s per step at 8 threads); the
+production mesh takes about 600 steps per yr at these masses. A resolved cycle is roughly ten times more expensive per
+model year. `t_pd8` (`ENVSPLIT=300,8000,6`, about 520 zones) was started to see whether the first event at six-fold
+resolution matches `t_pd4`.
+
+**Switches added for these tests (all default off; with all off the code is bit-identical over 600 steps from the frozen
+state, `t_bi2` against `t_ref6`):**
+
+- `UPFREEZE=n`: from Newton iteration n on, each interface keeps its upwind direction. Removes a two-cycle of the donor
+  choice at interfaces of a moving window where the flow relative to the grid is near zero.
+- `STOLCHEM=1`: the step-size rule is evaluated again after the chemistry step, so that it acts on the change over the
+  whole step and not on the state between the two halves of the operator split. Under test, not adopted.
+- `CHICAP=κ[,Tmax]`: caps the flux-mean opacity below Tmax. Diagnostic, not physics.
+- `NEWTFLIP=1`: prints which branch decisions of the residual changed between Newton iterations.
+- `GRIDWIN=…,gmax`: see above.
+
+**Not established:** which outcome (soft rebound, deep collapse and ejection to beyond 10⁴ R☉) the converged solution
+has, and how often; whether the deep collapse depends on the shell recombining and losing its opacity (it looks like a
+threshold; not tested); whether 1D is adequate for a radiation-supported shell above a lighter layer. None of the runs
+shows the accretion ending.
 
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 

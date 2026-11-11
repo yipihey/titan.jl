@@ -1230,6 +1230,10 @@ const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = pa
 # Newton controls, applied after any restart: NITER (iterations per attempt), FAILTFAC (Δt factor after a failed attempt)
 haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
 haskey(ENV, "STOL") && TF.setscalar!(:stol, parse(Float64, ENV["STOL"]))
+# STOLCHEM=1: the step-size rule (stol on the relative change of r, m, rho, T, E_r, and the caps in DT_HOOKS) is evaluated again after
+# the chemistry step, so that it acts on the change over the whole step (transport + chemistry) and not on the state between the two
+# halves of the operator split, where the transport step has moved T at the old composition. Default off.
+const STOLCHEM = get(ENV, "STOLCHEM", "0") == "1"
 haskey(ENV, "NTRY") && TF.setscalar!(:ntry, parse(Float64, ENV["NTRY"]))
 if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Trbdf2.TFAC[] = TD.FAIL_TFAC[]; end
 # EDDREAL=1: the moments of any radiation field obey K/J >= (H/J)^2, so f >= (F/cE)^2. Applied after the formal solution (f is lagged over the step anyway), with F, E of the current state: in thin
@@ -1424,6 +1428,7 @@ if haskey(ENV, "NEWTSEC")
         end
     end
 end
+const NEWTFLIP_OLD = Dict{Tuple{Symbol,Int},Vector{Bool}}()
 # NEWTDBG="k1,k2,z1,z2": per-iteration state of zones z1:z2 during steps k1:k2 (debugging)
 if haskey(ENV, "NEWTDBG")
     let w = parse.(Int, split(ENV["NEWTDBG"], ",")), up0 = TD.ROUTINES[:update]
@@ -1432,6 +1437,15 @@ if haskey(ENV, "NEWTDBG")
             k = KLAST[] + 1
             if w[1] <= k <= w[2]
                 pr("NEWT k %d iter %d jtry %d dt %.4e dmax %.3e boost %d\n", k, Int(TF.getscalar(:iter)), Int(TF.getscalar(:jtry)), TF.getscalar(:dtime), TF.getscalar(:dmax), Int(TF.getscalar(:lboos)))
+                if get(ENV, "NEWTFLIP", "0") == "1"       # which branch decisions of the residual changed since the last iteration (record mode changes nothing)
+                    TitanResidFast.FREEZE[] = 1
+                    for (key, v) in TitanResidFast.DEC
+                        old = get!(() -> copy(v), NEWTFLIP_OLD, key)
+                        fl = findall(old .!= v)
+                        isempty(fl) || pr("   FLIP %s/%d zones %s\n", key[1], key[2], join(fl, ","))
+                        old .= v
+                    end
+                end
                 if Int(TF.getscalar(:iter)) == 1 && Int(TF.getscalar(:jtry)) == 1 && mat isa PM.NetGas
                     for z in w[3]:w[4]
                         ρz = TF.var(:dn)[z]; Tz = TF.var(:tn)[z]; ez = TF.var(:egn)[z]
@@ -1482,6 +1496,9 @@ try
         SLZ_ = haskey(ENV, "SLZ") ? parse.(Int, split(ENV["SLZ"], ",")) : nothing
         if SLZ_ !== nothing; xb_ = [copy(mat.x[z]) for z in SLZ_[1]:SLZ_[2]]; Tb_ = TF.var(:tn)[SLZ_[1]:SLZ_[2]]; end
         dT = PM.chem!(mat)
+        if STOLCHEM
+            TF.setscalar!(:tfac, TC.TSTP_IN[][1]); TF.setscalar!(:dtime, TC.TSTP_IN[][2]); TD.r(:timstp)
+        end
         if SLZ_ !== nothing && PM.SLDIAG[] !== nothing      # S6: starlight and chemistry of zones z1..z2 over this step's chem! (molecular-edge onset)
             sd = PM.SLDIAG[]; dtq = TF.getscalar(:timen) - TF.getscalar(:timeo)
             pr("        SLZ k %d dt %.3e: photosphere zone %d T_eff %.0f\n", k, dtq, sd.kph, sd.Te)

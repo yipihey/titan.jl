@@ -182,7 +182,10 @@ const EXTRAP_FRAC = Ref(Inf)
 const ER_THICK = Ref(0.0)
 "S6: zones with Rosseland optical depth from the surface below `ER_TAUMIN[]` are left out of the E_r criterion of timstp! (0 = TITAN's rule)."
 const ER_TAUMIN = Ref(0.0)
+"tfac and dtime as the last timstp! call found them (STOLCHEM in popiii_m2c.jl evaluates the rule again after the chemistry step)."
+const TSTP_IN = Ref((0.0, 0.0))
 function timstp!()
+    TSTP_IN[] = (gf(:tfac), gf(:dtime))
     a, b = gi(:ngrs), gi(:ngre); neqn = gi(:neqn)
     lhydr, lrad, ltur = gi(:lhydr), gi(:lrad), gi(:ltur)
     ltur == 0 || error("timstp: ltur ≥ 1 not supported")
