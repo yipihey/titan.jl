@@ -1182,6 +1182,9 @@ and no measurable cost: 582–594 s with the switch on, 583 s with it off).
 - `t_hd2b`, `HDINIT=1e-9`: inside 0.1 pc the same state as the equilibrium start within the 96 yr; outside 0.13 pc x_HD stays near
   the seed (the relaxation time there is longer than the run, see the table).
 - `t_hd3`, `t_hd4`: restart from the `HDCHEM` checkpoint with the switch on (entries carried) and off (entries dropped), both clean.
+- `t_hd5`, `HDCHEM=1 LINEINC=1` together: clean to the same step and mass (620 s). The two changes add: outside the star the
+  temperature differs from the sum of the two single changes by at most 0.003 K (−3.5 K at 4085 K, −2.7 K at 2015 K, −0.8 K at
+  1314 K); H₂ line cooling 6.969e34 erg/s (−0.44 %), HD 6.505e33 erg/s.
 
 **Which start is right.** The relaxation time of the deuterium chain (the slowest non-zero eigenvalue of the rate matrix, `relax.jl`)
 against the infall time r/|u|, last snapshot of `t_hd2b`:
