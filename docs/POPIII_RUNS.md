@@ -1451,3 +1451,105 @@ Production itself (146 zones, 8 threads, not pinned, no `MATTHREADS`, both switc
 These numbers are for the present state (131 M☉, Δt 1.05e6 s, line transfer cheap). In the runs from the initial
 conditions the line transfer is the largest item (the table in the section above), so they depend more on the thread
 count; that was not measured here.
+
+## A 64-zone baseline from the initial conditions, 128-zone continuations, and HD in the collapse (11 Nov)
+
+From 11 Nov 11:00 the programme runs as four chains, each on 4 threads pinned to half a NUMA node with `MATTHREADS=4`.
+All earlier chains are stopped; their records and checkpoints stay.
+
+| run | what | zones | start | switches | cpus |
+|---|---|---|---|---|---|
+| `base64` | the new baseline, from the initial conditions | 64 | IC | `HDCHEM=1 LINEINC=1`; phase B with `ETASWTH=1e-3 ETASWTIE=0.5` | 8–11 |
+| `nohd64` | twin of `base64` without HD | 64 | IC | `LINEINC=1` | 32–35 |
+| `c128` | production toward 300 M☉ (continues `t_c146`) | 128 | 141.5 M☉ | `HDCHEM=1 LINEINC=1 ETASWTH=1e-3 ETASWTIE=0.5` | 16–19 |
+| `f128` | `full6` continued | 128 | 14.3 M☉ | the same | 24–27 |
+
+What was stopped, and why:
+
+- `full3`, `full4` (10.53 and 10.88 M☉): `AVTENSION=1`, `MCLOUD=1e4`, phase B without `ETASWTH`/`ETASWTIE`. Their
+  questions (when to switch the transport on, the collapse procedure) are answered in the sections above.
+- `full6` (14.33 M☉, 380 zones, 16 threads, 0.095 M☉ per wall hour): the only run with the 2e4 M☉ cloud and
+  `AVTENSION=0` from the start. Kept as `f128`.
+- `t_c146` (141.52 M☉, 146 zones, 8 threads): the production line. Kept as `c128`.
+
+### The launcher
+
+`scripts/popiii_run/fullrun.sh` now reads, from the run directory:
+
+- `launch.env`: `NZ` (shells of the initial model, default 200), `TH` (threads), `PIN` (a prefix command such as
+  `numactl --physcpubind=8-11 --membind=1`), `REFINE` (`off` skips the shell refinement at the rebuild), `A1X`, `A2X`;
+- `phaseA.env`, `stageA1.env`, `stageA2.env`, `stageA3.env`, `phaseB.env`: used instead of the defaults next to the
+  script when present, so a run with its own mesh keeps its complete settings in its directory;
+- `run.env` as before (it overrides the stage files).
+
+`B1X="<settings>"` in the environment is passed to the first phase-B segment only: one-time switches of a restart.
+The first line a chain writes to `procedure.log` gives shells, threads, pinning and the commit.
+
+### `base64`
+
+- Stage A1 with 64 shells to log n_c 14 (`RAD=0 NSTOP=1e14`), then the rebuild with continuum transport
+  (`DTRADMAX=0`, as `full4`), no `REFINE`, no `REZWIN`: the Lagrangian collapse keeps 64 zones to 0.5 M☉.
+- Phase B: `ENVEUL=0,0.33,0.7,3000 ENVCORE=0.1,0.33,10`, i.e. Δln r = 0.33 from 0.1 to 3000 R☉ growing to 0.7 outside
+  (`meshdesign.jl` logic: 64 zones to the cloud edge). About 14 zones lie inside 10 R☉. This is the coarse end of the
+  planned resolution study and not a mesh for the stellar interior.
+- A1 took 16 910 steps in 26 minutes (0.09 s per step). The rebuild carried the HD state (x_HD = 2.4e-5 in the
+  molecular core, all deuterium in HD).
+
+### `c128` and `f128`: a restart with a one-time merge
+
+Both start from frozen copies of the last checkpoints (`frozen_c146_f/m2c_z19c146f_auto0`, 146 zones;
+`frozen_full6_380/m2c_z19full6B1_auto1`, 380 zones) with `ENVMERGE` in `B1X`:
+
+- `c128`: `ENVMERGE=11,30,2;30,1500,2` (146 → 138 → 128 zones). No `MCLOUD` (the restart check needs the settings of
+  the original run), `ENVMS0=0.4737`.
+- `f128`: `ENVMERGE=0.06,1e12,3` (380 → 128 zones, every three zones merged), `MCLOUD=2e4`, `ENVMS0=5.014e-01`.
+
+Mass, radiation energy and gas energy are conserved by the merge to the printed digits. HD starts from its equilibrium
+(`hd_pad!`). To undo HD and the CMB term: copy the frozen checkpoint into a new run's `ck/` and start
+`fullrun.sh <run> B:<checkpoint>` with a `run.env` without `HDCHEM`/`LINEINC`.
+
+First hour:
+
+- `c128`: 0.113 s per step (146 zones on 8 threads: 0.148), no divergences. R* went from 10.47 to 9.66 R☉ at the
+  merge: one interface of the mesh.
+- `f128`: 1.2–1.45 M☉ per wall hour against 0.095 for `full6`. R* 231 → 245.5 R☉ at the merge, 268.8 R☉ from step
+  83 000. From step 81 600 the run diverges about 50 times per 100 steps, with Δt between 7e2 and 9e5 s. The limiter
+  is the temperature of the zone just inside the photosphere. The mesh has Δr/r = 0.086 there (0.03 in `full6`): the
+  shock is one zone (31 900 K, 8.8e-8 g cm⁻³ → 5600 K, 7.8e-10), four zones at 5100–5600 K follow, then 2750 K, and
+  the photosphere moves between two of them. `c128` has the same Δr/r at its surface but its photosphere is far out
+  in the infall (1e4 R☉). Not fixed; the run advances. A restart with fewer merged zones between 150 and 700 R☉ is
+  the remedy to try if it stalls.
+
+### HD puts the collapse on a colder branch
+
+At the same central density (log n_c = 7.80):
+
+| run | shells | HD | `LINEINC` | t [yr] | T_c [K] | x_H2 | x_e |
+|---|---|---|---|---|---|---|---|
+| `base64` | 64 | on | on | 1.0005e7 | 220.5 | 4.04e-3 | 5.75e-10 |
+| `nohd64` | 64 | off | on | 1.7458e7 | 675.5 | 9.06e-4 | 6.19e-9 |
+| `b64n` (control, stopped) | 64 | off | off | 1.7454e7 | 675.5 | 9.06e-4 | 6.19e-9 |
+| `full6` | 200 | off | off | 2.2691e7 | 627.3 | 9.20e-4 | 4.23e-9 |
+
+- `base64` and `b64n` differ only in `HDCHEM=1 LINEINC=1`; `nohd64` shows that `LINEINC` alone changes nothing here.
+  The cold core is the HD.
+- In `base64` at that time Λ_HD/Λ_H₂ is 0.2 in the core, 1.2 at n = 8e6, 3.4 at 7e5, 4.7 at 1.3e5 (T = 159 K,
+  x_HD = 3.7e-7), 2.1 at 1.2e4, 0.8 at 2.5e3 cm⁻³: HD is the main coolant between about 3e3 and 1e7 cm⁻³ and holds the
+  gas at 159–185 K there. Without HD: 333 K at 3.7e4 and 495 K at 1e6 cm⁻³ (`b64n`). The mass above 3e7 cm⁻³ is 4 M☉
+  with HD and 23 M☉ without. (`hdcore.jl <run A> <run B> <log n_c>` in the session scratch directory prints these.)
+- Later the tracks approach each other: T_c = 482 K at log n_c 10.0 and 626 K at 10.64 with HD, 862 K at 9.98 and
+  964 K at 10.57 without.
+- Resolution alone (`b64n` against `full6`, both without HD): T_c +8 %, time of collapse −23 %.
+- The literature has this branch: Ripamonti (2007, MNRAS 376, 709) finds HD cooling to 50–100 K in objects below
+  ~3e5 M☉ at z_vir = 20 where H₂ alone stays above 200 K; McGreer & Bryan (2008, ApJ 685, 8) find HD equal to or above
+  H₂ cooling in the lowest-mass halos and between 1e2 and 1e6 cm⁻³ in pre-ionized ones, with lower stellar masses.
+  Whether a cloud enters it depends on how long the gas stays near 1e3–1e5 cm⁻³. Our 1D cloud takes 1e7 yr to
+  collapse, which gives HD that time; the result is therefore tied to the initial model and is not a general
+  statement about halos of this mass.
+
+Consequences:
+
+- `base64` is a different star from the `c128`/`f128` lineage, which collapsed without HD and received it at 141.5 and
+  14.3 M☉. Its core is colder, so a lower accretion rate is expected at first.
+- A resolution comparison needs the same physics on both sides: `nohd64` against `full6`/`f128` (no HD in the
+  collapse), `base64` against future finer runs with HD.

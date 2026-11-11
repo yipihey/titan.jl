@@ -19,13 +19,21 @@
 # A2X="<settings>" (environment): extra settings of the rebuild stage (they override stageA2.env)
 # A1X="<settings>" (environment): the same for stage A1 (e.g. A1X="NSTOP=1e14" A2X="DTRADMAX=0": continuum transport from log n_c 14)
 # <run directory>/run.env: settings of this run for every stage and every restart (e.g. MCLOUD=2e4); they override the stage files
+# <run directory>/{phaseA,stageA1,stageA2,stageA3,phaseB}.env: if present, used INSTEAD of the file of the same name next to this
+#   script (a run with its own mesh or stage limits keeps its complete settings in its directory)
+# <run directory>/launch.env (sourced by this script at every start): NZ=<shells of the IC, default 200>, TH=<threads>,
+#   PIN="<prefix command>" (e.g. PIN="numactl --physcpubind=8-11 --membind=1"), REFINE=<mlo,mhi,frac | off>, A1X, A2X
+# B1X="<settings>" (environment): extra settings of the FIRST phase-B segment this invocation starts only (one-time switches of a
+#   restart, e.g. B1X="ENVMERGE=11,30,2;30,1500,2 HDINIT=eq"); later segments restart without them
 HERE=$(cd "$(dirname "$0")" && pwd); JLENV=${JLENV:?set JLENV to a julia project with the repository packages}; DATA=${DATA:-/zpool/nvme/data/tabel_scratch/titan_popiii}
-RUN=$1; FROM=${2:-}; TH=${3:-4}; SEG=100000; REFINE=${REFINE:-1e-3,0.1,0.03}
-R=$DATA/runs/$RUN; CK=$R/ck; mkdir -p $CK
+RUN=$1; FROM=${2:-}; R=$DATA/runs/$RUN; CK=$R/ck; mkdir -p $CK
+[ -f $R/launch.env ] && . $R/launch.env
+TH=${3:-${TH:-4}}; SEG=100000; REFINE=${REFINE:-1e-3,0.1,0.03}; NZ=${NZ:-200}; PIN=${PIN:-}
+sf() { if [ -f $R/$1 ]; then cat $R/$1; else cat $HERE/$1; fi; }      # a stage file: the run's own copy, or the default
 COMMON="RUNREC=$R POPIII_OUT=$R CKDIR=$CK SNAPEVERY=20 PRINTEVERY=100 SNAPS=0 TIMING=1 DTDIAG=1 MSG=1 TAG=_$RUN $([ -f $R/run.env ] && cat $R/run.env)"
 cd $HERE/../../julia
 log() { echo "$(date '+%F %T') $*" >> $R/procedure.log; }
-run() { local out=$1; shift; env "$@" setsid julia -t $TH --project=$JLENV popiii_m2c.jl lines 200 > $out 2>&1 < /dev/null; }
+run() { local out=$1; shift; env "$@" setsid $PIN julia -t $TH --project=$JLENV popiii_m2c.jl lines $NZ > $out 2>&1 < /dev/null; }
 fresh() { local b=$1 n=1; while [ -e $CK/m2c_${b}${n}.aux ] || [ -e $CK/m2c_${b}${n}_auto0.aux ]; do n=$((n+1)); done; echo ${b}${n}; }
 # stage <name> <pattern that must end the log> <env...>: run one phase-A stage; sets ck to its final checkpoint
 stage() {
@@ -36,26 +44,28 @@ stage() {
   if ! grep -q "$pat" $out; then log "stage $name FAILED ($save): $(grep -E '^stopped|run ended|^ERROR' $out | tail -2 | tr '\n' ' ')"; exit 1; fi
   log "stage $name done ($save): $(grep "$pat" $out | tail -1)"; ck=$save
 }
-A="$(cat $HERE/phaseA.env)"; st=A1; ck=
+A="$(sf phaseA.env)"; st=A1; ck=
+log "launch: $NZ IC shells, $TH threads${PIN:+, $PIN}, commit $(git -C $HERE rev-parse --short HEAD 2>/dev/null)${FROM:+, from $FROM}"
 case "$FROM" in "") ;; A1:*|R:*|A2:*|A3:*|B:*) st=${FROM%%:*}; ck=${FROM#*:} ;; *) echo "unknown start $FROM" >&2; exit 2 ;; esac
 if [ $st = A1 ]; then
-  stage A1 'stopped: T_c' $(cat $HERE/stageA1.env) ${A1X:-} ${ck:+RESTART=$ck}; st=R
+  stage A1 'stopped: T_c' $(sf stageA1.env) ${A1X:-} ${ck:+RESTART=$ck}; st=R
 fi
 if [ $st = R ]; then
-  stage A2 'stopped: T_c' $(cat $HERE/stageA2.env) RADFROM=$ck REFINE=$REFINE ${A2X:-}
+  rf="REFINE=$REFINE"; [ "$REFINE" = off ] && rf=
+  stage A2 'stopped: T_c' $(sf stageA2.env) RADFROM=$ck $rf ${A2X:-}
   grep -q 'RAD: rebuilt' $out || { log "stage A2 ($save) has no radiation rebuild"; exit 1; }; st=A3
 elif [ $st = A2 ]; then
-  stage A2 'stopped: T_c' $(cat $HERE/stageA2.env) RESTART=$ck; st=A3
+  stage A2 'stopped: T_c' $(sf stageA2.env) RESTART=$ck; st=A3
 fi
 if [ $st = A3 ]; then
-  stage A3 'stopped: M_star' $(cat $HERE/stageA3.env) RESTART=$ck
+  stage A3 'stopped: M_star' $(sf stageA3.env) RESTART=$ck
 fi
-B="$(cat $HERE/phaseB.env)"
+B="$(sf phaseB.env)"; b1=${B1X:-}
 while true; do
   save=$(fresh z19${RUN}B); out=$R/phaseB_$save.out
   ms0=$(grep -h -oE 'M_shell0 [0-9.e+-]+' $R/m2c_*_${RUN}.log 2>/dev/null | tail -1 | awk '{print $2}')
-  log "phase B start from $ck (ENVMS0 ${ms0:-from remap}) as $save: $B $COMMON"
-  run $out $B $COMMON ${ms0:+ENVMS0=$ms0} RESTART=$ck SAVE=$save MAXSTEPS=$SEG
+  log "phase B start from $ck (ENVMS0 ${ms0:-from remap or run.env}) as $save: $B $COMMON $b1"
+  run $out $B $COMMON ${ms0:+ENVMS0=$ms0} $b1 RESTART=$ck SAVE=$save MAXSTEPS=$SEG; b1=
   end=$(grep -E 'run ended|stopped' $out | tail -1)
   if ! echo "$end" | grep -q ':maxsteps'; then log "phase B FAILED ($save): $(grep -E 'stopped|run ended' $out | tail -2 | tr '\n' ' ')"; exit 1; fi
   log "phase B segment done ($save): $end"; ck=$save
