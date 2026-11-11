@@ -783,6 +783,79 @@ has, and how often; whether the deep collapse depends on the shell recombining a
 threshold; not tested); whether 1D is adequate for a radiation-supported shell above a lighter layer. None of the runs
 shows the accretion ending.
 
+## The cycle has two modes; coarser meshes, tension and the work integral (10 Nov, evening)
+
+Decision of 10 Nov (user): keep the coarse mesh for one full solution to the goal, document the cycle as unresolved, do
+resolution studies from restarts at selected masses afterwards, then the final runs. Open: which coarse mesh.
+
+**Two modes of the cycle on the production mesh** (`fx3`, 447 yr of snapshots around 104–105.4 M☉; cycle = upward
+crossing of the mass between 300 and 3000 R☉ through 0.5 M☉):
+
+| | period | photosphere maximum | T_eff minimum | steps per model yr |
+|---|---|---|---|---|
+| short | 2.3–3.9 yr | 2400–3100 R☉ | 4000–5400 K | 90–140 |
+| long | 5.5–10.2 yr (median 7.8) | 4600–7300 R☉ | 1900–3200 K | 125–295 |
+
+Production was in the short mode until 104.0 M☉ (three isolated long cycles before) and has stayed in the long mode
+since (27 cycles in a row). The mass between 40 and 10⁴ R☉ grows: 0.57 M☉ (20-yr mean, 190 yr before the frozen
+state at 103.80 M☉), 0.94, 1.01, 1.49 M☉ (257 yr after), about 2.1e-3 M☉/yr, while the star grows 5.97e-3 M☉/yr.
+Not shown: that the mode change is caused by this growth.
+
+**A comparison of cost or of cycle properties is valid only between runs in the same mode.** The tests from the frozen
+short-mode state (`t_co2`, `t_av05`, `t_av20`, `t_st5`) stayed in the short mode for 31–36 yr while production went to
+the long mode after 8.9 yr; their 100–125 steps per model yr against production's ~200 is that difference, not a gain.
+The `ndiv` column of `perf.csv` is cumulative per process. Single realizations differ (null runs `t_nul1`, `t_nul2`
+with `STOL=0.2999`), so a difference needs a null run before it is attributed to a change.
+
+**Tests from a frozen long-mode state** (`frozen_long/m2c_z19fx3f_auto0`, 105.37 M☉, t = 2.18643043e7 yr; production
+flags; `t_L0` without changes reproduces production row by row for 400 steps). `ENVMERGE=r1,r2,k` merges groups of k
+zones with centres in [r1, r2] R☉ on restart (conserves mass, gas and radiation energy; commits eedb250, 67bc61f).
+Tests with 6 threads, production with 16, so seconds are not comparable one to one.
+
+| run | change | zones | model yr | steps per yr | s per step | s per model yr | cycle |
+|---|---|---|---|---|---|---|---|
+| `fx3` | (production) | 286 | 16.0 | 244 | 0.59 | 145 | long mode, P 7.9 yr, photosphere to 6600 R☉ |
+| `t_Lav` | `AVTENSION=0.05` | 286 | 11.1 | 171 | 0.97 | 166 | long mode, same amplitude (mass maximum 1.48–1.50 M☉) |
+| `t_Lco` | `ENVMERGE=1e4,1e12,2` | 226 | 20.7 | 140 | 0.68 | 95 | long mode, P 8.1 yr |
+| `t_Lm2` | `ENVMERGE=30,1e12,2` | 182 | 34.7 | 107 | 0.54 | 58 | long mode, P 7.9 and 9.5 yr, photosphere to 7000 R☉ |
+| `t_t_Lm3c` | `ENVMERGE=30,1e12,3` | 146 | 105.0 | 37 | 0.27 | 10 | **none after the first cycle** |
+
+On the 146-zone mesh (Δln r 0.18 from 30 to 1000 R☉, 0.3 outside 8800 R☉) the envelope goes through one long cycle and
+then stays put for the remaining 97 yr: photosphere 6610–6910 R☉, T_eff 3000–3090 K, L 3.4–3.6e6 L☉, inflow at 30 R☉
+5.5e-3 M☉/yr, the mass between 300 and 3000 R☉ wandering between 0.15 and 0.32 M☉ with a period near 12 yr. Production
+over the 257 yr before: growth 5.98e-3 M☉/yr, mean L 3.70e6 L☉, mean T_eff 4894 K. So the cycle's amplitude grows with
+resolution (146 zones: none; 182 and 286: the bounce; 2× and 3× finer: deep collapses onto the star), and none of
+these is converged. The star's own mesh and the accretion shock (inside 30 R☉) are the same in all of them.
+`t_c146` continues the 146-zone run (8 threads) to see whether the steady state lasts as the mass grows.
+
+Tension 0.05 and 0.2 do not damp the cycle in either mode and do not lower the cost; `STOL=0.5` (`t_st5`) gives no gain.
+
+**Work integral** (`t_pd1`, a snapshot every 2 steps; ∮P d(1/ρ) on Lagrangian shells with P = p_gas + f_Edd E_rad;
+scripts `workint.jl`, `worksum.py` in the session scratchpad). The moving layer is one persistent shell of 0.93–0.95 M☉:
+the same mass shells stay in it over a cycle, the innermost 0.013–0.02 M☉ falls onto the star per 3-yr cycle and
+0.03–0.1 M☉ joins from 5000–30,000 R☉. Every shell goes from fully ionized (0.7–1.7e5 K at compression) to fully
+recombined (2000–3500 K at maximum radius) each cycle.
+
+| cycle | positive work | by | negative work | by | net | Σ dm max(u²/2) |
+|---|---|---|---|---|---|---|
+| short, 1.4–4.5 yr | 8.49e46 erg | inner 0.39 M☉ | −3.82e46 | outer 0.54 M☉ | 4.67e46 | 7.8e46 |
+| short, 4.5–8.1 yr | 5.41e46 | inner 0.55 | −2.86e46 | outer 0.40 | 2.55e46 | 7.9e46 |
+| long, 8.1–16.7 yr | 6.76e46 | inner 0.44 | −3.64e46 | outer 0.49 | 3.11e46 | 9.1e46 |
+
+Radiation pressure does 97–100 % of the positive work. Reading: the hydrogen-ionization opacity valve in the limit
+where the whole shell ionizes and recombines (a relaxation oscillation, not a linear mode). Limits: the loops do not
+close exactly (up to 40 % in specific volume for the driving shells), the mesh is unresolved, the phase of the luminosity
+through the shell was not computed, and He is neutral by construction in the network although the driving shells reach
+0.7–1.7e5 K, so a He⁺ contribution cannot appear.
+
+Literature for the comparison, each found on SciX as refereed (existence and status checked, abstracts read for the
+first five; quoted model numbers not checked against the papers): Moriya & Langer 2015 (2015A&A...573A..18M),
+Nakauchi, Inayoshi & Omukai 2020 (2020ApJ...902...81N), Yoon & Cantiello 2010 (2010ApJ...717L..62Y), Heger et al.
+1997 (1997A&A...327..224H), Lobel et al. 2003 (2003ApJ...583..923L), Inayoshi, Hosokawa & Omukai 2013
+(2013MNRAS.431.3036I), Inayoshi et al. 2013 (2013ApJ...769L..20I), Cantiello et al. 2026 (2026ApJ..1000L...4C),
+Grassitelli et al. 2021 (2021A&A...647A..99G), Yadav et al. 2018 (2018MNRAS.475.4881Y), Grott, Chernigovski & Glatzel
+2005 (2005MNRAS.360.1532G), Glatzel & Kiriakidis 1993 (1993MNRAS.263..375G).
+
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 
 `MCLOUD` (default 1e4 M☉) sets the gas mass on the mesh. The ABN02 read-off n(r) ends at 93 pc, which encloses 1.5e4 M☉;
