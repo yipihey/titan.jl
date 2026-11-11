@@ -1369,3 +1369,85 @@ Production: 1.8 times faster per step. `MATTHREADS` is off by default because on
 for calls from several tasks; `phaseA.env` and `phaseB.env` set it (the number of tasks is the smaller of `MATTHREADS` and
 the thread count). What is left in production: the serial Newton iteration (assembly and block solve), the slowest single
 chemistry zone of a step, and garbage collection, which is now a quarter of the wall time.
+
+## Threads, pinning and a 100-zone mesh (11 Nov)
+
+**No run is pinned.** The launchers start `julia -t N` and nothing in the code sets an affinity; the 8-thread production
+process may run on all 128 cores (`taskset -cp`: 0–127). An unpinned process also creates 64 idle OpenBLAS threads
+(80 threads in all; with an affinity mask of 8 cores it creates 20). The machine has 16 NUMA nodes of 8 cores, each node one
+shared L3 cache.
+
+**The 146-zone production line ran without `MATTHREADS`.** The threaded material sweep of 10 Nov (section above) is off
+by default; `phaseA.env` and `phaseB.env` set it for the runs from the initial conditions, but the environment of the
+`fx3` line, which the `c146` chain and the test launcher inherit, never had it. In production the main thread has
+therefore used 8 times the CPU time of each of the 8 workers. The switch changes no number (checked again below).
+
+**A 100-zone mesh.** From the frozen 146-zone checkpoint (`frozen_c146_e`, step 526000, 130.83 M☉) with the one-time
+`ENVMERGE='0.1,10,2;11,30,2;30,1500,2'` (`t_z100m`): the stellar interior 57 → 29 zones, 11–30 R☉ 16 → 8, 30–1500 R☉
+21 → 11; the two zones at the surface, the photosphere and everything outside 1500 R☉ are unchanged. Merging inside the
+star breaks the force balance: for about 400 steps the star rings (Δt 40–300 s, infall to 700 km/s, 6 divergences), then
+Δt is back at 1.05e6 s with R* = 10.4662 R☉. At step 528000 against the 146-zone run at the same step: T_c 1.3852e8
+against 1.3892e8 K, L at the photosphere 4.670e6 against 4.684e6 L☉, T_eff 3091 against 3093 K, nuclear luminosity
+3.27e6 against 3.56e6 L☉. That is 1500 steps (50 yr) after the merge, so the interior has not relaxed and the 8 % in
+the nuclear luminosity is not yet a statement about the mesh. Checkpoint: `frozen_z100/m2c_z19z100m`.
+
+**Timing.** 3000 steps from a frozen checkpoint with `ETASWTH=1e-3 ETASWTIE=0.5 HDCHEM=1 LINEINC=1`; wall time over the
+last 2500 steps (start-up excluded); the four component columns are seconds per 100 steps. Pinned means `numactl
+--cpunodebind=n --membind=n taskset -c <cores>` with as many cores as threads. Within each mesh all runs give identical
+numbers (every non-timing column of `perf.csv`), whatever the thread count, the placement and `MATTHREADS`; no
+divergences. These are single runs on a shared machine, and the load changed between the rounds, so compare within a
+block.
+
+100 zones, `MATTHREADS` = thread count (load average 50–56):
+
+| run | threads | placement | s per step | solve | chemistry | H₂ lines | GC |
+|---|---|---|---|---|---|---|---|
+| `t_tm8p` | 8 | pinned, one node | 0.0765 | 3.7 | 1.7 | 1.6 | 0.7 |
+| `t_tm8u` | 8 | not pinned | 0.0851 | 4.1 | 2.0 | 1.7 | 1.2 |
+| `t_tm4p` | 4 | pinned, alone on the node | 0.0966 | 4.2 | 2.3 | 2.5 | 0.7 |
+| `t_tm4u` | 4 | not pinned | 0.0970 | 4.3 | 2.4 | 2.4 | 0.8 |
+| `t_tmA4a`, `b` | 4 | two runs on one node | 0.103, 0.102 | 4.4 | 2.5–2.6 | 2.7 | 0.8 |
+| `t_tm2p` | 2 | pinned, alone on the node | 0.136 | 5.5 | 3.5 | 4.1 | 0.8 |
+| `t_th8p3` (no `MATTHREADS`) | 8 | pinned, one node | 0.107 | 6.3 | 2.0 | 1.9 | 0.8 |
+| `t_th4p3` (no `MATTHREADS`) | 4 | pinned, alone on the node | 0.123 | 6.4 | 2.5 | 2.8 | 0.7 |
+
+100 zones, no `MATTHREADS` (load average 25–38):
+
+| run | threads | placement | s per step | solve | chemistry | H₂ lines | GC |
+|---|---|---|---|---|---|---|---|
+| `t_th1p` | 1 | pinned | 0.198 | 6.6 | 5.6 | 7.0 | 1.1 |
+| `t_th2p` | 2 | pinned, alone on the node | 0.144 | 6.3 | 3.5 | 4.1 | 0.8 |
+| `t_thB21`–`4` | 2 | four runs on one node | 0.149–0.152 | 6.6–6.7 | 3.6–3.7 | 4.1 | 0.9 |
+| `t_th4p` | 4 | pinned, alone on the node | 0.117 | 6.2 | 2.4 | 2.6 | 0.7 |
+| `t_thA4a`, `b` | 4 | two runs on one node | 0.125, 0.126 | 6.5 | 2.6 | 2.8–2.9 | 0.8 |
+| `t_th4u`, `t_th4u2` | 4 | not pinned | 0.118, 0.122 | 6.5–6.6 | 2.4–2.5 | 2.3–2.4 | 0.9–1.0 |
+| `t_th8p` | 8 | pinned, one node | 0.103 | 6.2 | 1.9 | 1.7 | 0.7 |
+| `t_th8u`, `t_th8u2` | 8 | not pinned | 0.130, 0.112 | 7.8, 6.8 | 2.6, 2.1 | 1.8, 1.7 | 2.1, 1.2 |
+
+146 zones, from `frozen_c146_e`, steps 526500–529000 (`t_tc*` at load average 25–35):
+
+| run | threads | placement | `MATTHREADS` | s per step | solve | chemistry | H₂ lines | GC |
+|---|---|---|---|---|---|---|---|---|
+| `t_tc8p` | 8 | pinned, one node | 8 | 0.0995 | 5.5 | 2.3 | 1.6 | 0.9 |
+| `t_tc4p` | 4 | pinned, half a node | 4 | 0.122 | 6.4 | 2.9 | 2.4 | 0.8 |
+| `t_tc8p0` | 8 | pinned, one node | off | 0.151 | 10.3 | 2.5 | 1.7 | 0.9 |
+| `t_hd5` (earlier) | 8 | not pinned | off | 0.160 | 10.9 | 2.8 | 1.6 | 1.5 |
+
+Production itself (146 zones, 8 threads, not pinned, no `MATTHREADS`, both switches off) runs at 0.148 s per step.
+
+- `MATTHREADS` takes 29 % off a step at 8 threads and 22 % at 4 threads on 100 zones, and 34 % at 8 threads on
+  146 zones. Without it the solve is 6.2–6.4 s per 100 steps on 100 zones whatever the thread count (10.3 s on 146).
+- With `MATTHREADS`, 4 threads cost 26 % more wall time than 8 on 100 zones (23 % on 146), 2 threads 77 %.
+- Pinning makes no measurable difference at 4 threads. At 8 threads the unpinned runs were 9–26 % slower than the pinned
+  one (11 % with `MATTHREADS`), with more time in garbage collection and in the solve; three runs are not enough to give
+  that a number.
+- Two 4-thread runs on one node each lose 6 % against one alone. Steps per second per 8-core node on 100 zones with
+  `MATTHREADS`: 13.1 with one 8-thread run, 19.5 with two 4-thread runs.
+- A 100-zone run on 4 pinned threads (0.097–0.103 s per step) is 1.45–1.5 times faster than production as it runs now
+  on 8; the 146-zone mesh on 4 pinned threads with `MATTHREADS=4` (0.122) is 1.2 times faster.
+- `LINEINC=1` adds 0.5–0.65 s per 100 steps to the line transfer on 146 zones (`t_inc2`, `t_hd5` against `t_inc0`,
+  `t_hd1b`), 3–4 % of a step; `HDCHEM=1` adds nothing measurable.
+
+These numbers are for the present state (131 M☉, Δt 1.05e6 s, line transfer cheap). In the runs from the initial
+conditions the line transfer is the largest item (the table in the section above), so they depend more on the thread
+count; that was not measured here.
