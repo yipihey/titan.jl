@@ -1512,8 +1512,9 @@ First hour:
 
 - `c128`: 0.113 s per step (146 zones on 8 threads: 0.148), no divergences. R* went from 10.47 to 9.66 R☉ at the
   merge: one interface of the mesh.
-- `f128`: 1.2–1.45 M☉ per wall hour against 0.095 for `full6`. R* 231 → 245.5 R☉ at the merge, 268.8 R☉ from step
-  83 000. From step 81 600 the run diverges about 50 times per 100 steps, with Δt between 7e2 and 9e5 s. The limiter
+- `f128`: 1.2–2 M☉ per wall hour against 0.095 for `full6`. R* 231 → 245.5 R☉ at the merge, 268.8 R☉ from step
+  83 000. From step 81 600 the run diverges about 50 times per 100 steps, in bursts (none between steps 83 100 and 83 300), with
+  Δt between 7e2 and 9e5 s. The limiter
   is the temperature of the zone just inside the photosphere. The mesh has Δr/r = 0.086 there (0.03 in `full6`): the
   shock is one zone (31 900 K, 8.8e-8 g cm⁻³ → 5600 K, 7.8e-10), four zones at 5100–5600 K follow, then 2750 K, and
   the photosphere moves between two of them. `c128` has the same Δr/r at its surface but its photosphere is far out
