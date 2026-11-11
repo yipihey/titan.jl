@@ -788,7 +788,7 @@ shows the accretion ending.
 Decision of 10 Nov (user): keep the coarse mesh for one full solution to the goal, document the cycle as unresolved, do
 resolution studies from restarts at selected masses afterwards, then the final runs. Open: which coarse mesh.
 
-**Two modes of the cycle on the production mesh** (`fx3`, 447 yr of snapshots around 104–105.4 M☉; cycle = upward
+**Two modes of the cycle on the production mesh** (`fx3`, 447 yr of snapshots from 102.7 to 105.4 M☉; cycle = upward
 crossing of the mass between 300 and 3000 R☉ through 0.5 M☉):
 
 | | period | photosphere maximum | T_eff minimum | steps per model yr |
@@ -796,7 +796,7 @@ crossing of the mass between 300 and 3000 R☉ through 0.5 M☉):
 | short | 2.3–3.9 yr | 2400–3100 R☉ | 4000–5400 K | 90–140 |
 | long | 5.5–10.2 yr (median 7.8) | 4600–7300 R☉ | 1900–3200 K | 125–295 |
 
-Production was in the short mode until 104.0 M☉ (three isolated long cycles before) and has stayed in the long mode
+Production was in the short mode until 103.85 M☉ (three isolated long cycles before) and has stayed in the long mode
 since (27 cycles in a row). The mass between 40 and 10⁴ R☉ grows: 0.57 M☉ (20-yr mean, 190 yr before the frozen
 state at 103.80 M☉), 0.94, 1.01, 1.49 M☉ (257 yr after), about 2.1e-3 M☉/yr, while the star grows 5.97e-3 M☉/yr.
 Not shown: that the mode change is caused by this growth.
