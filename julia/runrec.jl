@@ -39,7 +39,7 @@ end
 "All snapshots of the run's surviving branch, in time order."
 function lineage(dir)
     # in write order (attempts restarted from the same step share k0; the newest file holds the surviving branch's end)
-    fs = sort(filter(f -> startswith(f, "snaps_") && endswith(f, ".jls"), readdir(dir)); by = f -> mtime(joinpath(dir, f)))
+    fs = sort(filter(f -> occursin(r"^snaps_\d+_\d+\.jls$", f), readdir(dir)); by = f -> mtime(joinpath(dir, f)))   # RUNREC streams only (a run directory can also hold an old-format SNAPS file)
     all = Any[]; for f in fs; append!(all, readstream(joinpath(dir, f))); end
     isempty(all) && return all
     K = Any[all[end]]
