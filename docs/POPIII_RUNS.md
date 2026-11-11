@@ -1030,7 +1030,7 @@ take the gas lower still. Checked with `outerbudget2.jl` / `outerbudget3.jl` (sc
 before the artefact acted) and the latest one (step 504050).
 
 **Balance.** Between 0.1 and 3 pc the gas is close to a balance of compression heating (−p ∇·u) and H₂ line cooling: at step 347050
-the cooling time is 1.4–3 infall times (r/|u|) and the line cooling is 0.5–0.8 of the compression heating, at 190–380 K. So the
+the cooling time is 1.4–3 infall times (r/|u|) and the line cooling is 0.3–0.8 of the compression heating, at 190–380 K. So the
 regime is marginal, as suspected, but the balance sits at 240–450 K (temperature at which the code's own H₂ cooling equals the
 compression heating), not at tens of K.
 
@@ -1045,14 +1045,13 @@ by collisional de-excitation of radiatively populated levels is included for the
 transfer has I = 0 at the outer boundary (no CMB in the lines) and no continuum (no diluted star light). Evaluated here by adding
 J = B_ν(T_CMB) + W B_ν(T_eff) to the statistical equilibrium (optically thin, W from the photosphere): the exchange changes by
 < 0.5 % in every zone above 130 K. In the 42.7 K zone it becomes a net heating of 1.7e-29 erg cm⁻³ s⁻¹ (compression: 5.4e-27); the
-star adds 2 % to the CMB term (dilution W ~ 1e-9–1e-11). The term matters only for gas near or below T_CMB, and for HD.
+star adds 2 % to the CMB term (dilution W ~ 1e-6 at 0.1 pc to 1e-9 at 3 pc). The term matters only for gas near or below T_CMB, and for HD.
 
 **HD (estimate, not a run).** D⁺/D and HD/D from k50–k53 of ChemistryKernels.jl with the snapshot's H⁺ and H₂, D/H = 2.5e-5, HD
-cooling from `HDlte`/`HDlow` minus its value at T_CMB. On the warm branch y_HD = 1–2.5e-7 and HD adds 15–45 % to the H₂ cooling
-(70 % at 187 K); the balance temperature drops by 2–35 K (e.g. 333 → 299 K at 0.3 pc, 266 → 236 K at 0.57 pc). With all deuterium
+cooling from `HDlte`/`HDlow` minus its value at T_CMB. On the warm branch y_HD = 1–2.5e-7 and HD adds 20–45 % to the H₂ cooling inside 1 pc
+(70 % at 187 K, less than 15 % beyond 2.5 pc); the balance temperature drops by 2–34 K (e.g. 333 → 299 K at 0.3 pc, 266 → 236 K at 0.57 pc). With all deuterium
 in HD a second, cold balance exists at 58–64 K in the zones between 0.2 and 2.6 pc, reached only from below an unstable threshold
-at 77–114 K; with HD formation limited to one infall time it does not exist. So in this envelope HD is a ≤ 10 % temperature
-correction, not a runaway, unless something first takes the gas below ~100 K. An artefact that does exactly that would, with HD in
+at 77–114 K; with HD formation limited to one infall time it does not exist. So in this envelope HD is a temperature correction of at most about 10 %, not a runaway, unless something first takes the gas below ~100 K. An artefact that does exactly that would, with HD in
 the network, be locked in by real cooling: one more reason to remove the artefact before adding HD.
 
 Open (user decisions): add D, D⁺, HD and HD cooling (default-off switch, side test first); add the CMB and the diluted continuum as
