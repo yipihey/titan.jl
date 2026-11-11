@@ -1207,6 +1207,9 @@ function envmerge!(r1, r2, kmax)
     Mold = 4π * sum(m0); Eold = 4π * sum(E0 .* V0); Egold = 4π * sum(e0 .* m0)
     Mc = ENVCENTRE ? 0.0 : 4π * (xmt0 - TF.var(:xmen)[a0])
     TX.GASROW[] = true
+    # per-zone material on the new indices before build! fills the EOS (else a zone far out can inherit the table-EOS flag of the
+    # old zone with its index: "rho below the table" with a 3-zone merge); set again below, with the merged compositions
+    for k in eachindex(mat.x); ko = clamp(kmap(k), 1, length(mx)); mat.x[k] = copy(mx[ko]); mat.eqzone[k] = meq[ko]; end
     PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lum = ENVCENTRE ? nothing : abs(LI[1]), lgrid = 2, inner = :wall, outer = :wall,
               Mc, selfgrav = true, material = mat, av, xmext)
     global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
