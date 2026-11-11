@@ -1019,8 +1019,8 @@ The internal-energy row moves the coarse mesh towards the fine one; a difference
 are not separated here). The residual of a discretised moment equation grows with the zone size, which is why the
 146-zone run shows the artefact far more strongly than the 286-zone run did.
 
-Production still runs with `ETASWTH=1e-3` only. Whether to restart it with `ETASWTIE=0.5` is open (decision with
-T. Abel); `full3`, `full4` and `full6` use neither switch.
+Production runs with `ETASWTH=1e-3 ETASWTIE=0.5` since 11 Nov 06:06 (segment `z19c146e`, from step 516 000, 129.76 M☉;
+decision of T. Abel, see the end of the next section). `full3`, `full4` and `full6` use neither switch.
 
 ## Are the cold outer zones physical? Thermal balance at 0.1–5 pc, radiative pumping and HD (11 Nov)
 
@@ -1054,8 +1054,37 @@ in HD a second, cold balance exists at 58–64 K in the zones between 0.2 and 2.
 at 77–114 K; with HD formation limited to one infall time it does not exist. So in this envelope HD is a temperature correction of at most about 10 %, not a runaway, unless something first takes the gas below ~100 K. An artefact that does exactly that would, with HD in
 the network, be locked in by real cooling: one more reason to remove the artefact before adding HD.
 
-Open (user decisions): add D, D⁺, HD and HD cooling (default-off switch, side test first); add the CMB and the diluted continuum as
-incident radiation of the line transfer; reset the artefact-cooled zones.
+**Decisions (T. Abel, 11 Nov 05:45): all four.** (1) production with `ETASWTIE=0.5`; (2) reset the artefact-cooled zones at that
+restart; (3) D, D⁺, HD and HD cooling behind a default-off switch, side run first; (4) the CMB and the diluted continuum as incident
+radiation of the line transfer. (1) and (2) are done, (3) and (4) are in work.
+
+**The reset (`TRESET`, commit 397801f).** History of the outer zones on the 146-zone mesh, first snapshot (step 347 050, the mesh
+switch) → step 511 900:
+
+| zone | r_out [pc] | T at the switch [K] | T at step 511 900 [K] |
+|---|---|---|---|
+| 133 | 1.04 | 188.7 | 186.9 |
+| 134 | 1.41 | 214.5 | 194.1 |
+| 135 | 1.90 | 206.1 | 132.0 |
+| 136 | 2.57 | 225.7 | 42.7 |
+| 137 | 3.47 | 271.9 | 17.9 |
+| 138 | 4.68 | 341.7 | 215.2 |
+| 139 | 6.32 | 389.6 | 403.0 |
+
+Densities and H₂ fractions did not change, and all temperatures have been constant since `ETASWTH=1e-3` came in (step ≈ 427 000).
+The artefact moved outward zone by zone, so besides the three cold zones it had also taken 127 K from zone 138 (still falling when
+the row was switched) and 20 K from zone 134 (within ~700 yr, far shorter than its thermal time). Five zones were therefore reset,
+to their temperatures at the mesh switch, the last state before the artefact acted on this mesh (not to a computed balance
+temperature): `TRESET=134:214.51,135:206.11,136:225.73,137:271.87,138:341.70`. `TRESET=k:T,…` (with `RESTART`) sets the gas
+temperature of the listed zones once after the checkpoint is read; density, velocity, radiation field and composition are untouched
+and the held line-cooling rate of the zone is cleared. It is a repair, not conservative: it added 3.11e46 erg of gas energy
+(1065 M☉ of gas in the five zones). Zones 130, 131, 139 and 140 (3–4 % warmer than at the switch) and 133 (1 % cooler) were left alone.
+
+Test `t_rst1` (frozen production state at step 512 500, 129.4 M☉, `ETASWTH=1e-3 ETASWTIE=0.5` and the `TRESET` above, 3000 steps
+alongside production): 0 divergences, the same time step (1.053e6 s), M* = 129.71 M☉ at step 515 500 in both, the reset zones
+hold their temperatures to 0.1 K, zone 105 at 5233 K (20 100 K inside it, 5632 K outside). Production was then stopped at step
+516 000 and restarted from `z19c146d_auto0` as `z19c146e` with both switches and the one-time `TRESET` (later segments restart
+without it).
 
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 
