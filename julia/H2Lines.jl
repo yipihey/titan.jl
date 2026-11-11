@@ -414,6 +414,176 @@ function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing, G::RayGeo
     Fν, Jz, Λz
 end
 
+# LINEFAST=1 (Nov 2026; default off): the formal solution of `transfer_line` for the zone-constant source (LINESRC=zone), reorganised.
+# The method, the rays, the frequency bins and the quadratures are those of `transfer_line`; the results agree to round-off, not to
+# the last bit. What differs:
+#   - the loops run ray → segment → frequency bin (before: bin → ray → segment), so the innermost loop is over independent bins
+#     and is vectorised (`@simd`), with a branch-free exponential (`expk`, within 1 ulp of `exp`);
+#   - a segment acts on a bin only where the bin lies within the line profile of the segment's zone: |v − μu| ≤ v_th √(38 + ln max(τ₀, 1))
+#     (τ₀ the line-centre depth of the segment), outside of which its optical depth is below 3e-17; a node's profile weight is taken
+#     within |v − μu| ≤ √38 v_th (weight below 3e-17 of the peak). Segments without opacity are skipped (I passes unchanged);
+#   - the sums over the frequency bins are taken first (per ray and node) and the angle quadratures once per line (before: the
+#     quadratures per bin): another order of summation;
+#   - the work arrays come from a pool of one set per task (`FastWS`) instead of being allocated for every line.
+const FAST = Ref(get(ENV, "LINEFAST", "0") == "1")
+const FASTXC2 = 38.0
+const EXPC = ntuple(i -> 1.0 / factorial(i), 13)             # (e^r − 1)/r = Σ r^(i−1)/i!
+"`(exp(x), expm1(x))` for x ≤ 0 without branches or tables (vectorisable): x = k ln 2 + r, |r| ≤ ½ ln 2, Taylor series to r¹³. Exactly 0 below −708."
+@inline function expk(x)
+    xc = max(x, -708.0)
+    kf = round(xc * 1.4426950408889634)
+    rr = muladd(kf, -0.6931471803691238, xc); rr = muladd(kf, -1.9082149292705877e-10, rr)
+    em = rr * evalpoly(rr, EXPC)
+    s = reinterpret(Float64, (Int64(unsafe_trunc(Int32, kf)) + 1023) << 52)
+    e = muladd(s, em, s)
+    (ifelse(x < -708.0, 0.0, e), ifelse(kf == 0.0, em, e - 1.0))
+end
+struct FastWS
+    Iin::Matrix{Float64}; I::Vector{Float64}; ψ::Vector{Float64}; xv::Vector{Float64}
+    ΔI::Matrix{Float64}; QJ::Array{Float64,3}; QΛ::Array{Float64,3}; pre::Matrix{Float64}
+    Fν::Vector{Float64}; Jz::Vector{Float64}; Λz::Vector{Float64}
+end
+FastWS(n, nb) = FastWS(zeros(nb, n + 1), zeros(nb), zeros(nb), zeros(nb), zeros(n + 1, n), zeros(n + 1, n, 2), zeros(n + 1, n, 2),
+                       zeros(n + 1, n), zeros(n + 1), zeros(n), zeros(n))
+function fastpool(n, nb)
+    ch = Channel{FastWS}(Threads.nthreads())
+    for _ in 1:Threads.nthreads(); put!(ch, FastWS(n, nb)); end
+    ch
+end
+# the bins lo:hi of the grid x1 + (ib − 1)/rdv that can lie within c0 ± w (one bin of margin; all bins if c0 or w is not a number)
+@inline function binwin(c0, w, x1, rdv, nb)
+    a = (c0 - w - x1) * rdv + 1.0; b = (c0 + w - x1) * rdv + 1.0
+    (a == a && b == b) || return (1, nb)
+    lo = a <= 1.0 ? 1 : a >= nb + 1.0 ? nb + 1 : floor(Int, a)
+    hi = b >= nb ? nb : b < 0.0 ? 0 : ceil(Int, b)
+    (lo, hi)
+end
+# one segment for all the bins it acts on: I ← I e^{−Δτ} + S (1 − e^{−Δτ}), ψ = 1 − e^{−Δτ}, Δτ = pr φ̂((v + qs)/vt) (`shz`, `ψz`)
+@inline function fast_step!(I, ψ, xv, pr, qs, vt, S, x1, rdv, nb)
+    pr == 0 && return (1, 0)
+    lo, hi = binwin(-qs, vt * sqrt(FASTXC2 + log(max(abs(pr), 1.0))), x1, rdv, nb)
+    @inbounds @simd for ib in lo:hi
+        a = (xv[ib] + qs) / vt
+        Δτ = pr * expk(-(a * a))[1]
+        e, em = expk(-Δτ)
+        Io = I[ib]
+        I[ib] = ifelse(Δτ < 1e-4, Io * (1 - Δτ) + Δτ * S, Io * e + S * (1 - e))
+        ψ[ib] = ifelse(Δτ < 1e-4, Δτ, -em)
+    end
+    (lo, hi)
+end
+# Σ over the bins of φ̂((v + qs)/vt) I and of φ̂ ψ (the profile's normalisation is applied by the caller)
+@inline function fast_node(I, ψ, xv, qs, vt, x1, rdv, nb, lam)
+    lo, hi = binwin(-qs, vt * sqrt(FASTXC2), x1, rdv, nb)
+    sJ = 0.0; sΛ = 0.0
+    if lam
+        @inbounds @simd for ib in lo:hi
+            a = (xv[ib] + qs) / vt; p = expk(-(a * a))[1]
+            sJ += p * I[ib]; sΛ += p * ψ[ib]
+        end
+    else
+        @inbounds @simd for ib in lo:hi
+            a = (xv[ib] + qs) / vt; p = expk(-(a * a))[1]
+            sJ += p * I[ib]
+        end
+    end
+    (sJ, sΛ)
+end
+"`transfer_line` with `Sz` (zone-constant source), reorganised (see LINEFAST). Returns (Fν, Jz, Λz) as views of the work set `W`: copy before releasing it."
+function transfer_line_fast!(W::FastWS, r, u, vth, κ0, ν0, xs, lam::Bool, Sz, G::RayGeom, bg)
+    n = length(vth); nb = length(xs); dv = step(xs); rdv = 1 / dv
+    Fν = W.Fν; Jz = W.Jz; Λz = W.Λz; ΔI = W.ΔI; QJ = W.QJ; QΛ = W.QΛ; pre = W.pre; Iin = W.Iin; I = W.I; ψ = W.ψ; xv = W.xv
+    @assert size(ΔI, 2) == n && length(I) >= nb
+    fill!(Fν, 0.0); fill!(Jz, 0.0); fill!(Λz, 0.0); fill!(ΔI, 0.0); fill!(QJ, 0.0); fill!(QΛ, 0.0)
+    dz = G.dz; μu = G.μu; μku = G.μku; Ma = G.μa; Mb = G.μb
+    @inbounds for ib in 1:nb; xv[ib] = xs[ib]; end
+    x1 = xv[1]
+    @inbounds for j in 1:n, m in 1:n+1-j
+        kz = j + m - 1; pre[m, j] = κ0[kz] * dz[m, j] / (sqrt(π) * vth[kz] / c * ν0)
+    end
+    hasbg = bg !== nothing; Bc = hasbg ? Float64(bg.Bc) : 0.0; Bs = hasbg ? Float64(bg.Bs) : 0.0; kq = hasbg ? Int(bg.kq) : 0
+    quadp2 = QUADP2[]
+    @inbounds for j in 1:n
+        nk = n + 2 - j
+        mq = (kq > 0 && j < kq) ? kq - j + 1 : 0                  # this ray's node at the photosphere (0: it misses the star)
+        for ib in 1:nb; I[ib] = 0.0; ψ[ib] = 0.0; Iin[ib, nk] = 0.0; end              # nothing comes in at the outer node
+        for m in nk-1:-1:1                                         # inwards (I′ = 0 at the outer node)
+            kz = j + m - 1
+            lo, hi = fast_step!(I, ψ, xv, pre[m, j], μu[m, j], vth[kz], Sz[kz] - Bc, x1, rdv, nb)
+            @simd for ib in 1:nb; Iin[ib, m] = I[ib]; end
+            qn = μku[m, j]
+            for s in 1:2
+                zs = kz - 2 + s                                    # the zone inside (s = 1) and outside (s = 2) interface k = kz
+                (zs < 1 || zs > n) && continue
+                sJ, sΛ = fast_node(I, ψ, xv, qn, vth[zs], x1, rdv, nb, lam)
+                if m == 1                                          # the turning point: I_out = I_in, ψ_out = ψ_in
+                    oJ, oΛ = fast_node(I, ψ, xv, -qn, vth[zs], x1, rdv, nb, lam); sJ += oJ; sΛ += oΛ
+                end
+                spv = sqrt(π) * vth[zs]
+                QJ[kz, j, s] = sJ / spv; QΛ[kz, j, s] = sΛ / spv
+            end
+            for ib in lo:hi; ψ[ib] = 0.0; end
+        end
+        for m in 2:nk                                              # outwards
+            kz = j + m - 2; k = j + m - 1
+            bq = (mq > 0 && m > mq) ? Bs : Bc
+            lo, hi = fast_step!(I, ψ, xv, pre[m-1, j], -μu[m-1, j], vth[kz], Sz[kz] - bq, x1, rdv, nb)
+            if m == mq                                             # the star is opaque: I′ = 0 from here on
+                for ib in 1:nb; I[ib] = 0.0; end
+                for ib in lo:hi; ψ[ib] = 0.0; end
+            end
+            d = 0.0
+            @simd for ib in 1:nb; d += I[ib] - Iin[ib, m]; end
+            ΔI[k, j] = d
+            qn = μku[m, j]
+            for s in 1:2
+                zs = k - 2 + s
+                (zs < 1 || zs > n) && continue
+                sJ, sΛ = fast_node(I, ψ, xv, -qn, vth[zs], x1, rdv, nb, lam)
+                spv = sqrt(π) * vth[zs]
+                QJ[k, j, s] += sJ / spv; QΛ[k, j, s] += sΛ / spv
+            end
+            for ib in lo:hi; ψ[ib] = 0.0; end
+        end
+    end
+    @inbounds for k in 2:n+1                                       # the quadratures of `transfer_line`, once, on the sums over the bins
+        acc = 0.0
+        for j in 1:k-1
+            μa = Ma[k, j]; μb = Mb[k, j]
+            Ia = j + 1 <= n ? ΔI[k, j+1] : 0.0; Ib = ΔI[k, j]
+            d = μb - μa; d <= 0 && continue
+            if quadp2
+                acc += 0.25 * (Ia + Ib) * (μb^2 - μa^2)
+            else
+                s1 = (Ib - Ia) / d
+                acc += Ia * (μb^2 - μa^2) / 2 + s1 * ((μb^3 - μa^3) / 3 - μa * (μb^2 - μa^2) / 2)
+            end
+        end
+        Fν[k] = 2π * acc * (dv / c * ν0)
+    end
+    @inbounds for k in 1:n+1, s in 1:2
+        zs = k - 2 + s
+        (zs < 1 || zs > n) && continue
+        if k == 1
+            Jz[zs] += 0.25 * QJ[1, 1, s] * dv; lam && (Λz[zs] += 0.25 * QΛ[1, 1, s] * dv)
+            continue
+        end
+        aJ = 0.0; aΛ = 0.0
+        for j in 1:k-1
+            μa = Ma[k, j]; μb = Mb[k, j]
+            d = μb - μa; d <= 0 && continue
+            qa = j + 1 <= n ? QJ[k, j+1, s] : 0.0
+            aJ += 0.5 * (qa + QJ[k, j, s]) * d
+            if lam
+                la = j + 1 <= n ? QΛ[k, j+1, s] : 0.0
+                aΛ += 0.5 * (la + QΛ[k, j, s]) * d
+            end
+        end
+        Jz[zs] += 0.25 * aJ * dv; lam && (Λz[zs] += 0.25 * aΛ * dv)
+    end
+    Fν, Jz, Λz
+end
+
 # EPGRAD (escape-probability mode, the Sobolev part): which radial velocity gradient a zone's lines escape through.
 #   zone: the difference of the zone's two interface velocities, |Δu|/Δr, and |ū|/r of the zone (the method up to Nov 2026).
 #   thermal (default): v_th/ℓ, ℓ the distance from the zone centre to the nearest radius (inwards or outwards) where the velocity differs from
@@ -638,6 +808,7 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     else
         Jfs = zeros(nl, n); Lam = zeros(nl, n); β .= 1; Jeff .= 0
         geom = raygeom(r, u)
+        wpool = FAST[] && SRCZONE[] ? fastpool(n, nbinmax) : nothing          # LINEFAST: one work set per task
         for it in 1:maxit
             κ0, S, nmaser = opac(P)
             fill!(Jfs, 0.0); fill!(Lam, 0.0); fill!(Lline, 0.0)
@@ -675,10 +846,13 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                 nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth[ka]))) + 1, nbin, nbinmax)
                 Threads.atomic_max!(nb_t, nb)
                 xs = range(-vspan, vspan, length = nb)
-                Fν, Jz, Λz = transfer_line(r, u, vth, κl, Si, ν0, xs, lam == :diag; Sz = SRCZONE[] ? S[i, :] : nothing, G = geom,
-                                           bg = bgd === nothing ? nothing : (Bc = bgd.Bc[i], Bs = bgd.Bs[i], kq = bgd.kq))
+                bgl = bgd === nothing ? nothing : (Bc = bgd.Bc[i], Bs = bgd.Bs[i], kq = bgd.kq)
+                W = wpool === nothing ? nothing : take!(wpool)
+                Fν, Jz, Λz = W === nothing ? transfer_line(r, u, vth, κl, Si, ν0, xs, lam == :diag; Sz = SRCZONE[] ? S[i, :] : nothing, G = geom, bg = bgl) :
+                             transfer_line_fast!(W, r, u, vth, κl, ν0, xs, lam == :diag, S[i, :], geom, bgl)
                 for k in 1:n+1; Lline[i, k] = 4π * r[k]^2 * Fν[k]; end
                 Jfs[i, :] .= Jz; Lam[i, :] .= Λz
+                W === nothing || put!(wpool, W)
                 if bgd !== nothing
                     for k in 1:n; Jfs[i, k] += bgd.Jbg[i, k]; end
                 end
