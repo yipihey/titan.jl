@@ -1022,6 +1022,42 @@ are not separated here). The residual of a discretised moment equation grows wit
 Production still runs with `ETASWTH=1e-3` only. Whether to restart it with `ETASWTIE=0.5` is open (decision with
 T. Abel); `full3`, `full4` and `full6` use neither switch.
 
+## Are the cold outer zones physical? Thermal balance at 0.1–5 pc, radiative pumping and HD (11 Nov)
+
+Question: the cooling time at large radii could be a little shorter than the infall time, so the cold zones might be real; if so, a
+heating term (collisional de-excitation of H₂ whose levels are populated by the star's radiation) must not be missed, and HD would
+take the gas lower still. Checked with `outerbudget2.jl` / `outerbudget3.jl` (scratch) on the first 146-zone snapshot (step 347050,
+before the artefact acted) and the latest one (step 504050).
+
+**Balance.** Between 0.1 and 3 pc the gas is close to a balance of compression heating (−p ∇·u) and H₂ line cooling: at step 347050
+the cooling time is 1.4–3 infall times (r/|u|) and the line cooling is 0.5–0.8 of the compression heating, at 190–380 K. So the
+regime is marginal, as suspected, but the balance sits at 240–450 K (temperature at which the code's own H₂ cooling equals the
+compression heating), not at tens of K.
+
+**The cold zones are not on that balance.** In the zones at 1.9, 2.6 and 3.5 pc (now 132, 42.7 and 17.8 K; 206, 226 and 272 K at
+the mesh switch) the H₂ cooling is 0.15, 2.5e-4 and < 1e-6 of the compression heating. Nothing in the model cools gas at 43 K or
+18 K; both are below `TCMB` = 54.5 K. Together with the earlier evidence (the cooling equalled the −u × moment-residual term to 2 %,
+the 286-zone run kept these zones within 20 K, the cooling stopped when the row was switched) they are numerical. They stay cold
+because the compression heating time there is ~1e7 yr.
+
+**Radiative pumping.** The gas term of the line transfer is the net collisional exchange with the levels (`LINECOLL=1`), so heating
+by collisional de-excitation of radiatively populated levels is included for the H₂ line radiation itself. Not included: the line
+transfer has I = 0 at the outer boundary (no CMB in the lines) and no continuum (no diluted star light). Evaluated here by adding
+J = B_ν(T_CMB) + W B_ν(T_eff) to the statistical equilibrium (optically thin, W from the photosphere): the exchange changes by
+< 0.5 % in every zone above 130 K. In the 42.7 K zone it becomes a net heating of 1.7e-29 erg cm⁻³ s⁻¹ (compression: 5.4e-27); the
+star adds 2 % to the CMB term (dilution W ~ 1e-9–1e-11). The term matters only for gas near or below T_CMB, and for HD.
+
+**HD (estimate, not a run).** D⁺/D and HD/D from k50–k53 of ChemistryKernels.jl with the snapshot's H⁺ and H₂, D/H = 2.5e-5, HD
+cooling from `HDlte`/`HDlow` minus its value at T_CMB. On the warm branch y_HD = 1–2.5e-7 and HD adds 15–45 % to the H₂ cooling
+(70 % at 187 K); the balance temperature drops by 2–35 K (e.g. 333 → 299 K at 0.3 pc, 266 → 236 K at 0.57 pc). With all deuterium
+in HD a second, cold balance exists at 58–64 K in the zones between 0.2 and 2.6 pc, reached only from below an unstable threshold
+at 77–114 K; with HD formation limited to one infall time it does not exist. So in this envelope HD is a ≤ 10 % temperature
+correction, not a runaway, unless something first takes the gas below ~100 K. An artefact that does exactly that would, with HD in
+the network, be locked in by real cooling: one more reason to remove the artefact before adding HD.
+
+Open (user decisions): add D, D⁺, HD and HD cooling (default-off switch, side test first); add the CMB and the diluted continuum as
+incident radiation of the line transfer; reset the artefact-cooled zones.
+
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 
 `MCLOUD` (default 1e4 M☉) sets the gas mass on the mesh. The ABN02 read-off n(r) ends at 93 pc, which encloses 1.5e4 M☉;
