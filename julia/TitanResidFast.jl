@@ -73,6 +73,13 @@ cools the gas: 0.12 K/yr at 2.6 pc in the 146-zone run, to 17 K and then 11.7 K,
 """
 const ETASW_TH = Ref(0.0)
 """
+ETASW_TIE[] (`ETASWTIE`, default 0 = off): a zone also keeps the internal-energy row where the FLUXTIE weight at its inner
+interface is at least this value (0 < ETASWTIE <= 1). Where the radiation momentum row is the closure F = h c E instead of the
+moment equation, total-energy row − kinetic energy − radiation-energy row leaves −u × (moment-equation residual) on the gas;
+this selects the first law there by cause instead of by the size of the thermal energy (ETASWTH).
+"""
+const ETASW_TIE = Ref(0.0)
+"""
 GASROW[] (lrad = 1 only): energy row of the gas ALONE,
   Δ(m e_g)/dt + advection of e_g + p_g ∇·u + Q_visc + MLT flux = −(c κ_E E − 4π κ_P B) ρ dV,
 instead of TITAN's row for gas + radiation, Δ(m(e_g + E/ρ))/dt + … (from which the gas energy is the difference
@@ -229,6 +236,13 @@ function dualswitch(ngrs, ngre, lrad, ηsw)
             ui[k] && continue
             eth = 1.5 * pgo[k] / dO[k]
             ui[k] = eth < ηth * (eth + ero[k] / dO[k] + 0.25 * (uo[k]^2 + uo[k+1]^2))
+        end
+    end
+    wtie = ETASW_TIE[]
+    if wtie > 0 && lrad && TD.FLUXTIE[][2] > 0 && length(TD.TIEW) >= ngre
+        W = TD.TIEW
+        for k in ngrs:ngre
+            ui[k] || (ui[k] = W[k] >= wtie)
         end
     end
     ui
