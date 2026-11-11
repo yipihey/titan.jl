@@ -1488,12 +1488,50 @@ The first line a chain writes to `procedure.log` gives shells, threads, pinning 
 ### `base64`
 
 - Stage A1 with 64 shells to log n_c 14 (`RAD=0 NSTOP=1e14`), then the rebuild with continuum transport
-  (`DTRADMAX=0`, as `full4`), no `REFINE`, no `REZWIN`: the Lagrangian collapse keeps 64 zones to 0.5 M☉.
+  (`DTRADMAX=0`, as `full4`), no `REFINE`. The first attempt also ran stage A3 without `REZWIN` (64 Lagrangian
+  zones to 0.5 M☉); that state could not be handed to phase B, see "The hand-over from 64 shells" below.
 - Phase B: `ENVEUL=0,0.33,0.7,3000 ENVCORE=0.1,0.33,10`, i.e. Δln r = 0.33 from 0.1 to 3000 R☉ growing to 0.7 outside
   (`meshdesign.jl` logic: 64 zones to the cloud edge). About 14 zones lie inside 10 R☉. This is the coarse end of the
   planned resolution study and not a mesh for the stellar interior.
 - A1 took 16 910 steps in 26 minutes (0.09 s per step). The rebuild carried the HD state (x_HD = 2.4e-5 in the
   molecular core, all deuterium in HD).
+
+### The hand-over from 64 shells (11 Nov, not finished)
+
+- **Unrefined stage A3 cannot be remapped.** With 64 Lagrangian shells the star at 0.5 M☉ is followed by one shell
+  from 34.9 to 2884 R☉ holding 0.16 M☉. `envbuild!` interpolates ρ, T and E_r in log r between zone centres, so the
+  Eulerian mesh receives a smooth ramp across that shell in place of a star edge and free fall. `base64` failed at the
+  remap; `nohd64` passed it and then took up about 2.5 M☉, which is an artefact (enclosed mass at fixed radii before and
+  after, `mprof.jl`). Both phase-B segments were discarded.
+- **Stage A3 is therefore refined ahead of the star also for 64 shells:** `REZWIN=1.3,4,0.03 REZNMAX=340` as in the
+  200-shell runs, with `REZQMAX=3.5` (the default 2.5 forbids the first splits of shells this coarse) and
+  `DTSTOP=1e-7` in the run's `stageA3.env`. The lower `DTSTOP` is needed because each Newton divergence right after a
+  bulk split cuts Δt by a factor 20–30; three or four in a row took Δt below the phase-A value 1e-2 s at step 19 022
+  and ended the second attempt, although the step then converges.
+- Tests of the window fraction from the A2 checkpoint (`t_ra1`–`t_ra3`): with `frac = 0.08` the stage reaches
+  0.5174 M☉ at step 19 125 on 172 zones with 620 divergences; `frac = 0.03` gives about 300 zones and far fewer
+  divergences and is what the two chains use.
+- **A zone-flag error in `envbuild!`** stopped the first remap of a refined state onto 64 zones (`t_rb1`:
+  "rho below the table" in the EOS fill). `PS.build!` filled the EOS while the per-zone table/network flag and
+  composition were still on the old zone indices, so outer zones of the new mesh carried the flag of zones inside the
+  old star whenever the source has more zones in the star than the target has in all. The flags are now set on the
+  new indices before the build, as the `ENVMERGE` rebuild already did. Hand-overs that worked before are unchanged.
+- With the fix the remap of the 172-zone test state onto 64 zones completes (`t_rb2`). Enclosed mass [M☉]:
+
+  | radius [R☉] | 100 | 300 | 1e3 | 3e3 | 1e4 | 3e4 |
+  |---|---|---|---|---|---|---|
+  | source, step 19 120 | 0.477 | 0.485 | 0.574 | 0.865 | 1.962 | 5.080 |
+  | after the remap, step 19 140 | 0.508 | 0.544 | 0.621 | 0.909 | 1.978 | 5.074 |
+  | step 19 300, 6.9 yr later | 0.911 | 1.052 | 1.095 | 1.292 | 2.264 | 5.288 |
+
+  The interpolating remap is not conservative: it adds 0.06 M☉ (12 % of the star) inside 300 R☉ and 3 % to the grid
+  mass (20 000 → 20 596 M☉, mostly far out). The inflow afterwards, about 0.07 M☉/yr, is comparable to what the
+  source did before the remap (0.1 M☉/yr), so it is not an obvious artefact. About half of the steps diverge
+  (limiter at zones 24–26, the surface is zone 22; 151 divergences by step 19 400). This is not yet a clean hand-over.
+- Cost of the refined stage A3 in `base64`: by step 26 000 (300 zones, 0.045 M☉) the ALI refresh interval had fallen
+  to 1, driven by one zone at 85 R☉ (T 2150 K, 0.16 % of the line cooling) whose ALI/EP factor changes by 12–17 % per
+  step. Each ALI call took 2.5 s, so the lines were 80 % of 1.6 s per step. `LINEFAST=1` was switched on in `base64`
+  at step 26 000 for this reason (see the `LINEFAST` section; the twin from that checkpoint is bitwise equal).
 
 ### `c128` and `f128`: a restart with a one-time merge
 
@@ -1554,3 +1592,73 @@ Consequences:
   14.3 M☉. Its core is colder, so a lower accretion rate is expected at first.
 - A resolution comparison needs the same physics on both sides: `nohd64` against `full6`/`f128` (no HD in the
   collapse), `base64` against future finer runs with HD.
+
+## A faster formal solution for the H₂ lines: `LINEFAST=1` (11 Nov)
+
+Where the line time goes (4 threads, the `NLTE=hyb` production setting):
+
+- Every step makes one escape-probability call. Every `ALIINT` steps (20 at the cap, where the runs sit almost always)
+  a full ALI call follows: two iterations, each a formal solution of every thick line (τ_c > 0.02) on
+  `clamp(2 v_span / (0.5 min v_th) + 1, 30, 200)` frequency bins.
+- Before this change the lines took 0.10–0.13 s of the 0.26–0.49 s per step in `base64`, `nohd64` and `f128`
+  (24–31 %; the chemistry takes 0.17–0.24 s), and 0.023 of 0.113 s in `c128`, which has no thick H₂ lines.
+- In the accretion phase almost all of it is the formal solution: 7.1 CPU-s of a 1.85 s ALI call on `f128` step 87 000
+  (83 reduced zones, 55 thick lines, 198 bins, |u| up to 114 km/s). Every bin of every segment of every ray was
+  integrated, although a segment only has opacity within a few thermal widths of its own velocity.
+
+`LINEFAST=1` (default off, commit a614b3e) keeps rays, bins and quadratures and reorganises the solution
+(`transfer_line_fast!` in `julia/H2Lines.jl`, used with `LINESRC=zone`):
+
+1. Per segment only the bins inside the resonance window |v − μu| ≤ v_th √(38 + ln max(τ₀, 1)) are integrated; outside
+   it the optical depth of the segment is below e⁻³⁸ and the intensity is unchanged to round-off. Segments without
+   opacity are skipped.
+2. The loop order is ray → segment → bin, with a branch-free exponential (within 1 ulp of `Base.exp`, 1.3 against
+   3.8 ns per element) so that the bin loop vectorises.
+3. Bin sums are formed first and the angle quadratures once per line; the work arrays come from a per-thread pool.
+
+ALI call, wall seconds on 4 threads, reference → `LINEFAST=1`:
+
+| snapshot | regime | thick lines, bins | reference | fast |
+|---|---|---|---|---|
+| `f128` 87 000 | accretion | 55, 198 | 1.85 | 0.14 |
+| `base64` 12 000 | early collapse | 3, 40 | 0.071 | 0.076 |
+| `base64` 15 000 | collapse | 23, 32 | 0.123 | 0.081 |
+| `base64` 17 500 | late collapse | 217, 31 | 0.384 | 0.135 |
+| `base64` 18 400 | late collapse | 216, 33 | 0.347 | 0.122 |
+| `base64` 22 000 | stage A3, 250 zones | 217, 44 | 2.08 | 0.55 |
+
+Agreement with the reference on these cases and on two without the incident background (`LINEINC` off):
+
+- populations: every one above 1.4e-7 is bitwise equal; the rest agree to 1.2e-14;
+- −∇·F per zone to 5e-14 of its maximum, L(r) and the luminosity per line to 2.5e-15;
+- the ALI iteration counts and convergence histories are the same.
+
+With `LINEFAST` unset the original code runs and its output is bitwise what it was before the change.
+
+Twin runs, `LINEFAST=0` against `1`, 4 pinned threads, same steps:
+
+| | steps | wall s/step | lines s/step | chemistry s/step | divergences |
+|---|---|---|---|---|---|
+| stage A3 from `base64`'s A2 checkpoint (`t_lfa0`, `t_lfa1`) | 18 600–19 000 | 0.294 → 0.259 | 0.072 → 0.045 | 0.170, 0.162 | 5, 5 |
+| `f128` from `frozen_f128_lf` (`t_lfb0`, `t_lfb1`) | 91 600–92 100 | 0.405 → 0.345 | 0.102 → 0.042 | 0.202, 0.204 | 99, 99 |
+
+- All snapshots of each pair (25 and 30) are bitwise equal in t, Δt, r, T, ρ, u, e, the composition and L_lines. The
+  reason: with `LINECOLL=1` the gas term is the collisional exchange at the ALI populations, and the populations that
+  carry it are bitwise the same.
+- The mean ALI call went from 0.66 to 0.26 s (A3) and from 1.32 to 0.16 s (`f128`). The step gains 12 and 15 %,
+  because what remains of the line cost (0.04 s per step) is the escape-probability call of every step, and the
+  chemistry is now the largest part.
+
+A third twin where the lines dominate: stage A3 of `base64` from its step-26 000 checkpoint (298 zones, ALI
+refresh every step; `t_lfc0`, `t_lfc1`), steps 26 100–26 200: wall 1.64 → 0.67 s per step, lines 1.29 → 0.32,
+chemistry 0.18 in both, ALI call 2.5 → 0.5 s, no divergences. The ten common snapshots are bitwise equal in the
+state; one entry of the line heating term differs by 6e-30 of its maximum in one snapshot. `base64` continues from
+this checkpoint with `LINEFAST=1` in its `run.env`.
+
+One error was found by the snapshot comparison and fixed before the twin runs: the reused work array kept the
+outer-node intensity of the previous ray, which showed only as a 7e-8 difference in L(r) while the populations agreed
+to 9e-15.
+
+Not done: changes of the method (one ALI iteration per call, a longer refresh interval) and work on the
+escape-probability call. The benchmark tools are in the session scratch directory (`lb/linebench.jl`, `lb/cmp2.jl`,
+`lb/twin.jl`, `lftest.sh`).

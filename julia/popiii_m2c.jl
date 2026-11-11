@@ -1077,6 +1077,10 @@ function envbuild!()
     eqz = [eq0[clamp(searchsortedlast(lc, l), 1, nsh)] for l in lz]
     Mc = ENVCENTRE ? 0.0 : interp(lf, m0, lfi[1]); Mnew = sum(4π / 3 * ρz[j] * (rI[j+1]^3 - rI[j]^3) for j in 1:n)
     TX.GASROW[] = true
+    # per-zone material on the new indices before build! fills the EOS (as in the ENVMERGE rebuild: else a new zone far out inherits the
+    # table-EOS flag of the old zone with its index: "rho below the table" when the source has more zones in the star than the target
+    # has in all, e.g. a refined stage A3 onto 64 zones); set again below on the rebuilt grid
+    for k in eachindex(mat.x); j = clamp(k - a + 1, 1, n); mat.x[k] = copy(xz[j]); mat.eqzone[k] = eqz[j]; end
     PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lum = ENVCENTRE ? nothing : Lin, lgrid = 2, inner = :wall, outer = :wall, Mc,
               selfgrav = true, material = mat, av, xmext = (Mc + Mnew) / 4π)
     global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
