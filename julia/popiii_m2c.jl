@@ -1290,6 +1290,35 @@ end
 haskey(ENV, "ENVSPLIT") && ENVEUL !== nothing && haskey(ENV, "RESTART") && Int(TF.getscalar(:lgrid)) == 2 && envsplit!(parse.(Float64, split(ENV["ENVSPLIT"], ","))...)
 haskey(ENV, "ENVMERGE") && ENVEUL !== nothing && haskey(ENV, "RESTART") && Int(TF.getscalar(:lgrid)) == 2 && for w_ in split(ENV["ENVMERGE"], ";"); envmerge!(parse.(Float64, split(w_, ","))...); end
 """
+TRESET=k:T[,k:T...] (with RESTART; k = zone number counted from the first envelope zone, as in the recorded snapshots; T in K): set the gas
+temperature of the listed zones once, right after the checkpoint is read. Density, velocity, radiation field and composition are untouched;
+the gas energy and pressure follow from the equation of state, and the zone's held line-cooling rate is cleared (the transfer refills it
+after the first step). This is a repair of zones whose temperature was changed by a discretization artefact (the total-energy row in the
+transparent outer envelope, see docs/POPIII_RUNS.md): it is not conservative, and the gas energy it adds is printed. Use it on one
+restart only; the checkpoints written afterwards are restarted WITHOUT it.
+"""
+function treset!(spec)
+    tn = TF.var(:tn); eg = TF.var(:egn); dn = TF.var(:dn); rn = TF.var(:rn)
+    TD.EOS[]()
+    L = Tuple{Int,Float64,Float64,Float64}[]
+    for it in split(spec, ",")
+        ks, Ts = split(it, ":"); k = a + parse(Int, ks) - 1; Tnew = parse(Float64, Ts)
+        a <= k <= b || error("TRESET: zone $ks is not on the mesh (1..$nsh)")
+        Tnew > 0 || error("TRESET: T must be positive")
+        push!(L, (k, tn[k], Tnew, eg[k])); tn[k] = Tnew
+        mat.Λext[k] = 0.0; mat.Tref[k] = Tnew; mat.slope[k] = 0.0
+    end
+    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
+    dE = 0.0
+    for (k, Told, Tnew, eold) in L
+        m_ = 4π * dn[k] * (rn[k+1]^3 - rn[k]^3) / 3; dE += m_ * (eg[k] - eold)
+        pr("TRESET: zone %d (r = %.4g..%.4g pc, %.4g Msun): T %.2f -> %.2f K, gas energy %+.3e erg\n", k - a + 1, rn[k] / 3.0857e18, rn[k+1] / 3.0857e18,
+           m_ / Msun, Told, Tnew, m_ * (eg[k] - eold))
+    end
+    pr("TRESET: %d zones, gas energy added %+.4e erg\n", length(L), dE)
+end
+haskey(ENV, "TRESET") && haskey(ENV, "RESTART") && treset!(ENV["TRESET"])
+"""
 GRIDWIN=r1,r2[,tau[,wd,wt[,alph[,ctol[,fmove[,gmax]]]]]] (R☉; fixed mesh only): the interfaces nearest r1 and r2 stay fixed, the ones in between
 follow TITAN's adaptive grid equation (TitanResidFast.GRIDWIN: equal arc length in (ln r, √wd ln ρ, √wt ln T), spatial smoothing alph,
 time smoothing tau [s]). Defaults tau 1e7, wd 0.3, wt 1, alph 1.5, ctol 0.3 (maxdel: relative zone-width change per Newton iteration),
