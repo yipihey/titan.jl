@@ -442,6 +442,20 @@ const ALIWMIN = parse(Float64, get(ENV, "ALIWMIN", "0")); const ALIGROW = parse(
 # 1e-24 erg cm⁻³ s⁻¹ at 3e7 R_sun; ΣΛV 4.5e35 against 1.7e35). Between ALI calls Λ = Λ_EP × (Λcoll/Λ_EP) as before, except where the
 # two differ in sign (heated zones: escape probability can only cool): there Λcoll of the last ALI call is held (ALIFIX).
 const LINECOLL = get(ENV, "LINECOLL", "0") == "1"; const ALIFIX = Ref{Vector{Float64}}(Float64[])
+# LINEINC=1: the H₂ levels also see the radiation that falls on the gas from outside the lines (`H2Lines.incident`): the CMB (TCMB)
+# and the continuum of the photosphere, B_ν(T_eff) from the sphere of the photosphere's radius (STARLIGHT's, of the last chemistry
+# step), diluted. LINEINC=cmb: the CMB alone. Default 0: the lines see only their own radiation, so in the cold outer envelope the
+# levels are excited by collisions alone and the line cooling can take the gas below T_CMB. With the incident field the levels are
+# pumped as well and the gas term (LINECOLL: the net collisional exchange) becomes heating where the radiation is warmer than the
+# gas. The escape-probability rate between ALI calls is then net of the absorbed background and can change sign; a zone where the
+# absorbed background exceeds half its emission holds the collisional rate of the last ALI call (ALIFIX), as the heated zones do.
+const LINEINC = get(ENV, "LINEINC", "0"); const LINEINCDIAG = get(ENV, "LINEINCDIAG", "0") == "1"
+function lineinc()
+    LINEINC in ("1", "cmb") || return nothing
+    Tb = parse(Float64, get(ENV, "TCMB", "0")); sd = PM.SLDIAG[]
+    (LINEINC == "cmb" || sd === nothing || !(sd.Te > 0)) && return (Tbg = Tb, Tstar = 0.0, Rph = 0.0)
+    (Tbg = Tb, Tstar = Float64(sd.Te), Rph = Float64(TF.var(:rn)[sd.kph+1]))
+end
 NLTE in ("ep", "ali", "hyb") && include(joinpath(@__DIR__, "H2Levels.jl"))
 const HLV = NLTE in ("ep", "ali", "hyb") ? H2Levels.load() : nothing
 """
@@ -479,8 +493,10 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
     if NLTE in ("ep", "ali", "hyb")
         yc = [ycomp(zk(j)) for j in 1:nz_]; nHn = dd ./ PC.μH
         nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nz_], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nz_])
-        NLTE != "hyb" && return H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep)
-        tq = time(); Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep)
+        inc = lineinc()
+        NLTE != "hyb" && return H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep, inc)
+        tq = time(); Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep, inc)
+        Λg = inc === nothing ? nothing : copy(H2Lines.LAST[].Λem)       # the EP emission alone (Λe is net of the absorbed background)
         TIMING && k >= 0 && pr("        EP call %.1f s (nep %d)\n", time() - tq, H2Lines.LAST[].nep)
         # ALI refresh interval adaptive (≤ NALI): halved when the ALI/EP factor moved by > 5 % since the last refresh,
         # doubled when < 1 % — a factor frozen while the lines turn thick jumps at the refresh and kicks the core
@@ -492,7 +508,7 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
             end
         end
         if k >= 0 && (k - ALILAST[] >= ALIINT[] || length(ALIFAC[]) != nz_)
-            tq = time(); Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali)
+            tq = time(); Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali, inc)
             TIMING && pr("        ALI call %.1f s (nep %d, ALI iterations %d, converged %s)\n", time() - tq, H2Lines.LAST[].nep, H2Lines.LAST[].iters, H2Lines.LAST[].converged)
             Λfs = Λa                                     # −∇·F of the formal solution (diagnostics)
             if LINECOLL
@@ -500,8 +516,14 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
                 Λa = [H2Levels.collcool(HLV, tt[j], view(P_, :, j), nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j]) for j in 1:nz_]
                 Lra = zeros(nz_ + 1); for j in 1:nz_; Lra[j+1] = Lra[j] + Λa[j] * 4π / 3 * (rr[j+1]^3 - rr[j]^3); end
                 ALIFIX[] = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? NaN : Λa[j] for j in 1:nz_]
+                if Λg !== nothing
+                    for j in 1:nz_; abs(Λe[j] - Λg[j]) > 0.5Λg[j] && (ALIFIX[][j] = Λa[j]); end
+                    LINEINCDIAG && pr("        LINEINC k %d: T_bg %.1f T_star %.0f R_ph %.3e R_sun node %d of %d; held zones %d; sum V*(Λcoll %.3e, heating part %.3e)\n", k,
+                                      inc.Tbg, inc.Tstar, inc.Rph / 6.957e10, H2Lines.LAST[].kq, nz_ + 1, count(!isnan, ALIFIX[]), Lra[end],
+                                      sum(min(Λa[j], 0.0) * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nz_))
+                end
             end
-            fnew = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? Λa[j] / Λe[j] : 1.0 for j in 1:nz_]
+            fnew = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 && !(LINECOLL && Λg !== nothing && !isnan(ALIFIX[][j])) ? Λa[j] / Λe[j] : 1.0 for j in 1:nz_]
             if length(ALIFAC[]) == nz_
                 # (S6-C2, ALIWMIN > 0, e.g. 1e-4) only over zones carrying ≥ ALIWMIN of the line luminosity: tiny zones (rezoned shock) with
                 # negligible cooling otherwise keep the interval at 1 and the ALI (≈ 50× an EP step) runs every step

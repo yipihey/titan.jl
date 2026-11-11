@@ -72,10 +72,10 @@ Frequency bins per line (G6a): span ±(3 v_th + |u|) and bin width ≤ ½ v_th,m
 radial line-centre depth < 2 tol use the thin emission (relative error ≲ tol).
 """
 function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, tol = 0.01, nbinmax = 200, cover = 0.999,
-                 nlte = nothing, nlte_mode = :ali, nlte_tol = 1e-3, nlte_maxit = 60, nlte_init = :ep, nlte_lambda = :diag)
+                 nlte = nothing, nlte_mode = :ali, nlte_tol = 1e-3, nlte_maxit = 60, nlte_init = :ep, nlte_lambda = :diag, inc = nothing)
     if nlte !== nothing
         return cooling_nlte(L, r, u, T, nH2, nlte; nbin, tol, nbinmax, cover, mode = nlte_mode, ntol = nlte_tol,
-                            maxit = nlte_maxit, init = nlte_init, lam = nlte_lambda)
+                            maxit = nlte_maxit, init = nlte_init, lam = nlte_lambda, inc)
     end
     n = length(T); @assert length(r) == n + 1
     vth = [sqrt(2kB * T[k] / mH2) for k in 1:n]
@@ -242,6 +242,7 @@ const SRCZONE = Ref(get(ENV, "LINESRC", "linear") == "zone")
 const QUADP2 = Ref(get(ENV, "LINEQUAD", "mu") == "p2")
 @inline shz(I, Δτ, S) = Δτ < 1e-4 ? I * (1 - Δτ) + Δτ * S : (e = exp(-Δτ); I * e + S * (1 - e))
 @inline ψz(Δτ) = Δτ < 1e-4 ? Δτ : -expm1(-Δτ)
+@inline ψlin(Δτ) = Δτ < 1e-4 ? 0.5Δτ : (e = exp(-Δτ); w0 = 1 - e; w0 - (w0 - Δτ * e) / Δτ)
 """
 Ray geometry of `transfer_line`: everything that depends on r and u only, so it is the same for every line, frequency and ALI
 iteration of a call. Ray j is tangent at r[j]; its nodes m = 1..n+2−j are the interfaces j..n+1.
@@ -280,7 +281,13 @@ end
 # (Nov 2026: the geometry is taken from `G`, the optical-depth prefactors are formed once per line and the work arrays once per call;
 # the arithmetic of every value is unchanged, so the results are the same to the last bit. Before, the three per-ray arrays were
 # allocated for every ray and frequency: 16 GB per ALI call at 150 zones and 100 thick lines.)
-function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing, G::RayGeom = raygeom(r, u))
+# `bg = (Bc, Bs, kq)` (incident radiation, see `incident`): the formal solution is done for I′ = I − I_bg, I_bg the continuum the ray
+# would carry without the line: Bc (the isotropic background) on the inward leg and on the outward leg of the rays that miss the star,
+# Bs (the photosphere) on the outward leg from node kq on of the rays j < kq, where I′ is set to 0 (the star is opaque: I = Bs there,
+# whatever came in). I_bg is constant along a segment, so I′ obeys the same equation with the source S − I_bg. The returned Jz is that
+# of I′ (the caller adds the background's own mean intensity, which it knows exactly); Fν is the flux of I′: the continuum that passes
+# through has r²F independent of the node (LINEQUAD=p2), so the difference of 4πr²Fν across a zone is still what the zone gave the rays.
+function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing, G::RayGeom = raygeom(r, u), bg = nothing)
     n = length(vth); nb = length(xs); dv = step(xs)
     Fν = zeros(n + 1); Jz = zeros(n); Λz = zeros(n)
     ΔI = zeros(n + 1, n); QJ = zeros(n + 1, n, 2); QΛ = zeros(n + 1, n, 2)
@@ -303,7 +310,28 @@ function transfer_line(r, u, vth, κ0, Si, ν0, xs, lam; Sz = nothing, G::RayGeo
                 dto[m] = pr * exp(-((vb - q) / vt)^2)          # outward
             end
             Iin[nk] = 0.0; ψin[nk] = 0.0; I = 0.0
-            if Sz === nothing
+            if bg !== nothing
+                mq = (bg.kq > 0 && j < bg.kq) ? bg.kq - j + 1 : 0          # this ray's node at the photosphere (0: it misses the star)
+                for m in nk-1:-1:1
+                    if Sz === nothing
+                        I = sh(I, dti[m], Si[j+m] - bg.Bc, Si[j+m-1] - bg.Bc); ψin[m] = ψlin(dti[m])
+                    else
+                        I = shz(I, dti[m], Sz[j+m-1] - bg.Bc); ψin[m] = ψz(dti[m])
+                    end
+                    Iin[m] = I
+                end
+                Iout[1] = Iin[1]; ψout[1] = ψin[1]; I = Iin[1]
+                for m in 2:nk
+                    bq = (mq > 0 && m > mq) ? bg.Bs : bg.Bc
+                    if Sz === nothing
+                        I = sh(I, dto[m-1], Si[j+m-2] - bq, Si[j+m-1] - bq); ψout[m] = ψlin(dto[m-1])
+                    else
+                        I = shz(I, dto[m-1], Sz[j+m-2] - bq); ψout[m] = ψz(dto[m-1])
+                    end
+                    m == mq && (I = 0.0; ψout[m] = 0.0)
+                    Iout[m] = I
+                end
+            elseif Sz === nothing
                 for m in nk-1:-1:1
                     Δτ = dti[m]; Sin = Si[j+m]; Sout = Si[j+m-1]
                     if Δτ < 1e-4                               # `sh` and `ψloc` with their common exponential taken once
@@ -436,6 +464,37 @@ function check_levels(L::LineList, LV)
 end
 
 """
+    incident(inc, r, ν) -> (kq, Bc, Bs, Jbg)
+
+Incident radiation for the level populations (keyword `inc = (Tbg, Tstar, Rph)` of `cooling`, NLTE paths; driver switch LINEINC):
+an isotropic blackbody background of temperature Tbg (the CMB) and the continuum of the photosphere, B_ν(Tstar) from the sphere of
+radius Rph, seen diluted. Without it the lines see no radiation but their own, so a level can only be excited by collisions; with it
+the levels are also pumped (and de-excited by stimulated emission), and the gas gains or loses energy through the collisions that
+follow. kq: the node of the grid nearest Rph (0: no star; then the background only); Bc, Bs: B_ν of the two per line;
+Jbg[i, k] = Bc + W_k (Bs − Bc), W_k the mean of the dilution factor W(r) = ½[1 − √(1 − (R/r)²)] at the zone's two interfaces (½ at
+kq, 0 inside), the same weighting as the J̄ of `transfer_line`.
+Not included: absorption of the continuum between the photosphere and the zone (the grey depth there is < 2/3), the line photons the
+gas takes from or adds to the continuum are not debited from the grey radiation field, and the photosphere is a blackbody of T_eff.
+"""
+function incident(inc, r, ν)
+    n = length(r) - 1; nl = length(ν)
+    Tb = Float64(inc.Tbg); Ts = Float64(inc.Tstar); Rp = Float64(inc.Rph)
+    Bc = [Tb > 0 ? Bν(ν[i], Tb) : 0.0 for i in 1:nl]; Bs = copy(Bc); kq = 0
+    if Ts > Tb && Rp > 0
+        kn = argmin([abs(r[k] - Rp) for k in 1:n+1])
+        2 <= kn <= n && (kq = kn; Bs = [Bν(ν[i], Ts) for i in 1:nl])
+    end
+    Wn = zeros(n + 1)
+    if kq > 0
+        for k in kq:n+1
+            x2 = (r[kq] / r[k])^2; Wn[k] = k == kq ? 0.5 : 0.5 * x2 / (1 + sqrt(1 - x2))
+        end
+    end
+    Jbg = [Bc[i] + 0.5 * (Wn[k] + Wn[k+1]) * (Bs[i] - Bc[i]) for i in 1:nl, k in 1:n]
+    (; kq, Bc, Bs, Jbg)
+end
+
+"""
     cooling_nlte(L, r, u, T, nH2, nlte; mode = :ali | :ep, ntol, maxit, init, lam)
 
 See `cooling` (keyword `nlte = (LV, nH, nHe, nHp)`). Returns (Λ, Lr, Lline) as the LTE path (Λ = −∇·F per zone from the
@@ -444,7 +503,7 @@ flux of the formal solution of the last iterate); `LAST[]` gets `iters` (ALI ite
 n_u B_ul) J̄] per zone, ALI) and `pops` (63 × n).
 """
 function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nbinmax = 200, cover = 0.999, mode = :ali,
-                      ntol = 1e-3, maxit = 60, init = :ep, lam = :diag)
+                      ntol = 1e-3, maxit = 60, init = :ep, lam = :diag, inc = nothing)
     LV = nlte.LV; HV = Main.H2Levels; check_levels(L, LV)
     n = length(T); @assert length(r) == n + 1
     nl = length(L.A); nlev = length(LV.E)
@@ -452,6 +511,8 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     τthin = 2tol
     iu = LV.iu; il = LV.il; Bul = LV.Bul; Blu = LV.Blu; ν = L.ν
     P = zeros(nlev, n); β = ones(nl, n); Jeff = zeros(nl, n)
+    # incident radiation (`incident`): in the escape-probability populations J̄ = (1 − β) S + β J_bg, in the ALI ones J̄ = J̄′ + J_bg
+    bgd = inc === nothing ? nothing : incident(inc, r, ν)
     function solve!(Pn)
         if ZSCHED[]                                   # one zone at a time from a shared counter: the ortho:para iteration count varies between zones
             next = Threads.Atomic{Int}(1)
@@ -547,20 +608,31 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
         βn
     end
     hist = Float64[]; nep = 0; iters = 0; converged = false
+    bgd !== nothing && (Jeff .= bgd.Jbg)
     solve!(P)
     if mode == :ep || init == :ep
         while nep < maxit
-            κ0, S, _ = opac(P); β .= epβ(κ0); Pn = solve!(copy(P)); nep += 1
+            κ0, S, _ = opac(P); β .= epβ(κ0); bgd !== nothing && (Jeff .= β .* bgd.Jbg); Pn = solve!(copy(P)); nep += 1
             d = popchange(P, Pn); P .= Pn; mode == :ep && push!(hist, d); d < ntol && break
         end
         mode == :ep && (converged = !isempty(hist) && hist[end] < ntol)
     end
     nbmax = 0; nthick = 0; Lline = zeros(nl, n + 1); Λrate = zeros(n); nmaser = 0
+    Λem = zeros(n)                # (incident radiation, EP mode) the emission alone, n_u A β hν summed over the lines [erg cm⁻³ s⁻¹]
     if mode == :ep
         κ0, S, nmaser = opac(P)
         # local emission n_u A β hν accumulated over the volume
+        if bgd === nothing
         for i in 1:nl, k in 1:n
             Lline[i, k+1] = Lline[i, k] + nH2[k] * P[iu[i], k] * LV.A[i] * β[i, k] * h * ν[i] * 4π / 3 * (r[k+1]^3 - r[k]^3)
+        end
+        else                      # net of the background photons absorbed: β hν [n_u A − (n_l B_lu − n_u B_ul) J_bg]
+            for i in 1:nl, k in 1:n
+                pu = P[iu[i], k]; pl = P[il[i], k]
+                em = nH2[k] * pu * LV.A[i] * β[i, k] * h * ν[i]
+                ab = nH2[k] * (pl * Blu[i] - pu * Bul[i]) * β[i, k] * bgd.Jbg[i, k] * h * ν[i]
+                Λem[k] += em; Lline[i, k+1] = Lline[i, k] + (em - ab) * 4π / 3 * (r[k+1]^3 - r[k]^3)
+            end
         end
         iters = nep
     else
@@ -575,8 +647,16 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                 τc = sum(κl[k] / (sqrt(π) * vth[k] / c * ν0) * (r[k+1] - r[k]) for k in 1:n)
                 if τc < τthin
                     acc = 0.0
+                    if bgd === nothing
                     for k in 1:n
                         acc += nH2[k] * P[iu[i], k] * LV.A[i] * h * ν0 * 4π / 3 * (r[k+1]^3 - r[k]^3); Lline[i, k+1] = acc
+                    end
+                    else          # thin line in the incident field: J̄ = J_bg, net emission
+                        for k in 1:n
+                            pu = P[iu[i], k]; pl = P[il[i], k]; Jfs[i, k] = bgd.Jbg[i, k]
+                            acc += nH2[k] * (pu * LV.A[i] - (pl * Blu[i] - pu * Bul[i]) * bgd.Jbg[i, k]) * h * ν0 * 4π / 3 * (r[k+1]^3 - r[k]^3)
+                            Lline[i, k+1] = acc
+                        end
                     end
                     continue
                 end
@@ -595,9 +675,13 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                 nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth[ka]))) + 1, nbin, nbinmax)
                 Threads.atomic_max!(nb_t, nb)
                 xs = range(-vspan, vspan, length = nb)
-                Fν, Jz, Λz = transfer_line(r, u, vth, κl, Si, ν0, xs, lam == :diag; Sz = SRCZONE[] ? S[i, :] : nothing, G = geom)
+                Fν, Jz, Λz = transfer_line(r, u, vth, κl, Si, ν0, xs, lam == :diag; Sz = SRCZONE[] ? S[i, :] : nothing, G = geom,
+                                           bg = bgd === nothing ? nothing : (Bc = bgd.Bc[i], Bs = bgd.Bs[i], kq = bgd.kq))
                 for k in 1:n+1; Lline[i, k] = 4π * r[k]^2 * Fν[k]; end
                 Jfs[i, :] .= Jz; Lam[i, :] .= Λz
+                if bgd !== nothing
+                    for k in 1:n; Jfs[i, k] += bgd.Jbg[i, k]; end
+                end
                 Threads.atomic_add!(nth_t, 1)
             end
             nbmax = max(nbmax, nb_t[]); nthick = nth_t[]
@@ -620,7 +704,7 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     Lr = [sum(view(Lline, :, k)) for k in 1:n+1]
     Λ = [(Lr[k+1] - Lr[k]) / (4π / 3 * (r[k+1]^3 - r[k]^3)) for k in 1:n]
     LAST[] = (nbins = nbmax, nthick = nthick, iters = iters, nep = nep, converged = converged, hist = hist, Λrate = Λrate,
-              pops = P, nmaser = nmaser, mode = mode)
+              pops = P, nmaser = nmaser, mode = mode, Λem = Λem, kq = bgd === nothing ? 0 : bgd.kq)
     Λ, Lr, Lline
 end
 

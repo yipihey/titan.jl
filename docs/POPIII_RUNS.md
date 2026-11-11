@@ -1056,7 +1056,7 @@ the network, be locked in by real cooling: one more reason to remove the artefac
 
 **Decisions (T. Abel, 11 Nov 05:45): all four.** (1) production with `ETASWTIE=0.5`; (2) reset the artefact-cooled zones at that
 restart; (3) D, D⁺, HD and HD cooling behind a default-off switch, side run first; (4) the CMB and the diluted continuum as incident
-radiation of the line transfer. (1) and (2) are done, (3) and (4) are in work.
+radiation of the line transfer. (1) and (2) are done; (4) is in the code as the default-off switch `LINEINC` (next section); (3) is in work.
 
 **The reset (`TRESET`, commit 397801f).** History of the outer zones on the 146-zone mesh, first snapshot (step 347 050, the mesh
 switch) → step 511 900:
@@ -1085,6 +1085,59 @@ alongside production): 0 divergences, the same time step (1.053e6 s), M* = 129.7
 hold their temperatures to 0.1 K, zone 105 at 5233 K (20 100 K inside it, 5632 K outside). Production was then stopped at step
 516 000 and restarted from `z19c146d_auto0` as `z19c146e` with both switches and the one-time `TRESET` (later segments restart
 without it).
+
+## Incident radiation in the H₂ line transfer (`LINEINC`, 11 Nov)
+
+Until now the line transfer had no incident radiation: lines were formed against a dark sky and a dark star. So gas colder than the
+CMB still lost energy through its lines, and the level populations never saw the star's continuum. `LINEINC` (default `0`: the code
+path is bit-identical to before) adds both:
+
+| `LINEINC` | incident field at each line frequency |
+|---|---|
+| `0` (default) | none |
+| `cmb` | B_ν(T_CMB) from all directions (`TCMB`, 54.5 K in this run) |
+| `1` | B_ν(T_CMB), and B_ν(T_eff) inside the solid angle of the photosphere (R_ph and T_eff of the continuum transport, the same numbers `STARLIGHT` uses) |
+
+**How.** `H2Lines.incident` builds, per line, the background mean intensity J_bg = B_c + W(r)(B_s − B_c) with the dilution factor
+W = ½[1 − √(1 − R_ph²/r²)] (zone value: mean of the two faces; W = ½ on the photosphere). Thin lines (escape probability and the
+thin branch of the ALI loop) add β·J_bg to the mean intensity of the rate equations. Thick lines solve the formal solution for the
+difference I − B_bg along every ray (`transfer_line(…; bg)`), with B_bg = B_s on the part of a ray that left the photosphere and B_c
+elsewhere; rays that hit the photosphere restart there (the star is opaque), and J_bg is added back. Nothing inside the photosphere
+is changed. The gas term stays the collisional exchange at the converged populations (`LINECOLL=1`), which is now negative
+(heating) wherever the radiation holds the levels above the kinetic temperature. Between two ALI calls the rate of a zone is
+normally the EP rate scaled by the last ALI/EP ratio; with a background that ratio is meaningless where absorption is a large part
+of the EP balance, so zones where the EP net and the EP emission differ by more than half are held at their ALI value until the
+next ALI call (`popiii_m2c.jl`, `linecool_full`). `LINEINCDIAG=1` prints T_bg, T_star, R_ph, the photosphere node and the number of
+held zones at every ALI call.
+
+**Checks (off line, snapshots of `c146` at 130.5 M☉ and of `full3` at 9.85 M☉).**
+
+- Switch off: Λ, the luminosity, the line table and the populations are `==` to the previous code in both modes.
+- Thermodynamic equilibrium: gas at T0 inside a cavity at T0 (with or without a star at T0) exchanges nothing. Residual
+  |ΣVΛ_coll| relative to the unirradiated value ≤ 4.8e-8 on `c146` (all lines thin) and ≤ 4.1e-4 on `full3` (27–92 thick lines at
+  300–2500 K), the same in the EP and ALI modes.
+- The floor: with the zones outside 0.5 pc set to 40 K, they still cool without the field (+6.8e27 erg/s) and are all heated with the
+  CMB (−1.96e29 erg/s; 15 of 15 zones on `c146`, 46 of 46 on `full3`).
+- Size at the present state. `c146`: every H₂ line is optically thin; the collisional exchange changes by −0.18 % in total
+  (7.423e34 → 7.410e34 erg/s), by 0.16–0.21 % in the molecular zones at 0.003–0.07 pc, by at most 0.1 % outside 0.07 pc and by
+  12 % in the first zone outside the photosphere, which holds no molecules (2y_H₂ = 2e-7). `full3`: −0.28 % in total.
+
+**Side runs from the frozen production state at step 526 000 (130.83 M☉), 3000 steps ≈ 100 yr each.** `t_inc0` (code before the
+change), `t_inc2p` (new code, switch off), `t_inc2` (`LINEINC=1`).
+
+- `t_inc2p` = `t_inc0` in T, u, ρ, composition, Λ and E_r in all 60 snapshots, bit for bit.
+- `t_inc2` against `t_inc0` at step 529 000: the same M* (131.147 M☉), time step (1.0472e6 s) and R*, T_c equal to 1e-6; 0 divergences in both; the gas is
+  warmer by at most 1.05 K (0.05 %), at the H₂ formation front (zones 112–114, 2000–4100 K), by 0.01–0.6 K between 0.003 and 0.04 pc
+  and by less than 0.001 K outside 0.1 pc; total line cooling −0.16 %. Star: T_eff 3092–3094 K at 7536 R☉.
+
+So at 130 M☉ the incident field is a small correction, as estimated; its job is the floor (no line cooling below T_CMB) and the
+pumping once the star is hotter or the gas colder. Production still runs with `LINEINC` unset.
+
+**What it does not do.** The energy the lines take from the continuum is not debited from the grey radiation field (at most the
+0.2 % above). Continuum absorption between the photosphere and the line-forming zones is neglected (τ = 0.03 on `c146`). The star is
+B_ν(T_eff) at every line frequency, although on the 146-zone mesh the photospheric zone is at 20 100 K. In the formal solution the edge of the stellar disc
+is resolved to one zone width. Held zones have no temperature slope between ALI calls. `snapspec.jl` does not pass the incident
+field yet (spectra of a `LINEINC` run would be computed without it).
 
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 
