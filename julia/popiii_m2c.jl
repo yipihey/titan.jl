@@ -1165,6 +1165,109 @@ function envsplit!(r1, r2, kmax)
        n0, n, j1, j2, rc[j1] / Rsun, rc[j2] / Rsun, kmax, string(f[max(1, j1 - kmax):min(n0, j2 + kmax)]), Mold / Msun, Mnew / Msun, Eold, Enew, xmt0, TF.getscalar(:xmtot))
 end
 """
+ENVMERGE=r1,r2,k (radii in R☉; with RESTART of a fixed-mesh run): the inverse of ENVSPLIT. Consecutive zones whose centres lie in [r1, r2]
+are merged in groups of k (the last group may be smaller; one group gives a zone back if the zone count would be odd). The rest of the mesh is
+unchanged, so the zone width jumps by k at the two ends of the window. Conservative remap: a merged zone has the mass, the radiation energy
+and the gas internal energy of its parents (ρ = M/V, E_r volume-weighted, composition and nuclear abundances mass-weighted, T from the
+equation of state such that M e(ρ, T, x) = Σ m e); the per-zone material and driver state comes from the heaviest parent; u and the luminosity
+are kept at the interfaces that remain (kinetic energy is not conserved). Restart the merged run's own checkpoints WITHOUT ENVMERGE.
+"""
+function envmerge!(r1, r2, kmax)
+    kmax = Int(kmax); r0 = TF.var(:rn)[a:b+1]; n0 = nsh; a0 = a; b0 = b
+    rc = [0.5 * (r0[j] + r0[j+1]) for j in 1:n0]
+    inw = [r1 * Rsun <= rc[j] <= r2 * Rsun for j in 1:n0]; any(inw) || error("ENVMERGE: no zone centre in [$r1, $r2] R_sun")
+    j1 = findfirst(inw); j2 = findlast(inw)
+    G = UnitRange{Int}[]; j = 1
+    while j <= n0
+        e_ = j1 <= j <= j2 ? min(j + kmax - 1, j2) : j
+        push!(G, j:e_); j = e_ + 1
+    end
+    if isodd(length(G))                                                         # (an even zone count, as envbuild!)
+        i = findlast(g -> length(g) > 1, G); i === nothing && error("ENVMERGE: nothing to merge")
+        g = G[i]; splice!(G, i, [first(g):last(g)-1, last(g):last(g)])
+    end
+    n = length(G)
+    u0 = TF.var(:un)[a:b+1]; L0 = 4π .* r0 .^ 2 .* TF.var(:frn)[a:b+1]
+    d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]; e0 = TF.var(:egn)[a:b]
+    V0 = [(r0[j+1]^3 - r0[j]^3) / 3 for j in 1:n0]; m0 = d0 .* V0
+    rI = vcat([r0[first(g)] for g in G], r0[end]); uI = vcat([u0[first(g)] for g in G], u0[end]); LI = vcat([L0[first(g)] for g in G], L0[end])
+    Mg = [sum(m0[g]) for g in G]; Vg = [sum(V0[g]) for g in G]
+    ρz = Mg ./ Vg; Er = [sum(E0[g] .* V0[g]) for g in G] ./ Vg
+    Tz = [sum(T0[g] .* m0[g]) for g in G] ./ Mg; et = [sum(e0[g] .* m0[g]) for g in G] ./ Mg
+    P = [g[argmax(m0[g])] for g in G]                                          # heaviest parent: per-zone material and driver state
+    Fr = [rI[j] > 0 ? LI[j] / (4π * rI[j]^2) : 0.0 for j in eachindex(rI)]
+    kmap(knew) = knew < a0 ? knew : knew <= a0 + n - 1 ? a0 + P[knew-a0+1] - 1 : b0 + (knew - (a0 + n - 1))
+    mx = deepcopy(mat.x); meq = copy(mat.eqzone); mΛ = copy(mat.Λext); mTr = copy(mat.Tref); msl = copy(mat.slope)
+    lagF = Dict(:GASQ => TX.GASQ[], :RAYQ => TX.RAYQ[], :CHEMB => TX.CHEMB[], :CHEMBON => TX.CHEMBON[])
+    lagold = Dict(s_ => copy(v_) for (s_, v_) in lagF)
+    nlo = copy(PM.NLOPC[])
+    xmext = TF.getscalar(:xmext); xmt0 = TF.getscalar(:xmtot)
+    t0 = TF.getscalar(:timen); dt0 = TF.getscalar(:dtime); js = TF.getscalar(:jstep)
+    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
+    Mold = 4π * sum(m0); Eold = 4π * sum(E0 .* V0); Egold = 4π * sum(e0 .* m0)
+    Mc = ENVCENTRE ? 0.0 : 4π * (xmt0 - TF.var(:xmen)[a0])
+    TX.GASROW[] = true
+    PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lum = ENVCENTRE ? nothing : abs(LI[1]), lgrid = 2, inner = :wall, outer = :wall,
+              Mc, selfgrav = true, material = mat, av, xmext)
+    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
+    a == a0 || error("ENVMERGE: ngrs moved")
+    for k in eachindex(mat.x)
+        ko = clamp(kmap(k), 1, length(mx))
+        mat.x[k] = copy(mx[ko]); mat.eqzone[k] = meq[ko]; mat.Λext[k] = mΛ[ko]; mat.Tref[k] = mTr[ko]; mat.slope[k] = msl[ko]
+    end
+    for (j, g) in enumerate(G)                                                  # mass-weighted composition of the merged zones
+        length(g) > 1 || continue
+        mat.x[a+j-1] = sum(m0[i] .* mx[a0+i-1] for i in g) ./ Mg[j]
+    end
+    for (s_, v_) in lagF                                                        # (in place: PM.RAY etc. hold these arrays)
+        o = lagold[s_]; isempty(o) && continue
+        for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end
+    end
+    length(nlo) == length(TF.var(:dn)) && (PM.NLOPC[] = Any[nlo[clamp(kmap(k), 1, length(nlo))] for k in eachindex(nlo)])
+    if HOTON
+        g_ = SG[]; Yo = copy(g_.Y); Ypo = copy(g_.Yprev)
+        for k in axes(g_.Y, 2); ko = clamp(kmap(k), 1, size(Yo, 2)); g_.Y[:, k] .= Yo[:, ko]; g_.Yprev[:, k] .= Ypo[:, ko]; end
+        for (j, g) in enumerate(G)
+            length(g) > 1 || continue
+            g_.Y[:, a+j-1] .= sum(m0[i] .* Yo[:, a0+i-1] for i in g) ./ Mg[j]; g_.Yprev[:, a+j-1] .= sum(m0[i] .* Ypo[:, a0+i-1] for i in g) ./ Mg[j]
+        end
+        for v_ in (g_.fscale, g_.fslope, g_.fcur); o = copy(v_); for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end; end
+        g_.Dmix = zeros(length(TF.var(:dn))); g_.acc.nstage = 0
+        SM.ghosts!(g_)
+    end
+    TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
+    PS.install_julia!(BlockSolver)
+    for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
+    TF.setscalar!(:timen, t0); TF.setscalar!(:timeo, t0); TF.setscalar!(:dtime, min(dt0, parse(Float64, get(ENV, "ENVDT0", "1e4")))); TF.setscalar!(:jstep, js); TF.setscalar!(:tmax, 1e3tff)
+    radsettings!()
+    envflags!()
+    # T of the merged zones from the gas internal energy (secant in T; e can be negative, its zero is the neutral atomic gas at T = 0)
+    tn = TF.var(:tn); eg = TF.var(:egn); jm = [j for j in 1:n if length(G[j]) > 1]
+    TD.EOS[]()
+    Tp = [tn[a+j-1] for j in jm]; ep = [eg[a+j-1] for j in jm]; dTmax = 0.0; emax = 0.0
+    for (i, j) in enumerate(jm); tn[a+j-1] = Tp[i] * 1.001; end
+    for it in 1:40
+        TD.EOS[](); emax = 0.0
+        for (i, j) in enumerate(jm)
+            k = a + j - 1; T_ = tn[k]; e_ = eg[k]
+            T_ == Tp[i] && continue
+            cv = (e_ - ep[i]) / (T_ - Tp[i]); cv > 0 || (cv = abs(e_) / T_ + 1e7)
+            dT = (et[j] - e_) / cv; emax = max(emax, abs(dT) / T_)
+            abs(dT) < 1e-13 * T_ && continue
+            Tp[i] = T_; ep[i] = e_; tn[k] = clamp(T_ + dT, 0.7 * T_, 1.4 * T_)
+        end
+        emax < 1e-11 && break
+    end
+    for j in jm; dTmax = max(dTmax, abs(tn[a+j-1] / Tz[j] - 1)); end
+    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
+    empty!(ALIFAC[]); empty!(ALIFIX[])
+    dn = TF.var(:dn); rn = TF.var(:rn); ern = TF.var(:ern)
+    Vn = [(rn[a+j]^3 - rn[a+j-1]^3) / 3 for j in 1:n]
+    Mnew = 4π * sum(dn[a+j-1] * Vn[j] for j in 1:n); Enew = 4π * sum(ern[a+j-1] * Vn[j] for j in 1:n); Egnew = 4π * sum(eg[a+j-1] * dn[a+j-1] * Vn[j] for j in 1:n)
+    pr("ENVMERGE: zones %d -> %d (old zones %d..%d with centres in %.4g..%.4g R_sun in groups of %d), M %.9e -> %.9e Msun, E_rad %.9e -> %.9e erg, E_gas %.9e -> %.9e erg (last T correction %.1e, max |T/T_massweighted - 1| %.2e), xmtot %.9e -> %.9e\n",
+       n0, n, j1, j2, rc[j1] / Rsun, rc[j2] / Rsun, kmax, Mold / Msun, Mnew / Msun, Eold, Enew, Egold, Egnew, emax, dTmax, xmt0, TF.getscalar(:xmtot))
+end
+"""
 DTENV=r1,r2,C (R☉): cap Δt at C × min over the interfaces with r1 ≤ r ≤ r2 of the dynamical time (r³/Gm)^½ (m interior mass). TITAN's
 DT_DYN (CDYN) takes the minimum over the whole mesh, so the stellar core sets it and the accretion runs relax it (CDYN = 1e5); this one
 follows only the envelope (its edge collapses and re-expands on its dynamical time). Reported on the DTDIAG line.
@@ -1182,6 +1285,7 @@ if DTENV !== nothing
     pr("DTENV: dt <= %g x dynamical time over %g..%g R_sun\n", DTENV[3], DTENV[1], DTENV[2])
 end
 haskey(ENV, "ENVSPLIT") && ENVEUL !== nothing && haskey(ENV, "RESTART") && Int(TF.getscalar(:lgrid)) == 2 && envsplit!(parse.(Float64, split(ENV["ENVSPLIT"], ","))...)
+haskey(ENV, "ENVMERGE") && ENVEUL !== nothing && haskey(ENV, "RESTART") && Int(TF.getscalar(:lgrid)) == 2 && for w_ in split(ENV["ENVMERGE"], ";"); envmerge!(parse.(Float64, split(w_, ","))...); end
 """
 GRIDWIN=r1,r2[,tau[,wd,wt[,alph[,ctol[,fmove[,gmax]]]]]] (R☉; fixed mesh only): the interfaces nearest r1 and r2 stay fixed, the ones in between
 follow TITAN's adaptive grid equation (TitanResidFast.GRIDWIN: equal arc length in (ln r, √wd ln ρ, √wt ln T), spatial smoothing alph,
