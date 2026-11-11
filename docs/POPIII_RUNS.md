@@ -828,6 +828,47 @@ resolution (146 zones: none; 182 and 286: the bounce; 2× and 3× finer: deep co
 these is converged. The star's own mesh and the accretion shock (inside 30 R☉) are the same in all of them.
 `t_c146` continues the 146-zone run (8 threads) to see whether the steady state lasts as the mass grows.
 
+**Production moved to the 146-zone mesh (10 Nov, 22:55; user decision: the one coarse full solution runs on 146
+zones).** The run directory is `runs/t_c146` (link `runs/c146`). Lineage: `fx3` checkpoint `z19fx3f_auto0` (step
+343100, 105.37 M☉, 286 zones) → `t_t_Lm3c` with `ENVMERGE=30,1e12,3` (to step 347050) → `z19c146` restarted without
+the switch (to step 387050) → `z19c146b`, … in segments of 100 000 steps (8 threads, standard flags `AVTENSION=0
+CHEMSUB=1.3,3`, chain script `chain_c146.sh` in the session scratchpad; the restart at step 387050 continues the record
+without a jump). The 286-zone run `fx3` was stopped by hand at step 359500 (105.86 M☉); its last checkpoint is kept
+as `frozen_fx3_286/m2c_z19fx3f_auto1` for the resolution studies and for a restart of the 286-zone line.
+
+State of the 146-zone line over its first 1488 yr (steps 347050–388200, 105.93 → 113.35 M☉):
+
+| quantity | value |
+|---|---|
+| cost (8 threads) | 27.6 steps and 4.8 s of wall time per model yr (0.18 s per step), Δt 1.13–1.16e6 s, 8 divergences in 40 000 steps |
+| growth of the star | 5.02e-3 M☉/yr in the mean, falling from 5.5e-3 to 4.6e-3 |
+| photosphere | on one mesh interface (5638 R☉, Δln r 0.27) in every snapshot; L 3.52–3.78e6 L☉; T_eff from L and that radius 3330–3391 K |
+| centre | T_c 7.09e7 → 8.97e7 K, linear in time (1.3e4 K per yr) |
+| burning marks (0.1 % of the median L_ph) | pp chain from 112.33 M☉ (step 381750); deuterium already on at the start of the record; CNO 8e-12 of L |
+
+**The envelope is not stationary on either mesh: it gains mass.** Mean inflow through each fixed interface, from the
+change of the enclosed mass over the record (`mstore.jl`, `menv.jl` in the session scratchpad):
+
+| | 286 zones (`fx3`, 533 yr, 102.66 → 105.83 M☉) | 146 zones (`t_c146`, 1488 yr) |
+|---|---|---|
+| inflow at 1e4–1e5 R☉ | 8.0–8.1e-3 M☉/yr | 6.9–7.0e-3 M☉/yr |
+| growth of the star (inside 30 R☉) | 5.94e-3 M☉/yr | 5.02e-3 M☉/yr |
+| growth of the envelope (30 to 1.0–1.2e4 R☉) | 2.1e-3 M☉/yr (0.56 → 1.68 M☉) | 1.9e-3 M☉/yr (1.72 → 4.60 M☉) |
+
+So about a quarter of the inflow stays in the envelope, on both meshes at the same rate, and the star receives the
+rest. On the 286-zone mesh this mass is spread over 1450–6200 R☉ and takes part in the cycle; on the 146-zone mesh
+2.7 of the 2.9 M☉ gained went into the two zones on either side of the photosphere (4290–7540 R☉: 0.54 → 1.13 and
+0.72 → 2.86 M☉). The 146-zone mesh therefore gives the same mean mass budget as the 286-zone mesh without the cycle,
+and its "steady" photosphere is a growing reservoir held on one interface. Whether that reservoir keeps growing,
+drains, or collapses is open, and neither mesh resolves it; that is what the resolution studies from restarts are
+for.
+
+**The supply falls with enclosed mass.** Mean inflow through fixed interfaces of the 146-zone record against the mass
+enclosed now: 6.6e-3 M☉/yr at 120 M☉ (2.8e5 R☉), 4.9e-3 at 135, 3.1e-3 at 158, 2.4e-3 at 177, 1.3e-3 at 229, 7.1e-4
+at 304 M☉ (7.6e6 R☉ = 0.17 pc, free-fall time from rest 67 kyr). The falling growth rate of the star follows the
+falling supply (inflow at 1e5 R☉ fell from 7.6e-3 to 6.7e-3 M☉/yr over the record). Reaching 300 M☉ takes of order
+60–120 kyr of model time, 3.4–6.7 days of wall time at the present cost.
+
 Tension 0.05 and 0.2 do not damp the cycle in either mode and do not lower the cost; `STOL=0.5` (`t_st5`) gives no gain.
 
 **Work integral** (`t_pd1`, a snapshot every 2 steps; ∮P d(1/ρ) on Lagrangian shells with P = p_gas + f_Edd E_rad;
