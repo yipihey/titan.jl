@@ -1528,10 +1528,34 @@ The first line a chain writes to `procedure.log` gives shells, threads, pinning 
   mass (20 000 → 20 596 M☉, mostly far out). The inflow afterwards, about 0.07 M☉/yr, is comparable to what the
   source did before the remap (0.1 M☉/yr), so it is not an obvious artefact. About half of the steps diverge
   (limiter at zones 24–26, the surface is zone 22; 151 divergences by step 19 400). This is not yet a clean hand-over.
+- **A mass-conserving remap, `ENVCONS=1` (default off).** The zone densities of the new mesh are taken from the
+  source's enclosed mass (a monotone cubic of ln m against ln r through the source's interfaces) in place of the
+  log-interpolated density at the zone centres. T, E_r, the composition and the velocity are interpolated as before.
+  Test `t_rb3`, the same hand-over as `t_rb2`: grid mass 20 000.0 → 20 000.0 M☉, M_shell0 0.4806 M☉; the largest
+  change against the interpolated density is a factor 0.40 in the zone just outside the star (102–142 R☉).
+  Enclosed mass [M☉] at step 19 140, the first snapshot after the remap:
+
+  | radius [R☉] | 100 | 300 | 1e3 | 3e3 | 1e4 | 3e4 | 1e7 | 1e8 |
+  |---|---|---|---|---|---|---|---|---|
+  | interpolating (`t_rb2`) | 0.508 | 0.544 | 0.621 | 0.909 | 1.978 | 5.074 | 382.0 | 1233 |
+  | `ENVCONS=1` (`t_rb3`) | 0.487 | 0.505 | 0.575 | 0.860 | 1.938 | 5.040 | 384.8 | 1240 |
+
+  What it changes and what it does not, over 575 steps (41.5 yr; `t_rb2` ran 275 steps, 13.7 yr):
+  - The accretion afterwards is the same. At 13.7 yr after the remap the star has 1.43 M☉ in `t_rb2` and 1.40 M☉ in
+    `t_rb3` (interpolated between rows). `t_rb3` reaches 2.97 M☉ after 41.5 yr, 0.060 M☉/yr; `full6` (380 zones, no
+    HD) went from 0.46 to 3.20 M☉ in 53.6 yr, 0.051 M☉/yr. So the inflow after the hand-over is the collapse, not the
+    remap.
+  - Fewer divergences early (63 by 11.4 yr and 104 by 22.7 yr, against 151 by 13.7 yr), and larger steps. They come
+    back in bursts each time the photosphere moves out by one zone: 105 between steps 19 400 and 19 500, 96 between
+    19 600 and 19 700.
+  - The photosphere sits on mesh interfaces spaced by a factor 1.39 (Δln r = 0.33): R* goes 73, 102, 142, 197, 274,
+    382, 531 R☉ and is 531 R☉ at 2.97 M☉, where `full6` has 147 R☉ at 3.2 M☉. This is the resolution of the
+    64-zone mesh at the star's surface, not the remap, and it is the open problem of the 64-zone baseline.
 - Cost of the refined stage A3 in `base64`: by step 26 000 (300 zones, 0.045 M☉) the ALI refresh interval had fallen
   to 1, driven by one zone at 85 R☉ (T 2150 K, 0.16 % of the line cooling) whose ALI/EP factor changes by 12–17 % per
   step. Each ALI call took 2.5 s, so the lines were 80 % of 1.6 s per step. `LINEFAST=1` was switched on in `base64`
-  at step 26 000 for this reason (see the `LINEFAST` section; the twin from that checkpoint is bitwise equal).
+  at step 26 000 for this reason (see the `LINEFAST` section; the twin from that checkpoint is bitwise equal). `nohd64` has it from
+  step 18 500 (its row at step 18 700 equals the earlier trajectory).
 
 ### `c128` and `f128`: a restart with a one-time merge
 

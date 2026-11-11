@@ -950,6 +950,7 @@ const ENVEUL = haskey(ENV, "ENVEUL") ? parse.(Float64, split(ENV["ENVEUL"], ",")
 const Rsun = 6.957e10
 const ENVCENTRE = ENVEUL !== nothing && ENVEUL[1] == 0     # r_in = 0: the mesh runs to a regular centre (ENVCORE=rmin,dlnr,rcb: first interface [R☉], Δln r below rcb); no point mass, wall or sink
 const ENVCORE = parse.(Float64, split(get(ENV, "ENVCORE", "0.1,0.08,10"), ","))
+const ENVCONS = get(ENV, "ENVCONS", "0") == "1"       # the ENVEUL remap takes the zone densities from the source's enclosed mass (mass-conserving); default: log-interpolated at the zone centres
 const ENVSINKTAU = parse(Float64, get(ENV, "ENVSINKTAU", "1e6"))
 xmi(k) = ENVEUL === nothing ? TX.XMINT[][k] : TF.getscalar(:xmtot) - TF.var(:xmen)[k]
 const XMEPREV = Ref(Float64[]); const ENVMS0 = Ref(0.0); const ENVMDOT = Ref(0.0)
@@ -1064,6 +1065,24 @@ function envbuild!()
     ρz = [exp(interp(lc, log.(d0), l)) for l in lz]; Tz = [exp(interp(lc, log.(T0), l)) for l in lz]
     Er = [exp(interp(lc, log.(E0), l)) for l in lz]
     lfi = log.(rI); mI = [interp(lf, m0, l) for l in lfi]
+    if ENVCONS      # zone means of a monotone cubic of ln m against ln r through the source's interfaces: the mass inside every source interface is kept
+        i1 = findfirst(j -> r0[j] > 0 && m0[j] > 0, eachindex(r0)); xs = log.(r0[i1:end]); ys = log.(m0[i1:end]); N = length(xs)
+        h = diff(xs); δ = diff(ys) ./ h; dd = zeros(N)
+        for i in 2:N-1; dd[i] = δ[i-1] > 0 && δ[i] > 0 ? 2 / (1 / δ[i-1] + 1 / δ[i]) : 0.0; end        # harmonic mean of the two slopes: monotone
+        dd[1] = min(3.0, 3δ[1]); dd[N] = δ[N-1]
+        function lnm(x)
+            x <= xs[1] && return ys[1] + 3 * (x - xs[1])                       # uniform density inside the first interface that encloses mass
+            x >= xs[N] && return ys[N]
+            i = searchsortedlast(xs, x); t = (x - xs[i]) / h[i]
+            (2t^3 - 3t^2 + 1) * ys[i] + (t^3 - 2t^2 + t) * h[i] * dd[i] + (3t^2 - 2t^3) * ys[i+1] + (t^3 - t^2) * h[i] * dd[i+1]
+        end
+        mI = [rI[j] > 0 ? exp(lnm(log(rI[j]))) : 0.0 for j in eachindex(rI)]; mI[end] = m0[end]
+        ρint = ρz; ρz = [(mI[j+1] - mI[j]) / (4π / 3 * (rI[j+1]^3 - rI[j]^3)) for j in 1:n]
+        all(>(0), ρz) || error("ENVCONS: a zone without mass")
+        jm = argmax(abs.(log.(ρz ./ ρint)))
+        pr("ENVCONS: densities from the enclosed mass; largest change against the interpolated value: factor %.3g in zone %d (r %.4g .. %.4g R_sun)\n",
+           ρz[jm] / ρint[jm], jm, rI[jm] / Rsun, rI[jm+1] / Rsun)
+    end
     uI = [interp(lf, u0, l) for l in lfi]
     ncap = 0
     for j in eachindex(uI)                                                     # the state keeps shells past the escape speed: cap them
@@ -1075,7 +1094,7 @@ function envbuild!()
     idx(l) = clamp(searchsortedlast(lc, l), 1, nsh - 1)
     xz = [(i = idx(l); w = clamp((l - lc[i]) / (lc[i+1] - lc[i]), 0.0, 1.0); (1 - w) .* x0[i] .+ w .* x0[i+1]) for l in lz]
     eqz = [eq0[clamp(searchsortedlast(lc, l), 1, nsh)] for l in lz]
-    Mc = ENVCENTRE ? 0.0 : interp(lf, m0, lfi[1]); Mnew = sum(4π / 3 * ρz[j] * (rI[j+1]^3 - rI[j]^3) for j in 1:n)
+    Mc = ENVCENTRE ? 0.0 : ENVCONS ? mI[1] : interp(lf, m0, lfi[1]); Mnew = sum(4π / 3 * ρz[j] * (rI[j+1]^3 - rI[j]^3) for j in 1:n)
     TX.GASROW[] = true
     # per-zone material on the new indices before build! fills the EOS (as in the ENVMERGE rebuild: else a new zone far out inherits the
     # table-EOS flag of the old zone with its index: "rho below the table" when the source has more zones in the star than the target
