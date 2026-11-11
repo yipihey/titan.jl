@@ -965,6 +965,63 @@ envelope gains 1.9e-3 M☉/yr throughout (1.75 → 6.26 M☉), 26 % of the inflo
 of it is in the zone just outside the photosphere and 1.4 M☉ in the zone inside it; that shell warmed from 9900 to
 15 800 K.
 
+## The cold zone outside the photosphere and `ETASWTIE` (11 Nov)
+
+The same defect acts at the photosphere of the 146-zone run. The first zone outside it (7536–10 180 R☉) is at 164–168 K
+between 17 600–18 400 K inside and 5070 K outside: 237 K at step 355 000, 210 K at 395 000, 197 K at 428 000, 168 K at
+449 000. It has been cold since the mesh switch, so it is not a consequence of `ETASWTH`. On this mesh the photosphere
+is one interface: the zone inside has an optical depth of 2620, the flux-mean optical depth from the outer boundary to
+its outer face is 0.010, so the `FLUXTIE` weight is 1 at every interface from there outwards and every zone outside the
+photosphere that is on the total-energy row carries the −u × (moment-equation residual) term.
+
+`ETASWTIE=w` (default 0 = off, commit b8c7d8d): a zone also keeps the internal-energy row when the `FLUXTIE` weight at its
+inner interface is ≥ w. This selects the first law by cause. Tests from a frozen copy of production at step 449 550
+(122.2 M☉, 8 threads):
+
+| test | setting | steps | first zone outside the photosphere | divergences | Δt [s] |
+|---|---|---|---|---|---|
+| `t_row1` | `ETASWTH=1e-3` (production) | 750 | 168 K | 0 | 1.085e6 |
+| `t_row2` | `ETASWTH=0.1` | 750 | 1100–2200 K, fluctuating | 328 | 6.7e5 |
+| `t_row3` | `ETASWTH=1e-3 ETASWTIE=0.5` | 1500 | 5240 K | 0 | 1.085e6 |
+| `t_row4` | `ETASWTIE=0.5` | 1500 | 5240 K | 0 | 1.085e6 |
+| `t_row5` | `ETASWTH=1e-3 ETASWTIE=0.5` | 20 000 | 5229 K | 0 | 1.074e6 |
+
+`t_row2` is rough because the zone changes row from step to step (its thermal fraction crosses the threshold); with the
+selection fixed by the closure weight the roughness is absent. `t_row3` and `t_row4` agree in every zone from the
+photosphere to the edge, so on this mesh `ETASWTIE` covers what `ETASWTH` covers. `t_row5` ended at step 469 500
+(681 yr) with 124.613 M☉; production at the same step has 124.614 M☉, the same Δt (1.0743e6 s) and a minimum velocity
+of −197.1 against −196.9 km/s.
+
+Temperatures at step 469 500, `t_row5` against production (zone outer radius):
+
+| r [R☉] | 1.0e4 | 1.4e4 | 1.9e4 | 4.6e4 | 6.2e4 | 8.3e4 | 1.1e5 | 1.5e5 | 2.1e5 | 3.8e5 | 9.3e5 | 2.3e6 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `ETASWTIE=0.5` | 5229 | 5620 | 5535 | 5537 | 4466 | 3165 | 2341 | 1884 | 1618 | 1237 | 884 | 606.7 |
+| production | 164 | 5077 | 5396 | 5557 | 5691 | 5699 | 5017 | 3207 | 2075 | 1530 | 980 | 633.1 |
+
+So the artefact has both signs: it cools the zone at the photosphere and it heats the infalling gas between 5e4 and
+a few 1e6 R☉, where the physical rates are small (the budget table in "What heats the infalling envelope": ±50–100 erg g⁻¹ s⁻¹
+at the front). The warm plateau of the 146-zone production extends to 1.1e5 R☉; with the internal-energy row the front is
+at about 6e4 R☉. The zone at 6.2e4 R☉ was still cooling at the end of `t_row5` (4542 → 4466 K in the last 2000 steps), the
+zones outside it changed by ≤ 1.2 % in that interval. The radiation energy density from the photosphere to 0.1 pc is 2–8 % higher. Beyond 0.6 pc
+the two runs are identical (both use the internal-energy row there), including the zones at 132, 42.7 and 17.76 K.
+
+Against the last snapshot of the 286-zone run (`fx3`, step 359 550, 105.9 M☉, one phase of a pulsating photosphere), at
+fixed radii:
+
+| r [R☉] | 3e4 | 6e4 | 1e5 | 2e5 | 3e5 | 1e6 |
+|---|---|---|---|---|---|---|
+| `fx3`, 286 zones | 3402 | 2104 | 1703 | 1336 | 1159 | 707 |
+| production, 146 zones (step 479 500) | 5481 | 5710 | 4916 | 1984 | 1609 | 882 |
+| `t_row5`, 146 zones | 5574 | 3892 | 2291 | 1528 | 1277 | 807 |
+
+The internal-energy row moves the coarse mesh towards the fine one; a difference remains (mass, phase and resolution
+are not separated here). The residual of a discretised moment equation grows with the zone size, which is why the
+146-zone run shows the artefact far more strongly than the 286-zone run did.
+
+Production still runs with `ETASWTH=1e-3` only. Whether to restart it with `ETASWTIE=0.5` is open (decision with
+T. Abel); `full3`, `full4` and `full6` use neither switch.
+
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 
 `MCLOUD` (default 1e4 M☉) sets the gas mass on the mesh. The ABN02 read-off n(r) ends at 93 pc, which encloses 1.5e4 M☉;
