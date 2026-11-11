@@ -832,7 +832,7 @@ these is converged. The star's own mesh and the accretion shock (inside 30 R☉)
 zones).** The run directory is `runs/t_c146` (link `runs/c146`). Lineage: `fx3` checkpoint `z19fx3f_auto0` (step
 343100, 105.37 M☉, 286 zones) → `t_t_Lm3c` with `ENVMERGE=30,1e12,3` (to step 347050) → `z19c146` restarted without
 the switch (to step 387050) → `z19c146b`, … in segments of 100 000 steps (8 threads, standard flags `AVTENSION=0
-CHEMSUB=1.3,3`, chain script `chain_c146.sh` in the session scratchpad; the restart at step 387050 continues the record
+CHEMSUB=1.3,3`, from 11 Nov also `ETASWTH=1e-3`, see the section on the stop at 117.6 M☉; chain script `chain_c146.sh` in the session scratchpad; the restart at step 387050 continues the record
 without a jump). The 286-zone run `fx3` was stopped by hand at step 359500 (105.86 M☉); its last checkpoint is kept
 as `frozen_fx3_286/m2c_z19fx3f_auto1` for the resolution studies and for a restart of the 286-zone line.
 
@@ -896,6 +896,74 @@ Nakauchi, Inayoshi & Omukai 2020 (2020ApJ...902...81N), Yoon & Cantiello 2010 (2
 (2013MNRAS.431.3036I), Inayoshi et al. 2013 (2013ApJ...769L..20I), Cantiello et al. 2026 (2026ApJ..1000L...4C),
 Grassitelli et al. 2021 (2021A&A...647A..99G), Yadav et al. 2018 (2018MNRAS.475.4881Y), Grott, Chernigovski & Glatzel
 2005 (2005MNRAS.360.1532G), Glatzel & Kiriakidis 1993 (1993MNRAS.263..375G).
+
+## The stop at 117.6 M☉: the total-energy row cools transparent infalling gas (11 Nov)
+
+**What happened.** The 146-zone production run stopped at 00:36:53 on 11 Nov at step 415553 (117.62 M☉) with a NaN
+Jacobian. The star was fine (T_c 1.045e8 K, ρ_c 30.3 g/cm³, photosphere at 7536 R☉). The NaN came from one zone at
+2.6 pc that had cooled to 17.3 K, far below the CMB (54.5 K).
+
+**Two causes, one behind the other.**
+
+1. *Overflow.* `u_H2(T)` (vibrational energy of H₂, `ChemNet.jl`) was written with `exp(6100/T)`; its derivative
+   overflows below 17.3 K and its value below 8.6 K. It is now written with `exp(−6100/T)` for 6100/T ≥ 100
+   (bit-identical value and derivative from 17.5 K to 1e9 K).
+2. *Why the zone was at 17 K.* With only the overflow fixed (test `t_nan7`) the same zone kept cooling at 0.41 K per 100
+   steps, reached 11.7 K and Newton failed again at step 416953. The cooling is not physical. The total-energy row
+   (`ETOTAL=1`) minus the kinetic-energy equation minus the radiation-energy row leaves on the gas
+
+       −u [∂(fE)/∂r + (3f−1)E/r + χρF/c],
+
+   which is zero only if the static radiation momentum equation holds. In the transparent outer zones that equation is
+   replaced by the closure F = hcE (`FLUXTIE`), f ≈ 1/3, χ ≈ 0, and the bracket is ∂(E/3)/∂r. Wherever E_r has a
+   gradient, gas moving at 0.2–0.3 km/s exchanges energy with a radiation field it does not interact with. On the
+   146-zone mesh E_r has a slow "front" near 1.5–3 pc (a plateau of 1.87 E_CMB inside, E_CMB outside), and the inflow
+   through it loses energy. Check on `t_nan7` (`spur.jl` in the session scratchpad; last 20 snapshots):
+
+   | zone (snapshot index) | measured m·de/dt | predicted from the term | ratio |
+   |---|---|---|---|
+   | four cooling zones, 1.4–3.5 pc | −2.6e34, −1.85e35, −2.9e35, −1.3e35 erg/s | | 0.98, 1.00, 1.00, 1.02 |
+   | nearly all zones 128–145 | | | 0.9–1.3 |
+
+   E_th/E_r of the gas is 1.4e-2 at 0.23 pc, 1e-3 near 0.75 pc and 1e-5–1e-6 beyond 2.5 pc, so a relative error of 1e-5
+   in the radiation terms is the whole thermal energy there.
+
+**Fix used to continue (a new switch, default off).** `ETASWTH=x`: a zone also uses the internal-energy (gas-only) row
+where 3p/2ρ < x (3p/2ρ + E_r/ρ + K/m), evaluated on the old state like `ETASW` (`TX.ETASW_TH`, `dualswitch` in
+`TitanResidFast.jl`; needs `ETASW > 0`). Production runs with `ETASWTH=1e-3` since the restart: zones ≥ 132 of 146
+(r ≳ 0.6 pc) are on the gas row. Test `t_nan8` (from the frozen checkpoint `frozen_c146_nan/m2c_z19c146b_auto1`, 3500
+steps to step 419000, 118.12 M☉): no divergence, the zones outside 0.6 pc change by 1e29–3e32 erg/s instead of
+1e34–3e35, the coldest zone stays at 17.64–17.65 K, and log n_c, T_c, M*, R* and min u agree with `t_nan7` in all printed
+digits at steps 416000 and 416900. Commit 508105c. Production restarted at 01:30:23 from `z19c146b_auto1` as
+`z19c146c` (54 min down; it starts at step 415550, three steps before the failure). It passed both failure points: at step
+417650 no divergence, the coldest zone at 17.65 K.
+
+**What this does not repair.**
+
+- Zones 126–131 (0.1–0.6 pc, E_th/E_r 4e-2 to 2e-3) are still on the total row and get the same term, there a net
+  heating of about 1e33 erg/s per zone (4e-3 K/yr at 250–400 K). `ETASWTH=1e-2` would move the limit to 0.27 pc. The
+  proper cure is to make the total-energy row consistent with the momentum row that is solved: where `FLUXTIE` replaces
+  the radiation momentum equation, subtract u times its residual. Not done (a change of method).
+- The zones that were cooled stay cold: 132, 42.7, 17.6 and 215 K at 1.4–3.5 pc (they were 206, 226, 272 and 342 K at the mesh switch).
+  The radiation field reheats them at ~3e-5 K/yr only. This gas is 2–5 pc from the star and does not reach it during the
+  run; the state was not altered.
+- The radiation field outside ≈ 0.3 pc is not the physical one on either mesh. With f ≈ 1/3 and no opacity the moment
+  equations leave E_r flat. 146 zones: a plateau of 1.87 E_CMB (T_r 64 K) carrying 7e39 erg/s of the luminosity (L
+  falls from 1.525e40 to 8.3e39 erg/s across the front); the physical field is E_CMB + L/4πr²c, 6 % above E_CMB at
+  1 pc. 286 zones (`fx3`, steps 273550–359550): a depression instead, E_r/E_CMB falling from 0.92–0.96 to 0.59–0.67
+  between 1 and 3 pc; there the gas temperature at 1–5 pc changed by less than 20 K over those 86 000 steps (162 → 160 K
+  at 1.0 pc, 215 → 223 K at 2.3 pc, 325 → 344 K at 4.2 pc), so the 286-zone run did not have the runaway cooling. The
+  note of 5 Nov in `POPIII_GOAL.md` (F/cE > 1, E 12 % below the CMB) is probably the same defect.
+- The from-IC runs `full3`, `full4`, `full6` run without `ETASWTH` (their `phaseB.env` was read before the switch
+  existed). Their outer zones were not checked for this.
+- Untested: whether the same term is behind the cooling below T_CMB that killed `full1` in phase A with `ETOTAL=1`
+  (lines 33–37 and "The total-energy row on the Lagrangian mesh" above attribute it to the missing gravity work).
+
+**Envelope reservoir at the stop** (146 zones, steps 347050–412500, 105.93 → 117.18 M☉; continues the table above):
+inflow through 1.2e4 R☉ fell from 7.4e-3 to 6.1e-3 M☉/yr and the growth of the star from 5.5e-3 to 4.2e-3 M☉/yr; the
+envelope gains 1.9e-3 M☉/yr throughout (1.75 → 6.26 M☉), 26 % of the inflow at the start and 31 % at the end. 4.2 M☉
+of it is in the zone just outside the photosphere and 1.4 M☉ in the zone inside it; that shell warmed from 9900 to
+15 800 K.
 
 ## Cloud mass, the initial force balance and dark matter (`full5`, `full6`, 10 Nov)
 
