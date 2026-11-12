@@ -2024,3 +2024,24 @@ to `maxit` = 60 before the step is halved; that is nearly all the iterations.
   factors while all inputs stay within 1 % saved nothing (2 % of zone-steps qualify); not committed. Next candidates: fewer frequencies
   (accuracy test against the 1000-point means), or a fixed refresh interval.
 - Machine-load scatter of whole-run timings is ~30 % between nodes; compare variants only in parallel runs, repeated.
+
+## The 100-zone line (12 Nov, Tom's direction)
+
+Goal: a physics-complete run with exactly 100 zones at every stage, resolving radius and mass without staircasing, that
+reaches the end (300 M☉ or a halt) in about one day of wall time.
+
+**Why earlier runs labelled by a zone number had more zones.** The label was the phase-B mesh only. Stage A3 split zones
+ahead of the star (`REZWIN=1.3,4,0.03`, `REZNMAX=340`): `base64` went from 64 IC shells to 340 zones before the remap
+onto its 64-zone phase-B mesh; `c128` and `f128` reached 128 only through a one-time `ENVMERGE` (146 → 128, 380 → 128).
+
+**Settings** (run directories `z100`, `z100h`): `REZONE=0` in every stage (no splits or merges), stage A3 without
+`REZWIN` and with `MSTOP=0.05`, `NZ=100` IC shells; phase B `GRIDMAP=99` (100 zones that follow radius and mass by arc
+length, moving with the star) with `STOLCHEM=1`, and the full physics set `HDCHEM LINEINC ETASWTH=1e-3 ETASWTIE=0.5
+HECHEM=1 CHEMTMIN=30 CHEMSTAG=8 CHEMGIVEUP=15` on top of `phaseB.env` (`LINEFAST LINEXC2=16 EPTAB ENVCONS` included).
+`z100` starts from the initial conditions (2×10⁴ M☉ cloud); `z100h` runs phase B only, from the frozen hand-over checkpoint
+`fz_b64a3` (0.045 M☉), to measure the phase-B cost early. The hand-over gives exactly 100 zones (`ENVEUL: 100 zones`,
+`GRIDMAP: 100 zones follow the target mesh`, scale 0.636, 4 zones at the Δln r floor).
+
+**Kept as starting points** (everything else moved to `outdated/2026-11-12/`, nothing deleted): `c128` (running on to
+300 M☉), frozen `fz_c128` (183 M☉), `fz_f128` (49.2 M☉, stopped), `fz_b224` (4.22 and 5.86 M☉, stopped), `fz_b64a3`
+(0.045 M☉ hand-over), `fz_fe1`, `fz_mm3`, and the references `t_mm2`, `t_fe2`, `base64`.
