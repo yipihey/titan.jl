@@ -426,7 +426,7 @@ end
 #     quadratures per bin): another order of summation;
 #   - the work arrays come from a pool of one set per task (`FastWS`) instead of being allocated for every line.
 const FAST = Ref(get(ENV, "LINEFAST", "0") == "1")
-const FASTXC2 = 38.0
+const FASTXC2 = parse(Float64, get(ENV, "LINEXC2", "38"))   # LINEXC2: half-width² of the resonance window in thermal widths² (38: terms below e⁻³⁸ dropped; 16 changes the cooling by ≲ 3e-9)
 const EXPC = ntuple(i -> 1.0 / factorial(i), 13)             # (e^r − 1)/r = Σ r^(i−1)/i!
 "`(exp(x), expm1(x))` for x ≤ 0 without branches or tables (vectorisable): x = k ln 2 + r, |r| ≤ ½ ln 2, Taylor series to r¹³. Exactly 0 below −708."
 @inline function expk(x)
