@@ -361,6 +361,13 @@ off keeps the old behaviour: `\\` throws, and Li → 0 sets λ for every unknown
 const ROBUST = Ref(get(ENV, "CHEMROBUST", "0") != "0")
 "Print the first N non-finite Jacobians of `step` (ENV CHEMNANDBG; diagnostics)."
 const NANDBG = Ref(parse(Int, get(ENV, "CHEMNANDBG", "0")))
+"""
+`CHEMSTATS=1` (diagnostic, default off): count calls of `step`, sub-step attempts (`adv` calls: halvings included) and Jacobians
+(= Newton iterations); totals printed at exit.
+"""
+const CHEMSTATS = get(ENV, "CHEMSTATS", "0") == "1"
+const NSTEP = Threads.Atomic{Int}(0); const NADV = Threads.Atomic{Int}(0); const NJAC = Threads.Atomic{Int}(0)
+CHEMSTATS && atexit(() -> println("CHEMSTATS: ChemNet.step calls ", NSTEP[], ", sub-step attempts ", NADV[], ", Jacobians (Newton iterations) ", NJAC[]))
 "Print the Newton iterations of the first N failed steps (ENV CHEMTRACE; diagnostics)."
 const TRACEDBG = Ref(parse(Int, get(ENV, "CHEMTRACE", "0")))
 
@@ -373,6 +380,7 @@ Chemistry and temperature together over dt at fixed ρ and u (u − dt Λ/ρ wit
 """
 function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, Tfix = nothing, accepted = nothing, tol = 1e-10, maxit = 60)
     nH = ρ / μH(); nf = length(net.free)
+    CHEMSTATS && Threads.atomic_add!(NSTEP, 1)
     phT = Ref(NaN); phc = Ref{Any}(nothing)
     ucur = Ref(Float64(u))                           # u at the start of the current sub-step: what cooling took in the earlier halves stays gone
     function resid(z, x0, h)
@@ -392,6 +400,7 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
         for it in 1:maxit
             R = resid(z, x0, h)
             trace && println("  trace it ", it, " T ", exp(z[nf+1]), " x ", z[1:nf], " R ", R)
+            CHEMSTATS && Threads.atomic_add!(NJAC, 1)
             Jm = ForwardDiff.jacobian(zz -> resid(zz, x0, h), z)
             # a non-finite Jacobian is a failed attempt like a non-finite δ (halve h): `\` would throw an ArgumentError past the retry
             if ROBUST[] && !(all(isfinite, Jm) && all(isfinite, R))
@@ -428,6 +437,7 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
         (z, false)
     end
     function adv(x0, T0, h, depth)
+        CHEMSTATS && Threads.atomic_add!(NADV, 1)
         z, ok = attempt(x0, T0, h)
         ok && (accepted === nothing || accepted(z[1:nf], h); return (z[1:nf], exp(z[nf+1])))
         if depth >= CLIPDEPTH                        # (see the note at CLIPDEPTH)
