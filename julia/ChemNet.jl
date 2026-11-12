@@ -64,6 +64,28 @@ const χLi = 5.3917eV
 "Levels of atomic H kept in its partition function and photo-ionisation (n ≤ NH_LEVELS; the sum diverges without a
 cut-off — at the densities where excited levels matter they are pressure-dissolved and SCVH95 takes over)."
 const NH_LEVELS = 15
+const χHe1 = 24.587387eV; const χHe2 = 54.417763eV     # NIST ASD ionisation energies of He I and He II
+"""
+`HECHEM=1` (default off): helium is a chemical element of the network — He, He⁺, He²⁺ with He eliminated by nuclei
+conservation (`full`, `fullvec`) and the electrons following from the charge sum. With it off, He stays the inert neutral
+spectator of before (Z_int = 1, x_He = y_He), bit for bit. Energy zero: neutral He at 0, He⁺ at +χHe1, He²⁺ at +χHe1 + χHe2
+(only differences within an element matter; this keeps u of every existing state unchanged).
+"""
+const HECHEM = get(ENV, "HECHEM", "0") == "1"
+"""
+He I levels for the partition function and photo-ionisation: 1¹S (g 1), the four n = 2 terms at their NIST energies
+(2³S 19.8196, 2¹S 20.6158, 2³P 20.9641, 2¹P 21.2180 eV), and n = 3 … NH_LEVELS hydrogenic for the outer electron,
+E_n = χHe1 − Ry/n², g = 4n² (singlets and triplets, all l) [approximate for n ≥ 3: 3³S at 22.72 eV against 23.08 hydrogenic].
+Returns (E_exc [erg], g, n) per level.
+"""
+const HEI_LEVELS = let Ry = 13.605693 * 1.602176634e-12
+    lv = [(0.0, 1.0, 1.0), (19.8196eV, 3.0, 2.0), (20.6158eV, 1.0, 2.0), (20.9641eV, 9.0, 2.0), (21.2180eV, 3.0, 2.0)]
+    for n in 3:NH_LEVELS; push!(lv, (χHe1 - Ry / n^2, 4.0 * n^2, Float64(n))); end
+    lv
+end
+ZHe_el(T) = (z = zero(T); for (E, g, _) in HEI_LEVELS; z += g * exp(-E / (kB * T)); end; z)
+"He II (hydrogenic, Z = 2): g = 2n², E_n = χHe2 (1 − 1/n²), n ≤ NH_LEVELS."
+ZHep_el(T) = (z = zero(T); for n in 1:NH_LEVELS; z += 2n^2 * exp(-χHe2 * (1 - 1 / n^2) / (kB * T)); end; z)
 """
 Li I levels for the partition function and photo-ionisation: ground 2s (g = 2) plus quantum-defect hydrogenic levels
 n ≤ NH_LEVELS, l ≤ 3, E_nl = χ_Li − Ry/(n − δ_l)², δ_s = 0.40, δ_p = 0.05, δ_d = δ_f = 0, g = 2(2l + 1)
@@ -91,7 +113,9 @@ const SPECIES = Dict{Symbol,Species}(
     :H2  => Species(:H2, 2mH, 0, (2, 0, 0), -(2χH + D0_H2), T -> Zrot_H2(T) * Zvib(T, θvib_H2), T -> NaN),   # c_v via u_H2
     :H2p => Species(:H2p, 2mH - me, 1, (2, 0, 0), -(χH + D0_H2p), Zint_H2p, T -> 2.5),
     :e   => Species(:e, me, -1, (0, 0, 0), 0.0, T -> 2 + zero(T), T -> 1.5),
-    :He  => Species(:He, 4.0026 * 1.66053907e-24, 0, (0, 1, 0), 0.0, T -> 1 + zero(T), T -> 1.5),
+    :He  => Species(:He, 4.0026 * 1.66053907e-24, 0, (0, 1, 0), 0.0, HECHEM ? ZHe_el : (T -> 1 + zero(T)), T -> 1.5),
+    :Hep  => Species(:Hep, 4.0026 * 1.66053907e-24 - me, 1, (0, 1, 0), χHe1, ZHep_el, T -> 1.5),
+    :Hepp => Species(:Hepp, 4.0026 * 1.66053907e-24 - 2me, 2, (0, 1, 0), χHe1 + χHe2, T -> 1 + zero(T), T -> 1.5),
     :Li  => Species(:Li, 7.016 * 1.66053907e-24, 0, (0, 0, 1), -χLi, T -> 4 * ZLi_el(T), T -> 1.5),     # × nuclear spin 4
     :Lip => Species(:Lip, 7.016 * 1.66053907e-24 - me, 1, (0, 0, 1), 0.0, T -> 4 + zero(T), T -> 1.5),
 )
@@ -241,11 +265,15 @@ function photorates_t(p::Photo, T, env)
 end
 
 # ------------------------------------------------------------------ composition
-"Eliminated species: H (H nuclei), Li (Li nuclei), e (charge); He fixed at y_He."
+"Eliminated species: H (H nuclei), Li (Li nuclei), e (charge); He fixed at y_He, or from He nuclei when He⁺/He²⁺ are free (HECHEM)."
 function full(x, net)
     d = Dict{Symbol,eltype(x)}()
     for (i, s) in enumerate(net.free); d[s] = x[i]; end
-    get!(d, :He, yHe + zero(eltype(x)))
+    if any(s -> SPECIES[s].el[2] > 0, net.free)
+        d[:He] = yHe - sum((SPECIES[s].el[2] * d[s] for s in net.free if SPECIES[s].el[2] > 0); init = zero(eltype(x)))
+    else
+        get!(d, :He, yHe + zero(eltype(x)))
+    end
     hasLi = :Li in net.species
     H = 1 - sum((SPECIES[s].el[1] * d[s] for s in net.free if s != :H); init = zero(eltype(x)))
     d[:H] = H
@@ -264,6 +292,7 @@ struct Compiled
     R::Vector{Vector{Int}}; P::Vector{Vector{Int}}
     iH::Int; iLi::Int; ie::Int; iHe::Int
     elH::Vector{Float64}; elLi::Vector{Float64}; q::Vector{Float64}       # per free species
+    elHe::Vector{Float64}; hasHe::Bool                                     # He nuclei per free species; He eliminated (HECHEM)
     cv::Vector{Function}; E0::Vector{Float64}; isH2::Vector{Bool}
 end
 const COMPILED = IdDict{Any,Compiled}()
@@ -273,13 +302,14 @@ compiled(net) = get!(COMPILED, net) do
     Compiled(sp, idx, fr, [[idx[s] for s in r.R] for r in net.reactions], [[idx[s] for s in r.P] for r in net.reactions],
              get(idx, :H, 0), get(idx, :Li, 0), get(idx, :e, 0), idx[:He],
              [s == :H ? 0.0 : Float64(SPECIES[s].el[1]) for s in net.free], [Float64(SPECIES[s].el[3]) for s in net.free],
-             [Float64(SPECIES[s].q) for s in net.free], [SPECIES[s].cv for s in sp], [SPECIES[s].E0 for s in sp], [s == :H2 for s in sp])
+             [Float64(SPECIES[s].q) for s in net.free], [Float64(SPECIES[s].el[2]) for s in net.free], any(s -> SPECIES[s].el[2] > 0, net.free),
+             [SPECIES[s].cv for s in sp], [SPECIES[s].E0 for s in sp], [s == :H2 for s in sp])
 end
 "Full composition as a vector over compiled(net).sp (same elimination as `full`); entries of x behind the free species are ignored."
 function fullvec(x, c::Compiled)
     v = zeros(eltype(x), length(c.sp))
     for (i, j) in enumerate(c.free); v[j] = x[i]; end
-    v[c.iHe] = yHe
+    v[c.iHe] = c.hasHe ? yHe - sum(c.elHe[i] * x[i] for i in eachindex(c.free)) : yHe
     c.iH > 0 && (v[c.iH] = 1 - sum(c.elH[i] * x[i] for i in eachindex(c.free)))
     c.iLi > 0 && (v[c.iLi] = yLi - sum(c.elLi[i] * x[i] for i in eachindex(c.free)))
     c.ie > 0 && (v[c.ie] = sum(c.q[i] * x[i] for i in eachindex(c.free)))
@@ -370,7 +400,7 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
             # keep every abundance ≥ 0, incl. the eliminated H, Li, e (linear in x)
             for i in 1:nf; z[i] + λ * δ[i] < 0 && (λ = min(λ, 0.9 * z[i] / -δ[i])); end
             d0 = full(z[1:nf], net); d1 = full(z[1:nf] .+ δ[1:nf], net)
-            for s in (:H, :Li, :e)
+            for s in (:H, :Li, :e, :He)
                 haskey(d0, s) || continue
                 dv = d1[s] - d0[s]
                 if ROBUST[] && clip && s === :Li && d0[s] + dv < 0

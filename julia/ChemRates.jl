@@ -51,6 +51,20 @@ function σ_verner(ν, Eth, p)
 end
 const VERNER_HI = (4.298e-1, 5.475e4, 3.288e1, 2.963, 0.0, 0.0, 0.0)       # PH2(1,1): H I 1s
 const VERNER_LiI = (3.107, 6.245e1, 1.501e1, 4.895, 0.0, 0.0, 0.0)        # PH2(3,3): Li I 2s, threshold 5.392 eV
+const VERNER_HeI = (1.361e1, 9.492e2, 1.469, 3.188, 2.039, 4.434e-1, 2.136) # PH2(2,2): He I 1s², threshold 24.59 eV (as Spectrum.σHe1)
+const VERNER_HeII = (1.720, 1.369e4, 3.288e1, 2.963, 0.0, 0.0, 0.0)        # PH2(2,1): He II 1s, threshold 54.42 eV
+"""
+He I photo-ionisation from its levels (ChemNet.HEI_LEVELS, Boltzmann populations): 1¹S from Verner et al. 1996; excited
+levels hydrogenic for the outer electron, σ = 7.91e-18 n (ν_th/ν)³ cm² — approximate (to be replaced by the R-matrix
+cross sections of the model atom). The Milne inverse is the radiative recombination to these levels (≈ case A); with J = B
+the pair gives Saha exactly.
+"""
+levels_HeI() = [(Ex, g, CN.χHe1 - Ex, i == 1 ? (ν -> σ_verner(ν, 24.587, VERNER_HeI)) : (ν -> 7.91e-18 * n * ((CN.χHe1 - Ex) / (6.62607015e-27 * ν))^3))
+                for (i, (Ex, g, n)) in enumerate(CN.HEI_LEVELS)]
+"He II photo-ionisation from its hydrogenic levels n ≤ NH_LEVELS: 1s from Verner et al. 1996, n ≥ 2 Kramers σ = 7.91e-18 n/Z² (ν_n/ν)³."
+levels_HeII() = [(CN.χHe2 * (1 - 1 / n^2), 2.0n^2, CN.χHe2 / n^2,
+                  n == 1 ? (ν -> σ_verner(ν, 54.418, VERNER_HeII)) : (ν -> 7.91e-18 * n / 4 * (CN.χHe2 / n^2 / (6.62607015e-27 * ν))^3))
+                 for n in 1:CN.NH_LEVELS]
 """
 Li photo-ionisation from its levels (ChemNet.LI_LEVELS, Boltzmann populations): ground 2s from Verner et al. 1996; excited
 levels hydrogenic (Kramers, σ = 7.91e-18 n* (ν_th/ν)³ cm², n* the effective quantum number) — approximate. The Milne
@@ -70,7 +84,7 @@ voronov(T, dE, P, A, X, K) = (U = dE * 11604.518 / T; A * (1 + P * sqrt(U)) * U^
 """
 Modern set: detailed balance for every reversible channel. Returns (net, photos).
 """
-function modern(; li = false)
+function modern(; li = false, he = CN.HECHEM)
     k(f) = (T, env) -> f(T)
     lst = [
         # collisional ionisation of H by e (Janev, AAZN97 k1) ⇌ three-body recombination (detailed balance)
@@ -106,6 +120,21 @@ function modern(; li = false)
         ]
         append!(rx, CN.with_db(lst_li))
         push!(photos, CN.Photo("Li(levels) + γ → Li+ + e (Verner 1996 + hydrogenic)", :Li, [:Lip, :e], levels_Li(), CN.ZLi_el, true))
+    end
+    if he
+        # helium as a chemical element (HECHEM=1): collisional ionisation by electrons (Voronov 1997, ADNDT 65, 1; He I:
+        # ΔE 24.6, P 0, A 1.75e-8, X 0.180, K 0.35; He II: 54.4, 1, 2.05e-9, 0.265, 0.25) with three-body recombination by
+        # detailed balance; photo-ionisation from the levels with the Milne inverse (radiative recombination). Not yet:
+        # dielectronic recombination (its inverse is missing and it is density-suppressed at these n_e), charge exchange
+        # with H (Kingdon & Ferland 1996), He⁺ two-photon and line cooling — these come with the model atom (R2).
+        push!(free, :Hep, :Hepp); push!(species, :Hep, :Hepp)
+        lst_he = [
+            (R("He + e → He+ + 2e (Voronov 1997)", [:He, :e], [:Hep, :e, :e], k(T -> voronov(T, 24.6, 0.0, 1.75e-8, 0.180, 0.35))), true, 1e4),
+            (R("He+ + e → He++ + 2e (Voronov 1997)", [:Hep, :e], [:Hepp, :e, :e], k(T -> voronov(T, 54.4, 1.0, 2.05e-9, 0.265, 0.25))), true, 1e4),
+        ]
+        append!(rx, CN.with_db(lst_he))
+        push!(photos, CN.Photo("He(levels) + γ → He+ + e (Verner 1996 + hydrogenic)", :He, [:Hep, :e], levels_HeI(), CN.ZHe_el, true))
+        push!(photos, CN.Photo("He+(n ≤ $(CN.NH_LEVELS)) + γ → He++ + e (Verner 1996 + Kramers)", :Hep, [:Hepp, :e], levels_HeII(), CN.ZHep_el, true))
     end
     CN.Network(species, free, rx), photos
 end
