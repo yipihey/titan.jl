@@ -976,6 +976,19 @@ never move. A checkpoint of such a run restarts with the same setting (any lgrid
 const GRIDMAPP = haskey(ENV, "GRIDMAP") ? parse.(Float64, split(ENV["GRIDMAP"], ",")) : nothing
 gmp(i, d) = GRIDMAPP !== nothing && length(GRIDMAPP) >= i ? GRIDMAPP[i] : d
 gridmap_kw() = (; hr = gmp(2, 0.3), h1 = gmp(3, 0.3), h2 = gmp(4, 0.4), eps = gmp(5, 1e-5), fc = gmp(6, 1e-3), dmin = gmp(7, 0.02), g = gmp(8, 1.2))
+"""
+GMTAU=h3[,tlo,thi] (with GRIDMAP; default off): a fourth coordinate of the mesh rule, ln τ / h3 with τ the grey (Rosseland-mean extinction)
+optical depth from the outer edge, clamped to [tlo, thi] (defaults 0.1, 10), so that the photosphere gets zones of its own instead of
+falling inside one zone (GridMap.jl). Used every step (gridmap_step!); the starting mesh at the hand-over is built without it.
+"""
+const GMTAU = haskey(ENV, "GMTAU") ? parse.(Float64, split(ENV["GMTAU"], ",")) : nothing
+"Grey optical depth from the outer edge at the interfaces i0..b+1 (GMTAU)."
+function gm_tau(i0)
+    ch, dd, rr = TF.var(:chifn), TF.var(:dn), TF.var(:rn); t = zeros(b + 2 - i0); τ = 0.0
+    for k in b:-1:i0; τ += ch[k] * dd[k] * (rr[k+1] - rr[k]); t[k-i0+1] = τ; end
+    t
+end
+gmtau_kw(i0) = GMTAU === nothing ? (;) : (; tau = gm_tau(i0), h3 = GMTAU[1], tlo = length(GMTAU) >= 2 ? GMTAU[2] : 0.1, thi = length(GMTAU) >= 3 ? GMTAU[3] : 10.0)
 const GMPREV = Ref(Float64[])      # the target of the previous step (for its speed)
 const GMLAST = Ref((0.0, 0, 0.0, NaN, 0, 0.0, 0.0, Inf))    # (move planned for the next step / zone width, interface, M★ per steradian, scale λ, zones at the floor, largest distance from the target / zone width)
 xmi(k) = ENVEUL === nothing ? TX.XMINT[][k] : TF.getscalar(:xmtot) - TF.var(:xmen)[k]
@@ -1433,6 +1446,7 @@ if GRIDMAPP !== nothing
     (ENVEUL !== nothing && Int(TF.getscalar(:lgrid)) == 2) || error("GRIDMAP needs the fixed-mesh envelope (ENVEUL, lgrid = 2)")
     GRIDWINP === nothing || error("GRIDMAP and GRIDWIN exclude each other")
     TX.GRIDVEL[] = zeros(length(TF.var(:rn))); TC.GRIDMOVE[] = true; TF.setscalar!(:ctol, gmp(12, 0.5))
+    GMTAU === nothing || pr("GMTAU: optical depth in the mesh rule, h3 %.3g, tau %.3g .. %.3g\n", GMTAU[1], length(GMTAU) >= 2 ? GMTAU[2] : 0.1, length(GMTAU) >= 3 ? GMTAU[3] : 10.0)
     pr("GRIDMAP: %d zones follow the target mesh (hr %.3g, h1 %.3g, h2 %.3g, eps %.3g, fc %.3g, dmin %.3g, g %.3g), tau %.3g s, fmove %.3g, nrelax %.3g, ctol %.3g, ftar %.3g\n",
        nsh, gridmap_kw()..., gmp(9, 0.0), gmp(10, 0.4), gmp(11, 3.0), TF.getscalar(:ctol), gmp(13, 0.2))
 end
@@ -1445,7 +1459,7 @@ step just taken: with ftar < fmove the mesh stays within about ftar × nrelax zo
 function gridmap_step!()
     rn = TF.var(:rn); i0 = a + (ENVCENTRE ? 1 : 0); N = b + 1 - i0
     r = rn[i0:b+1]; m = envmenc()[i0-a+1:end]; u = TF.var(:un)[i0:b+1]
-    Mst = GridMap.anchor(m, u); P_ = GridMap.target(r, m, Mst; N, lam0 = GMLAST[][4], gridmap_kw()...)
+    Mst = GridMap.anchor(m, u); P_ = GridMap.target(r, m, Mst; N, lam0 = GMLAST[][4], gridmap_kw()..., gmtau_kw(i0)...)
     dt = TF.getscalar(:dtime); dtl = TC.TSTP_IN[][2]; qT = 0.0; cap = Inf; Pp = GMPREV[]
     if length(Pp) == N + 1 && dtl > 0
         for j in 2:N; qT = max(qT, abs(P_.r[j] - Pp[j]) / min(r[j] - r[j-1], r[j+1] - r[j])); end

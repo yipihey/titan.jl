@@ -6,6 +6,10 @@ the star M★. Every zone covers the same arc length in three coordinates,
     Q1 = ln(m + fc M★) / h1        enclosed mass: the interior of the star, dense shells, the envelope once it outweighs the star,
     Q2 = asinh((m − M★)/(ε M★)) / h2   mass counted from the surface, in both directions: the outer layers of the star and the infall,
 
+and, optionally (`tau` given, GMTAU), the grey optical depth from the outer edge,
+
+    Q3 = ln(clamp(τ, τlo, τhi)) / h3   the photosphere and the layers just below and above it (τ from τhi = 10 to τlo = 0.1),
+
 so radius decides the spacing where the enclosed mass does not change and mass decides it where it does, and the place where one
 hands over to the other follows M★(t). Two limits: no zone narrower than `dmin` in ln r, and neighbouring zones differ by at most
 the factor `g`. The three widths hr, h1, h2 are scaled by one common factor λ so that the zones add up to N.
@@ -39,7 +43,7 @@ m > 0, both increasing) and star mass `Ms`. ln m is taken linear in ln r between
 floor `dmin`.
 """
 function target(r, m, Ms; N::Int, hr = 0.3, h1 = 0.3, h2 = 0.4, eps = 1e-5, fc = 1e-3, dmin = 0.02, g = 1.2, cr = 1.0, rlo = r[1],
-                nf::Int = 12000, lam0 = NaN)
+                nf::Int = 12000, lam0 = NaN, tau = nothing, h3 = 0.4, tlo = 0.1, thi = 10.0)
     x0 = log.(r); lm0 = log.(m); ns = length(x0)
     xa = log(rlo); xb = x0[end]; dx = (xb - xa) / (nf - 1)
     lnm = Vector{Float64}(undef, nf); j = 1
@@ -60,14 +64,33 @@ function target(r, m, Ms; N::Int, hr = 0.3, h1 = 0.3, h2 = 0.4, eps = 1e-5, fc =
         lrc += log(cr)
     end
     rc = exp(lrc)
+    # optical depth on the fine grid (`tau` at the interfaces r, decreasing outwards): ln τ linear in r inside a zone (an atmosphere of
+    # constant scale height), clamped to [tlo, thi]; outside that range Q3 is constant and adds nothing
+    lt = nothing
+    if tau !== nothing
+        lt = Vector{Float64}(undef, nf); j = 1; ltl, lth = log(tlo), log(thi)
+        @inbounds for i in 1:nf
+            x = xa + (i - 1) * dx; rr = exp(x)
+            if x <= x0[1]
+                t = tau[1]
+            else
+                while j < ns - 1 && x > x0[j+1]; j += 1; end
+                f = (rr - r[j]) / (r[j+1] - r[j])
+                t = tau[j] > 0 && tau[j+1] > 0 ? tau[j] * (tau[j+1] / tau[j])^f : tau[j] + (tau[j+1] - tau[j]) * f
+            end
+            lt[i] = clamp(log(max(t, 1e-300)), ltl, lth)
+        end
+    end
+    Q3(i) = lt === nothing ? 0.0 : lt[i] / h3
     X(i) = (x = xa + (i - 1) * dx; cr > 0 ? log(exp(x) + rc) : x)
     Q1(i) = log(exp(lnm[i]) + fc * Ms); Q2(i) = asinh((exp(lnm[i]) - Ms) / (eps * Ms))
     # arc length per cell of the fine grid from the differences of the three coordinates: a jump of Q2 narrower than a cell is counted in full
-    n0 = Vector{Float64}(undef, nf - 1); Xp = X(1); Q1p = Q1(1); Q2p = Q2(1)
+    n0 = Vector{Float64}(undef, nf - 1); Xp = X(1); Q1p = Q1(1); Q2p = Q2(1); Q3p = Q3(1)
     @inbounds for i in 1:nf-1
-        Xn = X(i + 1); Q1n = Q1(i + 1); Q2n = Q2(i + 1)
-        n0[i] = sqrt(((Xn - Xp) / hr)^2 + ((Q1n - Q1p) / h1)^2 + ((Q2n - Q2p) / h2)^2) / dx
-        Xp = Xn; Q1p = Q1n; Q2p = Q2n
+        Xn = X(i + 1); Q1n = Q1(i + 1); Q2n = Q2(i + 1); Q3n = Q3(i + 1)
+        n0[i] = lt === nothing ? sqrt(((Xn - Xp) / hr)^2 + ((Q1n - Q1p) / h1)^2 + ((Q2n - Q2p) / h2)^2) / dx :
+                                 sqrt(((Xn - Xp) / hr)^2 + ((Q1n - Q1p) / h1)^2 + ((Q2n - Q2p) / h2)^2 + (Q3n - Q3p)^2) / dx
+        Xp = Xn; Q1p = Q1n; Q2p = Q2n; Q3p = Q3n
     end
     nmax = 1 / dmin; lg = log(g); q = similar(n0)
     function fill!(lam)                      # zones per unit ln r: floor, then the growth limit |d ln(zone width)/d(zone)| <= ln g
