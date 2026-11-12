@@ -945,7 +945,9 @@ end
 # ---------------------------------------------------------------------------------------- fixed logarithmic mesh for the infall
 """
 ENVEUL=rin,dlnr_in,dlnr_out,rb (radii in R☉): remap the restarted state onto a fixed mesh (lgrid = 2) from r_in, inside the star and
-so inside the shock, to the cloud edge: Δln r = dlnr_in below rb, growing 2 % per zone to dlnr_out above. Mass inside r_in becomes the
+so inside the shock, to the cloud edge: Δln r = dlnr_in below rb, growing 2 % per zone to dlnr_out above. Two optional further entries,
+ENVEUL=rin,dlnr_in,dlnr_out,rb,gout,gin, set the factor per zone by which Δln r grows above rb (default 1.02) and shrinks from the core
+spacing to dlnr_in above the core boundary of ENVCORE (default 0.95), for a mesh with fewer zones in the envelope and the core. Mass inside r_in becomes the
 central point mass; the inner wall passes mass onto it with TITAN's INNER_SINK, holding the mass below the shock at its initial value
 (relaxation time ENVSINKTAU s). Gas and radiation are advected by TITAN's implicit rows (GASROW, as the quasi-star runs). Species are not
 TITAN unknowns: `advect_species!` moves them with the converged mass fluxes.
@@ -1051,9 +1053,10 @@ function envbuild!()
     ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
     rcb = ENVCENTRE ? ENVCORE[3] * Rsun : 0.0
     lr = [log(ENVCENTRE ? ENVCORE[1] * Rsun : rin)]; dl = ENVCENTRE ? ENVCORE[2] : dl1
+    gout_ = length(ENVEUL) >= 5 ? ENVEUL[5] : 1.02; gin_ = length(ENVEUL) >= 6 ? ENVEUL[6] : 0.95
     while lr[end] < log(r0[end])
         r_ = exp(lr[end])
-        r_ > rb ? (dl = min(dl2, 1.02dl)) : r_ > rcb && (dl = max(dl1, 0.95dl))
+        r_ > rb ? (dl = min(dl2, gout_ * dl)) : r_ > rcb && (dl = max(dl1, gin_ * dl))
         push!(lr, lr[end] + dl)
     end
     (length(lr) + (ENVCENTRE ? 1 : 0)) % 2 == 0 && pop!(lr)                    # (an even zone count: an odd number of interfaces)
