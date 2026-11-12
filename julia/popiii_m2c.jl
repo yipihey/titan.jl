@@ -435,7 +435,7 @@ const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(EN
 # NLTE (line source functions): 1 = GP98/HM79 factor on S (old default), 0 = LTE, ep = statistical equilibrium with escape
 # probabilities (H2Levels), ali = statistical equilibrium coupled to the transfer (ALI, G6c), hyb = ALI every NALI steps
 # and EP × (ALI/EP per zone, from the last ALI) in between, the interval adaptive (see linecool)
-const ALIWMIN = parse(Float64, get(ENV, "ALIWMIN", "0")); const ALIGROW = parse(Float64, get(ENV, "ALIGROW", "0.01")); const ALISHRINK = parse(Float64, get(ENV, "ALISHRINK", "0.05")); const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALIFAC = Ref{Vector{Float64}}(Float64[]); const ALILAST = Ref(-10^9); const ALIINT = Ref(1); const NALICALL = Ref(0)
+const ALIWMIN = parse(Float64, get(ENV, "ALIWMIN", "0")); const ALIGROW = parse(Float64, get(ENV, "ALIGROW", "0.01")); const ALISHRINK = parse(Float64, get(ENV, "ALISHRINK", "0.05")); const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALICAP = (c_ = parse(Int, get(ENV, "ALICAP", "0")); c_ > 0 ? c_ : NALI); const ALIFAC = Ref{Vector{Float64}}(Float64[]); const ALILAST = Ref(-10^9); const ALIINT = Ref(1); const NALICALL = Ref(0)
 # LINECOLL=1 (S6): the gas term of the line transfer is the net collisional exchange with the H₂ levels at the converged ALI populations
 # (H2Levels.collcool; = their net radiative rate in statistical equilibrium), zone by zone, not −∇·F of the formal solution: the latter
 # is the difference of the line flux across a zone, and where a large flux crosses dilute zones its discretisation error (pumped,
@@ -499,6 +499,7 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
         tq = time(); Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep, inc)
         Λg = inc === nothing ? nothing : copy(H2Lines.LAST[].Λem)       # the EP emission alone (Λe is net of the absorbed background)
         TIMING && k >= 0 && pr("        EP call %.1f s (nep %d)\n", time() - tq, H2Lines.LAST[].nep)
+        # (ALICAP=n, Nov 2026: the largest interval, default NALI; a separate variable because NALI is part of the restart check)
         # ALI refresh interval adaptive (≤ NALI): halved when the ALI/EP factor moved by > 5 % since the last refresh,
         # doubled when < 1 % — a factor frozen while the lines turn thick jumps at the refresh and kicks the core
         # (fixed mesh: the photosphere only moves the inner end of the reduced grid; the factors stay with their zones, aligned from the outside)
@@ -530,7 +531,7 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
                 # negligible cooling otherwise keep the interval at 1 and the ALI (≈ 50× an EP step) runs every step
                 wv = [abs(Λe[j]) * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nz_]; wmin = ALIWMIN * sum(wv)
                 δ = maximum((abs(log(fnew[j] / ALIFAC[][j])) for j in 1:nz_ if wv[j] >= wmin); init = 0.0)
-                ALIINT[] = δ > ALISHRINK ? max(1, ALIINT[] ÷ 2) : δ < ALIGROW ? min(NALI, 2ALIINT[]) : ALIINT[]
+                ALIINT[] = δ > ALISHRINK ? max(1, ALIINT[] ÷ 2) : δ < ALIGROW ? min(ALICAP, 2ALIINT[]) : ALIINT[]
                 if TIMING
                     jd = argmax([wv[j] >= wmin ? abs(log(fnew[j] / ALIFAC[][j])) : 0.0 for j in 1:nz_])
                     pr("        ALI interval %d: δ %.3f at reduced zone %d of %d (r %.1f R_sun, T %.0f, n_H2 %.2e, share of |Λ|V %.2e, f %.3g -> %.3g), %d zones with δ > ALISHRINK\n", ALIINT[], δ, jd, nz_, rr[jd] / 6.957e10, tt[jd], nh2[jd], wv[jd] / sum(wv), ALIFAC[][jd], fnew[jd],
