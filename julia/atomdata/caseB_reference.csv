@@ -1,0 +1,59 @@
+# Case-B reference values for the model-atom unit tests (R0, docs/POPIII_RADIATION_PLAN.md).
+# Read on 12 Nov 2026 from PyNeb's packaging of the published tables
+# (https://raw.githubusercontent.com/Morisset/PyNeb_devel/master/pyneb/atomic_data[_fits]/), files named in `file`:
+#   SH95  = Storey & Hummer 1995, MNRAS 272, 41 (1995MNRAS.272...41S)        -> h_i_rec_SH95, he_ii_rec_SH95, *_trc_SH95-case*.dat
+#   Pal13 = Porter et al. 2012, MNRAS 425, L28 (2012MNRAS.425L..28P) with the 2013 erratum (2013MNRAS.433L..89P) -> he_i_rec_Pal12-Pal13
+#   DZS22 = Del Zanna & Storey 2022, MNRAS 513, 1198 (2022MNRAS.513.1198D)  -> he_i_rec_DZS22
+# quantity: emis = 4 pi j / (n_e n_ion) [erg cm^3 s^-1]; alpha = recombination coefficient [cm^3 s^-1]. 4 significant figures meaningful.
+ion,line,quantity,T_K,ne_cm3,value,source,file
+HI,Hbeta,emis,1e4,1e2,1.2350e-25,SH95,h_i_rec_SH95.fits 4_2
+HI,Halpha,emis,1e4,1e2,3.5360e-25,SH95,h_i_rec_SH95.fits 3_2
+HI,Lyalpha,emis,1e4,1e2,2.9080e-24,SH95,h_i_rec_SH95.fits 2_1
+HI,Hbeta,emis,1e4,1e4,1.2400e-25,SH95,h_i_rec_SH95.fits 4_2
+HI,Halpha,emis,1e4,1e4,3.5300e-25,SH95,h_i_rec_SH95.fits 3_2
+HI,Lyalpha,emis,1e4,1e4,3.9230e-24,SH95,h_i_rec_SH95.fits 2_1
+HI,Hbeta,emis,2e4,1e2,6.5790e-26,SH95,h_i_rec_SH95.fits 4_2
+HI,Halpha,emis,2e4,1e2,1.8070e-25,SH95,h_i_rec_SH95.fits 3_2
+HI,Lyalpha,emis,2e4,1e2,1.5300e-24,SH95,h_i_rec_SH95.fits 2_1
+HI,Hbeta,emis,1e4,1e8,1.3170e-25,SH95,h_i_rec_SH95.fits 4_2
+HI,Hbeta,emis,1e4,1e9,1.4090e-25,SH95,h_i_rec_SH95.fits 4_2
+HI,Hbeta,emis,1e4,1e10,1.5320e-25,SH95,h_i_rec_SH95.fits 4_2
+HI,Hbeta,emis,1e4,1e11,1.8390e-25,SH95,h_i_rec_SH95.fits 4_2
+HI,Hbeta,emis,1e4,1e12,2.7480e-25,SH95,h_i_rec_SH95.fits 4_2
+HI,Hbeta,emis,1e4,1e13,4.6750e-25,SH95,h_i_rec_SH95.fits 4_2
+HI,Hbeta,emis,1e4,1e14,5.7420e-25,SH95,h_i_rec_SH95.fits 4_2 (not cross-checked against VI/64)
+HI,total,alphaB,1e4,1e2,2.585e-13,SH95,h_i_trc_SH95-caseB.dat
+HI,total,alphaB,1e4,1e4,2.594e-13,SH95,h_i_trc_SH95-caseB.dat
+HI,total,alphaB,2e4,1e2,1.428e-13,SH95,h_i_trc_SH95-caseB.dat
+HI,total,alphaA,1e4,1e2,4.169e-13,SH95,h_i_trc_SH95-caseA.dat
+HI,total,alphaA,1e4,1e4,4.183e-13,SH95,h_i_trc_SH95-caseA.dat
+HI,total,alphaA,2e4,1e2,2.507e-13,SH95,h_i_trc_SH95-caseA.dat
+HeII,4686,emis,1e4,1e2,1.5160e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e2,9.8150e-24,SH95,he_ii_rec_SH95.fits 3_2
+HeII,4686,emis,2e4,1e2,7.2920e-25,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,2e4,1e2,5.3600e-24,SH95,he_ii_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e4,1.4950e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e4,9.8040e-24,SH95,he_ii_rec_SH95.fits 3_2
+HeII,4686,emis,2e4,1e4,7.2240e-25,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,2e4,1e4,5.3530e-24,SH95,he_ii_rec_SH95.fits 3_2
+HeII,total,alphaB,1e4,1e2,1.533e-12,SH95,he_ii_trc_SH95-caseB.dat
+HeI,4471,emis,1e4,1e2,6.1156e-26,Pal13,he_i_rec_Pal12-Pal13.fits row 26
+HeI,5876,emis,1e4,1e2,1.6872e-25,Pal13,he_i_rec_Pal12-Pal13.fits row 26
+HeI,6678,emis,1e4,1e2,4.7956e-26,Pal13,he_i_rec_Pal12-Pal13.fits row 26
+HeI,10830,emis,1e4,1e2,3.3424e-25,Pal13,he_i_rec_Pal12-Pal13.fits row 26
+HeI,4471,emis,1e4,1e4,6.4598e-26,Pal13,he_i_rec_Pal12-Pal13.fits row 68
+HeI,5876,emis,1e4,1e4,1.9423e-25,Pal13,he_i_rec_Pal12-Pal13.fits row 68
+HeI,6678,emis,1e4,1e4,5.4547e-26,Pal13,he_i_rec_Pal12-Pal13.fits row 68
+HeI,10830,emis,1e4,1e4,1.8540e-24,Pal13,he_i_rec_Pal12-Pal13.fits row 68
+HeI,4471,emis,2e4,1e2,3.0544e-26,Pal13,he_i_rec_Pal12-Pal13.fits row 36
+HeI,5876,emis,2e4,1e2,8.1332e-26,Pal13,he_i_rec_Pal12-Pal13.fits row 36
+HeI,6678,emis,2e4,1e2,2.2999e-26,Pal13,he_i_rec_Pal12-Pal13.fits row 36
+HeI,10830,emis,2e4,1e2,2.3819e-25,Pal13,he_i_rec_Pal12-Pal13.fits row 36
+HeI,4471,emis,1e4,1e2,6.1130e-26,DZS22,he_i_rec_DZS22.hdf5 4472.76 (vac)
+HeI,5876,emis,1e4,1e2,1.6860e-25,DZS22,he_i_rec_DZS22.hdf5 5877.29 (vac)
+HeI,6678,emis,1e4,1e2,4.7830e-26,DZS22,he_i_rec_DZS22.hdf5 6680.00 (vac)
+HeI,10830,emis,1e4,1e2,3.3450e-25,DZS22,he_i_rec_DZS22.hdf5 10833.14 (vac)
+HeI,4471,emis,1e4,1e4,6.4230e-26,DZS22,he_i_rec_DZS22.hdf5 4472.76 (vac)
+HeI,5876,emis,1e4,1e4,1.9030e-25,DZS22,he_i_rec_DZS22.hdf5 5877.29 (vac)
+HeI,6678,emis,1e4,1e4,5.0270e-26,DZS22,he_i_rec_DZS22.hdf5 6680.00 (vac)
+HeI,10830,emis,1e4,1e4,1.8800e-24,DZS22,he_i_rec_DZS22.hdf5 10833.14 (vac)
