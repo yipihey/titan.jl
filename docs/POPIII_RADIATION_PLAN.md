@@ -89,3 +89,12 @@ lines, CUDA and Metal).
 
 The running chains (`c128`, `f128`, `b224`) continue unchanged as the scaffold; each new piece is tested by restarts from
 their frozen checkpoints.
+
+## Progress
+
+| Date | Step | State |
+|---|---|---|
+| 12 Nov | R0 | inventory done (above); atomic-data sources compiled with bibcodes verified refereed on ADS (list in the session scratchpad `atomdata/bibcodes_verified.txt`; test values still to be read from the tables themselves) |
+| 12 Nov | R1a | `HECHEM=1`: He, He⁺, He²⁺ in `ChemNet`/`ChemRates` (8a7fbd8): Voronov 1997 collisional ionisation with detailed-balance three-body recombination, Verner 1996 ground-state + hydrogenic excited-level photo-ionisation with Milne inverses. Off: bit-identical. On: reaches its own Saha limit in J = B; energy conserved to 4e-16. Missing: dielectronic recombination, He⁺ + H charge exchange, He line cooling (model atom) |
+| 12 Nov | R1b | helium in the equilibrium EOS table and the matter module (34cba0a); restart padding `he_pad!`. Off: bit-identical over 300 steps (`t_heb0`/`t_heb1`). On, in the `c128` envelope (4e4 K, 1.2e-11 g cm⁻³): u +69 %, p +8 %. Partition-function cut-off differs from `Z0` (n ≤ 15 vs. occupation probabilities): to unify with the model atom |
+| 12 Nov | R1 test | restart of `c128` at 183.5 M☉ with `HECHEM=1` (`t_hec1`) against the same restart without (`t_hec0`), running |
