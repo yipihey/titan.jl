@@ -46,6 +46,8 @@ function solve_atom(a, L, T, ne, ntot, J, v, r, dvdr, Qmin; nit = 20)
     end
     (sol.n, sol.nplus, β)
 end
+"Net radiative line cooling of one atom per volume [erg cm⁻³ s⁻¹]: Σ_lines hν β (n_u A − (n_l B_lu − n_u B_ul) J_c)."
+netcool(a, L, n, β, J) = sum(MA.h * x[3] * β[k] * (n[x[2]] * x[4] - (n[x[1]] * x[6] - n[x[2]] * x[5]) * J(x[3])) for (k, x) in enumerate(L); init = 0.0)
 emis(a, L, n, β, l, u) = (k = findfirst(x -> x[1] == l && x[2] == u, L); k === nothing ? 0.0 : n[u] * L[k][4] * β[k] * MA.h * L[k][3])
 
 function main(args)
@@ -94,7 +96,8 @@ function main(args)
     io === nothing || println(io, "k,r_Rsun,T,rho,ne,xHp,xHe0,xHe1,xHe2,b2_H,b1_HeI_2t3S,tau_grey")
     @printf("snapshot step %d, t %.6e yr, M* %.3f Msun, R* %.2f Rsun, photosphere zone %d at %.1f Rsun, T_eff %.0f K\n",
             s.step, s.t / 3.156e7, Mst, Rst, kph, rph / RSUN, s.Teff)
-    @printf("%4s %9s %9s %9s %9s %8s %8s %8s %8s %9s %8s\n", "zone", "r/Rsun", "T", "n_H", "n_e", "x(H+)", "He0", "He+", "He++", "b2(H)", "tau")
+    @printf("%4s %9s %9s %9s %9s %8s %8s %8s %8s %9s %8s %10s %10s %10s %10s %10s %3s\n", "zone", "r/Rsun", "T", "n_H", "n_e", "x(H+)", "He0", "He+", "He++", "b2(H)", "tau",
+            "Hlines", "Hbf+2g", "He(all)", "grey(run)", "Lext(run)", "eq")
     tw = time()
     for k in 1:nz
         rc = 0.5 * (s.r[k] + s.r[k+1]); T = s.T[k]
@@ -125,8 +128,15 @@ function main(args)
             Lloc[i] += e * dV; Lobs[i] += e * dV * exp(-τ[k]); Lnu[i] += e * dV * esc(k, i)
         end
         b2 = res.nh[2] / (res.nhp * ne * MA.Φ(H, 2, T))
-        @printf("%4d %9.4g %9.4g %9.3e %9.3e %8.2e %8.2e %8.2e %8.2e %9.3e %8.2e\n", k, rc / RSUN, T, nHk, ne, res.nhp / nHk,
-                res.He0 / nHek, res.He1_ / nHek, res.He2_ / nHek, b2, τ[k])
+        βf(Lst, βv) = (l, u) -> (kk = findfirst(x -> x[1] == l && x[2] == u, Lst); kk === nothing ? 1.0 : βv[kk])
+        rH = MA.radiative_cooling(H, res.nh, res.nhp, ne, T; J, β = βf(LH, res.βh))
+        r1 = MA.radiative_cooling(He1, res.n1, res.He1_, ne, T; J, β = βf(L1, res.β1))
+        r2 = MA.radiative_cooling(He2, res.n2, res.He2_, ne, T; J, β = βf(L2, res.β2))
+        # the run's grey gas–radiation exchange per volume, ρ κ_P (4σT⁴ − c E_r) (κ_P for absorption too: approximate)
+        grey = s.ρ[k] * s.kp[k] * (4 * 5.670374e-5 * T^4 - MA.c * s.er[k])
+        @printf("%4d %9.4g %9.4g %9.3e %9.3e %8.2e %8.2e %8.2e %8.2e %9.3e %8.2e %10.3e %10.3e %10.3e %10.3e %10.3e %3s\n", k, rc / RSUN, T, nHk, ne, res.nhp / nHk,
+                res.He0 / nHek, res.He1_ / nHek, res.He2_ / nHek, b2, τ[k], rH.lines, rH.bf + rH.twophoton, r1.lines + r1.bf + r2.lines + r2.bf,
+                grey, s.Λext[k], s.eq[k] ? "T" : "N")
         io === nothing || @printf(io, "%d,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g\n", k, rc / RSUN, T, s.ρ[k], ne, res.nhp / nHk,
                                   res.He0 / nHek, res.He1_ / nHek, res.He2_ / nHek, b2, res.n1[2] / max(sum(res.n1), 1e-300), τ[k])
     end

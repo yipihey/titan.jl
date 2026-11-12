@@ -88,3 +88,13 @@ function test_heI()
     end
 end
 test_heI()
+function test_energy()
+    println("6. Radiative energy balance: J = B_ν(T) and LTE populations -> lines + bf ≈ 0 (relative to the gross bf emission)")
+    for (a, T, ne) in ((MA.hydrogenic(1; nmax = 20), 8000.0, 1e12), (MA.hydrogenic(2; nmax = 20), 4e4, 1e13), (MA.heI(; nmax = 15), 2e4, 1e12))
+        L = MA.lte(a, T, ne, 1.0); J = ν -> MA.Bν(ν, T)
+        rc = MA.radiative_cooling(a, L.n, L.nplus, ne, T; J, β = (l, u) -> 0.4)
+        gross = sum(ne * L.nplus * MA.bf_energy(a, i, T; J)[2] for i in 1:MA.nlev(a))
+        @printf("   %-5s T %.0e ne %.0e: lines %.3e  bf %.3e  (gross bf %.3e)  2γ %.3e  -> |lines+bf|/gross %.2e\n", a.name, T, ne, rc.lines, rc.bf, gross, rc.twophoton, abs(rc.lines + rc.bf) / gross)
+    end
+end
+test_energy()

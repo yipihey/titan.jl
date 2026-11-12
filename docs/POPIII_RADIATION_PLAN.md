@@ -142,3 +142,12 @@ Pengelly & Seaton 1964 (MNRAS 127, 165; read from the ADS scan) l-mixing rate fo
 q_nl(nl → nl±1) = 9.93e-6 (μ/m)^{1/2} D_nl T^{-1/2} {11.54 + log10(T m/(D_nl μ)) + 2 log10 R̄_c} cm³ s⁻¹, D_nl = (Z/z)² 6n²(n² − l² − l − 1)
 (projectile charge Z, ion charge z), 2 log10 R̄_c = min(10.95 + log10(m T τ_nl²/μ), 1.68 + log10(T/N_e)); split between l − 1 and
 l + 1 in proportion to l(n² − l²) and (l + 1)(n² − (l + 1)²). Needs l-resolved photo-ionisation (Burgess 1965 recursion) as well.
+
+**First quantitative motivation for R3 (12 Nov, `b224` step 84 560, 4.22 M☉, `snapnlte.jl` with `ModelAtom.radiative_cooling`).**
+In the network zones of the infall (76–1200 R☉, 2000–5600 K) the full H atom (n ≤ 20, run's J: diluted T_eff blackbody) gives
+net *heating* of 1e-5 (80–200 R☉) to 1e-8 erg cm⁻³ s⁻¹ (1200 R☉): photo-ionisation of n ≥ 2 by the star's light exceeds
+line + recombination emission (lines alone 1e-5–1e-8 cooling, bound–free 2–6e-5 heating). That is 10–50× the run's grey gas–
+radiation exchange there and 1e3–1e4× its H₂ line cooling. The run's three-level atom has only the n = 2 Balmer-continuum part:
+its `chemq` in `t_dz1` (mesh C, 2.6 M☉) is 2e-6 → 2e-7 erg cm⁻³ s⁻¹ over 85–130 R☉, 5–50× below the full atom at similar
+radii (different snapshots: an indication, not yet a like-for-like comparison). Energy balance of the atom verified: J = B and
+LTE give lines + bf = 0 to 1e-14 of the gross bound–free emission (`modelatom_test.jl` §6).

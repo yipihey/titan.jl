@@ -388,6 +388,44 @@ function bf_rates(a::Atom, i, T; J = nothing)
 end
 
 """
+Energy-weighted bound–free rates of level i: ΓE_i = 4π∫σJ dν (energy absorbed per atom in level i, erg s⁻¹) and
+αE_i = (n_i*/n_e n_+) 4π∫σ(2hν³/c² + J)e^{−hν/kT}dν (energy emitted per n_e n_+, erg cm³ s⁻¹), on the grid of `bf_rates`.
+"""
+function bf_energy(a::Atom, i, T; J = nothing)
+    ν, w = bf_grid(a, i, T); kT = kB * T; χ = a.levels[i].χ
+    pre = a.levels[i].g / (2a.gplus) / Z0.λe3(T)
+    αE = 0.0; ΓE = 0.0
+    @inbounds for k in eachindex(ν)
+        s = a.σ[i](ν[k]); s == 0 && continue
+        Jv = J === nothing ? 0.0 : J(ν[k])
+        αE += w[k] * 4π * s * (2h * ν[k]^3 / c^2 + Jv) * exp(-(h * ν[k] - χ) / kT)
+        ΓE += w[k] * 4π * s * Jv
+    end
+    (ΓE, pre * αE)
+end
+"""
+    radiative_cooling(a, n, nplus, ne, T; J, β) -> (lines, bf, twophoton)
+
+Net radiated power per volume [erg cm⁻³ s⁻¹] of the atom in the state (n, nplus): lines Σ hν β (n_u A − (n_l B_lu − n_u B_ul) J_c),
+bound–free Σ_i (n_e n_+ αE_i − n_i ΓE_i), two-photon emission n_u A₂ hν_ul. In statistical equilibrium the internal energy of the
+atom is constant, so the sum is the net thermal energy the gas loses to radiation through this atom (free–free not included).
+With J = B_ν(T) and LTE populations the sum vanishes.
+"""
+function radiative_cooling(a::Atom, n, nplus, ne, T; J = nothing, β = (l, u) -> 1.0)
+    cl = 0.0
+    for (l, u, ν, A, Bul, Blu, f) in lines(a)
+        Jc = J === nothing ? 0.0 : J(ν); b = β(l, u)
+        cl += h * ν * b * (n[u] * A - (n[l] * Blu - n[u] * Bul) * Jc)
+    end
+    cb = 0.0
+    for i in 1:nlev(a)
+        ΓE, αE = bf_energy(a, i, T; J); cb += ne * nplus * αE - n[i] * ΓE
+    end
+    c2 = sum((n[u] * A2 * (a.levels[u].E - a.levels[l].E) for (u, l, A2) in a.A2); init = 0.0)
+    (lines = cl, bf = cb, twophoton = c2)
+end
+
+"""
     rates(a, T, ne; J, Jline, β) -> P
 
 Rate matrix P[i, j] (s⁻¹, i → j; index nlev+1 = continuum) at temperature T and electron density ne.
