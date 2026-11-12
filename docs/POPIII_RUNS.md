@@ -2045,3 +2045,22 @@ HECHEM=1 CHEMTMIN=30 CHEMSTAG=8 CHEMGIVEUP=15` on top of `phaseB.env` (`LINEFAST
 **Kept as starting points** (everything else moved to `outdated/2026-11-12/`, nothing deleted): `c128` (running on to
 300 M☉), frozen `fz_c128` (183 M☉), `fz_f128` (49.2 M☉, stopped), `fz_b224` (4.22 and 5.86 M☉, stopped), `fz_b64a3`
 (0.045 M☉ hand-over), `fz_fe1`, `fz_mm3`, and the references `t_mm2`, `t_fe2`, `base64`.
+
+**Table switch without the 4500 K floor (12 Nov, Tom's decision: `PSWTMIN=0` in `z100` and `z100h`).** The failed solves of
+the flashing phase (0.05–0.6 M☉) on the 100-zone moving mesh sat in one zone outside the surface where H₂ dissociates at
+n ≈ 10¹⁷ cm⁻³, 2000–3000 K: above the pressure switch, but kept on the network by `PSWTMIN=4500`, so the dissociation heat
+entered after the hydro step (one chemistry step: T 2036 → 2981 K) and the next solve failed in T, E and F of that zone
+(Δt down to 30 s). On the table the dissociation is in the EOS and the solve takes it implicitly. Test from `fz_b64a3`
+(`t_ps0` against `z100h`): 0.62 against 0.09 M☉ after 400 s of wall time, 157 against 390 failed solves; past 1.5 M☉
+without the stop that `PSWTMIN` was introduced for (4 Nov), 2.82 M☉ after 48 min at Δt 6 × 10⁶ s. `PSWTMIN=1500` gave a
+bit-identical run. The remaining failures sit in the zone holding the photosphere (τ ≈ 10³ → 0.8 across one zone of
+Δln r 0.025; mostly the flux equation, 81 of 157 stalled Newton iterations rather than blow-ups). Tom: in this phase the
+inflow is supersonic and the radiation trapped, so errors at the shock/photosphere do not travel upstream; resolving the
+photosphere (`GMTAU`, below) is a side line, not a requirement.
+
+**`GMTAU=h3[,tlo,thi]`** (15dcf8f, default off): ln(clamp(τ, 0.1, 10))/h3 as a fourth coordinate of the `GRIDMAP` rule.
+It needs a smaller Δln r floor than 0.02 to act (the cliff lies inside one floor zone). With the floor at 0.005 two tests
+crashed (`t_gt0` without the τ term at step 26 855, `t_gt1` with it at 26 024, Δt → 5 × 10⁻¹⁰ s): the mesh moves 1/3 of its
+distance to the target per step at any Δt (relaxation-time floor 0), so a failed solve does not slow the mesh; and the
+target, following the flickering surface in zones of 0.005, moves 0.1 zone widths per step, which caps Δt near 10³ s.
+`t_gt2` adds a relaxation floor of 10⁴ s.
