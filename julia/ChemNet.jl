@@ -366,6 +366,19 @@ const NANDBG = Ref(parse(Int, get(ENV, "CHEMNANDBG", "0")))
 (= Newton iterations); totals printed at exit.
 """
 const CHEMSTATS = get(ENV, "CHEMSTATS", "0") == "1"
+"""
+`CHEMSTAG=n` (default 0 = off): accept a Newton attempt that has stagnated at round-off (full step λ = 1, every abundance changed by
+< 1e-6 relative and ln T by < 1e-8, the acceptance test applied after `maxit` iterations) already from iteration n on. Measured
+12 Nov: in b224's network zones the step took 24 Newton iterations on average against 3.2 in c128, many running to maxit = 60 with
+a trace species flipping in its last digits. Results differ from the default at the round-off level of those species.
+"""
+const CHEMSTAG = parse(Int, get(ENV, "CHEMSTAG", "0"))
+"""
+`CHEMGIVEUP=n` (default 0 = off): an attempt that at iteration n is still far from converged (damped step, or a relative change
+above 1e-3) is abandoned as failed, so the step is halved at once instead of after `maxit` = 60 iterations. Measured 12 Nov in b224:
+~17 000 of ~56 000 attempts failed, each after 60 iterations, ≈ all of the ~0.9 million Jacobians.
+"""
+const CHEMGIVEUP = parse(Int, get(ENV, "CHEMGIVEUP", "0"))
 const NSTEP = Threads.Atomic{Int}(0); const NADV = Threads.Atomic{Int}(0); const NJAC = Threads.Atomic{Int}(0)
 CHEMSTATS && atexit(() -> println("CHEMSTATS: ChemNet.step calls ", NSTEP[], ", sub-step attempts ", NADV[], ", Jacobians (Newton iterations) ", NJAC[]))
 "Print the Newton iterations of the first N failed steps (ENV CHEMTRACE; diagnostics)."
@@ -428,6 +441,8 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
             z .+= λ .* δ
             rel = maximum(abs.(δ[1:nf]) ./ max.(abs.(z[1:nf]), 1e-20)); dT = abs(δ[nf+1])                                # 1e-20: abundance floor
             λ == 1.0 && rel < tol && dT < tol && return (z, true)
+            CHEMSTAG > 0 && it >= CHEMSTAG && λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (z, true)
+            CHEMGIVEUP > 0 && it == CHEMGIVEUP && !(λ == 1.0 && rel < 1e-3) && return (z, false)
         end
         # Stagnated at round-off: a trace species in fast equilibrium (H⁺ ≈ 4e-12 at n = 6.5e16, T = 2850 K) flips in its 10th digit
         # from one iteration to the next while T and all other abundances are converged to the last digit; the test above (1e-10 per
