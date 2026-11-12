@@ -958,6 +958,25 @@ const ENVCENTRE = ENVEUL !== nothing && ENVEUL[1] == 0     # r_in = 0: the mesh 
 const ENVCORE = parse.(Float64, split(get(ENV, "ENVCORE", "0.1,0.08,10"), ","))
 const ENVCONS = get(ENV, "ENVCONS", "0") == "1"       # the ENVEUL remap takes the zone densities from the source's enclosed mass (mass-conserving); default: log-interpolated at the zone centres
 const ENVSINKTAU = parse(Float64, get(ENV, "ENVSINKTAU", "1e6"))
+include(joinpath(@__DIR__, "GridMap.jl"))
+"""
+GRIDMAP=N[,hr,h1,h2,eps,fc,dmin,g,tau,fmove,nrelax,ctol,ftar] (with ENVEUL; default off): one mesh of N zones for the whole range of scales that
+follows the star. Every zone covers the same arc length in ln(r + r_c)/hr, ln(m + fc M★)/h1 and asinh((m − M★)/(eps M★))/h2 (GridMap.jl:
+radius where the enclosed mass does not change, mass where it does, counted from the centre and from the surface of the star; M★ from
+the velocity profile), no zone narrower than dmin in ln r, neighbours within the factor g. At the hand-over from the Lagrangian mesh
+this is the starting mesh (ENVCORE's first interface and the outer edge are kept); afterwards the target is computed again after every
+step and each interface moves towards it at the velocity (r_target − r)/max(tau, nrelax Δt), at most fmove of its smaller neighbouring
+zone per step (TitanResidFast.GRIDVEL: prescribed velocities, TITAN's moving-grid residual; abundances move with the mass that crosses
+each interface, advect_species!). Δt is limited so that the target moves at most ftar zone widths per step. Defaults hr 0.3, h1 0.3,
+h2 0.4, eps 1e-5, fc 1e-3, dmin 0.02, g 1.2, tau 0, fmove 0.4, nrelax 3, ctol 0.5 (maxdel: relative zone-width change per Newton
+iteration), ftar 0.2. The first interface above the centre and the outer edge
+never move. A checkpoint of such a run restarts with the same setting (any lgrid = 2 mesh relaxes to the target).
+"""
+const GRIDMAPP = haskey(ENV, "GRIDMAP") ? parse.(Float64, split(ENV["GRIDMAP"], ",")) : nothing
+gmp(i, d) = GRIDMAPP !== nothing && length(GRIDMAPP) >= i ? GRIDMAPP[i] : d
+gridmap_kw() = (; hr = gmp(2, 0.3), h1 = gmp(3, 0.3), h2 = gmp(4, 0.4), eps = gmp(5, 1e-5), fc = gmp(6, 1e-3), dmin = gmp(7, 0.02), g = gmp(8, 1.2))
+const GMPREV = Ref(Float64[])      # the target of the previous step (for its speed)
+const GMLAST = Ref((0.0, 0, 0.0, NaN, 0, 0.0, 0.0, Inf))    # (move planned for the next step / zone width, interface, M★ per steradian, scale λ, zones at the floor, largest distance from the target / zone width)
 xmi(k) = ENVEUL === nothing ? TX.XMINT[][k] : TF.getscalar(:xmtot) - TF.var(:xmen)[k]
 const XMEPREV = Ref(Float64[]); const ENVMS0 = Ref(0.0); const ENVMDOT = Ref(0.0)
 envmenc() = TF.getscalar(:xmtot) .- TF.var(:xmen)[a:b+1]              # interior mass per steradian at the interfaces
@@ -1061,6 +1080,13 @@ function envbuild!()
     end
     (length(lr) + (ENVCENTRE ? 1 : 0)) % 2 == 0 && pop!(lr)                    # (an even zone count: an odd number of interfaces)
     lr = lr[1] .+ (lr .- lr[1]) .* (log(r0[end]) - lr[1]) / (lr[end] - lr[1])
+    if GRIDMAPP !== nothing      # the planned mesh (GridMap) from the source's enclosed mass in place of the ENVCORE/ENVEUL spacing; same first and last interface
+        i1 = findfirst(j -> r0[j] > 0 && m0[j] > 0, eachindex(r0)); Nz = Int(GRIDMAPP[1]); (Nz + (ENVCENTRE ? 1 : 0)) % 2 == 0 || (Nz -= 1)
+        Mst = GridMap.anchor(m0[i1:end], u0[i1:end])
+        P_ = GridMap.target(r0[i1:end], m0[i1:end], Mst; N = Nz, rlo = exp(lr[1]), gridmap_kw()...)
+        lr = log.(P_.r); GMLAST[] = (0.0, 0, Mst / 4π, P_.lam, P_.nfloor, 0.0, 0.0, Inf)
+        pr("GRIDMAP: starting mesh of %d zones from the enclosed mass of the source, M* %.5f Msun, scale %.3f, %d zones at the floor\n", Nz, Mst / Msun, P_.lam, P_.nfloor)
+    end
     rI = exp.(lr); rI[end] = r0[end]; ENVCENTRE && pushfirst!(rI, 0.0); n = length(rI) - 1
     rc = [0.5 * (r0[j] + r0[j+1]) for j in 1:nsh]; lc = log.(rc); lf = log.(max.(r0, 1.0))
     function interp(xs, ys, x)                                                 # linear in the first argument, flat beyond the ends
@@ -1402,6 +1428,46 @@ if GRIDWINP !== nothing
            k1 + 1, k2 - 1, rn[k1] / Rsun, rn[k2] / Rsun, k2 - k1, TX.GRIDWIN[].tau, TX.GRIDWIN[].wd, TX.GRIDWIN[].wt, TX.GRIDWIN[].alph, TF.getscalar(:ctol), fmove, TX.GRIDWIN[].gmax)
     end
 end
+if GRIDMAPP !== nothing
+    (ENVEUL !== nothing && Int(TF.getscalar(:lgrid)) == 2) || error("GRIDMAP needs the fixed-mesh envelope (ENVEUL, lgrid = 2)")
+    GRIDWINP === nothing || error("GRIDMAP and GRIDWIN exclude each other")
+    TX.GRIDVEL[] = zeros(length(TF.var(:rn))); TC.GRIDMOVE[] = true; TF.setscalar!(:ctol, gmp(12, 0.5))
+    pr("GRIDMAP: %d zones follow the target mesh (hr %.3g, h1 %.3g, h2 %.3g, eps %.3g, fc %.3g, dmin %.3g, g %.3g), tau %.3g s, fmove %.3g, nrelax %.3g, ctol %.3g, ftar %.3g\n",
+       nsh, gridmap_kw()..., gmp(9, 0.0), gmp(10, 0.4), gmp(11, 3.0), TF.getscalar(:ctol), gmp(13, 0.2))
+end
+"""
+GRIDMAP: interface velocities for the next step from the target mesh of the present state (after the chemistry step, when Δt of the
+next step is known). The mesh closes 1/nrelax of its distance from the target per step (at most fmove zone widths; not faster than
+in the time tau), and Δt is limited so that the target itself moves at most ftar zone widths per step, judged from its move in the
+step just taken: with ftar < fmove the mesh stays within about ftar × nrelax zone widths of its target.
+"""
+function gridmap_step!()
+    rn = TF.var(:rn); i0 = a + (ENVCENTRE ? 1 : 0); N = b + 1 - i0
+    r = rn[i0:b+1]; m = envmenc()[i0-a+1:end]; u = TF.var(:un)[i0:b+1]
+    Mst = GridMap.anchor(m, u); P_ = GridMap.target(r, m, Mst; N, lam0 = GMLAST[][4], gridmap_kw()...)
+    dt = TF.getscalar(:dtime); dtl = TC.TSTP_IN[][2]; qT = 0.0; cap = Inf; Pp = GMPREV[]
+    if length(Pp) == N + 1 && dtl > 0
+        for j in 2:N; qT = max(qT, abs(P_.r[j] - Pp[j]) / min(r[j] - r[j-1], r[j+1] - r[j])); end
+        qT > 0 && (cap = max(dtl * gmp(13, 0.2) / qT, 0.3 * dtl))
+        cap < dt && (dt = cap; TF.setscalar!(:dtime, dt); TF.setscalar!(:tfac, dt / dtl))
+    end
+    GMPREV[] = P_.r; trel = max(gmp(9, 0.0), gmp(11, 3.0) * dt); fmove = gmp(10, 0.4)
+    w = TX.GRIDVEL[]; fill!(w, 0.0); f = 0.0; kf = 0; dmax = 0.0
+    for j in 2:N
+        wd = min(r[j] - r[j-1], r[j+1] - r[j]); dmax = max(dmax, abs(P_.r[j] - r[j]) / wd)
+        wk = (P_.r[j] - r[j]) / trel; q = abs(wk) * dt / wd
+        q > fmove && (wk *= fmove / q; q = fmove)
+        w[i0+j-1] = wk; q > f && (f = q; kf = i0 + j - 1)
+    end
+    GMLAST[] = (f, kf, Mst, P_.lam, P_.nfloor, dmax, qT, cap)
+    nothing
+end
+"Mesh state for the progress print."
+function gridmap_line()
+    rn = TF.var(:rn); i0 = a + (ENVCENTRE ? 1 : 0); dl = [log(rn[j+1] / rn[j]) for j in i0:b]; jm = argmin(dl); f, kf, Mst, lam, nfl, dmax, qT, cap = GMLAST[]
+    @sprintf("        grid map: M* %.5f Msun, scale %.3f, %d zones at the floor; narrowest zone dln r %.2e at %.1f R_sun; mesh at most %.2f zone widths from its target, next step moves %.3f (interface %d); target moved %.3f in the last step, dt cap %.2e s\n",
+             4π * Mst / Msun, lam, nfl, dl[jm], rn[i0+jm-1] / Rsun, dmax, f, kf, qT, cap)
+end
 "Window state for the progress print: narrowest zone (Δ ln r, r), widest, last-step displacement."
 function gridwin_line()
     gw = TX.GRIDWIN[]; rn = TF.var(:rn)
@@ -1691,6 +1757,7 @@ try
         if STOLCHEM
             TF.setscalar!(:tfac, TC.TSTP_IN[][1]); TF.setscalar!(:dtime, TC.TSTP_IN[][2]); TD.r(:timstp)
         end
+        GRIDMAPP === nothing || gridmap_step!()
         if SLZ_ !== nothing && PM.SLDIAG[] !== nothing      # S6: starlight and chemistry of zones z1..z2 over this step's chem! (molecular-edge onset)
             sd = PM.SLDIAG[]; dtq = TF.getscalar(:timen) - TF.getscalar(:timeo)
             pr("        SLZ k %d dt %.3e: photosphere zone %d T_eff %.0f\n", k, dtq, sd.kph, sd.Te)
@@ -1841,6 +1908,7 @@ try
                        mdot(j_), mdot(w4), mdot(w5), NXADV1[], PM.NSWIN[], PM.NSWOUT[])
                 end
                 TX.GRIDWIN[] === nothing || pr("%s", gridwin_line())
+                GRIDMAPP === nothing || pr("%s", gridmap_line())
                 # causality of the radiation field outside the surface: F/cE at the interfaces (FLUXTIE or not)
                 let fz = TF.var(:frn), ez = TF.var(:ern), rz = TF.var(:rn), q = 0.0, kq = 0, k1 = 0
                     for k in a+1:b

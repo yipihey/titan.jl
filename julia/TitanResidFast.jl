@@ -151,6 +151,16 @@ through the moving faces), which the fixed mesh had reduced to u_rel = u.
 """
 const GRIDWIN = Ref{Any}(nothing)
 """
+GRIDVEL[] (lgrid = 2 only): `nothing` (default) = every interface fixed. Otherwise a vector of interface velocities w [cm/s] (driver
+index, zero for an interface that stays): the grid row is r_new − r_old − w Δt with the Δt of the stage, so an interface follows the
+same straight path r_old + w t through the TR, the BDF2 and the backward-Euler stage of a step. The driver sets w between steps
+(`GRIDMAP` in popiii_m2c.jl: the mesh relaxes to a target computed from the state), so the row adds nothing to the Jacobian. All
+else is TITAN's moving-grid form as for GRIDWIN (u_rel = u − ṙ, fluxes through the moving faces, lab-frame gravity work).
+"""
+const GRIDVEL = Ref{Union{Nothing,Vector{Float64}}}(nothing)
+"A mesh with lgrid = 2 whose interfaces move (GRIDWIN window or GRIDVEL)."
+@inline gridmoves() = GRIDWIN[] !== nothing || GRIDVEL[] !== nothing
+"""
 AV_ZONE[] (G1): viscous length proportional to the local zone width. When > 0, zone k uses the length
 l_k = AV_ZONE[] × (r[k+1] − r[k]) (θ-centred radii, ForwardDiff-differentiable) instead of ql0 + ql1 r̄; ql0, ql1 are then
 ignored (cq1, cq2, cqvis still apply). On grids where Δr/r varies (geometric mass grids) l ∝ r does not follow the zone
@@ -812,7 +822,12 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         P.leobc > 0 && (R[ir, kb(ngre+1)] = rn[ngre+1] - c.ro[ngre+1])
         P.llobc > 0 && (R[ir, kb(ngre+1)] = (rn[ngre+1] - c.ro[ngre+1]) / dt - u[ngre+1])
     elseif P.lgrid == 2
-        @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k]; end
+        gv = GRIDVEL[]
+        if gv === nothing
+            @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k]; end
+        else
+            @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k] - gv[k] * dt; end
+        end
         GRIDWIN[] === nothing || gridwin_rows!(R, ir, k0, rn, c.ro, dn, tn, dt, GRIDWIN[])
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
@@ -1132,11 +1147,11 @@ const ETOT_GRAV_GRID = Ref(false)
         xmu = Float64(c.mu); P = c.p
         gi_(j) = 2xmu * P.cpi * P.cgrav * W.xm[j] / W.rmu[j] + (1 - 0.5xmu) * P.g
         Δr = 0.5 * (W.r[k+1] - W.r[k])
-        # (moving window, GRIDWIN: the lab-frame mass flux r² u ρ_b; zones carried by the grid also change Σ m Φ)
-        uf(j) = GRIDWIN[] === nothing ? W.urel[j] : W.u[j]
+        # (moving interfaces on lgrid = 2, GRIDWIN or GRIDVEL: the lab-frame mass flux r² u ρ_b; zones carried by the grid also change Σ m Φ)
+        uf(j) = gridmoves() ? W.u[j] : W.urel[j]
         k > c.ngrs && (w += W.rmu[k] * uf(k) * W.db[k] * gi_(k) * Δr)
         k < c.ngre && (w += W.rmu[k+1] * uf(k + 1) * W.db[k+1] * gi_(k + 1) * Δr)
-        if ETOT_GRAV_GRID[] && GRIDWIN[] === nothing
+        if ETOT_GRAV_GRID[] && !gridmoves()
             # Mass carried by moving faces (Lagrangian zones: urel = 0, so the term above vanishes): the momentum row's force g_j (m_{j-1} + m_j)/2 does the work
             # u_grid,j g_j (m_{j-1} + m_j)/2 at face j, half of it in each neighbouring zone, matching the zone's kinetic energy m(u_k² + u_{k+1}²)/4. Zero on a fixed mesh.
             mh = 0.5 * W.d[k] * W.dvol[k]
