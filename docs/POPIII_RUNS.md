@@ -1641,6 +1641,49 @@ the surface are, with the coarse core and envelope of the 64-zone runs. `t_eh9` 
 and `t_eh10` (HD) started on it at 19:24 and 19:47 on 11 Nov. First rows of `t_eh9`: 103.0 R☉ at 0.700 M☉ and 138.4 at
 0.959 (`full6`: 102.5 at 0.70, 142.8 at 0.98). The comparison that counts is the quiet phase above 3 M☉.
 
+*Without HD the fixed 224-zone mesh reproduces `full6`* (`t_eh9`, 21:00 on 11 Nov). It flashes up to 2.0 M☉ as `full6`
+does (5456 failed solves from the hand-over at 0.164 M☉; `full6` 3404 from 0.5 to 2.05 M☉), is quiet from 2.26 M☉ on, and has had no failed solve since.
+Both runs take 600 steps from 3.0 to 6.5 M☉ with Δt = 3–6 × 10⁶ s. R★ sits on 3 % interfaces in both runs (the two
+ladders are offset), so the `full6` column is interpolated in mass between its rows:
+
+| M★ [M☉] | R★ `t_eh9` [R☉] | R★ `full6` [R☉] | ratio |
+|---|---|---|---|
+| 2.26 | 138.4 | 134.4 | 1.03 |
+| 3.02 | 151.2 | 144.0 | 1.05 |
+| 3.74 | 160.4 | 153.9 | 1.04 |
+| 4.43 | 170.2 | 163.6 | 1.04 |
+| 5.06 | 175.3 | 169.9 | 1.03 |
+| 5.66 | 180.6 | 175.4 | 1.03 |
+| 6.22 | 186.0 | 181.1 | 1.03 |
+| 6.75 | 191.6 | 186.9 | 1.03 |
+| 7.25 | 191.6 | 187.3 | 1.02 |
+
+The fixed band mesh is 2–5 % larger, about one interface, and the difference shrinks with mass. The runs differ in more
+than the mesh: hand-over at 0.164 instead of 0.5 M☉, the conservative remap, 12 instead of 43 zones inside 3 R☉ and
+a coarse envelope. Which of these carries the 3 % is not separated.
+
+*With HD the early radius is not settled between meshes* (`t_eh10`, fixed 224, against `t_eh4`, 206 with the window,
+and `t_eh3`, 124 with the window; all from the same hand-over checkpoint, M★(t) the same within a few per cent):
+
+| M★ [M☉] | `t_eh10` | `t_eh4` | `t_eh3` |
+|---|---|---|---|
+| 0.30 | 56.2 | 52.6 | 63.0 |
+| 0.40 | 75.6 | 52.8–54.4 | 64.4 |
+| 0.45 | 75.6–82.6 | 49.5–51.4 | 56.1 |
+| 0.50 | 61.4 | 49.0–49.3 | 65.8 |
+
+`t_eh10` flashes through this range (Δt 1–10⁴ s, an excursion to 82.6 R☉ at 0.40–0.47 M☉ and back to 60 R☉ at
+0.52 M☉); `t_eh4` crosses it smoothly at Δt 10⁵–10⁶ s. This is the phase in which `full6` flashed as well and in which
+the failed-step fraction does not discriminate between meshes; there is no fine-mesh HD reference. The numbers to
+compare later are the window runs past the flashing: 49.6–52.7 R☉ from 0.6 to 1.0 M☉ and 55.7 R☉ at 1.63 M☉
+(`t_eh4`, `t_eh8`, `t_stc2`), 57.6–59.6 R☉ from 1.2 to 1.5 M☉ and 61.3 R☉ at 2.0 M☉ (`t_eh3`).
+
+*The window mesh with `STOLCHEM=1` rejoins `full6`.* `t_stc3` continues `t_stc1` from 8.41 M☉: 203.4 R☉ at 9.0 M☉
+(`full6` 198.9), 204.0–205.9 at 10.0 (205.0), 207.5–209.4 at 11.0 (205.0–211.2), 211.3 at 11.52 (211.2). From 10 M☉ on
+the two agree within 1 %. Its steps are still short (Δt 4 × 10⁴–4 × 10⁵ s) and it fails about 35 solves per 100
+steps; `full6` itself is slow there (6 × 10⁴–2 × 10⁵ s past 10.47 M☉). `t_stc2`, the HD window run with the same
+rule, ran its 6000 steps from 1.34 to 1.63 M☉ at Δt 2–6 × 10⁵ s instead of 1.2 × 10³ s, with 3657 failed solves.
+
 **Decided on 11 Nov (Tom).**
 
 - `base64` and `nohd64c` are stopped (20:01; 1.78 M☉ at step 128 600 and 18.7 M☉ at step 138 200). Their stage-A3
@@ -1650,13 +1693,19 @@ and `t_eh10` (HD) started on it at 19:24 and 19:47 on 11 Nov. First rows of `t_e
 - New runs take `LINEFAST=1 LINEXC2=16 EPTAB=1` (in `phaseA.env` and `phaseB.env`) and the conservative remap
   `ENVCONS=1` (`phaseB.env`). `c128` and `f128` keep the settings they were started with: the previous `phaseB.env` is
   copied into their run directories.
-- The mesh of the baseline waits for `t_eh9` and `t_eh10` above 3 M☉; until then `phaseB.env` still has the 380-zone
-  mesh `ENVEUL=0,0.03,0.1,1000`.
+- The mesh of the baseline waited for `t_eh9` above 3 M☉ (agreed plan: if the run without HD reproduces `full6`,
+  the HD baseline starts on the fixed 224-zone mesh and the window mesh is kept for the resolution studies). With the
+  table above the chain `b224` was started at 21:00 on 11 Nov from `z19base64_A3_3f`: HD, CMB, 4 threads on cpus 8–11,
+  mesh and settings of `t_eh10` plus `LINEXC2=16 EPTAB=1`, all in its own `phaseB.env`. The default `phaseB.env` still
+  has the 380-zone mesh `ENVEUL=0,0.03,0.1,1000`. `t_eh10` keeps running beside it as a second realization of the
+  flashing phase (it differs from `b224` by `LINEXC2`, a 10⁻⁹ change in the line luminosity).
 
-**Where this stands.** Not decided: the mesh of the baseline. The fixed 224-zone mesh is the cheap candidate and
-inherits `full6`'s one-zone shock and 3 % steps in R★. The window mesh resolves the shock, needs `STOLCHEM=1` to
-run at all past the first swollen state, costs about ten times the steps, and its divergences are not understood.
-`STOLCHEM` and `GRIDWIN` are off in all production chains.
+**Where this stands.** The baseline `b224` runs on the fixed 224-zone mesh, which inherits `full6`'s one-zone shock
+and 3 % steps in R★ and reproduces `full6` within 2–5 % without HD. Open: the early HD radius (0.3–0.5 M☉) differs by
+20–50 % between the fixed mesh and the window runs, in the flashing phase. The window mesh resolves the shock, needs
+`STOLCHEM=1` to run at all past the first swollen state, costs about ten times the steps, and its divergences are not
+understood; with that rule it agrees with `full6` within 1 % from 10 to 11.5 M☉. `STOLCHEM` and `GRIDWIN` are off in
+all production chains.
 
 ### `c128` and `f128`: a restart with a one-time merge
 
