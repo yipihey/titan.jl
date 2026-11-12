@@ -44,6 +44,27 @@ the analysis on the recorded snapshot.
 rates to round-off; (ii) ∫L_ν dν equals the run's L within 2 % (today 0.8). If (ii) cannot be met with grey hydrodynamics plus
 refreshed means, the fallback is multigroup transport in the run. **That fallback would be a method change and comes back to Tom.**
 
+## What exists to build on (inventory, 12 Nov)
+
+| Component | Build on | Gap |
+|---|---|---|
+| H atom | `NLTEH.jl` (n ≤ 12, Sobolev β, `solve_point`); exact f-values, bound-free and free-free Gaunt factors (van Hoof 2014), occupation probabilities and Stark profiles in `z0/atomic.jl` | crude collision rates (van Regemorter, Seaton); dense Λ-iteration; old snapshot format; no case-B check |
+| He I / He II | `z0/` (Verner ground-state cross sections, NIST He I multiplets, hydrogenic He II n ≤ 16), `he10830.jl` (3-state, approximate) | no He I level model, no He collision or recombination data, no He II statistical equilibrium |
+| Chemistry | `ChemNet` machinery (species, `Photo` with Milne inverse, element elimination already done for H and Li) | He hard-wired inert in `full`/`fullvec`; `fill_opac!` takes electrons from H⁺ only |
+| EOS | `Z0.saha` (full H + He Saha) | `PopIIIEqEOS.node` has neutral He at all T, p; energy zero across the switch unchecked; **Y = 0.25 in the run (yHe = 1/12) against 0.24 in Z0** |
+| Continuum transfer | `Spectrum.jl` (rays, Feautrier, ALI + Ng), `snapspec.jl` | static, serial in ν, no moments handed back, ∫L_ν = 0.8 L |
+| Lines with velocity | H₂ line transfer (comoving Doppler shifts on tangent rays from the run's velocity, GPU path); `NLTEH.βsob` (free fall only) | atomic lines need the run's own du/dr incl. non-monotone flow |
+| Lyα | `LyaTransfer.jl` (Voigt, CRD core / coherent wings, ALI eliminated into the three-level atom; off) | static, no destruction by H₂/H⁻, no force, no MC calibration |
+| Ionizing ray | `IonRay.jl` (photon-conserving, Iliev 1 and 5 pass) | H and H₂ only; no He, no diffuse field, no momentum |
+| Opacity means | `nlte_means`, `ContinuumOpacity.means`, StellarOpacity table (has He ionization) | **no flux mean at all** (χ is Rosseland); no mean from the actual J_ν |
+| Refresh pattern | H₂ ALI refresh (`ALIINT`, `ALIFAC`, rescaled escape probabilities between calls), `RAYQ`/`GASQ` energy hooks | refresh logic H₂-specific; no line-force term in the momentum row |
+| Records | `recsnap!`, `lineage` | three-level parameters, starlight rates, H₂ populations, J_ν moments, b_n not recorded |
+
+Design decisions from it: the 12-level H atom (extended to He) is the one reference; the run's three-level atom stays as
+the cheap form between refreshes, with its n = 2 population and Lyα escape set from the reference at each refresh. Constants
+and the Verner fits, duplicated in five modules with small differences, move to one place. Y is fixed to one value in all
+modules (choice of 0.25 or 0.24 to be confirmed).
+
 ## Order of work
 
 | Step | Content | Test before it counts |
