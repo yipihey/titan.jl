@@ -57,3 +57,36 @@ HeI,4471,emis,1e4,1e4,6.4230e-26,DZS22,he_i_rec_DZS22.hdf5 4472.76 (vac)
 HeI,5876,emis,1e4,1e4,1.9030e-25,DZS22,he_i_rec_DZS22.hdf5 5877.29 (vac)
 HeI,6678,emis,1e4,1e4,5.0270e-26,DZS22,he_i_rec_DZS22.hdf5 6680.00 (vac)
 HeI,10830,emis,1e4,1e4,1.8800e-24,DZS22,he_i_rec_DZS22.hdf5 10833.14 (vac)
+HeII,4686,emis,1e4,1e3,1.5080e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e3,9.8100e-24,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e3,3.5340e-25,SH95,h_i_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e5,1.4750e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e5,9.7990e-24,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e5,3.5260e-25,SH95,h_i_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e6,1.4440e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e6,9.8020e-24,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e6,3.5220e-25,SH95,h_i_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e7,1.4020e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e7,9.8360e-24,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e7,3.5260e-25,SH95,h_i_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e8,1.3550e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e8,9.9540e-24,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e8,3.5570e-25,SH95,h_i_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e9,1.3160e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e9,1.0280e-23,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e9,3.6850e-25,SH95,h_i_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e10,1.3200e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e10,1.1100e-23,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e10,4.0200e-25,SH95,h_i_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e11,1.4830e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e11,1.3210e-23,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e11,4.6870e-25,SH95,h_i_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e12,2.0800e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e12,1.8480e-23,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e12,6.1660e-25,SH95,h_i_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e13,3.9060e-24,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e13,3.2510e-23,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e13,1.0200e-24,SH95,h_i_rec_SH95.fits 3_2
+HeII,4686,emis,1e4,1e14,1.2190e-23,SH95,he_ii_rec_SH95.fits 4_3
+HeII,1640,emis,1e4,1e14,8.1370e-23,SH95,he_ii_rec_SH95.fits 3_2
+HI,Halpha,emis,1e4,1e14,1.9580e-24,SH95,h_i_rec_SH95.fits 3_2
