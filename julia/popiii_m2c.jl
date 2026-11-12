@@ -606,6 +606,7 @@ function restart!(name; allow = ())
     TF.load_state!(joinpath(CKDIR, "m2c_$(name).tstate.gz"))
     global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1   # (zone count may differ after rezoning)
     s = aux.mat; mat.x .= deepcopy(s.x); mat.eqzone .= s.eqzone; mat.Λext .= s.Λext; mat.Tref .= s.Tref; mat.slope .= s.slope
+    ChemNet.HECHEM && mat isa PM.NetGas && PM.he_pad!(mat)                    # (restart from a checkpoint written without HECHEM)
     HOTON && hasproperty(s, :Y) && s.Y !== nothing && (SG[].Y .= s.Y)      # (a checkpoint from before HOT=1 keeps the initial abundances)
     if HOTON && hasproperty(s, :star) && s.star !== nothing
         t_ = s.star; g_ = SG[]; g_.fscale .= t_.fscale; g_.fslope .= t_.fslope; g_.fcur .= t_.fcur; g_.Dmix = t_.Dmix; g_.dtcap = t_.dtcap; g_.capE = t_.capE; g_.ledger = t_.ledger; g_.Yprev .= t_.Yprev

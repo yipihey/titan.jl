@@ -293,10 +293,14 @@ function nlte_kappas(ρ, T, d, p)
     nH = ρ / CNn.μH(); nHe = PC.yHe * nH
     if d === nothing
         y = EQ.composition(ρ, T); xp = y[1]; xh2 = y[3]; n1 = nH * max(1 - xp - 2xh2, 0.0); ne = nH * xp
+        if CNn.HECHEM                                 # helium electrons; neutral He for the CIA and Rayleigh terms
+            z1, z2 = EQ.composition_he(ρ, T); ne = nH * (xp + z1 + 2z2); nHe = nH * max(PC.yHe - z1 - z2, 0.0)
+        end
         n2 = 4n1 * exp(-E21 / (CNn.kB * T)); nHm = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
         return nlte_means(ρ, T; n1, n2, nH2 = nH * xh2, nHe, nHp = ne, ne, nHm, nHmS = nHm, hbfP = true)
     end
     n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
+    CNn.HECHEM && (nHe = nH * max(d[:He], 0.0))
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
@@ -343,7 +347,9 @@ function TM.fill_opac!(m::NetGas)
         χ, κE, κP = TX.material_opac(m, dn[k], tn[k])
         chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
         # electrons for the scattering term of the formal solution (the template state's xnen is not ours)
-        xnen[k] = (m.eqzone[k] ? EQ.composition(dn[k], min(tn[k], 1e6))[1] : CNn.full(m.x[k], m.net)[:Hp]) * dn[k] / CNn.μH()
+        xnen[k] = (CNn.HECHEM ? (m.eqzone[k] ? (Tq = min(tn[k], 1e6); z = EQ.composition_he(dn[k], Tq); EQ.composition(dn[k], Tq)[1] + z[1] + 2z[2]) :
+                                 CNn.full(m.x[k], m.net)[:e]) :
+                   (m.eqzone[k] ? EQ.composition(dn[k], min(tn[k], 1e6))[1] : CNn.full(m.x[k], m.net)[:Hp])) * dn[k] / CNn.μH()
     end
     nothing
 end
@@ -353,10 +359,12 @@ function x_from_table(m::NetGas, ρ, T)
     y = EQ.composition(ρ, T); nH = ρ / CNn.μH()
     xH2 = y[3]; xHp = y[1]; xH = 1 - xHp - 2xH2
     ne = xHp * nH
+    z1, z2 = CNn.HECHEM ? EQ.composition_he(ρ, T) : (0.0, 0.0)
+    CNn.HECHEM && (ne = (xHp + z1 + 2z2) * nH)
     xHm = xH * ne / CNn.Keq([:Hm], [:H, :e], T)
     out = zeros(length(m.net.free))
     for (i, s) in enumerate(m.net.free)
-        out[i] = s === :Hp ? xHp : s === :H2 ? xH2 : s === :Hm ? xHm :
+        out[i] = s === :Hp ? xHp : s === :H2 ? xH2 : s === :Hm ? xHm : s === :Hep ? z1 : s === :Hepp ? z2 :
                  s === :Lip ? (K = CNn.Keq([:Li], [:Lip, :e], T); CNn.yLi * K / (K + max(ne, 1e-300))) : 0.0
     end
     out
@@ -1019,6 +1027,23 @@ function hd_pad!(m::NetGas)
         j = k < a ? a : b; m.x[k] = vcat(m.x[k], m.x[j][nf+1], m.x[j][nf+2])
     end
     n > 0 && (HDNPAD[] += n; @printf("HDCHEM: (x_D+, x_HD) set in %d zones (HDINIT=%s, D/H = %.3g)\n", n, HDINIT[], HDYD[]))
+    m
+end
+"""
+Restart from a checkpoint written without `HECHEM`: insert the He⁺ and He²⁺ fractions (Saha at the zone's ρ, T from the
+equilibrium table) in front of the HD tail of every zone's vector (no-op where they are present). Ghost entries use the nearest zone.
+"""
+function he_pad!(m::NetGas)
+    CNn.HECHEM || return m
+    i1 = findfirst(==(:Hep), m.net.free); i1 === nothing && return m
+    nf = length(m.net.free); want = nf + (HDCHEM[] ? 2 : 0); a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
+    dn, tn = TM.v(:dn), TM.v(:tn); n = 0
+    for k in eachindex(m.x)
+        length(m.x[k]) == want - 2 || continue
+        j = clamp(k, a, b); z = EQ.composition_he(dn[j], min(tn[j], 1e6))
+        m.x[k] = vcat(m.x[k][1:i1-1], z[1], z[2], m.x[k][i1:end]); a <= k <= b && (n += 1)
+    end
+    n > 0 && @printf("HECHEM: (x_He+, x_He++) set from Saha in %d zones\n", n)
     m
 end
 hd_strip!(m::NetGas) = (nf = length(m.net.free); for k in eachindex(m.x); length(m.x[k]) > nf && (m.x[k] = m.x[k][1:nf]); end; m)
