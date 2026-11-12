@@ -14,6 +14,9 @@ include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "Prim
 include(joinpath(@__DIR__, "SCVH.jl")); include(joinpath(@__DIR__, "PopIIIEqEOS.jl"))
 include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl"))
 include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2Lines.jl"))
+# LINEGPU=cuda|metal|cpu: formal solution of the thick H2 lines through KernelAbstractions (H2LinesKA.jl); needs an
+# environment with KernelAbstractions and CUDA or Metal. Off unless set.
+haskey(ENV, "LINEGPU") && include(joinpath(@__DIR__, "h2lines_gpu.jl"))
 include(joinpath(@__DIR__, "StellarOpacity.jl")); include(joinpath(@__DIR__, "IonRay.jl"))
 # S6-C1: HOT=1: stellar EOS, nuclear network and convective mixing in the hot core (T > HOTT1), see PopIIIMaterial.HOT
 const HOTON = get(ENV, "HOT", "0") == "1"

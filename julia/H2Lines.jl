@@ -240,6 +240,9 @@ const SRCZONE = Ref(get(ENV, "LINESRC", "linear") == "zone")
 # 4π r²F(k+1) − 4π r²F(k) is exactly the energy the segments of zone k took from or gave to the rays (linear in μ, the default, is more
 # accurate for F itself in the thin limit but reweights the rays at each node: the difference of a large flux crossing dilute zones was noise)
 const QUADP2 = Ref(get(ENV, "LINEQUAD", "mu") == "p2")
+# LINEGPU (h2lines_gpu.jl): the formal solution of the thick lines of an ALI call as one batch on a KernelAbstractions backend
+# (H2LinesKA.jl; CUDA, Metal, ...). KA_BACKEND[] === nothing (the default): the CPU path below, unchanged.
+const KA_BACKEND = Ref{Any}(nothing); const KA_FLOAT = Ref{DataType}(Float32); const KA_MOD = Ref{Any}(nothing)
 @inline shz(I, Δτ, S) = Δτ < 1e-4 ? I * (1 - Δτ) + Δτ * S : (e = exp(-Δτ); I * e + S * (1 - e))
 @inline ψz(Δτ) = Δτ < 1e-4 ? Δτ : -expm1(-Δτ)
 @inline ψlin(Δτ) = Δτ < 1e-4 ? 0.5Δτ : (e = exp(-Δτ); w0 = 1 - e; w0 - (w0 - Δτ * e) / Δτ)
@@ -846,9 +849,12 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
         Jfs = zeros(nl, n); Lam = zeros(nl, n); β .= 1; Jeff .= 0
         geom = raygeom(r, u)
         wpool = FAST[] && SRCZONE[] ? fastpool(n, nbinmax) : nothing          # LINEFAST: one work set per task
+        kaws = (KA_BACKEND[] === nothing || wpool === nothing) ? nothing :   # LINEGPU: device workspace, cached between calls
+               KA_MOD[].cached_workspace(KA_BACKEND[], KA_FLOAT[], r, u, vth, geom; nlmax = nl, nbmax = nbinmax)
+        kalines = kaws === nothing ? nothing : Vector{Any}(nothing, nl)
         for it in 1:maxit
             κ0, S, nmaser = opac(P)
-            fill!(Jfs, 0.0); fill!(Lam, 0.0); fill!(Lline, 0.0)
+            fill!(Jfs, 0.0); fill!(Lam, 0.0); fill!(Lline, 0.0); kalines === nothing || fill!(kalines, nothing)
             nb_t = Threads.Atomic{Int}(0); nth_t = Threads.Atomic{Int}(0)
             Threads.@threads :greedy for i in 1:nl                  # one line per task: the thick lines are neighbours in the list
                 ν0 = ν[i]; κl = κ0[i, :]
@@ -884,6 +890,10 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                 Threads.atomic_max!(nb_t, nb)
                 xs = range(-vspan, vspan, length = nb)
                 bgl = bgd === nothing ? nothing : (Bc = bgd.Bc[i], Bs = bgd.Bs[i], kq = bgd.kq)
+                if kaws !== nothing                                   # LINEGPU: only collect the inputs; solved as one batch below
+                    kalines[i] = (; κ0 = κl, ν0, xs, lam = lam == :diag, Sz = S[i, :], bg = bgl)
+                    Threads.atomic_add!(nth_t, 1); continue
+                end
                 W = wpool === nothing ? nothing : take!(wpool)
                 Fν, Jz, Λz = W === nothing ? transfer_line(r, u, vth, κl, Si, ν0, xs, lam == :diag; Sz = SRCZONE[] ? S[i, :] : nothing, G = geom, bg = bgl) :
                              transfer_line_fast!(W, r, u, vth, κl, ν0, xs, lam == :diag, S[i, :], geom, bgl)
@@ -894,6 +904,16 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                     for k in 1:n; Jfs[i, k] += bgd.Jbg[i, k]; end
                 end
                 Threads.atomic_add!(nth_t, 1)
+            end
+            if kaws !== nothing
+                idx = findall(!isnothing, kalines)
+                if !isempty(idx)
+                    Fb, Jb, Λb = KA_MOD[].formal!(kaws, view(kalines, idx); quadp2 = QUADP2[])
+                    for (l, i) in enumerate(idx)
+                        for k in 1:n+1; Lline[i, k] = 4π * r[k]^2 * Fb[k, l]; end
+                        for k in 1:n; Jfs[i, k] = Jb[k, l] + (bgd === nothing ? 0.0 : bgd.Jbg[i, k]); Lam[i, k] = Λb[k, l]; end
+                    end
+                end
             end
             nbmax = max(nbmax, nb_t[]); nthick = nth_t[]
             @. β = max(1 - Lam, 1e-8); @. Jeff = max(Jfs - Lam * S, 0.0)
