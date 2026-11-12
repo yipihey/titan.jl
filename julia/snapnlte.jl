@@ -68,7 +68,28 @@ function main(args)
                 ("HeII 304", :He2, 1, 2), ("HeII 1640", :He2, 2, 3), ("HeII 4686", :He2, 3, 4),
                 ("HeI 584", :He1, t1("1s2 1S"), t1("1s.2p 1P")), ("HeI 10830", :He1, t1("1s.2s 3S"), t1("1s.2p 3P")),
                 ("HeI 5876", :He1, t1("1s.2p 3P"), t1("1s.3d 3D")), ("HeI 6678", :He1, t1("1s.2p 1P"), t1("1s.3d 1D")))
-    Lloc = zeros(length(linedefs)); Lobs = zeros(length(linedefs))
+    Lloc = zeros(length(linedefs)); Lobs = zeros(length(linedefs)); Lnu = zeros(length(linedefs))
+    # frequency-dependent continuum (Z0Physics LTE: H, He bound-free with occupation probabilities, free-free, H⁻, Thomson,
+    # Rayleigh) at each line's frequency: absorption and scattering optical depth from each zone centre to the surface;
+    # escape of a line photon emitted there ≈ exp(−τ_eff), τ_eff = √(3 τ_a (τ_a + τ_s)) (diffusion with thermalisation;
+    # exp(−τ_a) where τ_a ≥ τ_s). APPROXIMATE: LTE continuum at T_gas, radial path.
+    νlines = [at === :H ? MA.νline(H, l, u) : at === :He2 ? MA.νline(He2, l, u) : MA.νline(He1, l, u) for (_, at, l, u) in linedefs]
+    ka = zeros(nz, length(νlines)); ks = zeros(nz, length(νlines))
+    for k in 1:nz
+        (s.T[k] > 1000 && s.ρ[k] > 0) || continue
+        st = Z0Physics.opacity_state(s.ρ[k], s.T[k]); pH, pHe = Z0Physics.level_pops(s.T[k], st)
+        for (i, ν) in enumerate(νlines); a_, b_ = Z0Physics.kappa_nu(ν, s.T[k], st, pH, pHe); ka[k, i] = a_; ks[k, i] = b_; end
+    end
+    τa = zeros(nz, length(νlines)); τs = zeros(nz, length(νlines))
+    for i in eachindex(νlines)
+        acc_a = 0.0; acc_s = 0.0
+        for k in nz:-1:1
+            Δr = s.r[k+1] - s.r[k]
+            τa[k, i] = acc_a + ka[k, i] * Δr / 2; τs[k, i] = acc_s + ks[k, i] * Δr / 2
+            acc_a += ka[k, i] * Δr; acc_s += ks[k, i] * Δr
+        end
+    end
+    esc(k, i) = (a_ = τa[k, i]; b_ = τs[k, i]; exp(-(a_ >= b_ ? a_ : sqrt(3a_ * (a_ + b_)))))
     io = out == "" ? nothing : open(out, "w")
     io === nothing || println(io, "k,r_Rsun,T,rho,ne,xHp,xHe0,xHe1,xHe2,b2_H,b1_HeI_2t3S,tau_grey")
     @printf("snapshot step %d, t %.6e yr, M* %.3f Msun, R* %.2f Rsun, photosphere zone %d at %.1f Rsun, T_eff %.0f K\n",
@@ -101,7 +122,7 @@ function main(args)
         for (i, (nm, at, l, u)) in enumerate(linedefs)
             e = at === :H ? emis(H, LH, res.nh, res.βh, l, u) : at === :He2 ? emis(He2, L2, res.n2, res.β2, l, u) :
                 emis(He1, L1, res.n1, res.β1, l, u)
-            Lloc[i] += e * dV; Lobs[i] += e * dV * exp(-τ[k])
+            Lloc[i] += e * dV; Lobs[i] += e * dV * exp(-τ[k]); Lnu[i] += e * dV * esc(k, i)
         end
         b2 = res.nh[2] / (res.nhp * ne * MA.Φ(H, 2, T))
         @printf("%4d %9.4g %9.4g %9.3e %9.3e %8.2e %8.2e %8.2e %8.2e %9.3e %8.2e\n", k, rc / RSUN, T, nHk, ne, res.nhp / nHk,
@@ -112,9 +133,9 @@ function main(args)
     io === nothing || close(io)
     Lph = 4π * rph^2 * 5.670374e-5 * s.Teff^4
     @printf("\nline luminosities [L_sun] (zones solved in %.0f s); continuum L(photosphere) = %.3e L_sun\n", time() - tw, Lph / LSUN)
-    @printf("%-16s %12s %12s %12s\n", "line", "escaping", "after grey τ", "/ L_ph")
+    @printf("%-16s %12s %12s %14s %12s\n", "line", "Sobolev-esc.", "after grey τ", "after cont. τ_ν", "/ L_ph")
     for (i, (nm, _, _, _)) in enumerate(linedefs)
-        @printf("%-16s %12.4e %12.4e %12.3e\n", nm, Lloc[i] / LSUN, Lobs[i] / LSUN, Lobs[i] / Lph)
+        @printf("%-16s %12.4e %12.4e %14.4e %12.3e\n", nm, Lloc[i] / LSUN, Lobs[i] / LSUN, Lnu[i] / LSUN, Lnu[i] / Lph)
     end
 end
 main(ARGS[2:end])
