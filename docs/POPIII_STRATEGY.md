@@ -66,6 +66,11 @@ production set is Tom's decision for each.
 
 Not planned (stated as limits of the 1D model in `POPIII_GOAL.md`): rotation, disk, fragmentation, magnetic fields.
 
+### Emission physics in the run and the spectrum (decided 12 Nov)
+
+All emission shortcomings are fixed now, consistently in the evolution and the snapshot analysis: one non-LTE H + He + lines
+module used by both. Plan, order and tests in `POPIII_RADIATION_PLAN.md`; it absorbs P1, P2, P3 and the LW/H⁻ items of P4.
+
 ### Stage 3 — make the final run affordable and resolved (in parallel with stage 2)
 
 - **Mesh.** Decide between the fixed mesh C, a fine-envelope fixed mesh, and `GRIDMAP` with a frozen envelope
