@@ -1678,6 +1678,28 @@ the failed-step fraction does not discriminate between meshes; there is no fine-
 compare later are the window runs past the flashing: 49.6–52.7 R☉ from 0.6 to 1.0 M☉ and 55.7 R☉ at 1.63 M☉
 (`t_eh4`, `t_eh8`, `t_stc2`), 57.6–59.6 R☉ from 1.2 to 1.5 M☉ and 61.3 R☉ at 2.0 M☉ (`t_eh3`).
 
+*Past the flashing the HD runs agree* (22:00 on 11 Nov). `t_eh10` flashed until 0.63 M☉ (step 33 600, 4553 failed
+solves) and has been quiet since: 70 failed solves in the next 2400 steps, Δt 10⁶–10⁷ s.
+
+| M★ [M☉] | fixed 224 `t_eh10` | window 206 `t_eh4`/`t_eh8`/`t_stc2` | window 124 `t_eh3` |
+|---|---|---|---|
+| 0.6 | 57.9 | 49.6–49.9 | |
+| 0.8 | 54.5 | 51.4–51.5 | 84.7 |
+| 1.0 | 56.2 | 52.6–52.7 | 60.9–62.5 |
+| 1.3 | 57.9 | 54.0–54.3 | 57.6–58.8 |
+| 1.6 | 59.6 | 54.8–79.4 | 59.9–60.3 |
+| 2.0 | 61.4 | | 61.2–61.3 |
+| 2.4 | 63.3 | | |
+
+From 1.3 M☉ the fixed mesh and the 124-zone window run agree within 3 %, one interface; the 206-zone window run is
+7 % smaller at 1.0–1.3 M☉. The 20–50 % of the first table belongs to the flashing excursion, not to the quiet branch.
+The baseline `b224` is a second realization of the same flashing (different step sequence from 26 500 on) and reads the
+same R★(M★) up to 0.3 M☉ (17.2–18.2, 37.1, 56.2 R☉ at 0.1, 0.2, 0.3 M☉).
+
+`t_eh9` meanwhile reached `full6`'s slow phase: 197.3 R☉ at 8.0 M☉ (`full6` 193.0), 203.2 at 9.0 (198.9), 209.3 from
+10.0 to 10.55 M☉ (205.0, then 211.2 from 10.57), with Δt falling to 1.8 × 10⁵ s at 10.5 M☉ as in `full6` and six
+failed solves since 2.26 M☉.
+
 *The window mesh with `STOLCHEM=1` rejoins `full6`.* `t_stc3` continues `t_stc1` from 8.41 M☉: 203.4 R☉ at 9.0 M☉
 (`full6` 198.9), 204.0–205.9 at 10.0 (205.0), 207.5–209.4 at 11.0 (205.0–211.2), 211.3 at 11.52 (211.2). From 10 M☉ on
 the two agree within 1 %. Its steps are still short (Δt 4 × 10⁴–4 × 10⁵ s) and it fails about 35 solves per 100
@@ -1701,8 +1723,8 @@ rule, ran its 6000 steps from 1.34 to 1.63 M☉ at Δt 2–6 × 10⁵ s instead 
   flashing phase (it differs from `b224` by `LINEXC2`, a 10⁻⁹ change in the line luminosity).
 
 **Where this stands.** The baseline `b224` runs on the fixed 224-zone mesh, which inherits `full6`'s one-zone shock
-and 3 % steps in R★ and reproduces `full6` within 2–5 % without HD. Open: the early HD radius (0.3–0.5 M☉) differs by
-20–50 % between the fixed mesh and the window runs, in the flashing phase. The window mesh resolves the shock, needs
+and 3 % steps in R★ and reproduces `full6` within 2–5 % without HD. With HD the flashing below 0.63 M☉ makes excursions
+of 20–50 % in R★ that the 206-zone window run does not have; past it the three HD meshes agree within 3–7 %. The window mesh resolves the shock, needs
 `STOLCHEM=1` to run at all past the first swollen state, costs about ten times the steps, and its divergences are not
 understood; with that rule it agrees with `full6` within 1 % from 10 to 11.5 M☉. `STOLCHEM` and `GRIDWIN` are off in
 all production chains.
