@@ -175,7 +175,7 @@ direction, close to a power law in T — is extrapolated from [T_u, 2T_u] as a p
 error of an endothermic fit by e^{ΔE/kT} (AAZN97 k1 below 1e4 K gave three-body recombination of H⁺ in 1e-9 s at 200 K).
 """
 function reverse_k(r::Reaction; Tmin = 0.0)
-    Tu = Ref(NaN)
+    Tu = Ref(NaN); Ta = Ref(NaN); Ts = Ref(NaN)
     lnkr(T, env) = log(r.k(T, env)) - lnKeq(r.R, r.P, T)
     function k(T, env)
         kf = r.k(T, env)
@@ -186,8 +186,12 @@ function reverse_k(r::Reaction; Tmin = 0.0)
             Tu[] = t
         end
         Tu[] >= 1e6 && return zero(T)
-        a = lnkr(Tu[], env); s = (lnkr(2Tu[], env) - a) / log(2.0)
-        exp(a + s * log(T / Tu[]))
+        # the power law fixed at T_u: computed once (it was recomputed on every call; same values, bit-identical). The forward
+        # fits of all detailed-balance pairs ignore env (the three-level atom's env-dependent factor wraps a forward reaction only).
+        if isnan(Ta[])
+            a = lnkr(Tu[], env); Ts[] = (lnkr(2Tu[], env) - a) / log(2.0); Ta[] = a
+        end
+        exp(Ta[] + Ts[] * log(T / Tu[]))
     end
 end
 

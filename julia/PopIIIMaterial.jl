@@ -239,6 +239,20 @@ const NLOPC = Ref{Vector{Any}}(Any[])          # per zone: (; T0, RE, qE, RP, qP
 import ..ContinuumOpacity
 const COp = ContinuumOpacity
 const NLGRID = Ref{Vector{Float64}}(Float64[])
+"""
+Frequency-only quantities of the nlte_means grid (midpoint ν, dν, σ = ν/c, λ in μm, ν³, σ_H⁻bf(λ), Rayleigh σ of H₂ and H), computed once:
+the same functions of the same arguments as in the loop, so the means are bit-identical; they were recomputed 2–3 × 1000 times per
+network zone per step.
+"""
+const NLFREQ = Ref{Any}(nothing)
+function nlfreq()
+    NLFREQ[] === nothing || return NLFREQ[]
+    isempty(NLGRID[]) && (NLGRID[] = COp.grid(; n = 1000))
+    νs = NLGRID[]; n = length(νs) - 1
+    ν = [0.5 * (νs[i] + νs[i+1]) for i in 1:n]; dν = [νs[i+1] - νs[i] for i in 1:n]; σ = [x / COp.c for x in ν]; λμ = [1e4 / x for x in σ]
+    NLFREQ[] = (; ν, dν, σ, λμ, ν3 = [x^3 for x in ν], σhm = [COp.σ_Hm_bf(x) for x in λμ], ray2 = [COp.σ_ray_H2(x * 1e3) for x in λμ],
+                ray1 = [COp.σ_ray_H(x * 1e4) for x in λμ])
+end
 "H bound–free absorption [cm⁻¹] (Kramers, as ContinuumOpacity.α_H_kramers) from n1 and the population of n = 2; n ≥ 3 Boltzmann relative to n = 2."
 function hbf_nlte(ν, T, n1, n2)
     χ = 13.598 * EVERG; σ0 = 7.906e-18; hν = COp.h * ν; α = 0.0
@@ -264,18 +278,17 @@ hbf_levels(T, n2) = ntuple(i -> (n = i + 1; n2 * (n^2 / 4) * exp(-13.598 * EVERG
 """Planck means of absorption (κ_E, H⁻ bf from nHm) and emission (κ_P, H⁻ bf from nHmS), H bound–free in both or neither (`hbfP`), and
 Rosseland mean of the extinction (H⁻ from nHm, H bound–free always) [cm² g⁻¹]; number densities in cm⁻³."""
 function nlte_means(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T)
-    isempty(NLGRID[]) && (NLGRID[] = COp.grid(; n = 1000))
-    νs = NLGRID[]; t = COp.tables(); sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0; wJ = Tw != T
+    F = nlfreq(); t = COp.tables(); sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0; wJ = Tw != T
     cia = nH2 > 1e-3 * n1; acia = 0.0; nnl = hbf_levels(T, n2)
-    for i in 1:length(νs)-1
-        ν = 0.5 * (νs[i] + νs[i+1]); dν = νs[i+1] - νs[i]; σ = ν / COp.c; λμ = 1e4 / σ
+    @inbounds for i in eachindex(F.ν)
+        ν = F.ν[i]; dν = F.dν[i]; σ = F.σ[i]; λμ = F.λμ[i]
         stim = -expm1(-COp.h * ν / (COp.kB * T))
         # CIA bands are broad (≳ 100 cm⁻¹; the grid step is 1 %): evaluated on every 8th point, held in between (cost: 30 ms per call otherwise)
         cia && i % 8 == 1 && (acia = COp.k_h2h2(t, σ, T) * nH2^2 + COp.kcia(t.H2He, σ, T) * nH2 * nHe + COp.kcia(t.H2H, σ, T) * nH2 * n1)
-        a0 = acia + COp.k_Hm_ff(λμ, T) * n1 * ne * COp.kB * T + 3.692e8 * ne * nHp / (sqrt(T) * ν^3) * stim
-        σhm = COp.σ_Hm_bf(λμ) * stim
+        a0 = acia + COp.k_Hm_ff(λμ, T) * n1 * ne * COp.kB * T + 3.692e8 * ne * nHp / (sqrt(T) * F.ν3[i]) * stim
+        σhm = F.σhm[i] * stim
         ab = hbf_nlte_pre(ν, n1, nnl) * stim
-        sca = COp.σ_ray_H2(λμ * 1e3) * nH2 + COp.σ_ray_H(λμ * 1e4) * n1 + COp.σT * ne
+        sca = F.ray2[i] * nH2 + F.ray1[i] * n1 + COp.σT * ne
         B = COp.Bν(ν, T); D = COp.dBdT(ν, T); h = hbfP ? ab : 0.0
         BJ = wJ ? COp.Bν(ν, Tw) : B
         sE += (a0 + σhm * nHm + h) * BJ * dν; sW += BJ * dν; sP += (a0 + σhm * nHmS + h) * B * dν; sB += B * dν
