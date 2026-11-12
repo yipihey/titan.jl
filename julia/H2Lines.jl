@@ -614,6 +614,36 @@ function E2(x)
     end
     exp(-x) - x * (f * exp(-x))
 end
+# EPTAB=1 (Nov 2026; default off): the static part of the escape probability of `epβ` from a table. That part is a function of one
+# variable, F(τ) = Σ_x w_x E₂(τ e^{−x²}) over the 21-point frequency quadrature (β_static = ½[F(τ_out) + F(τ_in)]), and was summed
+# with 42 E₂ evaluations (series or continued fraction) for every line and zone on every escape-probability call: after LINEFAST
+# the largest single item of the line transfer between ALI refreshes. The table holds the same sum on a grid in ln τ (step 1/128,
+# 1e-10 ≤ τ ≤ 1e10; 4-point Lagrange interpolation, relative error < 1e-9; outside the range the sum itself). The table is used
+# only to DECIDE: β is the larger of the static and the Sobolev term, and where the Sobolev term exceeds the tabulated static
+# term by more than the table's error (margin 1e-6) the sum is not needed; elsewhere the sum is evaluated as before. The result
+# is therefore the same to the last bit. (In the accreting envelope the Sobolev term wins everywhere: 0 of 4.2e5 evaluations
+# on four production snapshots needed the sum.)
+const EPTAB = Ref(get(ENV, "EPTAB", "0") == "1")
+const EPXG = 0.0:0.25:5.0
+const EPWG = [(x == 0 || x == 5.0 ? 0.5 : 1.0) * 0.25 * 2 / sqrt(π) * exp(-x^2) for x in EPXG]
+const EPPH = [exp(-x^2) for x in EPXG]
+function epF_sum(τ)
+    b = 0.0
+    for j in eachindex(EPWG); b += EPWG[j] * E2(τ * EPPH[j]); end
+    b
+end
+const EPTL0 = log(1e-10); const EPTH = 1 / 128; const EPTN = ceil(Int, (log(1e10) - EPTL0) / EPTH) + 4
+const EPTABLE = Ref(Float64[])
+"The table of F at ln τ = EPTL0 + (j − 2) EPTH, j = 1..EPTN (built on first use; call before a threaded loop)."
+eptable() = (isempty(EPTABLE[]) && (EPTABLE[] = [epF_sum(exp(EPTL0 + (j - 2) * EPTH)) for j in 1:EPTN]); EPTABLE[])
+@inline function epF(tab, τ)
+    τ > 0 || return epF_sum(0.0)
+    s = (log(τ) - EPTL0) / EPTH
+    (s >= 0 && s < EPTN - 4) || return epF_sum(τ)
+    j = floor(Int, s); t = s - j
+    @inbounds f0 = tab[j+1]; @inbounds f1 = tab[j+2]; @inbounds f2 = tab[j+3]; @inbounds f3 = tab[j+4]
+    -t * (t - 1) * (t - 2) / 6 * f0 + (t + 1) * (t - 1) * (t - 2) / 2 * f1 - (t + 1) * t * (t - 2) / 2 * f2 + (t + 1) * t * (t - 1) / 6 * f3
+end
 
 "Max relative change of the level populations (levels with fraction > pmin in either iterate)."
 function popchange(P, Q; pmin = 1e-6)
@@ -754,6 +784,7 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     function epβ(κ0)
         βn = ones(nl, n)
         xg = 0.0:0.25:5.0; wg = [(x == 0 || x == 5.0 ? 0.5 : 1.0) * 0.25 * 2 / sqrt(π) * exp(-x^2) for x in xg]
+        tab = EPTAB[] ? eptable() : nothing
         Threads.@threads for i in 1:nl                # (S6: threaded; lines independent)
             τs = zeros(n); acc = 0.0
             for k in n:-1:1
@@ -764,13 +795,19 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
             for k in 1:n
                 κ0[i, k] > 0 || continue
                 τo = τs[k]; τi = (τtot - τs[k]) + τtot
-                b = 0.0
-                for (x, w) in zip(xg, wg); φ̂ = exp(-x^2); b += w * 0.5 * (E2(τo * φ̂) + E2(τi * φ̂)); end
                 rc = 0.5 * (r[k] + r[k+1])
                 g = EPGRAD[] == :thermal ? max(gth[k], gtn[k]) :
                     max(EPGRAD[] == :flow ? 0.0 : abs(u[k+1] - u[k]) / (r[k+1] - r[k]), abs(0.5 * (u[k] + u[k+1])) / max(rc, 1e-300))
+                bS = -1.0
                 if g > 0
-                    τS = κ0[i, k] * c / (ν[i] * g); b = max(b, τS < 1e-6 ? 1 - τS / 2 : -expm1(-τS) / τS)
+                    τS = κ0[i, k] * c / (ν[i] * g); bS = τS < 1e-6 ? 1 - τS / 2 : -expm1(-τS) / τS
+                end
+                b = 0.0
+                if tab !== nothing && bS >= (1 + 1e-6) * 0.5 * (epF(tab, τo) + epF(tab, τi))
+                    b = bS                                # (EPTAB) the static term cannot win: its sum is not needed
+                else
+                    for (x, w) in zip(xg, wg); φ̂ = exp(-x^2); b += w * 0.5 * (E2(τo * φ̂) + E2(τi * φ̂)); end
+                    g > 0 && (b = max(b, bS))
                 end
                 βn[i, k] = min(b, 1.0)
             end
