@@ -981,6 +981,8 @@ GMTAU=h3[,tlo,thi] (with GRIDMAP; default off): a fourth coordinate of the mesh 
 optical depth from the outer edge, clamped to [tlo, thi] (defaults 0.1, 10), so that the photosphere gets zones of its own instead of
 falling inside one zone (GridMap.jl). Used every step (gridmap_step!); the starting mesh at the hand-over is built without it.
 """
+const GMJUMP = get(ENV, "GMJUMP", "0") == "1"      # see gridmap_step!: no Δt cap for a target that jumps instead of moving
+const GMJPREV = Ref((0.0, false)); const NGMJUMP = Ref(0)
 const GMTAU = haskey(ENV, "GMTAU") ? parse.(Float64, split(ENV["GMTAU"], ",")) : nothing
 "Grey optical depth from the outer edge at the interfaces i0..b+1 (GMTAU)."
 function gm_tau(i0)
@@ -1464,6 +1466,12 @@ function gridmap_step!()
     if length(Pp) == N + 1 && dtl > 0
         for j in 2:N; qT = max(qT, abs(P_.r[j] - Pp[j]) / min(r[j] - r[j-1], r[j+1] - r[j])); end
         qT > 0 && (cap = max(dtl * gmp(13, 0.2) / qT, 0.3 * dtl))
+        # GMJUMP=1: the cap assumes the target moves in proportion to Δt. If the step just taken was already cut by the cap and the
+        # target still moved at least half as far (in zone widths), the move is a jump of the target (M★ re-anchored, the surface
+        # swelling through zones), not a motion Δt can resolve: no cap then (the mesh still moves at most fmove zone widths per step)
+        qp, capp = GMJPREV[]
+        GMJUMP && capp && qT >= 0.5 * qp && (NGMJUMP[] += 1; cap = Inf)
+        GMJPREV[] = (qT, cap < dt)
         cap < dt && (dt = cap; TF.setscalar!(:dtime, dt); TF.setscalar!(:tfac, dt / dtl))
     end
     GMPREV[] = P_.r; trel = max(gmp(9, 0.0), gmp(11, 3.0) * dt); fmove = gmp(10, 0.4)
@@ -1924,6 +1932,7 @@ try
                 end
                 TX.GRIDWIN[] === nothing || pr("%s", gridwin_line())
                 GRIDMAPP === nothing || pr("%s", gridmap_line())
+                GRIDMAPP !== nothing && GMJUMP && pr("        grid map: %d target jumps so far (no dt cap, GMJUMP)\n", NGMJUMP[])
                 # causality of the radiation field outside the surface: F/cE at the interfaces (FLUXTIE or not)
                 let fz = TF.var(:frn), ez = TF.var(:ern), rz = TF.var(:rn), q = 0.0, kq = 0, k1 = 0
                     for k in a+1:b
