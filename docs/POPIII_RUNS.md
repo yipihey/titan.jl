@@ -1729,6 +1729,83 @@ of 20–50 % in R★ that the 206-zone window run does not have; past it the thr
 understood; with that rule it agrees with `full6` within 1 % from 10 to 11.5 M☉. `STOLCHEM` and `GRIDWIN` are off in
 all production chains.
 
+### A mesh that follows radius and mass: `GRIDMAP` (12 Nov, in test)
+
+**The fixed 224-zone mesh after the first hours of `b224`.**
+
+- *The stall of the step rule is there too.* `t_eh10` stopped advancing at 2.40 M☉ (63.3 R☉) and `b224` was held at
+  1.337–1.348 M☉ from step 34 800 to 38 200 (22:15 to 23:53 on 11 Nov) with Δt 2.4 × 10⁴ s and no failed solves: the
+  same artefact as on the window mesh (zones behind the dissociation front, `STOL` on the intermediate temperature).
+  `t_stc4` continues `t_eh10`'s checkpoint with `STOLCHEM=1`: 2.40 → 5.06 M☉ in 4800 steps at Δt 2–5 × 10⁶ s with 117
+  failed solves, R★ 67.1 R☉ at 3.2 M☉, 65.2 at 3.5–3.8, 67.1 at 4.5–5.1. `t_eh9` (no HD) stalled the same way at
+  10.9–11.05 M☉ (215.6 R☉) and was stopped; `t_stc3` (window mesh, `STOLCHEM=1`) ended at 12.53 M☉, 220.7 R☉.
+- *`b224` left its stall by itself, through a second swelling*: 95.8 R☉ at 1.357 M☉ (step 38 800), back to 59.6 R☉ at
+  1.53 M☉, then 61.4 at 1.8–2.0, 63.3 at 2.1–2.8 and 65.2 at 3.05 M☉ (00:53, 12 Nov), on `t_eh10`'s quiet branch and past
+  the mass where `t_eh10` stalled. `STOLCHEM` is still off in `b224`.
+- *Where the zones are* (`meshcensus.jl`). `b224` has 1–4 zones per half decade of radius beyond 3000 R☉, with
+  Δ ln m of 0.23–0.70 per zone: the infalling envelope that feeds the star for the next 10³ yr is described by a
+  handful of zones. `c128` carries a 23.5 M☉ shell near 5600 R☉ with Δ ln ρ = 7.7 across one zone; `f128` has
+  Δ ln r = 0.24 inside 10 R☉. Each fixed mesh is good in the range it was built for and poor elsewhere, and that
+  range moves: R★ changes by a factor 20 and M★ by 10⁴ over a run.
+
+**The rule** (`julia/GridMap.jl`, no dependence on the rest of the code). A fixed number of zones N; every zone covers
+the same arc length in three coordinates,
+
+    X  = ln(r + r_c) / h_r                 radius (r_c: the radius that encloses f_c M★, so the uniform centre is not resolved in ln r)
+    Q1 = ln(m + f_c M★) / h_1              enclosed mass: stellar interior, dense shells, the envelope once it outweighs the star
+    Q2 = asinh((m − M★)/(ε M★)) / h_2      mass counted from the surface in both directions: outer layers of the star, the infall
+
+so radius sets the spacing where the enclosed mass does not change (the free-fall region between the shock and the
+massive envelope) and mass sets it where it does, and the hand-over between the two follows M★(t). M★ is the mass
+inside the point where the infall has dropped to 0.2 of its fastest value, interpolated between interfaces so that
+it is continuous in time. Two limits: no zone narrower than `dmin` in ln r (0.02), neighbouring zones differ by at
+most the factor `g` (1.2). The three widths (defaults h_r 0.3, h_1 0.3, h_2 0.4, ε 10⁻⁵, f_c 10⁻³) are scaled by one
+factor λ, found by bisection, so that the zones add up to N. One call costs 23 ms for N = 200.
+
+**How the mesh moves.** `GRIDMAP=N[,hr,h1,h2,eps,fc,dmin,g,tau,fmove,nrelax,ctol,ftar]` (with `ENVEUL`, default off).
+At the hand-over the phase-B mesh is built from the rule instead of the `ENVCORE`/`ENVEUL` spacing (same remap,
+`ENVCONS=1`). After every step, once the chemistry and `STOLCHEM` have fixed the next Δt, the driver computes the
+target mesh of the present state and sets one velocity per interface (`TitanResidFast.GRIDVEL`): the mesh closes
+1/`nrelax` (1/3) of its distance from the target in the next step, at most `fmove` (0.4) zone widths. The grid row of
+the residual is r_new − r_old − w Δt, so the velocities are data for the Newton solve and add nothing to the
+Jacobian; everything else is TITAN's moving-grid form as for `GRIDWIN` (u_rel = u − ṙ, fluxes through the moving
+faces, lab-frame gravity work, abundances advected with the mass that crosses each interface). Δt is limited so that
+the target itself moves at most `ftar` (0.2) zone widths per step, judged from its move in the step just taken.
+The first version without this limit (`t_mm1`: at most 0.2 zone widths per step and not faster than in 10⁶ s) fell 35
+zone widths behind its target once the steps reached 3 × 10⁶ s.
+
+**First test** (`t_mm2`: `GRIDMAP=199 STOLCHEM=1`, otherwise `b224`'s settings, from the same checkpoint
+`z19base64_A3_3f`; 200 zones).
+
+- With the switch off the patched sources are bit-identical to the previous ones over 400 steps from a 224-zone
+  checkpoint (`t_bi3`/`t_bi4`: all fields of all 20 snapshots equal).
+- The total mass on the grid is constant to 1 part in 10¹² over 7240 steps (19 994.670 688 69 → 19 994.670 688 67 M☉; the fixed mesh of
+  `t_eh10` does the same).
+- The mesh stays within 0.01–0.6 zone widths of its target. At 0.906 M☉ (step 33 260): 34 zones between 31.6 and
+  100 R☉ with eight zones of Δ ln r = 0.020 across the accretion shock (the infall goes from −71 to −1 km/s between
+  68 and 57 R☉; on the fixed mesh this is one 3 % zone), 8–10 zones per half decade everywhere from 0.3 to 3 × 10⁹ R☉
+  (6–7 between 3 × 10⁵ and 10⁷ R☉), and Δ ln m ≤ 0.18 per zone outside 1 R☉.
+- Through the flashing phase it follows `b224`: the same swelling to 100–107 R☉ at 0.50–0.59 M☉ (`b224` 99–111) and the
+  collapse at 0.60–0.62 M☉; times at fixed mass agree within 0.5 yr up to 0.5 M☉. Steps to 0.6 M☉: 7000 with 3468 failed
+  solves (`b224` 7100 with 3628, `t_eh10` 7400 with 4517): no saving there.
+- Quiet branch: 58.1 R☉ at 0.815 M☉ and 55.9 at 0.906 (`t_eh10` 54.5 at 0.8, 56.2 at 0.9–1.0).
+- *Open: a swelling at 0.91 M☉ that the fixed meshes do not show there.* After steps of 10⁷ s a step failed down to
+  Δt = 4 s (step 33 200); a layer of 2.6–4.8 × 10⁴ K appeared at the shock, which moved from 56 to 126 R☉ within a year
+  and came back with three smaller swings (up to 5 km/s outflow at the surface); about 430 failed solves until it settled at
+  65 R☉, 0.926 M☉ (step 34 360). `b224` did the same at 1.35 M☉ and not here. Whether the trigger is the mesh motion
+  at large Δt is not known.
+- *Open: the infall is faster than on the fixed mesh.* Mass inside 10⁴ R☉, both runs starting from 0.839 M☉ at
+  t₀ + 30.1 yr (t₀ = 10 178 900 yr): 1.002 M☉ at 57.4 yr and 1.171 at 85.4 yr in `t_mm2` against 0.991 and 1.153 in `b224`
+  (interpolated; `t_eh10` as `b224`), i.e. 6 % more mass through 10⁴ R☉ in 55 yr; inside 1000 R☉ the difference is
+  1.3 % at 85 yr. Between 3 × 10³ and 3 × 10⁴ R☉ `b224` has zones of
+  Δ ln r 0.21–0.49 (0.69 beyond 10⁵ R☉) and `t_mm2` 0.13–0.14. `t_fe1` (fixed mesh as `b224` but
+  Δ ln r ≤ 0.13 outside 1000 R☉, 310 zones, `STOLCHEM=1`, started 00:48 on 12 Nov) will tell whether the difference is
+  the resolution of the envelope or the moving mesh.
+- Not tested: a restart of a fixed-mesh checkpoint with `GRIDMAP`; `mat.Λext`, `Tref` and the per-zone equilibrium
+  flags are not advected with the mesh.
+
+`GRIDMAP` is off in all production chains; adopting it for the baseline is Tom's decision.
+
 ### `c128` and `f128`: a restart with a one-time merge
 
 Both start from frozen copies of the last checkpoints (`frozen_c146_f/m2c_z19c146f_auto0`, 146 zones;
