@@ -773,7 +773,8 @@ state, `t_bi2` against `t_ref6`):**
 - `UPFREEZE=n`: from Newton iteration n on, each interface keeps its upwind direction. Removes a two-cycle of the donor
   choice at interfaces of a moving window where the flow relative to the grid is near zero.
 - `STOLCHEM=1`: the step-size rule is evaluated again after the chemistry step, so that it acts on the change over the
-  whole step and not on the state between the two halves of the operator split. Under test, not adopted.
+  whole step and not on the state between the two halves of the operator split. Under test, not adopted; it ends the
+  stall of the resolved-shock runs (see "The mesh of the baseline").
 - `CHICAP=κ[,Tmax]`: caps the flux-mean opacity below Tmax. Diagnostic, not physics.
 - `NEWTFLIP=1`: prints which branch decisions of the residual changed between Newton iterations.
 - `GRIDWIN=…,gmax`: see above.
@@ -1556,6 +1557,94 @@ The first line a chain writes to `procedure.log` gives shells, threads, pinning 
   step. Each ALI call took 2.5 s, so the lines were 80 % of 1.6 s per step. `LINEFAST=1` was switched on in `base64`
   at step 26 000 for this reason (see the `LINEFAST` section; the twin from that checkpoint is bitwise equal). `nohd64` has it from
   step 18 500 (its row at step 18 700 equals the earlier trajectory).
+
+### The mesh of the baseline: 64 fixed zones cannot carry it, and what a resolved shock costs (11 Nov, open)
+
+Tom's reading of `base64` in stage A3: far too many zones at small enclosed mass, where nothing varies, and far too few
+at the accretion shock. The record agrees. At step 50 000 (0.44 M☉, 340 zones) 31 zones lie inside 1e-3 M☉, 103 inside
+1e-2 M☉ and 196 inside 0.1 M☉, and the shock is one zone from 55.8 to 347 R☉ (Δln r = 1.83). After the hand-over the
+fixed 64-zone mesh has Δln r = 0.33 where the stellar surface is, and R★ sits on mesh interfaces: `base64` stayed at
+200.952 R☉ from 0.75 to 1.70 M☉ and then hopped inward to 144.371 R☉; `nohd64c` is at 737.996 R☉ from 16.8 to
+18.4 M☉. Both chains run on with tens of thousands of divergences (52 000 and, in the two segments, 85 000, by the evening of
+11 Nov). They are not a baseline.
+
+**An early hand-over removes the over-resolved core.** Stage A3 refines in mass and is where the zones at small enclosed
+mass come from. Handing over to the radial mesh at 0.045 M☉ (HD; `t_eh1`, from `base64`'s checkpoint at step 26 000)
+gives M★(t) within 1–2 % of `base64`'s own A3 + B and takes about 17 times less wall time than the rest of stage A3.
+All tests below hand over early: at 0.045 M☉ with HD, at 0.164 M☉ without (from `nohd64`'s checkpoint at step 18 500),
+with the conservative remap (`ENVCONS=1`) in the tests without HD.
+
+**The reference is `full6`** (no HD; 380 fixed zones, Δln r = 0.03 from about 10 to 1000 R☉; 0.056 M☉/yr). Its shock
+is one 3 % zone and R★ moves in steps of 3 %. It flashes and diverges from 0.5 to 2.05 M☉ (3404 divergences, R★
+between 130 and 199 R☉), and then runs from 2.05 to 10.4 M☉ with no divergence at all, Δt 3–6.5e6 s, 200 steps from
+4.59 to 5.76 M☉. R★ there: 147.2 R☉ at 3.20 M☉, 156.3 at 3.93, 166.0 at 4.59, 171.1 at 5.20, 176.3 at 5.76, 181.7 at
+6.29, 187.3 at 6.78–7.25, 193.0 at 7.7–8.1, 205.0 at 9.7–10.5. It is a reference only for runs without HD: the HD
+runs accrete at 0.008–0.010 M☉/yr and the radius follows the rate. There is no fine-mesh HD reference.
+
+**A moving window that resolves the shock** (`GRIDWIN=1,10000,1e6,0.05,10,1.5,0.3,0.3,40` with `UPFREEZE=4`; the mesh
+follows the temperature gradient, the shock is spread over about 8 zones of Δln r = 0.006):
+
+| test | zones | physics | result |
+|---|---|---|---|
+| `t_gw64e` | 64 + window | no HD | R★ 481 R☉ at 3.12 M☉ (`full6`: 147). Too coarse outside the window. |
+| `t_eh5` | 124 + window | no HD | 5–13 % above `full6` in the quiet phases, a swelling episode at 5.2–5.8 M☉ (to 414 R☉) that `full6` does not have; 230.7 R☉ at 12.0 M☉. |
+| `t_eh7` | 124 + window, gmax 10 | no HD | clearly worse than `t_eh5`; stopped. |
+| `t_eh6` | 206 + window | no HD | within 1–2 % of `full6` from 3.8 to 6.1 M☉ (157.8 R☉ at 3.73, 164.6 at 4.45, 171.6 at 5.07, 176.2 at 5.57, 180.3 at 6.11). Then it swells: 219 R☉ at 6.28 M☉, 287 at 6.64, 335 at 6.90, where `full6` has 182–187. |
+| `t_st1`, `t_st4` | as `t_eh6`, `STOL=0.15` from 3.73 M☉ | no HD | the same swelling at the same mass: 184 R☉ at 6.06 M☉, 254 at 6.34, 292 at 6.52. |
+| `t_stc1` | `t_eh6` from 6.89 M☉ with `STOLCHEM=1` | no HD | leaves the swollen state; 204.9 R☉ at 8.41 M☉ (`full6`: 193.0–198.9). See 3. below. |
+| `t_eh3` | 124 + window | HD | 57.9 R☉ at 1.19 M☉, 61.3 at 2.00. |
+| `t_eh4`, `t_eh8` | 206 + window | HD | 52.5 R☉ at 0.96 M☉, 54.2 at 1.34 M☉; then stuck (3. below). |
+| `t_stc2` | `t_eh8` from 1.34 M☉ with `STOLCHEM=1` | HD | accretes again; 54.1 R☉ at 1.356 M☉. |
+
+So 206 zones with the window agree with the fixed 380-zone mesh over 3.8–6.1 M☉, to within the 3 % by which the
+reference is quantised. Three things stand against using it as the baseline as it is.
+
+1. *Steps.* From 4 to 5.7 M☉ `t_eh6` took 2100 steps with 742 divergences (mean Δt 4.6e5 s) where `full6` took about
+   200 with none (mean Δt 4.6e6 s): ten times the steps, four to five times the wall time (4 against 16 threads).
+   Each divergence cuts Δt by 8 and the step then grows back to 1.5–2e6 s at most.
+2. *The cause of the divergences is not found.* In a typical failed step the largest Newton correction is in the
+   radiation energy at the upstream edge of the shock; it falls for five iterations, jumps at the sixth, falls again and
+   then grows by 1.8 per iteration. Tested and without effect: `STOL=0.15` (fewer divergences for 1200 steps, then the
+   same rate), the time constant of the mesh (1e5 and 1e7 s instead of 1e6), and holding the van Leer limiter decisions
+   from iteration 5 on (a trial switch, 1101 decisions held in 60 steps, the divergence count unchanged to the digit;
+   removed again). A smaller gmax (10) is worse. `NEWTFLIP` lines for the upwind direction show the raw decision,
+   not the held one, so they report flips after iteration `UPFREEZE` that the solver does not make.
+3. *Beyond 6.1 M☉ (no HD) and 1.34 M☉ (HD) the step falls to the time the gas needs to cross one zone at the shock.*
+   This is an artefact of where the step rule is evaluated. The first zone behind the dissociation front (5500 K,
+   optical depth 0.05 across the zone, x(H⁺) ≈ 1e-3) is heated by the transport step at fixed composition and cooled
+   back by the chemistry step, every step: `chemsub k 118 … T 7204 → 5541` in `t_eh6`, with Δt = 2.2e4 s set by the
+   30 % rule on that intermediate temperature and equal to the crossing time of the zone (0.6 % of 348 R☉ at 72 km/s).
+   `t_st4` sits at 1.1–1.7e4 s in the same way, `t_eh8` at 1.2e3 s for 4400 steps (0.65 % of 54 R☉ at 95 km/s is
+   2.6e3 s; its rule is 15 %). In the quiet phase of `t_eh6` the same zones existed (5700–6550 K behind a 2470 K zone
+   at step 26 000) and the step was 37 crossing times, so the layer by itself is not the trigger; the gas ahead of the
+   shock is three times less dense in the swollen state (5e-11 against 1.6e-10 g/cm³).
+   With the rule applied after the chemistry step (`STOLCHEM=1`) both stalls end:
+   - `t_stc2`, from `t_eh8` at step 43 500 (HD, 1.340 M☉): Δt goes from 1.2e3 s to 2–6e5 s at once and the star
+     accretes again (1.356 M☉, 54.1 R☉ after 400 steps), with about 70 divergences per 100 steps.
+   - `t_stc1`, from `t_eh6` at step 28 500 (6.89 M☉, 335 R☉): for 1500 steps the solver diverges on every second step
+     (Δt 4e3–2e4 s) while R★ falls to 215 R☉ and then moves between 215 and 280 R☉; at step 30 000 the step returns
+     to 0.3–2.5e6 s and R★ settles: 253 R☉ at 7.02 M☉, 221 at 7.35, 213 at 7.63, 207.2 at 8.00, 204.9 at 8.41, where
+     `full6` has 193.0 at 7.7–8.1 and 198.9 at 8.55, so 3–7 % above the reference and closing. It takes 100 steps and
+     80 divergences per 0.065 M☉ there, against 0.4–0.5 M☉ per 100 steps in `full6`. `t_stc3` continues it.
+
+   So the radius between 6.1 and 7 M☉ on this mesh depends on the step rule (335 R☉ and rising with the rule on the
+   intermediate state, 215–280 R☉ with it on the full step, 182–187 R☉ in `full6`), and the split between transport
+   and chemistry is not converged in the relaxation layer behind a resolved shock. Whether a swelling episode at
+   6.1 M☉ is real is not established. `t_eh5` has a similar one at 5.2–5.8 M☉ and left it without help; `full6` has
+   them only below 2.05 M☉ and at 10.47 M☉.
+
+**A fixed mesh that is fine only where the surface lives.** `ENVEUL` takes two more entries (3fc1c41): the factor per
+zone by which the spacing grows above rb and the factor by which it shrinks above the core boundary.
+`ENVCORE=0.1,0.3,3 ENVEUL=0,0.03,0.7,1000,1.15,0.7` gives 224 zones: 12 inside 3 R☉, 176 at Δln r = 0.03 from 3 to
+1000 R☉ (the range R★ has covered in all runs, 8 to 740 R☉), 36 outside. It is `full6`'s mesh where the shock and
+the surface are, with the coarse core and envelope of the 64-zone runs. `t_eh9` (no HD, to be compared with `full6`)
+and `t_eh10` (HD) started on it at 19:24 and 19:47 on 11 Nov. First rows of `t_eh9`: 103.0 R☉ at 0.700 M☉ and 138.4 at
+0.959 (`full6`: 102.5 at 0.70, 142.8 at 0.98). The comparison that counts is the quiet phase above 3 M☉.
+
+**Where this stands.** Not decided: the mesh of the baseline. The fixed 224-zone mesh is the cheap candidate and
+inherits `full6`'s one-zone shock and 3 % steps in R★. The window mesh resolves the shock, needs `STOLCHEM=1` to
+run at all past the first swollen state, costs about ten times the steps, and its divergences are not understood.
+`STOLCHEM` and `GRIDWIN` are off in all production chains.
 
 ### `c128` and `f128`: a restart with a one-time merge
 
