@@ -424,6 +424,58 @@ function rates(a::Atom, T, ne; J = nothing, β = (l, u) -> 1.0)
 end
 
 """
+Split form of `rates` for iterating on the line escape probabilities: `static_rates` holds collisions, bound–free and two-photon
+terms (independent of β), `add_lines!` adds the line terms for a given β; P = static + lines equals `rates(a, T, ne; J, β)`.
+"""
+function static_rates(a::Atom, T, ne; J = nothing)
+    N = nlev(a); P = zeros(N + 1, N + 1)
+    for l in 1:N-1, u in l+1:N
+        qu = a.qexc(l, u, T)
+        if qu > 0
+            P[l, u] += ne * qu
+            P[u, l] += ne * qu * (a.levels[l].g / a.levels[u].g) * exp((a.levels[u].E - a.levels[l].E) / (kB * T))
+        end
+    end
+    for (u, l, A2) in a.A2; P[u, l] += A2; end
+    for i in 1:N
+        R, α = bf_rates(a, i, T; J); qi = a.qion(i, T)
+        P[i, N+1] += R + ne * qi
+        P[N+1, i] += ne * α + ne * ne * qi * Φ(a, i, T)
+    end
+    P
+end
+"Radiative line list of an atom: (l, u, ν, A, B_ul, B_lu, f)."
+lines(a::Atom) = [(l, u, νline(a, l, u), a.A[u, l], a.A[u, l] * c^2 / (2h * νline(a, l, u)^3),
+                   a.A[u, l] * c^2 / (2h * νline(a, l, u)^3) * a.levels[u].g / a.levels[l].g, a.f[l, u])
+                  for l in 1:nlev(a)-1 for u in l+1:nlev(a) if a.A[u, l] > 0]
+function add_lines!(P, L, βv; J = nothing)
+    for (k, (l, u, ν, A, Bul, Blu, _)) in enumerate(L)
+        Jc = J === nothing ? 0.0 : J(ν); b = βv[k]
+        P[u, l] += b * (A + Bul * Jc); P[l, u] += b * Blu * Jc
+    end
+    P
+end
+"Statistical equilibrium from a full rate matrix P (continuum = last index), Σ n = ntot."
+function solve_P(P, ntot)
+    N = size(P, 1); M = P' - Diagonal(vec(sum(P; dims = 2))); M[N, :] .= 1.0; rhs = zeros(N); rhs[N] = ntot
+    x = M \ rhs; (n = x[1:end-1], nplus = x[end])
+end
+"""
+Angle-averaged Sobolev escape probability of a line with opacity factor K = (πe²/mc) f λ (n_l − g_l n_u/g_u) [s⁻¹] in a flow with
+velocity v (cm/s) at radius r and radial gradient dvdr: τ(μ) = K/|μ² dv/dr + (1 − μ²) v/r|, with the floor `Qmin` on the
+denominator (thermal width over the zone size, where the flow is nearly static and Sobolev does not apply).
+"""
+function βsob(K, v, r, dvdr; Qmin = 0.0, nμ = 16)
+    K <= 0 && return 1.0
+    acc = 0.0
+    for i in 1:nμ
+        μ = (i - 0.5) / nμ; Q = max(abs(μ^2 * dvdr + (1 - μ^2) * v / r), Qmin)
+        τ = K / Q; acc += τ < 1e-6 ? 1.0 : -expm1(-τ) / τ
+    end
+    acc / nμ
+end
+
+"""
     solve(a, T, ne, ntot; J, β) -> (n = level populations, nplus = next-ion density)
 
 Statistical equilibrium at fixed T and n_e: Σ_j n_j P_ji = n_i Σ_j P_ij for the bound levels and the continuum, with
