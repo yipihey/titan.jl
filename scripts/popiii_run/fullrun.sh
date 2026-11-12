@@ -8,7 +8,7 @@
 #       escape-factor term) with static pre-refinement of the future core (REFINE); second collapse and core formation,
 #       to T_c = 5e4 K                                                                  phaseA.env + stageA2.env
 #   A3  core growth on the Lagrangian mesh, dynamical time-step limit relaxed, moving refinement window ahead of the
-#       star, to M* = 0.5 Msun                                                          phaseA.env + stageA3.env
+#       star, to M* = 0.05 Msun                                                         phaseA.env + stageA3.env
 #   B   remap onto the fixed accretion mesh (ENVEUL), production flags, segments of SEG steps        phaseB.env
 #
 # RAD=1 must never be set from the IC without the rebuild: it switches the CIE cooling off and no radiation field exists.

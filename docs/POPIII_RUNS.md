@@ -15,7 +15,7 @@ start, its full settings and how it ended.
 |---|---|---|---|
 | A1: cloud collapse | Lagrangian mesh, 200 zones. Hydrodynamics, chemistry, H₂ line transfer, RA04 CIE continuum cooling. No radiation field (`RAD=0`) | `phaseA.env` + `stageA1.env` (`CDYN=0.01 ADVREL=1 EPGRAD=thermal TCOOLTH=1`, see "Stability of the collapse") | n_c = 3.5e18 cm⁻³ (log 18.54) |
 | A2: radiation, core formation | `RAD=1 RADFROM=<A1 checkpoint>`: E_r and F_r are built from the hydro state and the StellarOpacity continuum replaces the CIE escape-factor term. The future core is pre-refined while it is still smooth (`REFINE=1e-3,0.1,0.03`: 1e-3 to 0.1 M☉ to Δm/m ≤ 0.03) | `phaseA.env` + `stageA2.env` (`DTRADMAX=1500`, `CDYN=0.01`) | T_c = 5e4 K (the core has formed) |
-| A3: core growth | Lagrangian mesh with a moving refinement window ahead of the star (`REZWIN=1.3,4,0.03 REZNMAX=340`), dynamical Δt limit relaxed (`CDYN=1000 DTRADMAX=0`): with `CDYN=0.01` the core's own density holds Δt at ~90 s | `phaseA.env` + `stageA3.env` | M* = 0.5 M☉ (`MSTOP`: mass inside the first interface falling faster than 2 km/s) |
+| A3: core growth | Lagrangian mesh with a moving refinement window ahead of the star (`REZWIN=1.3,4,0.03 REZNMAX=340`), dynamical Δt limit relaxed (`CDYN=1000 DTRADMAX=0`): with `CDYN=0.01` the core's own density holds Δt at ~90 s | `phaseA.env` + `stageA3.env` | M* = 0.05 M☉ since 11 Nov, 0.5 M☉ before (`MSTOP`: mass inside the first interface falling faster than 2 km/s) |
 | B: accretion | remapped onto the fixed accretion mesh at the restart (`ENVEUL=0,0.03,0.1,1000`; `REZONE=0`) | `phaseB.env`: the production flags | segments of 100 000 steps, each from the previous segment's final checkpoint `z19<run>B<n>`; `ENVMS0` is read from the remap line in the log |
 
 Stages A1–A3 are the sequence that produced the production history in October (S6-A/B/C in `POPIII_NOTES.md`: `z19base` →
@@ -1640,6 +1640,18 @@ zone by which the spacing grows above rb and the factor by which it shrinks abov
 the surface are, with the coarse core and envelope of the 64-zone runs. `t_eh9` (no HD, to be compared with `full6`)
 and `t_eh10` (HD) started on it at 19:24 and 19:47 on 11 Nov. First rows of `t_eh9`: 103.0 R☉ at 0.700 M☉ and 138.4 at
 0.959 (`full6`: 102.5 at 0.70, 142.8 at 0.98). The comparison that counts is the quiet phase above 3 M☉.
+
+**Decided on 11 Nov (Tom).**
+
+- `base64` and `nohd64c` are stopped (20:01; 1.78 M☉ at step 128 600 and 18.7 M☉ at step 138 200). Their stage-A3
+  checkpoints `z19base64_A3_3f` (0.045 M☉) and `z19nohd64_A3_3f` (0.164 M☉) are the starting points of the new baseline.
+- The early hand-over is the procedure: `stageA3.env` ends the stage at `MSTOP=0.05`. Tested from 0.045 M☉ with HD on
+  three meshes (`t_eh1`, `t_eh4`, `t_eh10`); without HD only from 0.164 M☉.
+- New runs take `LINEFAST=1 LINEXC2=16 EPTAB=1` (in `phaseA.env` and `phaseB.env`) and the conservative remap
+  `ENVCONS=1` (`phaseB.env`). `c128` and `f128` keep the settings they were started with: the previous `phaseB.env` is
+  copied into their run directories.
+- The mesh of the baseline waits for `t_eh9` and `t_eh10` above 3 M☉; until then `phaseB.env` still has the 380-zone
+  mesh `ENVEUL=0,0.03,0.1,1000`.
 
 **Where this stands.** Not decided: the mesh of the baseline. The fixed 224-zone mesh is the cheap candidate and
 inherits `full6`'s one-zone shock and 3 % steps in R★. The window mesh resolves the shock, needs `STOLCHEM=1` to
