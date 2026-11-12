@@ -2005,3 +2005,22 @@ In stage A3 the refresh interval is driven to 1 by a single zone ahead of the sh
 cooling. Raising the floor below which a zone is ignored in the refresh test from 1e-3 to 1e-2 of the total makes
 the stage 1.75 times faster over a 0.7 yr twin, but the total line luminosity then differs by 10–15 %, in the two
 zones just ahead of the shock. The floor stays at 1e-3.
+
+### Where the chemistry time goes (12 Nov)
+
+Profiled (`Profile`, 300 steps from `fz_b224`, step 84 500, 4.22 M☉, the stalled state before `STOLCHEM`): chemistry 70 % of the
+wall time (hydro 12, chemistry 32–37, lines 4 s per 100 steps). Counters (`CHEMSTATS=1`, default off): 38 834 network steps,
+55 736 attempts, 925 935 Newton iterations — 24 per step, against 3.2 in `c128` (182 M☉). About 17 000 attempts fail and each runs
+to `maxit` = 60 before the step is halved; that is nearly all the iterations.
+
+- Bit-identical (0c442fa, in production code): the reverse-rate power law below T_u is computed once (it was recomputed with two
+  `lnKeq` on every call); the frequency-only terms of `nlte_means` are tabulated once. A memoised `lnKeq` was slower and dropped.
+- `CHEMSTAG=8 CHEMGIVEUP=15` (57d6f45, default off): accept a round-off-stagnated attempt from iteration 8; abandon an attempt that is
+  still far from converged at iteration 15. Newton iterations −61 %, chemistry time −24 %, total −18 % (two runs of each variant in
+  parallel on idle nodes: 90.8/90.5 against 67.6/70.3 s per 200 steps). Differences to the default (T ≤ 2.5 % in the two zones at the
+  dissociation front, abundances above 1e-8 up to 50 %) are those of a round-off-level perturbation (null test: `CHEMSTAG` alone):
+  that layer is chaotic. Not yet in any chain (decision).
+- With those on, `nlopc` (2–3 × `nlte_means` × 1000 frequencies per network zone per step) is half the chemistry time. Reusing the
+  factors while all inputs stay within 1 % saved nothing (2 % of zone-steps qualify); not committed. Next candidates: fewer frequencies
+  (accuracy test against the 1000-point means), or a fixed refresh interval.
+- Machine-load scatter of whole-run timings is ~30 % between nodes; compare variants only in parallel runs, repeated.
