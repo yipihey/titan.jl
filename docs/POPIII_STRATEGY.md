@@ -35,6 +35,22 @@ H II region and its pressure, is not in any running calculation (audit gap 1).
   below changes the answer and from which mass, instead of adding everything everywhere.
 - Energy-budget check of any slowdown before calling it a halt (rule from `POPIII_GOAL.md`).
 
+### First trigger map (12 Nov, `c128` 141.5–181.8 M☉; script `trig.jl`, checked by hand on step 1101250)
+
+- **No H II breakout possible in this range.** The whole envelope between R★ (7.6 R☉) and 5600 R☉ is at 35–160 kK, i.e.
+  already ionized in the LTE table. Its recombinations (≈1e59 s⁻¹) exceed any ionizing photon rate of the star by 10⁵–10⁹.
+  The H II region is *trapped* inside the envelope.
+- **A 24 M☉ radiation-supported shell.** Two zones, 4300–7536 R☉ (Δln r 0.27 and 0.29), hold 182.8 → 205.7 M☉ of enclosed
+  mass, i.e. 23.9 M☉, nearly at rest (u ≈ −0.01 to −6 km/s), with Γ up to 1.55. Outside it the density drops by 2500 in
+  one interface and the infall resumes at 23–60 km/s. The photosphere sits on this shell. The star still gains
+  2.8e-3 M☉/yr, the same as the inflow at 10³–10⁵ R☉, so this is not a halt.
+- **Everything that decides end B here lives in two zones.** The shell and the jump outside it are not resolved on the
+  128-zone mesh, and the shell is in the layer where the EOS lacks helium ionization (all 17 envelope zones, 23.9 M☉,
+  are table zones with p < 1e4 dyn cm⁻² and 1e4 < T < 1.5e5 K). L/L_Edd(es) 0.98 → 1.027.
+- Consequence for the plan: **a resolution restart of the shell region at ≈180 M☉ joins stage 1** (refine 10³–3×10⁴ R☉,
+  restart from a frozen `c128` checkpoint), and P1 (helium) stays first in stage 2. The ionizing ray (P2) matters only
+  once the envelope is no longer opaque, which the map does not show before 182 M☉.
+
 ### Stage 2 — complete the physics that can change the end, one switch at a time (≈ 1–2 weeks)
 
 Order set by impact on end B. Each item: default-off switch, a unit/benchmark test, then a restart test from the stage-1
@@ -89,7 +105,7 @@ restart production or change flags.
 
 ## Decisions needed from Tom
 
-1. Keep `c128` running unchanged to 300 M☉ / halt as the stage-1 scaffold (recommended).
+1. Keep `c128` running unchanged to 300 M☉ / halt as the stage-1 scaffold (recommended). Plus a resolution restart of its envelope shell at ≈180 M☉ (recommended).
 2. `f128` (42 M☉, slow, same physics as `c128`): stop it to free cores for stage-2 restarts, or keep it as a second realization?
 3. Order of stage 2: P1 (He EOS) before P2 (H II region), as above, or the H II region first?
 4. `b224`: keep as the HD from-IC baseline despite its coarse envelope, or replace it once the mesh decision of stage 3 is made?
