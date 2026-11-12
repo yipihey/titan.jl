@@ -122,7 +122,8 @@ function modern(; li = false, he = CN.HECHEM)
         push!(photos, CN.Photo("Li(levels) + γ → Li+ + e (Verner 1996 + hydrogenic)", :Li, [:Lip, :e], levels_Li(), CN.ZLi_el, true))
     end
     if he
-        # helium as a chemical element (HECHEM=1): collisional ionisation by electrons (Voronov 1997, ADNDT 65, 1; He I:
+        # helium as a chemical element (HECHEM=1): collisional ionisation by electrons (Voronov 1997, ADNDT 65, 1, coefficients
+        # verified 12 Nov against Verner's cfit.dat (pa.uky.edu/~verner/dima/col) and Cloudy's data/coll_ion.dat; He I:
         # ΔE 24.6, P 0, A 1.75e-8, X 0.180, K 0.35; He II: 54.4, 1, 2.05e-9, 0.265, 0.25) with three-body recombination by
         # detailed balance; photo-ionisation from the levels with the Milne inverse (radiative recombination). Not yet:
         # dielectronic recombination (its inverse is missing and it is density-suppressed at these n_e), charge exchange

@@ -64,3 +64,27 @@ function test_caseB2()
     end
 end
 test_collisions(); test_caseB2()
+function test_heI()
+    println("5. He I case B (1¹S held empty; singlet resonance lines n¹P → 1¹S thick) against Porter et al. 2012/13, nmax = 40")
+    a = MA.heI(; nmax = 40)
+    lab = [l.label for l in a.levels]; t(s) = findfirst(==(s), lab)
+    lines = (("4471", t("1s.2p 3P"), t("1s.4d 3D")), ("5876", t("1s.2p 3P"), t("1s.3d 3D")), ("6678", t("1s.2p 1P"), t("1s.3d 1D")), ("10830", t("1s.2s 3S"), t("1s.2p 3P")))
+    @printf("   %d levels; LTE check: ", MA.nlev(a))
+    s = MA.solve(a, 2e4, 1e12, 1.0; J = ν -> MA.Bν(ν, 2e4), β = (l, u) -> 0.5); L = MA.lte(a, 2e4, 1e12, 1.0)
+    @printf("max |n/n_LTE − 1| = %.2e\n", maximum(abs.(vcat(s.n, s.nplus) ./ vcat(L.n, L.nplus) .- 1)))
+    caseB(l, u) = (l == 1 && a.levels[u].g == 3 && occursin("1P", a.levels[u].label)) || (l == 1 && occursin("singlet", a.levels[u].label)) ? 0.0 : 1.0
+    pal = Dict{Tuple{String,Float64,Float64},Float64}()
+    for ln in eachline(joinpath(@__DIR__, "atomdata", "caseB_reference.csv"))
+        p = split(ln, ","); length(p) >= 7 && p[1] == "HeI" && p[7] == "Pal13" && (pal[(p[2], parse(Float64, p[4]), parse(Float64, p[5]))] = parse(Float64, p[6]))
+    end
+    for (T, ne) in ((1e4, 1e2), (1e4, 1e4), (1e4, 1e6), (1e4, 1e8), (1e4, 1e10), (1e4, 1e12), (1e4, 1e14), (2e4, 1e10), (2e4, 1e12), (2e4, 1e14))
+        n = MA.solve_upper(a, T, ne, 1.0; nfix = [0.0], β = caseB)
+        @printf("   T %.0e ne %.0e:", T, ne)
+        for (nm, l, u) in lines
+            e = MA.line_emissivity(a, n, l, u) / ne; r = get(pal, (nm, T, ne), NaN)
+            @printf("  %s %.3f", nm, e / r)
+        end
+        println()
+    end
+end
+test_heI()

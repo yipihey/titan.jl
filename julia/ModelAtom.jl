@@ -29,7 +29,13 @@ Tested (`modelatom_test.jl`, 12 Nov): J = B gives LTE to 1e-8 (round-off); α_A,
 nmax = 200 (−2 % / −4 % for H I / He II at nmax = 40); case-B Hβ within 0–10 % of SH95 for n_e = 1e8–1e14 (Hα up to +22 % at
 1e13, collision-sensitive); He II 4686 and 1640 are 13–16 % low even at 1e14: their n = 3, 4 levels are not l-mixed (He II
 l-mixing needs ~Z⁶ higher density), so the l-collapsed cascade misses the 4f → 3d channel. To do: l-resolved low levels with
-proton l-mixing (Pengelly & Seaton 1964); the He I atom from the CHIANTI he_1 files.
+proton l-mixing (Pengelly & Seaton 1964).
+
+He I (`heI`, 99 terms: CHIANTI n ≤ 5 + hydrogenic singlet/triplet shells 6–40), case B against Porter et al. 2012/13 at 1e4 K:
+4471/5876/6678/10830 within 0.75–1.23 for n_e ≤ 1e8 and 0.94–1.07 at 1e14, but 0.39–0.81 at n_e = 1e10–1e12 (2e4 K similar).
+The intermediate-density deficit is attributed (not yet proven) to the approximate data of the excited terms: hydrogenic
+photo-ionisation, van Regemorter for pairs CHIANTI lacks, Johnson ionisation at n*. To do: R-matrix (TOPbase) cross sections and
+the missing collision data for the excited terms.
 """
 module ModelAtom
 
@@ -158,10 +164,10 @@ function johnson_exc(n::Int, np::Int, T; Z = 1)
     pref = sqrt(8kT / (π * me)) * 2n^2 / x * π * 5.29177211e-9^2 * y^2
     pref * (A * ((1 / y + 0.5) * E1y - (1 / z + 0.5) * E1z) + (B - A * log(2n^2 / x)) * (E2y / y - E2z / z)) / Z^3
 end
-function johnson_ion(n::Int, T; Z = 1)
-    Tz = T / Z^2; kT = kB * Tz; In = Z0.χH / n^2
+function johnson_ion(n::Real, T; Z = 1, In = Z0.χH / n^2)
+    Tz = T / Z^2; kT = kB * Tz
     rn = n == 1 ? 0.45 : 1.94 * n^-1.57; bn = n == 1 ? -0.603 : (4.0 - 18.63 / n + 36.24 / n^2 - 28.09 / n^3) / n
-    g = n == 1 ? (1.1330, -0.4059, 0.07014) : n == 2 ? (1.0785, -0.2319, 0.02947) :
+    g = n == 1 ? (1.1330, -0.4059, 0.07014) : (n isa Integer && n == 2) ? (1.0785, -0.2319, 0.02947) :
         (0.9935 + 0.2328 / n - 0.1296 / n^2, -(0.6282 - 0.5598 / n + 0.5299 / n^2) / n, (0.3887 - 1.181 / n + 1.470 / n^2) / n^2)
     An = 32 / (3 * sqrt(3) * π) * n * (g[1] / 3 + g[2] / 4 + g[3] / 5)
     Bn = 2 / 3 * n^2 * (5 + bn)
@@ -245,6 +251,112 @@ function chianti_collapsed(stem)
 end
 "Upward rate coefficient from an effective collision strength: q_lu = 8.629e-6 Υ e^{−ΔE/kT}/(g_l √T) [cm³ s⁻¹]."
 q_from_ups(Υ, gl, ΔE, T) = 8.629e-6 * Υ * exp(-ΔE / (kB * T)) / (gl * sqrt(T))
+
+# ---------------------------------------------------------------- He I
+"CHIANTI .wgfa: (i, j, λ [Å], gf, A [s⁻¹], label); λ = 0 marks two-photon / autoionising entries."
+function read_wgfa(path)
+    out = []
+    for ln in eachline(path)
+        strip(ln) == "-1" && break
+        m = match(r"^\s*(\d+)\s+(\d+)\s+(-?[\d.]+)\s+(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s*(.*)$", ln); m === nothing && continue
+        push!(out, (i = parse(Int, m[1]), j = parse(Int, m[2]), λ = parse(Float64, m[3]), gf = parse(Float64, m[4]), A = parse(Float64, m[5]), label = m[6]))
+    end
+    out
+end
+
+"""
+    heI(; nmax = 40, stem = atomdata/chianti/he_1)
+
+He I model atom. Terms n ≤ 5 from CHIANTI (energies, fine structure collapsed: g = Σ(2J+1), g-weighted mean energy; A summed
+over the fine-structure components, A_term = Σ g_J A / g_term; the 2¹S two-photon decay from the λ = 0 entry), collisions from
+the CHIANTI effective collision strengths (Sawey & Berrington 1993, Bray et al. 2000) for the transitions they hold (from the
+six lowest fine-structure levels: 1¹S, 2³S, 2¹S, 2³P₀,₁,₂). Above n = 5: hydrogenic shells n = 6 … nmax in the singlet and the
+triplet system (g = n² and 3n², E = χ_HeI − Ry/n²), radiative decays with hydrogenic n–n′ oscillator strengths, distributed over
+the CHIANTI terms of a lower shell n ≤ 5 of the same spin in proportion to their statistical weights (APPROXIMATE).
+Missing collision data: dipole-allowed term pairs get van Regemorter rates (APPROXIMATE, factor ~2), shell pairs n, n′ ≥ 6
+Johnson 1972 (hydrogenic outer electron), spin-changing pairs above 2³P none. Photo-ionisation: 1¹S Verner et al. 1996;
+excited terms hydrogenic Kramers with n* = √(Ry/χ) (APPROXIMATE; R-matrix cross sections to do). Collisional ionisation:
+Johnson 1972 at n* = √(Ry/χ) with the term's own χ for excited terms (APPROXIMATE); 1¹S Voronov 1997 (verified).
+"""
+function heI(; nmax = 40, stem = joinpath(@__DIR__, "atomdata", "chianti", "he_1"))
+    hc = h * c; Ry = 13.605693 * eV; χ1 = Z0.χHe1
+    lv = read_elvlc(stem * ".elvlc")
+    key(l) = (l.conf, l.mult, l.L)
+    tkeys = unique([key(l) for l in lv]); tid = Dict(k => t for (t, k) in enumerate(tkeys))
+    gT = zeros(length(tkeys)); ET = zeros(length(tkeys))
+    for l in lv; t = tid[key(l)]; g = 2l.J + 1; gT[t] += g; ET[t] += g * l.E * hc; end
+    ET ./= gT
+    nT = [nprin(k[1]) for k in tkeys]; mT = [k[2] for k in tkeys]
+    levels = [Level(ET[t], gT[t], χ1 - ET[t], "$(tkeys[t][1]) $(tkeys[t][2])$(tkeys[t][3])") for t in eachindex(tkeys)]
+    nC = length(levels)
+    for n in 6:nmax, mult in (1, 3)
+        E = χ1 - Ry / n^2; push!(levels, Level(E, mult * n^2, Ry / n^2, "n=$n $(mult == 1 ? "singlet" : "triplet")")); push!(nT, n); push!(mT, mult)
+    end
+    N = length(levels); A = zeros(N, N); f = zeros(N, N); A2 = Tuple{Int,Int,Float64}[]
+    ν(l, u) = (levels[u].E - levels[l].E) / h
+    for w in read_wgfa(stem * ".wgfa")
+        ti = tid[key(lv[w.i])]; tj = tid[key(lv[w.j])]; ti == tj && continue
+        lo, up = levels[ti].E < levels[tj].E ? (ti, tj) : (tj, ti)
+        jup = levels[ti].E < levels[tj].E ? w.j : w.i; gup = 2lv[jup].J + 1      # A in the file is per upper fine-structure level
+        if w.λ == 0
+            push!(A2, (up, lo, w.A * gup / levels[up].g))
+        else
+            A[up, lo] += w.A * gup / levels[up].g
+        end
+    end
+    # hydrogenic shells above n = 5: decays to lower shells of the same spin
+    shell_terms(n, mult) = [t for t in 1:N if nT[t] == n && mT[t] == mult]
+    for u in nC+1:N, nl in 1:nT[u]-1
+        mult = mT[u]; ts = shell_terms(nl, mult); isempty(ts) && continue
+        fl = Z0.hyd_f(nl, nT[u]); gs = sum(levels[t].g for t in ts)
+        for t in ts
+            A[u, t] += ACOEF * ν(t, u)^2 * (gs / levels[u].g) * fl * levels[t].g / gs
+        end
+    end
+    for u in 1:N, l in 1:N
+        A[u, l] > 0 && (f[l, u] = A[u, l] / (ACOEF * ν(l, u)^2 * levels[l].g / levels[u].g))
+    end
+    # photo-ionisation
+    σ = Function[]
+    for t in 1:N
+        νt = levels[t].χ / h
+        if t == 1
+            push!(σ, ν -> ν < νt ? 0.0 : σverner_HeI(h * ν / eV))
+        else
+            ns = sqrt(Ry / levels[t].χ); push!(σ, ν -> ν < νt ? 0.0 : 7.906e-18 * ns * (νt / ν)^3)
+        end
+    end
+    # collisions
+    tr = read_scups(stem * ".scups"); Υpairs = Dict{Tuple{Int,Int},Vector{Any}}()
+    for t_ in tr
+        a_, b_ = tid[key(lv[t_.i])], tid[key(lv[t_.j])]; a_ == b_ && continue
+        push!(get!(Υpairs, (min(a_, b_), max(a_, b_)), Any[]), t_)
+    end
+    function qexc(l, u, T)
+        ΔE = levels[u].E - levels[l].E; ΔE <= 0 && return 0.0
+        k = (min(l, u), max(l, u))
+        haskey(Υpairs, k) && return q_from_ups(sum(ups(t_, T) for t_ in Υpairs[k]), levels[l].g, ΔE, T)
+        if l > nC && u > nC && mT[l] == mT[u]
+            return johnson_exc(nT[l], nT[u], T)      # rate per atom in the lower shell (independent of the spin weight)
+        end
+        f[l, u] > 1e-4 || return 0.0
+        y = ΔE / (kB * T)
+        1.2521e-4 / sqrt(T) * (Z0.χH / ΔE) * f[l, u] * 0.276 * expE1(y) * exp(-y)
+    end
+    function qion(t, T)
+        t == 1 && return (U = 24.6 * eV / (kB * T); 1.75e-8 * U^0.35 * exp(-U) / (0.180 + U))    # Voronov 1997 (verified against Verner's cfit.dat and Cloudy's coll_ion.dat)
+        ns = sqrt(Ry / levels[t].χ)                       # effective quantum number; Johnson's n ≥ 3 coefficients at n*, with the level's own χ
+        johnson_ion(max(ns, 1.5), T; In = levels[t].χ)
+    end
+    Atom("He I", levels, 2.0, f, A, A2, σ, qexc, qion, :chianti)
+end
+"He I 1s² photo-ionisation cross section [cm²] at E [eV] (Verner et al. 1996 fit, as Spectrum.σHe1)."
+function σverner_HeI(E)
+    E < 24.587 && return 0.0
+    E0, σ0, ya, P, yw, y0, y1 = 13.61, 949.2, 1.469, 3.188, 2.039, 0.4434, 2.136
+    x = E / E0 - y0; y = sqrt(x^2 + y1^2)
+    1e-18 * σ0 * ((x - 1)^2 + yw^2) * y^(0.5P - 5.5) * (1 + sqrt(y / ya))^(-P)
+end
 
 # ---------------------------------------------------------------- rates
 """

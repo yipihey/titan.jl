@@ -90,3 +90,35 @@ HI,Halpha,emis,1e4,1e13,1.0200e-24,SH95,h_i_rec_SH95.fits 3_2
 HeII,4686,emis,1e4,1e14,1.2190e-23,SH95,he_ii_rec_SH95.fits 4_3
 HeII,1640,emis,1e4,1e14,8.1370e-23,SH95,he_ii_rec_SH95.fits 3_2
 HI,Halpha,emis,1e4,1e14,1.9580e-24,SH95,h_i_rec_SH95.fits 3_2
+HeI,4471,emis,1e4,1e6,6.7618e-26,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,5876,emis,1e4,1e6,2.0854e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,6678,emis,1e4,1e6,5.7659e-26,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,10830,emis,1e4,1e6,2.4676e-24,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,4471,emis,1e4,1e8,7.6401e-26,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,5876,emis,1e4,1e8,2.5287e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,6678,emis,1e4,1e8,7.6171e-26,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,10830,emis,1e4,1e8,4.4154e-24,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,4471,emis,1e4,1e10,1.6473e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,5876,emis,1e4,1e10,6.6266e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,6678,emis,1e4,1e10,2.6877e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,10830,emis,1e4,1e10,2.7680e-23,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,4471,emis,1e4,1e12,4.0948e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,5876,emis,1e4,1e12,1.4366e-24,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,6678,emis,1e4,1e12,5.5123e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,10830,emis,1e4,1e12,3.2856e-23,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,4471,emis,1e4,1e14,4.5496e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,5876,emis,1e4,1e14,2.1729e-24,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,6678,emis,1e4,1e14,5.7330e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,10830,emis,1e4,1e14,4.0408e-24,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,4471,emis,2e4,1e10,8.5422e-26,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,5876,emis,2e4,1e10,3.3165e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,6678,emis,2e4,1e10,1.3200e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,10830,emis,2e4,1e10,5.4570e-24,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,4471,emis,2e4,1e12,1.0129e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,5876,emis,2e4,1e12,3.8946e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,6678,emis,2e4,1e12,1.4222e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,10830,emis,2e4,1e12,3.6694e-24,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,4471,emis,2e4,1e14,9.8304e-26,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,5876,emis,2e4,1e14,3.3110e-25,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,6678,emis,2e4,1e14,8.6608e-26,Pal13,he_i_rec_Pal12-Pal13.fits
+HeI,10830,emis,2e4,1e14,2.2446e-25,Pal13,he_i_rec_Pal12-Pal13.fits
