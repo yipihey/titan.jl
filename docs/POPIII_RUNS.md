@@ -1686,3 +1686,73 @@ to 9e-15.
 Not done: changes of the method (one ALI iteration per call, a longer refresh interval) and work on the
 escape-probability call. The benchmark tools are in the session scratch directory (`lb/linebench.jl`, `lb/cmp2.jl`,
 `lb/twin.jl`, `lftest.sh`).
+
+## More on the line cost: refresh cap, resonance window, screening table and a GPU formal solution (11 Nov)
+
+After `LINEFAST=1` the lines take 20 % of the step in `c128` (0.113 s per step), 10 % in `f128` (0.340 s), 13 % in
+`nohd64c` (0.183 s) and 24 % in stage A3 of `base64` (0.288 s). The two regimes differ:
+
+- **Phase B.** The formal solution is at most about 4 % of the line time, under 1 % of the step. What remains is the
+  escape-probability call that every step makes. Nothing that speeds up the formal solution pays here.
+- **Stage A3** (refined Lagrangian mesh, about 300 zones, more than 100 thick lines, refresh interval often 1). The
+  ALI calls were 2036 s of the 8668 s wall time of `base64`'s last A3 segment. This is where the options below pay.
+
+Four switches, all default off or default unchanged, none switched on in a running chain:
+
+| switch | commit | what it does | measured |
+|---|---|---|---|
+| `ALICAP=<n>` | b1b766e | cap of the ALI refresh interval, separate from `NALI` (which the restart check pins) | `c128` and `f128` sit at the cap of 20 with drift 0.000, `nohd64c` 98 % of the time; a higher cap is safe there and saves under 1 % of the step |
+| `LINEXC2=<x>` | 50c85cc | the resonance window is \|v − μu\| ≤ v_th √(x + ln max(τ₀, 1)); default 38 as before | `LINEXC2=16`: formal solution −20 % (`base64` step 50 000: 0.250 → 0.198 s); line luminosity changes by 2.9e-9 (`base64`) and 7.3e-10 (`f128`) |
+| `EPTAB=1` | 1ba004f | screening factors of the escape-probability call from a table built once per call | bitwise equal; the call goes 0.037 → 0.022 s (`base64`), 0.032 → 0.022 (`f128`), 0.017 → 0.011 (`nohd64c`), no gain in `c128` |
+| `LINEGPU=cuda\|metal\|cpu` | a5eeef4 | formal solution of all thick lines of an ALI iteration in one batch on a GPU | see below |
+
+### `LINEGPU`: the formal solution through KernelAbstractions
+
+`julia/H2LinesKA.jl` is a port of `transfer_line_fast!` to KernelAbstractions.jl. All thick lines of one ALI iteration
+are solved in three kernel launches: the sweeps along the rays (one work item per line, ray and chunk of frequency
+bins), the sum over chunks, and the angle quadrature per line and zone. The flux quadrature and everything that
+carries ν₀ dv/c or r is done on the host in Float64.
+
+- The kernels are generic in the float type and hold no backend-specific code. What reaches the device is normalised
+  on the host (sources by a power of two near the line's largest, lengths by a power of two near the outer radius),
+  so Float32 does not underflow on Planck-like source values.
+- In Float32 the device accumulates (S − I)ψ per ray segment and the host forms the intensity differences by a
+  running sum in Float64, so no difference of nearly equal numbers is taken in single precision.
+- `LINEGPU=cuda` or `metal` selects the backend; `LINEGPUFLOAT=32|64`, default 32. Metal has no Float64. `LINEGPU=cpu`
+  runs the same kernels on the KernelAbstractions CPU backend; it is a check, five times slower than the native path.
+- `popiii_m2c.jl` includes `h2lines_gpu.jl` only when `LINEGPU` is set, and the run then needs a Julia environment
+  with KernelAbstractions and CUDA or Metal next to ForwardDiff and StaticArrays. The production environment is
+  unchanged. It acts only with `LINEFAST=1 LINESRC=zone`.
+- With `LINEGPU` unset, ALI and EP results on `f128` step 122 500 and `base64` step 50 000 are bitwise equal to the
+  source before the switch.
+
+Measured on the RTX A6000 through the switch, against the 4-thread CPU path:
+
+| | CPU | CUDA Float32 | CUDA Float64 |
+|---|---|---|---|
+| ALI call, `base64` step 50 000 (127 thick lines) | 0.30 s | 0.060–0.075 s | 0.11–0.13 s |
+| ALI call, `f128` step 122 500 (14 thick lines) | 0.074 s | 0.04–0.07 s | 0.078 s |
+| net line cooling per zone, largest difference / peak | | 1.1e-8, 4.5e-9 | 8e-17 |
+| populations above 1e-12, largest relative difference | | 7.3e-7, 2.4e-7 | 7e-16 |
+
+Twin run in the driver, stage A3 from `base64`'s step-26 000 checkpoint, steps 26 200–27 500, 4 pinned threads
+(`t_lg0` CPU, `t_lg1` `LINEGPU=cuda` Float32): 0.743 → 0.405 s per step, lines 0.46 → 0.13 s per step. Δt agrees to
+three or four digits throughout, M* to all printed digits, and R* to 5e-4 at the last step (17.774 against
+17.783 R☉). Device memory of the batch: 373 MB for 92 reduced zones and 127 lines.
+
+Limits of what was tested:
+
+- **Metal has not been run.** There is no Apple machine here. `julia/h2lines_ka_selftest.jl` checks a backend without
+  any run data: a synthetic accreting envelope (opaque star, shock, free fall, sub-thermal sources, line-centre
+  optical depths 0.6 to 3e4), Float32 on the device against Float64 on the CPU backend, with and without the incident
+  field. On CUDA it passes with errors of 5e-7 to 1.6e-6 in J̄, 5e-7 in Λ* and 7e-8 of the peak in the net cooling.
+  On a Mac: `julia -t 4 --project=<env with KernelAbstractions and Metal> julia/h2lines_ka_selftest.jl metal`.
+- The workspace cache is process-global and not thread-safe; the driver calls it from one task.
+- The twin covers 1300 steps of one stage. Phase B was not run with it, since there is nothing to gain there.
+
+### A cooling-share floor in stage A3 (`ALIWMIN=1e-2`): not adopted
+
+In stage A3 the refresh interval is driven to 1 by a single zone ahead of the shock that carries 0.16 % of the line
+cooling. Raising the floor below which a zone is ignored in the refresh test from 1e-3 to 1e-2 of the total makes
+the stage 1.75 times faster over a 0.7 yr twin, but the total line luminosity then differs by 10–15 %, in the two
+zones just ahead of the shock. The floor stays at 1e-3.
