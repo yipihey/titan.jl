@@ -100,3 +100,40 @@ their frozen checkpoints.
 | 12 Nov | R1 test | `c128` restarted at 183.5 M☉ with `HECHEM=1` (`t_hec1`) and without (`t_hec0`), 6000 steps (170 yr): no failed solves in either, same cost. Between 7.6 R☉ and 4300 R☉ helium is fully He²⁺ (x = 0.0833 = y_He), so the 69 % in u is a constant offset there and the structure is unchanged to ≤ 3 % (ρ), ≤ 1 % (T). He²⁺ → He⁺ recombines exactly in the two shell zones (5600–7536 R☉: He²⁺ 0.076 → 0.0013). After 170 yr: 0.19 M☉ less in the inner shell zone, L −0.4 %, R★ and Ṁ unchanged. The helium ionization front sits on the unresolved shell, so its effect cannot be judged on this mesh |
 | 12 Nov | R2 | `ModelAtom.jl`: rate-matrix solver (LTE exact for J = B), hydrogenic H I / He II (n ≤ 40–200) and He I (99 terms: CHIANTI n ≤ 5 + hydrogenic shells); collisions CHIANTI n = 1 → n′ (Anderson et al. 2002; Ballance; Sawey & Berrington 1993, Bray et al. 2000) + Johnson 1972 (from the ADS scan). Tests (`modelatom_test.jl`) against Storey & Hummer 1995 and Porter et al. 2012/13: α_A,B 0.2–0.6 %; case-B Hβ 0–10 % at n_e 1e8–1e14; He II 4686/1640 13–16 % low (l-collapse); He I lines within ~25 % except up to 2× low at n_e 1e10–1e12 (approximate excited-term data). Voronov 1997 in `ChemRates` verified against two copies |
 | 12 Nov | R2 snapshot | `snapnlte.jl`: the three atoms per zone on a snapshot, run's own radiation field (B(T_r) inside, diluted T_eff outside), Sobolev β in the snapshot's velocity field, n_e iterated. `c128` at 186.3 M☉ (step 1156100): envelope 15–6600 R☉ in LTE (b₂ = 0.998), H⁺, He²⁺ to the shell; lines produced there (Lyα 3e7, He II 1640 1.1e7, He I 584 8e6 L☉ locally) are buried under grey τ ≈ 1e4: **no recombination line escapes in this phase**; the visible lines come from the 5400 K infall outside the 3400 K photosphere (Hα ≈ 290 L☉, 4e-5 L; n = 2 overpopulated, b₂ 1.7e3–1e5). Grey attenuation is a placeholder for the frequency-dependent continuum transfer |
+
+## R3 design: coupling the atoms into the evolution (draft, 12 Nov, for Tom)
+
+**What each zone type already carries** (read from the code):
+
+- *Table zones* (LTE; p ≥ 300 dyn cm⁻² and T ≥ 4500 K, or T ≥ 5000 K and τ ≥ 3): gas–radiation exchange through κ_P and κ_E
+  from `StellarOpacity`, whose **Planck mean above 1e4 K already includes the H and He lines** (Z0Physics: Saha–Boltzmann levels,
+  occupation probabilities), and OPAL's Rosseland mean. In LTE and at large optical depth this is the right physics, and the
+  non-LTE solve on `c128` confirms it (b₂ = 0.998 through the envelope). Adding a separate line cooling there would count the
+  lines twice. Missing: the flux mean (χ is the Rosseland mean) and helium ionisation in the EOS (now `HECHEM`).
+- *Network zones* (non-LTE): three-level H (n = 1, 2, continuum) with Sobolev Lyα escape, H⁻, H₂ (63 levels, ALI), HD,
+  continuum-only κ_P/κ_E of the network composition (`NLOPAC`): **no atomic line other than Lyα, no helium.**
+
+**Coupling, as the H₂ lines are coupled now:** every refresh (same scheduling as the ALI: interval adapts, rescaled in between),
+for the network zones and the table zones with τ_grey < τ_cut:
+
+1. Solve H I, He I, He II (`ModelAtom`) with the run's own J (as `snapnlte.jl`; later the frequency-dependent J of item 4) and
+   Sobolev β in the run's velocity field.
+2. Feed back per zone:
+   - **network zones**: (a) effective ionisation and recombination rates of H and He into `ChemNet` (replacing the three-level
+     atom's n = 2 closure and adding He photo-ionisation from excited levels), as rate multipliers held between refreshes;
+     (b) net atomic line cooling Λ_atom = Σ_lines hν (n_u A β − β (n_l B_lu − n_u B_ul) J_c) into the same `Λext` channel the
+     H₂ lines use (implicit in T with its slope); (c) He line and recombination cooling likewise;
+   - **all solved zones**: the departure coefficients b_i, recorded in the snapshots (records item 5 of the plan).
+3. Table zones keep LTE; at the photosphere, where a table zone's b_i departs from 1 by more than a threshold, it is switched to
+   the network (the existing `PSW*` hysteresis, with b_i as an added criterion) instead of correcting the table.
+4. Frequency-dependent J and the opacity means: a continuum + line formal solution (`Spectrum.jl` rays, GPU path later) on the
+   refresh gives J_ν per zone, hence κ_P, κ_E, κ_R and **the flux mean κ_F** (the radiation force), and the line force
+   Σ (hν/c) κ_line F_ν β. The grey two-moment system keeps the hydrodynamics; these means replace the table's where they differ.
+   Acceptance: ∫L_ν dν = L of the run within 2 % (else multigroup transport: a method change, back to Tom).
+
+**Tests:** off ⇒ bit-identical; the analysis solver on a snapshot reproduces the run's per-zone terms to round-off; restarts
+from frozen checkpoints at 4 (`b224`/`fz_eh10`), 42 (`f128`) and 182 M☉ (`fz_c128`) against the unchanged runs; energy budget.
+
+**Open questions for Tom:** (i) is it acceptable that table zones stay LTE (lines through κ_P) and only the photosphere and outer
+zones are non-LTE, with b_i as an extra switch criterion; (ii) the order: (2a+2b) first in the network zones of the infall
+(effect at all masses), then (4) the flux mean (decisive for Γ ≈ 1 in the envelope).
