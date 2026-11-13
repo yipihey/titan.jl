@@ -1078,12 +1078,12 @@ hydro step e keeps its usual meaning (chemistry, diagnostics, checkpoints). Repl
 """
 const ECHEMSPLIT = get(ENV, "ECHEMSPLIT", "0") == "1"; const ECHEMPEND = Ref(false); const ECHEMN = Ref(0)
 function echem_pre!()
-    eg = TF.var(:egn); eo = TF.var(:ego); off = zeros(length(eg))
+    eg = TF.var(:egn); eo = TF.var(:ego); egr = TF.var(:egrn); ero_ = TF.var(:egro); off = zeros(length(eg))
     dn = TF.var(:dn); tn = TF.var(:tn)
     for k in a:b
         # table zones: the equilibrium composition (their advected x is stale: it keeps the neutral infall); any constant offset conserves
         off[k] = mat.eqzone[k] ? ChemNet.echem(PM.x_from_table(mat, dn[k], min(tn[k], 1e6)), mat.net) : ChemNet.echem(mat.x[k], mat.net)
-        eg[k] -= off[k]; eo[k] -= off[k]
+        eg[k] -= off[k]; eo[k] -= off[k]; egr[k] -= off[k]; ero_[k] -= off[k]      # (gas + radiation: peqr copies egrn to egro)
     end
     PM.ECHEMOFF[] = off; PM.ECHEMON[] = true
     tab = falses(length(eg)); for k in a:b; tab[k] = mat.eqzone[k]; end
@@ -1091,16 +1091,16 @@ function echem_pre!()
     nothing
 end
 function echem_hydro_done!()
-    PM.ECHEMON[] = false; TX.ECHEMF[] = nothing; eo = TF.var(:ego); off = PM.ECHEMOFF[]
-    for k in a:b; eo[k] += off[k]; end
+    PM.ECHEMON[] = false; TX.ECHEMF[] = nothing; eo = TF.var(:ego); ero_ = TF.var(:egro); off = PM.ECHEMOFF[]
+    for k in a:b; eo[k] += off[k]; ero_[k] += off[k]; end
     ECHEMPEND[] = true
     nothing
 end
 function echem_post!()
     ECHEMPEND[] || return nothing
-    eg = TF.var(:egn); off = PM.ECHEMOFF[]; dmax = 0.0; kw = 0
+    eg = TF.var(:egn); egr = TF.var(:egrn); off = PM.ECHEMOFF[]; dmax = 0.0; kw = 0
     for k in a:b
-        en = mat.eqzone[k] ? off[k] : ChemNet.echem(mat.x[k], mat.net); eg[k] += en      # (table zones: their row took the crossing chemical energy)
+        en = mat.eqzone[k] ? off[k] : ChemNet.echem(mat.x[k], mat.net); eg[k] += en; egr[k] += en      # (table zones: their row took the crossing chemical energy)
         abs(en - off[k]) > dmax && (dmax = abs(en - off[k]); kw = k)
     end
     ECHEMPEND[] = false; ECHEMN[] += 1
