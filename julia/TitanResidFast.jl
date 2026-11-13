@@ -215,7 +215,7 @@ const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's i
 const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
 "Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
-const CPL_XFLOOR = Ref(1e-8); const CPL_CLAMP = Ref(1.0); const CPLDBG = Ref(parse(Int, get(ENV, "CPLDBG", "0")))
+const CPL_XFLOOR = Ref(1e-8); const CPL_CLAMP = Ref(parse(Float64, get(ENV, "CPLCLAMP", "1"))); const CPLDBG = Ref(parse(Int, get(ENV, "CPLDBG", "0")))
 """
 Time weight of the chemistry source and cooling in the coupled rows (default 1: backward Euler in every stage, also in TR-BDF2's
 trapezoidal stage; the residual's θ otherwise). A species relaxing in seconds within a step of 1e3–1e6 s has, under the trapezoidal
