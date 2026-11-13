@@ -281,7 +281,9 @@ function cpl_dmax!(rhs, a, b)
                 println("CPLDBG iter $(gi(:iter)) zone $(k - a + 1) row $i: δ $(rhs[i, k]) x $(q[k]) x_old $(XSO[][i - 7][k]) x(H+,H2) $(XSN[][1][k]), $(XSN[][2][k]) T $(TF.var(:tn)[k]) T_old $(TF.var(:to)[k]) ρ $(TF.var(:dn)[k]) neighbours x_H+ $(XSN[][1][k-1]) $(XSN[][1][k+1]) cplz $(cplz(k-1)) $(cplz(k+1))"))
             isfinite(rhs[i, k]) || (rhs[i, k] = 0.0; d = Inf)                        # a non-finite correction: no change, not converged
             rhs[i, k] = clamp(rhs[i, k], -cl, cl)
-            d = max(d, abs(rhs[i, k]) * q[k] / (q[k] + f))
+            # weight by the larger of the iterate and the old abundance: a species the iterate drove to the floor (x_H⁺ 1e-40 next to the
+            # shock, from 1e-3) is not converged; only species that are trace at both ends are left out
+            xm_ = max(q[k], XSO[][i - 7][k]); d = max(d, abs(rhs[i, k]) * xm_ / (xm_ + f))
         end
     end
     d
