@@ -236,6 +236,14 @@ photoionization where the gray LTE term (T > T_r) cooled.
 """
 const NLOPAC = Ref(false)
 const NLOPC = Ref{Vector{Any}}(Any[])          # per zone: (; T0, RE, qE, RP, qP, RR, qR) or nothing
+"""
+NLODAMP=w (0 < w < 1; default 1 = off): under-relaxation in time of the lagged non-LTE opacity factors of the network zones (NLOPAC),
+ln R ← (1 − w) ln R_prev + w ln R_new for RE, RP, RR, where the zone had factors in the previous step too. The factors are frozen inside
+Newton and set by the chemistry after it; at 6.5 M_sun the pre-shock gas (T 4000–6000 K, x_e ≈ Saha, d ln x_e/d ln T ≈ 16) flips between
+a hot opaque and a cool transparent state every 20–40 steps through that one-step lag. Test switch.
+"""
+const NLODAMP = parse(Float64, get(ENV, "NLODAMP", "1"))
+const NLOPREV = Ref{Vector{Any}}(Any[])
 import ..ContinuumOpacity
 const COp = ContinuumOpacity
 const NLGRID = Ref{Vector{Float64}}(Float64[])
@@ -787,6 +795,7 @@ function chem_core!(m::NetGas)
     tl3sw = slrates !== nothing && hasproperty(STARLIGHT[], :tl3) && STARLIGHT[].tl3; iHpf = findfirst(==(:Hp), m.net.free)
     if NLOPAC[]
         length(NLOPC[]) == length(dn) || (NLOPC[] = Any[nothing for _ in dn])
+        NLODAMP < 1 && (NLOPREV[] = copy(NLOPC[]))
         fill!(NLOPC[], nothing)
     end
     dTz = zeros(length(tn))
@@ -922,6 +931,10 @@ function chem_core!(m::NetGas)
                 isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
                 SLDIAG[].tl3[k] = merge(p3e, (; chemq = cq, cycq = yq, qbb = lya_bb(dn[k], T1, CNn.full(x1, m.net), p3e)))
                 NLOPAC[] && (NLOPC[][k] = nlopc(dn[k], T1, CNn.full(x1, m.net), p3e))
+                if NLODAMP < 1 && NLOPAC[] && k <= length(NLOPREV[]) && (o0 = NLOPREV[][k]) !== nothing && (o1 = NLOPC[][k]) !== nothing
+                    w_ = NLODAMP; bl(a0, a1) = exp((1 - w_) * log(a0) + w_ * log(a1))
+                    NLOPC[][k] = merge(o1, (; RE = bl(o0.RE, o1.RE), RP = bl(o0.RP, o1.RP), RR = bl(o0.RR, o1.RR)))
+                end
                 if TL3DBG[] > 0 && TF.getscalar(:jstep) % TL3DBG[] == 0 && k % 6 == 0
                     d0 = CNn.full(m.x[k], m.net); d1 = CNn.full(x1, m.net)
                     @printf("tl3dbg k %d r %.3e tauz %.2e T %.0f -> %.0f  xe %.2e -> %.2e  C %.2e β %.2e RL %.2e  chemq %.2e cycq %.2e  u %.3e  u(T0,x0) %.3e  eqprev %s\n", k, rn[k] / 6.957e10, tauz[k], tn[k], T1, d0[:e], d1[:e], tl3_C(T1, p3), p3.β, p3.RL, cq, yq, egn[k], CNn.eos(dn[k], tn[k], m.x[k], m.net)[1], eqprev)
