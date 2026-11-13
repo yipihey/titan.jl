@@ -523,7 +523,8 @@ backward-Euler step; the fast species are algebraic functions of them: H⁻ and 
 (every process of the network between adjacent stages balanced: collisional ionisation ⇌ three-body recombination, photo-ionisation ⇌
 radiative recombination, charge transfer), with n_e from charge conservation. The fast species cannot go negative and no longer limit
 the Newton step (the stall of 13 Nov: λ falling ×10 per iteration on trace He⁺/He²⁺ and the eliminated Li). Assumes the fast species
-relax faster than the step; `extra` (star-light ray) enters only the rows of the slow species.
+relax faster than the step. `extra` (star light: H⁻ photodetachment, LW, H photoionisation; a ray) enters the slow rows directly and
+the H⁻/H₂⁺ balance as a source and a loss linear in the species' own abundance (extra_j at x_j = 0 and 1); not the He/Li stages.
 """
 const CK = Ref(get(ENV, "CHEMCK", "0") == "1"); const CKSWEEPS = Ref(parse(Int, get(ENV, "CHEMCKSWEEPS", "3")))
 const CKFAST = (:Hm, :H2p, :Hep, :Hepp, :Lip)
@@ -581,13 +582,17 @@ function _ck_ud(v, a, b, nH, net, c, ph, ks)
     up, dn
 end
 "Free abundances with the slow ones xs (over ckinfo(net).slow) and the fast ones from equilibrium at T."
-function ck_expand(xs, T, nH, net, ph, ks)
+function ck_expand(xs, T, nH, net, ph, ks, extra = nothing)
     c = compiled(net); ci = ckinfo(net)
     x = zeros(promote_type(eltype(xs), typeof(T), eltype(ks)), length(net.free))
     for (k, i) in enumerate(ci.slow); x[i] = xs[k]; end
     for _ in 1:CKSWEEPS[]
         for (f, j) in ci.single
             v = fullvec(x, c); C, L = _ck_cl(v, j, nH, net, c, ph, ks)
+            if extra !== nothing
+                xt = copy(x); xt[f] = zero(eltype(x)); a = extra(xt)[f]; xt[f] = one(eltype(x)); b = extra(xt)[f] - a
+                a > 0 && (C += a); b < 0 && (L -= b)
+            end
             x[f] = L > 0 ? C / L : zero(C)
         end
         for ch in ci.chains
@@ -610,7 +615,7 @@ function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, 
         T = exp(z[ns+1]); Tv = ForwardDiff.value(T)
         Tv == phT[] || (phc[] = [(p, photorates_t(p, Tv, env)...) for p in photos]; phT[] = Tv)
         ph = phc[]; ks = [r.k(T, env) * nH^(length(r.R) - 1) for r in net.reactions]
-        (ck_expand(z[1:ns], T, nH, net, ph, ks), T, ph)
+        (ck_expand(z[1:ns], T, nH, net, ph, ks, extra), T, ph)
     end
     function resid(z, xs0, h)
         x, T, ph = xT(z)
