@@ -528,6 +528,14 @@ the H⁻/H₂⁺ balance as a source and a loss linear in the species' own abund
 once per call at the slow state); not the He/Li stages.
 """
 const CK = Ref(get(ENV, "CHEMCK", "0") == "1"); const CKSWEEPS = Ref(parse(Int, get(ENV, "CHEMCKSWEEPS", "3")))
+"""
+`CHEMCKADAPT=fT,fx` (with CHEMCK=1; default off): the reduced step integrates dt in adaptive backward-Euler sub-steps, each accepted
+only if T changes by less than the factor fT and x_e by less than fx (else halved; after an accepted one h doubles). A single
+backward-Euler step over ~1e6 s in the partially ionized pre-shock gas converges to the hot, ionized root (x_e 0.87 instead of 0.10
+sub-stepped), which the material's CHEMSUB tree then splits to depth 16.
+"""
+const CKADAPT = Ref(let v = get(ENV, "CHEMCKADAPT", ""); isempty(v) ? (0.0, 0.0) : Tuple(parse.(Float64, split(v, ","))) end)
+const CKMAXSUB = 10000
 const CKFAST = (:Hm, :H2p, :Hep, :Hepp, :Lip)
 struct CKInfo
     fast::Vector{Int}; slow::Vector{Int}                 # positions in net.free
@@ -665,8 +673,23 @@ function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, 
         cooling === nothing || (ucur[] = Float64(eos(ρ, T1, xT(vcat(xs1, log(T1)))[1], net)[1]))
         adv(xs1, T1, h / 2, depth + 1)
     end
-    zs, T = adv(collect(Float64, x0[sl]), T0, dt, 0)
-    (xT(vcat(zs, log(T)))[1], T)
+    fT, fx = CKADAPT[]
+    fT > 0 || ((zs, T) = adv(collect(Float64, x0[sl]), T0, dt, 0); return (xT(vcat(zs, log(T)))[1], T))
+    xe(xs, T) = (x = xT(vcat(xs, log(T)))[1]; max(fullvec(x, cc)[cc.ie], 1e-30))
+    xs = collect(Float64, x0[sl]); T = Float64(T0); t = 0.0; h = dt; e0 = xe(xs, T); nsub = 0
+    while t < dt
+        h = min(h, dt - t); nsub += 1
+        nsub > CKMAXSUB && error("ChemNet.step_ck: more than $CKMAXSUB adaptive sub-steps (nH = $nH, T0 = $T0, dt = $dt)")
+        u_save = ucur[]
+        xs1, T1 = adv(xs, T, h, h < dt ? 1 : 0)
+        e1 = xe(xs1, T1)
+        if h > dt * 1e-12 && (max(T1 / T, T / T1) > fT || max(e1 / e0, e0 / e1) > fx)
+            ucur[] = u_save; h /= 2; continue
+        end
+        t += h; xs = xs1; T = T1; e0 = e1; h *= 2
+        cooling === nothing || (ucur[] = Float64(eos(ρ, T, xT(vcat(xs, log(T)))[1], net)[1]))
+    end
+    (xT(vcat(xs, log(T)))[1], T)
 end
 
 """
