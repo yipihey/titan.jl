@@ -243,7 +243,8 @@ function dualswitch(ngrs, ngre, lrad, ηsw)
     ηsw > 0 || return ui
     dO, dv, uo = v(:do), v(:dvolo), v(:uo); eo = lrad ? v(:egro) : v(:ego)
     for k in ngrs:ngre
-        m = dO[k] * dv[k]; ein = m * max(eo[k] + ETASW_EOFF[], 0.0); K = 0.25m * (uo[k]^2 + uo[k+1]^2)
+        eoff = ECHEMF[] === nothing ? 0.0 : ECHEMF[][1][k]      # (ECHEMSPLIT: e − Σ x E0 is advected; the switch keeps judging e)
+        m = dO[k] * dv[k]; ein = m * max(eo[k] + eoff + ETASW_EOFF[], 0.0); K = 0.25m * (uo[k]^2 + uo[k+1]^2)
         ui[k] = ein / (ein + K) < ηsw
     end
     ηth = ETASW_TH[]
