@@ -321,11 +321,11 @@ function nlte_kappas(ρ, T, d, p)
         return nlte_means(ρ, T; n1, n2, nH2 = nH * xh2, nHe, nHp = ne, ne, nHm, nHmS = nHm, hbfP = true)
     end
     n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
-    CNn.HECHEM && (nHe = nH * max(d[:He], 0.0, false))
+    CNn.HECHEM && (nHe = nH * max(d[:He], 0.0))
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
-    nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0, false), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw)
+    nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw)
 end
 "Lagged non-LTE opacity factors of zone k at T0 (see NLOPAC)."
 function nlopc(ρ, T0, d, p)
@@ -698,7 +698,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             τS = 3A21LYA * LYA_LAM^3 * n1 / (8π * max(g, 1e-30))
             RL = 3A21LYA * (τS < 1e-6 ? 1.0 : -expm1(-τS) / τS)
             nb = W / expm1(E21 / (CNn.kB * Tc))
-            diag.tl3[k] = (; β = W * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0, false), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
+            diag.tl3[k] = (; β = W * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
             ov_ = LYAOVR[]; (k <= length(ov_) && ov_[k] !== nothing) && (diag.tl3[k] = merge(diag.tl3[k], ov_[k]))   # LYART: transferred Lyα
         end
         (kHm, kH, kLW, f)
@@ -1096,7 +1096,7 @@ hd_k55(T) = T <= 200 ? exp(log(5.25e-11) - 4430.0 / 200 + 173900.0 / 200^2 - (44
 hd_k56(T) = 1.35e-9 * (T^0.098493 + 0.32852 * T^0.5561 + 2.771e-7 * T^2.1826) /
             (1 + 6.191e-3 * T^1.0461 + 8.9712e-11 * T^3.0424 + 3.2576e-14 * T^3.7741)                                   # D + H⁻ → HD + e
 "HD cooling per molecule in LTE [erg/s] (Coppola et al. 2011) and the low-density coefficient for HD–H [erg cm³/s] (Wrathmall et al. 2007)."
-hd_lte(T) = (t = min(max(T, 10.0), 3.0e4); l = log10(t); exp10(min(-55.5725 + l * (56.649 + l * (-37.9102 + l * (12.698 + l * (-2.02424 + l * 0.122393)))), 0.0, false)))
+hd_lte(T) = (t = min(max(T, 10.0), 3.0e4); l = log10(t); exp10(min(-55.5725 + l * (56.649 + l * (-37.9102 + l * (12.698 + l * (-2.02424 + l * 0.122393)))), 0.0)))
 hd_low(T) = (t = min(max(T, 10.0), 6.0e3); l = log10(t / 1e3); exp10(-23.175780 + l * (1.5035261 + l * (0.40871403 + l * (0.17849311 + l * (-0.077291388 + l * 0.10031326))))))
 hd_w(T, nHI) = (l = hd_lte(T); lo = nHI * hd_low(T); (l > 0 && lo > 0) ? l / (1 + l / lo) : zero(l * lo))
 "HD cooling [erg cm⁻³ s⁻¹] of gas with composition d (ChemNet.full; nothing: table zone, no HD) and x_HD; < 0 below T_CMB."
@@ -1108,7 +1108,7 @@ end
 "Transition rates [1/s] between the states (D, D⁺, HD): (D→D⁺, D⁺→D, D⁺→HD, HD→D⁺, D→HD, HD→D)."
 function hd_rates(T, nH, d, kLW)
     t = min(max(Float64(T), 10.0), 1e6)
-    g(s) = max(Float64(get(d, s, 0.0, false)), 0.0)
+    g(s) = max(Float64(get(d, s, 0.0)), 0.0)
     xH, xp, xe, xH2, xm = g(:H), g(:Hp), g(:e), g(:H2), g(:Hm)
     (nH * (PC.k1_aazn(t) * xe + hd_k50(t) * xp), nH * (PC.k2_aazn(t) * xe + hd_k51(t) * xH), nH * hd_k52(t) * xH2,
      nH * hd_k53(t) * xp, nH * (hd_k54(t) * xH2 + hd_k56(t) * xm), nH * hd_k55(t) * xH + kLW)
@@ -1135,7 +1135,7 @@ function hd_default(m, k, x)
     dn, tn = TM.v(:dn), TM.v(:tn); yD = HDYD[]
     d = CNn.full(x, m.net); nH = dn[k] / CNn.μH()
     if m.eqzone[k] || HDINIT[] == "eq"
-        p = hd_step(hd_rates(tn[k], nH, d, 0.0, false), (1.0, 0.0, 0.0, false), 0.0)
+        p = hd_step(hd_rates(tn[k], nH, d, 0.0), (1.0, 0.0, 0.0), 0.0)
         return (yD * p[2], yD * p[3])
     end
     xhd = min(parse(Float64, HDINIT[]), yD); xH = max(Float64(d[:H]), 0.0); xp = max(Float64(d[:Hp]), 0.0)
