@@ -524,7 +524,8 @@ backward-Euler step; the fast species are algebraic functions of them: H⁻ and 
 radiative recombination, charge transfer), with n_e from charge conservation. The fast species cannot go negative and no longer limit
 the Newton step (the stall of 13 Nov: λ falling ×10 per iteration on trace He⁺/He²⁺ and the eliminated Li). Assumes the fast species
 relax faster than the step. `extra` (star light: H⁻ photodetachment, LW, H photoionisation; a ray) enters the slow rows directly and
-the H⁻/H₂⁺ balance as a source and a loss linear in the species' own abundance (extra_j at x_j = 0 and 1); not the He/Li stages.
+the H⁻/H₂⁺ balance as a source and a loss linear in the species' own abundance (extra with the fast singles at 0 and at 1, evaluated
+once per call at the slow state); not the He/Li stages.
 """
 const CK = Ref(get(ENV, "CHEMCK", "0") == "1"); const CKSWEEPS = Ref(parse(Int, get(ENV, "CHEMCKSWEEPS", "3")))
 const CKFAST = (:Hm, :H2p, :Hep, :Hepp, :Lip)
@@ -560,8 +561,8 @@ function _ck_cl(v, j, nH, net, c, ph, ks)
         nr > 0 && (L += nr * _rwo(ks[ir], v, Ri, j))
         np > 0 && (C += np * _rwo(ks[ir], v, Ri, 0))
     end
-    for (p, R, α) in ph
-        jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]; inv0 = α * nH^(length(jp) - 1)
+    for (jr, jp, R, α) in ph
+        inv0 = α * nH^(length(jp) - 1)
         if jr == j; L += R; C += _rwo(inv0, v, jp, 0); end
         if j in jp; C += R * v[jr]; L += _rwo(inv0, v, jp, j); end
     end
@@ -575,8 +576,7 @@ function _ck_ud(v, a, b, nH, net, c, ph, ks)
         a in Ri && b in Pi && (up += _rwo(ks[ir], v, Ri, a))
         b in Ri && a in Pi && (dn += _rwo(ks[ir], v, Ri, b))
     end
-    for (p, R, α) in ph
-        jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]
+    for (jr, jp, R, α) in ph
         jr == a && b in jp && (up += R; dn += _rwo(α * nH^(length(jp) - 1), v, jp, b))
     end
     up, dn
@@ -586,18 +586,21 @@ function ck_expand(xs, T, nH, net, ph, ks, extra = nothing)
     c = compiled(net); ci = ckinfo(net)
     x = zeros(promote_type(eltype(xs), typeof(T), eltype(ks)), length(net.free))
     for (k, i) in enumerate(ci.slow); x[i] = xs[k]; end
+    phi = [(c.idx[p.R], [c.idx[s] for s in p.P], R, α) for (p, R, α) in ph]
+    # extra (star light, ray) in the H⁻/H₂⁺ rows, taken as a + b x_j: two calls, all fast singles at 0 and at 1
+    ea = eb = nothing
+    if extra !== nothing && !isempty(ci.single)
+        xt = copy(x); ea = extra(xt); for (f, _) in ci.single; xt[f] = one(eltype(x)); end; eb = extra(xt) .- ea
+    end
     for _ in 1:CKSWEEPS[]
         for (f, j) in ci.single
-            v = fullvec(x, c); C, L = _ck_cl(v, j, nH, net, c, ph, ks)
-            if extra !== nothing
-                xt = copy(x); xt[f] = zero(eltype(x)); a = extra(xt)[f]; xt[f] = one(eltype(x)); b = extra(xt)[f] - a
-                a > 0 && (C += a); b < 0 && (L -= b)
-            end
+            v = fullvec(x, c); C, L = _ck_cl(v, j, nH, net, c, phi, ks)
+            ea === nothing || (ea[f] > 0 && (C += ea[f]); eb[f] < 0 && (L -= eb[f]))
             x[f] = L > 0 ? C / L : zero(C)
         end
         for ch in ci.chains
             v = fullvec(x, c); m = length(ch)
-            ud = [_ck_ud(v, ch[k][2], ch[k+1][2], nH, net, c, ph, ks) for k in 1:m-1]
+            ud = [_ck_ud(v, ch[k][2], ch[k+1][2], nH, net, c, phi, ks) for k in 1:m-1]
             w = [prod((ud[i][1] for i in 1:k); init = one(eltype(x))) * prod((ud[i][2] for i in k+1:m-1); init = one(eltype(x))) for k in 0:m-1]
             sw = sum(w); tot = ch[1][2] == c.iHe ? yHe : yLi
             for k in 1:m
