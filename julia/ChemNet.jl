@@ -359,6 +359,15 @@ const CLIPDEPTH = 4
 """Non-finite Jacobian = failed attempt (halve h), and the clipped retry clips trace Li on its own species (ENV CHEMROBUST=1, default off;
 off keeps the old behaviour: `\\` throws, and Li → 0 sets λ for every unknown)."""
 const ROBUST = Ref(get(ENV, "CHEMROBUST", "0") != "0")
+"""
+CHEMTRCLIP=f (default 0, off): positivity of trace species per species instead of through the common step length. A free species
+below f per H nucleus whose Newton update would make it negative has its own update cut to −0.9 of its value, and an eliminated Li
+nucleus going negative scales only the Li species' updates; the common λ is then set by the major species (H, e, He) and T alone.
+Without it a trace species (He⁺ ~1e-10 with HECHEM=1, neutral Li) whose linear update overshoots by ×1e4 sets λ ~ 1e-6, every
+other unknown stays put, λ falls ×10 per iteration and the attempt fails (13 Nov 2026, the pre-shock zones of t_b224c8: 42
+failed attempts in one step at h ≥ dt/16).
+"""
+const TRCLIP = Ref(parse(Float64, get(ENV, "CHEMTRCLIP", "0")))
 "Print the first N non-finite Jacobians of `step` (ENV CHEMNANDBG; diagnostics)."
 const NANDBG = Ref(parse(Int, get(ENV, "CHEMNANDBG", "0")))
 """
@@ -427,13 +436,14 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
             δ = -(Jm \ R); all(isfinite, δ) || return (z, false)
             λ = 1.0; lim = :none
             clip && for i in 1:nf; z[i] + δ[i] < 0 && (δ[i] = -0.9 * z[i]); end
+            TRCLIP[] > 0 && for i in 1:nf; z[i] < TRCLIP[] && z[i] + δ[i] < 0 && (δ[i] = -0.9 * z[i]); end
             # keep every abundance ≥ 0, incl. the eliminated H, Li, e (linear in x)
             for i in 1:nf; z[i] + λ * δ[i] < 0 && 0.9 * z[i] / -δ[i] < λ && (λ = 0.9 * z[i] / -δ[i]; lim = net.free[i]); end
             d0 = full(z[1:nf], net); d1 = full(z[1:nf] .+ δ[1:nf], net)
             for s in (:H, :Li, :e, :He)
                 haskey(d0, s) || continue
                 dv = d1[s] - d0[s]
-                if ROBUST[] && clip && s === :Li && d0[s] + dv < 0
+                if ((ROBUST[] && clip) || TRCLIP[] > 0) && s === :Li && d0[s] + dv < 0
                     # Li is a trace element: clip only its own species (Li fully ionized by star light, Li → 0 froze every unknown)
                     cc = compiled(net); f = 0.9 * d0[s] / -dv
                     for i in 1:nf; cc.elLi[i] != 0 && (δ[i] *= f); end
