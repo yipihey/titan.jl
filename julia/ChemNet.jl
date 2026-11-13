@@ -377,7 +377,7 @@ the CLIPDEPTH retries of the linear form follow as before.
 """
 const LOGX = Ref(get(ENV, "CHEMLOGX", "0") == "1")
 """
-CHEMSUBCYC=ε (default 0, off): `step` without `extra` and `Tfix` integrates by sub-cycling instead of one backward-Euler Newton
+CHEMSUBCYC=ε (default 0, off): `step` without `accepted` (a ray) and `Tfix` integrates by sub-cycling instead of one backward-Euler Newton
 solve (the approach of ChemistryKernels.jl's sub-cycler; Anninos et al. 1997, NewA 2, 209). Per sub-step h, every free species
 from its formation C and destruction rate D at the start of the sub-step, x' = (x + C h)/(1 + D h) (positive for any h; species in
 fast equilibrium, D h ≫ 1, take x = C/D: H⁻, H₂⁺, He⁺, Li⁺ …), then T from u(ρ, T, x') = u − h Λ(ρ, T, x')/ρ (one variable,
@@ -407,7 +407,7 @@ function cdrates(x, nH, T, net, env, ph)
     v, C, L
 end
 "The sub-cycled integration of CHEMSUBCYC (see there); returns (x, T) as `step`."
-function step_sub(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, ε = SUBCYC[], maxsub = 200000)
+function step_sub(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, ε = SUBCYC[], maxsub = 200000)
     nH = ρ / μH(); c = compiled(net); nf = length(net.free)
     x = collect(Float64, x0); T = Float64(T0); ucur = Float64(u)
     t = 0.0; h = dt; nsub = 0; εT = max(ε, 0.02)
@@ -416,6 +416,10 @@ function step_sub(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothi
         CHEMSTATS && Threads.atomic_add!(NADV, 1)
         ph = [(p, photorates_t(p, T, env)...) for p in photos]
         v, C, L = cdrates(x, nH, T, net, env, ph)
+        if extra !== nothing                         # (star light: extra dx/dt of the free species, at the sub-step's start)
+            ex = extra(x)
+            for i in 1:nf; j = c.free[i]; ex[i] >= 0 ? (C[j] += ex[i]) : (L[j] -= ex[i]); end
+        end
         hh = min(h, dt - t)
         for (i, j) in enumerate(c.free)
             D = L[j] / max(v[j], 1e-300)
@@ -490,7 +494,7 @@ Chemistry and temperature together over dt at fixed ρ and u (u − dt Λ/ρ wit
 function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, Tfix = nothing, accepted = nothing, tol = 1e-10, maxit = 60)
     nH = ρ / μH(); nf = length(net.free)
     CHEMSTATS && Threads.atomic_add!(NSTEP, 1)
-    SUBCYC[] > 0 && extra === nothing && Tfix === nothing && return step_sub(x0, ρ, u, T0, dt, net; env, photos, cooling)
+    SUBCYC[] > 0 && accepted === nothing && Tfix === nothing && return step_sub(x0, ρ, u, T0, dt, net; env, photos, cooling, extra)
     phT = Ref(NaN); phc = Ref{Any}(nothing)
     ucur = Ref(Float64(u))                           # u at the start of the current sub-step: what cooling took in the earlier halves stays gone
     function resid(z, x0, h)
