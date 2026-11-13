@@ -1003,6 +1003,12 @@ function gmwin_kw(r, m, Mst)
     (; hw = GMWIN[1], wlo = GMWIN[2] * Rst, whi = GMWIN[3] * Rst)
 end
 gmtau_kw(i0) = GMTAU === nothing ? (;) : (; tau = gm_tau(i0), h3 = GMTAU[1], tlo = length(GMTAU) >= 2 ? GMTAU[2] : 0.1, thi = length(GMTAU) >= 3 ? GMTAU[3] : 10.0)
+"""
+GMSMOOTH=n (with GRIDMAP; default off = 1): low-pass filter of the target mesh in time, each step it closes 1/n of the distance (in ln r)
+to the mesh the rule gives for the present state. At 6.5 M_sun with GMWIN the rule's mesh moved ~0.3 zone widths per step back and forth
+(2263 jumps in 7000 steps of t_w15g) while M★ grew smoothly: the surface density swings and the mesh chasing it feed each other.
+"""
+const GMSMOOTH = parse(Float64, get(ENV, "GMSMOOTH", "1"))
 const GMPREV = Ref(Float64[])      # the target of the previous step (for its speed)
 const GMLAST = Ref((0.0, 0, 0.0, NaN, 0, 0.0, 0.0, Inf))    # (move planned for the next step / zone width, interface, M★ per steradian, scale λ, zones at the floor, largest distance from the target / zone width)
 xmi(k) = ENVEUL === nothing ? TX.XMINT[][k] : TF.getscalar(:xmtot) - TF.var(:xmen)[k]
@@ -1475,6 +1481,10 @@ function gridmap_step!()
     r = rn[i0:b+1]; m = envmenc()[i0-a+1:end]; u = TF.var(:un)[i0:b+1]
     Mst = GridMap.anchor(m, u); P_ = GridMap.target(r, m, Mst; N, lam0 = GMLAST[][4], gridmap_kw()..., gmtau_kw(i0)..., gmwin_kw(r, m, Mst)...)
     dt = TF.getscalar(:dtime); dtl = TC.TSTP_IN[][2]; qT = 0.0; cap = Inf; Pp = GMPREV[]
+    if GMSMOOTH > 1 && length(Pp) == N + 1       # GMSMOOTH: the target follows the rule's mesh with a lag of GMSMOOTH steps (ln r)
+        rs = [exp(log(Pp[j]) + (log(P_.r[j]) - log(Pp[j])) / GMSMOOTH) for j in 1:N+1]; rs[1] = P_.r[1]; rs[end] = P_.r[end]
+        P_ = (; r = rs, lam = P_.lam, nfloor = P_.nfloor)
+    end
     if length(Pp) == N + 1 && dtl > 0
         for j in 2:N; qT = max(qT, abs(P_.r[j] - Pp[j]) / min(r[j] - r[j-1], r[j+1] - r[j])); end
         qT > 0 && (cap = max(dtl * gmp(13, 0.2) / qT, 0.3 * dtl))
