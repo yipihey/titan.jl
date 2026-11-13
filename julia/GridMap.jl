@@ -43,7 +43,7 @@ m > 0, both increasing) and star mass `Ms`. ln m is taken linear in ln r between
 floor `dmin`.
 """
 function target(r, m, Ms; N::Int, hr = 0.3, h1 = 0.3, h2 = 0.4, eps = 1e-5, fc = 1e-3, dmin = 0.02, g = 1.2, cr = 1.0, rlo = r[1],
-                nf::Int = 12000, lam0 = NaN, tau = nothing, h3 = 0.4, tlo = 0.1, thi = 10.0)
+                nf::Int = 12000, lam0 = NaN, tau = nothing, h3 = 0.4, tlo = 0.1, thi = 10.0, hw = 0.0, wlo = 0.0, whi = 0.0)
     x0 = log.(r); lm0 = log.(m); ns = length(x0)
     xa = log(rlo); xb = x0[end]; dx = (xb - xa) / (nf - 1)
     lnm = Vector{Float64}(undef, nf); j = 1
@@ -90,6 +90,10 @@ function target(r, m, Ms; N::Int, hr = 0.3, h1 = 0.3, h2 = 0.4, eps = 1e-5, fc =
         Xn = X(i + 1); Q1n = Q1(i + 1); Q2n = Q2(i + 1); Q3n = Q3(i + 1)
         n0[i] = lt === nothing ? sqrt(((Xn - Xp) / hr)^2 + ((Q1n - Q1p) / h1)^2 + ((Q2n - Q2p) / h2)^2) / dx :
                                  sqrt(((Xn - Xp) / hr)^2 + ((Q1n - Q1p) / h1)^2 + ((Q2n - Q2p) / h2)^2 + (Q3n - Q3p)^2) / dx
+        if hw > 0                            # GMWIN: extra radius weight ln r / hw for wlo < r < whi (the infall above the star)
+            xm = xa + (i - 0.5) * dx
+            wlo < exp(xm) < whi && (n0[i] = sqrt(n0[i]^2 + (1 / hw)^2))
+        end
         Xp = Xn; Q1p = Q1n; Q2p = Q2n; Q3p = Q3n
     end
     nmax = 1 / dmin; lg = log(g); q = similar(n0)

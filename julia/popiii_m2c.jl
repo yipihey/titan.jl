@@ -990,6 +990,18 @@ function gm_tau(i0)
     for k in b:-1:i0; τ += ch[k] * dd[k] * (rr[k+1] - rr[k]); t[k-i0+1] = τ; end
     t
 end
+"""
+GMWIN=hw,f1,f2 (with GRIDMAP; default off): an extra radius coordinate ln r / hw between f1 R★ and f2 R★ (R★ the radius that encloses the
+anchor mass M★), so that the infall above the star (the accretion shock, the photosphere, the pre-shock gas heated by the star) gets zones of
+its own at the expense of the interior and the outer cloud. E.g. GMWIN=0.07,1.05,200 with g = 1.3 (GRIDMAP entry 8): 14 -> 28 zones between
+3 R★ and 1e4 R_sun, 27 -> 20 zones inside 0.85 R★ (z100h at 6.5 M_sun). Used every step and for the starting mesh.
+"""
+const GMWIN = haskey(ENV, "GMWIN") ? parse.(Float64, split(ENV["GMWIN"], ",")) : nothing
+function gmwin_kw(r, m, Mst)
+    GMWIN === nothing && return (;)
+    j = clamp(searchsortedfirst(m, Mst), 2, length(m)); Rst = r[j-1] + (Mst - m[j-1]) / (m[j] - m[j-1]) * (r[j] - r[j-1])
+    (; hw = GMWIN[1], wlo = GMWIN[2] * Rst, whi = GMWIN[3] * Rst)
+end
 gmtau_kw(i0) = GMTAU === nothing ? (;) : (; tau = gm_tau(i0), h3 = GMTAU[1], tlo = length(GMTAU) >= 2 ? GMTAU[2] : 0.1, thi = length(GMTAU) >= 3 ? GMTAU[3] : 10.0)
 const GMPREV = Ref(Float64[])      # the target of the previous step (for its speed)
 const GMLAST = Ref((0.0, 0, 0.0, NaN, 0, 0.0, 0.0, Inf))    # (move planned for the next step / zone width, interface, M★ per steradian, scale λ, zones at the floor, largest distance from the target / zone width)
@@ -1099,7 +1111,7 @@ function envbuild!()
     if GRIDMAPP !== nothing      # the planned mesh (GridMap) from the source's enclosed mass in place of the ENVCORE/ENVEUL spacing; same first and last interface
         i1 = findfirst(j -> r0[j] > 0 && m0[j] > 0, eachindex(r0)); Nz = Int(GRIDMAPP[1]); (Nz + (ENVCENTRE ? 1 : 0)) % 2 == 0 || (Nz -= 1)
         Mst = GridMap.anchor(m0[i1:end], u0[i1:end])
-        P_ = GridMap.target(r0[i1:end], m0[i1:end], Mst; N = Nz, rlo = exp(lr[1]), gridmap_kw()...)
+        P_ = GridMap.target(r0[i1:end], m0[i1:end], Mst; N = Nz, rlo = exp(lr[1]), gridmap_kw()..., gmwin_kw(r0[i1:end], m0[i1:end], Mst)...)
         lr = log.(P_.r); GMLAST[] = (0.0, 0, Mst / 4π, P_.lam, P_.nfloor, 0.0, 0.0, Inf)
         pr("GRIDMAP: starting mesh of %d zones from the enclosed mass of the source, M* %.5f Msun, scale %.3f, %d zones at the floor\n", Nz, Mst / Msun, P_.lam, P_.nfloor)
     end
@@ -1461,7 +1473,7 @@ step just taken: with ftar < fmove the mesh stays within about ftar × nrelax zo
 function gridmap_step!()
     rn = TF.var(:rn); i0 = a + (ENVCENTRE ? 1 : 0); N = b + 1 - i0
     r = rn[i0:b+1]; m = envmenc()[i0-a+1:end]; u = TF.var(:un)[i0:b+1]
-    Mst = GridMap.anchor(m, u); P_ = GridMap.target(r, m, Mst; N, lam0 = GMLAST[][4], gridmap_kw()..., gmtau_kw(i0)...)
+    Mst = GridMap.anchor(m, u); P_ = GridMap.target(r, m, Mst; N, lam0 = GMLAST[][4], gridmap_kw()..., gmtau_kw(i0)..., gmwin_kw(r, m, Mst)...)
     dt = TF.getscalar(:dtime); dtl = TC.TSTP_IN[][2]; qT = 0.0; cap = Inf; Pp = GMPREV[]
     if length(Pp) == N + 1 && dtl > 0
         for j in 2:N; qT = max(qT, abs(P_.r[j] - Pp[j]) / min(r[j] - r[j-1], r[j+1] - r[j])); end
