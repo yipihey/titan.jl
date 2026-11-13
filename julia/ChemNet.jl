@@ -514,6 +514,153 @@ const TRACEDBG = Ref(parse(Int, get(ENV, "CHEMTRACE", "0")))
 "Diagnostics (default false): trace every attempt of `step` (set from code, e.g. PopIIIMaterial.chemreplay)."
 const TRACEALL = Ref(false)
 
+
+# ------------------------------------------------------------------ CHEMCK: reduced network (ChemistryKernels approach)
+"""
+`CHEMCK=1` (default off): the approach of ChemistryKernels.jl. Only H₂, H⁺ (the slow species) and T are Newton unknowns of the
+backward-Euler step; the fast species are algebraic functions of them: H⁻ and H₂⁺ in chemical steady state (creation = destruction,
+`CHEMCKSWEEPS` Gauss–Seidel sweeps, default 3, as CK evaluates them twice), He, He⁺, He²⁺ and Li, Li⁺ in ionisation equilibrium
+(every process of the network between adjacent stages balanced: collisional ionisation ⇌ three-body recombination, photo-ionisation ⇌
+radiative recombination, charge transfer), with n_e from charge conservation. The fast species cannot go negative and no longer limit
+the Newton step (the stall of 13 Nov: λ falling ×10 per iteration on trace He⁺/He²⁺ and the eliminated Li). Assumes the fast species
+relax faster than the step; `extra` (star-light ray) enters only the rows of the slow species.
+"""
+const CK = Ref(get(ENV, "CHEMCK", "0") == "1"); const CKSWEEPS = Ref(parse(Int, get(ENV, "CHEMCKSWEEPS", "3")))
+const CKFAST = (:Hm, :H2p, :Hep, :Hepp, :Lip)
+struct CKInfo
+    fast::Vector{Int}; slow::Vector{Int}                 # positions in net.free
+    single::Vector{Tuple{Int,Int}}                       # H⁻, H₂⁺: (position in net.free, index in compiled sp)
+    chains::Vector{Vector{Tuple{Int,Int}}}               # element ionisation stages from the neutral up: (free position or 0, sp index)
+end
+const CKINFO = IdDict{Any,CKInfo}()
+ckinfo(net) = get!(CKINFO, net) do
+    c = compiled(net); fp(s) = (i = findfirst(==(s), net.free); i === nothing ? 0 : i)
+    fast = [fp(s) for s in CKFAST if fp(s) > 0]; slow = [i for i in eachindex(net.free) if !(i in fast)]
+    single = [(fp(s), c.idx[s]) for s in (:Hm, :H2p) if fp(s) > 0]
+    chains = Vector{Tuple{Int,Int}}[]
+    for ch in ((:He, :Hep, :Hepp), (:Li, :Lip))
+        all(s -> haskey(c.idx, s), ch) && any(s -> fp(s) > 0, ch[2:end]) || continue
+        push!(chains, [(fp(s), c.idx[s]) for s in ch])
+    end
+    CKInfo(fast, slow, single, chains)
+end
+"k · Π v[Ri] with one occurrence of index j left out."
+@inline function _rwo(r0, v, Ri, j)
+    r = r0; sk = true
+    for i in Ri; if sk && i == j; sk = false; else r *= v[i]; end; end
+    r
+end
+"Creation rate of sp index j and its loss rate per unit x_j (per H nucleus), ks = k n_H^(n−1) per reaction, ph per-zone photo-rates."
+function _ck_cl(v, j, nH, net, c, ph, ks)
+    C = zero(eltype(v)); L = zero(eltype(v))
+    for ir in eachindex(net.reactions)
+        Ri = c.R[ir]; Pi = c.P[ir]; nr = count(==(j), Ri); np = count(==(j), Pi)
+        nr == 0 && np == 0 && continue
+        nr > 0 && (L += nr * _rwo(ks[ir], v, Ri, j))
+        np > 0 && (C += np * _rwo(ks[ir], v, Ri, 0))
+    end
+    for (p, R, α) in ph
+        jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]; inv0 = α * nH^(length(jp) - 1)
+        if jr == j; L += R; C += _rwo(inv0, v, jp, 0); end
+        if j in jp; C += R * v[jr]; L += _rwo(inv0, v, jp, j); end
+    end
+    C, L
+end
+"Rates per unit x_a of a → b and per unit x_b of b → a (a, b sp indices of adjacent ionisation stages)."
+function _ck_ud(v, a, b, nH, net, c, ph, ks)
+    up = zero(eltype(v)); dn = zero(eltype(v))
+    for ir in eachindex(net.reactions)
+        Ri = c.R[ir]; Pi = c.P[ir]
+        a in Ri && b in Pi && (up += _rwo(ks[ir], v, Ri, a))
+        b in Ri && a in Pi && (dn += _rwo(ks[ir], v, Ri, b))
+    end
+    for (p, R, α) in ph
+        jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]
+        jr == a && b in jp && (up += R; dn += _rwo(α * nH^(length(jp) - 1), v, jp, b))
+    end
+    up, dn
+end
+"Free abundances with the slow ones xs (over ckinfo(net).slow) and the fast ones from equilibrium at T."
+function ck_expand(xs, T, nH, net, ph, ks)
+    c = compiled(net); ci = ckinfo(net)
+    x = zeros(promote_type(eltype(xs), typeof(T), eltype(ks)), length(net.free))
+    for (k, i) in enumerate(ci.slow); x[i] = xs[k]; end
+    for _ in 1:CKSWEEPS[]
+        for (f, j) in ci.single
+            v = fullvec(x, c); C, L = _ck_cl(v, j, nH, net, c, ph, ks)
+            x[f] = L > 0 ? C / L : zero(C)
+        end
+        for ch in ci.chains
+            v = fullvec(x, c); m = length(ch)
+            ud = [_ck_ud(v, ch[k][2], ch[k+1][2], nH, net, c, ph, ks) for k in 1:m-1]
+            w = [prod((ud[i][1] for i in 1:k); init = one(eltype(x))) * prod((ud[i][2] for i in k+1:m-1); init = one(eltype(x))) for k in 0:m-1]
+            sw = sum(w); tot = ch[1][2] == c.iHe ? yHe : yLi
+            for k in 1:m
+                ch[k][1] > 0 || continue
+                x[ch[k][1]] = sw > 0 ? tot * w[k] / sw : zero(sw)
+            end
+        end
+    end
+    x
+end
+function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, tol, maxit)
+    nH = ρ / μH(); ci = ckinfo(net); sl = ci.slow; ns = length(sl); cc = compiled(net)
+    phT = Ref(NaN); phc = Ref{Any}(nothing); ucur = Ref(Float64(u))
+    function xT(z)
+        T = exp(z[ns+1]); Tv = ForwardDiff.value(T)
+        Tv == phT[] || (phc[] = [(p, photorates_t(p, Tv, env)...) for p in photos]; phT[] = Tv)
+        ph = phc[]; ks = [r.k(T, env) * nH^(length(r.R) - 1) for r in net.reactions]
+        (ck_expand(z[1:ns], T, nH, net, ph, ks), T, ph)
+    end
+    function resid(z, xs0, h)
+        x, T, ph = xT(z)
+        f = dxdt(x, nH, T, net, env, ph); extra === nothing || (f = f .+ extra(x))
+        r = x[sl] .- xs0 .- h .* f[sl]
+        ue = eos(ρ, T, x, net)[1] - ucur[] + (cooling === nothing ? zero(T) : h * cooling(ρ, T, full(x, net)) / ρ)
+        vcat(r, ue / (kB * T / μH()))
+    end
+    function attempt(xs0, T0, h)
+        z = vcat(collect(Float64, xs0), log(T0)); rel = Inf; dT = Inf; λ = 0.0
+        for it in 1:maxit
+            R = resid(z, xs0, h)
+            CHEMSTATS && Threads.atomic_add!(NJAC, 1)
+            Jm = ForwardDiff.jacobian(zz -> resid(zz, xs0, h), z)
+            (all(isfinite, Jm) && all(isfinite, R)) || return (z, false)
+            δ = -(Jm \ R); all(isfinite, δ) || return (z, false)
+            λ = 1.0
+            # a trace slow species (H₂ in ionized gas, H⁺ in molecular gas) is clipped on its own; only a major one limits the whole step
+            for i in 1:ns; z[i] < 1e-6 && z[i] + δ[i] < 0 && (δ[i] = -0.9 * z[i]); end
+            for i in 1:ns; z[i] + λ * δ[i] < 0 && 0.9 * z[i] / -δ[i] < λ && (λ = 0.9 * z[i] / -δ[i]); end
+            # the eliminated H, linear in the slow species (the fast ones are trace)
+            H0 = 1 - sum(cc.elH[i] * xi for (i, xi) in enumerate(xT(z)[1])); dH = -sum(cc.elH[sl[k]] * δ[k] for k in 1:ns)
+            H0 + λ * dH < 0 && 0.9 * H0 / -dH < λ && (λ = 0.9 * H0 / -dH)
+            abs(δ[ns+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[ns+1]))
+            z .+= λ .* δ
+            rel = maximum(abs.(δ[1:ns]) ./ max.(abs.(z[1:ns]), 1e-20)); dT = abs(δ[ns+1])
+            TRACEALL[] && println("    ck it ", it, " λ ", round(λ, sigdigits = 3), " T ", round(exp(z[ns+1]), digits = 1), " rel ", round(rel, sigdigits = 3), " |R| ", round(maximum(abs, R), sigdigits = 3))
+            λ == 1.0 && rel < tol && dT < tol && return (z, true)
+            CHEMSTAG > 0 && it >= CHEMSTAG && λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (z, true)
+            CHEMGIVEUP > 0 && it == CHEMGIVEUP && !(λ == 1.0 && rel < 1e-3) && return (z, false)
+        end
+        λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (z, true)
+        (z, false)
+    end
+    function adv(xs0, T0, h, depth)
+        CHEMSTATS && Threads.atomic_add!(NADV, 1)
+        z, ok = attempt(xs0, T0, h)
+        if ok
+            accepted === nothing || accepted(xT(z)[1], h)
+            return (z[1:ns], exp(z[ns+1]))
+        end
+        depth >= 12 && error("ChemNet.step_ck: Newton failed (nH = $nH, T0 = $T0, dt = $dt, u = $u)")
+        xs1, T1 = adv(xs0, T0, h / 2, depth + 1)
+        cooling === nothing || (ucur[] = Float64(eos(ρ, T1, xT(vcat(xs1, log(T1)))[1], net)[1]))
+        adv(xs1, T1, h / 2, depth + 1)
+    end
+    zs, T = adv(collect(Float64, x0[sl]), T0, dt, 0)
+    (xT(vcat(zs, log(T)))[1], T)
+end
+
 """
     step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, Tfix = nothing) -> (x, T)
 
@@ -525,6 +672,7 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
     nH = ρ / μH(); nf = length(net.free)
     CHEMSTATS && Threads.atomic_add!(NSTEP, 1)
     SUBCYC[] > 0 && accepted === nothing && Tfix === nothing && return step_sub(x0, ρ, u, T0, dt, net; env, photos, cooling, extra)
+    CK[] && Tfix === nothing && !isempty(ckinfo(net).fast) && return step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, tol, maxit)
     phT = Ref(NaN); phc = Ref{Any}(nothing)
     ucur = Ref(Float64(u))                           # u at the start of the current sub-step: what cooling took in the earlier halves stays gone
     function resid(z, x0, h)
