@@ -54,7 +54,7 @@ function lte_test()
             rc = 0.5 * (r[k] + r[k+1])
             push!(pts, (; r = rc, ρ, T, v = v0 * sqrt(r[1] / rc), dvdr = 0.0, zone = k, Δr = r[k+1] - r[k], τg = 100.0, lte = true,
                         nH0 = s.nH0, nHp = s.nHp, nHm = s.pH[1] * s.ne * exp(Z0Physics.χHm / (Z0Physics.kB * T)) / (4 * Z0Physics.λe3(T)),
-                        nH2 = 0.0, ne = s.ne, nHe0 = s.nHe0, nHe1 = s.nHe1, nHe2 = s.nHe2))
+                        nH2 = 0.0, ne = s.ne, nHe0 = s.nHe0, nHe1 = s.nHe1, nHe2 = s.nHe2, nHD = 0.0))
         end
         atm = (r = [p.r for p in pts], ρ = fill(ρ, n), T = fill(T, n), zone = collect(1:n), jump = falses(n - 1))
         _, R = SF.SP.rays(atm.r; ncore = 8); R = SF.SP.weights!(atm, R)

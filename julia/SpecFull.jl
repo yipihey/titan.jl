@@ -27,7 +27,8 @@ Structure (what is computed, and the approximations):
    probabilities in the snapshot's velocity field (thermal-width floor, as snapnlte.jl), Λ-iterated on β. Two passes: first with
    the run's radiation (B(T) where the grey τ > 1, diluted B(T_eff) outside, snapnlte's prescription), then with the J_ν of the first
    continuum solution. Points deeper than grey τ = TLTE, and the sub-points of 1., are in LTE relative to the next ion
-   (n_i = Φ_i n_e n₊). H₂: the run's ALI level populations (snapspec h2lines → H2Lines.LAST), LTE in the merged core.
+   (n_i = Φ_i n_e n₊). H₂: the run's ALI level populations (snapspec h2lines → H2Lines.LAST); none in the merged core. HD: LTE at
+   the gas T (`hdload`: Amaral et al. 2019, ExoMol ADJSAAM; no HD collision data in the code), with the run's HD abundance.
 3. Continuum opacity and emission (`coeffs3` for `FOpac`): ContinuumOpacity's CIA (H₂–H₂, H₂–He, H₂–H), H⁻ free–free, Rayleigh and
    Thomson; H⁻ bound–free with attachment emission; bound–free of every level of H I, He I, He II from the populations of 2. with
    their own recombination emission (Milne: j_ν = σ n_i* 2hν³/c² e^{−hν/kT}, n_i* = Φ_i n_e n₊; stimulated recombination subtracted
@@ -95,7 +96,38 @@ const LINEDEF = [
     ("H2 1-0 S(1)", :H2, 2.1218, 0), ("H2 1-0 S(0)", :H2, 2.2233, 0), ("H2 1-0 Q(1)", :H2, 2.4066, 0), ("H2 2-1 S(1)", :H2, 2.2477, 0),
     ("H2 0-0 S(0)", :H2, 28.221, 0), ("H2 0-0 S(1)", :H2, 17.035, 0), ("H2 0-0 S(2)", :H2, 12.279, 0), ("H2 0-0 S(3)", :H2, 9.6649, 0),
     ("H2 0-0 S(5)", :H2, 6.9091, 0), ("H2 0-0 S(7)", :H2, 5.5115, 0),
+    ("HD 0-0 R(0)", :HD, (0, 1), (0, 0)), ("HD 0-0 R(1)", :HD, (0, 2), (0, 1)), ("HD 0-0 R(2)", :HD, (0, 3), (0, 2)),
+    ("HD 0-0 R(3)", :HD, (0, 4), (0, 3)), ("HD 0-0 R(5)", :HD, (0, 6), (0, 5)), ("HD 1-0 R(0)", :HD, (1, 1), (0, 0)),
+    ("HD 1-0 P(1)", :HD, (1, 0), (0, 1)),
 ]
+
+"""
+HD line list of Amaral et al. (2019, ApJ 878, 95; ExoMol dataset ADJSAAM, files 1H-2H__ADJSAAM.states/.trans from exomol.com,
+retrieved 13 Nov 2026, in ENV HDLINES or the scratch data folder): states (id, E [cm⁻¹], g incl. nuclear spin, J, lifetime, v,
+bound/quasi-bound) and transitions (upper, lower, A [s⁻¹], ν̃ [cm⁻¹]). The code has no HD collision data: the level populations
+are LTE at the gas T (Boltzmann over all bound states), which overestimates the lines where n is below their critical density.
+"""
+const HDL = Ref{Any}(nothing)
+function hdload(dir = get(ENV, "HDLINES", "/zpool/nvme/data/tabel_scratch/titan_popiii/lit/HDlines"))
+    HDL[] === nothing || return HDL[]
+    fs = joinpath(dir, "1H-2H__ADJSAAM.states"); isfile(fs) || return nothing
+    st = [split(l) for l in readlines(fs) if !isempty(strip(l))]; n = length(st)
+    E = zeros(n); g = zeros(n); J = zeros(Int, n); v = zeros(Int, n); bound = falses(n)
+    for q in st
+        k = parse(Int, q[1]); E[k] = parse(Float64, q[2]) * h * c; g[k] = parse(Float64, q[3]); J[k] = parse(Int, q[4])
+        v[k] = parse(Int, q[6]); bound[k] = q[7] == "b"
+    end
+    iu = Int[]; il = Int[]; A = Float64[]; ν = Float64[]
+    for l in readlines(joinpath(dir, "1H-2H__ADJSAAM.trans"))
+        q = split(l); length(q) < 4 && continue
+        push!(iu, parse(Int, q[1])); push!(il, parse(Int, q[2])); push!(A, parse(Float64, q[3])); push!(ν, parse(Float64, q[4]) * c)
+    end
+    HDL[] = (; E, g, J, v, bound, iu, il, A, ν)
+end
+"LTE level fractions of HD at T (bound states)."
+function hdfrac(T)
+    L = hdload(); w = [L.bound[k] ? L.g[k] * exp(-L.E[k] / (kB * T)) : 0.0 for k in eachindex(L.E)]; w ./ sum(w)
+end
 
 """
 Resolved line list: per line (name, atom, l, u, ν0, f, A, g_l, g_u, m [g], Z, n_l*, n_u* (effective principal quantum numbers for
@@ -119,6 +151,14 @@ function linelist(HL)
             ν0 = MA.νline(A_, l, u); Ry = 13.605693 * 1.602176634e-12
             push!(out, (; name = nm, atom = at, l, u, ν0, f = A_.f[l, u], A = Aul, gl = A_.levels[l].g, gu = A_.levels[u].g,
                         m = 4.0026 * 1.66054e-24, Z = 1, nsl = sqrt(Ry / A_.levels[l].χ), nsu = sqrt(Ry / A_.levels[u].χ)))
+        elseif at === :HD
+            HD = hdload(); HD === nothing && continue
+            ku = findfirst(k -> HD.v[k] == d[3][1] && HD.J[k] == d[3][2] && HD.bound[k], eachindex(HD.E))
+            kl = findfirst(k -> HD.v[k] == d[4][1] && HD.J[k] == d[4][2] && HD.bound[k], eachindex(HD.E))
+            (ku === nothing || kl === nothing) && continue
+            i = findfirst(t -> HD.iu[t] == ku && HD.il[t] == kl, eachindex(HD.iu)); i === nothing && continue
+            ν0 = HD.ν[i]; A = HD.A[i]; gu = HD.g[ku]; gl = HD.g[kl]; f = A * gu / (MA.ACOEF * ν0^2 * gl)
+            push!(out, (; name = nm, atom = :HD, l = kl, u = ku, ν0, f, A, gl, gu, m = 3mH, Z = 0, nsl = 0.0, nsu = 0.0))
         else
             HL === nothing && continue
             λ = d[3]; i = argmin(abs.(1e4 .* c ./ HL.ν .- λ)); abs(1e4 * c / HL.ν[i] / λ - 1) < 1e-3 || continue
@@ -139,6 +179,7 @@ function points(x, d, τ; fT = 1.0)
     n = length(x.ρ); kc = findlast(>(TAUCUT), τ); kc = kc === nothing ? 1 : min(kc, n - 8)
     spcv(s) = (i = findfirst(==(s), x.spn); i === nothing ? nothing : max.(x.Y[i, :], 0.0))
     xHe1 = spcv(:Hep); xHe2 = spcv(:Hepp); nHt = x.ρ ./ μH
+    xHD = (hasproperty(x, :hd) && x.hd !== nothing && length(x.hd.HD) == n) ? max.(x.hd.HD, 0.0) : zeros(n)
     P = NamedTuple[]; jump = Bool[]
     uat(r, k) = (w = (r - x.r[k]) / (x.r[k+1] - x.r[k]); (1 - w) * x.u[k] + w * x.u[k+1])
     function zonept(k, r)
@@ -150,12 +191,15 @@ function points(x, d, τ; fT = 1.0)
         nHe = yHe * nHt[k]; τc = 0.5 * (τ[k] + τ[k+1])
         (; r, ρ = x.ρ[k], T = x.T[k], v = uat(r, k), dvdr = (x.u[k+1] - x.u[k]) / (x.r[k+1] - x.r[k]), zone = k, Δr = x.r[k+1] - x.r[k],
          τg = τc, lte = τc > TLTE, nH0 = d.nH[k], nHp = d.nHp[k], nHm = d.nHm[k], nH2 = d.nH2[k], ne = d.ne[k],
-         nHe0 = nHe * max(1 - f1 - f2, 0.0), nHe1 = nHe * f1, nHe2 = nHe * f2)
+         nHe0 = nHe * max(1 - f1 - f2, 0.0), nHe1 = nHe * f1, nHe2 = nHe * f2, nHD = nHt[k] * xHD[k])
     end
     refined = falses(n)
     for k in kc:n
         Δτ = τ[k] - τ[k+1]
-        if Δτ > DTMAX && τ[k+1] < TREF
+        # only a zone through which the emergent light leaves: the run's L at its outer interface ≥ 0.3 × the run's L at the edge
+        # (z100, 13 Nov: the grey τ = ⅔ point sat at the shock with 2 L☉ of net flux while 2e5 L☉ left the edge)
+        Ltop_k = 4π * x.r[k+1]^2 * x.fr[k+1]; Ledge = 4π * x.r[end-2]^2 * x.fr[end-2]
+        if Δτ > DTMAX && τ[k+1] < TREF && isfinite(Ltop_k) && Ltop_k >= 0.3 * Ledge && Ledge > 0
             refined[k] = true
             # sub-layers on the run's own grey τ scale (τ linear in r inside the zone: the run's χ and ρ of the zone), T⁴ = fT ¾ F/σ (τ + ⅔)
             # capped at the zone's T, F the run's flux at the zone's outer interface; fT normalises the frequency-dependent continuum
@@ -170,7 +214,7 @@ function points(x, d, τ; fT = 1.0)
                 nHm = s.pH[1] * s.ne * exp(Z0.χHm / kT) / (4 * Z0.λe3(Tj))
                 push!(sub, (; r = rj, ρ = x.ρ[k], T = Tj, v = uat(rj, k), dvdr = (x.u[k+1] - x.u[k]) / (x.r[k+1] - x.r[k]), zone = k,
                             Δr = x.r[k+1] - x.r[k], τg = τj, lte = true, nH0 = s.nH0, nHp = s.nHp, nHm, nH2 = Tj < 4000 ? d.nH2[k] : 0.0,
-                            ne = s.ne, nHe0 = s.nHe0, nHe1 = s.nHe1, nHe2 = s.nHe2))
+                            ne = s.ne, nHe0 = s.nHe0, nHe1 = s.nHe1, nHe2 = s.nHe2, nHD = Tj < 4000 ? nHt[k] * xHD[k] : 0.0))
             end
             for q in reverse(sub); push!(P, q); push!(jump, false); end
         else
@@ -318,6 +362,9 @@ function strength(ln, k, pts, pop, h2pop)
     if ln.atom === :H2
         x = h2pop(p.zone); x === nothing && return (0.0, 0.0)
         nl = p.nH2 * x[ln.l]; nu = p.nH2 * x[ln.u]
+    elseif ln.atom === :HD
+        (p.nHD > 0 && p.T > 10) || return (0.0, 0.0)
+        fr_ = hdfrac(p.T); nl = p.nHD * fr_[ln.l]; nu = p.nHD * fr_[ln.u]
     else
         n = ln.atom === :H ? pop.nH[k] : ln.atom === :He1 ? pop.n1[k] : pop.n2[k]
         nl = n[ln.l]; nu = n[ln.u]
@@ -328,7 +375,7 @@ end
 "Voigt/Stark profile of line ln at point k (Z0Physics.line_profile, normalised per Hz)."
 function profile(ln, p)
     T = p.T; D = ln.ν0 / c * sqrt(2kB * T / ln.m + XI^2)
-    if ln.atom === :H2
+    if ln.atom === :H2 || ln.atom === :HD
         return Z0.line_profile(ln.ν0, 1.0, D, ln.A / (4π), 0.0, Float64[], Float64[], 0.0, 0.0)
     end
     γr = 0.6670 * ln.ν0^2 / c^2 * ln.f * (ln.gl / ln.gu) / (4π) * 2          # (as Z0Physics.line_list)
