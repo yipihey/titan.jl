@@ -188,6 +188,13 @@ back by its recombination losses in the chemistry: the 30 % excursion held Δt a
 c̄ ← c̄ + Δe_chem/Δt after each chemistry step in zones that stayed on the network (zero elsewhere). CHEMBON[k]: zone k was balanced.
 """
 const CHEMB = Ref(Float64[]); const CHEMBON = Ref(Bool[])
+"""
+ECHEMF[] = (off, tab) (popiii_m2c ECHEMSPLIT; default nothing): the hydro step advects ẽ = e − off_k (off: the zone's chemical energy per gram at its
+frozen composition). A zone with `tab[k]` (equilibrium EOS: its latent heat is implicit in the Newton) gets in its energy row the chemical energy
+that the mass crossing each interface brings relative to its own offset, ṁ (off_donor − off_k), the donor taken by the sign of the mass flux;
+network zones get theirs with the species, after the step.
+"""
+const ECHEMF = Ref{Any}(nothing)
 
 """
 AV_TENSION[] (default true = TITAN): keep the viscous stress of a zone that shrinks in volume (div u < 0) while it is stretched
@@ -1024,6 +1031,15 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             end
         end
         isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
+        if ECHEMF[] !== nothing && ECHEMF[][2][k]
+            off_ = ECHEMF[][1]
+            if k < ngre || P.leobc == 3
+                i = k + 1; w += -dmdt[i] * ((ForwardDiff.value(dmdt[i]) > 0 ? off_[k] : off_[k+1]) - off_[k])
+            end
+            if k > ngrs
+                w += dmdt[k] * ((ForwardDiff.value(dmdt[k]) > 0 ? off_[k-1] : off_[k]) - off_[k])
+            end
+        end
         R[it, kb(k)] = w
     end
     R[it, 1] = X(it, k0)

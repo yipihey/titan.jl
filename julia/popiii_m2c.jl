@@ -1072,8 +1072,8 @@ const XADVU = parse(Int, get(ENV, "XADVU", "0")); const XADVUN = Ref(0)
 ECHEMSPLIT=1 (default off): thermal/chemical energy split for the transport. Just before each hydro step e and the old-time e of every zone are
 lowered by the zone's chemical energy Σ x_i E0_i/μ_H at its frozen composition (PM.ECHEMOFF, constant through the step; the EOS returns the same
 offset energy, PM.ECHEMON), so TITAN advects ẽ = e − Σ x E0 — for a network zone its thermal energy; for a table zone a constant offset, its
-latent heat kept in the Newton — and the chemical energy crosses each interface only with the species (`advect_species!`, conservative). After
-the species are advected, e = ẽ + Σ x_new E0: consistent with the advected composition by construction, total energy conserved. Outside the
+latent heat kept in the Newton — and the chemical energy crosses each interface only with the species (`advect_species!`, conservative); table zones take it in their energy row
+(TX.ECHEMF). After the species are advected, e = ẽ + Σ x_new E0 (table zones: ẽ + their own offset): consistent with the advected composition by construction, total energy conserved. Outside the
 hydro step e keeps its usual meaning (chemistry, diagnostics, checkpoints). Replaces the inconsistency XADVU measures.
 """
 const ECHEMSPLIT = get(ENV, "ECHEMSPLIT", "0") == "1"; const ECHEMPEND = Ref(false); const ECHEMN = Ref(0)
@@ -1081,10 +1081,12 @@ function echem_pre!()
     eg = TF.var(:egn); eo = TF.var(:ego); off = zeros(length(eg))
     for k in a:b; off[k] = ChemNet.echem(mat.x[k], mat.net); eg[k] -= off[k]; eo[k] -= off[k]; end
     PM.ECHEMOFF[] = off; PM.ECHEMON[] = true
+    tab = falses(length(eg)); for k in a:b; tab[k] = mat.eqzone[k]; end
+    TX.ECHEMF[] = (off, tab)
     nothing
 end
 function echem_hydro_done!()
-    PM.ECHEMON[] = false; eo = TF.var(:ego); off = PM.ECHEMOFF[]
+    PM.ECHEMON[] = false; TX.ECHEMF[] = nothing; eo = TF.var(:ego); off = PM.ECHEMOFF[]
     for k in a:b; eo[k] += off[k]; end
     ECHEMPEND[] = true
     nothing
@@ -1093,7 +1095,7 @@ function echem_post!()
     ECHEMPEND[] || return nothing
     eg = TF.var(:egn); off = PM.ECHEMOFF[]; dmax = 0.0; kw = 0
     for k in a:b
-        en = ChemNet.echem(mat.x[k], mat.net); eg[k] += en
+        en = mat.eqzone[k] ? off[k] : ChemNet.echem(mat.x[k], mat.net); eg[k] += en      # (table zones: their row took the crossing chemical energy)
         abs(en - off[k]) > dmax && (dmax = abs(en - off[k]); kw = k)
     end
     ECHEMPEND[] = false; ECHEMN[] += 1
