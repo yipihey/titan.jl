@@ -376,6 +376,83 @@ species' updates. Species below 1e-25 per H nucleus do not enter the convergence
 the CLIPDEPTH retries of the linear form follow as before.
 """
 const LOGX = Ref(get(ENV, "CHEMLOGX", "0") == "1")
+"""
+CHEMSUBCYC=ε (default 0, off): `step` without `extra` and `Tfix` integrates by sub-cycling instead of one backward-Euler Newton
+solve (the approach of ChemistryKernels.jl's sub-cycler; Anninos et al. 1997, NewA 2, 209). Per sub-step h, every free species
+from its formation C and destruction rate D at the start of the sub-step, x' = (x + C h)/(1 + D h) (positive for any h; species in
+fast equilibrium, D h ≫ 1, take x = C/D: H⁻, H₂⁺, He⁺, Li⁺ …), then T from u(ρ, T, x') = u − h Λ(ρ, T, x')/ρ (one variable,
+cooling implicit in T). h is limited to ε of x/|dx/dt| for x_e and every free species above 1e-8 per H that is not in fast
+equilibrium, |Δ ln T| ≤ max(ε, 0.02), growth ×2 per sub-step; a sub-step that leaves an eliminated abundance negative or a T
+solve that fails is retried with h/4.
+Motivation (13 Nov 2026, the pre-shock zones of t_b224c8 at n ~ 3e12, T 5500-7000 K, dt ~ 1.3e6 s): the single backward-Euler
+step needs 160-500 Newton iterations in 13-31 halvings per call; from the start state Newton is outside the basin of the root
+(positivity damping by trace species, or a spurious x_e → 0 attractor in ln x), and the CHEMSUB halving tree costs 0.5-1 s per zone.
+"""
+const SUBCYC = Ref(parse(Float64, get(ENV, "CHEMSUBCYC", "0"))); const NSUBCYC = Threads.Atomic{Int}(0)
+"Formation C and destruction L per H nucleus and second for every species of compiled(net).sp (dx/dt = C − L), with the full vector v."
+function cdrates(x, nH, T, net, env, ph)
+    c = compiled(net); v = fullvec(x, c); C = zeros(length(v)); L = zeros(length(v))
+    for (ir, r) in enumerate(net.reactions)
+        Ri = c.R[ir]; rate = r.k(T, env) * nH^(length(Ri) - 1)
+        for j in Ri; rate *= v[j]; end
+        for j in Ri; L[j] += rate; end
+        for j in c.P[ir]; C[j] += rate; end
+    end
+    for (p, R, α) in ph
+        jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]
+        rate = R * v[jr]; for j in jp; C[j] += rate; end; L[jr] += rate
+        inv_ = α * nH^(length(jp) - 1); for j in jp; inv_ *= v[j]; end
+        for j in jp; L[j] += inv_; end; C[jr] += inv_
+    end
+    v, C, L
+end
+"The sub-cycled integration of CHEMSUBCYC (see there); returns (x, T) as `step`."
+function step_sub(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, ε = SUBCYC[], maxsub = 200000)
+    nH = ρ / μH(); c = compiled(net); nf = length(net.free)
+    x = collect(Float64, x0); T = Float64(T0); ucur = Float64(u)
+    t = 0.0; h = dt; nsub = 0; εT = max(ε, 0.02)
+    while t < dt * (1 - 1e-12)
+        nsub += 1; nsub > maxsub && error("ChemNet.step_sub: more than $maxsub sub-steps (nH = $nH, T0 = $T0, dt = $dt, u = $u)")
+        CHEMSTATS && Threads.atomic_add!(NADV, 1)
+        ph = [(p, photorates_t(p, T, env)...) for p in photos]
+        v, C, L = cdrates(x, nH, T, net, env, ph)
+        hh = min(h, dt - t)
+        for (i, j) in enumerate(c.free)
+            D = L[j] / max(v[j], 1e-300)
+            (x[i] > 1e-8 && D * hh < 1) || continue
+            r = abs(C[j] - L[j]) / x[i]; r > 0 && (hh = min(hh, ε / r))
+        end
+        if c.ie > 0 && v[c.ie] > 1e-8
+            de = sum(c.q[i] * (C[c.free[i]] - L[c.free[i]]) for i in 1:nf); de != 0 && (hh = min(hh, ε * v[c.ie] / abs(de)))
+        end
+        hh = max(hh, 1e-12 * dt)
+        xn = similar(x)
+        for (i, j) in enumerate(c.free)
+            xn[i] = (x[i] + C[j] * hh) / (1 + L[j] / max(v[j], 1e-300) * hh)
+        end
+        vn = fullvec(xn, c)
+        if any(j -> j > 0 && vn[j] < 0, (c.iH, c.ie, c.iHe, c.iLi))
+            hh <= 1e-12 * dt && error("ChemNet.step_sub: negative eliminated abundance at the smallest sub-step (nH = $nH, T = $T)")
+            h = hh / 4; continue
+        end
+        dn = full(xn, net)
+        g(lT) = (Tq = exp(lT); (eos(ρ, Tq, xn, net)[1] - ucur + (cooling === nothing ? zero(Tq) : hh * cooling(ρ, Tq, dn) / ρ)) / (kB * Tq / μH()))
+        lT = log(T); ok = false
+        for it in 1:50
+            gv = g(lT); dg = ForwardDiff.derivative(g, lT)
+            (isfinite(gv) && isfinite(dg) && dg != 0) || break
+            δ = clamp(-gv / dg, -0.2, 0.2); lT += δ
+            abs(δ) < 1e-11 && (ok = true; break)
+        end
+        if !ok || abs(lT - log(T)) > εT
+            hh <= 1e-12 * dt && error("ChemNet.step_sub: no temperature at the smallest sub-step (nH = $nH, T = $T)")
+            h = hh / (ok ? 2 : 4); continue
+        end
+        x = xn; T = exp(lT); ucur = Float64(eos(ρ, T, x, net)[1]); t += hh; h = 2hh
+    end
+    CHEMSTATS && Threads.atomic_add!(NSUBCYC, nsub)
+    x, T
+end
 "Print the first N non-finite Jacobians of `step` (ENV CHEMNANDBG; diagnostics)."
 const NANDBG = Ref(parse(Int, get(ENV, "CHEMNANDBG", "0")))
 """
@@ -413,6 +490,7 @@ Chemistry and temperature together over dt at fixed ρ and u (u − dt Λ/ρ wit
 function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, Tfix = nothing, accepted = nothing, tol = 1e-10, maxit = 60)
     nH = ρ / μH(); nf = length(net.free)
     CHEMSTATS && Threads.atomic_add!(NSTEP, 1)
+    SUBCYC[] > 0 && extra === nothing && Tfix === nothing && return step_sub(x0, ρ, u, T0, dt, net; env, photos, cooling)
     phT = Ref(NaN); phc = Ref{Any}(nothing)
     ucur = Ref(Float64(u))                           # u at the start of the current sub-step: what cooling took in the earlier halves stays gone
     function resid(z, x0, h)

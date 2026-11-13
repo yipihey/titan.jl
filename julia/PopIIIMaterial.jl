@@ -764,12 +764,13 @@ function chemreplay(k, m, ρ, u0, T0, x0, dt, phk, exs, c0, p3; xref, Tref)
         end
         xb, Tb, pc
     end
-    function run(fT, fx, dmaxc; npic = 0, trc = 0.0, lgx = false)
-        tr0 = CNn.TRCLIP[]; CNn.TRCLIP[] = trc; lg0 = CNn.LOGX[]; CNn.LOGX[] = lgx
+    function run(fT, fx, dmaxc; npic = 0, trc = 0.0, lgx = false, sc = 0.0)
+        tr0 = CNn.TRCLIP[]; CNn.TRCLIP[] = trc; lg0 = CNn.LOGX[]; CNn.LOGX[] = lgx; sc0 = CNn.SUBCYC[]; CNn.SUBCYC[] = sc; ns0 = CNn.NSUBCYC[]
         try
             return run0(fT, fx, dmaxc; npic)
         finally
-            CNn.TRCLIP[] = tr0; CNn.LOGX[] = lg0
+            CNn.TRCLIP[] = tr0; CNn.LOGX[] = lg0; CNn.SUBCYC[] = sc0
+            sc > 0 && @printf("      (sub-cycles %d)\n", CNn.NSUBCYC[] - ns0)
         end
     end
     function run0(fT, fx, dmaxc; npic = 0)
@@ -795,12 +796,12 @@ function chemreplay(k, m, ρ, u0, T0, x0, dt, phk, exs, c0, p3; xref, Tref)
         (ncall[], time() - t0, r..., CNn.NJAC[] - j0, CNn.NADV[] - a0)
     end
     @printf("chemreplay k %d step %d n %.2e dt %.2e T0 %.1f xe0 %.2e | production: T %.1f xe %.3e\n", k, TF.getscalar(:jstep), nHk, dt, T0, xel(x0), Tref, xel(xref))
-    for (lab, fT, fx, dm, np, trc, lgx) in (("logx single", 1.3, 3.0, 0, 0, 0.0, true), ("logx 1.3,3 d16", 1.3, 3.0, 16, 0, 0.0, true), ("logx 1.3,3 d4", 1.3, 3.0, 4, 0, 0.0, true),
-                                  ("logx T-only d16", 1.3, Inf, 16, 0, 0.0, true), ("logx T-only 1.1 d16", 1.1, Inf, 16, 0, 0.0, true), ("trclip single", 1.3, 3.0, 0, 0, 1e-6, false),
-                                  ("ref 1.3,3 d16", 1.3, 3.0, 16, 0, 0.0, false), ("T-only 1.3 d16", 1.3, Inf, 16, 0, 0.0, false), ("1.3,3 d8", 1.3, 3.0, 8, 0, 0.0, false),
-                                  ("1.3,3 d4", 1.3, 3.0, 4, 0, 0.0, false), ("single step", 1.3, 3.0, 0, 0, 0.0, false), ("single + ne-picard", 1.3, 3.0, 0, 8, 0.0, false),
-                                  ("ne-picard T-only d16", 1.3, Inf, 16, 4, 0.0, false), ("ne-picard 1.3,3 d16", 1.3, 3.0, 16, 4, 0.0, false), ("1.3,10 d16", 1.3, 10.0, 16, 0, 0.0, false))
-        nc, w, T, xe, nj, na = run(fT, fx, dm; npic = np, trc, lgx)
+    for (lab, fT, fx, dm, np, trc, lgx, sc) in (("subcyc 0.1", 1.3, 3.0, 0, 0, 0.0, false, 0.1), ("subcyc 0.03", 1.3, 3.0, 0, 0, 0.0, false, 0.03),
+                                  ("subcyc 0.01", 1.3, 3.0, 0, 0, 0.0, false, 0.01), ("subcyc 0.003", 1.3, 3.0, 0, 0, 0.0, false, 0.003),
+                                  ("subcyc 0.1 + CHEMSUB", 1.3, 3.0, 16, 0, 0.0, false, 0.1),
+                                  ("ref 1.3,3 d16", 1.3, 3.0, 16, 0, 0.0, false, 0.0), ("1.3,3 d4", 1.3, 3.0, 4, 0, 0.0, false, 0.0),
+                                  ("single step", 1.3, 3.0, 0, 0, 0.0, false, 0.0))
+        nc, w, T, xe, nj, na = run(fT, fx, dm; npic = np, trc, lgx, sc)
         @printf("    %-22s calls %6d  wall %8.3f s  T %8.1f  xe %.3e  Newton its %7d  attempts %6d  (%.2f ms/its)\n", lab, nc, w, T, xe, nj, na, 1e3w / max(nj, 1))
     end
     # CHEMREPLAYTRACE=1 (with MATTHREADS=1): every Newton iteration of the single full step, for the first replays
