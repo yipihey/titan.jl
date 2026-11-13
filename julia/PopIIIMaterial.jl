@@ -744,6 +744,57 @@ in the accretion shock; the radiation spike that followed stopped the run). With
 const CHEMSUB = Ref{Union{Nothing,NTuple{2,Float64}}}(let s = get(ENV, "CHEMSUB", "0"); s == "0" ? nothing : (v = parse.(Float64, split(s, ",")); (v[1], length(v) > 1 ? v[2] : 3.0)) end)
 const CHEMSUBMAX = Ref(parse(Int, get(ENV, "CHEMSUBMAX", "16"))); const NCHEMSUB = Ref(0)
 """
+CHEMREPLAY=n (diagnostic, default 0): the first n zone steps whose CHEMSUB sub-stepping reaches CHEMSUBMAX are solved again in place
+under solver variants (reference rule; T criterion only; depth caps; n_e iterated to self-consistency in the three-level C and P),
+printing per variant the ChemNet.step calls, the wall time and the end state (T, x_e). The zone's result is the production one.
+"""
+const CHEMREPLAY = Ref(parse(Int, get(ENV, "CHEMREPLAY", "0"))); const NREPLAY = Ref(0)
+function chemreplay(k, m, ρ, u0, T0, x0, dt, phk, exs, c0, p3; xref, Tref)
+    nHk = ρ / CNn.μH(); xel(x) = max(CNn.full(x, m.net)[:e], 0.0)
+    ncall = Ref(0)
+    function st(xa, Ta, ua, hh, pa; npic = 0)
+        pc = pa; xb = xa; Tb = Ta
+        for it in 0:npic
+            ca = (ρ_, T, d) -> (c0 === nothing ? zero(T) : c0(ρ_, T, d)) - tl3_heat(ρ_, T, d, pc)[1]
+            ncall[] += 1
+            xb, Tb = CNn.step(xa, ρ, ua, Ta, hh, m.net; env = merge(m.env, (; tabkey = m.env, tl3 = pc)), photos = phk, cooling = ca, extra = exs)
+            pn = merge(pc, (; ne = nHk * xel(xb)))
+            it < npic && abs(pn.ne / pc.ne - 1) < 1e-3 && (pc = pn; break)
+            pc = pn
+        end
+        xb, Tb, pc
+    end
+    function run(fT, fx, dmaxc; npic = 0)
+        bad(xa, Ta, xb, Tb) = (ea = xel(xa); eb = xel(xb); !(isfinite(Tb) && all(isfinite, xb)) || abs(log(Tb / Ta)) > log(fT) ||
+                               (max(ea, eb) > 1e-4 && max(ea, eb) > fx * min(ea, eb)))
+        function sub(xa, Ta, ua, hh, depth, pa)
+            xb, Tb, pb = st(xa, Ta, ua, hh, pa; npic)
+            (depth >= dmaxc || !bad(xa, Ta, xb, Tb)) && return (xb, Tb, pb)
+            xc, Tc_, pc = sub(xa, Ta, ua, hh / 2, depth + 1, pa)
+            sub(xc, Tc_, Float64(CNn.eos(ρ, Tc_, xc, m.net)[1]), hh / 2, depth + 1, pc)
+        end
+        ncall[] = 0; t0 = time()
+        r = try
+            xb, Tb, pb = st(x0, T0, u0, dt, p3; npic)
+            if dmaxc > 0 && bad(x0, T0, xb, Tb)
+                xm, Tm, pm = sub(x0, T0, u0, dt / 2, 1, p3)
+                xb, Tb, pb = sub(xm, Tm, Float64(CNn.eos(ρ, Tm, xm, m.net)[1]), dt / 2, 1, pm)
+            end
+            (Tb, xel(xb))
+        catch e
+            (NaN, NaN)
+        end
+        (ncall[], time() - t0, r...)
+    end
+    @printf("chemreplay k %d step %d n %.2e dt %.2e T0 %.1f xe0 %.2e | production: T %.1f xe %.3e\n", k, TF.getscalar(:jstep), nHk, dt, T0, xel(x0), Tref, xel(xref))
+    for (lab, fT, fx, dm, np) in (("ref 1.3,3 d16", 1.3, 3.0, 16, 0), ("T-only 1.3 d16", 1.3, Inf, 16, 0), ("1.3,3 d8", 1.3, 3.0, 8, 0),
+                                  ("1.3,3 d4", 1.3, 3.0, 4, 0), ("single step", 1.3, 3.0, 0, 0), ("single + ne-picard", 1.3, 3.0, 0, 8),
+                                  ("ne-picard T-only d16", 1.3, Inf, 16, 4), ("ne-picard 1.3,3 d16", 1.3, 3.0, 16, 4), ("1.3,10 d16", 1.3, 10.0, 16, 0))
+        nc, w, T, xe = run(fT, fx, dm; npic = np)
+        @printf("    %-22s calls %6d  wall %8.3f s  T %8.1f  xe %.3e\n", lab, nc, w, T, xe)
+    end
+end
+"""
 `CHEMTMIN=T` (K, default 0 = off): a chemistry step (single or sub-stepped) that returns T below this floor is treated as failed
 and the zone takes the table fallback for that step (CHEMFALLBACK). Added 12 Nov after f128 stopped at 46.6 M☉: zone 69 (795 R☉,
 n 8.8e11) went 1516 K -> 0.3 K in the sub-stepped chemistry (single step 57 K) and the next hydro solve was NaN. Below the CMB
@@ -907,6 +958,8 @@ function chem_core!(m::NetGas)
                         xm, Tm, pm = sub(m.x[k], tn[k], Float64(egn[k]), dt / 2, 1, p3)
                         xs1, Ts1, p3e = sub(xm, Tm, Float64(CNn.eos(dn[k], Tm, xm, m.net)[1]), dt / 2, 1, pm)
                         lock(() -> (NCHEMSUB[] += 1), CHEMLOCK)
+                        dmax[] >= CHEMSUBMAX[] && CHEMREPLAY[] > 0 && lock(() -> (NREPLAY[] += 1) <= CHEMREPLAY[], CHEMLOCK) &&
+                            lock(() -> chemreplay(k, m, dn[k], Float64(egn[k]), tn[k], m.x[k], dt, phk, exs, c0, p3; xref = xs1, Tref = Ts1), CHEMLOCK)
                         (dmax[] >= 4 || TL3DBG[] > 0) && @printf("chemsub k %d step %d r %.3e R_sun n %.2e dt %.2e depth %d: T %.1f -> %.1f (one step: %.1f), x_e %.2e -> %.2e (one step: %.2e)\n", k, TF.getscalar(:jstep), rn[k] / 6.957e10, nHk, dt, dmax[], tn[k], Ts1, Ts0, xel(m.x[k]), xel(xs1), xel(xs0))
                     end
                 end
