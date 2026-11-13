@@ -743,6 +743,11 @@ n 8.8e11) went 1516 K -> 0.3 K in the sub-stepped chemistry (single step 57 K) a
 """
 const CHEMTMIN = Ref(parse(Float64, get(ENV, "CHEMTMIN", "0"))); const NCHEMTMIN = Ref(0)
 "The chemistry–temperature step of the H network (`chem!` adds the deuterium trace network with HDCHEM=1)."
+"""
+CHEMZPROF=1 (diagnostic, default off): wall time of the chemistry per zone; every 500 steps the twelve zones that took most of it.
+"""
+const CHEMZPROF = get(ENV, "CHEMZPROF", "0") == "1"
+const ZPT = Ref(Float64[]); const ZPN = Ref(0)
 function chem_core!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
@@ -928,6 +933,8 @@ function chem_core!(m::NetGas)
         dTz[k] = abs(T1 / tn[k] - 1); tn[k] = T1
         nothing
     end
+    CHEMZPROF && length(ZPT[]) != length(tn) && (ZPT[] = zeros(length(tn)))
+    zrun!(k) = CHEMZPROF ? (t0_ = time_ns(); zone!(k); ZPT[][k] += (time_ns() - t0_) * 1e-9; nothing) : zone!(k)   # CHEMZPROF: time per zone (one task per zone, no race)
     if CHEMTHREADS[] && ray === nothing && Threads.nthreads() > 1    # zones are independent (start-of-step state, per-zone outputs)
         if CHEMSCHED[] === :zone
             next = Threads.Atomic{Int}(a)
@@ -935,16 +942,24 @@ function chem_core!(m::NetGas)
                 Threads.@spawn while true
                     kz = Threads.atomic_add!(next, 1)
                     kz > b && break
-                    zone!(kz)
+                    zrun!(kz)
                 end
             end
         else
-            Threads.@threads :dynamic for k in a:b; zone!(k); end
+            Threads.@threads :dynamic for k in a:b; zrun!(k); end
         end
     else
-        for k in a:b; zone!(k); end
+        for k in a:b; zrun!(k); end
     end
     dTmax = maximum(view(dTz, a:b))
+    if CHEMZPROF && (ZPN[] += 1) % 500 == 0           # the zones that took most of the network time over the last 500 steps
+        zt = ZPT[]; tot = sum(view(zt, a:b)); js = sort(collect(a:b); by = k -> -zt[k])[1:min(12, b - a + 1)]
+        @printf("CHEMZPROF step %d: %.1f s in zones over 500 steps (%d table, %d network now); top zones:\n", TF.getscalar(:jstep), tot, count(k -> m.eqzone[k], a:b), count(k -> !m.eqzone[k], a:b))
+        for k in js
+            @printf("    zone %3d  %5.1f %%  r %.3e R_sun  n %.3e  T %8.1f  p/pswitch %.3g  %s\n", k - a + 1, 100 * zt[k] / tot, TM.v(:rn)[k] / 6.957e10, dn[k] / CNn.μH(), tn[k], pgn[k] / m.pswitch, m.eqzone[k] ? "table" : "network")
+        end
+        fill!(zt, 0.0)
+    end
     for k in a-2:a-1; k >= 1 && (m.x[k] = m.x[a]; m.eqzone[k] = m.eqzone[a]); end
     for k in b+1:b+2; m.x[k] = m.x[b]; m.eqzone[k] = m.eqzone[b]; end
     tn[a-1] = tn[a]; tn[b+1] = tn[b]; tn[b+2] = tn[b]
