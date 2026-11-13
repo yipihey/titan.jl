@@ -1231,6 +1231,12 @@ table switch — with no second cooling for a zone that leaves the network —, 
 Not coupled: the IonRay path (a ray zone is not prepared), CHEMB (BALSPLIT) — both off in the runs this was built for.
 """
 const CPLPREP = Ref(false); const CPLPOST = Ref(false)
+"""
+CPLBAND (ENV, default all network zones): which network zones are coupled; the others keep the split chemistry (CHEMCK, CHEMCKHSS, with
+ECHEMSPLIT if set). `hss=f`: zones whose H⁺ relaxes fast at the start of the step, |∂S_H⁺/∂x_H⁺| Δt > f (the CHEMCKHSS criterion: the
+pre-shock avalanche band); `r=r1,r2`: zones with centres between r1 and r2 R☉; `z=k1,k2`: zone numbers k1…k2 from the inner boundary.
+"""
+const CPLBAND = Ref{Any}(let v = get(ENV, "CPLBAND", ""); isempty(v) ? nothing : (s_ = split(v, "="); (Symbol(s_[1]), parse.(Float64, split(s_[2], ",")))) end)
 const CPLTERMS = Ref(Any[]); const CPLCACHE = Ref(Any[])
 function cpl_g(m::NetGas, k, z)
     t = CPLTERMS[][k]; ρ = z[1]; T = z[2]
@@ -1246,15 +1252,40 @@ function cpl_lift(y, J, ρ::D, T::D, a::D, b::D) where {D<:ForwardDiff.Dual}
 end
 cpl_lift(y, J, ρ, T, a, b) = (pr = promote(ρ, T, a, b); cpl_lift(y, J, pr...))
 "(p, e, S_H⁺, S_H₂, Λ) of coupled zone k at (ρ, T, x_H⁺, x_H₂), with derivatives (see COUPLED above)."
+const CPLPN = Threads.Atomic{Int}(0); const CPLPH = Threads.Atomic{Int}(0); const CPLPT = Threads.Atomic{Int}(0)   # (CPLPROF) misses, hits, ns
+"""
+Jacobian reuse (CPLJLAG, default "3e-3,0.1"): a zone's local Jacobian is recomputed only when ρ or T moved by more than the first number or
+x_H⁺, x_H₂ by more than the second (relative, ln) since it was taken; the values are always exact. Float evaluations (the EOS refresh in
+update!) take values only. The Newton becomes inexact, the converged state is unchanged. `CPLJLAG=0`: a new Jacobian at every new point.
+"""
+const CPLJLAG = let s_ = split(get(ENV, "CPLJLAG", "3e-3,0.1"), ","); s_[1] == "0" ? (0.0, 0.0) : (parse(Float64, s_[1]), parse(Float64, s_[2])) end
+@inline cpl_close(vJ, v) = vJ !== nothing && CPLJLAG[1] > 0 && abs(log(v[1] / vJ[1])) < CPLJLAG[1] && abs(log(v[2] / vJ[2])) < CPLJLAG[1] &&
+                           abs(log(v[3] / vJ[3])) < CPLJLAG[2] && abs(log(v[4] / vJ[4])) < CPLJLAG[2]
+function cpl_vj(m, k, v)
+    t0 = time_ns(); z0 = [v...]
+    res = ForwardDiff.DiffResults.JacobianResult(zeros(5), z0)
+    ForwardDiff.jacobian!(res, z -> cpl_g(m, k, z), z0)
+    Threads.atomic_add!(CPLPN, 1); Threads.atomic_add!(CPLPT, Int(time_ns() - t0))
+    copy(ForwardDiff.DiffResults.value(res)), copy(ForwardDiff.DiffResults.jacobian(res))
+end
 function cpl_zone(m::NetGas, k, ρ, T, a, b)
     v = (Float64(ForwardDiff.value(ρ)), Float64(ForwardDiff.value(T)), Float64(ForwardDiff.value(a)), Float64(ForwardDiff.value(b)))
-    c = CPLCACHE[][k]
+    needJ = !(ρ isa Float64 && T isa Float64 && a isa Float64 && b isa Float64)
+    c = CPLCACHE[][k]                                         # (v, y(v), v_J, J(v_J))
     if c === nothing || c[1] != v
-        z0 = [v...]
-        y = cpl_g(m, k, z0); J = ForwardDiff.jacobian(z -> cpl_g(m, k, z), z0)
-        c = (v, y, J); CPLCACHE[][k] = c
+        if needJ && !(c !== nothing && cpl_close(c[3], v))
+            y, J = cpl_vj(m, k, v); c = (v, y, v, J)
+        else
+            y = cpl_g(m, k, [v...]); c = c === nothing ? (v, y, nothing, nothing) : (v, y, c[3], c[4])
+            Threads.atomic_add!(CPLPH, 1)
+        end
+        CPLCACHE[][k] = c
+    elseif needJ && !cpl_close(c[3], v)
+        y, J = cpl_vj(m, k, v); c = (v, y, v, J); CPLCACHE[][k] = c
+    else
+        Threads.atomic_add!(CPLPH, 1)
     end
-    cpl_lift(c[2], c[3], ρ, T, a, b)
+    needJ ? cpl_lift(c[2], c[4], ρ, T, a, b) : (c[2][1], c[2][2], c[2][3], c[2][4], c[2][5])
 end
 function cpl_prepare!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); nf = length(m.net.free)
@@ -1271,10 +1302,17 @@ function cpl_prepare!(m::NetGas)
         for i in 1:2; TX.XSN[][i][k] = max(x[sl[i]], 1e-40); end
     end
     for k in a:b; TX.CPLZ[][k] = CPLTERMS[][k] !== nothing; end
+    bd = CPLBAND[]; dt = TF.getscalar(:dtime); rn = TM.v(:rn)
     for k in a:b
         TX.cplz(k) || continue
         y = cpl_zone(m, k, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k])
         TX.XSRCO[][1][k] = y[3]; TX.XSRCO[][2][k] = y[4]; TX.XLAMO[][k] = y[5]
+        bd === nothing && continue
+        keep = bd[1] === :hss ? (CPLCACHE[][k][4] === nothing && (yv = cpl_vj(m, k, CPLCACHE[][k][1]); CPLCACHE[][k] = (CPLCACHE[][k][1], yv[1], CPLCACHE[][k][1], yv[2]));
+                                 abs(CPLCACHE[][k][4][3, 3]) * dt > bd[2][1]) :
+               bd[1] === :r ? bd[2][1] <= 0.5 * (rn[k] + rn[k+1]) / 6.957e10 <= bd[2][2] :
+               bd[1] === :z ? bd[2][1] <= k - a + 1 <= bd[2][2] : error("CPLBAND: unknown kind $(bd[1])")
+        keep || (TX.CPLZ[][k] = false)
     end
     nothing
 end
@@ -1302,11 +1340,11 @@ function cpl_local!(m::NetGas, k, dt)
         ntuple(i -> (mk * xs[i] - mo * xo[i]) / dt - mk * S_[2+i] - fo * (-fo >= 0 ? xs[i] : xu[i]) + fi * (-fi >= 0 ? xd[i] : xs[i]), 2)
     end
     z = [log(max(TX.XSN[][1][k], 1e-40)), log(max(TX.XSN[][2][k], 1e-40))]
-    for it in 1:30
+    for it in 1:12
         r0 = collect(R(z)); J = ForwardDiff.jacobian(zz -> collect(R(zz)), z)
         δ = -(J \ r0); all(isfinite, δ) || return nothing
         δ .= clamp.(δ, -3.0, 3.0); z .+= δ
-        maximum(abs, δ) < 1e-8 && return (exp(z[1]), exp(z[2]))
+        maximum(abs, δ) < 1e-4 && return (exp(z[1]), exp(z[2]))     # (only Newton's initial guess)
     end
     nothing
 end

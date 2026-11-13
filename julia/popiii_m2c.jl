@@ -1106,7 +1106,7 @@ function echem_pre!()
         eg[k] -= off[k]; eo[k] -= off[k]; egr[k] -= off[k]; ero_[k] -= off[k]      # (gas + radiation: peqr copies egrn to egro)
     end
     PM.ECHEMOFF[] = off; PM.ECHEMON[] = true
-    tab = falses(length(eg)); for k in a:b; tab[k] = mat.eqzone[k]; end
+    tab = falses(length(eg)); for k in a:b; tab[k] = mat.eqzone[k] || TX.cplz(k); end     # (COUPLED zones: as table zones, latent heat in the Newton)
     TX.ECHEMF[] = (off, tab)
     nothing
 end
@@ -1120,7 +1120,7 @@ function echem_post!()
     ECHEMPEND[] || return nothing
     eg = TF.var(:egn); egr = TF.var(:egrn); off = PM.ECHEMOFF[]; dmax = 0.0; kw = 0
     for k in a:b
-        en = mat.eqzone[k] ? off[k] : ChemNet.echem(mat.x[k], mat.net); eg[k] += en; egr[k] += en      # (table zones: their row took the crossing chemical energy)
+        en = (mat.eqzone[k] || TX.cplz(k)) ? off[k] : ChemNet.echem(mat.x[k], mat.net); eg[k] += en; egr[k] += en      # (table and COUPLED zones: their row took the crossing chemical energy)
         abs(en - off[k]) > dmax && (dmax = abs(en - off[k]); kw = k)
     end
     ECHEMPEND[] = false; ECHEMN[] += 1
@@ -1863,6 +1863,42 @@ if haskey(ENV, "NEWTDBG")
     end
 end
 const RUNEND = Ref{Any}(nothing)
+"""
+CPLPROF=1 (diagnostic, default off; also without COUPLED): wall time of matgen (residual + AD Jacobian), matslv, maxdel, update and the
+Newton iteration count, and (COUPLED) the local 4-wide Jacobians of PopIIIMaterial.cpl_zone (computed / reused, time); printed every 100 steps.
+"""
+const CPLPROF = get(ENV, "CPLPROF", "0") == "1"
+const PROFT = Dict{Symbol,Float64}(); const PROFN = Dict{Symbol,Int}(); const PROFSTEP = Ref(-1)
+if CPLPROF
+    for s_ in (:matgen, :matslv, :maxdel, :update, :peq, :timstp)
+        let f0 = TD.ROUTINES[s_], s_ = s_
+            TD.ROUTINES[s_] = () -> (t0 = time(); try f0() finally PROFT[s_] = get(PROFT, s_, 0.0) + time() - t0; PROFN[s_] = get(PROFN, s_, 0) + 1 end)
+        end
+    end
+end
+const PROFSAMPLE = haskey(ENV, "CPLPROFILE") ? parse(Int, ENV["CPLPROFILE"]) : -1     # step at which a 200-step Profile sample starts
+PROFSAMPLE >= 0 && @eval using Profile
+function prof_sample(js)
+    if js == PROFSAMPLE
+        Base.invokelatest(() -> (Profile.init(n = 10^7, delay = 0.01); Profile.clear(); Profile.start_timer()))
+    elseif js == PROFSAMPLE + 200
+        Base.invokelatest() do
+            Profile.stop_timer()
+            open(joinpath(get(ENV, "POPIII_OUT", "."), "cplprofile_$(js).txt"), "w") do io
+                Profile.print(IOContext(io, :displaysize => (100000, 250)); format = :flat, sortedby = :count, mincount = 50)
+            end
+        end
+    end
+end
+function prof_report()
+    js = Int(TF.getscalar(:jstep)); PROFSAMPLE >= 0 && prof_sample(js)
+    (CPLPROF && js % 100 == 0 && js != PROFSTEP[]) || return nothing
+    PROFSTEP[] = js
+    @printf("CPLPROF step %d:", js); for s_ in (:matgen, :matslv, :maxdel, :update, :peq, :timstp); @printf(" %s %.1f s/%d", s_, get(PROFT, s_, 0.0), get(PROFN, s_, 0)); end
+    @printf("  cpl_zone jacobians %d (%.1f s), reused %d\n", PM.CPLPN[], PM.CPLPT[] * 1e-9, PM.CPLPH[])
+    empty!(PROFT); empty!(PROFN); PM.CPLPN[] = 0; PM.CPLPH[] = 0; PM.CPLPT[] = 0
+    nothing
+end
 try
     if ECHEMSPLIT
         mat isa PM.NetGas || error("ECHEMSPLIT=1 needs the network gas (CHEM=net...)")
@@ -1873,7 +1909,7 @@ try
     end
     if COUPLED
         mat isa PM.NetGas || error("COUPLED=1 needs the network gas (CHEM=net...)")
-        ECHEMSPLIT && error("COUPLED=1 and ECHEMSPLIT=1 exclude each other (the chemical energy moves with the coupled species)")
+        ECHEMSPLIT && PM.CPLBAND[] === nothing && error("COUPLED=1 with ECHEMSPLIT=1 needs CPLBAND (the split zones then advect e − Σ x E0; coupled zones are treated as table zones)")
         TF.PARAMS[:meqn] >= 9 || error("COUPLED=1: meqn = $(TF.PARAMS[:meqn]) < 9")
         ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
         TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
@@ -1919,6 +1955,7 @@ try
         SLZ_ = haskey(ENV, "SLZ") ? parse.(Int, split(ENV["SLZ"], ",")) : nothing
         if SLZ_ !== nothing; xb_ = [copy(mat.x[z]) for z in SLZ_[1]:SLZ_[2]]; Tb_ = TF.var(:tn)[SLZ_[1]:SLZ_[2]]; end
         dT = COUPLED ? PM.cpl_chem!(mat) : PM.chem!(mat)
+        prof_report()
         if STOLCHEM
             TF.setscalar!(:tfac, TC.TSTP_IN[][1]); TF.setscalar!(:dtime, TC.TSTP_IN[][2]); TD.r(:timstp)
         end

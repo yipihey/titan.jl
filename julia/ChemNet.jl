@@ -354,6 +354,24 @@ function dxdt(x, nH, T, net, env, photo)
     dd[c.free]
 end
 
+"dxdt with the rate coefficients precomputed: ks[ir] = k_ir(T, env) n_H^(n_R − 1) (as in `ck_expand`); same result as `dxdt`."
+function dxdt_k(x, nH, net, ph, ks)
+    c = compiled(net); v = fullvec(x, c); dd = zeros(promote_type(eltype(x), eltype(ks)), length(v))
+    for ir in eachindex(net.reactions)
+        Ri = c.R[ir]; rate = ks[ir]
+        for j in Ri; rate *= v[j]; end
+        for j in Ri; dd[j] -= rate; end
+        for j in c.P[ir]; dd[j] += rate; end
+    end
+    for (p, R, α) in ph
+        jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]
+        rate = R * v[jr]; for j in jp; dd[j] += rate; end; dd[jr] -= rate
+        inv_ = α * nH^(length(jp) - 1); for j in jp; inv_ *= v[j]; end
+        for j in jp; dd[j] -= inv_; end; dd[jr] += inv_
+    end
+    dd[c.free]
+end
+
 """
 From this recursion depth, a failed Newton is retried with each free abundance clipped on its own (x → 0.1 x) instead of scaling the
 whole correction. A trace species whose linearised update is strongly negative (H₂⁺ at n ≈ 1e16, T ≈ 3300 K, with the H₂ row far from
@@ -642,7 +660,7 @@ function ck_eval(xs, ρ, T, net; env, phc, extra)
     ph = phc(ForwardDiff.value(T))
     ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
     x = ck_expand(xs, T, nH, net, ph, ks, extra)
-    f = dxdt(x, nH, T, net, ev, ph); extra === nothing || (f = f .+ extra(x))
+    f = dxdt_k(x, nH, net, ph, ks); extra === nothing || (f = f .+ extra(x))
     x, f[sl]
 end
 function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, tol, maxit)
