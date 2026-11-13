@@ -368,6 +368,14 @@ other unknown stays put, λ falls ×10 per iteration and the attempt fails (13 N
 failed attempts in one step at h ≥ dt/16).
 """
 const TRCLIP = Ref(parse(Float64, get(ENV, "CHEMTRCLIP", "0")))
+"""
+CHEMLOGX=1 (default off): Newton of `step` in w = ln x for the free species (and ln T), so that their positivity holds by
+construction and the exponential dependence of trace species in fast equilibrium (H⁻, H₂⁺, He⁺, Li⁺ …) on T is linear in the
+unknowns. The eliminated H, e, He keep the common step length (halved until non-negative); the eliminated Li scales only the Li
+species' updates. Species below 1e-25 per H nucleus do not enter the convergence test (floor 1e-60). On failure the halving and
+the CLIPDEPTH retries of the linear form follow as before.
+"""
+const LOGX = Ref(get(ENV, "CHEMLOGX", "0") == "1")
 "Print the first N non-finite Jacobians of `step` (ENV CHEMNANDBG; diagnostics)."
 const NANDBG = Ref(parse(Int, get(ENV, "CHEMNANDBG", "0")))
 """
@@ -468,9 +476,52 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
         λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (z, true)
         (z, false)
     end
+    function attempt_log(x0, T0, h)
+        w = vcat(log.(max.(collect(Float64, x0), 1e-60)), log(T0)); rel = Inf; dT = Inf; λ = 0.0
+        rw(ww) = resid(vcat(exp.(ww[1:nf]), ww[nf+1:nf+1]), x0, h)
+        cc = compiled(net)
+        TRACEALL[] && println("  log attempt h ", h, " T0 ", T0)
+        xof(ww) = exp.(ww[1:nf])
+        for it in 1:maxit
+            R = rw(w)
+            CHEMSTATS && Threads.atomic_add!(NJAC, 1)
+            Jm = ForwardDiff.jacobian(rw, w)
+            (all(isfinite, Jm) && all(isfinite, R)) || return (vcat(xof(w), w[nf+1]), false)
+            δ = -(Jm \ R); all(isfinite, δ) || return (vcat(xof(w), w[nf+1]), false)
+            λ = 1.0; lim = :none
+            d0 = full(xof(w), net)
+            if haskey(d0, :Li)
+                for _ in 1:60
+                    full(exp.(w[1:nf] .+ δ[1:nf]), net)[:Li] >= 0.1 * d0[:Li] && break
+                    for i in 1:nf; cc.elLi[i] != 0 && (δ[i] *= 0.5); end
+                end
+            end
+            for _ in 1:60
+                d1 = full(exp.(w[1:nf] .+ λ .* δ[1:nf]), net)
+                bad = false
+                for s in (:H, :e, :He)
+                    haskey(d1, s) && d1[s] < 0.1 * d0[s] && d0[s] > 0 && (bad = true; lim = s)
+                end
+                bad || break
+                λ *= 0.5
+            end
+            abs(δ[nf+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[nf+1]); lim = :T)
+            w .+= λ .* δ
+            for i in 1:nf; w[i] = max(w[i], log(1e-60)); end
+            act = [i for i in 1:nf if w[i] > log(1e-25)]
+            rel = isempty(act) ? 0.0 : maximum(abs(δ[i]) for i in act); dT = abs(δ[nf+1])
+            TRACEALL[] && println("    lit ", it, " λ ", round(λ, sigdigits = 3), " lim ", lim, " δlnT ", round(δ[nf+1], sigdigits = 3), " T ", round(exp(w[nf+1]), digits = 1),
+                                  " max|δlnx| ", round(rel, sigdigits = 3), " |R| ", round(maximum(abs, R), sigdigits = 3), " x_e ", round(full(xof(w), net)[:e], sigdigits = 4))
+            λ == 1.0 && rel < tol && dT < tol && return (vcat(xof(w), w[nf+1]), true)
+            CHEMSTAG > 0 && it >= CHEMSTAG && λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (vcat(xof(w), w[nf+1]), true)
+            CHEMGIVEUP > 0 && it == CHEMGIVEUP && !(λ == 1.0 && rel < 1e-3) && return (vcat(xof(w), w[nf+1]), false)
+        end
+        λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (vcat(xof(w), w[nf+1]), true)
+        (vcat(xof(w), w[nf+1]), false)
+    end
     function adv(x0, T0, h, depth)
         CHEMSTATS && Threads.atomic_add!(NADV, 1)
-        z, ok = attempt(x0, T0, h)
+        z, ok = LOGX[] ? attempt_log(x0, T0, h) : attempt(x0, T0, h)
         ok && (accepted === nothing || accepted(z[1:nf], h); return (z[1:nf], exp(z[nf+1])))
         if depth >= CLIPDEPTH                        # (see the note at CLIPDEPTH)
             z, ok = attempt(x0, T0, h; clip = true)
