@@ -791,6 +791,7 @@ function chemreplay(k, m, ρ, u0, T0, x0, dt, phk, exs, c0, p3; xref, Tref)
             end
             (Tb, xel(xb))
         catch e
+            println("      error: ", first(sprint(showerror, e), 220))
             (NaN, NaN)
         end
         (ncall[], time() - t0, r..., CNn.NJAC[] - j0, CNn.NADV[] - a0)
