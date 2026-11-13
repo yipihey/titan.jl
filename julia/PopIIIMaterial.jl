@@ -773,7 +773,7 @@ function chemreplay(k, m, ρ, u0, T0, x0, dt, phk, exs, c0, p3; xref, Tref)
             xc, Tc_, pc = sub(xa, Ta, ua, hh / 2, depth + 1, pa)
             sub(xc, Tc_, Float64(CNn.eos(ρ, Tc_, xc, m.net)[1]), hh / 2, depth + 1, pc)
         end
-        ncall[] = 0; t0 = time()
+        ncall[] = 0; t0 = time(); j0 = CNn.NJAC[]; a0 = CNn.NADV[]
         r = try
             xb, Tb, pb = st(x0, T0, u0, dt, p3; npic)
             if dmaxc > 0 && bad(x0, T0, xb, Tb)
@@ -784,15 +784,23 @@ function chemreplay(k, m, ρ, u0, T0, x0, dt, phk, exs, c0, p3; xref, Tref)
         catch e
             (NaN, NaN)
         end
-        (ncall[], time() - t0, r...)
+        (ncall[], time() - t0, r..., CNn.NJAC[] - j0, CNn.NADV[] - a0)
     end
     @printf("chemreplay k %d step %d n %.2e dt %.2e T0 %.1f xe0 %.2e | production: T %.1f xe %.3e\n", k, TF.getscalar(:jstep), nHk, dt, T0, xel(x0), Tref, xel(xref))
     for (lab, fT, fx, dm, np) in (("ref 1.3,3 d16", 1.3, 3.0, 16, 0), ("T-only 1.3 d16", 1.3, Inf, 16, 0), ("1.3,3 d8", 1.3, 3.0, 8, 0),
                                   ("1.3,3 d4", 1.3, 3.0, 4, 0), ("single step", 1.3, 3.0, 0, 0), ("single + ne-picard", 1.3, 3.0, 0, 8),
                                   ("ne-picard T-only d16", 1.3, Inf, 16, 4), ("ne-picard 1.3,3 d16", 1.3, 3.0, 16, 4), ("1.3,10 d16", 1.3, 10.0, 16, 0))
-        nc, w, T, xe = run(fT, fx, dm; npic = np)
-        @printf("    %-22s calls %6d  wall %8.3f s  T %8.1f  xe %.3e\n", lab, nc, w, T, xe)
+        nc, w, T, xe, nj, na = run(fT, fx, dm; npic = np)
+        @printf("    %-22s calls %6d  wall %8.3f s  T %8.1f  xe %.3e  Newton its %7d  attempts %6d  (%.2f ms/its)\n", lab, nc, w, T, xe, nj, na, 1e3w / max(nj, 1))
     end
+    # cost of the residual's pieces at the start state (Float64 and with 9-wide dual numbers, as in the ForwardDiff Jacobian)
+    d0 = CNn.full(x0, m.net); nr = 200
+    ca = (ρ_, T, d) -> (c0 === nothing ? zero(T) : c0(ρ_, T, d))
+    Td = ForwardDiff.Dual(T0, ntuple(_ -> 1.0, 9)...)
+    tim(f) = (f(); t = time(); for _ in 1:nr; f(); end; 1e6 * (time() - t) / nr)
+    @printf("    pieces [us/eval, Float64 / dual]: cooling %.1f / %.1f  tl3_heat %.1f / %.1f  eos %.1f / %.1f\n",
+            tim(() -> ca(ρ, T0, d0)), tim(() -> ca(ρ, Td, d0)), tim(() -> tl3_heat(ρ, T0, d0, p3)), tim(() -> tl3_heat(ρ, Td, d0, p3)),
+            tim(() -> CNn.eos(ρ, T0, x0, m.net)), tim(() -> CNn.eos(ρ, Td, x0, m.net)))
 end
 """
 `CHEMTMIN=T` (K, default 0 = off): a chemistry step (single or sub-stepped) that returns T below this floor is treated as failed
