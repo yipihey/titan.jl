@@ -750,12 +750,12 @@ n 8.8e11) went 1516 K -> 0.3 K in the sub-stepped chemistry (single step 57 K) a
 (55 K at z = 19) such a T is a spurious root of the implicit step, not physics.
 """
 const CHEMTMIN = Ref(parse(Float64, get(ENV, "CHEMTMIN", "0"))); const NCHEMTMIN = Ref(0)
-"The chemistry–temperature step of the H network (`chem!` adds the deuterium trace network with HDCHEM=1)."
 """
 CHEMZPROF=1 (diagnostic, default off): wall time of the chemistry per zone; every 500 steps the twelve zones that took most of it.
 """
 const CHEMZPROF = get(ENV, "CHEMZPROF", "0") == "1"
 const ZPT = Ref(Float64[]); const ZPN = Ref(0)
+"The chemistry–temperature step of the H network (`chem!` adds the deuterium trace network with HDCHEM=1)."
 function chem_core!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
