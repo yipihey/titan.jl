@@ -536,6 +536,14 @@ sub-stepped), which the material's CHEMSUB tree then splits to depth 16.
 """
 const CKADAPT = Ref(let v = get(ENV, "CHEMCKADAPT", ""); isempty(v) ? (0.0, 0.0) : Tuple(parse.(Float64, split(v, ","))) end)
 const CKMAXSUB = 10000
+"""
+`CHEMCKHSS=f` (with CHEMCK=1; default 0 = off): H⁺ in steady state where it relaxes fast. In a three-level zone (env carries `tl3`) n_e in
+the Peebles C is taken from the current iterate (x_H⁺) instead of the start-of-step value, and where |∂f_H⁺/∂x_H⁺| dt > f at the start of
+the step the H⁺ row is the steady state f_H⁺ = 0 instead of backward Euler. The pre-shock zones (n 3–9e12, T 5300–6700 K) ionize by an
+electron avalanche e-folding in seconds within steps of 1e5–1e6 s, which the material's CHEMSUB tree (lagged n_e) bisected to ~10 s
+(48 % of the chemistry time in 4 zones, t_cka, 13 Nov). The material skips CHEMSUB and takes the same n_e in tl3_heat when this is on.
+"""
+const CKHSS = Ref(parse(Float64, get(ENV, "CHEMCKHSS", "0")))
 const CKFAST = (:Hm, :H2p, :Hep, :Hepp, :Lip)
 struct CKInfo
     fast::Vector{Int}; slow::Vector{Int}                 # positions in net.free
@@ -622,16 +630,24 @@ end
 function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, tol, maxit)
     nH = ρ / μH(); ci = ckinfo(net); sl = ci.slow; ns = length(sl); cc = compiled(net)
     phT = Ref(NaN); phc = Ref{Any}(nothing); ucur = Ref(Float64(u))
+    kHp = findfirst(==(:Hp), net.free[sl]); tl3sc = CKHSS[] > 0 && kHp !== nothing && hasproperty(env, :tl3) && env.tl3 !== nothing
+    envz(z) = tl3sc ? merge(env, (; tl3 = merge(env.tl3, (; ne = nH * z[kHp])))) : env
+    hss = Ref(false)
     function xT(z)
-        T = exp(z[ns+1]); Tv = ForwardDiff.value(T)
+        T = exp(z[ns+1]); Tv = ForwardDiff.value(T); ev = envz(z)
         Tv == phT[] || (phc[] = [(p, photorates_t(p, Tv, env)...) for p in photos]; phT[] = Tv)
-        ph = phc[]; ks = [r.k(T, env) * nH^(length(r.R) - 1) for r in net.reactions]
-        (ck_expand(z[1:ns], T, nH, net, ph, ks, extra), T, ph)
+        ph = phc[]; ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
+        (ck_expand(z[1:ns], T, nH, net, ph, ks, extra), T, ph, ev)
+    end
+    function fslow(z)
+        x, T, ph, ev = xT(z)
+        f = dxdt(x, nH, T, net, ev, ph); extra === nothing || (f = f .+ extra(x))
+        x, T, f
     end
     function resid(z, xs0, h)
-        x, T, ph = xT(z)
-        f = dxdt(x, nH, T, net, env, ph); extra === nothing || (f = f .+ extra(x))
+        x, T, f = fslow(z)
         r = x[sl] .- xs0 .- h .* f[sl]
+        hss[] && (r = [i == kHp ? -h * f[sl[i]] : r[i] for i in eachindex(r)])
         ue = eos(ρ, T, x, net)[1] - ucur[] + (cooling === nothing ? zero(T) : h * cooling(ρ, T, full(x, net)) / ρ)
         vcat(r, ue / (kB * T / μH()))
     end
@@ -672,6 +688,11 @@ function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, 
         xs1, T1 = adv(xs0, T0, h / 2, depth + 1)
         cooling === nothing || (ucur[] = Float64(eos(ρ, T1, xT(vcat(xs1, log(T1)))[1], net)[1]))
         adv(xs1, T1, h / 2, depth + 1)
+    end
+    if tl3sc
+        z0 = vcat(collect(Float64, x0[sl]), log(T0))
+        dfdx = ForwardDiff.derivative(y -> fslow([i == kHp ? y + zero(y) * z0[i] : z0[i] + zero(y) for i in eachindex(z0)])[3][sl[kHp]], z0[kHp])
+        hss[] = abs(dfdx) * dt > CKHSS[]
     end
     fT, fx = CKADAPT[]
     fT > 0 || ((zs, T) = adv(collect(Float64, x0[sl]), T0, dt, 0); return (xT(vcat(zs, log(T)))[1], T))

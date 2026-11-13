@@ -967,6 +967,11 @@ function chem_core!(m::NetGas)
                 envk = merge(m.env, (; tabkey = m.env, tl3 = p3)); phk = ph3
                 c0 = cools
                 cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, p3)[1]
+                # CHEMCKHSS: n_e of the three-level heat from the current composition, as in ChemNet.step_ck's C
+                if CNn.CK[] && CNn.CKHSS[] > 0
+                    nHs = dn[k] / CNn.μH()
+                    cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3, (; ne = nHs * max(d[:Hp], zero(d[:Hp])))))[1]
+                end
             end
             if !isempty(TX.CHEMB[])                  # BALSPLIT: the hydro step already gave the zone c̄ (TitanResidFast.CHEMB)
                 cb = eqprev ? 0.0 : TX.CHEMB[][k]; TX.CHEMBON[][k] = !eqprev
@@ -979,7 +984,9 @@ function chem_core!(m::NetGas)
                 # atom the mismatch reaches ~1 eV per H): no solution for this x, take the fallback below
                 p3 !== nothing && egn[k] < CNn.eos(dn[k], 10.0, m.x[k], m.net)[1] && error("tl3: u below u(10 K, x) in zone $k")
                 xs1, Ts1 = CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = envk, photos = phk, cooling = cools, extra = exs)
-                if p3 !== nothing && CHEMSUB[] !== nothing && isempty(TX.CHEMB[])
+                ckhss = CNn.CK[] && CNn.CKHSS[] > 0
+                ckhss && p3 !== nothing && (p3e = merge(p3, (; ne = dn[k] / CNn.μH() * max(CNn.full(xs1, m.net)[:Hp], 0.0))))
+                if p3 !== nothing && CHEMSUB[] !== nothing && isempty(TX.CHEMB[]) && !ckhss
                     fT, fx = CHEMSUB[]; nHk = dn[k] / CNn.μH(); xel(x) = max(CNn.full(x, m.net)[:e], 0.0)
                     bad(xa, Ta, xb, Tb) = (ea = xel(xa); eb = xel(xb); !(isfinite(Tb) && all(isfinite, xb)) || abs(log(Tb / Ta)) > log(fT) ||
                                            (max(ea, eb) > 1e-4 && max(ea, eb) > fx * min(ea, eb)))
