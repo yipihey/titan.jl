@@ -366,8 +366,23 @@ const CHICAP = let s = split(get(ENV, "CHICAP", "0"), ","); (parse(Float64, s[1]
         end
     end
     κR, κP = OPAC[](ρ, T)
+    if NLOFIX
+        # a network zone without the non-LTE factors (no star-light rates, so no three-level parameters) took the LTE table, whose
+        # equilibrium electrons vanish at ~1000 K: χ 3e-9 cm²/g at 21 pc in c128 (13 Nov) against electron scattering on the zone's own
+        # x_e ≈ 9e-5 (3e-5 cm²/g) in its corrected neighbours. Floor χ at σ_T n_e/ρ of the zone's composition.
+        k = TX.ZONE[]
+        if k <= length(m.eqzone) && !m.eqzone[k]
+            cc = CNn.compiled(m.net); ne = max(CNn.fullvec(m.x[k], cc)[cc.ie], 0.0) / CNn.μH()
+            κR = max(κR, COp.σT * ne)
+        end
+    end
     return chicap(κR, T), κP, κP
 end
+"""
+`NLOFIX=1` (default off): floor the Rosseland/flux-mean χ of network zones that use the plain LTE table at electron scattering on the
+zone's own electrons (σ_T x_e / μ_H). See TX.material_opac.
+"""
+const NLOFIX = get(ENV, "NLOFIX", "0") == "1"
 function TM.fill_opac!(m::NetGas)
     OPAC[] === nothing && return nothing
     dn, tn = TM.v(:dn), TM.v(:tn)
