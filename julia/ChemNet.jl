@@ -380,7 +380,7 @@ const LOGX = Ref(get(ENV, "CHEMLOGX", "0") == "1")
 CHEMSUBCYC=ε (default 0, off): `step` without `accepted` (a ray) and `Tfix` integrates by sub-cycling instead of one backward-Euler Newton
 solve (the approach of ChemistryKernels.jl's sub-cycler; Anninos et al. 1997, NewA 2, 209). Per sub-step h, every free species
 from its formation C and destruction rate D at the start of the sub-step, x' = (x + C h)/(1 + D h) (positive for any h; species in
-fast equilibrium, D h ≫ 1, take x = C/D: H⁻, H₂⁺, He⁺, Li⁺ …), then T from u(ρ, T, x') = u − h Λ(ρ, T, x')/ρ (one variable,
+fast equilibrium, D h ≫ 1, take x = C/D: H⁻, H₂⁺, He⁺, Li⁺ …), then T from u(ρ, T, x') = u − h Λ(ρ, T, x')/ρ (one variable, after T of u at the start composition,
 cooling implicit in T). h is limited to ε of x/|dx/dt| for x_e and every free species above 1e-8 per H that is not in fast
 equilibrium, |Δ ln T| ≤ max(ε, 0.02), growth ×2 per sub-step; a sub-step that leaves an eliminated abundance negative or a T
 solve that fails is retried with h/4.
@@ -426,6 +426,20 @@ function step_sub(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothi
     nH = ρ / μH(); c = compiled(net); nf = length(net.free)
     x = collect(Float64, x0); T = Float64(T0); ucur = Float64(u)
     t = 0.0; h = dt; nsub = 0; εT = max(ε, 0.02)
+    function tsolve(xn, hh, Tg)
+        dn = full(xn, net)
+        g(lT) = (Tq = exp(lT); (eos(ρ, Tq, xn, net)[1] - ucur + (cooling === nothing || hh == 0 ? zero(Tq) : hh * cooling(ρ, Tq, dn) / ρ)) / (kB * Tq / μH()))
+        lT = log(Tg)
+        for it in 1:80
+            gv = g(lT); dg = ForwardDiff.derivative(g, lT)
+            (isfinite(gv) && isfinite(dg) && dg != 0) || return (false, lT)
+            δ = clamp(-gv / dg, -0.2, 0.2); lT += δ
+            abs(δ) < 1e-11 && return (true, lT)
+        end
+        (false, lT)
+    end
+    # T of the zone's u at the start composition (T0 is the previous step's T; the hydro step has changed u since)
+    ok0, lT0 = tsolve(x, 0.0, T); ok0 || error("ChemNet.step_sub: no start temperature (nH = $nH, T0 = $T0, u = $u)"); T = exp(lT0)
     while t < dt * (1 - 1e-12)
         nsub += 1; nsub > maxsub && error("ChemNet.step_sub: more than $maxsub sub-steps (nH = $nH, T0 = $T0, dt = $dt, u = $u)")
         CHEMSTATS && Threads.atomic_add!(NADV, 1)
@@ -455,15 +469,7 @@ function step_sub(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothi
             hh <= 1e-12 * dt && error("ChemNet.step_sub: negative eliminated abundance at the smallest sub-step (nH = $nH, T = $T, H $(vn[c.iH]) e $(vn[c.ie]) He $(vn[c.iHe]) Li $(c.iLi > 0 ? vn[c.iLi] : 0.0))")
             h = hh / 4; continue
         end
-        dn = full(xn, net)
-        g(lT) = (Tq = exp(lT); (eos(ρ, Tq, xn, net)[1] - ucur + (cooling === nothing ? zero(Tq) : hh * cooling(ρ, Tq, dn) / ρ)) / (kB * Tq / μH()))
-        lT = log(T); ok = false
-        for it in 1:50
-            gv = g(lT); dg = ForwardDiff.derivative(g, lT)
-            (isfinite(gv) && isfinite(dg) && dg != 0) || break
-            δ = clamp(-gv / dg, -0.2, 0.2); lT += δ
-            abs(δ) < 1e-11 && (ok = true; break)
-        end
+        ok, lT = tsolve(xn, hh, T)
         if !ok || abs(lT - log(T)) > εT
             hh <= 1e-12 * dt && error("ChemNet.step_sub: no temperature at the smallest sub-step (nH = $nH, T = $T, ok $ok, Δ ln T $(lT - log(T)), t/dt $(t / dt))")
             h = hh / (ok ? 2 : 4); continue
