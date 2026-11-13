@@ -1059,6 +1059,39 @@ function xadv2_correct!(xnew, X, F, M, n)
     nothing
 end
 """
+XADVU=1|2 (default 0, off). The hydro step solves e with the network EOS at the start-of-step composition, so at its end (e, T) and the old x
+agree; `advect_species!` then moves x with the mass fluxes by its own scheme, and e — which carries the chemical energy Σ x_i E0_i (13.6 eV per
+ionization, 4.48 eV per H₂) across each interface with TITAN's interface value of e — no longer matches the new x where x_e or x_H₂ jumps
+between zones (just above the accretion shock: zone 127 of t_b224c8 at 9.2 M☉ had T(e, x_new) = 13 800 K for the hydro's 5595 K).
+1: diagnostic only — every 200 steps the largest |ln T(e, x_new)/T_hydro| over the network zones and Σ M δe of the correction of 2.
+2: also set e = e(ρ, T_hydro, x_new) in every network zone below the hot branch (the chemical energy moves with the species, the hydro's
+   thermal state is kept); not conservative: the change of the total energy is printed with the diagnostic (as a rate, erg/s over 4π).
+"""
+const XADVU = parse(Int, get(ENV, "XADVU", "0")); const XADVUN = Ref(0)
+function xadvu!(xold, n)
+    eg = TF.var(:egn); tn = TF.var(:tn); dn = TF.var(:dn); xme = TF.var(:xmen); dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
+    h = PM.HOT[]; worst = 0.0; kw = 0; Tw = (0.0, 0.0); dE = 0.0; nz = 0
+    for j in 1:n
+        k = a + j - 1
+        (mat.eqzone[k] || (h !== nothing && tn[k] > h.T1)) && continue
+        ρ = dn[k]; T = tn[k]; u0 = eg[k]
+        un = ChemNet.eos(ρ, T, mat.x[k], mat.net)[1]
+        lT = log(T)
+        for it in 1:40
+            g(l) = (ChemNet.eos(ρ, exp(l), mat.x[k], mat.net)[1] - u0) / (ChemNet.kB * exp(l) / ChemNet.μH())
+            gv = g(lT); dg = ForwardDiff.derivative(g, lT); (isfinite(gv) && dg != 0) || break
+            δ = clamp(-gv / dg, -0.3, 0.3); lT += δ; abs(δ) < 1e-10 && break
+        end
+        abs(lT - log(T)) > worst && (worst = abs(lT - log(T)); kw = k; Tw = (T, exp(lT)))
+        M = xme[k] - xme[k+1]; dE += M * (un - u0); nz += 1
+        XADVU == 2 && (eg[k] = un)
+    end
+    XADVUN[] += 1
+    (XADVUN[] <= 5 || XADVUN[] % 200 == 0) && @printf("XADVU step %d: %d network zones, largest |Δ ln T| %.3f at zone %d (r %.3e R_sun): T_hydro %.1f, T(e, x_new) %.1f; Σ M δe %s %.3e erg/s (4π)\n",
+        TF.getscalar(:jstep), nz, worst, kw, kw > 0 ? TF.var(:rn)[kw] / 6.957e10 : NaN, Tw..., XADVU == 2 ? "applied" : "would be", 4π * dE / dt)
+    nothing
+end
+"""
 Implicit upwind transport of mat.x with the mass that crossed each interface in the converged step (change of the exterior mass m_e), so
 that it is the discrete continuity equation applied to the mass fractions: a uniform composition stays uniform and elements are conserved.
 """
@@ -1083,6 +1116,7 @@ function advect_species!()
     for j in n-1:-1:1; xnew[j] = xnew[j] .- cp_[j] .* xnew[j+1]; end
     XADV2 && mat isa PM.NetGas && xadv2_correct!(xnew, [copy(mat.x[a+j-1]) for j in 1:n], F, M, n)
     for j in 1:n; mat.x[a+j-1] = xnew[j]; end
+    XADVU > 0 && mat isa PM.NetGas && xadvu!(nothing, n)
     if HOTON                                                                 # the nuclear abundances move with the same fluxes
         Y = SG[].Y; ynew = M0[1] .* Y[:, a]; ys = Vector{Vector{Float64}}(undef, n); ys[1] = ynew ./ den[1]
         for j in 2:n; ys[j] = (M0[j] .* Y[:, a+j-1] .- lo[j] .* ys[j-1]) ./ den[j]; end
