@@ -383,6 +383,8 @@ const NSTEP = Threads.Atomic{Int}(0); const NADV = Threads.Atomic{Int}(0); const
 CHEMSTATS && atexit(() -> println("CHEMSTATS: ChemNet.step calls ", NSTEP[], ", sub-step attempts ", NADV[], ", Jacobians (Newton iterations) ", NJAC[]))
 "Print the Newton iterations of the first N failed steps (ENV CHEMTRACE; diagnostics)."
 const TRACEDBG = Ref(parse(Int, get(ENV, "CHEMTRACE", "0")))
+"Diagnostics (default false): trace every attempt of `step` (set from code, e.g. PopIIIMaterial.chemreplay)."
+const TRACEALL = Ref(false)
 
 """
     step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, Tfix = nothing) -> (x, T)
@@ -410,9 +412,11 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
     end
     function attempt(x0, T0, h; clip = false, trace = false)
         z = vcat(collect(Float64, x0), log(T0)); rel = Inf; dT = Inf; λ = 0.0
+        trace = trace || TRACEALL[]; lim = :none
+        TRACEALL[] && println("  attempt h ", h, " T0 ", T0, " clip ", clip)
         for it in 1:maxit
             R = resid(z, x0, h)
-            trace && println("  trace it ", it, " T ", exp(z[nf+1]), " x ", z[1:nf], " R ", R)
+            trace && !TRACEALL[] && println("  trace it ", it, " T ", exp(z[nf+1]), " x ", z[1:nf], " R ", R)
             CHEMSTATS && Threads.atomic_add!(NJAC, 1)
             Jm = ForwardDiff.jacobian(zz -> resid(zz, x0, h), z)
             # a non-finite Jacobian is a failed attempt like a non-finite δ (halve h): `\` would throw an ArgumentError past the retry
@@ -421,10 +425,10 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
                 return (z, false)
             end
             δ = -(Jm \ R); all(isfinite, δ) || return (z, false)
-            λ = 1.0
+            λ = 1.0; lim = :none
             clip && for i in 1:nf; z[i] + δ[i] < 0 && (δ[i] = -0.9 * z[i]); end
             # keep every abundance ≥ 0, incl. the eliminated H, Li, e (linear in x)
-            for i in 1:nf; z[i] + λ * δ[i] < 0 && (λ = min(λ, 0.9 * z[i] / -δ[i])); end
+            for i in 1:nf; z[i] + λ * δ[i] < 0 && 0.9 * z[i] / -δ[i] < λ && (λ = 0.9 * z[i] / -δ[i]; lim = net.free[i]); end
             d0 = full(z[1:nf], net); d1 = full(z[1:nf] .+ δ[1:nf], net)
             for s in (:H, :Li, :e, :He)
                 haskey(d0, s) || continue
@@ -435,11 +439,14 @@ function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, 
                     for i in 1:nf; cc.elLi[i] != 0 && (δ[i] *= f); end
                     continue
                 end
-                d0[s] + λ * dv < 0 && (λ = min(λ, 0.9 * d0[s] / -dv))
+                d0[s] + λ * dv < 0 && 0.9 * d0[s] / -dv < λ && (λ = 0.9 * d0[s] / -dv; lim = s)
             end
-            abs(δ[nf+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[nf+1]))
+            abs(δ[nf+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[nf+1]); lim = :T)
             z .+= λ .* δ
             rel = maximum(abs.(δ[1:nf]) ./ max.(abs.(z[1:nf]), 1e-20)); dT = abs(δ[nf+1])                                # 1e-20: abundance floor
+            TRACEALL[] && (ir = argmax(abs.(δ[1:nf]) ./ max.(abs.(z[1:nf]), 1e-20));
+                           println("    it ", it, " λ ", round(λ, sigdigits = 3), " lim ", lim, " δlnT ", round(δ[nf+1], sigdigits = 3), " T ", round(exp(z[nf+1]), digits = 1),
+                                   " rel ", round(rel, sigdigits = 3), " (", net.free[ir], ") |R| ", round(maximum(abs, R), sigdigits = 3), " x_e ", round(full(z[1:nf], net)[:e], sigdigits = 4)))
             λ == 1.0 && rel < tol && dT < tol && return (z, true)
             CHEMSTAG > 0 && it >= CHEMSTAG && λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (z, true)
             CHEMGIVEUP > 0 && it == CHEMGIVEUP && !(λ == 1.0 && rel < 1e-3) && return (z, false)

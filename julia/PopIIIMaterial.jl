@@ -793,6 +793,12 @@ function chemreplay(k, m, ρ, u0, T0, x0, dt, phk, exs, c0, p3; xref, Tref)
         nc, w, T, xe, nj, na = run(fT, fx, dm; npic = np)
         @printf("    %-22s calls %6d  wall %8.3f s  T %8.1f  xe %.3e  Newton its %7d  attempts %6d  (%.2f ms/its)\n", lab, nc, w, T, xe, nj, na, 1e3w / max(nj, 1))
     end
+    # CHEMREPLAYTRACE=1 (with MATTHREADS=1): every Newton iteration of the single full step, for the first replays
+    if get(ENV, "CHEMREPLAYTRACE", "0") == "1" && NREPLAY[] <= 2
+        println("    trace of the single full step:"); CNn.TRACEALL[] = true
+        try st(x0, T0, u0, dt, p3) catch e; println("    (failed: ", first(sprint(showerror, e), 80), ")") end
+        CNn.TRACEALL[] = false
+    end
     # cost of the residual's pieces at the start state (Float64 and with 9-wide dual numbers, as in the ForwardDiff Jacobian)
     d0 = CNn.full(x0, m.net); nr = 200
     ca = (ρ_, T, d) -> (c0 === nothing ? zero(T) : c0(ρ_, T, d))
