@@ -122,7 +122,8 @@ if abspath(PROGRAM_FILE) == @__FILE__
         dir = ARGS[1]; L = lineage(dir); smod = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 640
         cache = joinpath(dir, "specfull"); mkpath(cache)
         sel = [i for i in eachindex(L) if L[i].step % smod == 0]; (isempty(sel) || sel[end] != length(L)) && !isempty(L) && push!(sel, length(L))
-        order = Int[]; for st in (64, 32, 16, 8, 4, 2, 1), j in 1:st:length(sel); sel[j] in order || push!(order, sel[j]); end
+        order = isempty(sel) ? Int[] : [sel[end]]                     # the newest first (monitoring), then coarse to fine
+        for st in (64, 32, 16, 8, 4, 2, 1), j in 1:st:length(sel); sel[j] in order || push!(order, sel[j]); end
         nmax = parse(Int, get(ENV, "SPECMAX", "100000")); ndone = 0
         for i in order
             ndone >= nmax && break
