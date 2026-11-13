@@ -140,7 +140,17 @@ const HOT = Ref{Any}(nothing)
     x = log(T / T1) / log(T2 / T1)
     x * x * x * (x * (6x - 15) + 10)
 end
+"""
+ECHEMSPLIT (popiii_m2c): while `ECHEMON[]`, the gas energy of every zone is returned less the constant `ECHEMOFF[][k]` (the chemical energy
+Σ x E0 of the zone's frozen composition), so that the hydro step advects ẽ = e − Σ x E0 and the chemical energy moves with the species.
+"""
+const ECHEMON = Ref(false); const ECHEMOFF = Ref(Float64[])
 @inline function TX.material_gas(m::NetGas, ρ, T)
+    p, u, a = material_gas0(m, ρ, T)
+    ECHEMON[] && (u -= ECHEMOFF[][TX.ZONE[]])
+    return p, u, a
+end
+@inline function material_gas0(m::NetGas, ρ, T)
     k = TX.ZONE[]
     h = HOT[]
     if h !== nothing && ForwardDiff.value(T) > h.T1

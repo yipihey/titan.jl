@@ -320,6 +320,11 @@ function fullvec(x, c::Compiled)
     v
 end
 
+"Chemical energy per gram Σ x_j E0_j/μ_H of composition x (the T-independent part of `eos`'s u; 0 for fully ionized gas)."
+function echem(x, net)
+    c = compiled(net); v = fullvec(x, c)
+    sum(v[j] * c.E0[j] for j in eachindex(v)) / μH()
+end
 "Internal energy per gram and pressure."
 function eos(ρ, T, x, net)
     c = compiled(net); v = fullvec(x, c); nH = ρ / μH()
