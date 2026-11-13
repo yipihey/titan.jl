@@ -197,6 +197,70 @@ network zones get theirs with the species, after the step.
 const ECHEMF = Ref{Any}(nothing)
 
 """
+COUPLED (popiii_m2c COUPLED=1; default false): the slow species of the reduced network (ChemNet CHEMCK: x_H⁺, x_H₂ per H nucleus) are
+unknowns 8 and 9 of the Newton system (neqn = 9, meqn ≥ 9), in logarithmic variables (x = base·e^δ, positive by construction), in the
+network zones below the hot branch at the start of the step (`CPLZ`); other zones carry them frozen (row δ = 0). Per coupled zone
+  species row  (ρ x ΔV)ⁿ⁺¹ − (ρ x ΔV)ⁿ)/Δt + ṁ-fluxes of the face values (advect!, the scheme and mass fluxes of the energy row)
+               − [θ ρⁿ⁺¹ΔVⁿ⁺¹ S(ρ, T, x) + (1 − θ) ρⁿΔVⁿ Sⁿ] = 0,       S = dx/dt of the CK-expanded composition (ChemNet.ck_eval)
+  energy row   + [θ Λ(ρ, T, x) + (1 − θ) Λⁿ] ΔV,                       Λ the zone's chemistry cooling (lines, HD, three-level heat, …)
+and the zone's EOS is the network EOS of the CK expansion of the iterate, so the latent heat of ionisation and H₂ formation is in the
+Jacobian. The material provides (p, e, S₁, S₂, Λ) of a zone with their derivatives with respect to (ρ, T, x₁, x₂) through `CPL_ZONE`
+(a 4-wide local ForwardDiff Jacobian lifted onto the residual's duals). Old-state arrays: `XSO` (and its limiter slopes `XSSO`), the old
+rates `XSRCO` and cooling `XLAMO` (θ < 1 stages only). Trbdf2 combines `XSO` on ρ x ΔV for its BDF2 stage.
+"""
+const COUPLED = Ref(false)
+const XSN = Ref([Float64[], Float64[]]); const XSO = Ref([Float64[], Float64[]]); const XSSO = Ref([Float64[], Float64[]])
+const XSRCO = Ref([Float64[], Float64[]]); const XLAMO = Ref(Float64[]); const CPLZ = Ref(Bool[])
+const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's iterate while the material is evaluated
+const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
+"Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
+const CPL_XFLOOR = Ref(1e-8); const CPL_CLAMP = Ref(1.0)
+@inline cplz(k) = COUPLED[] && k <= length(CPLZ[]) && CPLZ[][k]
+"Size the species arrays to mgr (keeps values where present)."
+function cpl_alloc!(mgr)
+    for R_ in (XSN, XSO, XSSO, XSRCO), i in 1:2
+        length(R_[][i]) == mgr || (R_[][i] = zeros(mgr))
+    end
+    length(XLAMO[]) == mgr || (XLAMO[] = zeros(mgr)); length(CPLZ[]) == mgr || (CPLZ[] = falses(mgr) |> collect)
+    nothing
+end
+"Start of a step (TitanCore.peq!): old species := iterate, and their limiter slopes."
+function cpl_newstep!()
+    ngrs = gi(:ngrs); ngre = gi(:ngre); cadv = gf(:cadv); eps = gf(:epsadv)
+    for i in 1:2
+        copyto!(XSO[][i], XSN[][i]); q = XSO[][i]; qs = XSSO[][i]; fill!(qs, 0.0)
+        @inbounds for k in ngrs:ngre+1
+            a = q[k] - q[k-1]; b = q[k+1] - q[k]; sdq = a + b; den = sdq + (sdq >= 0 ? eps : -eps)
+            qs[k] = a * b >= 0 ? cadv * a * b / den : 0.0
+        end
+    end
+    nothing
+end
+cpl_reset!() = (for i in 1:2; copyto!(XSN[][i], XSO[][i]); end; nothing)
+"Apply the Newton correction (update!): x ← x·e^δ in the coupled zones."
+function cpl_update!(rhs, a, b)
+    @inbounds for k in a:b
+        cplz(k) || continue
+        XSN[][1][k] *= exp(rhs[8, k]); XSN[][2][k] *= exp(rhs[9, k])
+    end
+    nothing
+end
+"maxdel: clamp the species corrections to ±CPL_CLAMP and return their weighted maximum (convergence measure)."
+function cpl_dmax!(rhs, a, b)
+    d = 0.0; cl = CPL_CLAMP[]; f = CPL_XFLOOR[]; kx = TF.var(:kx); dx = TF.var(:dx)
+    for i in 8:9; kx[i] = 0; dx[i] = 0.0; end
+    @inbounds for k in a:b
+        cplz(k) || continue
+        for (i, q) in ((8, XSN[][1]), (9, XSN[][2]))
+            abs(rhs[i, k]) > abs(dx[i]) && (kx[i] = k - a + 1; dx[i] = rhs[i, k])     # (raw correction, for the divergence message)
+            rhs[i, k] = clamp(rhs[i, k], -cl, cl)
+            d = max(d, abs(rhs[i, k]) * q[k] / (q[k] + f))
+        end
+    end
+    d
+end
+
+"""
 AV_TENSION[] (default true = TITAN): keep the viscous stress of a zone that shrinks in volume (div u < 0) while it is stretched
 radially relative to the mean (dudr > 0, the traceless form). Then q < 0, a tension. With l = AV_ZONE·Δr and Δr ~ r (the stretched
 zones outside an accretion shock) it can reach ~10× gravity and accelerate an infalling shell past the escape speed.
@@ -338,7 +402,8 @@ const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn
     :egrn, :r, :u, :fr, :xm, :dmdt, :urel, :rmu, :rmup1, :d, :pg, :eg, :as, :er, :egr, :chif, :xke,
     :xkp, :plf, :dvol, :dvoln, :avchi, :qf, :dudr, :db, :dsn, :fl, :ub, :usn, :flu, :fle, :egb, :egsn,
     :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv,
-    :mnad, :mcp, :mdl, :mkp)                # MLT coefficients of the threaded pre-pass (MATTHREADS)
+    :mnad, :mcp, :mdl, :mkp,                # MLT coefficients of the threaded pre-pass (MATTHREADS)
+    :xs1, :xs2, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL)     # COUPLED: species iterate, face values, slopes, rates, cooling
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
     xnuo::Vector{Float64}
@@ -669,7 +734,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         newv[cde][k] = c.base[k, cde]
     end
     @inbounds for j in 1:neqn
-        cde = c.code[j]; a = newv[cde]
+        cde = c.code[j]; cde == 0 && continue; a = newv[cde]
         if cde == 4
             for bb in 1:nb; k = k0 + bb - 1; a[k] = c.base[k, 4] + x[(bb-1)*neqn+j] * c.nomu[k]; end
         elseif cde == 7
@@ -681,7 +746,28 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     # EOS / opacity (TITAN built-in physics unless a material is installed, see TitanMaterials)
     Rg = P.ck / (P.cm0 * P.gmu); γ = P.gam
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
-    MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
+    if COUPLED[]
+        xs1, xs2 = W.xs1, W.xs2; xn1, xn2 = XSN[]
+        @inbounds for k in k0:ngre+2; xs1[k] = xn1[k]; xs2[k] = xn2[k]; end
+        @inbounds for bb in 1:nb
+            k = k0 + bb - 1; xs1[k] = xn1[k] * exp(x[(bb-1)*neqn+8]); xs2[k] = xn2[k] * exp(x[(bb-1)*neqn+9])
+        end
+        CPLW[] = (xs1, xs2)
+        try
+            MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
+        finally
+            CPLW[] = nothing
+        end
+        @inbounds for k in ngrs:ngre
+            if cplz(k)
+                y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]); W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
+            else
+                W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T)
+            end
+        end
+    else
+        MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
+    end
     MATERIAL[] === nothing && @inbounds for k in k0:ngre+2
         pgn[k] = Rg * dn[k] * tn[k]; egn[k] = Rg * tn[k] / (γ - 1); asn[k] = sqrt(γ * pgn[k] / dn[k])
         if c.lrad
@@ -767,6 +853,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         advect!(egb, egsn, egn, c.ego, c.egso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 6)
     end
     erb, frb = W.erb, W.frb
+    if COUPLED[]
+        advect!(W.xb1, W.xsn1, W.xs1, XSO[][1], XSSO[][1], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 7)
+        advect!(W.xb2, W.xsn2, W.xs2, XSO[][2], XSSO[][2], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 8)
+    end
     # diffusion
     dfm, dfe = W.dfm, W.dfe
     @inbounds for k in ngrs:ngre+1
@@ -1032,6 +1122,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             end
         end
         isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
+        cplz(k) && (w += (θ * W.cpL[k] + (1 - θ) * XLAMO[][k]) * dvol[k])   # COUPLED: the chemistry cooling, implicit
         if ECHEMF[] !== nothing && ECHEMF[][2][k]
             off_ = ECHEMF[][1]
             if k < ngre || P.leobc == 3
@@ -1048,6 +1139,26 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     R[it, kb(k)] = (P.leibc == 1 || P.llibc == 1) ? egn[k+1] - egn[k] : X(it, k)
     for k in ngre+1:ngre+2
         R[it, kb(k)] = (P.leobc in (1, 3) || P.llobc > 0) ? -egn[k-1] + egn[k] : X(it, k)
+    end
+    if COUPLED[]
+        # ------------------------------------------------------------ SPECIES (COUPLED)
+        @inbounds for kb_ in 1:nb, i in 8:9; R[i, kb_] = x[(kb_-1)*neqn+i]; end
+        @inbounds for k in ngrs:ngre
+            cplz(k) || continue
+            for (i, q, qo, qb, S_, So) in ((8, W.xs1, XSO[][1], W.xb1, W.cpS1, XSRCO[][1]), (9, W.xs2, XSO[][2], W.xb2, W.cpS2, XSRCO[][2]))
+                w = (dn[k] * q[k] * dvoln[k] - c.do_[k] * qo[k] * c.dvolo[k]) / dt -
+                    (θ * dn[k] * dvoln[k] * S_[k] + (1 - θ) * c.do_[k] * c.dvolo[k] * So[k])
+                if k == ngrs
+                    w += -dmdt[k+1] * qb[k+1]
+                elseif k == ngre
+                    w += dmdt[k] * qb[k]
+                    P.leobc == 3 && (w += -dmdt[k+1] * qb[k+1])
+                else
+                    w += -dmdt[k+1] * qb[k+1] + dmdt[k] * qb[k]
+                end
+                R[i, kb(k)] = w
+            end
+        end
     end
     if c.lrad
         # ------------------------------------------------------------ RADIATION ENERGY
@@ -1305,5 +1416,34 @@ function store_side!(c::Ctx, ws::WS{D}) where {D}
 end
 
 matgen!(; ncol = 6) = (assemble!(context(); ncol); nothing)
+
+"""
+COUPLED test (popiii_m2c CPLJCHECK=n1,n2,…: zone numbers from the inner boundary, at the first Newton iteration of the first step): the
+AD Jacobian blocks of the energy and species rows of zones k−2…k+2 with respect to T, x_H⁺, x_H₂ of zone k, against central finite
+differences of the Float residual (step h in the logarithmic variables). Prints the worst relative difference per column.
+"""
+function cpl_jcheck(kz; h = 1e-6)
+    c = context(); assemble!(c)
+    E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); neqn = c.neqn; nb = c.nb; k0 = c.k0; it = c.ix[5]
+    ws = getws(Float64, c.mgr); R1 = zeros(neqn, nb); R2 = zeros(neqn, nb); xz = zeros(neqn * nb)
+    kbz = kz - k0 + 1
+    for j in (it, 8, 9)
+        idx = (kbz - 1) * neqn + j
+        xz[idx] = h; residual!(R1, ws, c, xz); xz[idx] = -h; residual!(R2, ws, c, xz); xz[idx] = 0.0
+        worst = 0.0; wl = ""
+        for kr in kz-2:kz+2, i in (it, 8, 9)
+            kbr = kr - k0 + 1; (1 <= kbr <= nb) || continue
+            fd = (R1[i, kbr] - R2[i, kbr]) / 2h; ad = E[kz - kr + 3][i, j, kr]
+            sc = max(abs(fd), abs(ad)); sc == 0 && continue
+            rel = abs(fd - ad) / sc
+            # relative to the row's largest Jacobian entry (a tiny entry may differ by round-off)
+            rowmax = maximum(abs(E[o][i, jj, kr]) for o in 1:5 for jj in 1:neqn)
+            rel = abs(fd - ad) / max(sc, 1e-6 * rowmax)
+            rel > worst && (worst = rel; wl = "row $i zone $kr: AD $(round(ad, sigdigits = 6)) FD $(round(fd, sigdigits = 6))")
+        end
+        println("CPLJCHECK zone $kz column $j (cplz $(cplz(kz))): worst relative difference $(round(worst, sigdigits = 3))  ($wl)")
+    end
+    nothing
+end
 
 end # module

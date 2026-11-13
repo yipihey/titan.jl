@@ -64,8 +64,14 @@ const RESET_PAIRS2 = ((:dsn, :dso), (:usn, :uso), (:pgn, :pgo), (:asn, :aso), (:
                       (:ersn, :erso), (:egrn, :egro), (:egrsn, :egrso), (:egtn, :egto), (:egtsn, :egtso),
                       (:egrtn, :egrto), (:egrtsn, :egrtso), (:frsn, :frso), (:chifn, :chifo), (:xken, :xkeo),
                       (:xkpn, :xkpo), (:xnen, :xneo), (:plfn, :plfo), (:cpn, :cpo), (:betan, :betao), (:delsn, :delso))
+"""
+COUPLED species (TitanResidFast.COUPLED, set by popiii_m2c): `CPLH[] = (; newstep, reset, update, dmax)` — called by peq! (old := new),
+reset!, update! (x ← x e^δ) and maxdel! (clamp, convergence measure). `nothing` (default): TITAN's seven variables only.
+"""
+const CPLH = Ref{Any}(nothing)
 function reset!()
     a, b = gi(:ngrs), gi(:ngre)
+    CPLH[] === nothing || CPLH[].reset()
     s!(:timen, gf(:timeo))
     for (n, o) in ((:tes, :teso), (:tew, :tewo), (:tel, :telo), (:teq, :teqo)); s!(n, gf(o)); end
     for (n, o) in RESET_PAIRS1; copyto!(view(vf(n), a-1:b+2), view(vf(o), a-1:b+2)); end
@@ -154,6 +160,7 @@ function maxdel!()
         @inbounds for k in a:b+1, i in 1:neqn; rhs[i, k] *= sc; end
     end
     restore!()
+    CPLH[] === nothing || s!(:dmax, max(dmax, CPLH[].dmax(rhs, a, b)))
     nothing
 end
 
@@ -292,6 +299,7 @@ function update!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
         tn[k] = (1.0 + rhs[it, k]) * tn[k]
         lrad && (ern[k] = (1.0 + rhs[ie, k]) * ern[k])
     end
+    CPLH[] === nothing || CPLH[].update(rhs, a, b)
     _ghost_and_derived!(:update, eos!, opac!)
 end
 
@@ -468,6 +476,7 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     lrad && for (o, n) in ((:ero, :ern), (:fro, :frn)); copyto!(view(vf(o), a-1:b+2), view(vf(n), a-1:b+2)); end
     for (o, n) in (lrad ? PEQ_OLD2_RH : PEQ_OLD2_H); copyto!(view(vf(o), a-1:b+1), view(vf(n), a-1:b+1)); end
     lrad && copyto!(view(vf(:avchio), a:b+1), view(vf(:avchin), a:b+1))
+    CPLH[] === nothing || CPLH[].newstep()
     PEQ_HOOK[] === nothing || PEQ_HOOK[]()
     predict!(; eos!, opac!)
 end

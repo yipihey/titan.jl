@@ -164,6 +164,11 @@ end
     end
     if m.eqzone[k]
         u, p = EQ.eos(ρ, T)
+    elseif TX.cplz(k)
+        # COUPLED: the network EOS of the CK expansion of the Newton iterate (inside the residual) or of the current species (outside)
+        w = TX.CPLW[]
+        y = w === nothing ? cpl_zone(m, k, ρ, T, TX.XSN[][1][k], TX.XSN[][2][k]) : cpl_zone(m, k, ρ, T, w[1][k], w[2][k])
+        p = y[1]; u = y[2]
     else
         u, p = CNn.eos(ρ, T, m.x[k], m.net)
     end
@@ -890,6 +895,7 @@ function chem_core!(m::NetGas)
     end
     dTz = zeros(length(tn))
     function zone!(k)
+        CPLPREP[] && (m.eqzone[k] || (h !== nothing && tn[k] > h.T1)) && return nothing     # COUPLED prepare: network zones only, no change of state
         if h !== nothing && tn[k] > h.T1             # hot branch: no chemistry, no re-solve of T with the table (driver: burn and mix)
             m.x[k] = x_from_table(m, dn[k], min(tn[k], 1e6)); m.eqzone[k] = true
             return nothing
@@ -941,6 +947,7 @@ function chem_core!(m::NetGas)
             end
         end
         tab = ptab || (ag === nothing ? ((PSWSTAY[] && m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])) : ag)
+        CPLPREP[] && (tab = false)
         if tab && !m.eqzone[k] && PSWRAD[] !== nothing && pgn[k] < PSWRAD[][2] * m.pswitch       # entry only with T_gas = T_rad (see PSWRAD)
             Tr = (max(TM.v(:ern)[k], 0.0) / 7.565723e-15)^0.25
             if abs(Tr / tn[k] - 1) > PSWRAD[][1]
@@ -950,6 +957,7 @@ function chem_core!(m::NetGas)
         end
         if tab
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
+            (CPLPOST[] && TX.cplz(k)) && (coolt = nothing)      # COUPLED: the zone's cooling over this step was in the hydro solve
             _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
         else
@@ -968,7 +976,7 @@ function chem_core!(m::NetGas)
                 c0 = cools
                 cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, p3)[1]
                 # CHEMCKHSS: n_e of the three-level heat from the current composition, as in ChemNet.step_ck's C
-                if CNn.CK[] && CNn.CKHSS[] > 0
+                if (CNn.CK[] && CNn.CKHSS[] > 0) || TX.COUPLED[]
                     nHs = dn[k] / CNn.μH()
                     cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3, (; ne = nHs * max(d[:Hp], zero(d[:Hp])))))[1]
                 end
@@ -979,7 +987,16 @@ function chem_core!(m::NetGas)
                     c1 = cools; cools = (ρ, T, d) -> (c1 === nothing ? zero(T) : c1(ρ, T, d)) + ρ * cb
                 end
             end
-            x1, T1 = try
+            if CPLPREP[]                             # COUPLED prepare: the zone's terms for the hydro solve
+                envc = envk; phc_ = phk; cache = Ref((NaN, Any[]))
+                phc = Tv -> (Tv == cache[][1] || (cache[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, envc)...) for p_ in phc_])); cache[][2])
+                CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs)
+                return nothing
+            end
+            if CPLPOST[] && TX.cplz(k) && p3 !== nothing
+                p3e = merge(p3, (; ne = dn[k] / CNn.μH() * max(CNn.full(m.x[k], m.net)[:Hp], 0.0)))
+            end
+            x1, T1 = (CPLPOST[] && TX.cplz(k)) ? (m.x[k], tn[k]) : try
                 # u below the zone's own composition at 10 K (x and e advected by different schemes; with x_e ~ 0.1-0.5 from the three-level
                 # atom the mismatch reaches ~1 eV per H): no solution for this x, take the fallback below
                 p3 !== nothing && egn[k] < CNn.eos(dn[k], 10.0, m.x[k], m.net)[1] && error("tl3: u below u(10 K, x) in zone $k")
@@ -1200,6 +1217,79 @@ function hd_snap(m::NetGas, a, b)
     hd_pad!(m); nf = length(m.net.free); lam = HDLAM[]
     (; Dp = [m.x[k][nf+1] for k in a:b], HD = [m.x[k][nf+2] for k in a:b], Λ = length(lam) >= b ? lam[a:b] : zeros(b - a + 1))
 end
+# ------------------------------------------------------------------------------------------ COUPLED (TitanResidFast.COUPLED)
+"""
+COUPLED=1 (popiii_m2c; default off): x_H⁺ and x_H₂ of the network zones are unknowns of the hydro Newton (TitanResidFast.COUPLED).
+Per step: `cpl_prepare!` (before the hydro step) runs `chem_core!` in a prepare mode that changes no state and records per network zone
+the terms the zone's chemistry step would use (env with the three-level parameters, photo-rates, cooling closure including the
+three-level heat with self-consistent n_e, star-light `extra`), loads the iterate/old species and the old rates and cooling.
+`cpl_zone` gives (p, e, S_H⁺, S_H₂, Λ) of a zone at (ρ, T, x_H⁺, x_H₂) with a 4-wide local ForwardDiff Jacobian, lifted onto the
+residual's dual numbers (cached per zone on the Float values). After the step `cpl_chem!` sets the coupled zones' free species to the
+CK expansion of the solved species and runs `chem!` in a post mode: those zones skip the network step (their T and x are the hydro
+solution, their cooling was in the energy row), the rest is unchanged (HD step, three-level bookkeeping RAYQ/GASQ/SLDIAG/NLOPC, the
+table switch — with no second cooling for a zone that leaves the network —, table and hot zones as before).
+Not coupled: the IonRay path (a ray zone is not prepared), CHEMB (BALSPLIT) — both off in the runs this was built for.
+"""
+const CPLPREP = Ref(false); const CPLPOST = Ref(false)
+const CPLTERMS = Ref(Any[]); const CPLCACHE = Ref(Any[])
+function cpl_g(m::NetGas, k, z)
+    t = CPLTERMS[][k]; ρ = z[1]; T = z[2]
+    x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
+    u, p = CNn.eos(ρ, T, x, m.net)
+    Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, CNn.full(x, m.net))
+    [p, u, fs[1], fs[2], Λ]
+end
+cpl_lift(y, J, ρ::Float64, T::Float64, a::Float64, b::Float64) = (y[1], y[2], y[3], y[4], y[5])
+function cpl_lift(y, J, ρ::D, T::D, a::D, b::D) where {D<:ForwardDiff.Dual}
+    P1, P2, P3, P4 = ForwardDiff.partials(ρ), ForwardDiff.partials(T), ForwardDiff.partials(a), ForwardDiff.partials(b)
+    ntuple(i -> D(y[i], J[i, 1] * P1 + J[i, 2] * P2 + J[i, 3] * P3 + J[i, 4] * P4), 5)
+end
+cpl_lift(y, J, ρ, T, a, b) = (pr = promote(ρ, T, a, b); cpl_lift(y, J, pr...))
+"(p, e, S_H⁺, S_H₂, Λ) of coupled zone k at (ρ, T, x_H⁺, x_H₂), with derivatives (see COUPLED above)."
+function cpl_zone(m::NetGas, k, ρ, T, a, b)
+    v = (Float64(ForwardDiff.value(ρ)), Float64(ForwardDiff.value(T)), Float64(ForwardDiff.value(a)), Float64(ForwardDiff.value(b)))
+    c = CPLCACHE[][k]
+    if c === nothing || c[1] != v
+        z0 = [v...]
+        y = cpl_g(m, k, z0); J = ForwardDiff.jacobian(z -> cpl_g(m, k, z), z0)
+        c = (v, y, J); CPLCACHE[][k] = c
+    end
+    cpl_lift(c[2], c[3], ρ, T, a, b)
+end
+function cpl_prepare!(m::NetGas)
+    a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); nf = length(m.net.free)
+    dn, tn = TM.v(:dn), TM.v(:tn); mgr = length(dn); TX.cpl_alloc!(mgr)
+    HDCHEM[] && (HDX[] = [length(x) > nf ? max(x[nf+2], 0.0) : 0.0 for x in m.x])
+    length(CPLTERMS[]) == mgr || (CPLTERMS[] = Any[nothing for _ in 1:mgr]); fill!(CPLTERMS[], nothing)
+    length(CPLCACHE[]) == mgr || (CPLCACHE[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHE[], nothing)
+    fill!(TX.CPLZ[], false)                       # chem_core!'s closing fill_eos! uses m.x
+    CPLPREP[] = true
+    try chem_core!(m) finally CPLPREP[] = false end
+    sl = CNn.ckinfo(m.net).slow
+    for k in 1:mgr
+        x = m.x[min(k, length(m.x))]
+        for i in 1:2; TX.XSN[][i][k] = max(x[sl[i]], 1e-40); end
+    end
+    for k in a:b; TX.CPLZ[][k] = CPLTERMS[][k] !== nothing; end
+    for k in a:b
+        TX.cplz(k) || continue
+        y = cpl_zone(m, k, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k])
+        TX.XSRCO[][1][k] = y[3]; TX.XSRCO[][2][k] = y[4]; TX.XLAMO[][k] = y[5]
+    end
+    nothing
+end
+"After the hydro step (and advect_species!, which moved the HD tail): the coupled zones' free species := CK expansion of the solution."
+function cpl_finish!(m::NetGas)
+    a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); nf = length(m.net.free); dn, tn = TM.v(:dn), TM.v(:tn)
+    for k in a:b
+        TX.cplz(k) || continue
+        t = CPLTERMS[][k]
+        x, _ = CNn.ck_eval([TX.XSN[][1][k], TX.XSN[][2][k]], dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)
+        old = m.x[k]; m.x[k] = length(old) > nf ? vcat(x, old[nf+1:end]) : x
+    end
+    nothing
+end
+cpl_chem!(m::NetGas) = (cpl_finish!(m); CPLPOST[] = true; try chem!(m) finally CPLPOST[] = false end)
 function chem!(m::NetGas)
     nf = length(m.net.free)
     if !HDCHEM[]

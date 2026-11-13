@@ -52,8 +52,11 @@ const FALLBACK_BE = Ref(true)
 const STICKY = Ref(10); const BE_LEFT = Ref(0)
 const OLD = (:do, :ego, :egro, :ero, :fro, :uo, :xmeo, :ro, :dvolo)
 const SAVE = Dict{Symbol,Vector{Float64}}()
-save!() = (for s in OLD; copyto!(get!(() -> similar(vf(s)), SAVE, s), vf(s)); end)
-restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end)
+# COUPLED: the old species (TitanResidFast.XSO) are saved, restored and combined with the other old arrays
+const SAVEX = [Float64[], Float64[]]
+save!() = (for s in OLD; copyto!(get!(() -> similar(vf(s)), SAVE, s), vf(s)); end;
+           TX.COUPLED[] && for i in 1:2; length(SAVEX[i]) == length(TX.XSO[][i]) || (SAVEX[i] = similar(TX.XSO[][i])); copyto!(SAVEX[i], TX.XSO[][i]); end)
+restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:2; copyto!(TX.XSO[][i], SAVEX[i]); end)
 
 """
 S6 (ENV DAMPNEWTON=1, default off): damped Newton for the stage solves. TITAN's maxdel scales the whole correction by
@@ -209,6 +212,12 @@ function bdf_old!()
         do_[k] = ms[k] / dvo[k]
     end
     @inbounds for k in a-1:b+2; xmeo[k] = cb(xmen[k], xm0[k]); end
+    if TX.COUPLED[]                    # species on ρ x ΔV (the residual reads x_old only as ρ_old x_old ΔV_old)
+        for i in 1:2
+            xn_, xo_ = TX.XSN[][i], TX.XSO[][i]
+            @inbounds for k in rng; TX.cplz(k) && (xo_[k] = cb(mγ(k) * xn_[k], mn(k) * SAVEX[i][k]) / ms[k]); end
+        end
+    end
     if lrad
         egrn, ern, frn = vf(:egrn), vf(:ern), vf(:frn)
         egr0, er0, fr0 = SAVE[:egro], SAVE[:ero], SAVE[:fro]

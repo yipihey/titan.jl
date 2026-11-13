@@ -1077,6 +1077,26 @@ latent heat kept in the Newton — and the chemical energy crosses each interfac
 hydro step e keeps its usual meaning (chemistry, diagnostics, checkpoints). Replaces the inconsistency XADVU measures.
 """
 const ECHEMSPLIT = get(ENV, "ECHEMSPLIT", "0") == "1"; const ECHEMPEND = Ref(false); const ECHEMN = Ref(0)
+"""
+COUPLED=1 (default off): x_H⁺ and x_H₂ of the network zones are unknowns of the hydro Newton (TitanResidFast.COUPLED, PopIIIMaterial
+cpl_*; implies CHEMCK, excludes ECHEMSPLIT). The chemistry after the step keeps only what the hydro solve does not carry (HD, the
+three-level bookkeeping, the table switch). `CPLXSTOL` (default log 3): the next Δt is capped so that ln x_H⁺ of a coupled zone with
+x_H⁺ > 1e-4 changes by at most this per step (the guard against the hot, fully ionized root of an implicit step in the avalanche zones).
+"""
+const COUPLED = get(ENV, "COUPLED", "0") == "1"
+const CPLXSTOL = parse(Float64, get(ENV, "CPLXSTOL", string(log(3.0))))
+function cpl_dtcap()
+    a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); w = 0.0
+    xn, xo = TX.XSN[][1], TX.XSO[][1]
+    kw = 0
+    for k in a:b
+        TX.cplz(k) || continue
+        max(xn[k], xo[k]) > 1e-4 && abs(log(xn[k] / xo[k])) > w && (w = abs(log(xn[k] / xo[k])); kw = k)
+    end
+    cap = w > 0 ? TF.getscalar(:dtime) * CPLXSTOL / w : Inf
+    cap < TF.getscalar(:dtime) && @printf("cpl dt cap: zone %d x_H+ %.3e -> %.3e T %.0f, dt %.3e -> cap %.3e\n", kw - a + 1, xo[kw], xn[kw], TF.var(:tn)[kw], TF.getscalar(:dtime), cap)
+    cap
+end
 function echem_pre!()
     eg = TF.var(:egn); eo = TF.var(:ego); egr = TF.var(:egrn); ero_ = TF.var(:egro); off = zeros(length(eg))
     dn = TF.var(:dn); tn = TF.var(:tn)
@@ -1851,6 +1871,25 @@ try
         end
         println("ECHEMSPLIT: the hydro step advects e − Σ x E0; the chemical energy moves with the species")
     end
+    if COUPLED
+        mat isa PM.NetGas || error("COUPLED=1 needs the network gas (CHEM=net...)")
+        ECHEMSPLIT && error("COUPLED=1 and ECHEMSPLIT=1 exclude each other (the chemical energy moves with the coupled species)")
+        TF.PARAMS[:meqn] >= 9 || error("COUPLED=1: meqn = $(TF.PARAMS[:meqn]) < 9")
+        ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
+        TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
+        TC.CPLH[] = (; newstep = TX.cpl_newstep!, reset = TX.cpl_reset!, update = TX.cpl_update!, dmax = TX.cpl_dmax!)
+        push!(TC.DT_HOOKS, cpl_dtcap)
+        if haskey(ENV, "CPLJCHECK")                # Jacobian test of the coupled rows (TitanResidFast.cpl_jcheck), once
+            zs = parse.(Int, split(ENV["CPLJCHECK"], ",")); once = Ref(true); g0 = TD.ROUTINES[:matgen]
+            TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.cpl_jcheck(a_ + z - 1); end); g0())
+        end
+        let f0 = TD.STEPFN[]
+            TD.STEPFN[] = () -> (PM.cpl_prepare!(mat); f0(); nothing)
+        end
+        @printf("COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn %d), CPLXSTOL %.3g\n", TF.PARAMS[:meqn], CPLXSTOL)
+    elseif Int(TF.getscalar(:neqn)) == 9
+        TF.setscalar!(:neqn, 7)                    # (restart from a COUPLED checkpoint)
+    end
     RUNEND[] = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k
         tnow = time(); TSTEP[] += tnow - TMARK[] - TOUT[]; TOUT[] = 0.0
@@ -1878,7 +1917,7 @@ try
         EB = isempty(TX.CHEMB[]) ? nothing : copy(TF.var(:egn))
         SLZ_ = haskey(ENV, "SLZ") ? parse.(Int, split(ENV["SLZ"], ",")) : nothing
         if SLZ_ !== nothing; xb_ = [copy(mat.x[z]) for z in SLZ_[1]:SLZ_[2]]; Tb_ = TF.var(:tn)[SLZ_[1]:SLZ_[2]]; end
-        dT = PM.chem!(mat)
+        dT = COUPLED ? PM.cpl_chem!(mat) : PM.chem!(mat)
         if STOLCHEM
             TF.setscalar!(:tfac, TC.TSTP_IN[][1]); TF.setscalar!(:dtime, TC.TSTP_IN[][2]); TD.r(:timstp)
         end

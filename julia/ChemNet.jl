@@ -627,6 +627,24 @@ function ck_expand(xs, T, nH, net, ph, ks, extra = nothing)
     end
     x
 end
+"""
+    ck_eval(xs, ρ, T, net; env, phc, extra) -> (x, f)
+
+COUPLED (TitanResidFast): the full free-species vector x of the reduced network (slow abundances `xs` over `ckinfo(net).slow`, fast ones
+from `ck_expand`) and dx/dt of the slow species, at (ρ, T), generic in the number types (the hydro Newton differentiates through it). In a
+three-level zone (env carries `tl3`) n_e of the Peebles C is n_H x_H⁺ of `xs` (self-consistent, as CHEMCKHSS). `phc(Tv)` returns the
+per-zone photo-rate tuples at the Float temperature Tv (lagged in T as in `step`).
+"""
+function ck_eval(xs, ρ, T, net; env, phc, extra)
+    nH = ρ / μH(); ci = ckinfo(net); sl = ci.slow
+    kHp = findfirst(==(:Hp), net.free[sl])
+    ev = (kHp !== nothing && hasproperty(env, :tl3) && env.tl3 !== nothing) ? merge(env, (; tl3 = merge(env.tl3, (; ne = nH * xs[kHp])))) : env
+    ph = phc(ForwardDiff.value(T))
+    ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
+    x = ck_expand(xs, T, nH, net, ph, ks, extra)
+    f = dxdt(x, nH, T, net, ev, ph); extra === nothing || (f = f .+ extra(x))
+    x, f[sl]
+end
 function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, tol, maxit)
     nH = ρ / μH(); ci = ckinfo(net); sl = ci.slow; ns = length(sl); cc = compiled(net)
     phT = Ref(NaN); phc = Ref{Any}(nothing); ucur = Ref(Float64(u))

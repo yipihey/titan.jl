@@ -100,6 +100,11 @@ function parse_params(path = joinpath(FSRC, "titan.par"))
                 get(ENV, "TITAN_NOLIB", "0") == "1" || error("TITAN_MGR needs TITAN_NOLIB=1 (libtitan has mgr = $(P[:mgr]))")
                 P[:mgr] = parse(Int, ENV["TITAN_MGR"])
             end
+            # COUPLED=1 (TitanResidFast.COUPLED): two species rows behind TITAN's seven equations need meqn ≥ 9 (pure-Julia runs only)
+            if lowercase(k) == "meqn" && get(ENV, "COUPLED", "0") == "1"
+                get(ENV, "TITAN_NOLIB", "0") == "1" || error("COUPLED=1 needs TITAN_NOLIB=1 (libtitan has meqn = $(P[:meqn]))")
+                P[:meqn] = max(P[:meqn], 9)
+            end
         end
     end
     P
