@@ -150,6 +150,7 @@ function maxdel!()
         cmax = abs(cx[a + kcx - 1]) + 1.0e-30
     end
     s!(:cmax, cmax)
+    CPLH[] === nothing || s!(:dmax, max(dmax, CPLH[].dmax(rhs, a, b)))     # species: clamped (also in the boost pass), convergence measure
     lboos = gi(:lboos)
     restore!() = (@inbounds for (j, k) in enumerate(thin); rhs[ie, k] = δthin[j]; end)
     lboos == 1 && (restore!(); return nothing)
@@ -160,7 +161,6 @@ function maxdel!()
         @inbounds for k in a:b+1, i in 1:neqn; rhs[i, k] *= sc; end
     end
     restore!()
-    CPLH[] === nothing || s!(:dmax, max(dmax, CPLH[].dmax(rhs, a, b)))
     nothing
 end
 

@@ -1290,6 +1290,26 @@ function cpl_finish!(m::NetGas)
     nothing
 end
 cpl_chem!(m::NetGas) = (cpl_finish!(m); CPLPOST[] = true; try chem!(m) finally CPLPOST[] = false end)
+"TitanResidFast.CPL_LOCAL: zone k's species rows alone at its current (ρ, T) over dt (see TitanResidFast.cpl_local_all!); nothing if not converged."
+function cpl_local!(m::NetGas, k, dt)
+    dn, tn, dvn, do_, dvo, dmdt = TM.v(:dn), TM.v(:tn), TM.v(:dvoln), TM.v(:do), TM.v(:dvolo), TM.v(:dmdt)
+    ρ = dn[k]; T = tn[k]; mk = ρ * dvn[k]; mo = do_[k] * dvo[k]
+    xo = (TX.XSO[][1][k], TX.XSO[][2][k]); xu = (TX.XSN[][1][k+1], TX.XSN[][2][k+1]); xd = (TX.XSN[][1][k-1], TX.XSN[][2][k-1])
+    fo = dmdt[k+1]; fi = dmdt[k]                 # mass flux terms of the row: −ṁ_{k+1} x_b(k+1) + ṁ_k x_b(k); fle = −ṁ ≥ 0: outward
+    function R(z)
+        x1 = exp(z[1]); x2 = exp(z[2]); S_ = cpl_g(m, k, [ρ + zero(x1), T + zero(x1), x1, x2])
+        xs = (x1, x2)
+        ntuple(i -> (mk * xs[i] - mo * xo[i]) / dt - mk * S_[2+i] - fo * (-fo >= 0 ? xs[i] : xu[i]) + fi * (-fi >= 0 ? xd[i] : xs[i]), 2)
+    end
+    z = [log(max(TX.XSN[][1][k], 1e-40)), log(max(TX.XSN[][2][k], 1e-40))]
+    for it in 1:30
+        r0 = collect(R(z)); J = ForwardDiff.jacobian(zz -> collect(R(zz)), z)
+        δ = -(J \ r0); all(isfinite, δ) || return nothing
+        δ .= clamp.(δ, -3.0, 3.0); z .+= δ
+        maximum(abs, δ) < 1e-8 && return (exp(z[1]), exp(z[2]))
+    end
+    nothing
+end
 function chem!(m::NetGas)
     nf = length(m.net.free)
     if !HDCHEM[]

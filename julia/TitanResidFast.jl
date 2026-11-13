@@ -213,8 +213,15 @@ const XSN = Ref([Float64[], Float64[]]); const XSO = Ref([Float64[], Float64[]])
 const XSRCO = Ref([Float64[], Float64[]]); const XLAMO = Ref(Float64[]); const CPLZ = Ref(Bool[])
 const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's iterate while the material is evaluated
 const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
+const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
 "Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
-const CPL_XFLOOR = Ref(1e-8); const CPL_CLAMP = Ref(1.0)
+const CPL_XFLOOR = Ref(1e-8); const CPL_CLAMP = Ref(1.0); const CPLDBG = Ref(parse(Int, get(ENV, "CPLDBG", "0")))
+"""
+Time weight of the chemistry source and cooling in the coupled rows (default 1: backward Euler in every stage, also in TR-BDF2's
+trapezoidal stage; the residual's θ otherwise). A species relaxing in seconds within a step of 1e3–1e6 s has, under the trapezoidal
+rule, x_γ ≈ −x_n: unreachable in the logarithmic species variables, so the TR stage failed and the step fell back to backward Euler.
+"""
+const CPL_THETA = Ref(parse(Float64, get(ENV, "CPLTHETA", "1")))
 @inline cplz(k) = COUPLED[] && k <= length(CPLZ[]) && CPLZ[][k]
 "Size the species arrays to mgr (keeps values where present)."
 function cpl_alloc!(mgr)
@@ -224,7 +231,23 @@ function cpl_alloc!(mgr)
     length(XLAMO[]) == mgr || (XLAMO[] = zeros(mgr)); length(CPLZ[]) == mgr || (CPLZ[] = falses(mgr) |> collect)
     nothing
 end
-"Start of a step (TitanCore.peq!): old species := iterate, and their limiter slopes."
+"""
+Newton's initial species of a coupled zone: its two species rows solved alone at the zone's (ρ, T), with the neighbours' species and
+the mass fluxes of the last step frozen and first-order upwind faces (`CPL_LOCAL`, a 2×2 Newton in ln x). Without it the first Newton
+corrections of ln x reached −25 … +440 in the pre-shock zones (the stiff chemistry's solution for the step lies far from the start
+composition), and the ±1 clamp needed dozens of iterations.
+"""
+function cpl_local_all!(dt)
+    CPL_LOCAL[] === nothing && return nothing
+    ngrs = gi(:ngrs); ngre = gi(:ngre); new = [Tuple{Int,Float64,Float64}[] for _ in 1:1]
+    for k in ngrs:ngre
+        cplz(k) || continue
+        y = CPL_LOCAL[](k, dt); y === nothing || push!(new[1], (k, y[1], y[2]))
+    end
+    for (k, a, b) in new[1]; XSN[][1][k] = a; XSN[][2][k] = b; end      # (applied together: every zone saw the same neighbours)
+    nothing
+end
+"Start of a step (TitanCore.peq!): old species := iterate, and their limiter slopes; then the initial guess (cpl_local_all!)."
 function cpl_newstep!()
     ngrs = gi(:ngrs); ngre = gi(:ngre); cadv = gf(:cadv); eps = gf(:epsadv)
     for i in 1:2
@@ -234,9 +257,10 @@ function cpl_newstep!()
             qs[k] = a * b >= 0 ? cadv * a * b / den : 0.0
         end
     end
+    cpl_local_all!(gf(:dtime))
     nothing
 end
-cpl_reset!() = (for i in 1:2; copyto!(XSN[][i], XSO[][i]); end; nothing)
+cpl_reset!() = (for i in 1:2; copyto!(XSN[][i], XSO[][i]); end; cpl_local_all!(gf(:dtime)); nothing)
 "Apply the Newton correction (update!): x ← x·e^δ in the coupled zones."
 function cpl_update!(rhs, a, b)
     @inbounds for k in a:b
@@ -253,6 +277,9 @@ function cpl_dmax!(rhs, a, b)
         cplz(k) || continue
         for (i, q) in ((8, XSN[][1]), (9, XSN[][2]))
             abs(rhs[i, k]) > abs(dx[i]) && (kx[i] = k - a + 1; dx[i] = rhs[i, k])     # (raw correction, for the divergence message)
+            CPLDBG[] > 0 && abs(rhs[i, k]) > 20 && (CPLDBG[] -= 1;
+                println("CPLDBG iter $(gi(:iter)) zone $(k - a + 1) row $i: δ $(rhs[i, k]) x $(q[k]) x_old $(XSO[][i - 7][k]) x(H+,H2) $(XSN[][1][k]), $(XSN[][2][k]) T $(TF.var(:tn)[k]) T_old $(TF.var(:to)[k]) ρ $(TF.var(:dn)[k]) neighbours x_H+ $(XSN[][1][k-1]) $(XSN[][1][k+1]) cplz $(cplz(k-1)) $(cplz(k+1))"))
+            isfinite(rhs[i, k]) || (rhs[i, k] = 0.0; d = Inf)                        # a non-finite correction: no change, not converged
             rhs[i, k] = clamp(rhs[i, k], -cl, cl)
             d = max(d, abs(rhs[i, k]) * q[k] / (q[k] + f))
         end
@@ -1122,7 +1149,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             end
         end
         isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
-        cplz(k) && (w += (θ * W.cpL[k] + (1 - θ) * XLAMO[][k]) * dvol[k])   # COUPLED: the chemistry cooling, implicit
+        cplz(k) && (θc = max(θ, CPL_THETA[]); w += (θc * W.cpL[k] + (1 - θc) * XLAMO[][k]) * dvol[k])   # COUPLED: the chemistry cooling, implicit
         if ECHEMF[] !== nothing && ECHEMF[][2][k]
             off_ = ECHEMF[][1]
             if k < ngre || P.leobc == 3
@@ -1146,8 +1173,9 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         @inbounds for k in ngrs:ngre
             cplz(k) || continue
             for (i, q, qo, qb, S_, So) in ((8, W.xs1, XSO[][1], W.xb1, W.cpS1, XSRCO[][1]), (9, W.xs2, XSO[][2], W.xb2, W.cpS2, XSRCO[][2]))
+                θc = max(θ, CPL_THETA[])
                 w = (dn[k] * q[k] * dvoln[k] - c.do_[k] * qo[k] * c.dvolo[k]) / dt -
-                    (θ * dn[k] * dvoln[k] * S_[k] + (1 - θ) * c.do_[k] * c.dvolo[k] * So[k])
+                    (θc * dn[k] * dvoln[k] * S_[k] + (1 - θc) * c.do_[k] * c.dvolo[k] * So[k])
                 if k == ngrs
                     w += -dmdt[k+1] * qb[k+1]
                 elseif k == ngre
