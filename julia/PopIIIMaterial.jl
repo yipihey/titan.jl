@@ -796,13 +796,16 @@ function chemreplay(k, m, ρ, u0, T0, x0, dt, phk, exs, c0, p3; xref, Tref)
         end
         (ncall[], time() - t0, r..., CNn.NJAC[] - j0, CNn.NADV[] - a0)
     end
+    CNn.SUBMAX[] = 20000                             # (replays only; production keeps CHEMSUBMAX_SC)
     @printf("chemreplay k %d step %d n %.2e dt %.2e T0 %.1f xe0 %.2e | production: T %.1f xe %.3e\n", k, TF.getscalar(:jstep), nHk, dt, T0, xel(x0), Tref, xel(xref))
     for (lab, fT, fx, dm, np, trc, lgx, sc) in (("subcyc 0.1", 1.3, 3.0, 0, 0, 0.0, false, 0.1), ("subcyc 0.03", 1.3, 3.0, 0, 0, 0.0, false, 0.03),
                                   ("subcyc 0.01", 1.3, 3.0, 0, 0, 0.0, false, 0.01), ("subcyc 0.003", 1.3, 3.0, 0, 0, 0.0, false, 0.003),
                                   ("subcyc 0.1 + CHEMSUB", 1.3, 3.0, 16, 0, 0.0, false, 0.1),
                                   ("ref 1.3,3 d16", 1.3, 3.0, 16, 0, 0.0, false, 0.0), ("1.3,3 d4", 1.3, 3.0, 4, 0, 0.0, false, 0.0),
                                   ("single step", 1.3, 3.0, 0, 0, 0.0, false, 0.0))
+        trs = sc == 0.1 && dm == 0 && NREPLAY[] <= 2; trs && (CNn.TRACEALL[] = true; CNn.SUBMAX[] = 20000; println("    sub-cycle trace:"))
         nc, w, T, xe, nj, na = run(fT, fx, dm; npic = np, trc, lgx, sc)
+        trs && (CNn.TRACEALL[] = false); CNn.SUBMAX[] = 20000
         @printf("    %-22s calls %6d  wall %8.3f s  T %8.1f  xe %.3e  Newton its %7d  attempts %6d  (%.2f ms/its)\n", lab, nc, w, T, xe, nj, na, 1e3w / max(nj, 1))
     end
     # CHEMREPLAYTRACE=1 (with MATTHREADS=1): every Newton iteration of the single full step, for the first replays
