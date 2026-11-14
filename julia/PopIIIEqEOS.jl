@@ -146,6 +146,8 @@ end
 gx(t, lρ) = (lρ - t.lρ0) / t.dlρ + 1
 gy(t, lT) = (lT - t.lT0) / t.dlT + 1
 
+"Lowest density of the table [g cm⁻³] (`eos` errors below it)."
+rho_min() = 10^table().lρ0
 "(u [erg/g, our zero], p) at (ρ, T) in equilibrium."
 function eos(ρ, T)
     t = table(); x = gx(t, log10(ρ)); y = gy(t, log10(T))
