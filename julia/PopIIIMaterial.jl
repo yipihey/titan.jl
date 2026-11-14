@@ -1687,14 +1687,17 @@ end
 function cpl_gcheck(m::NetGas, k)
     z0 = [TM.v(:dn)[k], TM.v(:tn)[k], TX.XSN[][1][k], TX.XSN[][2][k]]
     J = ForwardDiff.jacobian(z -> cpl_g(m, k, z), z0); names = ("p", "e", "S1", "S2", "Λ", "cq", "yq"); vn = ("ρ", "T", "x1", "x2")
-    for j in 1:4
-        h = 1e-6 * z0[j]; zp = copy(z0); zm = copy(z0); zp[j] += h; zm[j] -= h
+    for j in 1:4, rh in (1e-6, 1e-4, 1e-2)
+        h = rh * z0[j]; zp = copy(z0); zm = copy(z0); zp[j] += h; zm[j] -= h
         fd = (cpl_g(m, k, zp) .- cpl_g(m, k, zm)) ./ 2h
-        @printf("CPLGCHECK zone %d d/d%s: %s\n", k - Int(TF.getscalar(:ngrs)) + 1, vn[j],
+        @printf("CPLGCHECK zone %d d/d%s (FD step %.0e): %s\n", k - Int(TF.getscalar(:ngrs)) + 1, vn[j], rh,
                 join((@sprintf("%s AD %.5e FD %.5e", names[i], J[i, j], fd[i]) for i in 1:7 if max(abs(J[i, j]), abs(fd[i])) > 0), " | "))
     end
+    y0 = cpl_g(m, k, z0); d0 = CNn.full(cpl_ckx(m, k, z0), m.net)
+    @printf("CPLGCHECK zone %d values: Λ %.6e cq %.6e yq %.6e | x_e %.6e x_H %.6e x_H+ %.6e\n", k - Int(TF.getscalar(:ngrs)) + 1, y0[5], y0[6], y0[7], d0[:e], d0[:H], d0[:Hp])
     nothing
 end
+cpl_ckx(m, k, z) = (t = CPLTERMS[][k]; CNn.ck_eval([z[3], z[4]], z[1], z[2], m.net; env = t.env, phc = t.phc, extra = t.extra)[1])
 cpl_lift(y, J, ρ::Float64, T::Float64, a::Float64, b::Float64) = Tuple(y)
 function cpl_lift(y, J, ρ::D, T::D, a::D, b::D) where {D<:ForwardDiff.Dual}
     P1, P2, P3, P4 = ForwardDiff.partials(ρ), ForwardDiff.partials(T), ForwardDiff.partials(a), ForwardDiff.partials(b)

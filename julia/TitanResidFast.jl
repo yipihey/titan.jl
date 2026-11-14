@@ -1485,7 +1485,7 @@ COUPLED test (popiii_m2c CPLJCHECK=n1,n2,…: zone numbers from the inner bounda
 AD Jacobian blocks of the energy and species rows of zones k−2…k+2 with respect to T, x_H⁺, x_H₂ of zone k, against central finite
 differences of the Float residual (step h in the logarithmic variables). Prints the worst relative difference per column.
 """
-function cpl_jcheck(kz; h = 1e-6)
+function cpl_jcheck(kz; h = parse(Float64, get(ENV, "CPLJCHH", "1e-6")))
     c = context(); assemble!(c)
     E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); neqn = c.neqn; nb = c.nb; k0 = c.k0; it = c.ix[5]
     ws = getws(Float64, c.mgr); R1 = zeros(neqn, nb); R2 = zeros(neqn, nb); xz = zeros(neqn * nb)
