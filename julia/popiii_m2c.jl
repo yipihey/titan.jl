@@ -1014,6 +1014,7 @@ const GMLAST = Ref((0.0, 0, 0.0, NaN, 0, 0.0, 0.0, Inf))    # (move planned for 
 xmi(k) = ENVEUL === nothing ? TX.XMINT[][k] : TF.getscalar(:xmtot) - TF.var(:xmen)[k]
 const XMEPREV = Ref(Float64[]); const ENVMS0 = Ref(0.0); const ENVMDOT = Ref(0.0)
 envmenc() = TF.getscalar(:xmtot) .- TF.var(:xmen)[a:b+1]              # interior mass per steradian at the interfaces
+include(joinpath(@__DIR__, "grideq_driver.jl"))                         # GRIDEQ (default off)
 function envsurface()
     j = findfirst(<(-2e5), TF.var(:un)[a:b+1]); j === nothing ? nsh + 1 : j
 end
@@ -1318,28 +1319,38 @@ function xmzero!()
        join((@sprintf("%.4e", xmen[k]) for k in a-1:a+2), " "), 4π * m[b+1] / Msun)
     nothing
 end
-function iceulbuild!()
+function iceulbuild!(; rIset = nothing)     # rIset: the interfaces (centre 0 … outer edge) in place of envlr's mesh (GRIDEQ's starting mesh)
     (RAD && ENVCENTRE) || error("ICEUL=1 needs RAD=1 and ENVEUL=0,... (regular centre, ENVCORE)")
-    ic in ("abn02", "abn02hs", "abn02z19") || error("ICEUL=1: only the abn02* initial conditions")
+    abn = ic in ("abn02", "abn02hs", "abn02z19")
+    (abn || ic == "p100") || error("ICEUL=1: only the abn02* and p100 initial conditions")
     GRIDMAPP === nothing || pr("ICEUL: GRIDMAP starts from the ENVCORE/ENVEUL mesh (no source state to plan it from)\n")
     radsettings!()
     rout = TF.var(:rn)[b+1]; Mtot = M                                          # the IC's outer radius and cloud mass
     ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
-    rI_ = exp.(envlr(rout)); rI_[end] = rout; pushfirst!(rI_, 0.0); n = length(rI_) - 1
-    rg3 = rg .^ 3
-    Mof(r) = (r <= 0 && return 0.0; r >= rg[end] && return Mg[end]; j = clamp(searchsortedlast(rg, r), 1, length(rg) - 1);
-              Mg[j] + (r^3 - rg3[j]) / (rg3[j+1] - rg3[j]) * (Mg[j+1] - Mg[j]))
+    rI_ = rIset === nothing ? (r_ = exp.(envlr(rout)); r_[end] = rout; pushfirst!(r_, 0.0)) : copy(rIset); n = length(rI_) - 1
+    # M(r): the abn02* tables, or (p100) the Lagrangian IC shells with uniform density in each
+    rgM, MgM = abn ? (rg, Mg) : (rI, mI)
+    rg3 = rgM .^ 3
+    Mof(r) = (r <= 0 && return 0.0; r >= rgM[end] && return MgM[end]; j = clamp(searchsortedlast(rgM, r), 1, length(rgM) - 1);
+              MgM[j] + (r^3 - rg3[j]) / (rg3[j+1] - rg3[j]) * (MgM[j+1] - MgM[j]))
     mI_ = [Mof(r) for r in rI_]; mI_[end] = Mtot
     all(>(0), diff(mI_)) || error("ICEUL: a zone without mass")
     ρz = [(mI_[j+1] - mI_[j]) / (4π / 3 * (rI_[j+1]^3 - rI_[j]^3)) for j in 1:n]
     # mass-weighted zone means of T(M), f_H2(M) (64 midpoints in m per zone; the IC tables are in log M [M☉], constant below their first node)
     zmean(f, j) = (ms = range(mI_[j], mI_[j+1], length = 65); sum(f(0.5 * (ms[i] + ms[i+1]) / Msun) for i in 1:64) / 64)
-    Tz = [zmean(m -> interp(log10(m), lM_tab, T_tab), j) for j in 1:n]
-    fz = [zmean(m -> 10^interp(log10(m), lM_tab, lf_tab), j) for j in 1:n]
-    uI_ = ic == "abn02z19" ? [m < Mjoin ? 0.0 : 1e5 * interp(log10(m / Msun), lM_tab, v_tab) * min(1.0, (m - Mjoin) / Mjoin) for m in mI_] :
+    if abn
+        Tof = m -> interp(log10(m), lM_tab, T_tab); fof = m -> 10^interp(log10(m), lM_tab, lf_tab); xe_ = xe0
+    else                                                        # p100: T of the Lagrangian shells by mass (polytrope), y0's H2 and x_e
+        Tlag = copy(Main.Tz); mcz = [0.5 * (mI[j] + mI[j+1]) / Msun for j in 1:length(Tlag)]
+        Tof = m -> (j = clamp(searchsortedlast(mcz, m), 1, length(mcz) - 1); w_ = clamp((m - mcz[j]) / (mcz[j+1] - mcz[j]), 0.0, 1.0); (1 - w_) * Tlag[j] + w_ * Tlag[j+1])
+        fof = m -> 2y0[3]; xe_ = y0[1]
+    end
+    Tz = [zmean(Tof, j) for j in 1:n]
+    fz = [zmean(fof, j) for j in 1:n]
+    uI_ = !abn ? zeros(n + 1) : ic == "abn02z19" ? [m < Mjoin ? 0.0 : 1e5 * interp(log10(m / Msun), lM_tab, v_tab) * min(1.0, (m - Mjoin) / Mjoin) for m in mI_] :
           ic == "abn02hs" ? zeros(n + 1) : [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI_]
     uI_[1] = 0.0; uI_[end] = 0.0                                               # regular centre; fixed outer wall (as the remap)
-    xz = [xinit((xe0, 0.0, f / 2, 0.0)) for f in fz]; eqz = falses(n)
+    xz = [xinit((xe_, 0.0, f / 2, 0.0)) for f in fz]; eqz = falses(n)
     # radiation field as radbuild!
     Tb = parse(Float64, get(ENV, "TCMB", "0")); ar = Z0.arad
     χ = [PM.OPAC[](ρz[j], Tz[j])[1] * ρz[j] for j in 1:n]
@@ -1391,6 +1402,13 @@ elseif haskey(ENV, "RESTART")
     end
 elseif ICEUL
     iceulbuild!()
+    if GRIDEQP !== nothing           # GRIDEQ: build the IC again on the rule's mesh of the IC (planned on envlr's mesh), same first interface and edge
+        Nq_ = parse(Int, get(ENV, "GEQN", string(nsh))); iseven(Nq_) || error("GEQN must be even")
+        rq_ = geq_target(geq_state(); N = Nq_ - 1)
+        pr("GRIDEQ: IC starting mesh, %d zones from %.4g R_sun, dln r %.3f .. %.3f (envlr's %.3f)\n", nsh, rq_[1] / Rsun,
+           minimum(diff(log.(rq_))), maximum(diff(log.(rq_))), log(TF.var(:rn)[a+2] / TF.var(:rn)[a+1]))
+        iceulbuild!(; rIset = vcat(0.0, rq_))
+    end
 elseif RAD
     # RAD=1 switches the CIE continuum cooling off; without a rebuild there is no radiation field to take its place
     error("RAD=1 from the initial condition: run with RAD=0 first, then RAD=1 RADFROM=<checkpoint> (scripts/popiii_run/fullrun.sh)")
@@ -1652,6 +1670,28 @@ if GRIDWINP !== nothing
         pr("GRIDWIN: adaptive interfaces %d..%d (r %.4g..%.4g R_sun, %d zones), tau %.3g s, weights ln rho %.3g ln T %.3g, alph %.3g, ctol %.3g, fmove %.3g, gmax %.3g\n",
            k1 + 1, k2 - 1, rn[k1] / Rsun, rn[k2] / Rsun, k2 - k1, TX.GRIDWIN[].tau, TX.GRIDWIN[].wd, TX.GRIDWIN[].wt, TX.GRIDWIN[].alph, TF.getscalar(:ctol), fmove, TX.GRIDWIN[].gmax)
     end
+end
+if GRIDEQP !== nothing
+    (ENVEUL !== nothing && ENVCENTRE && Int(TF.getscalar(:lgrid)) == 2) || error("GRIDEQ needs the fixed-mesh envelope with a regular centre (ENVEUL=0,..., lgrid = 2)")
+    (GRIDMAPP === nothing && GRIDWINP === nothing) || error("GRIDEQ excludes GRIDMAP and GRIDWIN")
+    GRIDEQP in (0, 1) || error("GRIDEQ=0 (prescribed target) or 1 (implicit grid equation)")
+    TC.GRIDMOVE[] = true; TF.setscalar!(:ctol, GEQC[8])
+    if GRIDEQP == 0
+        TX.GRIDVEL[] = zeros(length(TF.var(:rn)))
+    else
+        grideq_step!()
+        let fmv = GEQC[5]
+            push!(TC.DT_HOOKS, function ()
+                rn_ = TF.var(:rn); ro_ = TF.var(:ro); f = 0.0
+                for k in a+2:b
+                    wd = min(ro_[k] - ro_[k-1], ro_[k+1] - ro_[k]); f = max(f, abs(rn_[k] - ro_[k]) / wd)
+                end
+                f > 0 ? fmv / f * TF.getscalar(:dtime) : Inf
+            end)
+        end
+    end
+    pr("GRIDEQ: mode %d (%s), %d zones, weights rho,P,T,E,m,tau %s, gmax %.3g, alph %.3g, kappa %.3g, fv %.3g, fmove %.3g, tau %.3g..%.3g, ctol %.3g\n",
+       GRIDEQP, GRIDEQP == 1 ? "implicit grid equation" : "prescribed target", nsh, join(GEQW, ","), GEQC[1:8]...)
 end
 if GRIDMAPP !== nothing
     (ENVEUL !== nothing && Int(TF.getscalar(:lgrid)) == 2) || error("GRIDMAP needs the fixed-mesh envelope (ENVEUL, lgrid = 2)")
@@ -2207,6 +2247,7 @@ try
             TF.setscalar!(:tfac, TC.TSTP_IN[][1]); TF.setscalar!(:dtime, TC.TSTP_IN[][2]); TD.r(:timstp)
         end
         GRIDMAPP === nothing || gridmap_step!()
+        GRIDEQP === nothing || grideq_step!()
         if SLZ_ !== nothing && PM.SLDIAG[] !== nothing      # S6: starlight and chemistry of zones z1..z2 over this step's chem! (molecular-edge onset)
             sd = PM.SLDIAG[]; dtq = TF.getscalar(:timen) - TF.getscalar(:timeo)
             pr("        SLZ k %d dt %.3e: photosphere zone %d T_eff %.0f\n", k, dtq, sd.kph, sd.Te)
@@ -2358,6 +2399,7 @@ try
                 end
                 TX.GRIDWIN[] === nothing || pr("%s", gridwin_line())
                 GRIDMAPP === nothing || pr("%s", gridmap_line())
+                GRIDEQP === nothing || pr("%s", grideq_line())
                 GRIDMAPP !== nothing && GMJUMP && pr("        grid map: %d target jumps so far (no dt cap, GMJUMP)\n", NGMJUMP[])
                 # causality of the radiation field outside the surface: F/cE at the interfaces (FLUXTIE or not)
                 let fz = TF.var(:frn), ez = TF.var(:ern), rz = TF.var(:rn), q = 0.0, kq = 0, k1 = 0

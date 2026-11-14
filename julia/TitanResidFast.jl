@@ -158,8 +158,18 @@ same straight path r_old + w t through the TR, the BDF2 and the backward-Euler s
 else is TITAN's moving-grid form as for GRIDWIN (u_rel = u − ṙ, fluxes through the moving faces, lab-frame gravity work).
 """
 const GRIDVEL = Ref{Union{Nothing,Vector{Float64}}}(nothing)
-"A mesh with lgrid = 2 whose interfaces move (GRIDWIN window or GRIDVEL)."
-@inline gridmoves() = GRIDWIN[] !== nothing || GRIDVEL[] !== nothing
+"""
+GRIDEQ[] (lgrid = 2 only; `nothing` = off): TITAN's implicit grid equation over the whole mesh (GRIDEQ in popiii_m2c.jl). A
+NamedTuple (; k1, k2, w = (wρ, wP, wT, wE, wm), alph, gmax, tauv, sx): the interfaces k1 (the first above the regular centre) and
+k2 (the outer edge) stay; every interface in between obeys n̂_j = n̂_{j−1} with n̂_j = x̃_j / sqrt(1 + G_j²), x̃_j = ν_j −
+α(1+α) Δ²ν (ν_j = r̄_j/Δr_j, the logarithmic baseline; α = alph), time-smoothed per zone, x̃ → (1 + γ_j) x̃ − γ_j x̃_old with
+γ_j = tauv[j]/Δt (tauv: a multiple of the zone's signal-crossing time, frozen for the step), and G_j² = ν_j² S_j capped smoothly at
+gmax², S_j = Σ_q w_q (½ Δ ln q)² over q = ρ, P, T, E_r and the interior mass m (centred differences of the zone values; one-sided
+at the ends) plus sx[j] (terms frozen for the step: the capped ln τ). All terms are logarithmic, so the rule has no scale.
+"""
+const GRIDEQ = Ref{Any}(nothing)
+"A mesh with lgrid = 2 whose interfaces move (GRIDWIN window, GRIDVEL or GRIDEQ)."
+@inline gridmoves() = GRIDWIN[] !== nothing || GRIDVEL[] !== nothing || GRIDEQ[] !== nothing
 """
 AV_ZONE[] (G1): viscous length proportional to the local zone width. When > 0, zone k uses the length
 l_k = AV_ZONE[] × (r[k+1] − r[k]) (θ-centred radii, ForwardDiff-differentiable) instead of ql0 + ql1 r̄; ql0, ql1 are then
@@ -776,6 +786,28 @@ function gridwin_rows!(R, ir, k0, rn, ro, dn, tn, dt, gw)
     nothing
 end
 
+"Grid-equation rows of GRIDEQ (see there) for the interfaces k1+1 … k2−1."
+function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge)
+    k1, k2 = ge.k1, ge.k2; zl, zh = k1, k2 - 1                  # zones between the fixed interfaces
+    α = ge.alph * (1 + ge.alph); wρ, wP, wT, wE, wm = ge.w
+    zc(j) = clamp(j, zl, zh)
+    ν(j) = (j = zc(j); (rn[j+1] + rn[j]) / (2 * (rn[j+1] - rn[j]))); νo(j) = (j = zc(j); (ro[j+1] + ro[j]) / (2 * (ro[j+1] - ro[j])))
+    lm(j) = (j = zc(j); log(0.5 * ((xmtot - xmen[j]) + (xmtot - xmen[j+1]))))
+    function nhat(j)
+        xnt = ν(j) - α * (ν(j-1) - 2ν(j) + ν(j+1)); xnto = νo(j) - α * (νo(j-1) - 2νo(j) + νo(j+1))
+        jm, jp = zc(j - 1), zc(j + 1); h = jp - jm == 2 ? 0.5 : 1.0
+        S = wρ * (h * log(dn[jp] / dn[jm]))^2 + wP * (h * log(pg[jp] / pg[jm]))^2 + wT * (h * log(tn[jp] / tn[jm]))^2 +
+            wE * (h * log(er[jp] / er[jm]))^2 + wm * (h * (lm(jp) - lm(jm)))^2 + ge.sx[j]
+        G2 = ν(j)^2 * S; G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
+        γ = ge.tauv[j] / dt
+        ((1 + γ) * xnt - γ * xnto) / sqrt(1 + G2)
+    end
+    @inbounds for k in k1+1:k2-1
+        R[ir, k - k0 + 1] = nhat(k) - nhat(k - 1)
+    end
+    nothing
+end
+
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
     UPFREEZE[] > 0 && (UPHOLD[] = TF.getscalar(:iter) >= UPFREEZE[])
     ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
@@ -982,6 +1014,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k] - gv[k] * dt; end
         end
         GRIDWIN[] === nothing || gridwin_rows!(R, ir, k0, rn, c.ro, dn, tn, dt, GRIDWIN[])
+        GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[])
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
     end
