@@ -2064,3 +2064,29 @@ crashed (`t_gt0` without the τ term at step 26 855, `t_gt1` with it at 26 024, 
 distance to the target per step at any Δt (relaxation-time floor 0), so a failed solve does not slow the mesh; and the
 target, following the flickering surface in zones of 0.005, moves 0.1 zone widths per step, which caps Δt near 10³ s.
 `t_gt2` adds a relaxation floor of 10⁴ s.
+
+## `GRIDEQ`: one global, scale-free moving mesh (14 Nov, Tom's direction)
+
+Tom (14 Nov): capture the star, shock and photosphere with a moving grid, but only with a method general enough for any infall
+profile: no case-specific markers, thresholds or zone budgets (that rules out `GRIDSEG`). Code: `julia/GridEq.jl` (the rule),
+`julia/grideq_driver.jl`, `TitanResidFast.grideq_rows!`; default off; built on iceul 61920a0 (the z100ic3 configuration).
+
+**Rule.** Every zone between the first interface above the regular centre and the outer edge (both fixed) covers the same
+∫ M d ln r, M = √(1 + G²), G² = Σ_q w_q (∂ln q/∂ln r)² over q = ρ, P, T, E_r, the interior mass m and τ (clamped to [0.1, 1e4]),
+G² capped smoothly at gmax², Dorfi–Drury smoothing α (neighbours within (1+α)/α). All terms are logarithmic derivatives: no
+scale, no threshold; a power-law envelope gives a constant M and a logarithmic mesh that stays put.
+
+- `GRIDEQ=1` (preferred): TITAN's implicit grid equation over the whole mesh (the `GRIDWIN` rows generalised: ρ, P, T, E_r, m in
+  the residual, ln τ frozen per step), time-smoothed per zone with γ_j = κ t_cross,j/Δt, t_cross = r/(|u| + c_s) the zone's own
+  signal-crossing time (not seconds); Δt limited so that no interface moves more than fmove of a zone per step.
+- `GRIDEQ=0` (fallback): the explicit target of the same rule, each interface relaxing in max(3Δt, κ t_cross), |ṙ| ≤ fv (|u| + c_s),
+  at most fmove of the zone it moves into, no zone shrinking below half its narrower neighbour.
+- With `ICEUL=1` the IC is built on the rule's mesh of the IC (`GEQN` zones); `IC=p100` added to ICEUL (M(r), T(m) of the
+  Lagrangian IC shells).
+- One parameter set: `GEQW=1,1,1,1,1,1`, `GEQC=100,1.5,3,0.5,0.5,0.1,1e4,0.3` (gmax, α, κ, fv, fmove, τlo, τhi, ctol). gmax 10
+  (`t_gse1`) left the photosphere inside one zone (τ 10 → 0.1 across 0 interfaces): a power-law envelope already has G ≈ 3.7, so
+  the cap must be far above it.
+
+**Bit-identical when off**: 300 steps from the IC with z100ic3's settings, 61920a0 (`t_gs_bi5`, run from a `git archive` copy)
+against 237a835 (`t_gs_bi6`): final state md5 053301bd…, aux 62ff4e1d…, all 6 snapshots (180 fields) and every non-timing
+`perf.csv` column identical.
