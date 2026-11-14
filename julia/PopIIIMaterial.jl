@@ -387,8 +387,25 @@ const CHICAP = let s = split(get(ENV, "CHICAP", "0"), ","); (parse(Float64, s[1]
         end
     end
     κR, κP = OPAC[](ρ, T)
+    if NLOFIX
+        # a network zone without the non-LTE factors (no star-light rates, so no three-level parameters) took the LTE table, whose
+        # equilibrium electrons vanish at ~1000 K: χ 3e-9 cm²/g at 21 pc in c128 (13 Nov) against electron scattering on the zone's own
+        # x_e ≈ 9e-5 (3e-5 cm²/g) in its corrected neighbours. Floor χ at σ_T n_e/ρ of the zone's composition.
+        k = TX.ZONE[]
+        if k <= length(m.eqzone) && !m.eqzone[k]
+            cc = CNn.compiled(m.net); ne = max(CNn.fullvec(m.x[k], cc)[cc.ie], 0.0) / CNn.μH()
+            κR = max(κR, COp.σT * ne)
+        end
+    end
     return chicap(κR, T), κP, κP
 end
+"""
+`NLOFIX=1` (default off): floor the Rosseland/flux-mean χ of network zones that use the plain LTE table at electron scattering on the
+zone's own electrons (σ_T x_e / μ_H). See TX.material_opac.
+"""
+const NLOFIX = get(ENV, "NLOFIX", "0") == "1"
+"`SLWFLUX=1` (default off): star-light dilution W from max(c(E_r − E_cmb), F_r) instead of c(E_r − E_cmb) alone (see starlight_setup)."
+const SLWFLUX = get(ENV, "SLWFLUX", "0") == "1"
 function TM.fill_opac!(m::NetGas)
     OPAC[] === nothing && return nothing
     dn, tn = TM.v(:dn), TM.v(:tn)
@@ -698,6 +715,9 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         end
         (max(er[b], Ecmb) / arad)^0.25
     end
+    # c × (star-light energy density): E_r above the CMB; with SLWFLUX also at least the zone's outward flux (free streaming: c u = F).
+    # Far out (21 pc in c128, 13 Nov) the star's u is ~1e-3 of the CMB's, E_r − E_cmb went negative in one zone and W = 0 there.
+    slcu(k) = SLWFLUX ? max(CNn.c * (er[k] - Ecmb), 0.5 * (max(fr[k], 0.0) + max(fr[k+1], 0.0))) : CNn.c * (er[k] - Ecmb)
     function rates(k)
         if SLBLEND[] && Te > 0
             # smooth in τ (no jump at the moving τ = 2/3 zone): colour temperature from T_eff (τ ≤ 0.3) to the local T_r (τ ≥ 3), log blend,
@@ -707,9 +727,9 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             Tsrc = SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te
             wq = clamp((log10(max(tauz_[k], 1e-30)) + log10(1 / 0.3)) / 1.0, 0.0, 1.0); wq = wq * wq * (3 - 2wq)
             Tc = Tsrc^(1 - wq) * Tr^wq
-            W = wq >= 1 ? 1.0 : min(max(CNn.c * (er[k] - Ecmb), 0.0) / (4 * 5.670374419e-5 * Tc^4), 1.0)
+            W = wq >= 1 ? 1.0 : min(max(slcu(k), 0.0) / (4 * 5.670374419e-5 * Tc^4), 1.0)
         elseif k > kph && Te > 0
-            Tc = Te; W = max(CNn.c * (er[k] - Ecmb), 0.0) / (4 * 5.670374419e-5 * Te^4)
+            Tc = Te; W = max(slcu(k), 0.0) / (4 * 5.670374419e-5 * Te^4)
         else
             Tc = (max(er[k], Ecmb) / arad)^0.25; W = 1.0
         end
