@@ -1191,22 +1191,26 @@ function envflags!()
     PM.CHEMFALLBACK[] = true
     XMEPREV[] = copy(TF.var(:xmen)::Vector{Float64})
 end
-function envbuild!()
+"ln r of the fixed mesh's interfaces from the first interface (r_in, or ENVCORE's first interface for a regular centre) to rout (ENVEUL/ENVCORE spacing)."
+function envlr(rout)
     rin, dl1, dl2, rb = ENVEUL[1] * Rsun, ENVEUL[2], ENVEUL[3], ENVEUL[4] * Rsun
-    r0 = TF.var(:rn)[a:b+1]; u0 = TF.var(:un)[a:b+1]; d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]; F0 = TF.var(:frn)[a:b+1]
-    m0 = 4π .* TX.XMINT[][a:b+1]; x0 = [copy(mat.x[a+j-1]) for j in 1:nsh]; eq0 = [mat.eqzone[a+j-1] for j in 1:nsh]
-    t0 = TF.getscalar(:timen); js = TF.getscalar(:jstep)
-    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
     rcb = ENVCENTRE ? ENVCORE[3] * Rsun : 0.0
     lr = [log(ENVCENTRE ? ENVCORE[1] * Rsun : rin)]; dl = ENVCENTRE ? ENVCORE[2] : dl1
     gout_ = length(ENVEUL) >= 5 ? ENVEUL[5] : 1.02; gin_ = length(ENVEUL) >= 6 ? ENVEUL[6] : 0.95
-    while lr[end] < log(r0[end])
+    while lr[end] < log(rout)
         r_ = exp(lr[end])
         r_ > rb ? (dl = min(dl2, gout_ * dl)) : r_ > rcb && (dl = max(dl1, gin_ * dl))
         push!(lr, lr[end] + dl)
     end
     (length(lr) + (ENVCENTRE ? 1 : 0)) % 2 == 0 && pop!(lr)                    # (an even zone count: an odd number of interfaces)
-    lr = lr[1] .+ (lr .- lr[1]) .* (log(r0[end]) - lr[1]) / (lr[end] - lr[1])
+    lr[1] .+ (lr .- lr[1]) .* (log(rout) - lr[1]) / (lr[end] - lr[1])
+end
+function envbuild!()
+    r0 =TF.var(:rn)[a:b+1]; u0 = TF.var(:un)[a:b+1]; d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]; F0 = TF.var(:frn)[a:b+1]
+    m0 = 4π .* TX.XMINT[][a:b+1]; x0 = [copy(mat.x[a+j-1]) for j in 1:nsh]; eq0 = [mat.eqzone[a+j-1] for j in 1:nsh]
+    t0 = TF.getscalar(:timen); js = TF.getscalar(:jstep)
+    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
+    lr = envlr(r0[end])
     if GRIDMAPP !== nothing      # the planned mesh (GridMap) from the source's enclosed mass in place of the ENVCORE/ENVEUL spacing; same first and last interface
         i1 = findfirst(j -> r0[j] > 0 && m0[j] > 0, eachindex(r0)); Nz = Int(GRIDMAPP[1]); (Nz + (ENVCENTRE ? 1 : 0)) % 2 == 0 || (Nz -= 1)
         Mst = GridMap.anchor(m0[i1:end], u0[i1:end])
@@ -1280,6 +1284,74 @@ function envbuild!()
     pr("ENVEUL: %d zones, r %.3g R_sun .. %.3g pc, Mc %.4f Msun, grid mass %.1f (was %.1f) Msun, L_in %.3e erg/s, %d velocities capped at v_esc, surface zone %d, M_shell0 %.3e Msun\n",
        n, rI[1] / Rsun, rI[end] / 3.0857e18, Mc / Msun, Mnew / Msun, (m0[end] - Mc) / Msun, Lin, ncap, envsurface(), 4π * ENVMS0[] / Msun)
 end
+"""
+ICEUL=1 (with RAD=1, ENVEUL=0,… and ENVCORE; default off): start from the initial condition directly on the fixed mesh of the
+ENVEUL/ENVCORE remap (lgrid = 2, regular centre), at t = 0, instead of the Lagrangian mesh and the later remap. The mesh is the one
+`envbuild!` makes (`envlr`), from ENVCORE's first interface to the outer radius of the IC. Mass-conserving: the interior mass at
+every interface is that of the IC's tabulated M(r) (piecewise-uniform density between its nodes, so the zone masses add up to the
+cloud mass exactly); T and the H₂ fraction are the mass-weighted zone means of the IC's T(M), f_H2(M); u at the interfaces from the
+IC's v(M); x_e as the IC (XE0). Radiation as `radbuild!`: E_r = a [T_CMB⁴ + (T⁴ − T_CMB⁴)(1 − e^{−τ_R})], F_r flux-limited diffusion.
+All fixed-mesh settings as after `envbuild!` (GASROW, REGULAR_CENTRE, no INNER_SINK, xmen/xmtot interior mass, CHEMFALLBACK, empty
+ALI factors). Only the abn02* initial conditions (they carry the tabulated M(r)).
+"""
+const ICEUL = get(ENV, "ICEUL", "0") == "1"
+function iceulbuild!()
+    (RAD && ENVCENTRE) || error("ICEUL=1 needs RAD=1 and ENVEUL=0,... (regular centre, ENVCORE)")
+    ic in ("abn02", "abn02hs", "abn02z19") || error("ICEUL=1: only the abn02* initial conditions")
+    GRIDMAPP === nothing || pr("ICEUL: GRIDMAP starts from the ENVCORE/ENVEUL mesh (no source state to plan it from)\n")
+    radsettings!()
+    rout = TF.var(:rn)[b+1]; Mtot = M                                          # the IC's outer radius and cloud mass
+    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
+    rI_ = exp.(envlr(rout)); rI_[end] = rout; pushfirst!(rI_, 0.0); n = length(rI_) - 1
+    rg3 = rg .^ 3
+    Mof(r) = (r <= 0 && return 0.0; r >= rg[end] && return Mg[end]; j = clamp(searchsortedlast(rg, r), 1, length(rg) - 1);
+              Mg[j] + (r^3 - rg3[j]) / (rg3[j+1] - rg3[j]) * (Mg[j+1] - Mg[j]))
+    mI_ = [Mof(r) for r in rI_]; mI_[end] = Mtot
+    all(>(0), diff(mI_)) || error("ICEUL: a zone without mass")
+    ρz = [(mI_[j+1] - mI_[j]) / (4π / 3 * (rI_[j+1]^3 - rI_[j]^3)) for j in 1:n]
+    # mass-weighted zone means of T(M), f_H2(M) (64 midpoints in m per zone; the IC tables are in log M [M☉], constant below their first node)
+    zmean(f, j) = (ms = range(mI_[j], mI_[j+1], length = 65); sum(f(0.5 * (ms[i] + ms[i+1]) / Msun) for i in 1:64) / 64)
+    Tz = [zmean(m -> interp(log10(m), lM_tab, T_tab), j) for j in 1:n]
+    fz = [zmean(m -> 10^interp(log10(m), lM_tab, lf_tab), j) for j in 1:n]
+    uI_ = ic == "abn02z19" ? [m < Mjoin ? 0.0 : 1e5 * interp(log10(m / Msun), lM_tab, v_tab) * min(1.0, (m - Mjoin) / Mjoin) for m in mI_] :
+          ic == "abn02hs" ? zeros(n + 1) : [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI_]
+    uI_[1] = 0.0; uI_[end] = 0.0                                               # regular centre; fixed outer wall (as the remap)
+    xz = [xinit((xe0, 0.0, f / 2, 0.0)) for f in fz]; eqz = falses(n)
+    # radiation field as radbuild!
+    Tb = parse(Float64, get(ENV, "TCMB", "0")); ar = Z0.arad
+    χ = [PM.OPAC[](ρz[j], Tz[j])[1] * ρz[j] for j in 1:n]
+    τ = zeros(n); for j in n-1:-1:1; τ[j] = τ[j+1] + 0.5 * (χ[j] * (rI_[j+1] - rI_[j]) + χ[j+1] * (rI_[j+2] - rI_[j+1])); end
+    Er = [ar * (Tb^4 + (Tz[j]^4 - Tb^4) * (-expm1(-τ[j]))) for j in 1:n]
+    rc = [0.5 * (rI_[j] + rI_[j+1]) for j in 1:n]; Fr = zeros(n + 1)
+    for j in 2:n
+        gE = (Er[j] - Er[j-1]) / (rc[j] - rc[j-1]); Em = 0.5 * (Er[j] + Er[j-1])
+        Fr[j] = -Z0.c * gE / (3 * 0.5 * (χ[j] + χ[j-1]) + abs(gE) / Em) * (-expm1(-τ[j]))
+    end
+    Fr[n+1] = Fr[n]
+    Mnew = sum(4π / 3 * ρz[j] * (rI_[j+1]^3 - rI_[j]^3) for j in 1:n)
+    TX.GASROW[] = true
+    for k in eachindex(mat.x); j = clamp(k - a + 1, 1, n); mat.x[k] = copy(xz[j]); mat.eqzone[k] = eqz[j]; end
+    PS.build!(; rI = rI_, rho = ρz, T = Tz, u = uI_, geom = 2, rad = true, Er, Fr, lum = nothing, lgrid = 2, inner = :wall, outer = :wall, Mc = 0.0,
+              selfgrav = true, material = mat, av, xmext = Mnew / 4π)
+    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
+    for j in 1:nsh
+        k = a + j - 1; mat.x[k] = xz[j]; mat.eqzone[k] = eqz[j]; mat.Λext[k] = 0.0; mat.Tref[k] = Tz[j]; mat.slope[k] = 0.0
+    end
+    for k in 1:a-1; mat.x[k] = copy(mat.x[a]); mat.eqzone[k] = mat.eqzone[a]; end
+    for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end
+    TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
+    PS.install_julia!(BlockSolver)
+    for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
+    TF.setscalar!(:timen, 0.0); TF.setscalar!(:timeo, 0.0); TF.setscalar!(:jstep, 0)
+    TF.setscalar!(:dtime, haskey(ENV, "ENVDT0") ? parse(Float64, ENV["ENVDT0"]) : 1e-3tff); TF.setscalar!(:tmax, 1e3tff)
+    radsettings!()
+    envflags!()
+    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
+    empty!(ALIFAC[]); empty!(ALIFIX[]); SNAPS === nothing || empty!(SNAPS)
+    xme = TF.var(:xmen); ENVMS0[] = xme[a] - xme[a+envsurface()-1]
+    pr("ICEUL: initial condition on the fixed mesh: %d zones, r 0, %.3g R_sun .. %.4g pc (dln r %.4f), grid mass %.2f Msun (cloud %.2f), rho_c %.4e T_c %.1f, tau_R(centre) %.3e, %d interfaces falling, dt0 %.3e s, M_shell0 %.3e Msun\n",
+       n, rI_[2] / Rsun, rI_[end] / 3.0857e18, log(rI_[3] / rI_[2]), Mnew / Msun, Mtot / Msun, ρz[1], Tz[1], τ[1], count(<(0), uI_), TF.getscalar(:dtime), 4π * ENVMS0[] / Msun)
+end
 if haskey(ENV, "STARFROM")
     starfrom!(ENV["STARFROM"])
 elseif haskey(ENV, "RADFROM")
@@ -1291,8 +1363,10 @@ elseif haskey(ENV, "RESTART")
     RAD && Int(TF.getscalar(:lrad)) != 1 && error("RAD=1, but checkpoint $(ENV["RESTART"]) has no radiation field: build it with RAD=1 RADFROM=<checkpoint>")
     RAD && (radsettings!(); TD.EOS[](); TD.OPAC[]())
     if ENVEUL !== nothing
-        Int(TF.getscalar(:lgrid)) == 3 ? envbuild!() : (envflags!(); ENVMS0[] = parse(Float64, ENV["ENVMS0"]) * Msun / 4π)
+        Int(TF.getscalar(:lgrid)) == 3 ? envbuild!() : (envflags!(); ENVMS0[] = (ENVCENTRE && !haskey(ENV, "ENVMS0") ? 0.0 : parse(Float64, ENV["ENVMS0"])) * Msun / 4π)   # (regular centre: no sink, ENVMS0 unused)
     end
+elseif ICEUL
+    iceulbuild!()
 elseif RAD
     # RAD=1 switches the CIE continuum cooling off; without a rebuild there is no radiation field to take its place
     error("RAD=1 from the initial condition: run with RAD=0 first, then RAD=1 RADFROM=<checkpoint> (scripts/popiii_run/fullrun.sh)")
