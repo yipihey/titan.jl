@@ -34,6 +34,7 @@ Use: `TitanDriver.STEPFN[] = Trbdf2.step!`.
 module Trbdf2
 
 import ..TitanDriver, ..TitanCore, ..TitanResidFast
+using Printf
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast
 g(s) = TD.g(s); s!(s, x) = TD.s!(s, x); r(s) = TD.r(s)
 vf(s) = TF.var(s)::Vector{Float64}
@@ -242,8 +243,9 @@ function bdf_old!()
     true
 end
 
-"Drop-in for TitanDriver.step! (TR-BDF2)."
+"Drop-in for TitanDriver.step! (TR-BDF2). With DTERR set, `step_err!` (error-controlled step size) instead."
 function step!()
+    ERRCTL[] && return step_err!()
     Int(g(:lgrid)) in (2, 3) || error("Trbdf2: lgrid = 2 or 3 only")
     # peq extrapolates the grid over dtime: that is the TR stage (γΔ), not the whole step (BE_LEFT > 0: backward Euler over Δ)
     Δ0 = g(:dtime); BE_LEFT[] > 0 || s!(:dtime, γ * Δ0)
@@ -297,6 +299,264 @@ function step!()
     STATS[:steps] += 1
     r(:totnrg)
     r(:timstp)
+    nothing
+end
+
+
+# ================================================================== DTERR: step-size control from the embedded error estimate
+"""
+DTERR=rtol[,xfloor[,ffloor[,efloor]]] (ENV, default off; off = bit-identical to the scheme above): TR-BDF2's embedded local-error
+estimate is the ONLY step-size control (`step_err!`). TITAN's heuristic (timstp: stol on relative changes, CDYN, DT_HOOKS — DTENV,
+the COUPLED x_H⁺ cap, DTRADMAX —, the line-cooling cap and STOLCHEM in popiii_m2c) no longer sets Δt; timstp still runs, and the
+Δt it would have chosen is kept in `HEUR[]` for comparison.
+
+**Estimate** (Hosea & Shampine 1996, Appl. Numer. Math. 20, 21–37, §2 and §6; the pair of Bank et al. 1985, IEEE Trans. CAD 4, 436).
+TR-BDF2 is the FSAL DIRK pair (d = γ/2, w = √2/4, γ = 2 − √2)
+
+    0 |  0  0  0           b  = (w, w, d)                        (order 2, the solution)
+    γ |  d  d  0           b̂  = ((1−w)/3, (3w+1)/3, d/3)          (order 3, the companion)
+    1 |  w  w  d
+
+with stage derivatives z₁ = h f(yₙ), z₂ = h f(y_γ), z₃ = h f(yₙ₊₁), and est = ŷₙ₊₁ − yₙ₊₁ = Σ (b̂ᵢ − bᵢ) zᵢ (checked against the paper's
+Butcher array, p. 23, and SUNDIALS' ARKODE table TRBDF2-3-3-2). Since d = (1−γ)/(2−γ) = C2, the BDF2 stage above *is* the third DIRK
+stage, and the stages give z₂ = (y_γ − yₙ)/d − z₁, z₃ = (yₙ₊₁ − y*)/d (y* = A y_γ − B yₙ, the "old" state of the BDF stage), so
+
+    est = −(4w/3) z₁ + (y_γ − yₙ)/(3d) − (2/3)(yₙ₊₁ − y*).
+
+z₁ is the FSAL "smoothed scaled derivative" of Hosea & Shampine §6 (their z̃ = (yₙ − ψ)/d): z₁ = h·Dₙ with Dₙ = (yₙ − y*ₙ₋₁)/(d hₙ₋₁)
+from the last accepted step (for an accepted backward-Euler step, Dₙ = (yₙ − yₙ₋₁)/hₙ₋₁). After a restart there is no Dₙ: that first
+step is accepted without an estimate and Δt is kept. All y here are TITAN's conserved per-zone combinations (m, m e_g, m e_gr, E ΔV,
+momentum, the flux-row inertia, x_me, r, ρ x ΔV of the coupled species), the variables in which the residual is linear in the old state.
+**Filter** (Hosea & Shampine §6, "(I − h d J) Est = est"): the raw est grossly over-estimates stiff components (∝ hλ), so the estimate
+used is Est = (I − h d J)⁻¹ est. That matrix is the BDF stage's Newton matrix: the old arrays are set to y* + est (`old_from!`) and one
+matgen/matslv at the converged yₙ₊₁ gives Est directly in TITAN's correction variables (relative r, x_me, ρ, T, E_r; u/unom, F/frnom;
+δ ln x of the coupled species).
+
+**Norm** (DTERRNORM=rms (default) | max): err = ‖Est / w‖ with per-variable weights
+    ρ, T: rtol·|y|;  E_r: rtol·(E_r + efloor·aT⁴);  u: rtol·max(|u|, c_s) (c_s the larger adjacent sound speed);
+    F_r: rtol·max(|F|, ffloor·c E_r);  x_me (Eulerian mass flux): rtol·(larger adjacent zone mass);  r (moving grids): rtol·(smaller adjacent zone width);
+    x_H⁺, x_H₂ (COUPLED zones): rtol·(x + xfloor) on |δx| = |δ ln x|·x.
+Defaults: xfloor 1e-6, ffloor 1e-2, efloor 0.
+
+**Controller** (DTERRCTL=safety,facmin,facmax, default 0.9,0.2,5; DTERRPI=1): accepted when err ≤ 1, then
+h_new = h·clamp(safety·err^(−0.7/3)·err_prev^(0.4/3), facmin, facmax) (PI control, Gustafsson 1991 / Hairer & Wanner II §IV.8; DTERRPI=0:
+safety·err^(−1/3)); no growth on a step that followed a rejection. err > 1: the step is rejected and retried from yₙ with
+h·max(facmin, safety·err^(−1/3)). A Newton failure in either stage is a rejection with h·DTERRFAIL (default 0.25). No backward-Euler
+fallback and no sticky BE phase (DTERRBE=1 restores a non-sticky BE retry of the same h after a Newton failure, for testing).
+COUPLED species and cooling are backward Euler also in the TR stage (TitanResidFast.CPL_THETA = 1): for those components the scheme is
+first order and the estimate is O(h²) instead of O(h³) — it still measures their error, just more conservatively.
+DTERRTRACE=n (default 20): a line every n steps (Δt, err, the limiting variable and zone, the heuristic Δt), and every rejection.
+"""
+const ERRCTL = Ref(haskey(ENV, "DTERR"))
+const EOPT = let v = haskey(ENV, "DTERR") ? parse.(Float64, split(ENV["DTERR"], ",")) : Float64[], c = parse.(Float64, split(get(ENV, "DTERRCTL", "0.9,0.2,5"), ","))
+    (rtol = isempty(v) ? 1e-2 : v[1], xfl = length(v) >= 2 ? v[2] : 1e-6, ffl = length(v) >= 3 ? v[3] : 1e-2, efl = length(v) >= 4 ? v[4] : 0.0,
+     safety = c[1], facmin = c[2], facmax = c[3], pi = get(ENV, "DTERRPI", "1") == "1", fail = parse(Float64, get(ENV, "DTERRFAIL", "0.25")),
+     be = get(ENV, "DTERRBE", "0") == "1", maxnorm = get(ENV, "DTERRNORM", "rms") == "max", trace = parse(Int, get(ENV, "DTERRTRACE", "20")))
+end
+const dW = γ / 2; const wW = sqrt(2) / 4
+const HNEXT = Ref(0.0); const ERRPREV = Ref(0.0); const HEUR = Ref(0.0); const DSAL = Ref{Any}(nothing)
+const ESTATS = Dict(:steps => 0, :rej_err => 0, :fail_newton => 0, :nofsal => 0, :be => 0, :neg_old => 0)
+const LIMHIST = Dict{String,Int}(); const LASTERR = Ref((NaN, "", 0))
+"Extra text for the DTERR trace line (popiii_m2c: coverage of the COUPLED zones)."
+const TRACE_EXTRA = Ref{Any}(nothing)
+const VNAMES = Dict(1 => "r", 2 => "m", 3 => "rho", 4 => "u", 5 => "T", 6 => "E_r", 7 => "F_r", 8 => "x_H+", 9 => "x_H2")
+
+"Conserved combinations of a state (arrays of the new or the old time level; xs = the two coupled species)."
+function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs)
+    a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1; n = length(d)
+    C = Dict{Symbol,Vector{Float64}}(s => zeros(n) for s in (:m, :me, :xme, :r, :P))
+    m = C[:m]
+    @inbounds for k in a:b; m[k] = d[k] * dv[k]; C[:me][k] = m[k] * eg[k]; end
+    @inbounds for k in a-1:b+2; C[:xme][k] = xme[k]; C[:r][k] = rr[k]; end
+    @inbounds for k in a+1:b; C[:P][k] = u[k] * (m[k-1] + m[k]); end
+    TitanCore.FREE_OUTER[] && (C[:P][b+1] = u[b+1] * m[b])
+    if lrad
+        C[:mer] = zeros(n); C[:EV] = zeros(n); C[:QF] = zeros(n)
+        @inbounds for k in a:b; C[:mer][k] = m[k] * egr[k]; C[:EV][k] = er[k] * dv[k]; end
+        @inbounds for k in a+1:b; C[:QF][k] = fr[k] * 2 * (m[k-1] + m[k]) / (d[k-1] + d[k]); end
+    end
+    if TX.COUPLED[]
+        for i in 1:2
+            x = zeros(n); C[i == 1 ? :x1 : :x2] = x
+            @inbounds for k in a:b; TX.cplz(k) && (x[k] = m[k] * xs[i][k]); end
+        end
+    end
+    C
+end
+combos_new() = combos(vf(:dn), vf(:dvoln), vf(:egn), vf(:egrn), vf(:ern), vf(:un), vf(:frn), vf(:xmen), vf(:rn), TX.XSN[])
+combos_old() = combos(vf(:do), vf(:dvolo), vf(:ego), vf(:egro), vf(:ero), vf(:uo), vf(:fro), vf(:xmeo), vf(:ro), TX.XSO[])
+combos_saved() = combos(SAVE[:do], SAVE[:dvolo], SAVE[:ego], SAVE[:egro], SAVE[:ero], SAVE[:uo], SAVE[:fro], SAVE[:xmeo], SAVE[:ro], SAVEX)
+
+"Old arrays := the state with conserved combinations C (as bdf_old!, for any combination). false if a mass or volume is ≤ 0."
+function old_from!(C)
+    a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1
+    lag = Int(g(:lgrid)) == 3 || TitanCore.GRIDMOVE[]
+    do_, ego, uo, xmeo, dvo = vf(:do), vf(:ego), vf(:uo), vf(:xmeo), vf(:dvolo)
+    ms = C[:m]
+    @inbounds for k in a:b; ms[k] > 0 || return false; end
+    if lag
+        ro = vf(:ro); mu1 = Int(g(:mu)) + 1; xmup1 = g(:xmup1)
+        @inbounds for k in a-1:b+2; ro[k] = C[:r][k]; end
+        @inbounds for k in a:b; dvo[k] = (ro[k+1]^mu1 - ro[k]^mu1) / xmup1; dvo[k] > 0 || return false; end
+    end
+    @inbounds for k in a:b; ego[k] = C[:me][k] / ms[k]; do_[k] = ms[k] / dvo[k]; end
+    @inbounds for k in a-1:b+2; xmeo[k] = C[:xme][k]; end
+    if TX.COUPLED[]
+        for i in 1:2
+            xo_ = TX.XSO[][i]; x = C[i == 1 ? :x1 : :x2]
+            @inbounds for k in a:b; TX.cplz(k) && (xo_[k] = x[k] / ms[k]); end
+        end
+    end
+    if lrad
+        egro, ero, fro = vf(:egro), vf(:ero), vf(:fro)
+        @inbounds for k in a:b; egro[k] = C[:mer][k] / ms[k]; ero[k] = C[:EV][k] / dvo[k]; end
+        @inbounds for k in a+1:b; fro[k] = C[:QF][k] * (do_[k-1] + do_[k]) / (2 * (ms[k-1] + ms[k])); end
+    end
+    @inbounds for k in a+1:b; uo[k] = C[:P][k] / (ms[k-1] + ms[k]); end
+    TitanCore.FREE_OUTER[] && (uo[b+1] = C[:P][b+1] / ms[b])
+    true
+end
+
+"""
+Filtered error estimate of the step just solved (BDF stage converged: new = yₙ₊₁, old = y*, θ = 1, dtime = dΔ). Returns
+(err, variable name, zone from the inner boundary); the old arrays are left at y* + est (the caller restores yₙ).
+"""
+function estimate!(Cn, Cg, C1, Cs, Δ)
+    D = DSAL[]
+    Co = Dict{Symbol,Vector{Float64}}()
+    for (s, v1) in C1
+        vs = Cs[s]; vg = Cg[s]; vn = Cn[s]; Dv = get(D, s, nothing)
+        o = similar(v1)
+        @inbounds for k in eachindex(v1)
+            z1 = (Dv === nothing || k > length(Dv)) ? 0.0 : Δ * Dv[k]
+            o[k] = vs[k] + (-(4wW / 3) * z1 + (vg[k] - vn[k]) / (3dW) - (2 / 3) * (v1[k] - vs[k]))
+        end
+        Co[s] = o
+    end
+    old_from!(Co) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0))
+    s!(:iter, 1); r(:matgen); r(:matslv)
+    rhs = TF.var(:rhs)
+    a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1; lag = Int(g(:lgrid)) == 3 || TitanCore.GRIDMOVE[]
+    ir, im, id, iu, it, ie, iff = (Int(g(s)) for s in (:ir, :im, :id, :iu, :it, :ie, :if))
+    rn, xmen, dn, un, tn, unom, asn = vf(:rn), vf(:xmen), vf(:dn), vf(:un), vf(:tn), vf(:unom), vf(:asn)
+    dvn = vf(:dvoln)
+    o = EOPT; rt = o.rtol; ssq = 0.0; nn = 0; worst = 0.0; wv = 0; wk = 0
+    acc(v, i, k) = (isfinite(v) || (v = Inf); a2 = abs(v); ssq += a2^2; nn += 1; a2 > worst && (worst = a2; wv = i; wk = k - a + 1))
+    @inbounds for k in a:b
+        acc(rhs[id, k] / rt, id, k)
+        acc(rhs[it, k] / rt, it, k)
+        if lrad
+            E = vf(:ern)[k]; acc(rhs[ie, k] * E / (rt * (E + o.efl * 7.565723e-15 * tn[k]^4)), ie, k)
+        end
+        if TX.COUPLED[] && TX.cplz(k)
+            for (i, q) in ((8, TX.XSN[][1]), (9, TX.XSN[][2]))
+                acc(rhs[i, k] * q[k] / (rt * (q[k] + o.xfl)), i, k)
+            end
+        end
+    end
+    @inbounds for k in a+1:b
+        cs = max(asn[k-1], asn[k]); acc(rhs[iu, k] * unom[k] / (rt * max(abs(un[k]), cs)), iu, k)
+        mz = max(dn[k-1] * dvn[k-1], dn[k] * dvn[k]); acc(rhs[im, k] * xmen[k] / (rt * mz), im, k)
+        lag && acc(rhs[ir, k] * rn[k] / (rt * min(rn[k] - rn[k-1], rn[k+1] - rn[k])), ir, k)
+        if lrad
+            frn, ern, frnom = vf(:frn), vf(:ern), vf(:frnom)
+            acc(rhs[iff, k] * frnom[k] / (rt * max(abs(frn[k]), o.ffl * 2.99792458e10 * 0.5 * (ern[k-1] + ern[k]))), iff, k)
+        end
+    end
+    err = o.maxnorm ? worst : sqrt(ssq / max(nn, 1))
+    (err, get(VNAMES, wv, string(wv)), wk, worst)
+end
+
+function etrace(kind, Δ, err, info)
+    TRACE_EXTRA[] === nothing ? "" : TRACE_EXTRA[]()
+end
+
+"TR-BDF2 step with error control (DTERR): see the docstring of ERRCTL."
+function step_err!()
+    Int(g(:lgrid)) in (2, 3) || error("Trbdf2: lgrid = 2 or 3 only")
+    o = EOPT; BE_LEFT[] = 0
+    HNEXT[] > 0 && s!(:dtime, HNEXT[])
+    Δ0 = g(:dtime); s!(:dtime, γ * Δ0)
+    r(:peq)
+    s!(:dtime, g(:dtime) / γ); s!(:timen, g(:timeo) + g(:dtime))
+    θ0 = g(:thet); t0 = g(:timeo)
+    save!(); Cn = combos_saved()
+    s!(:jtry, 1); s!(:jback, 0)
+    rejected = false; err = NaN; info = ("", 0, NaN); Dnew = nothing; nrej = 0
+    while true
+        Δ = g(:dtime); TD.FULL_DT[] = Δ; err = NaN; Dnew = nothing
+        s!(:thet, 0.5); s!(:dtime, γ * Δ); s!(:timen, t0 + γ * Δ)
+        ok = newton!()
+        if !ok
+            STATS[:fail_tr] += 1
+        else
+            TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:tr, γ * Δ)
+            Cg = combos_new()
+            if bdf_old!()
+                s!(:thet, 1.0); s!(:dtime, C2 * Δ); s!(:timen, t0 + Δ)
+                TitanCore.predict!(; halve = false)
+                ok = newton!()
+                if ok
+                    TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:bdf, C2 * Δ)
+                    C1 = combos_new(); Cs = combos_old()
+                    Dnew = Dict(s_ => (C1[s_] .- Cs[s_]) ./ (dW * Δ) for s_ in keys(C1))
+                    if DSAL[] === nothing
+                        ESTATS[:nofsal] += 1
+                    else
+                        e_, v_, z_, w_ = estimate!(Cn, Cg, C1, Cs, Δ); err = e_; info = (v_, z_, w_)
+                    end
+                else
+                    STATS[:fail_bdf] += 1
+                end
+            else
+                ok = false; STATS[:fail_bdf] += 1
+            end
+        end
+        restore!(); s!(:thet, θ0); s!(:dtime, Δ); s!(:timen, t0 + Δ)
+        ok && !(err > 1) && break
+        if !ok && o.be                    # (testing) the same Δ with backward Euler, accepted without an estimate, not sticky
+            r(:reset); s!(:thet, 1.0); s!(:timen, t0 + Δ); TitanCore.predict!(; halve = false)
+            okb = newton!()
+            okb && TD.STAGE_HOOK[] !== nothing && TD.STAGE_HOOK[](:be, Δ)
+            s!(:thet, θ0)
+            if okb
+                ESTATS[:be] += 1; err = NaN; C1 = combos_new(); Dnew = Dict(s_ => (C1[s_] .- Cn[s_]) ./ Δ for s_ in keys(C1)); break
+            end
+        end
+        if ok
+            ESTATS[:rej_err] += 1; fac = max(o.facmin, o.safety * err^(-1 / 3))
+        else
+            ESTATS[:fail_newton] += 1; fac = o.fail; TD.msg(1)
+        end
+        nrej += 1; rejected = true
+        nr = ESTATS[:rej_err] + ESTATS[:fail_newton]
+        (nr <= 200 || nr % 100 == 0) && @printf("DTERR reject jstep %d: dt %.3e %s -> dt %.3e%s\n", Int(g(:jstep)), Δ,
+            ok ? @sprintf("err %.3g (max %.3g: %s zone %d)", err, info[3], info[1], info[2]) : "Newton failure", fac * Δ, etrace(:rej, Δ, err, info))
+        s!(:tfac, fac); s!(:dtime, fac * Δ)
+        s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)
+        r(:reset); s!(:timen, t0 + g(:dtime)); TitanCore.predict!(; halve = false, dtscale = γ)
+    end
+    Δ = g(:dtime)
+    DSAL[] = Dnew
+    if isnan(err)
+        hn = Δ
+    else
+        e = max(err, 1e-10)
+        fac = o.pi ? o.safety * e^(-0.7 / 3) * (ERRPREV[] > 0 ? ERRPREV[]^(0.4 / 3) : 1.0) : o.safety * e^(-1 / 3)
+        fac = clamp(fac, o.facmin, rejected ? 1.0 : o.facmax)
+        ERRPREV[] = e; hn = fac * Δ
+        LIMHIST[info[1]] = get(LIMHIST, info[1], 0) + 1
+    end
+    LASTERR[] = (err, info[1], info[2])
+    HNEXT[] = hn
+    STATS[:steps] += 1; ESTATS[:steps] += 1
+    r(:totnrg)
+    r(:timstp)                            # (TITAN's rule and caps: diagnostic only)
+    HEUR[] = g(:dtime); s!(:dtime, hn); s!(:tfac, hn / Δ)
+    if o.trace > 0 && ESTATS[:steps] % o.trace == 0
+        @printf("DTERR jstep %d t %.6e yr: dt %.3e err %.3g (max %.3g: %s zone %d) next %.3e | heuristic %.3e | steps %d rej %d fail %d%s\n",
+            Int(g(:jstep)), g(:timen) / 3.15576e7, Δ, err, info[3], info[1], info[2], hn, HEUR[], ESTATS[:steps], ESTATS[:rej_err], ESTATS[:fail_newton], etrace(:acc, Δ, err, info))
+    end
     nothing
 end
 

@@ -23,12 +23,13 @@
 #   script (a run with its own mesh or stage limits keeps its complete settings in its directory)
 # <run directory>/launch.env (sourced by this script at every start): NZ=<shells of the IC, default 200>, TH=<threads>,
 #   PIN="<prefix command>" (e.g. PIN="numactl --physcpubind=8-11 --membind=1"), REFINE=<mlo,mhi,frac | off>, A1X, A2X
+# SEG=<steps per phase-B segment> (environment, default 100000), NSEG=<n>: stop after n segments (default 0: never; short tests)
 # B1X="<settings>" (environment): extra settings of the FIRST phase-B segment this invocation starts only (one-time switches of a
 #   restart, e.g. B1X="ENVMERGE=11,30,2;30,1500,2 HDINIT=eq"); later segments restart without them
 HERE=$(cd "$(dirname "$0")" && pwd); JLENV=${JLENV:?set JLENV to a julia project with the repository packages}; DATA=${DATA:-/zpool/nvme/data/tabel_scratch/titan_popiii}
 RUN=$1; FROM=${2:-}; R=$DATA/runs/$RUN; CK=$R/ck; mkdir -p $CK
 [ -f $R/launch.env ] && . $R/launch.env
-TH=${3:-${TH:-4}}; SEG=100000; REFINE=${REFINE:-1e-3,0.1,0.03}; NZ=${NZ:-200}; PIN=${PIN:-}
+TH=${3:-${TH:-4}}; SEG=${SEG:-100000}; NSEG=${NSEG:-0}; REFINE=${REFINE:-1e-3,0.1,0.03}; NZ=${NZ:-200}; PIN=${PIN:-}
 sf() { if [ -f $R/$1 ]; then cat $R/$1; else cat $HERE/$1; fi; }      # a stage file: the run's own copy, or the default
 COMMON="RUNREC=$R POPIII_OUT=$R CKDIR=$CK SNAPEVERY=20 PRINTEVERY=100 SNAPS=0 TIMING=1 DTDIAG=1 MSG=1 TAG=_$RUN $([ -f $R/run.env ] && cat $R/run.env)"
 cd $HERE/../../julia
@@ -69,4 +70,5 @@ while true; do
   end=$(grep -E 'run ended|stopped' $out | tail -1)
   if ! echo "$end" | grep -q ':maxsteps'; then log "phase B FAILED ($save): $(grep -E 'stopped|run ended' $out | tail -2 | tr '\n' ' ')"; exit 1; fi
   log "phase B segment done ($save): $end"; ck=$save
+  nseg=$((${nseg:-0}+1)); [ $NSEG -gt 0 ] && [ $nseg -ge $NSEG ] && { log "phase B: NSEG=$NSEG segments done"; exit 0; }
 done
