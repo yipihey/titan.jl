@@ -474,6 +474,24 @@ LINEIMP && !(NLTE in ("ep", "ali", "hyb")) && error("LINEIMP=1 needs NLTE=ep, al
 LINEIMP && (PM.LINEIMP[] = true; pr("LINEIMP: H2 line cooling of each zone from its own state (populations at the iterate's T, radiative rates of the last transfer call); no t_cool cap, no IMPCOOL slope\n"))
 const LIALI = Ref{Vector{Any}}(Any[]); const LISTAT = zeros(Int, 4)    # (zones with EP, ALI, held-ALI rates; f clamped)
 const LIJCMB = Ref{Vector{Float64}}(Float64[])
+"(diagnostic, NANSCAN=1) report the first zones whose state is not finite."
+const NANSCAN = get(ENV, "NANSCAN", "0") == "1"
+function nanscan(where, k)
+    n = 0
+    for nm in (:tn, :dn, :egn, :ern, :un, :frn, :rn, :pgn, :xkpn, :chifn)
+        v = TF.var(nm)
+        for kk in a:b+1
+            isfinite(v[kk]) && continue
+            n += 1; n <= 12 && pr("NANSCAN step %d %s: %s[%d] (zone %d) = %s; T %.4g rho %.4g eq %s x %s\n", k, where, String(nm), kk, kk - a + 1, string(v[kk]),
+                                  TF.var(:tn)[min(kk, b)], TF.var(:dn)[min(kk, b)], string(mat.eqzone[min(kk, b)]), string(round.(mat.x[min(kk, b)], sigdigits = 3)))
+        end
+    end
+    for kk in a:b
+        all(isfinite, mat.x[kk]) && continue
+        n += 1; n <= 12 && pr("NANSCAN step %d %s: composition of zone %d not finite: %s (T %.4g)\n", k, where, kk - a + 1, string(mat.x[kk]), TF.var(:tn)[kk])
+    end
+    nothing
+end
 "(LINEIMP) zones remapped: drop the line models (the held Λext of the remap is used until the next transfer call)."
 li_inval!() = (PM.li_invalidate!(); fill!(LIALI[], nothing); nothing)
 "(LINEIMP) per TITAN zone, the line model from the transfer call `Lc` (H2Lines.LAST[]) on the reduced grid (see LINEIMP above)."
@@ -2133,7 +2151,9 @@ try
         EB = isempty(TX.CHEMB[]) ? nothing : copy(TF.var(:egn))
         SLZ_ = haskey(ENV, "SLZ") ? parse.(Int, split(ENV["SLZ"], ",")) : nothing
         if SLZ_ !== nothing; xb_ = [copy(mat.x[z]) for z in SLZ_[1]:SLZ_[2]]; Tb_ = TF.var(:tn)[SLZ_[1]:SLZ_[2]]; end
+        NANSCAN && nanscan("after the hydro step", k)
         dT = COUPLED ? PM.cpl_chem!(mat) : PM.chem!(mat)
+        NANSCAN && nanscan("after the chemistry", k)
         prof_report()
         if haskey(ENV, "IFDBG") && IFDBGN[] > 0          # (diagnostic) the zones of a table/network interface after the chemistry
             IFDBGN[] -= 1; z12 = parse.(Int, split(ENV["IFDBG"], ","))
