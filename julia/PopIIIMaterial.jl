@@ -445,11 +445,14 @@ NLOIT=1 (with NLOPAC; default off, off = bit-identical): the opacities of a netw
 populations, not the lagged ratio of the last chemistry (NLOPC). For (ρ, T, x) of the iterate
     κ_i = OPAC_i(ρ, T) · R_i,   R_E = κ_E^nl(d)/κ_P^nl(eq),  R_P = κ_P^nl(d)/κ_P^nl(eq),  R_R = κ_R^nl(d)/κ_R^nl(eq)
 with κ^nl the continuum code's means (`nlte_kappas`: the network's H⁻, H ff, CIA, Rayleigh, Thomson; H bound–free from the three-level
-n = 2) at the iterate's T and ρ for the zone's composition d, and κ^nl(eq) the same code in equilibrium composition at the same (ρ, T).
+n = 2) at the iterate's T and ρ for the zone's composition d, and κ^nl(eq) the same code in equilibrium composition at the same (ρ, T),
+above NLOITW[2] (default 6000 K); below NLOITW[1] (5000 K) the base is the table itself, i.e. κ = κ^nl(d) (as NLOPAC below 6000 K: the cold,
+thin table is not the continuum code there — at 1600 K, ρ 2.5e-19 the table's κ_P is 3e-17 against ≲ 1e-20 of the code in equilibrium, so
+the ratio form overstated κ by 10⁴–10⁵), geometric blend smooth in ln T between (NLOPAC switches the base at 6000 K).
 d: in coupled zones the CK expansion of the iterate's x_H⁺, x_H₂ (`ck_eval` with the zone's terms of the step); in split zones the
 composition the chemistry left (frozen over the hydro step, as in the EOS). The three-level radiation parameters (P12, RL, β, T_c) are
 those of the step (lagged with the radiation field). The ratio form keeps the table's calibration (OPAL lines above ~6300 K) and goes
-to the table where the populations are LTE, so it joins the table zones at τ = PSWTAU continuously; the ratio has no threshold in T.
+to the table where the populations are LTE, so it joins the table zones at τ = PSWTAU continuously; no jump in T anywhere.
 χ ≥ σ_T n_e/ρ of the iterate's electrons (extinction is never below Thomson scattering on the zone's own electrons; this is NLOFIX's floor,
 and what NLOTMAX's table fallback provided in ionized gas). Values exact at every iterate; Newton's derivatives in T and x_H⁺ by one-sided
 differences of R (ln, relative steps 1e-3 and 1e-2), reused while T stays within NLOITJ[1] and x_H⁺ within NLOITJ[2] (relative, ln;
@@ -457,6 +460,7 @@ default 3e-3, 0.1) of where they were taken (an inexact Newton, the converged st
 Retires NLOIMPT, NLODAMP, CPLNLOX, NLOFIX, NLOTMAX in network zones (they have no effect with NLOIT).
 """
 const NLOIT = get(ENV, "NLOIT", "0") == "1"
+const NLOITW = let s_ = split(get(ENV, "NLOITW", "5000,6000"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
 const NLOITJ = let s_ = split(get(ENV, "NLOITJ", "3e-3,0.1"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
 const NLOST = Ref{Vector{Any}}(Any[])        # per zone: (; d, p) at the end of the last chemistry, or nothing
 mutable struct NloC
@@ -519,6 +523,8 @@ end
 "(NLOIT) the ratios (R_E, R_P, R_R) and n_e [cm⁻³] of composition d (full fractions) at (ρ, T), three-level parameters p."
 function nlo_ratio(ρ, T, d, p)
     nH = ρ / CNn.μH(); nHe = PC.yHe * nH
+    Rt, Pt = OPAC[](ρ, T); w = nlo_w(T); Pq = Rq = 1.0
+    if w > 0
     # equilibrium composition (as nlte_kappas with d = nothing)
     y = EQ.composition(ρ, min(T, 1e6)); xp = y[1]; xh2 = y[3]; n1e = nH * max(1 - xp - 2xh2, 0.0); nee = nH * xp; nHee = nHe
     if CNn.HECHEM
@@ -526,6 +532,10 @@ function nlo_ratio(ρ, T, d, p)
     end
     n2e = 4n1e * exp(-E21 / (CNn.kB * T)); nHme = n1e * nee / CNn.Keq([:Hm], [:H, :e], T)
     _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = n2e, nH2 = nH * xh2, nHe = nHee, nHp = nee, ne = nee, nHm = nHme, nHmS = nHme, hbfP = true)
+    end
+    # the base the network's means are measured against: the table itself (w = 0, κ = κ^nl(d)) below NLOITW[1], the continuum code in
+    # equilibrium (w = 1, κ = table × κ^nl(d)/κ^nl(eq): the table's calibration) above NLOITW[2], geometric blend in between
+    bP = max(Pt, 1e-300)^(1 - w) * max(Pq, 1e-300)^w; bR = max(Rt, 1e-300)^(1 - w) * max(Rq, 1e-300)^w
     n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
     CNn.HECHEM && (nHe = nH * max(d[:He], 0.0))
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
@@ -533,8 +543,10 @@ function nlo_ratio(ρ, T, d, p)
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
     E, P, R = nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw)
     Threads.atomic_add!(NLOITN, 1)
-    (E / Pq, P / Pq, R / Rq), ne
+    (E / bP, P / bP, R / bR), ne
 end
+"(NLOIT) weight of the table calibration: smooth step in ln T from 0 at NLOITW[1] to 1 at NLOITW[2]."
+nlo_w(T) = (x = clamp((log(T) - log(NLOITW[1])) / (log(NLOITW[2]) - log(NLOITW[1])), 0.0, 1.0); x * x * (3 - 2x))
 "(NLOIT) composition of zone k at (ρ, T) and x_H⁺, x_H₂ (coupled zones: CK expansion with the step's terms; else the chemistry's)."
 function nlo_comp(m, k, s, ρ, T, x1, x2)
     t = (TX.cplz(k) && k <= length(CPLTERMS[])) ? CPLTERMS[][k] : nothing
