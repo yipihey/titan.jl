@@ -663,6 +663,7 @@ function restart!(name; allow = ())
     end
     if hasproperty(s, :lag)                        # (older checkpoints: these start empty, so the first step after a restart differs)
         l_ = s.lag; PM.NLOPC[] = deepcopy(l_.NLOPC); PM.SLDIAG[] = deepcopy(l_.SLDIAG)
+        PM.NLOIT && PM.nlost_restart!(mat)       # (NLOIT: the zones that had non-LTE factors get their composition and three-level parameters back)
         length(l_.GASQ) == length(TX.GASQ[]) && (TX.GASQ[] .= l_.GASQ); length(l_.RAYQ) == length(TX.RAYQ[]) && (TX.RAYQ[] .= l_.RAYQ)
         hasproperty(l_, :CHEMB) && length(l_.CHEMB) == length(TX.CHEMB[]) && (TX.CHEMB[] .= l_.CHEMB)
     end
@@ -1501,6 +1502,7 @@ function envsplit!(r1, r2, kmax)
         for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end
     end
     length(nlo) == length(TF.var(:dn)) && (PM.NLOPC[] = Any[nlo[clamp(kmap(k), 1, length(nlo))] for k in eachindex(nlo)])
+    PM.NLOIT && (fill!(PM.NLOST[], nothing); PM.nloc_reset!(length(TF.var(:dn))))      # (NLOIT: remapped zones take the table for one step)
     if HOTON
         g_ = SG[]; Yo = copy(g_.Y); Ypo = copy(g_.Yprev)
         for k in axes(g_.Y, 2); ko = clamp(kmap(k), 1, size(Yo, 2)); g_.Y[:, k] .= Yo[:, ko]; g_.Yprev[:, k] .= Ypo[:, ko]; end
@@ -1582,6 +1584,7 @@ function envmerge!(r1, r2, kmax)
         for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end
     end
     length(nlo) == length(TF.var(:dn)) && (PM.NLOPC[] = Any[nlo[clamp(kmap(k), 1, length(nlo))] for k in eachindex(nlo)])
+    PM.NLOIT && (fill!(PM.NLOST[], nothing); PM.nloc_reset!(length(TF.var(:dn))))      # (NLOIT: remapped zones take the table for one step)
     if HOTON
         g_ = SG[]; Yo = copy(g_.Y); Ypo = copy(g_.Yprev)
         for k in axes(g_.Y, 2); ko = clamp(kmap(k), 1, size(Yo, 2)); g_.Y[:, k] .= Yo[:, ko]; g_.Yprev[:, k] .= Ypo[:, ko]; end
