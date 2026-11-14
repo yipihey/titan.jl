@@ -2139,12 +2139,14 @@ try
             IFDBGN[] -= 1; z12 = parse.(Int, split(ENV["IFDBG"], ","))
             tn_ = TF.var(:tn); dn_ = TF.var(:dn); er_ = TF.var(:ern); kp_ = TF.var(:xkpn); rn_ = TF.var(:rn); un_ = TF.var(:un)
             for z in z12[1]:z12[2]
-                k = a + z - 1; d_ = mat.eqzone[k] ? nothing : ChemNet.full(mat.x[k], mat.net)
-                xe_ = mat.eqzone[k] ? PopIIIEqEOS.composition(dn_[k], min(tn_[k], 1e6))[1] : d_[:e]
+                kq = a + z - 1; d_ = mat.eqzone[kq] ? nothing : ChemNet.full(mat.x[kq], mat.net)
+                xe_ = mat.eqzone[kq] ? PopIIIEqEOS.composition(dn_[kq], min(tn_[kq], 1e6))[1] : d_[:e]
                 @printf("IFDBG step %d zone %d %s cplz %d r %.1f T %.1f n %.3e x_e %.3e E_r/aT4 %.3f kP %.3e GASQ %.3e RAYQ %.3e Λext %.3e echemoff %.3e u %.2f\n",
-                        TF.getscalar(:jstep), z, mat.eqzone[k] ? "table" : "net", TX.cplz(k), rn_[k] / 6.957e10, tn_[k], dn_[k] / (1.2195 * 1.6726e-24), xe_,
-                        er_[k] / (7.565723e-15 * tn_[k]^4), kp_[k], isempty(TX.GASQ[]) ? 0.0 : TX.GASQ[][k], isempty(TX.RAYQ[]) ? 0.0 : TX.RAYQ[][k], mat.Λext[k],
-                        isempty(PM.ECHEMOFF[]) ? 0.0 : PM.ECHEMOFF[][k], un_[k] / 1e5)
+                        TF.getscalar(:jstep), z, mat.eqzone[kq] ? "table" : "net", TX.cplz(kq), rn_[kq] / 6.957e10, tn_[kq], dn_[kq] / (1.2195 * 1.6726e-24), xe_,
+                        er_[kq] / (7.565723e-15 * tn_[kq]^4), kp_[kq], isempty(TX.GASQ[]) ? 0.0 : TX.GASQ[][kq], isempty(TX.RAYQ[]) ? 0.0 : TX.RAYQ[][kq], mat.Λext[kq],
+                        isempty(PM.ECHEMOFF[]) ? 0.0 : PM.ECHEMOFF[][kq], un_[kq] / 1e5)
+                md_ = PM.li_model(kq)
+                md_ === nothing || @printf("IFDBG step %d zone %d LINEIMP model Λ(T) %.4e (f %.3g)\n", TF.getscalar(:jstep), z, PM.li_cool(md_, dn_[kq], tn_[kq], d_), md_.f)
             end
         end
         if STOLCHEM
