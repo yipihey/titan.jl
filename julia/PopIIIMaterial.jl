@@ -1069,11 +1069,11 @@ function chem_core!(m::NetGas)
             if p3 !== nothing && !m.eqzone[k] && !fb
                 cq, yq = tl3_heat(dn[k], T1, CNn.full(x1, m.net), p3e)
                 # (COUPLED zones: the hydro solve takes cq and yq of its own iterate, TitanResidFast cpQ/cpY; not booked here)
-                (CPLPOST[] && TX.cplz(k)) || isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
-                (CPLPOST[] && TX.cplz(k)) || isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
+                (CPLPOST[] && TX.cplq(k)) || isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
+                (CPLPOST[] && TX.cplq(k)) || isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
                 SLDIAG[].tl3[k] = merge(p3e, (; chemq = cq, cycq = yq, qbb = lya_bb(dn[k], T1, CNn.full(x1, m.net), p3e)))
                 NLOPAC[] && (NLOPC[][k] = nlopc(dn[k], T1, CNn.full(x1, m.net), p3e))
-                NLOPAC[] && CPLPOST[] && TX.cplz(k) && (NLOPC[][k] = nlopc_x(dn[k], T1, CNn.full(x1, m.net), p3e, NLOPC[][k]))
+                NLOPAC[] && CPLPOST[] && TX.cplz(k) && CPLNLOX[] && (NLOPC[][k] = nlopc_x(dn[k], T1, CNn.full(x1, m.net), p3e, NLOPC[][k]))
                 if NLODAMP < 1 && NLOPAC[] && k <= length(NLOPREV[]) && (o0 = NLOPREV[][k]) !== nothing && (o1 = NLOPC[][k]) !== nothing
                     w_ = NLODAMP; bl(a0, a1) = exp((1 - w_) * log(a0) + w_ * log(a1))
                     NLOPC[][k] = merge(o1, (; RE = bl(o0.RE, o1.RE), RP = bl(o0.RP, o1.RP), RR = bl(o0.RR, o1.RR)))
@@ -1257,7 +1257,7 @@ solution, their cooling was in the energy row), the rest is unchanged (HD step, 
 table switch — with no second cooling for a zone that leaves the network —, table and hot zones as before).
 Not coupled: the IonRay path (a ray zone is not prepared), CHEMB (BALSPLIT) — both off in the runs this was built for.
 """
-const CPLPREP = Ref(false); const CPLPOST = Ref(false)
+const CPLPREP = Ref(false); const CPLPOST = Ref(false); const CPLNLOX = Ref(get(ENV, "CPLNLOX", "1") == "1")
 const CPLDBGZ = Ref(parse(Int, get(ENV, "CPLDBGZ", "0"))); const CPLDBGN = Ref(parse(Int, get(ENV, "CPLDBGN", "20")))
 """
 CPLBAND (ENV, default all network zones): which network zones are coupled; the others keep the split chemistry (CHEMCK, CHEMCKHSS, with

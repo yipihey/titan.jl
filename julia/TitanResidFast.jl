@@ -215,6 +215,10 @@ const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's i
 const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
 "Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
+# COUPLED: the three-level heats cq, yq of the iterate in the rows (CPLIMPQ=1, experimental: with CPLNLOX its Δt → 0 limit was ~300 K below
+# the split scheme's in the pre-shock band, unexplained); default 0: booked lagged in RAYQ/GASQ as for split zones (matches split within 15 K)
+const CPL_IMPQ = Ref(get(ENV, "CPLIMPQ", "0") == "1")
+@inline cplq(k) = CPL_IMPQ[] && cplz(k)
 const CPL_XFLOOR = Ref(1e-8); const CPL_CLAMP = Ref(parse(Float64, get(ENV, "CPLCLAMP", "1"))); const CPLDBG = Ref(parse(Int, get(ENV, "CPLDBG", "0")))
 """
 Time weight of the chemistry source and cooling in the coupled rows (default 1: backward Euler in every stage, also in TR-BDF2's
@@ -1107,7 +1111,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         if c.etotal && !c.useint[k]
             w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])     # the gas gets the ray's energy in chemistry: it leaves the total here (as the lrad total row)
-            cplz(k) && (w += W.cpQ[k] * dvol[k])               # COUPLED: the three-level chemistry heat of the iterate (not booked in RAYQ)
+            cplq(k) && (w += W.cpQ[k] * dvol[k])               # COUPLED: the three-level chemistry heat of the iterate (not booked in RAYQ)
         elseif c.lrad && GASROW[]
             egbg = W.egbg
             w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
@@ -1115,7 +1119,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k] -
                 excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k] - src
             isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
-            cplz(k) && (w -= W.cpY[k] * dvol[k])
+            cplq(k) && (w -= W.cpY[k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
@@ -1131,7 +1135,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 (pg[k] + er[k] * fedd[k]) * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] + qf[k] * dudr[k] * dvol[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
-            cplz(k) && (w += W.cpQ[k] * dvol[k])
+            cplq(k) && (w += W.cpQ[k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egb[k+1] - (P.phil2 + er[k] * urel[k]) * rmu[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
@@ -1205,7 +1209,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             SHOCK_RAD[] && (w += shock_frac(u[k+1] - u[k]) * qf[k] * dudr[k] * dvol[k])
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
             isempty(GASQ[]) || (w += GASQ[][k] * dvol[k])
-            cplz(k) && (w += (W.cpQ[k] + W.cpY[k]) * dvol[k])  # COUPLED: the three-level heats of the iterate leave the gray field
+            cplq(k) && (w += (W.cpQ[k] + W.cpY[k]) * dvol[k])  # COUPLED: the three-level heats of the iterate leave the gray field
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * er[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
