@@ -105,6 +105,23 @@ function modern(; li = false, he = CN.HECHEM)
         (R("2H + He → H2 + He (GA08 k32)", [:H, :H, :He], [:H2, :He], k(T -> 6.9e-32 * T^-0.4)), true),
     ]
     rx = CN.with_db(lst)
+    if get(ENV, "H2PPD", "0") == "1"
+        # H2PPD=1 (default off): H₂⁺ photodissociation, the inverse of radiative association k3, by detailed balance in the zone's field
+        # taken as a diluted blackbody J = W B(T_r): k_pd = W k3(T_r) K(T_r), K = n_H n_H⁺/n_H₂⁺ (ChemNet.Keq). Exact in LTE (W = 1,
+        # T_r = T); for T_r ≠ T it assumes the H₂⁺ internal states at T_r (no σ(ν) yet). Without it, in J = B(T) at 5500–6400 K the
+        # network's x_H₂⁺ is 80–8700× its equilibrium and k10 drives x_H₂ to 19–2600× Saha.
+        k3f(T) = (l = log10(clamp(T, 1.0, 32000.0)); 10^(-19.38 - 1.523l + 1.118l^2 - 0.1269l^3))
+        ν0 = 3.0 * 1.602176634e-12 / CN.hP
+        Bν(ν, T) = 2CN.hP * ν^3 / CN.c^2 / expm1(CN.hP * ν / (CN.kB * T))
+        function kpd(T, env)
+            Tr = hasproperty(env, :Trad) ? Float64(env.Trad) : 0.0
+            (Tr > 0 && hasproperty(env, :J)) || return zero(T)
+            b = Bν(ν0, Tr); (b > 0 && isfinite(b)) || return zero(T)
+            W = Float64(env.J(ν0)) / b
+            W > 0 ? W * k3f(Tr) * CN.Keq([:H2p], [:H, :Hp], Tr) + zero(T) : zero(T)
+        end
+        push!(rx, R("H2+ + γ → H + H+ (detailed balance of GA08 k3 in W B(T_r); H2PPD)", [:H2p], [:H, :Hp], kpd))
+    end
     photos = [CN.Photo("H- + γ → H + e (John 1988)", :Hm, [:H, :e], σ_Hm, 0.754 * 1.602176634e-12, true),
               CN.Photo("H(n ≤ $(CN.NH_LEVELS)) + γ → H+ + e (Verner 1s + Kramers, Boltzmann levels)", :H, [:Hp, :e], levels_H(), CN.ZH_el, true)]
     species = [:H, :Hp, :Hm, :H2, :H2p, :e, :He]; free = [:Hp, :Hm, :H2, :H2p]

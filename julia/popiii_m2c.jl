@@ -1884,10 +1884,30 @@ function tabaudit()
         PM.nlte_means(ρ, T; n1, n2 = 4n1 * exp(-E21 / (kB * T)), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = true)
     end
     @printf("TABAUDIT: zone r[Rsun] T[K] nH | x_e tab/net | x_H2 tab/net | x_H- tab/net | x_He+ x_He++ tab/net | u tab/net (rel diff) | p rel diff | c_v rel diff | Γ1 tab/net | κR_tab κP_tab | κ(E,P,R) nlte net comp | κ(E,P,R) nlte tab comp\n")
-    for k in a:b
-        (mat.eqzone[k] || get(ENV, "TABAUDIT", "1") == "2") || continue
-        h !== nothing && tn_[k] > h.T1 && continue
-        ρ = dn_[k]; T = tn_[k]; nH = ρ / ChemNet.μH()
+    if get(ENV, "TABAUDIT", "1") == "4"          # opacity audit of every zone below the hot branch (table and network zones)
+        X = 1 / (1 + 4 * PC.yHe); dlr(ρ, T) = log10(ρ) - 3 * (log10(T) - 6)
+        @printf("TABAUD4: zone r[Rsun] T nH eq | logT logR flag(1 OPAL 2 ext 3 blend 4 own) | OPAC κR κP | run κR κE κP | nlte(net comp) κE κP κR | nlte(LTE comp) κE κP κR | x_e x_H2 x_H- net\n")
+        for k in a:b
+            T = tn_[k]; (h !== nothing && T > h.T1) && continue
+            ρ = dn_[k]; nH = ρ / ChemNet.μH(); lT = log10(T); lR = dlr(ρ, T)
+            try
+                fl = StellarOpacity.coverage(lT, lR, X); κR, κP = PM.OPAC[](ρ, T)
+                TX.ZONE[] = k; rr = TX.material_opac(mat, ρ, T)
+                dn2 = ChemNet.full(mat.x[k], net); dt_ = ChemNet.full(PM.x_from_table(mat, ρ, T), net)
+                mn = means(ρ, T, dn2); mt = means(ρ, T, dt_); g(d, s_) = Float64(get(d, s_, 0.0))
+                @printf("TABAUD4 %3d %9.4g %8.0f %.2e %d | %.3f %.2f %d | %.3e %.3e | %.3e %.3e %.3e | %.3e %.3e %.3e | %.3e %.3e %.3e | %.3e %.2e %.2e\n",
+                        k - a + 1, rn_[k] / 6.957e10, T, nH, mat.eqzone[k], lT, lR, fl, κR, κP, rr..., mn..., mt..., g(dn2, :e), g(dn2, :H2), g(dn2, :Hm))
+            catch e
+                println("TABAUD4 $(k - a + 1) failed: ", first(sprint(showerror, e), 120))
+            end
+        end
+        return nothing
+    end
+    # TABAUDIT=3: a (n_H, T) grid instead of the zones (where the ideal network departs from the table's non-ideal SCVH)
+    pts = get(ENV, "TABAUDIT", "1") == "3" ? [(0, nH_ * ChemNet.μH(), T_) for nH_ in 10.0 .^ (parse(Float64, get(ENV, "TABAUDNH", "17")):0.5:24) for T_ in (6e3, 8e3, 1e4, 1.5e4, 2e4, 3e4, 5e4, 1e5, 2e5, 2.9e5)] :
+          [(k, dn_[k], tn_[k]) for k in a:b if (mat.eqzone[k] || get(ENV, "TABAUDIT", "1") == "2") && !(h !== nothing && tn_[k] > h.T1)]
+    for (k, ρ, T) in pts
+        nH = ρ / ChemNet.μH()
         try
             xt = PM.x_from_table(mat, ρ, T); dt_ = ChemNet.full(xt, net)
             ut, pt = PopIIIEqEOS.eos(ρ, T)
@@ -1904,11 +1924,57 @@ function tabaudit()
             κR, κP = PM.OPAC[](ρ, T); mn = means(ρ, T, dn2); mt = means(ρ, T, dt_)
             g(d, s) = Float64(get(d, s, 0.0))
             @printf("TABAUDIT %3d %8.3g %8.0f %.2e | %.3e %.3e | %.2e %.2e | %.2e %.2e | %.2e %.2e  %.2e %.2e | %.4e %.4e (%+.2e) | %+.2e | %+.2e | %.4f %.4f | %.3e %.3e | %.3e %.3e %.3e | %.3e %.3e %.3e\n",
-                    k - a + 1, rn_[k] / 6.957e10, T, nH, g(dt_, :e), g(dn2, :e), g(dt_, :H2), g(dn2, :H2), g(dt_, :Hm), g(dn2, :Hm),
+                    k == 0 ? 0 : k - a + 1, k == 0 ? ρ : rn_[k] / 6.957e10, T, nH, g(dt_, :e), g(dn2, :e), g(dt_, :H2), g(dn2, :H2), g(dt_, :Hm), g(dn2, :Hm),
                     g(dt_, :Hep), g(dt_, :Hepp), g(dn2, :Hep), g(dn2, :Hepp), ut, un, (un - ut) / abs(ut), (pn - pt) / pt, (nuT - uT) / uT,
                     Γt, Γn, κR, κP, mn..., mt...)
         catch e
-            println("TABAUDIT $(k - a + 1) T $T nH $nH: failed: ", first(sprint(showerror, e), 120))
+            println("TABAUDIT $(k == 0 ? 0 : k - a + 1) T $T nH $nH: failed: ", first(sprint(showerror, e), 120))
+        end
+    end
+end
+# CPLSCAN=z1,z2,... (diagnostic, default off; COUPLED): for each zone (number from the inner boundary) at the restart state, the species'
+# steady state (S_H+ = S_H2 = 0, pseudo-time) and the gas's net heating per volume at fixed ρ and E_r over T:
+#   H = ρ (c κ_E E_r − 4 κ_P σT⁴) − Λ + y_q   (Λ includes −chemq; y_q, the three-level cycle heat, as with CPLIMPQ=1)
+# with the run's opacity (TX.material_opac, non-LTE ratio of the iterate). Several zero crossings = a local thermal bistability.
+function cplscan(zs)
+    a = Int(TF.getscalar(:ngrs)); PM.cpl_prepare!(mat); dn_ = TF.var(:dn); tn_ = TF.var(:tn); er_ = TF.var(:ern)
+    σ = 5.670374419e-5; cl = 2.99792458e10
+    for z in zs
+        k = a + z - 1; ρ = dn_[k]; T0 = tn_[k]; E = er_[k]
+        TX.cplz(k) || (println("CPLSCAN zone $z not coupled"); continue)
+        x0 = [TX.XSN[][1][k], TX.XSN[][2][k]]
+        t3 = hasproperty(PM.CPLTERMS[][k].env, :tl3) ? PM.CPLTERMS[][k].env.tl3 : nothing
+        @printf("CPLSCAN zone %d: T %.1f ρ %.4e E_r/aT⁴ %.4f x(H+,H2) %.4e %.3e  tl3: T_c %s  (<hν>_c − χ2)/kT %s  τ %s\n", z, T0, ρ, E / (7.565723e-15 * T0^4), x0...,
+                t3 === nothing ? "-" : @sprintf("%.0f", t3.Tc), t3 === nothing ? "-" : @sprintf("%.3f", (t3.hν - PM.CHI2) / (ChemNet.kB * T0)),
+                PM.SLDIAG[] === nothing ? "-" : "")
+        xl = log.(max.(x0, 1e-30))
+        for T in [range(0.8T0, 1.25T0, length = 46); T0]
+            S(l) = (y = PM.cpl_g(mat, k, [ρ + zero(l[1]), T + zero(l[1]), exp(l[1]), exp(l[2])]); [y[3], y[4]])
+            l = copy(xl); ok = false
+            for τ in (1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e10, 1e12, 1e14), it in 1:8
+                lo = copy(l)
+                for _ in 1:20
+                    Rf(q) = [(exp(q[i]) - exp(lo[i])) / τ - S(q)[i] for i in 1:2]
+                    r0 = Rf(l); J = ForwardDiff.jacobian(Rf, l); δ = -(J \ r0); all(isfinite, δ) || break
+                    l .+= clamp.(δ, -2.0, 2.0); maximum(abs, δ) < 1e-8 && break
+                end
+                ok = maximum(abs, S(l) ./ exp.(l)) * 1e14 < 1e-3
+                ok && break
+            end
+            y = PM.cpl_g(mat, k, [ρ, T, exp(l[1]), exp(l[2])])
+            TX.ZONE[] = k; xs = TX.XSN[][1][k]; TX.XSN[][1][k] = exp(l[1]); w0 = TX.CPLW[]; TX.CPLW[] = nothing
+            o0 = PM.NLOPAC[] && k <= length(PM.NLOPC[]) ? PM.NLOPC[][k] : nothing
+            if get(ENV, "CPLSCANNLO", "0") == "1" && o0 !== nothing && t3 !== nothing   # the factors as a step ending at this T would set them
+                xf, _ = ChemNet.ck_eval([exp(l[1]), exp(l[2])], ρ, T, mat.net; env = PM.CPLTERMS[][k].env, phc = PM.CPLTERMS[][k].phc, extra = PM.CPLTERMS[][k].extra)
+                dfu = ChemNet.full(xf, mat.net); p3e = merge(t3, (; ne = ρ / ChemNet.μH() * max(dfu[:Hp], 0.0)))
+                on = PM.nlopc(ρ, T, dfu, p3e); PM.CPLNLOX[] && (on = PM.nlopc_x(ρ, T, dfu, p3e, on)); PM.NLOPC[][k] = on
+            end
+            χ, κE, κP = TX.material_opac(mat, ρ, T); TX.XSN[][1][k] = xs; TX.CPLW[] = w0
+            o0 !== nothing && (PM.NLOPC[][k] = o0)
+            rad = ρ * (cl * κE * E - 4κP * σ * T^4)
+            @printf("CPLSCAN %3d T %8.1f x_H+ %.4e x_H2 %.3e ok %d | κE %.3e κP %.3e χ %.3e | rad %+.4e Λ %+.4e cq %+.4e yq %+.4e | H %+.4e%s\n",
+                    z, T, exp(l[1]), exp(l[2]), ok, κE, κP, χ, rad, y[5], y[6], y[7], rad - y[5] + y[7], T == T0 ? "  <- current" : "")
+            xl = l
         end
     end
 end
@@ -1983,6 +2049,9 @@ try
         @printf("COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn %d), CPLXSTOL %.3g\n", TF.PARAMS[:meqn], CPLXSTOL)
     elseif Int(TF.getscalar(:neqn)) == 9
         TF.setscalar!(:neqn, 7)                    # (restart from a COUPLED checkpoint)
+    end
+    if haskey(ENV, "CPLSCAN") && COUPLED            # (diagnostic, then exit) local thermal balance of coupled zone(s) vs T at fixed ρ, E_r
+        cplscan(parse.(Int, split(ENV["CPLSCAN"], ","))); exit(0)
     end
     RUNEND[] = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k

@@ -349,12 +349,27 @@ function nlopc(ρ, T0, d, p)
     E0, P0, R0 = nlte_kappas(ρ, T0, d, p); E1, P1, R1 = nlte_kappas(ρ, T0 * f, d, p)
     if T0 < 6000
         Rt, Pt = OPAC[](ρ, T0); Pe, Re = Pt, Rt
+        if NLOIMPT
+            Rt1, Pt1 = OPAC[](ρ, T0 * f); Pe1, Re1 = Pt1, Rt1
+        end
     else
         _, Pe, Re = nlte_kappas(ρ, T0, nothing, p)
+        if NLOIMPT
+            _, Pe1, Re1 = nlte_kappas(ρ, T0 * f, nothing, p)
+        end
     end
     lf = log(f)
-    (; T0, RE = E0 / Pe, qE = log(E1 / E0) / lf, RP = P0 / Pe, qP = log(P1 / P0) / lf, RR = R0 / Re, qR = log(R1 / R0) / lf)
+    o = (; T0, RE = E0 / Pe, qE = log(E1 / E0) / lf, RP = P0 / Pe, qP = log(P1 / P0) / lf, RR = R0 / Re, qR = log(R1 / R0) / lf)
+    NLOIMPT ? merge(o, (; qPref = log(Pe1 / Pe) / lf, qRref = log(Re1 / Re) / lf)) : o
 end
+"""
+NLOIMPT=1 (default off): the non-LTE opacity of a network zone (NLOPAC) as OPAC(ρ, T) of the iterate × the lagged non-LTE ratio
+extrapolated in T, R (T/T0)^(q − q_ref) (q_ref the T exponent of the ratio's reference at T0), instead of OPAC(ρ, T0) (T/T0)^q. The base
+table's own T dependence is then in the Newton: across 6200–7000 K OPAC's κ_P rises ×7 (line onset in Z0Physics' Planck mean) while the
+continuum exponent q sees none of it, so a zone heating through 6000–6500 K met the line opacity only at the next step, cooled back and
+locked (t_stall, zones 81/82 at 312.9 M☉, Δt pinned at ~2e3 s). The values at T = T0 are unchanged.
+"""
+const NLOIMPT = get(ENV, "NLOIMPT", "0") == "1"
 """
 COUPLED: d ln κ/d ln x_H⁺ of the non-LTE opacities at fixed T (x_e, n_p and H⁻ ∝ n_e scaled with x_H⁺, H reduced to keep the H nuclei), so
 that the opacity of a coupled zone follows the Newton iterate's ionization (see TX.material_opac). The lagged factors alone drove a
@@ -378,12 +393,17 @@ const CHICAP = let s = split(get(ENV, "CHICAP", "0"), ","); (parse(Float64, s[1]
     if NLOPAC[]
         k = TX.ZONE[]; c = NLOPC[]
         if k <= length(c) && !m.eqzone[k] && (o = c[k]) !== nothing && (NLOTMAX == Inf || o.T0 < NLOTMAX)
-            κR0, κP0 = OPAC[](ρ, o.T0); s = T / o.T0
+            s = T / o.T0
+            if NLOIMPT && hasproperty(o, :qPref)      # NLOIMPT: the base table at the iterate's T, the ratio extrapolated
+                κR0, κP0 = OPAC[](ρ, T); qR = o.qR - o.qRref; qE = o.qE - o.qPref; qP = o.qP - o.qPref
+            else
+                κR0, κP0 = OPAC[](ρ, o.T0); qR = o.qR; qE = o.qE; qP = o.qP
+            end
             if TX.cplz(k) && hasproperty(o, :x0)     # COUPLED: the ionization of the iterate (nlopc_x)
                 w = TX.CPLW[]; xi = w === nothing ? TX.XSN[][1][k] : w[1][k]; r = xi / o.x0
-                return chicap(κR0 * o.RR * s^o.qR * r^o.xR, T), κP0 * o.RE * s^o.qE * r^o.xE, κP0 * o.RP * s^o.qP * r^o.xP
+                return chicap(κR0 * o.RR * s^qR * r^o.xR, T), κP0 * o.RE * s^qE * r^o.xE, κP0 * o.RP * s^qP * r^o.xP
             end
-            return chicap(κR0 * o.RR * s^o.qR, T), κP0 * o.RE * s^o.qE, κP0 * o.RP * s^o.qP
+            return chicap(κR0 * o.RR * s^qR, T), κP0 * o.RE * s^qE, κP0 * o.RP * s^qP
         end
     end
     κR, κP = OPAC[](ρ, T)
@@ -470,6 +490,19 @@ The network has no radiation field: at the outer edge of an opaque layer (p ~ 6,
 composition and chem! brings it back each step, until Newton fails. On the table the ionization heat capacity is inside Newton. The switch at fixed e lowers T once; radiation reheats the zone.
 """
 const PSWTAU = Ref(0.0)
+"""
+PSWRAMP=n (default 0 = off): a gradual hand-over from the table to the network. From the step the run (re)starts, a zone still on the table
+stays there, except the outermost (j − j0) ÷ n of them, which follow the switch rules (counted from the outermost table zone below the hot branch at the start; with the table rules off, PSWITCH=1e30
+PSWTAU=0 PSWSTAY=0: they leave the table, one zone every n steps from the outside in). Network zones are never put back on the table by it.
+"""
+const PSWRAMP = parse(Int, get(ENV, "PSWRAMP", "0")); const RAMPJ0 = Ref(-1); const RAMPK0 = Ref(0)
+"""
+PSWNH=n (default 0 = off; cm⁻³): the table also where n_H ≥ n and T ≥ PSWTMIN (hysteresis as the pressure switch: stay while n_H ≥ PSWHYS n,
+T ≥ 0.95 PSWTMIN), for the non-ideal regime. The network's EOS is ideal (H partition sum to n = 15, no occupation probabilities, no
+pressure ionization); against the table's SCVH it departs in partly ionized gas from n_H ~ 1e17 (x_e 0.82 vs 0.71, u −59 % at 1e18, 2e4 K)
+and everywhere at n_H ≳ 1e20 (10 M☉ centre: x_e 0.85 vs 0.04, p −39 %). With PSWITCH=1e30 PSWTAU=0 PSWSTAY=0 this is the minimal table.
+"""
+const PSWNH = parse(Float64, get(ENV, "PSWNH", "0"))
 """
 PSWAGREE[] = ε > 0 (three-level runs): below the pressure switch the table is used only where it agrees with the network. The τ rule (PSWTAU)
 flipped bands of zones in the extended photosphere of the non-LTE opacity (τ 1 → 0.4 over nine zones): a zone left the table at τ < 0.5, the
@@ -654,13 +687,27 @@ function tl3_network(net)
     end
     CNn.Network(net.species, net.free, vcat(rx, tl3_reactions()))
 end
+"""
+TL3RECKT=1 (default off): the kinetic energy a recombination of the n = 2 cycle takes from the gas is ⟨hν⟩(T) − χ_2 (balmer_mean at the
+gas T: by detailed balance, for σ ∝ ν⁻³ the recombination photons' excess over χ_2 has the photoionization excess's mean in J = B(T)),
+not 0.75 kT. With 0.75 kT the cycle heat does not vanish in LTE (W = 1, T_c = T): +0.16 kT per cycle at 5000 K, +0.12 kT at 8000 K
+(balmer_mean − χ_2 = 0.91…0.87 kT). The cycle heat becomes (1 − C) α_B n_e n_p (⟨hν⟩(T_c) − ⟨hν⟩(T)).
+"""
+const TL3RECKT = get(ENV, "TL3RECKT", "0") == "1"
+_fv(x::ForwardDiff.Dual) = _fv(ForwardDiff.value(x)); _fv(x::Real) = Float64(x)
+function tl3_recke(T)
+    t0 = _fv(T); e0 = balmer_mean(t0) - CHI2
+    T isa Float64 && return e0
+    de = (balmer_mean(1.001t0) - balmer_mean(0.999t0)) / (0.002t0)
+    e0 + de * (T - t0)
+end
 "Energy terms of the three-level atom per volume: (chemistry heat, cycle heat for GASQ) at (ρ, T, full composition d)."
 function tl3_heat(ρ, T, d, p)
     nH = ρ / CNn.μH(); C = tl3_C(T, p); xH = max(d[:H], zero(T)); xe = max(d[:e], zero(T)); xp = max(d[:Hp], zero(T))
     Q12 = nH * xe * q12_H(T); I = (1 - C) * xH * (Q12 + p.P12); rec = alphaB_recfast(T) * nH * xe * xp
     Ein = p.hν + E21 * p.P12 / (Q12 + p.P12 + 1e-300)
     chemq = nH * (I * Ein - C * rec * (CNn.χH + 0.75CNn.kB * T))
-    cycq = nH * (1 - C) * rec * (p.hν - CHI2 - 0.75CNn.kB * T)
+    cycq = nH * (1 - C) * rec * (p.hν - CHI2 - (TL3RECKT ? tl3_recke(T) : 0.75CNn.kB * T))
     LYABB[] && (chemq += lya_bb(ρ, T, d, p))
     chemq, cycq
 end
@@ -900,6 +947,11 @@ function chem_core!(m::NetGas)
     dn, tn, egn, pgn = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:pgn)
     dTmax = 0.0
     h = HOT[]
+    if PSWRAMP > 0 && RAMPJ0[] < 0 && !CPLPREP[]   # the ramp starts at the outermost table zone below the hot branch
+        RAMPJ0[] = Int(TF.getscalar(:jstep)); RAMPK0[] = a - 1
+        for k in a:b; m.eqzone[k] && !(h !== nothing && tn[k] > h.T1) && (RAMPK0[] = k); end
+        @printf("PSWRAMP: from step %d, table zones from %d inwards leave one every %d steps\n", RAMPJ0[], RAMPK0[] - a + 1, PSWRAMP)
+    end
     ray = RAY[]; kph = typemax(Int); Nin = nothing
     if ray !== nothing
         fill!(ray.Q, 0.0)
@@ -970,6 +1022,7 @@ function chem_core!(m::NetGas)
         # PSWTMIN[] > 0: also require T above it (5 % hysteresis). Below ~5000 K ionization holds negligible energy, so the network and the table agree there
         # to ~1 % in T at fixed e; at 7000-9500 K the network's H ionization lags the table's Saha by ×5, and switching there drops T by up to 16 %.
         ptab = (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[])
+        PSWNH > 0 && !ptab && (ptab = dn[k] / CNn.μH() >= (m.eqzone[k] ? PSWHYS[] : 1.0) * PSWNH && tn[k] >= (m.eqzone[k] ? 0.95 : 1.0) * PSWTMIN[])
         ag = nothing                                  # PSWAGREE: table only where it agrees with the network (see PSWAGREE)
         if !ptab && PSWAGREE[] > 0 && tl3sw && tn[k] >= PSWTEX[]
             slrates(k); p = SLDIAG[].tl3[k]
@@ -992,6 +1045,7 @@ function chem_core!(m::NetGas)
         end
         tab = ptab || (ag === nothing ? ((PSWSTAY[] && m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])) : ag)
         CPLPREP[] && (tab = false)
+        PSWRAMP > 0 && !CPLPREP[] && m.eqzone[k] && k <= RAMPK0[] - (Int(TF.getscalar(:jstep)) - RAMPJ0[]) ÷ PSWRAMP && (tab = true)
         if tab && !m.eqzone[k] && PSWRAD[] !== nothing && pgn[k] < PSWRAD[][2] * m.pswitch       # entry only with T_gas = T_rad (see PSWRAD)
             Tr = (max(TM.v(:ern)[k], 0.0) / 7.565723e-15)^0.25
             if abs(Tr / tn[k] - 1) > PSWRAD[][1]
