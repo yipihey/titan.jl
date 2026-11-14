@@ -1094,7 +1094,7 @@ function cpl_dtcap()
         max(xn[k], xo[k]) > 1e-4 && abs(log(xn[k] / xo[k])) > w && (w = abs(log(xn[k] / xo[k])); kw = k)
     end
     cap = w > 0 ? TF.getscalar(:dtime) * CPLXSTOL / w : Inf
-    cap < TF.getscalar(:dtime) && @printf("cpl dt cap: zone %d x_H+ %.3e -> %.3e T %.0f, dt %.3e -> cap %.3e\n", kw - a + 1, xo[kw], xn[kw], TF.var(:tn)[kw], TF.getscalar(:dtime), cap)
+    cap < TF.getscalar(:dtime) && !Trbdf2.ERRCTL[] && @printf("cpl dt cap: zone %d x_H+ %.3e -> %.3e T %.0f, dt %.3e -> cap %.3e\n", kw - a + 1, xo[kw], xn[kw], TF.var(:tn)[kw], TF.getscalar(:dtime), cap)
     cap
 end
 function echem_pre!()
@@ -1757,7 +1757,7 @@ haskey(ENV, "ETASWTIE") && (TX.ETASW_TIE[] = parse(Float64, ENV["ETASWTIE"]))   
 get(ENV, "ETOTGRAVGRID", "0") == "1" && (TX.ETOT_GRAV_GRID[] = true)     # gravity work on Lagrangian zones in the total-energy row (off: as before)
 get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW_EOFF[] = PC.UOFF_TH; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
-const LINEFRAC = parse(Float64, get(ENV, "LINEFRAC", "0")); const LINELAST = [-Inf, 0.0]
+const LINEFRAC = parse(Float64, get(ENV, "LINEFRAC", "0")); const LINELAST = [-Inf, 0.0]; const LINECAPV = Ref(NaN)
 # NEWTKX=1: the largest Newton correction of each equation at every iteration from the third on, with the zone it is in (debugging)
 if get(ENV, "NEWTKX", "0") == "1"
     let md0 = TD.ROUTINES[:maxdel]
@@ -2154,6 +2154,14 @@ try
     if haskey(ENV, "CPLSCAN") && COUPLED            # (diagnostic, then exit) local thermal balance of coupled zone(s) vs T at fixed ρ, E_r
         cplscan(parse.(Int, split(ENV["CPLSCAN"], ","))); exit(0)
     end
+    if Trbdf2.ERRCTL[]                             # DTERR: coverage of the COUPLED zones and the line cap the heuristic would apply, on the trace lines
+        Trbdf2.TRACE_EXTRA[] = function ()
+            nnet = count(k -> !mat.eqzone[k], a:b); ncpl = count(k -> TX.cplz(k), a:b)
+            @sprintf(" | network zones %d, coupled %d | line cap %.3e", nnet, ncpl, LINECAPV[])
+        end
+        @printf("DTERR: error-controlled TR-BDF2 (rtol %g, x floor %g, F floor %g cE, E floor %g aT^4, %s norm, PI %s, safety/facmin/facmax %g/%g/%g, Newton-failure factor %g, BE retry %s); TITAN's heuristic and caps are diagnostic only\n",
+                Trbdf2.EOPT.rtol, Trbdf2.EOPT.xfl, Trbdf2.EOPT.ffl, Trbdf2.EOPT.efl, Trbdf2.EOPT.maxnorm ? "max" : "rms", Trbdf2.EOPT.pi, Trbdf2.EOPT.safety, Trbdf2.EOPT.facmin, Trbdf2.EOPT.facmax, Trbdf2.EOPT.fail, Trbdf2.EOPT.be)
+    end
     RUNEND[] = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k
         tnow = time(); TSTEP[] += tnow - TMARK[] - TOUT[]; TOUT[] = 0.0
@@ -2195,7 +2203,7 @@ try
                         isempty(PM.ECHEMOFF[]) ? 0.0 : PM.ECHEMOFF[][k], un_[k] / 1e5)
             end
         end
-        if STOLCHEM
+        if STOLCHEM && !Trbdf2.ERRCTL[]               # (DTERR: the error estimate is the only step-size control)
             TF.setscalar!(:tfac, TC.TSTP_IN[][1]); TF.setscalar!(:dtime, TC.TSTP_IN[][2]); TD.r(:timstp)
         end
         GRIDMAPP === nothing || gridmap_step!()
@@ -2253,7 +2261,7 @@ try
             nh2 = [dd[j] / PC.μH * ycomp(a + j - 1)[3] for j in 1:nsh]
             # LINEFRAC > 0: keep the last Λ until LINEFRAC × (shortest t_cool) has elapsed; transfer is most of a step's cost
             if LINEFRAC > 0 && TF.getscalar(:timen) - LINELAST[1] < LINEFRAC * LINELAST[2]
-                TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * LINELAST[2]))
+                Trbdf2.ERRCTL[] || TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * LINELAST[2]))
             else
             tl0 = time(); Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k); TLINE[] += time() - tl0
             tcmin = Inf
@@ -2277,7 +2285,7 @@ try
                 j_ = JCMIN[]; pr("        line cap: t_cool %.3e s at zone %d (m %.4e Msun, T %.1f, n %.3e, e+U %.3e, Lambda %.3e); dtime before %.3e, smax %.3e\n", tcmin, j_, 4π * xmi(a+j_) / Msun, tt[j_], dd[j_] / (1.22PC.mH),
                                 TF.var(:egn)[a+j_-1] + PC.UOFF_TH, Λl[j_], TF.getscalar(:dtime), TF.getscalar(:smax))
             end
-            TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin))
+            Trbdf2.ERRCTL[] ? (LINECAPV[] = (IMPCOOL ? DTCOOL : 0.1) * tcmin) : TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin))
             LINELAST[1] = TF.getscalar(:timen); LINELAST[2] = tcmin
             end
         end
@@ -2412,4 +2420,5 @@ IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
 Trbdf2.DAMP[] && pr("damped Newton: %s\n", string(Trbdf2.DSTATS))
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
+Trbdf2.ERRCTL[] && pr("DTERR statistics %s; limiting variable (accepted steps) %s; TR-BDF2 %s\n", string(Trbdf2.ESTATS), string(Trbdf2.LIMHIST), string(Trbdf2.STATS))
 close(io)
