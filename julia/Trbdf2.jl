@@ -362,6 +362,7 @@ const EOPT = let v = haskey(ENV, "DTERR") ? parse.(Float64, split(ENV["DTERR"], 
      hmax = parse(Float64, get(ENV, "DTERRMAX", "Inf")), be = get(ENV, "DTERRBE", "0") == "1", filt = parse(Int, get(ENV, "DTERRFILT", "2")), maxnorm = get(ENV, "DTERRNORM", "rms") == "max", trace = parse(Int, get(ENV, "DTERRTRACE", "20")))
 end
 const dW = γ / 2; const wW = sqrt(2) / 4
+const ENTRY = Ref((-1, NaN)); const CSAVE = Ref{Any}(nothing); const LASTACC = Ref(0.0)
 const HNEXT = Ref(0.0); const ERRPREV = Ref(0.0); const HEUR = Ref(0.0); const DSAL = Ref{Any}(nothing)
 const ESTATS = Dict(:steps => 0, :rej_err => 0, :fail_newton => 0, :nofsal => 0, :be => 0, :neg_old => 0, :nonfinite => 0, :nonfinite_est => 0)
 const LIMHIST = Dict{String,Int}(); const LASTERR = Ref((NaN, "", 0)); const ERR0 = Ref(NaN); const ERR1 = Ref(NaN); const DIAG = Ref(parse(Int, get(ENV, "DTERRDIAG", "0")))   # (DTERRDIAG=n: stage derivatives of the limiting zone every n steps)   # (ERR0: norm of the converged state's remaining correction)
@@ -541,7 +542,15 @@ end
 function step_err!()
     Int(g(:lgrid)) in (2, 3) || error("Trbdf2: lgrid = 2 or 3 only")
     o = EOPT; BE_LEFT[] = 0
-    HNEXT[] > 0 && s!(:dtime, HNEXT[])
+    # A repeat of the same step (StarMaterial.solve_step!, HOT: the burn/hydro source iteration restores the snapshot and calls the
+    # step again): same controller state as at the first call, and the Δt that call accepted
+    key = (Int(g(:jstep)), g(:timen))
+    if key == ENTRY[] && CSAVE[] !== nothing
+        HNEXT[], ERRPREV[], DSAL[] = CSAVE[]; s!(:dtime, LASTACC[]); ESTATS[:repeat] = get(ESTATS, :repeat, 0) + 1
+    else
+        ENTRY[] = key; CSAVE[] = (HNEXT[], ERRPREV[], DSAL[])
+        HNEXT[] > 0 && s!(:dtime, HNEXT[])
+    end
     Δ0 = g(:dtime); s!(:dtime, γ * Δ0)
     r(:peq)
     s!(:dtime, g(:dtime) / γ); s!(:timen, g(:timeo) + g(:dtime))
@@ -610,7 +619,7 @@ function step_err!()
         s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)
         r(:reset); s!(:timen, t0 + g(:dtime)); TitanCore.predict!(; halve = false, dtscale = γ)
     end
-    Δ = g(:dtime)
+    Δ = g(:dtime); LASTACC[] = Δ
     DSAL[] = Dnew
     if isnan(err)
         hn = Δ
