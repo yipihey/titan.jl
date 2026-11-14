@@ -1,5 +1,14 @@
 # Goal: a first star to 300 M☉ or to the end of its own accretion
 
+## Next goal (set 2026-11-14, Tom): the whole calculation natively, in one run, stable on few zones
+
+Carry out the entire calculation from the initial conditions (`IC=abn02z19`) to the end, when most of the cloud mass is accreted,
+**in one single calculation inside the code**: no stage chain, no restart with changed physics, no remap. It must run **stably even on
+few zones** (100 first, then fewer). Large errors are tolerated in this phase as long as the run is stable; the gridding approach
+(fixed log-Eulerian mesh first, then the segmented moving mesh `GRIDSEG`, 32 core / 64 layer / 32 infall) is what will later raise the
+accuracy at low cost. Work lines: `z100ic*` (IC built directly on the fixed 100-zone log grid 0.1 R☉ – 143 pc) and `GRIDSEG` from the IC.
+Production (`t_c128c`, the staged chain) continues as the accuracy reference.
+
 Set 2026-11-04. Measurements below are from run `_c2` unless stated otherwise.
 
 ## The goal
