@@ -60,15 +60,22 @@ li_invalidate!() = (fill!(LIMODEL[], nothing); nothing)
 "(LINEIMP) the zone's line model from the radiative rates of a transfer call (see LINEIMP)."
 function li_set!(k, LV, β, J, nH, nH2, nHe, nHp, ρ, f)
     length(LIMODEL[]) < k && append!(LIMODEL[], Any[nothing for _ in length(LIMODEL[])+1:k])
-    LIMODEL[][k] = (nH2 > 0 && isfinite(f)) ? (; LV, β, J, nH = Float64(nH), nH2 = Float64(nH2), nHe = Float64(nHe), nHp = Float64(nHp), ρ = Float64(ρ), f = Float64(f),
+    LIMODEL[][k] = (nH2 > 0 && isfinite(f)) ? (; LV, β, J, nH = max(Float64(nH), 0.0), nH2 = Float64(nH2), nHe = max(Float64(nHe), 0.0), nHp = max(Float64(nHp), 0.0), ρ = Float64(ρ), f = Float64(f),
                                               c = LiCache(NaN, 0.0, 0.0, false, Main.H2Levels.PopWS(LV))) : nothing
     nothing
 end
 function li_lam(md, Tv, ws)
     HV = Main.H2Levels
     P = HV.populations(md.LV, Tv, md.nH, md.nH2, md.nHe, md.nHp; β = md.β, Jbar = md.J, ws)
-    md.f * HV.netrad(md.LV, P, md.nH2, md.β, md.J)
+    λ = md.f * HV.netrad(md.LV, P, md.nH2, md.β, md.J)
+    if !isfinite(λ) && LIBAD[] < 20
+        LIBAD[] += 1
+        @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e f %.3g; β %s, J̄ %s, pops %s)\n", string(λ), Tv, md.nH, md.nH2, md.nHe, md.nHp, md.f,
+                all(isfinite, md.β) ? "finite" : "NON-FINITE", all(isfinite, md.J) ? "finite" : "NON-FINITE", all(isfinite, P) ? "finite" : "NON-FINITE"); flush(stdout)
+    end
+    λ
 end
+const LIBAD = Ref(0)
 "(LINEIMP) the line cooling [erg cm⁻³ s⁻¹] of the zone with model md at (ρ, T, composition y | nothing); Duals carry ∂/∂T, ∂/∂ρ, ∂/∂x_H₂."
 function li_cool(md, ρ, T, y)
     Tv = max(Float64(ForwardDiff.value(T)), 1.0); c = md.c
