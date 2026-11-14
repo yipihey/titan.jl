@@ -361,7 +361,7 @@ end
 const dW = γ / 2; const wW = sqrt(2) / 4
 const HNEXT = Ref(0.0); const ERRPREV = Ref(0.0); const HEUR = Ref(0.0); const DSAL = Ref{Any}(nothing)
 const ESTATS = Dict(:steps => 0, :rej_err => 0, :fail_newton => 0, :nofsal => 0, :be => 0, :neg_old => 0, :nonfinite => 0, :nonfinite_est => 0)
-const LIMHIST = Dict{String,Int}(); const LASTERR = Ref((NaN, "", 0)); const ERR0 = Ref(NaN); const ERR1 = Ref(NaN)   # (ERR0: norm of the converged state's remaining correction)
+const LIMHIST = Dict{String,Int}(); const LASTERR = Ref((NaN, "", 0)); const ERR0 = Ref(NaN); const ERR1 = Ref(NaN); const DIAG = Ref(parse(Int, get(ENV, "DTERRDIAG", "0")))   # (DTERRDIAG=n: stage derivatives of the limiting zone every n steps)   # (ERR0: norm of the converged state's remaining correction)
 "Extra text for the DTERR trace line (popiii_m2c: coverage of the COUPLED zones)."
 const TRACE_EXTRA = Ref{Any}(nothing)
 const VNAMES = Dict(1 => "r", 2 => "m", 3 => "rho", 4 => "u", 5 => "T", 6 => "E_r", 7 => "F_r", 8 => "x_H+", 9 => "x_H2")
@@ -448,7 +448,16 @@ function estimate!(Cn, Cg, C1, Cs, Δ)
     EOPT.filt >= 2 || return wnorm(rhs)
     ERR1[] = wnorm(rhs)[1]
     refilter!(copy(rhs), Cs, δ0) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
-    wnorm(rhs)
+    res = wnorm(rhs)
+    if DIAG[] > 0 && ESTATS[:steps] % DIAG[] == 0 && res[3] > 0       # stage derivatives of the limiting zone: smooth flow has z1 ≈ z2 ≈ z3
+        k = Int(g(:ngrs)) + res[3] - 1
+        for s_ in (:EV, :me, :m, :P, :QF, :x1, :x2)
+            haskey(C1, s_) || continue
+            z1 = D === nothing ? NaN : Δ * get(D, s_, zeros(k))[k]; z3 = (C1[s_][k] - Cs[s_][k]) / dW; z2 = (Cg[s_][k] - Cn[s_][k]) / dW - z1
+            @printf("DTERRDIAG jstep %d zone %d %s: y_n %.4e  z1 %.3e z2 %.3e z3 %.3e  est %.3e\n", Int(g(:jstep)), res[3], s_, Cn[s_][k], z1, z2, z3, Co[s_][k] - Cs[s_][k])
+        end
+    end
+    res
 end
 
 """
