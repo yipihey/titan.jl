@@ -1683,6 +1683,18 @@ function cpl_g(m::NetGas, k, z)
     end
     [p, u, fs[1], fs[2], Λ, cq, yq]
 end
+"(diagnostic, with CPLJCHECK) zone k's local (p, e, S₁, S₂, Λ, cq, yq): ForwardDiff Jacobian against central differences in (ρ, T, x_H⁺, x_H₂)."
+function cpl_gcheck(m::NetGas, k)
+    z0 = [TM.v(:dn)[k], TM.v(:tn)[k], TX.XSN[][1][k], TX.XSN[][2][k]]
+    J = ForwardDiff.jacobian(z -> cpl_g(m, k, z), z0); names = ("p", "e", "S1", "S2", "Λ", "cq", "yq"); vn = ("ρ", "T", "x1", "x2")
+    for j in 1:4
+        h = 1e-6 * z0[j]; zp = copy(z0); zm = copy(z0); zp[j] += h; zm[j] -= h
+        fd = (cpl_g(m, k, zp) .- cpl_g(m, k, zm)) ./ 2h
+        @printf("CPLGCHECK zone %d d/d%s: %s\n", k - Int(TF.getscalar(:ngrs)) + 1, vn[j],
+                join((@sprintf("%s AD %.5e FD %.5e", names[i], J[i, j], fd[i]) for i in 1:7 if max(abs(J[i, j]), abs(fd[i])) > 0), " | "))
+    end
+    nothing
+end
 cpl_lift(y, J, ρ::Float64, T::Float64, a::Float64, b::Float64) = Tuple(y)
 function cpl_lift(y, J, ρ::D, T::D, a::D, b::D) where {D<:ForwardDiff.Dual}
     P1, P2, P3, P4 = ForwardDiff.partials(ρ), ForwardDiff.partials(T), ForwardDiff.partials(a), ForwardDiff.partials(b)
