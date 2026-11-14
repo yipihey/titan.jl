@@ -2300,7 +2300,13 @@ catch e
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
 pr("run ended: %s; jstep %d jstepe %g timen %.6e tmax %.6e\n", string(RUNEND[]), Int(TF.getscalar(:jstep)), Float64(TF.getscalar(:jstepe)), TF.getscalar(:timen), TF.getscalar(:tmax))
-haskey(ENV, "SAVE") && (checkpoint(ENV["SAVE"], KLAST[]); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[]))
+if haskey(ENV, "SAVE")      # never overwrite a checkpoint with a non-finite state (a NaN stop would otherwise be saved and restart as NaN)
+    if all(v -> all(isfinite, TF.var(v)[a:b]), (:tn, :dn, :ern, :un))
+        checkpoint(ENV["SAVE"], KLAST[]); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[])
+    else
+        pr("checkpoint %s NOT written: the state at step %d is not finite (restart from the last _auto checkpoint)\n", ENV["SAVE"], KLAST[])
+    end
+end
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
 Trbdf2.DAMP[] && pr("damped Newton: %s\n", string(Trbdf2.DSTATS))
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])

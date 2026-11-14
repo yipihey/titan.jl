@@ -71,12 +71,17 @@ reset!, update! (x ← x e^δ) and maxdel! (clamp, convergence measure). `nothin
 const CPLH = Ref{Any}(nothing)
 function reset!()
     a, b = gi(:ngrs), gi(:ngre)
-    CPLH[] === nothing || CPLH[].reset()
+    # A failed iterate that went non-finite: restore the state first, then rebuild the coupled species from it (the species reset
+    # evaluates the local chemistry, which must not see NaN T/ρ: InexactError in the photo-rate table, z100e step 32122, 14 Nov).
+    # A finite failed iterate keeps the original order (bit-identical for every run that never produces a NaN).
+    bad = CPLH[] !== nothing && !all(nm -> all(isfinite, view(vf(nm[1]), a-1:b+2)), RESET_PAIRS1)
+    CPLH[] === nothing || bad || CPLH[].reset()
     s!(:timen, gf(:timeo))
     for (n, o) in ((:tes, :teso), (:tew, :tewo), (:tel, :telo), (:teq, :teqo)); s!(n, gf(o)); end
     for (n, o) in RESET_PAIRS1; copyto!(view(vf(n), a-1:b+2), view(vf(o), a-1:b+2)); end
     for (n, o) in RESET_PAIRS2; copyto!(view(vf(n), a-1:b+1), view(vf(o), a-1:b+1)); end
     copyto!(view(vf(:avchin), a:b+1), view(vf(:avchio), a:b+1))
+    bad && CPLH[].reset()
     nothing
 end
 
