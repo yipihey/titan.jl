@@ -352,13 +352,14 @@ h·max(facmin, safety·err^(−1/3)). A Newton failure in either stage is a reje
 fallback and no sticky BE phase (DTERRBE=1 restores a non-sticky BE retry of the same h after a Newton failure, for testing).
 COUPLED species and cooling are backward Euler also in the TR stage (TitanResidFast.CPL_THETA = 1): for those components the scheme is
 first order and the estimate is O(h²) instead of O(h³) — it still measures their error, just more conservatively.
+DTERRMAX=<s> (test only, default none): an upper bound on Δt, to separate step-size from history effects.
 DTERRTRACE=n (default 20): a line every n steps (Δt, err, the limiting variable and zone, the heuristic Δt), and every rejection.
 """
 const ERRCTL = Ref(haskey(ENV, "DTERR"))
 const EOPT = let v = haskey(ENV, "DTERR") ? parse.(Float64, split(ENV["DTERR"], ",")) : Float64[], c = parse.(Float64, split(get(ENV, "DTERRCTL", "0.9,0.2,5"), ","))
     (rtol = isempty(v) ? 1e-2 : v[1], xfl = length(v) >= 2 ? v[2] : 1e-6, ffl = length(v) >= 3 ? v[3] : 1.0, efl = length(v) >= 4 ? v[4] : 0.0,
      safety = c[1], facmin = c[2], facmax = c[3], pi = get(ENV, "DTERRPI", "1") == "1", fail = parse(Float64, get(ENV, "DTERRFAIL", "0.25")),
-     be = get(ENV, "DTERRBE", "0") == "1", filt = parse(Int, get(ENV, "DTERRFILT", "2")), maxnorm = get(ENV, "DTERRNORM", "rms") == "max", trace = parse(Int, get(ENV, "DTERRTRACE", "20")))
+     hmax = parse(Float64, get(ENV, "DTERRMAX", "Inf")), be = get(ENV, "DTERRBE", "0") == "1", filt = parse(Int, get(ENV, "DTERRFILT", "2")), maxnorm = get(ENV, "DTERRNORM", "rms") == "max", trace = parse(Int, get(ENV, "DTERRTRACE", "20")))
 end
 const dW = γ / 2; const wW = sqrt(2) / 4
 const HNEXT = Ref(0.0); const ERRPREV = Ref(0.0); const HEUR = Ref(0.0); const DSAL = Ref{Any}(nothing)
@@ -621,6 +622,7 @@ function step_err!()
         LIMHIST[info[1]] = get(LIMHIST, info[1], 0) + 1
     end
     LASTERR[] = (err, info[1], info[2])
+    hn = min(hn, o.hmax)                  # (DTERRMAX, a test bound only: default none)
     HNEXT[] = hn
     STATS[:steps] += 1; ESTATS[:steps] += 1
     r(:totnrg)
