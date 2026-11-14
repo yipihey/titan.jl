@@ -1295,6 +1295,29 @@ All fixed-mesh settings as after `envbuild!` (GASROW, REGULAR_CENTRE, no INNER_S
 ALI factors). Only the abn02* initial conditions (they carry the tabulated M(r)).
 """
 const ICEUL = get(ENV, "ICEUL", "0") == "1"
+"""
+Zero point of the mass coordinate at the centre (fixed mesh with a regular centre; used by ICEUL, ICXMZ=0 turns it off). TITAN's
+mass unknown is the exterior mass x_m,e = xmtot − m (per steradian), with xmtot ≥ the grid mass (PS.build!: grid + xmext), and the
+zone masses are its differences. At the IC the central zones of the log mesh hold ~1e-17 of the cloud: zone 39 of the 100-zone mesh
+(r ≈ 1.5e3 R☉) has 4.5e20 g sr⁻¹ against an ulp of 5.9e20 of x_m,e ≈ 3.2e36, so its mass row is round-off and Newton diverged at
+step 1 whatever Δt (T, E_r corrections −9.4 there). Here xmtot := ε (half the central zone's mass) and x_m,e = ε − m: negative outside
+the first interface, but the residual only uses differences of x_m,e, xmtot − x_m,e and relative (sign-preserving) corrections,
+so the interior mass is carried at full relative precision at every radius. Recomputed from the interior masses m (summed from the
+centre by PS.build!), not by shifting x_m,e.
+"""
+function xmzero!()
+    xmen = TF.var(:xmen); xmeo = TF.var(:xmeo); dn = TF.var(:dn); dv = TF.var(:dvoln); xmt0 = TF.getscalar(:xmtot)
+    TF.var(:rn)[a] == 0 || error("xmzero!: needs a regular centre (r = 0 at the first interface)")
+    m = zeros(length(xmen)); for k in a+1:b+2; m[k] = m[k-1] + dn[k-1] * dv[k-1]; end      # interior mass, summed from the centre
+    ε = 0.5 * m[a+1]
+    for k in a:b+2; xmen[k] = ε - m[k]; end
+    xmen[a-1] = 2xmen[a] - xmen[a+1]                                                   # (the regular centre's ghost, as TitanCore's bndry)
+    for k in a-1:b+2; xmeo[k] = xmen[k]; end
+    TF.setscalar!(:xmtot, ε); TF.setscalar!(:xmext, ε - m[b+2])
+    pr("XMZERO: mass zero point at the centre, xmtot %.4e (was %.4e) g/sr; x_m,e at the interfaces %d..%d: %s; grid mass %.6f Msun\n", ε, xmt0, a - 1, a + 2,
+       join((@sprintf("%.4e", xmen[k]) for k in a-1:a+2), " "), 4π * m[b+1] / Msun)
+    nothing
+end
 function iceulbuild!()
     (RAD && ENVCENTRE) || error("ICEUL=1 needs RAD=1 and ENVEUL=0,... (regular centre, ENVCORE)")
     ic in ("abn02", "abn02hs", "abn02z19") || error("ICEUL=1: only the abn02* initial conditions")
@@ -1334,6 +1357,7 @@ function iceulbuild!()
     PS.build!(; rI = rI_, rho = ρz, T = Tz, u = uI_, geom = 2, rad = true, Er, Fr, lum = nothing, lgrid = 2, inner = :wall, outer = :wall, Mc = 0.0,
               selfgrav = true, material = mat, av, xmext = Mnew / 4π)
     global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
+    get(ENV, "ICXMZ", "1") == "1" && xmzero!()
     for j in 1:nsh
         k = a + j - 1; mat.x[k] = xz[j]; mat.eqzone[k] = eqz[j]; mat.Λext[k] = 0.0; mat.Tref[k] = Tz[j]; mat.slope[k] = 0.0
     end
