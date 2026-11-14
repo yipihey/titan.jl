@@ -2083,7 +2083,7 @@ scale, no threshold; a power-law envelope gives a constant M and a logarithmic m
   at most fmove of the zone it moves into, no zone shrinking below half its narrower neighbour.
 - With `ICEUL=1` the IC is built on the rule's mesh of the IC (`GEQN` zones); `IC=p100` added to ICEUL (M(r), T(m) of the
   Lagrangian IC shells).
-- One parameter set: `GEQW=1,1,1,1,1,1`, `GEQC=100,1.5,3,0.5,0.5,0.1,1e4,0.3` (gmax, α, κ, fv, fmove, τlo, τhi, ctol). gmax 10
+- One parameter set: `GEQW=1,1,1,1,1,1`, `GEQC=100,1.5,30,0.5,0.5,0.1,1e4,0.3` (gmax, α, κ, fv, fmove, τlo, τhi, ctol). gmax 10
   (`t_gse1`) left the photosphere inside one zone (τ 10 → 0.1 across 0 interfaces): a power-law envelope already has G ≈ 3.7, so
   the cap must be far above it.
 
