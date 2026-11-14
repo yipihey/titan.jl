@@ -340,6 +340,10 @@ function nlte_kappas(ρ, T, d, p)
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
+    if NLOPACJ[] && NLOPACJTAU[] !== nothing && hasproperty(p, :τz)     # NLOPACJTAU: the field's colour only where the zone is thin
+        τ1, τ2 = NLOPACJTAU[]; q = clamp(log(max(p.τz, 1e-300) / τ1) / log(τ2 / τ1), 0.0, 1.0); q = q * q * (3 - 2q)
+        Tw = exp((1 - q) * log(Tw) + q * log(T))
+    end
     nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw)
 end
 "Lagged non-LTE opacity factors of zone k at T0 (see NLOPAC)."
@@ -534,6 +538,15 @@ the three-level parameters) in place of B_ν(T_gas). In the precursor T_gas ≈ 
 where B(4800 K) has more of its energy than B(6000 K).
 """
 const NLOPACJ = Ref(false)
+"""
+NLOPACJTAU=τ1,τ2 (with NLOPACJ; default off): the weighting temperature of κ_E goes from the field's colour T_c (zone optical depth from the
+surface τ ≤ τ1) to T_gas (τ ≥ τ2), smooth in log τ. In opaque gas E_r ≈ aT⁴ and the exchange c(κ_E E − κ_P aT⁴) is a small difference of
+large terms: κ_E at T_c = T_r (lagged, a few % from T) against κ_P at T, through the steep H⁻ opacity of the network zones in the accretion
+shock, stopped the from-IC run 13 steps after the protostar formed (E_r corrections −1 per Newton iteration in a network zone between table
+zones, Δt → 1e-10 s; without NLOPACJ it passed). Where the zone is thin (the cold cloud under the CMB, the star-lit precursor) T_c is the
+colour of the light it absorbs.
+"""
+const NLOPACJTAU = Ref{Any}(let s_ = get(ENV, "NLOPACJTAU", ""); isempty(s_) ? nothing : Tuple(parse.(Float64, split(s_, ",")))[1:2] end)
 const NSWIN = Ref(0); const NSWOUT = Ref(0)
 """
 PSWRAD=ε[,phard] (default off): a network zone ENTERS the table only if its gas and radiation temperatures agree, |T_rad/T − 1| ≤ ε with
@@ -815,6 +828,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             RL = 3A21LYA * (τS < 1e-6 ? 1.0 : -expm1(-τS) / τS)
             nb = W / expm1(E21 / (CNn.kB * Tc))
             diag.tl3[k] = (; β = W * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
+            NLOPACJTAU[] === nothing || (diag.tl3[k] = merge(diag.tl3[k], (; τz = tauz_[k])))     # (NLOPACJTAU: the zone's τ for κ_E's weighting)
             ov_ = LYAOVR[]; (k <= length(ov_) && ov_[k] !== nothing) && (diag.tl3[k] = merge(diag.tl3[k], ov_[k]))   # LYART: transferred Lyα
         end
         (kHm, kH, kLW, f)
