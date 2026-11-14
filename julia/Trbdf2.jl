@@ -341,7 +341,7 @@ dt 2.8e3 → 1.5e3 s, every attempt rejected).
     ρ, T: rtol·|y|;  E_r: rtol·(E_r + efloor·aT⁴);  u: rtol·max(|u|, c_s) (c_s the larger adjacent sound speed);
     F_r: rtol·max(|F|, ffloor·c E_r);  x_me (Eulerian mass flux): rtol·(larger adjacent zone mass);  r (moving grids): rtol·(smaller adjacent zone width);
     x_H⁺, x_H₂ (COUPLED zones): rtol·(x + xfloor) on |δx| = |δ ln x|·x.
-Defaults: xfloor 1e-6, ffloor 1e-2, efloor 0.
+Defaults: xfloor 1e-6, ffloor 1 (F_r measured on its causal scale cE: with 1e-2 the thin zones just outside the photosphere, where F crosses through small values, held Δt at ~400 s), efloor 0.
 
 **Controller** (DTERRCTL=safety,facmin,facmax, default 0.9,0.2,5; DTERRPI=1): accepted when err ≤ 1, then
 h_new = h·clamp(safety·err^(−0.7/3)·err_prev^(0.4/3), facmin, facmax) (PI control, Gustafsson 1991 / Hairer & Wanner II §IV.8; DTERRPI=0:
@@ -354,7 +354,7 @@ DTERRTRACE=n (default 20): a line every n steps (Δt, err, the limiting variable
 """
 const ERRCTL = Ref(haskey(ENV, "DTERR"))
 const EOPT = let v = haskey(ENV, "DTERR") ? parse.(Float64, split(ENV["DTERR"], ",")) : Float64[], c = parse.(Float64, split(get(ENV, "DTERRCTL", "0.9,0.2,5"), ","))
-    (rtol = isempty(v) ? 1e-2 : v[1], xfl = length(v) >= 2 ? v[2] : 1e-6, ffl = length(v) >= 3 ? v[3] : 1e-2, efl = length(v) >= 4 ? v[4] : 0.0,
+    (rtol = isempty(v) ? 1e-2 : v[1], xfl = length(v) >= 2 ? v[2] : 1e-6, ffl = length(v) >= 3 ? v[3] : 1.0, efl = length(v) >= 4 ? v[4] : 0.0,
      safety = c[1], facmin = c[2], facmax = c[3], pi = get(ENV, "DTERRPI", "1") == "1", fail = parse(Float64, get(ENV, "DTERRFAIL", "0.25")),
      be = get(ENV, "DTERRBE", "0") == "1", filt = parse(Int, get(ENV, "DTERRFILT", "2")), maxnorm = get(ENV, "DTERRNORM", "rms") == "max", trace = parse(Int, get(ENV, "DTERRTRACE", "20")))
 end
