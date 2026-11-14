@@ -1864,6 +1864,55 @@ if haskey(ENV, "NEWTDBG")
 end
 const RUNEND = Ref{Any}(nothing)
 """
+TABAUDIT=1 (diagnostic): for every table zone below the hot branch (and, with TABAUDIT=2, also every network zone) compare at the zone's (ρ, T)
+the equilibrium table (PopIIIEqEOS composition, u, p; StellarOpacity κ_R, κ_P) with the network's own LTE state (ChemNet.steady with J = B(T),
+which by detailed balance is also the thick-limit three-level state): x_e, x_H2, x_H-, He stages, u, p, c_v and Γ1 (derivatives at
+equilibrium composition, finite differences of the steady state), and the continuum means of PopIIIMaterial.nlte_means for the network
+composition and for the table composition. Prints one line per zone, then exits.
+"""
+function tabaudit()
+    B(T) = ν -> 2 * ChemNet.hP * ν^3 / ChemNet.c^2 / expm1(ChemNet.hP * ν / (ChemNet.kB * T))
+    net = mat.net; ph = filter(p -> true, mat.photos); dn_ = TF.var(:dn); tn_ = TF.var(:tn); rn_ = TF.var(:rn); h = PM.HOT[]
+    lte(ρ, T, x0) = ChemNet.steady(x0, ρ, T, net; env = (Trad = T, J = B(T), static = true), photos = ph)
+    E21 = PM.E21; kB = ChemNet.kB
+    function netstate(ρ, T, x0)
+        x = lte(ρ, T, x0); u, p = ChemNet.eos(ρ, T, x, net); x, u, p
+    end
+    function means(ρ, T, d)
+        nH = ρ / ChemNet.μH(); n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
+        nHe = nH * max(get(d, :He, PC.yHe), 0.0); nHmS = n1 * ne / ChemNet.Keq([:Hm], [:H, :e], T); nHm = nH * max(get(d, :Hm, 0.0), 0.0)
+        PM.nlte_means(ρ, T; n1, n2 = 4n1 * exp(-E21 / (kB * T)), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = true)
+    end
+    @printf("TABAUDIT: zone r[Rsun] T[K] nH | x_e tab/net | x_H2 tab/net | x_H- tab/net | x_He+ x_He++ tab/net | u tab/net (rel diff) | p rel diff | c_v rel diff | Γ1 tab/net | κR_tab κP_tab | κ(E,P,R) nlte net comp | κ(E,P,R) nlte tab comp\n")
+    for k in a:b
+        (mat.eqzone[k] || get(ENV, "TABAUDIT", "1") == "2") || continue
+        h !== nothing && tn_[k] > h.T1 && continue
+        ρ = dn_[k]; T = tn_[k]; nH = ρ / ChemNet.μH()
+        try
+            xt = PM.x_from_table(mat, ρ, T); dt_ = ChemNet.full(xt, net)
+            ut, pt = PopIIIEqEOS.eos(ρ, T)
+            fT(t) = PopIIIEqEOS.eos(ρ, t); fR(r) = PopIIIEqEOS.eos(r, T)
+            uT = ForwardDiff.derivative(t -> fT(t)[1], T); pT = ForwardDiff.derivative(t -> fT(t)[2], T)
+            uR = ForwardDiff.derivative(r -> fR(r)[1], ρ); pR = ForwardDiff.derivative(r -> fR(r)[2], ρ)
+            Γt = ρ / pt * (pR + pT * (pt / ρ^2 - uR) / uT)
+            xn, un, pn = netstate(ρ, T, xt); dn2 = ChemNet.full(xn, net)
+            δ = 1e-3
+            _, u1, p1 = netstate(ρ, T * (1 + δ), xn); _, u0, p0 = netstate(ρ, T * (1 - δ), xn)
+            _, u3, p3 = netstate(ρ * (1 + δ), T, xn); _, u2, p2 = netstate(ρ * (1 - δ), T, xn)
+            nuT = (u1 - u0) / (2δ * T); npT = (p1 - p0) / (2δ * T); nuR = (u3 - u2) / (2δ * ρ); npR = (p3 - p2) / (2δ * ρ)
+            Γn = ρ / pn * (npR + npT * (pn / ρ^2 - nuR) / nuT)
+            κR, κP = PM.OPAC[](ρ, T); mn = means(ρ, T, dn2); mt = means(ρ, T, dt_)
+            g(d, s) = Float64(get(d, s, 0.0))
+            @printf("TABAUDIT %3d %8.3g %8.0f %.2e | %.3e %.3e | %.2e %.2e | %.2e %.2e | %.2e %.2e  %.2e %.2e | %.4e %.4e (%+.2e) | %+.2e | %+.2e | %.4f %.4f | %.3e %.3e | %.3e %.3e %.3e | %.3e %.3e %.3e\n",
+                    k - a + 1, rn_[k] / 6.957e10, T, nH, g(dt_, :e), g(dn2, :e), g(dt_, :H2), g(dn2, :H2), g(dt_, :Hm), g(dn2, :Hm),
+                    g(dt_, :Hep), g(dt_, :Hepp), g(dn2, :Hep), g(dn2, :Hepp), ut, un, (un - ut) / abs(ut), (pn - pt) / pt, (nuT - uT) / uT,
+                    Γt, Γn, κR, κP, mn..., mt...)
+        catch e
+            println("TABAUDIT $(k - a + 1) T $T nH $nH: failed: ", first(sprint(showerror, e), 120))
+        end
+    end
+end
+"""
 CPLPROF=1 (diagnostic, default off; also without COUPLED): wall time of matgen (residual + AD Jacobian), matslv, maxdel, update and the
 Newton iteration count, and (COUPLED) the local 4-wide Jacobians of PopIIIMaterial.cpl_zone (computed / reused, time); printed every 100 steps.
 """
@@ -1907,6 +1956,9 @@ try
             TD.STEPFN[] = () -> (echem_pre!(); try f0() finally echem_hydro_done!() end; nothing)
         end
         println("ECHEMSPLIT: the hydro step advects e − Σ x E0; the chemical energy moves with the species")
+    end
+    if haskey(ENV, "TABAUDIT") && mat isa PM.NetGas  # (diagnostic, then exit) the table zones below the hot branch: table vs the network's LTE state
+        tabaudit(); exit(0)
     end
     if haskey(ENV, "DTMAXTEST")                    # (test) Δt ≤ DTMAXTEST s, also for the first step: the Δt → 0 limit of a scheme
         dtmx = parse(Float64, ENV["DTMAXTEST"]); push!(TC.DT_HOOKS, () -> dtmx)

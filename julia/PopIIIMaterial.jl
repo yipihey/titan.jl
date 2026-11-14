@@ -377,7 +377,7 @@ const CHICAP = let s = split(get(ENV, "CHICAP", "0"), ","); (parse(Float64, s[1]
 @inline function TX.material_opac(m::NetGas, ρ, T)
     if NLOPAC[]
         k = TX.ZONE[]; c = NLOPC[]
-        if k <= length(c) && !m.eqzone[k] && (o = c[k]) !== nothing
+        if k <= length(c) && !m.eqzone[k] && (o = c[k]) !== nothing && (NLOTMAX == Inf || o.T0 < NLOTMAX)
             κR0, κP0 = OPAC[](ρ, o.T0); s = T / o.T0
             if TX.cplz(k) && hasproperty(o, :x0)     # COUPLED: the ionization of the iterate (nlopc_x)
                 w = TX.CPLW[]; xi = w === nothing ? TX.XSN[][1][k] : w[1][k]; r = xi / o.x0
@@ -404,6 +404,13 @@ end
 zone's own electrons (σ_T x_e / μ_H). See TX.material_opac.
 """
 const NLOFIX = get(ENV, "NLOFIX", "0") == "1"
+"""
+`NLOTMAX=T` (K, default Inf = off): network zones above T take the plain table opacity (with the NLOFIX floor), not the non-LTE ratio
+nlte_kappas(x)/nlte_kappas(eq). In fully ionized gas (1e4–3e5 K) the ratio of the continuum code's means is set by the neutral fraction
+(1e-6 vs 1e-8) and came out 0.01–0.03, i.e. κ_R far below electron scattering (TABAUDIT on t_c128c, 14 Nov); the continuum code has no
+lines and no He opacity there, OPAL does.
+"""
+const NLOTMAX = parse(Float64, get(ENV, "NLOTMAX", "Inf"))
 "`SLWFLUX=1` (default off): star-light dilution W from max(c(E_r − E_cmb), F_r) instead of c(E_r − E_cmb) alone (see starlight_setup)."
 const SLWFLUX = get(ENV, "SLWFLUX", "0") == "1"
 function TM.fill_opac!(m::NetGas)
