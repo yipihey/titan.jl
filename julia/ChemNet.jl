@@ -275,10 +275,13 @@ Photo-rates in a diluted blackbody J = W B(T_c) from tables (PopIIIMaterial LOCA
 - R = W Σ_l (g_l/Z(T)) e^{−E_x,l/kT} R_l(T_c), R_l = 4π∫σ_l B(T_c)/(hν) dν per level: 1-D tables of ln R_l in log T_c (3.0–6.5, 0.005 dex);
 - α = α₀(T) + W α_st(T, T_c) (α is linear in J): ln α₀ in log T (0.5–6.5, 0.005 dex, J = 0) and ln(α_st/α₀) on a (log T, log T_c)
   grid (log T 1.0–6.5, log T_c 3.0–6.5, 0.05 dex); the ratio matters only where it is not small, and there it is smooth. The α parts
-  are integrated on the gas-T grid with n = 1000 (more accurate than the direct path); R_l with `photorates`' grid and n = 200.
+  are integrated on the gas-T grid with n = 1000, R_l on `photorates`' T_c grid with n = 1000 (both more accurate than the direct path).
 Catmull–Rom in each direction (as the static tables). Outside the ranges, or with `caseB`, the direct integrals.
 """
 const LJTAB = IdDict{Any,Any}(); const LJLOCK = ReentrantLock()
+# quadrature points of the table integrals (LJTABN, default 1000). Against n = 4000 integrals at n = 1000: Li ≤ 4e-4, H⁻ ≤ 5e-3 (flow 1e-5),
+# He I ≤ 2e-3 (thick) / 1e-2 (flow α), He II ≤ 1e-2 / 5e-2; the direct path (n = 200) 5–30× larger. Build time ∝ n.
+const LJTABN = parse(Int, get(ENV, "LJTABN", "1000"))
 const LJ_T = (0.5, 0.005, 1201); const LJ_C = (3.0, 0.005, 701); const LJ_2T = (1.0, 0.05, 111); const LJ_2C = (3.0, 0.05, 71)
 _ljv(x::ForwardDiff.Dual) = _ljv(ForwardDiff.value(x)); _ljv(x::Real) = Float64(x)
 _bnu_lj(ν, T) = (x = hP * ν / (kB * T); x > 700 ? 0.0 : 2hP * ν^3 / c^2 / expm1(x))
@@ -288,19 +291,21 @@ function lj_tables(p::Photo)
         get!(LJTAB, p) do
             n = 200; z0 = (Trad = 0.0, J = ν -> 0.0)
             lc = [LJ_C[1] + LJ_C[2] * (i - 1) for i in 1:LJ_C[3]]
-            lR = [begin
-                      Tc = 10^x; Jb = ν -> _bnu_lj(ν, Tc)
-                      log(max(_photoR(σf, Jb, Eth / hP, range(0.0, log(1 + 60kB * Tc / Eth + 30.0), length = n + 1), n), 1e-300))
-                  end for (Ex, g, Eth, σf) in p.levels, x in lc]
+            # R_l with n = 1000 on the T_c grid (n = 200, as `photorates`, is under-resolved by up to 7 % (He I) and 30 % (He II levels))
+            lvs = p.levels; lR = zeros(length(lvs), length(lc))
+            Threads.@threads for ij in 1:length(lR)
+                l, j = Tuple(CartesianIndices(lR)[ij]); (Ex, g, Eth, σf) = lvs[l]; Tc = 10^lc[j]; Jb = ν -> _bnu_lj(ν, Tc); nR = LJTABN
+                lR[l, j] = log(max(_photoR(σf, Jb, Eth / hP, range(0.0, log(1 + 60kB * Tc / Eth + 30.0), length = nR + 1), nR), 1e-300))
+            end
             # the Milne coefficients on a frequency grid set by the gas T (Trad = 0: the integrand lives within kT of each threshold; with
             # the grid of max(T, T_c) and n = 200, as `photorates` with this J, it is under-resolved by up to 30–60 % where T ≪ T_c), n = 1000
             lt = [LJ_T[1] + LJ_T[2] * (i - 1) for i in 1:LJ_T[3]]; lA0 = zeros(length(lt))
-            Threads.@threads for i in eachindex(lt); lA0[i] = log(max(photorates(p, 10^lt[i], z0; n = 1000)[2], 1e-300)); end
+            Threads.@threads for i in eachindex(lt); lA0[i] = log(max(photorates(p, 10^lt[i], z0; n = LJTABN)[2], 1e-300)); end
             l2t = [LJ_2T[1] + LJ_2T[2] * (i - 1) for i in 1:LJ_2T[3]]; l2c = [LJ_2C[1] + LJ_2C[2] * (j - 1) for j in 1:LJ_2C[3]]
-            lr = zeros(length(l2t), length(l2c)); a0s = [photorates(p, 10^x, z0; n = 1000)[2] for x in l2t]
+            lr = zeros(length(l2t), length(l2c)); a0s = [photorates(p, 10^x, z0; n = LJTABN)[2] for x in l2t]
             Threads.@threads for ij in 1:length(lr)
                 i, j = Tuple(CartesianIndices(lr)[ij]); T = 10^l2t[i]; Tc = 10^l2c[j]
-                a1 = photorates(p, T, (Trad = 0.0, J = ν -> _bnu_lj(ν, Tc)); n = 1000)[2]
+                a1 = photorates(p, T, (Trad = 0.0, J = ν -> _bnu_lj(ν, Tc)); n = LJTABN)[2]
                 lr[i, j] = log(max(a1 / max(a0s[i], 1e-300) - 1, 1e-300))
             end
             (; lR, lA0, lr)
