@@ -49,7 +49,7 @@ end
 M at the zone centres x = ln r_c (zones 2…n: the central sphere is left out) of the state: interfaces r (r[1] = 0), m (interior
 mass), τ (optical depth from the outer edge); zones ρ, P, T, E. Derivatives centred in ln r between zone centres.
 """
-function density(r, m, ρ, P, T, E, τ; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 10.0, τlo = 0.1, τhi = 1e4)
+function density(r, m, ρ, P, T, E, τ; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 100.0, τlo = 0.1, τhi = 1e4)
     n = length(ρ); x = [log(sqrt(r[j] * r[j+1])) for j in 2:n]
     lmc = [log(0.5 * (m[j] + m[j+1])) for j in 2:n]; ltc = [log(clamp(sqrt(max(τ[j], 1e-300) * max(τ[j+1], 1e-300)), τlo, τhi)) for j in 2:n]
     fs = (log.(ρ[2:n]), log.(P[2:n]), log.(T[2:n]), log.(max.(E[2:n], 1e-300)), lmc, ltc)
@@ -68,7 +68,7 @@ end
 The mesh of N zones between the fixed first interface and the outer edge that equidistributes ∫ M d ln r, with neighbour ratio
 ≤ (1 + α)/α.
 """
-function target(r, m, ρ, P, T, E, τ, N; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 10.0, alph = 1.5, τlo = 0.1, τhi = 1e4, nf = 6000)
+function target(r, m, ρ, P, T, E, τ, N; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 100.0, alph = 1.5, τlo = 0.1, τhi = 1e4, nf = 6000)
     D = density(r, m, ρ, P, T, E, τ; w, gmax, τlo, τhi)
     xa, xb = log(r[2]), log(r[end]); dx = (xb - xa) / nf; xe = [xa + (i - 1) * dx for i in 1:nf+1]
     f0 = [lin(D.x, D.M, 0.5 * (xe[i] + xe[i+1])) * dx for i in 1:nf]

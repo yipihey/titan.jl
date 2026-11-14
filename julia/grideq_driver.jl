@@ -13,13 +13,13 @@ gmax and Dorfi–Drury smoothing α (neighbours within (1 + α)/α). No markers,
           at most fmove of the zone it moves into per step and |ṙ| ≤ fv (|u| + c_s); no zone shrinks below half its narrower
           neighbour. Mesh motion never limits Δt in this mode.
 
-GEQN=N (with ICEUL): the IC is built on N zones (even; default: envlr's count). GEQW=wρ,wP,wT,wE,wm,wτ (default 1,1,1,1,1,1); GEQC=gmax,alph,κ,fv,fmove,τlo,τhi,ctol (default 10,1.5,3,0.5,0.5,0.1,1e4,0.3).
+GEQN=N (with ICEUL): the IC is built on N zones (even; default: envlr's count). GEQW=wρ,wP,wT,wE,wm,wτ (default 1,1,1,1,1,1); GEQC=gmax,alph,κ,fv,fmove,τlo,τhi,ctol (default 100,1.5,3,0.5,0.5,0.1,1e4,0.3).
 With ICEUL the IC is built on the rule's mesh of the IC. No state beyond the mesh: a checkpoint restarts with the same setting.
 """
 const GRIDEQP = haskey(ENV, "GRIDEQ") ? parse(Int, ENV["GRIDEQ"]) : nothing
 geqv(key, defs) = (v = haskey(ENV, key) ? parse.(Float64, split(ENV[key], ",")) : Float64[]; [i <= length(v) ? v[i] : defs[i] for i in eachindex(defs)])
 const GEQW = geqv("GEQW", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
-const GEQC = geqv("GEQC", [10.0, 1.5, 3.0, 0.5, 0.5, 0.1, 1e4, 0.3])
+const GEQC = geqv("GEQC", [100.0, 1.5, 3.0, 0.5, 0.5, 0.1, 1e4, 0.3])
 const GEQLAST = Ref{Any}(nothing)
 "State on the present mesh (interfaces centre first; m per steradian)."
 function geq_state()
