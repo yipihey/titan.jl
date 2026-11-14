@@ -571,3 +571,23 @@ Inactive with it: `NLOIMPT NLODAMP CPLNLOX NLOFIX NLOTMAX` (network zones). At t
 NLOPAC's to < 0.1 % below 5000 K and to 10–15 % in κ_E, κ_P at 5900–6000 K (where NLOPAC switches its base);
 at the τ = 3 boundary (zone 81 of `t_c128c`, 6770 K, x_e 0.9995) κ_R is 4 % above the table, κ_P 10× below it by design
 (H bound–free is carried by the three-level chemistry, not by κ_P).
+
+**Tests (14 Nov, runs `t_lag_*` in the run tree).**
+- Production state (`t_c128c` B6_auto1, 480 M☉, `t_lag_c10`, LINEIMP=1 NLOIT=1, ≥ 1500 steps): Δt identical to `t_c128c` B7
+  (1.36e8 s), no failed solves, no chemistry fallbacks; L within 0.3 %, T in zones 56–100 within 0.6 %, x_H⁺ within 0.004 dex at
+  equal t. With NLOIT's slopes reused between iterates (old default NLOITJ=3e-3,0.1) the same state lost Δt to ~1e5 s after 45 steps
+  (Newton stalls at ~1e-4 corrections in coupled zone ~90): slopes are now taken at every iterate.
+- Fixed 100-zone mesh with DTERR=0.05 from `t_te1`'s start (`t_lag_te10`, merge of `trbdf2-errctl` 8f4f409): the z₁ ≈ −z₃
+  flip-flop is gone in zones 22–24 (there z₁ ≈ z₃), but it remains in zone 28 — the zone where FLUXTIE starts ("flux tie from
+  zone 28") — in E_r, F_r and x_H⁺, with err ≈ 0.29 independent of h and Δt ≈ 600 s, as in `t_te1` (≈ 700 s). So the remaining
+  plateau is not the line or opacity lag; the lagged FLUXTIE closure (h = H/J of the last formal solution) is the next suspect (G4).
+  NLOIT alone (`t_lag_te11`) and LINEIMP alone (`t_lag_te12`) give the same picture.
+- Moving mesh (`gridseg` e5d0bd4 merged): `t_gs_ic13` from S1_auto0 passes jstep 3272 with both switches and fails at 3460;
+  `t_gs_ic9` from S1_auto1 fails at 4597 (< 4936). In every failure a zone between a warm (2000–9000 K) and a cooler zone drops
+  to 2–20 K within ~6 steps while its line cooling (both the held Λ and the implicit model) is net HEATING (Λ ≈ −2e-8 … −1e-12):
+  the cold pocket is not made by the lines. At the drop the zone's chemical-energy offset takes its outer neighbour's value
+  (composition replaced by the infall) while T falls: the e/x advection consistency on the moving mesh (ECHEMSPLIT/XADV2, G1/G5).
+- CPLJCHECK of the energy row against x_H⁺ (the coordinator's 49 % in zone 78 at 515 M☉; here 21 % in the first coupled zone):
+  not a Jacobian error. The zone is fully ionized, x_H = 1 − x_H⁺ − … = 5.8e-7, below the check's step (1e-6 in ln x): the FD
+  crosses the max(x_H, 0) clamp of tl3_heat. The AD value is the derivative at the point; the FD tends to the clamped side
+  (129 → 82 for steps 1e-6 → 1e-2). The residual is non-smooth there, which Newton can feel in fully ionized coupled zones.
