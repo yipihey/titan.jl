@@ -560,7 +560,10 @@ function nlo_comp(m, k, s, ρ, T, x1, x2)
     t = (TX.cplz(k) && k <= length(CPLTERMS[])) ? CPLTERMS[][k] : nothing
     t === nothing && return s.d, s.p
     t0_ = time_ns()
-    x, _ = CNn.ck_eval([x1, x2], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
+    # (not t.phc: its one-entry cache is shared with the residual's dual evaluation, which would then take this call's Float rates
+    # at the same T and lose ∂(photo-rates)/∂T from the coupled zone's Jacobian)
+    ph_, en_ = t.phraw; phc = Tq -> Any[(p_, CNn.photorates_t(p_, Tq, en_)...) for p_ in ph_]
+    x, _ = CNn.ck_eval([x1, x2], ρ, T, m.net; env = t.env, phc, extra = t.extra)
     Threads.atomic_add!(NLOCNS, Int(time_ns() - t0_))
     CNn.full(x, m.net), (hasproperty(t.env, :tl3) ? t.env.tl3 : s.p)
 end
@@ -1402,7 +1405,7 @@ function chem_core!(m::NetGas)
             if CPLPREP[]                             # COUPLED prepare: the zone's terms for the hydro solve
                 envc = envk; phc_ = phk; cache = Ref((NaN, Any[]))
                 phc = Tv -> (Tv == cache[][1] || (cache[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, envc)...) for p_ in phc_])); cache[][2])
-                CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs)
+                CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs, phraw = (phc_, envc))   # (phraw: NLOIT's uncached photo-rates)
                 return nothing
             end
             if CPLPOST[] && TX.cplz(k) && p3 !== nothing
