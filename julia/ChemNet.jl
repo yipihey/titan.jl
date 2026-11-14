@@ -713,6 +713,16 @@ function ck_expand(xs, T, nH, net, ph, ks, extra = nothing)
     end
     x
 end
+# TL3NEFULL=1 (default off): n_e of the three-level atom (Peebles C, the collisional rates) is the charge-conservation n_e of the zone (H⁺,
+# He⁺, 2He²⁺, Li⁺, − H⁻), not n_H x_H⁺. In ck_eval and step_ck: a first expansion with n_H x_H⁺, then n_e from it and a second expansion
+# (generic in the number type: the hydro Newton and step_ck's Jacobian differentiate through both passes).
+const TL3NEFULL = get(ENV, "TL3NEFULL", "0") == "1"
+function _tl3_ne_pass(xs, x1, T, nH, net, env, ph, extra, c)
+    ne = nH * max(fullvec(x1, c)[c.ie], zero(eltype(x1)))
+    ev = merge(env, (; tl3 = merge(env.tl3, (; ne))))
+    ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
+    ck_expand(xs, T, nH, net, ph, ks, extra), ks, ev
+end
 """
     ck_eval(xs, ρ, T, net; env, phc, extra) -> (x, f)
 
@@ -724,10 +734,12 @@ per-zone photo-rate tuples at the Float temperature Tv (lagged in T as in `step`
 function ck_eval(xs, ρ, T, net; env, phc, extra)
     nH = ρ / μH(); ci = ckinfo(net); sl = ci.slow
     kHp = findfirst(==(:Hp), net.free[sl])
-    ev = (kHp !== nothing && hasproperty(env, :tl3) && env.tl3 !== nothing) ? merge(env, (; tl3 = merge(env.tl3, (; ne = nH * xs[kHp])))) : env
+    tl3 = kHp !== nothing && hasproperty(env, :tl3) && env.tl3 !== nothing
+    ev = tl3 ? merge(env, (; tl3 = merge(env.tl3, (; ne = nH * xs[kHp])))) : env
     ph = phc(ForwardDiff.value(T))
     ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
     x = ck_expand(xs, T, nH, net, ph, ks, extra)
+    TL3NEFULL && tl3 && ((x, ks, ev) = _tl3_ne_pass(xs, x, T, nH, net, env, ph, extra, compiled(net)))
     f = dxdt_k(x, nH, net, ph, ks); extra === nothing || (f = f .+ extra(x))
     x, f[sl]
 end
@@ -741,7 +753,9 @@ function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, 
         T = exp(z[ns+1]); Tv = ForwardDiff.value(T); ev = envz(z)
         Tv == phT[] || (phc[] = [(p, photorates_t(p, Tv, env)...) for p in photos]; phT[] = Tv)
         ph = phc[]; ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
-        (ck_expand(z[1:ns], T, nH, net, ph, ks, extra), T, ph, ev)
+        x = ck_expand(z[1:ns], T, nH, net, ph, ks, extra)
+        TL3NEFULL && tl3sc && ((x, _, ev) = _tl3_ne_pass(z[1:ns], x, T, nH, net, env, ph, extra, cc))
+        (x, T, ph, ev)
     end
     function fslow(z)
         x, T, ph, ev = xT(z)

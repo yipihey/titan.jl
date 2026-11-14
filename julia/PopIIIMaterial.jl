@@ -753,6 +753,9 @@ cycle heat leaves (⟨hν⟩(T_c) − χ_2 − 0.75 kT) ≈ a few % of kT per cy
 zone that left the table by ~2000 K per step (zone 73, 2.6e4 K, cycle heat −2.65e-3 erg cm⁻³ s⁻¹ lagged over 1.3e8 s against ρe ≈ 6 erg cm⁻³).
 """
 const TL3DEEP = get(ENV, "TL3DEEP", "0") == "1"
+# TL3NEFULL=1 (ChemNet.TL3NEFULL): the three-level n_e of the split, CKHSS and coupled paths from the zone's electrons (d[:e], charge
+# conservation, He⁺, He²⁺ and Li⁺ included) instead of d[:Hp]; the star-light setup and CHEMSUB already used d[:e]
+const TL3NEK = CNn.TL3NEFULL ? :e : :Hp
 "Energy terms of the three-level atom per volume: (chemistry heat, cycle heat for GASQ) at (ρ, T, full composition d)."
 function tl3_heat(ρ, T, d, p)
     TL3DEEP && hasproperty(p, :deep) && p.deep && return (zero(T), zero(T))
@@ -1132,7 +1135,7 @@ function chem_core!(m::NetGas)
                 # CHEMCKHSS: n_e of the three-level heat from the current composition, as in ChemNet.step_ck's C
                 if (CNn.CK[] && CNn.CKHSS[] > 0) || TX.COUPLED[]
                     nHs = dn[k] / CNn.μH()
-                    cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3, (; ne = nHs * max(d[:Hp], zero(d[:Hp])))))[1]
+                    cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3, (; ne = nHs * max(d[TL3NEK], zero(d[TL3NEK])))))[1]
                 end
             end
             if !isempty(TX.CHEMB[])                  # BALSPLIT: the hydro step already gave the zone c̄ (TitanResidFast.CHEMB)
@@ -1156,7 +1159,7 @@ function chem_core!(m::NetGas)
                 return nothing
             end
             if CPLPOST[] && TX.cplz(k) && p3 !== nothing
-                p3e = merge(p3, (; ne = dn[k] / CNn.μH() * max(CNn.full(m.x[k], m.net)[:Hp], 0.0)))
+                p3e = merge(p3, (; ne = dn[k] / CNn.μH() * max(CNn.full(m.x[k], m.net)[TL3NEK], 0.0)))
             end
             x1, T1 = (CPLPOST[] && TX.cplz(k)) ? (m.x[k], tn[k]) : try
                 # u below the zone's own composition at 10 K (x and e advected by different schemes; with x_e ~ 0.1-0.5 from the three-level
@@ -1164,7 +1167,7 @@ function chem_core!(m::NetGas)
                 p3 !== nothing && egn[k] < CNn.eos(dn[k], 10.0, m.x[k], m.net)[1] && error("tl3: u below u(10 K, x) in zone $k")
                 xs1, Ts1 = CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = envk, photos = phk, cooling = cools, extra = exs)
                 ckhss = CNn.CK[] && CNn.CKHSS[] > 0
-                ckhss && p3 !== nothing && (p3e = merge(p3, (; ne = dn[k] / CNn.μH() * max(CNn.full(xs1, m.net)[:Hp], 0.0))))
+                ckhss && p3 !== nothing && (p3e = merge(p3, (; ne = dn[k] / CNn.μH() * max(CNn.full(xs1, m.net)[TL3NEK], 0.0))))
                 if p3 !== nothing && CHEMSUB[] !== nothing && isempty(TX.CHEMB[]) && !ckhss
                     fT, fx = CHEMSUB[]; nHk = dn[k] / CNn.μH(); xel(x) = max(CNn.full(x, m.net)[:e], 0.0)
                     bad(xa, Ta, xb, Tb) = (ea = xel(xa); eb = xel(xb); !(isfinite(Tb) && all(isfinite, xb)) || abs(log(Tb / Ta)) > log(fT) ||
@@ -1418,10 +1421,10 @@ function cpl_g(m::NetGas, k, z)
     # three-level heats of the iterate (chemistry heat cq, cycle heat yq; n_e self-consistent as in the cooling closure): the hydro solve
     # takes them from the gray field implicitly (TitanResidFast cpQ, cpY) instead of the lagged RAYQ/GASQ bookkeeping
     p3_ = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
-    cq, yq = p3_ === nothing ? (zero(u), zero(u)) : tl3_heat(ρ, T, dfull, merge(p3_, (; ne = ρ / CNn.μH() * max(dfull[:Hp], zero(dfull[:Hp])))))
+    cq, yq = p3_ === nothing ? (zero(u), zero(u)) : tl3_heat(ρ, T, dfull, merge(p3_, (; ne = ρ / CNn.μH() * max(dfull[TL3NEK], zero(dfull[TL3NEK])))))
     if CPLDBGZ[] > 0 && z isa Vector{Float64} && k - Int(TF.getscalar(:ngrs)) + 1 == CPLDBGZ[] && CPLDBGN[] > 0
         CPLDBGN[] -= 1; d = CNn.full(x, m.net); p3 = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
-        nHs = ρ / CNn.μH(); p3s = p3 === nothing ? nothing : merge(p3, (; ne = nHs * max(d[:Hp], 0.0)))
+        nHs = ρ / CNn.μH(); p3s = p3 === nothing ? nothing : merge(p3, (; ne = nHs * max(d[TL3NEK], 0.0)))
         @printf("CPLDBGZ cpl_g zone %d T %.1f ρ %.3e x(H+,H2) %.3e %.3e x_e %.3e x_H- %.3e: Λ %.4e  tl3(lagged ne) %.4e  tl3(self) %.4e  lya_bb(self) %.4e  S %.3e %.3e  u %.6e\n",
                 CPLDBGZ[], T, ρ, z[3], z[4], d[:e], d[:Hm], Λ, p3 === nothing ? 0.0 : tl3_heat(ρ, T, d, p3)[1], p3s === nothing ? 0.0 : tl3_heat(ρ, T, d, p3s)[1],
                 p3s === nothing ? 0.0 : lya_bb(ρ, T, d, p3s), fs[1], fs[2], u)
