@@ -463,12 +463,12 @@ to the table where the populations are LTE, so it joins the table zones at τ = 
 χ ≥ σ_T n_e/ρ of the iterate's electrons (extinction is never below Thomson scattering on the zone's own electrons; this is NLOFIX's floor,
 and what NLOTMAX's table fallback provided in ionized gas). Values exact at every iterate; Newton's derivatives in T (central), ρ, x_H⁺ and x_H₂ (one-sided)
 differences of R (ln, relative steps 1e-3 and 1e-2), reused while T stays within NLOITJ[1] and x_H⁺ within NLOITJ[2] (relative, ln;
-default 3e-3, 0.1; ρ within NLOITJ[1]) of where they were taken (an inexact Newton, the converged state unchanged); ∂R/∂ρ likewise.
+default 0, 0: new slopes at every new iterate; reusing them, e.g. NLOITJ=3e-3,0.1, made Newton stall at ~1e-4 corrections in the warm coupled zones of the production state, and the inexact Jacobian also enters DTERR's filtered estimate); ρ within NLOITJ[1].
 Retires NLOIMPT, NLODAMP, CPLNLOX, NLOFIX, NLOTMAX in network zones (they have no effect with NLOIT).
 """
 const NLOIT = get(ENV, "NLOIT", "0") == "1"
 const NLOITW = let s_ = split(get(ENV, "NLOITW", "5000,6000"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
-const NLOITJ = let s_ = split(get(ENV, "NLOITJ", "3e-3,0.1"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
+const NLOITJ = let s_ = split(get(ENV, "NLOITJ", "0,0"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
 const NLOST = Ref{Vector{Any}}(Any[])        # per zone: (; d, p) at the end of the last chemistry, or nothing
 mutable struct NloC
     v::NTuple{4,Float64}; R::NTuple{3,Float64}; ne::Float64
