@@ -7,6 +7,9 @@
 # <run directory>/phaseB.env: the physics stack (default: phaseB.env next to this script); <run directory>/run.env: the run's own
 #   settings (mesh ENVEUL/ENVCORE, MCLOUD, ...), appended after it; <run directory>/launch.env: NZ (IC shells for the tabulated
 #   profile set-up, default 200), TH, PIN, SEG
+# iceul.env next to this script: the run.env of z100ic3 (14 Nov), the first run from the IC past the protostar's swelling to the main
+#   sequence (100 zones; t_c128c's run.env without ENVMS0, + MCLOUD ENVCONS, the mesh, and the from-IC levers; later entries override
+#   earlier ones, e.g. CPLBAND= and ECHEMSPLIT=0 for COUPLED in every network zone). Use with t_c128c's phaseB.env as <run>/phaseB.env.
 HERE=$(cd "$(dirname "$0")" && pwd); JLENV=${JLENV:?set JLENV to a julia project with the repository packages}; DATA=${DATA:-/zpool/nvme/data/tabel_scratch/titan_popiii}
 RUN=$1; ck=${2:-}; R=$DATA/runs/$RUN; CK=$R/ck; mkdir -p $CK
 [ -f $R/launch.env ] && . $R/launch.env
