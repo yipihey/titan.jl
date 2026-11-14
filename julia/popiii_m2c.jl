@@ -1907,6 +1907,10 @@ try
         end
         println("ECHEMSPLIT: the hydro step advects e − Σ x E0; the chemical energy moves with the species")
     end
+    if haskey(ENV, "DTMAXTEST")                    # (test) Δt ≤ DTMAXTEST s, also for the first step: the Δt → 0 limit of a scheme
+        dtmx = parse(Float64, ENV["DTMAXTEST"]); push!(TC.DT_HOOKS, () -> dtmx)
+        TF.setscalar!(:dtime, min(TF.getscalar(:dtime), dtmx)); @printf("DTMAXTEST: Δt ≤ %.3g s\n", dtmx)
+    end
     if COUPLED
         mat isa PM.NetGas || error("COUPLED=1 needs the network gas (CHEM=net...)")
         ECHEMSPLIT && PM.CPLBAND[] === nothing && error("COUPLED=1 with ECHEMSPLIT=1 needs CPLBAND (the split zones then advect e − Σ x E0; coupled zones are treated as table zones)")

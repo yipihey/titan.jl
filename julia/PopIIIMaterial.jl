@@ -883,12 +883,13 @@ function chem_core!(m::NetGas)
     # per dissociation (UV pumping heat left out); the chemistry is energy-neutral (it takes the binding energy from u and gives it back on re-formation)
     lwheat!(k, x1) = (slrates === nothing || isempty(TX.GASQ[])) ? nothing :
         (TX.GASQ[][k] = SLDIAG[].kLW[k] * max(CNn.full(x1, m.net)[:H2], 0.0) * dn[k] / CNn.μH() * (4.48 + 0.4) * EVERG; nothing)
-    slrates === nothing || isempty(TX.GASQ[]) || fill!(TX.GASQ[], 0.0)
-    ray === nothing && !isempty(TX.RAYQ[]) && fill!(TX.RAYQ[], 0.0)            # (RAYQ also carries the three-level H's photon energy)
-    isempty(TX.CHEMB[]) || fill!(TX.CHEMBON[], false)
+    # (COUPLED prepare pass: the hydro step about to run reads these from the last chemistry; they must not be cleared here)
+    CPLPREP[] || slrates === nothing || isempty(TX.GASQ[]) || fill!(TX.GASQ[], 0.0)
+    CPLPREP[] || ray !== nothing || isempty(TX.RAYQ[]) || fill!(TX.RAYQ[], 0.0)            # (RAYQ also carries the three-level H's photon energy)
+    CPLPREP[] || isempty(TX.CHEMB[]) || fill!(TX.CHEMBON[], false)
     ph3 = filter(p -> p.R !== :H, m.photos)                                 # three-level zones: no Boltzmann-level H photo pair
     tl3sw = slrates !== nothing && hasproperty(STARLIGHT[], :tl3) && STARLIGHT[].tl3; iHpf = findfirst(==(:Hp), m.net.free)
-    if NLOPAC[]
+    if NLOPAC[] && !CPLPREP[]                 # (COUPLED prepare pass: keep the non-LTE opacities of the last chemistry for the hydro step)
         length(NLOPC[]) == length(dn) || (NLOPC[] = Any[nothing for _ in dn])
         NLODAMP < 1 && (NLOPREV[] = copy(NLOPC[]))
         fill!(NLOPC[], nothing)
@@ -986,6 +987,14 @@ function chem_core!(m::NetGas)
                 if cb != 0
                     c1 = cools; cools = (ρ, T, d) -> (c1 === nothing ? zero(T) : c1(ρ, T, d)) + ρ * cb
                 end
+            end
+            if CPLDBGZ[] > 0 && k - a + 1 == CPLDBGZ[] && CPLDBGN[] > 0      # (diagnostic) the zone's cooling terms at its current state
+                CPLDBGN[] -= 1; d0 = CNn.full(m.x[k], m.net)
+                c1 = cool === nothing ? 0.0 : cool(dn[k], tn[k], d0); tl = p3 === nothing ? (0.0, 0.0) : tl3_heat(dn[k], tn[k], d0, p3)
+                ex = exs === nothing ? nothing : exs(m.x[k])
+                @printf("CPLDBGZ %s step %d zone %d r %.1f T %.1f ρ %.3e x_e %.3e: zone_cooling %.4e  tl3_heat %.4e %.4e  cools %.4e  extra %s  dt %.3e  u %.6e\n",
+                        CPLPREP[] ? "prep" : CPLPOST[] ? "post" : "split", TF.getscalar(:jstep), k - a + 1, rn[k] / 6.957e10, tn[k], dn[k], d0[:e], c1, tl[1], tl[2],
+                        cools === nothing ? 0.0 : cools(dn[k], tn[k], d0), ex === nothing ? "-" : string(round.(ex, sigdigits = 3)), dt, egn[k])
             end
             if CPLPREP[]                             # COUPLED prepare: the zone's terms for the hydro solve
                 envc = envk; phc_ = phk; cache = Ref((NaN, Any[]))
@@ -1231,6 +1240,7 @@ table switch — with no second cooling for a zone that leaves the network —, 
 Not coupled: the IonRay path (a ray zone is not prepared), CHEMB (BALSPLIT) — both off in the runs this was built for.
 """
 const CPLPREP = Ref(false); const CPLPOST = Ref(false)
+const CPLDBGZ = Ref(parse(Int, get(ENV, "CPLDBGZ", "0"))); const CPLDBGN = Ref(parse(Int, get(ENV, "CPLDBGN", "20")))
 """
 CPLBAND (ENV, default all network zones): which network zones are coupled; the others keep the split chemistry (CHEMCK, CHEMCKHSS, with
 ECHEMSPLIT if set). `hss=f`: zones whose H⁺ relaxes fast at the start of the step, |∂S_H⁺/∂x_H⁺| Δt > f (the CHEMCKHSS criterion: the
@@ -1243,6 +1253,13 @@ function cpl_g(m::NetGas, k, z)
     x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
     u, p = CNn.eos(ρ, T, x, m.net)
     Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, CNn.full(x, m.net))
+    if CPLDBGZ[] > 0 && z isa Vector{Float64} && k - Int(TF.getscalar(:ngrs)) + 1 == CPLDBGZ[] && CPLDBGN[] > 0
+        CPLDBGN[] -= 1; d = CNn.full(x, m.net); p3 = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
+        nHs = ρ / CNn.μH(); p3s = p3 === nothing ? nothing : merge(p3, (; ne = nHs * max(d[:Hp], 0.0)))
+        @printf("CPLDBGZ cpl_g zone %d T %.1f ρ %.3e x(H+,H2) %.3e %.3e x_e %.3e x_H- %.3e: Λ %.4e  tl3(lagged ne) %.4e  tl3(self) %.4e  lya_bb(self) %.4e  S %.3e %.3e  u %.6e\n",
+                CPLDBGZ[], T, ρ, z[3], z[4], d[:e], d[:Hm], Λ, p3 === nothing ? 0.0 : tl3_heat(ρ, T, d, p3)[1], p3s === nothing ? 0.0 : tl3_heat(ρ, T, d, p3s)[1],
+                p3s === nothing ? 0.0 : lya_bb(ρ, T, d, p3s), fs[1], fs[2], u)
+    end
     [p, u, fs[1], fs[2], Λ]
 end
 cpl_lift(y, J, ρ::Float64, T::Float64, a::Float64, b::Float64) = (y[1], y[2], y[3], y[4], y[5])
@@ -1294,8 +1311,8 @@ function cpl_prepare!(m::NetGas)
     length(CPLTERMS[]) == mgr || (CPLTERMS[] = Any[nothing for _ in 1:mgr]); fill!(CPLTERMS[], nothing)
     length(CPLCACHE[]) == mgr || (CPLCACHE[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHE[], nothing)
     fill!(TX.CPLZ[], false)                       # chem_core!'s closing fill_eos! uses m.x
-    CPLPREP[] = true
-    try chem_core!(m) finally CPLPREP[] = false end
+    CPLPREP[] = true; sd0 = SLDIAG[]               # (the prepare pass's star-light setup must not replace the last chemistry's diagnostics)
+    try chem_core!(m) finally CPLPREP[] = false; SLDIAG[] = sd0 end
     sl = CNn.ckinfo(m.net).slow
     for k in 1:mgr
         x = m.x[min(k, length(m.x))]
