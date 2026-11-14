@@ -339,7 +339,9 @@ On the 100-zone grid the stiff F_r/E_r of the thin zones outside the photosphere
 dt 2.8e3 → 1.5e3 s, every attempt rejected).
 **Norm** (DTERRNORM=rms (default) | max): err = ‖Est / w‖ with per-variable weights
     ρ, T: rtol·|y|;  E_r: rtol·(E_r + efloor·aT⁴);  u: rtol·max(|u|, c_s) (c_s the larger adjacent sound speed);
-    F_r: rtol·max(|F|, ffloor·c E_r);  x_me (Eulerian mass flux): rtol·(larger adjacent zone mass);  r (moving grids): rtol·(smaller adjacent zone width);
+    F_r: rtol·max(|F|, ffloor·c E_r);  x_me: rtol·max(x_me, adjacent zone masses) (TITAN's own measure, relative change of the mass coordinate; the zone masses
+    themselves are controlled through ρ — weighting δx_me by the zone mass, a Courant-type test, held the production state, where the
+    accretion shock crosses the fixed interfaces, at Δt ~ 1e5 s against the heuristic's 1.3e8 s);  r (moving grids): rtol·(smaller adjacent zone width);
     x_H⁺, x_H₂ (COUPLED zones): rtol·(x + xfloor) on |δx| = |δ ln x|·x.
 Defaults: xfloor 1e-6, ffloor 1 (F_r measured on its causal scale cE: with 1e-2 the thin zones just outside the photosphere, where F crosses through small values, held Δt at ~400 s), efloor 0.
 
@@ -507,7 +509,7 @@ function wnorm(rhs)
     end
     @inbounds for k in a+1:b
         cs = max(asn[k-1], asn[k]); acc(rhs[iu, k] * unom[k] / (rt * max(abs(un[k]), cs)), iu, k)
-        mz = max(dn[k-1] * dvn[k-1], dn[k] * dvn[k]); acc(rhs[im, k] * xmen[k] / (rt * mz), im, k)
+        mz = max(abs(xmen[k]), dn[k-1] * dvn[k-1], dn[k] * dvn[k]); acc(rhs[im, k] * xmen[k] / (rt * mz), im, k)
         lag && acc(rhs[ir, k] * rn[k] / (rt * min(rn[k] - rn[k-1], rn[k+1] - rn[k])), ir, k)
         if lrad
             frn, ern, frnom = vf(:frn), vf(:ern), vf(:frnom)
