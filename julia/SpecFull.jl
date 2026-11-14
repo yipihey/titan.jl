@@ -394,9 +394,20 @@ end
 """
 Observer-frame formal solution of one window: L_ν on the observed frequencies νo for the lines `lw` (indices into LL) with point
 data (χc, ηc at the window's frequency), strengths K, E (np × nlines) and profiles prof[k][j]. `lines = false`: continuum only.
+
+    window_L(atm, R, pts, νo, χc, ηc, K, E, prof, lw, LL; lines = true, rph = nothing)
+
+L_ν leaving the outer edge at the observed frequencies νo (observer frame, tangent rays). With `rph` given (a number) the result is the
+pair (L_edge, L_ph); L_ph is NaN where rph is not finite or not inside the solved region. With rph inside the solved region it is
+L_ν = 16π² r² H_ν through the sphere r = rph from the same transfer, returned as (L_edge, L_ph): H_ν = ½∫(I⁺ − I⁻)μ dμ with
+μ dμ = p dp / r², so L = 8π² ∫₀^rph (I⁺ − I⁻) p dp. I⁺ (outward) is the ray's intensity where it crosses rph outward on the near side;
+I⁻ (inward) where a ray crosses rph inward on the far side, and for core rays (no far side) from an inward integration of the near side
+from the edge (no incident light) down to rph, with the velocity projected on that direction. Intensities at the crossing are
+interpolated linearly in r between the bracketing points; at p = rph (tangent) I⁺ = I⁻, so the integrand vanishes there.
 """
-function window_L(atm, R, pts, νo, χc, ηc, K, E, prof, lw, LL; lines = true)
+function window_L(atm, R, pts, νo, χc, ηc, K, E, prof, lw, LL; lines = true, rph = nothing)
     np = length(pts); ps = [ray.p for ray in R]; Lν = zeros(length(νo))
+    doph = rph !== nothing && isfinite(rph) && atm.r[1] < rph < atm.r[end]; Lph = fill(NaN, length(νo))
     vth = [sqrt(2kB * p.T / mH + XI^2) for p in pts]          # (H thermal width: the sub-step rule, conservative for heavier lines)
     @inline function coef(k, νx, vz)
         χ = χc[k]; η = ηc[k]
@@ -410,15 +421,14 @@ function window_L(atm, R, pts, νo, χc, ηc, K, E, prof, lw, LL; lines = true)
         χ, η
     end
     Threads.@threads for iν in eachindex(νo)
-        νx = νo[iν]; Io = zeros(length(R))
-        for (jr, ray) in enumerate(R)
-            idx = ray.idx; z = ray.z; nr = length(idx)
-            # path from the far end to the observer: (point index, signed z)
-            path = ray.core ? [(idx[m], z[m]) for m in nr:-1:1] : vcat([(idx[m], -z[m]) for m in 1:nr], [(idx[m], z[m]) for m in nr:-1:1])
-            I = ray.core ? ηc[idx[nr]] / χc[idx[nr]] : 0.0
+        νx = νo[iν]; Io = zeros(length(R)); Ip = zeros(length(R)); Im = zeros(length(R))
+        # integrate I along path (point index, signed z) in the direction of +z (sgn = 1) or −z (sgn = −1); with jr > 0 record the
+        # intensities where the path crosses r = rph outward (Ip) and inward (Im)
+        function walk(path, I, sgn, jr)
             for s in 1:length(path)-1
                 ka, za = path[s]; kb, zb = path[s+1]; Δz = zb - za; Δz == 0 && continue
-                vza = pts[ka].v * za / atm.r[ka]; vzb = pts[kb].v * zb / atm.r[kb]
+                Ia = I
+                vza = sgn * pts[ka].v * za / atm.r[ka]; vzb = sgn * pts[kb].v * zb / atm.r[kb]
                 m = lines ? clamp(ceil(Int, abs(vzb - vza) / (SUBV * min(vth[ka], vth[kb]))), 1, 400) : 1
                 jmp = (ka == kb + 1 || kb == ka + 1) && atm.jump[min(ka, kb)]
                 χ0a, η0a = coef(ka, νx, vza)
@@ -431,13 +441,40 @@ function window_L(atm, R, pts, νo, χc, ηc, K, E, prof, lw, LL; lines = true)
                     I = SP.segment(I, ηp / χp, ηn / χn, dτ)
                     χp = χn; ηp = ηn
                 end
+                if jr > 0
+                    ra = atm.r[ka]; rb = atm.r[kb]
+                    if ra < rph <= rb                     # moving outward through rph
+                        w = (rph - ra) / (rb - ra); Ip[jr] = (1 - w) * Ia + w * I
+                    elseif ra >= rph > rb                 # moving inward through rph
+                        w = (ra - rph) / (ra - rb); Im[jr] = (1 - w) * Ia + w * I
+                    end
+                end
             end
-            Io[jr] = I
+            I
+        end
+        for (jr, ray) in enumerate(R)
+            idx = ray.idx; z = ray.z; nr = length(idx)
+            # path from the far end to the observer: (point index, signed z)
+            path = ray.core ? [(idx[m], z[m]) for m in nr:-1:1] : vcat([(idx[m], -z[m]) for m in 1:nr], [(idx[m], z[m]) for m in nr:-1:1])
+            I0 = ray.core ? ηc[idx[nr]] / χc[idx[nr]] : 0.0
+            rec = doph && ray.p < rph ? jr : 0
+            Io[jr] = walk(path, I0, 1, rec)
+            # core rays have no far side: the inward intensity at rph from the near side, edge inwards, direction −z
+            rec > 0 && ray.core && walk([(idx[m], z[m]) for m in 1:nr], 0.0, -1, rec)
         end
         L = 0.0; for j in 1:length(R)-1; L += 0.5 * (Io[j] * ps[j] + Io[j+1] * ps[j+1]) * (ps[j+1] - ps[j]); end
         Lν[iν] = 8π^2 * L
+        if doph
+            Lq = 0.0; pl = 0.0; fl = 0.0
+            for j in eachindex(R)
+                ps[j] < rph || break
+                fj = (Ip[j] - Im[j]) * ps[j]; j > 1 && (Lq += 0.5 * (fl + fj) * (ps[j] - pl)); pl = ps[j]; fl = fj
+            end
+            Lq += 0.5 * fl * (rph - pl)          # to p = rph, where I⁺ = I⁻
+            Lph[iν] = 8π^2 * Lq
+        end
     end
-    Lν
+    rph === nothing ? Lν : (Lν, Lph)
 end
 
 """
@@ -498,6 +535,8 @@ function spectrum(x, d, τ, kph; h2pop = k -> nothing, HL = nothing, νgrid = nu
     end
     t5 = time()
     Lprof = zeros(nl, nv); Lcont = zeros(nl); Lline = zeros(nl); EW = zeros(nl); τr = zeros(nl, NRT)
+    # the same at the photosphere sphere r = rph (L_ν = 16π² r² H_ν through it, observer frame; NaN without a photosphere)
+    LprofP = fill(NaN, nl, nv); LcontP = fill(NaN, nl); LlineP = fill(NaN, nl); EWP = fill(NaN, nl)
     rgrid = exp.(range(log(atm.r[1]), log(atm.r[end]), length = NRT))
     Jc = [Jinterp(νgrid, cont.J[k, :]) for k in 1:np]
     for j in 1:nl
@@ -508,10 +547,15 @@ function spectrum(x, d, τ, kph; h2pop = k -> nothing, HL = nothing, νgrid = nu
             ab, sc, St = SP.coeffs3(op, k, ν0); χc[k] = ab + sc; ηc[k] = ab * St + sc * Jc[k](ν0)
         end
         Kw = Ks[:, lw]; Ew = Es[:, lw]; pw = [[prof[k][i] for i in lw] for k in 1:np]
-        Lp = window_L(atm, R, pts, νo, χc, ηc, Kw, Ew, pw, lw, LL)
-        Lc = window_L(atm, R, pts, [ν0], χc, ηc, zero(Kw), zero(Ew), pw, lw, LL)[1]      # (same sub-segments as the profile)
+        Lp, Lpp = window_L(atm, R, pts, νo, χc, ηc, Kw, Ew, pw, lw, LL; rph)
+        Lcv, Lcvp = window_L(atm, R, pts, [ν0], χc, ηc, zero(Kw), zero(Ew), pw, lw, LL; rph)      # (same sub-segments as the profile)
+        Lc = Lcv[1]
         Lprof[j, :] .= Lp; Lcont[j] = Lc
         dν = ν0 * DV / c; Lline[j] = sum(Lp .- Lc) * dν; EW[j] = -Lline[j] / max(Lc, 1e-300) * (c / ν0^2) * 1e8     # Å; < 0 = emission
+        if isfinite(Lcvp[1])
+            LprofP[j, :] .= Lpp; LcontP[j] = Lcvp[1]
+            LlineP[j] = sum(Lpp .- Lcvp[1]) * dν; EWP[j] = -LlineP[j] / (abs(Lcvp[1]) > 0 ? Lcvp[1] : 1e-300) * (c / ν0^2) * 1e8
+        end
         # radial line-centre optical depth (comoving, static), from the outer edge inwards
         tk = zeros(np)
         for k in np-1:-1:1
@@ -525,7 +569,7 @@ function spectrum(x, d, τ, kph; h2pop = k -> nothing, HL = nothing, νgrid = nu
     end
     t6 = time()
     (; step = x.step, t = x.t, ν = νgrid, cont, np, kc = A.kc, fT, fhist, rtop, Ltop, nrefined = count(p -> p.lte && p.τg <= TDEEP, pts), lines = LL,
-       vgrid, Lprof, Lcont, Lline, EW, rgrid, τr, rph, Teff, Lrun_edge = 4π * x.r[end-2]^2 * x.fr[end-2],
+       vgrid, Lprof, Lcont, Lline, EW, LprofP, LcontP, LlineP, EWP, rgrid, τr, rph, Teff, Lrun_edge = 4π * x.r[end-2]^2 * x.fr[end-2],
        Lrun_ph = kph === nothing ? NaN : 4π * x.r[kph]^2 * x.fr[kph],
        times = (points = t1 - t0, cont1 = t2 - t1, pop2 = t3 - t2, cont2 = t4 - t3, profiles = t5 - t4, windows = t6 - t5))
 end

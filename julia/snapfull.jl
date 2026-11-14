@@ -69,9 +69,11 @@ function lte_test()
                 K[k, 1], E[k, 1] = SF.strength(ln, k, pts, pop, z -> nothing); pr[k][1] = SF.profile(ln, pts[k])
             end
             L = SF.window_L(atm, R, pts, νo, χc, ηc, K, E, pr, [j], LL); Lc = SF.window_L(atm, R, pts, [ν0], χc, ηc, K, E, pr, [j], LL; lines = false)[1]
+            rmid = atm.r[n ÷ 2] * 1.0001                                                # the photosphere-sphere output at mid-slab
+            _, LP = SF.window_L(atm, R, pts, νo, χc, ηc, K, E, pr, [j], LL; rph = rmid); _, LcP = SF.window_L(atm, R, pts, [ν0], χc, ηc, K, E, pr, [j], LL; lines = false, rph = rmid)
             Sl = E[n ÷ 2, 1] / K[n ÷ 2, 1]
-            @printf("v0 %6.0f km/s %-12s S_line/B %.6f  max|L/Lc − 1| %.2e  (τ0 centre %.2e)\n", v0 / 1e5, ln.name, Sl / SF.MA.Bν(ν0, T),
-                    maximum(abs.(L ./ Lc .- 1)), K[n ÷ 2, 1] * Z0Physics.prof_eval(pr[n ÷ 2][1], 0.0) * (r[end] - r[1]))
+            @printf("v0 %6.0f km/s %-12s S_line/B %.6f  edge max|L/Lc − 1| %.2e  at r_mid max|L − Lc|/(4π²r²B) %.2e  (τ0 centre %.2e)\n", v0 / 1e5, ln.name, Sl / SF.MA.Bν(ν0, T),
+                    maximum(abs.(L ./ Lc .- 1)), maximum(abs.(LP .- LcP[1])) / (4π^2 * rmid^2 * SF.MA.Bν(ν0, T)), K[n ÷ 2, 1] * Z0Physics.prof_eval(pr[n ÷ 2][1], 0.0) * (r[end] - r[1]))
         end
     end
 end
@@ -80,7 +82,9 @@ const SPSCALF = ["step", "t_yr", "r_ph", "T_eff", "Lrun_edge", "Lrun_ph", "Lc_ed
 """
 Export: specfull.json (grids, line names, per spectrum the scalars SPSCALF) and specfull.f32, per spectrum: νL_ν/L☉ edge (nν),
 νL_ν/L☉ photosphere (nν), r(τ_ν = ⅔)/R☉ (nν); per line (nl): L_ν/L_c on the velocity grid (nv), then per line L_line/L☉, EW [Å],
-L_c(ν0) ν0/L☉ (3 nl); then r grid/R☉ (NRT) and log10 τ0 per line (nl × NRT).
+L_c(ν0) ν0/L☉ (3 nl); then r grid/R☉ (NRT) and log10 τ0 per line (nl × NRT); ver 2 ("ver":2 in the json) appends the same for the
+light through the photosphere sphere r_ph: per line L_ν/L_c on the velocity grid (nv), then per line L_line/L☉, EW [Å], L_c(ν0) ν0/L☉
+(3 nl), all NaN for spectra cached before ver 2.
 """
 function export_full(L, cache, out)
     mkpath(out); rows = Any[]; meta = nothing
@@ -95,13 +99,17 @@ function export_full(L, cache, out)
             for j in eachindex(s.lines); write(io, Float32.(s.Lprof[j, :] ./ max(s.Lcont[j], 1e-300))); end
             for j in eachindex(s.lines); write(io, Float32[s.Lline[j] / LSUN, s.EW[j], s.Lcont[j] * s.lines[j].ν0 / LSUN]); end
             write(io, Float32.(s.rgrid ./ RSUN)); for j in eachindex(s.lines); write(io, Float32.(log10.(max.(s.τr[j, :], 1e-30)))); end
+            # ver 2: the lines through the photosphere sphere r_ph (NaN for spectra cached before they were computed)
+            hasP = hasproperty(s, :LprofP); nv_ = length(s.vgrid)
+            for j in eachindex(s.lines); write(io, hasP ? Float32.(s.LprofP[j, :] ./ (abs(s.LcontP[j]) > 0 ? s.LcontP[j] : NaN)) : fill(Float32(NaN), nv_)); end
+            for j in eachindex(s.lines); write(io, hasP ? Float32[s.LlineP[j] / LSUN, s.EWP[j], s.LcontP[j] * s.lines[j].ν0 / LSUN] : fill(Float32(NaN), 3)); end
             push!(rows, [s.step, s.t / 3.15576e7, s.rph / RSUN, s.Teff, s.Lrun_edge / LSUN, s.Lrun_ph / LSUN, q(s.cont.Le) / LSUN, q(s.cont.Lp) / LSUN, s.np, s.nrefined])
         end
     end
     meta === nothing && return println("no full spectra in $cache")
     js(v) = isfinite(v) ? @sprintf("%.6g", v) : "null"
     open(joinpath(out, "specfull.json.tmp"), "w") do io
-        print(io, "{\"nnu\":", length(meta.ν), ",\"nl\":", length(meta.names), ",\"nv\":", length(meta.v), ",\"nrt\":", SF.NRT,
+        print(io, "{\"ver\":2,\"nnu\":", length(meta.ν), ",\"nl\":", length(meta.names), ",\"nv\":", length(meta.v), ",\"nrt\":", SF.NRT,
               ",\"lam\":[", join((@sprintf("%.6g", 1e4 * SF.c / ν) for ν in meta.ν), ","), "],\"lines\":[", join(("\"$n\"" for n in meta.names), ","),
               "],\"lam0\":[", join((@sprintf("%.6g", v) for v in meta.λ0), ","), "],\"v\":[", join((@sprintf("%.4g", v / 1e5) for v in meta.v), ","),
               "],\"scalars\":[", join(("\"$s\"" for s in SPSCALF), ","), "],\"spectra\":[", join(("[" * join(js.(r), ",") * "]" for r in rows), ","), "]}")
