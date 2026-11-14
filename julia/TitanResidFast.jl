@@ -271,6 +271,12 @@ handed back to the split chemistry for the rest of the step (CPLZ false; with EC
 the shock whose x_H⁺ had fallen to 1e-9 asked for δ ln x = −1e76 in every retry, the step never converged and Δt collapsed (t_cpl4, step 123110).
 """
 const CPL_BAD = Set{Int}(); const CPL_BADDELTA = Ref(parse(Float64, get(ENV, "CPLBADDELTA", "100"))); const CPL_NDECOUPLED = Ref(0)
+"""
+CPLTRACEX=x (default 0 = off): in a coupled zone, a species row whose iterate and old abundance are both below x gets no Newton correction
+(held for the step) and does not count for CPLBADDELTA. In the thermalised zones that leave the table (He II layer, 2–3e4 K) trace H₂
+(x ~ 1e-24) asked for δ ln x of −600…+550 and decoupled zones 70–72 (t_nolte, jstep 2217816).
+"""
+const CPL_TRACEX = Ref(parse(Float64, get(ENV, "CPLTRACEX", "0")))
 function cpl_reset!()
     for i in 1:2; copyto!(XSN[][i], XSO[][i]); end
     if !isempty(CPL_BAD)
@@ -304,6 +310,8 @@ function cpl_dmax!(rhs, a, b)
             CPLDBG[] > 0 && abs(rhs[i, k]) > 20 && (CPLDBG[] -= 1;
                 println("CPLDBG iter $(gi(:iter)) zone $(k - a + 1) row $i: δ $(rhs[i, k]) x $(q[k]) x_old $(XSO[][i - 7][k]) x(H+,H2) $(XSN[][1][k]), $(XSN[][2][k]) T $(TF.var(:tn)[k]) T_old $(TF.var(:to)[k]) ρ $(TF.var(:dn)[k]) neighbours x_H+ $(XSN[][1][k-1]) $(XSN[][1][k+1]) cplz $(cplz(k-1)) $(cplz(k+1))"))
             isfinite(rhs[i, k]) || (rhs[i, k] = 0.0; d = Inf)                        # a non-finite correction: no change, not converged
+            # CPLTRACEX: a trace species (x and x_old below it) is held for the step and does not decouple the zone
+            CPL_TRACEX[] > 0 && max(q[k], XSO[][i - 7][k]) < CPL_TRACEX[] && (rhs[i, k] = 0.0)
             abs(rhs[i, k]) > CPL_BADDELTA[] && push!(CPL_BAD, k)
             rhs[i, k] = clamp(rhs[i, k], -cl, cl)
             # weight by the larger of the iterate and the old abundance: a species the iterate drove to the floor (x_H⁺ 1e-40 next to the
