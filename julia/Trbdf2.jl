@@ -458,13 +458,13 @@ taken from the residual's own state evaluation (TitanResidFast.residual! at the 
 injected through the old arrays as for the first filter.
 """
 function refilter!(E1, Cs, δ0)
-    c = TX.context(); W = TX.getws(Float64, c.mgr); neqn, k0, nb = c.neqn, c.k0, c.nb; R = zeros(neqn, nb)
+    c = TX.context(); Wws = TX.getws(Float64, c.mgr); W = Wws.a; neqn, k0, nb = c.neqn, c.k0, c.nb; R = zeros(neqn, nb)
     x = zeros(neqn * nb); mx = 0.0
     @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = v; mx = max(mx, abs(v)); end
     ε = mx > 0 ? min(1.0, 1e-3 / mx) : 1.0
     stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2))
-    TX.residual!(R, W, c, zeros(neqn * nb)); C0 = Dict(s_ => copy(v) for (s_, v) in stw())
-    x .*= ε; TX.residual!(R, W, c, x); Cp = stw()
+    TX.residual!(R, Wws, c, zeros(neqn * nb)); C0 = Dict(s_ => copy(v) for (s_, v) in stw())
+    x .*= ε; TX.residual!(R, Wws, c, x); Cp = stw()
     Co = Dict{Symbol,Vector{Float64}}()
     for (s_, v0) in C0
         vs = Cs[s_]; vp = Cp[s_]; o = similar(v0)
@@ -559,7 +559,11 @@ function step_err!()
                     if DSAL[] === nothing
                         ESTATS[:nofsal] += 1
                     else
-                        e_, v_, z_, w_ = try estimate!(Cn, Cg, C1, Cs, Δ) catch ex; ex isa InterruptException && rethrow(); (Inf, "estimate failed", 0, Inf) end
+                        e_, v_, z_, w_ = try estimate!(Cn, Cg, C1, Cs, Δ) catch ex
+                            ex isa InterruptException && rethrow()
+                            (ESTATS[:nonfinite_est] += 1) <= 3 && println("DTERR: estimate failed: ", first(sprint(showerror, ex, catch_backtrace()), 1500))
+                            (Inf, "estimate failed", 0, Inf)
+                        end
                         isfinite(e_) || (e_ = Inf; ESTATS[:nonfinite_est] += 1)  # a non-finite estimate rejects the step
                         err = e_; info = (v_, z_, w_)
                     end
