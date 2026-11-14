@@ -935,7 +935,8 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     Lr = [sum(view(Lline, :, k)) for k in 1:n+1]
     Λ = [(Lr[k+1] - Lr[k]) / (4π / 3 * (r[k+1]^3 - r[k]^3)) for k in 1:n]
     LAST[] = (nbins = nbmax, nthick = nthick, iters = iters, nep = nep, converged = converged, hist = hist, Λrate = Λrate,
-              pops = P, nmaser = nmaser, mode = mode, Λem = Λem, kq = bgd === nothing ? 0 : bgd.kq)
+              pops = P, nmaser = nmaser, mode = mode, Λem = Λem, kq = bgd === nothing ? 0 : bgd.kq,
+              β = β, Jeff = Jeff)          # (the radiative rates of the last population solve: LINEIMP's local model, popiii_m2c)
     Λ, Lr, Lline
 end
 

@@ -37,10 +37,61 @@ linearised in ln T) instead of explicit with Δt ≤ 0.1 uρ/Λ.
 """
 ext_cooling(m, k) = (Λx = m.Λext[k]; Λx == 0 ? nothing :
                      m.slope[k] == 0 ? ((T) -> Λx + zero(T)) : (Tr = m.Tref[k]; s = m.slope[k]; (T) -> Λx * (T / Tr)^s))
+"""
+LINEIMP=1 (popiii_m2c; default off, off = bit-identical): the H₂ line cooling of a zone is a function of the zone's current state, not
+a number held from the last transfer call (`Λext`, with the IMPCOOL power-law slope from a second transfer call). Each transfer call
+(popiii_m2c `linecool`) leaves per zone the radiative rates of its last population solve: escape probability β and mean intensity J̄
+per line (escape-probability call: β of the local optical depths, J̄ = β J_bg of the incident CMB + star light; ALI call: β = 1 − Λ*,
+J̄ = J̄_fs − Λ* S, the accelerated-Λ-iteration split). Between transfer calls those rates are frozen and the level populations are
+re-solved in statistical equilibrium at the gas temperature of the iterate:
+    Λ(ρ, T, x) = f · (n_H₂/n_H₂⁰) · n_H₂⁰ Σ_lines hν [n_u(T) (A β + B_ul J̄) − n_l(T) B_lu J̄]     (H2Levels.netrad = collcool in s.e.)
+with the colliders of the transfer call (n_H₂/n_H₂⁰ carries ρ and, in coupled zones, x_H₂ of the iterate). So the optically thin and
+the escape-probability part of the cooling are implicit and exact in T; the non-local part (J̄ from the other zones, the ALI/EP ratio f
+of the hybrid scheme) is lagged. ∂Λ/∂T from the same model (one-sided difference, relative step LIEPS) wherever Newton asks for it.
+Λ is the net exchange with the zone's radiation field: it vanishes where the levels are in equilibrium with J̄ (for J̄ = β B_ν(T_r):
+at T = T_r) and is heating below that, so no held rate can take a zone below the radiation temperature; J̄ ≥ β B_ν(T_CMB) per line.
+"""
+const LINEIMP = Ref(false)
+const LIMODEL = Ref{Vector{Any}}(Any[])          # per zone k: nothing or (; LV, β, J, nH, nH2, nHe, nHp, ρ, f, c)
+const LIEPS = 1e-4
+mutable struct LiCache; T::Float64; λ::Float64; dλ::Float64; hasd::Bool; ws::Any; end
+li_model(k) = (LINEIMP[] && k <= length(LIMODEL[])) ? LIMODEL[][k] : nothing
+li_invalidate!() = (fill!(LIMODEL[], nothing); nothing)
+"(LINEIMP) the zone's line model from the radiative rates of a transfer call (see LINEIMP)."
+function li_set!(k, LV, β, J, nH, nH2, nHe, nHp, ρ, f)
+    length(LIMODEL[]) < k && append!(LIMODEL[], Any[nothing for _ in length(LIMODEL[])+1:k])
+    LIMODEL[][k] = (nH2 > 0 && isfinite(f)) ? (; LV, β, J, nH = Float64(nH), nH2 = Float64(nH2), nHe = Float64(nHe), nHp = Float64(nHp), ρ = Float64(ρ), f = Float64(f),
+                                              c = LiCache(NaN, 0.0, 0.0, false, Main.H2Levels.PopWS(LV))) : nothing
+    nothing
+end
+function li_lam(md, Tv, ws)
+    HV = Main.H2Levels
+    P = HV.populations(md.LV, Tv, md.nH, md.nH2, md.nHe, md.nHp; β = md.β, Jbar = md.J, ws)
+    md.f * HV.netrad(md.LV, P, md.nH2, md.β, md.J)
+end
+"(LINEIMP) the line cooling [erg cm⁻³ s⁻¹] of the zone with model md at (ρ, T, composition y | nothing); Duals carry ∂/∂T, ∂/∂ρ, ∂/∂x_H₂."
+function li_cool(md, ρ, T, y)
+    Tv = max(Float64(ForwardDiff.value(T)), 1.0); c = md.c
+    if c.T != Tv
+        c.T = Tv; c.λ = li_lam(md, Tv, c.ws); c.hasd = false
+    end
+    s = y === nothing ? ρ / md.ρ : (ρ / CNn.μH()) * max(y[:H2], zero(y[:H2])) / md.nH2
+    T isa ForwardDiff.Dual || return c.λ * s
+    if !c.hasd
+        c.dλ = (li_lam(md, Tv * (1 + LIEPS), c.ws) - c.λ) / (Tv * LIEPS); c.hasd = true
+    end
+    (c.λ + c.dλ * (T - Tv)) * s
+end
 "Cooling function for zone k: the material's own plus the transfer term."
 function zone_cooling(m, k)
+    md = li_model(k)
+    if md !== nothing                                # LINEIMP: the line cooling of the iterate (see LINEIMP)
+        g = (ρ, T, y) -> li_cool(md, ρ, T, y)
+        c = m.cooling === nothing ? g : ((ρ, T, y) -> m.cooling(ρ, T, y) + g(ρ, T, y))
+    else
     f = ext_cooling(m, k)
     c = f === nothing ? m.cooling : m.cooling === nothing ? ((ρ, T, y) -> f(T)) : ((ρ, T, y) -> m.cooling(ρ, T, y) + f(T))
+    end
     (HDCHEM[] && k <= length(HDX[]) && HDX[][k] > 0) || return c
     xhd = HDX[][k]                                   # HDCHEM=1: HD cooling with the x_HD of the start of the step
     c === nothing ? ((ρ, T, y) -> hd_cool(ρ, T, y, xhd)) : ((ρ, T, y) -> c(ρ, T, y) + hd_cool(ρ, T, y, xhd))
@@ -389,7 +440,142 @@ to test what drives the envelope cycle at L ≈ L_Edd. Not physics.
 """
 const CHICAP = let s = split(get(ENV, "CHICAP", "0"), ","); (parse(Float64, s[1]), length(s) > 1 ? parse(Float64, s[2]) : 5e4); end
 @inline chicap(κ, T) = (CHICAP[1] > 0 && T < CHICAP[2]) ? min(κ, CHICAP[1]) : κ
+"""
+NLOIT=1 (with NLOPAC; default off, off = bit-identical): the opacities of a network zone are those of the Newton iterate's own
+populations, not the lagged ratio of the last chemistry (NLOPC). For (ρ, T, x) of the iterate
+    κ_i = OPAC_i(ρ, T) · R_i,   R_E = κ_E^nl(d)/κ_P^nl(eq),  R_P = κ_P^nl(d)/κ_P^nl(eq),  R_R = κ_R^nl(d)/κ_R^nl(eq)
+with κ^nl the continuum code's means (`nlte_kappas`: the network's H⁻, H ff, CIA, Rayleigh, Thomson; H bound–free from the three-level
+n = 2) at the iterate's T and ρ for the zone's composition d, and κ^nl(eq) the same code in equilibrium composition at the same (ρ, T).
+d: in coupled zones the CK expansion of the iterate's x_H⁺, x_H₂ (`ck_eval` with the zone's terms of the step); in split zones the
+composition the chemistry left (frozen over the hydro step, as in the EOS). The three-level radiation parameters (P12, RL, β, T_c) are
+those of the step (lagged with the radiation field). The ratio form keeps the table's calibration (OPAL lines above ~6300 K) and goes
+to the table where the populations are LTE, so it joins the table zones at τ = PSWTAU continuously; the ratio has no threshold in T.
+χ ≥ σ_T n_e/ρ of the iterate's electrons (extinction is never below Thomson scattering on the zone's own electrons; this is NLOFIX's floor,
+and what NLOTMAX's table fallback provided in ionized gas). Values exact at every iterate; Newton's derivatives in T and x_H⁺ by one-sided
+differences of R (ln, relative steps 1e-3 and 1e-2), reused while T stays within NLOITJ[1] and x_H⁺ within NLOITJ[2] (relative, ln;
+default 3e-3, 0.1) of where they were taken (an inexact Newton, the converged state unchanged); ∂R/∂ρ is not in the Jacobian (OPAC's is).
+Retires NLOIMPT, NLODAMP, CPLNLOX, NLOFIX, NLOTMAX in network zones (they have no effect with NLOIT).
+"""
+const NLOIT = get(ENV, "NLOIT", "0") == "1"
+const NLOITJ = let s_ = split(get(ENV, "NLOITJ", "3e-3,0.1"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
+const NLOST = Ref{Vector{Any}}(Any[])        # per zone: (; d, p) at the end of the last chemistry, or nothing
+mutable struct NloC
+    v::NTuple{3,Float64}; R::NTuple{3,Float64}; ne::Float64
+    vJ::NTuple{3,Float64}; qT::NTuple{3,Float64}; qx::NTuple{3,Float64}; hasJ::Bool
+end
+const NLOC = Ref{Vector{Any}}(Any[])          # per zone cache
+const NLOITN = Threads.Atomic{Int}(0); const NLOITJN = Threads.Atomic{Int}(0)     # (evaluations of R, of its slopes)
+nloc_reset!(n) = (length(NLOC[]) == n ? fill!(NLOC[], nothing) : (NLOC[] = Any[nothing for _ in 1:n]); nothing)
+"CIA kernels on the nlte_means frequencies (every 8th point), tabulated on the union of the tables' node temperatures: exact (kcia and k_h2h2 are piecewise linear in T between those nodes, held outside)."
+const CIATAB = Ref{Any}(nothing)
+function ciatab()
+    CIATAB[] === nothing || return CIATAB[]
+    F = nlfreq(); t = COp.tables()
+    idx = [i for i in eachindex(F.ν) if i % 8 == 1]
+    Tn = sort(unique(vcat(t.H2H2.T, t.H2He.T, t.H2H.T, t.BOR.T, [3000.0])))
+    K = zeros(3, length(Tn), length(idx))
+    for (s, i) in enumerate(idx), (j, Tq) in enumerate(Tn)
+        K[1, j, s] = COp.k_h2h2(t, F.σ[i], Tq); K[2, j, s] = COp.kcia(t.H2He, F.σ[i], Tq); K[3, j, s] = COp.kcia(t.H2H, F.σ[i], Tq)
+    end
+    CIATAB[] = (; Tn, K)
+end
+"nlte_means with the CIA kernels from `ciatab` (NLOIT); otherwise the same arithmetic."
+function nlte_means_fast(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T)
+    F = nlfreq(); sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0; wJ = Tw != T
+    cia = nH2 > 1e-3 * n1; acia = 0.0; nnl = hbf_levels(T, n2)
+    if cia
+        ct = ciatab(); Tn = ct.Tn; nT = length(Tn)
+        Tc = clamp(T, Tn[1], Tn[end]); jT = clamp(searchsortedlast(Tn, Tc), 1, nT - 1); wT = (Tc - Tn[jT]) / (Tn[jT+1] - Tn[jT])
+    end
+    @inbounds for i in eachindex(F.ν)
+        ν = F.ν[i]; dν = F.dν[i]; λμ = F.λμ[i]
+        stim = -expm1(-COp.h * ν / (COp.kB * T))
+        if cia && i % 8 == 1
+            s = (i - 1) ÷ 8 + 1; K = ct.K
+            k1 = (1 - wT) * K[1, jT, s] + wT * K[1, jT+1, s]; k2 = (1 - wT) * K[2, jT, s] + wT * K[2, jT+1, s]; k3 = (1 - wT) * K[3, jT, s] + wT * K[3, jT+1, s]
+            acia = k1 * nH2^2 + k2 * nH2 * nHe + k3 * nH2 * n1
+        end
+        a0 = acia + COp.k_Hm_ff(λμ, T) * n1 * ne * COp.kB * T + 3.692e8 * ne * nHp / (sqrt(T) * F.ν3[i]) * stim
+        σhm = F.σhm[i] * stim
+        ab = hbf_nlte_pre(ν, n1, nnl) * stim
+        sca = F.ray2[i] * nH2 + F.ray1[i] * n1 + COp.σT * ne
+        B = COp.Bν(ν, T); D = COp.dBdT(ν, T); h = hbfP ? ab : 0.0
+        BJ = wJ ? COp.Bν(ν, Tw) : B
+        sE += (a0 + σhm * nHm + h) * BJ * dν; sW += BJ * dν; sP += (a0 + σhm * nHmS + h) * B * dν; sB += B * dν
+        sR += D / max(a0 + σhm * nHm + ab + sca, 1e-300) * dν; sD += D * dν
+    end
+    (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
+end
+"(NLOIT) the ratios (R_E, R_P, R_R) and n_e [cm⁻³] of composition d (full fractions) at (ρ, T), three-level parameters p."
+function nlo_ratio(ρ, T, d, p)
+    nH = ρ / CNn.μH(); nHe = PC.yHe * nH
+    # equilibrium composition (as nlte_kappas with d = nothing)
+    y = EQ.composition(ρ, min(T, 1e6)); xp = y[1]; xh2 = y[3]; n1e = nH * max(1 - xp - 2xh2, 0.0); nee = nH * xp; nHee = nHe
+    if CNn.HECHEM
+        z1, z2 = EQ.composition_he(ρ, min(T, 1e6)); nee = nH * (xp + z1 + 2z2); nHee = nH * max(PC.yHe - z1 - z2, 0.0)
+    end
+    n2e = 4n1e * exp(-E21 / (CNn.kB * T)); nHme = n1e * nee / CNn.Keq([:Hm], [:H, :e], T)
+    _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = n2e, nH2 = nH * xh2, nHe = nHee, nHp = nee, ne = nee, nHm = nHme, nHmS = nHme, hbfP = true)
+    n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
+    CNn.HECHEM && (nHe = nH * max(d[:He], 0.0))
+    nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
+    nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
+    Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
+    E, P, R = nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw)
+    Threads.atomic_add!(NLOITN, 1)
+    (E / Pq, P / Pq, R / Rq), ne
+end
+"(NLOIT) composition of zone k at (ρ, T) and x_H⁺, x_H₂ (coupled zones: CK expansion with the step's terms; else the chemistry's)."
+function nlo_comp(m, k, s, ρ, T, x1, x2)
+    t = (TX.cplz(k) && k <= length(CPLTERMS[])) ? CPLTERMS[][k] : nothing
+    t === nothing && return s.d, s.p
+    x, _ = CNn.ck_eval([x1, x2], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
+    CNn.full(x, m.net), (hasproperty(t.env, :tl3) ? t.env.tl3 : s.p)
+end
+"(NLOIT) (χ, κ_E, κ_P) of network zone k at the iterate (see NLOIT)."
+function nlo_it(m::NetGas, k, ρ, T, s)
+    κR0, κP0 = OPAC[](ρ, T)
+    cz = TX.cplz(k)
+    w = TX.CPLW[]; xd = cz ? (w === nothing ? TX.XSN[][1][k] : w[1][k]) : 1.0; xd2 = cz ? (w === nothing ? TX.XSN[][2][k] : w[2][k]) : 1.0
+    ρv = Float64(ForwardDiff.value(ρ)); Tv = Float64(ForwardDiff.value(T)); xv = Float64(ForwardDiff.value(xd)); xv2 = Float64(ForwardDiff.value(xd2))
+    if s === nothing                          # no three-level parameters: the table, χ floored at Thomson on the zone's electrons
+        cc = CNn.compiled(m.net); ne = max(CNn.fullvec(m.x[k], cc)[cc.ie], 0.0) * ρv / CNn.μH()
+        return chicap(max(κR0, COp.σT * ne / ρ), T), κP0, κP0
+    end
+    keep = k <= length(NLOC[])                # (the cache is sized by nloc_reset!; a zone beyond it is evaluated without one)
+    c = keep ? NLOC[][k] : nothing; v = (ρv, Tv, xv)
+    if c === nothing || c.v != v
+        d, p = nlo_comp(m, k, s, ρv, Tv, xv, xv2)
+        R, ne = nlo_ratio(ρv, Tv, d, p)
+        c === nothing ? (c = NloC(v, R, ne, (NaN, NaN, NaN), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), false); keep && (NLOC[][k] = c)) : (c.v = v; c.R = R; c.ne = ne)
+    end
+    needJ = T isa ForwardDiff.Dual || xd isa ForwardDiff.Dual
+    if needJ && !(c.hasJ && abs(log(Tv / c.vJ[2])) < NLOITJ[1] && (!cz || abs(log(xv / c.vJ[3])) < NLOITJ[2]))
+        εT = 1e-3; d1, p1 = nlo_comp(m, k, s, ρv, Tv * (1 + εT), xv, xv2); R1, _ = nlo_ratio(ρv, Tv * (1 + εT), d1, p1)
+        c.qT = ntuple(i -> log(R1[i] / c.R[i]) / log1p(εT), 3)
+        if cz
+            εx = 1e-2; d2, p2 = nlo_comp(m, k, s, ρv, Tv, xv * (1 + εx), xv2); R2, _ = nlo_ratio(ρv, Tv, d2, p2)
+            c.qx = ntuple(i -> log(R2[i] / c.R[i]) / log1p(εx), 3)
+        end
+        c.vJ = v; c.hasJ = true; Threads.atomic_add!(NLOITJN, 1)
+    end
+    RE, RP, RR = c.R
+    if needJ
+        lt = log(T / Tv); lx = cz ? log(xd / xv) : zero(lt)
+        RE = RE * exp(c.qT[1] * lt + c.qx[1] * lx); RP = RP * exp(c.qT[2] * lt + c.qx[2] * lx); RR = RR * exp(c.qT[3] * lt + c.qx[3] * lx)
+    end
+    ned = cz ? c.ne * (xd / xv) : c.ne
+    return chicap(max(κR0 * RR, COp.σT * ned / ρ), T), κP0 * RE, κP0 * RP
+end
 @inline function TX.material_opac(m::NetGas, ρ, T)
+    if NLOIT && NLOPAC[]
+        k = TX.ZONE[]
+        if k <= length(m.eqzone) && !m.eqzone[k]
+            return nlo_it(m, k, ρ, T, k <= length(NLOST[]) ? NLOST[][k] : nothing)
+        end
+        κR, κP = OPAC[](ρ, T)
+        return chicap(κR, T), κP, κP
+    end
     if NLOPAC[]
         k = TX.ZONE[]; c = NLOPC[]
         if k <= length(c) && !m.eqzone[k] && (o = c[k]) !== nothing && (NLOTMAX == Inf || o.T0 < NLOTMAX)
@@ -1044,6 +1230,10 @@ function chem_core!(m::NetGas)
         length(NLOPC[]) == length(dn) || (NLOPC[] = Any[nothing for _ in dn])
         NLODAMP < 1 && (NLOPREV[] = copy(NLOPC[]))
         fill!(NLOPC[], nothing)
+        if NLOIT                              # NLOIT: the zones' compositions and three-level parameters of this chemistry instead
+            length(NLOST[]) == length(dn) || (NLOST[] = Any[nothing for _ in dn])
+            fill!(NLOST[], nothing); nloc_reset!(length(dn))
+        end
     end
     dTz = zeros(length(tn))
     function zone!(k)
@@ -1215,8 +1405,9 @@ function chem_core!(m::NetGas)
                 (CPLPOST[] && TX.cplq(k)) || isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
                 (CPLPOST[] && TX.cplq(k)) || isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
                 SLDIAG[].tl3[k] = merge(p3e, (; chemq = cq, cycq = yq, qbb = lya_bb(dn[k], T1, CNn.full(x1, m.net), p3e)))
-                NLOPAC[] && (NLOPC[][k] = nlopc(dn[k], T1, CNn.full(x1, m.net), p3e))
-                NLOPAC[] && CPLPOST[] && TX.cplz(k) && CPLNLOX[] && (NLOPC[][k] = nlopc_x(dn[k], T1, CNn.full(x1, m.net), p3e, NLOPC[][k]))
+                NLOPAC[] && NLOIT && (NLOST[][k] = (; d = CNn.full(x1, m.net), p = p3e))
+                NLOPAC[] && !NLOIT && (NLOPC[][k] = nlopc(dn[k], T1, CNn.full(x1, m.net), p3e))
+                NLOPAC[] && !NLOIT && CPLPOST[] && TX.cplz(k) && CPLNLOX[] && (NLOPC[][k] = nlopc_x(dn[k], T1, CNn.full(x1, m.net), p3e, NLOPC[][k]))
                 if NLODAMP < 1 && NLOPAC[] && k <= length(NLOPREV[]) && (o0 = NLOPREV[][k]) !== nothing && (o1 = NLOPC[][k]) !== nothing
                     w_ = NLODAMP; bl(a0, a1) = exp((1 - w_) * log(a0) + w_ * log(a1))
                     NLOPC[][k] = merge(o1, (; RE = bl(o0.RE, o1.RE), RP = bl(o0.RP, o1.RP), RR = bl(o0.RR, o1.RR)))
@@ -1485,6 +1676,7 @@ function cpl_prepare!(m::NetGas)
         for i in 1:2; TX.XSN[][i][k] = max(x[sl[i]], 1e-40); end
     end
     for k in a:b; TX.CPLZ[][k] = CPLTERMS[][k] !== nothing; end
+    NLOIT && nloc_reset!(mgr)                     # (NLOIT: coupled zones' opacity from the terms just prepared)
     bd = CPLBAND[]; dt = TF.getscalar(:dtime); rn = TM.v(:rn)
     for k in a:b
         TX.cplz(k) || continue
