@@ -711,14 +711,51 @@ W is recovered from the parameters' β = W β_2s(T_c). The rates are then comput
 const LOCALJ = get(ENV, "LOCALJ", "0") == "1"
 # LOCALJTAB (with LOCALJ=1, default 1): the rates from ChemNet.photorates_lj's tables (W a factor, T_c and T tabulated); 0: direct integrals
 const LOCALJTAB = get(ENV, "LOCALJTAB", "1") == "1"
-ljon(p) = LOCALJ && p !== nothing && hasproperty(p, :Tc) && p.Tc > 0
+# LOCALJWMIN=w (with LOCALJ=1; default 0): zones whose star-light dilution W is below w keep the static env (as LOCALJ=0): the far thin
+# cloud (W ~ 1e-10, T ~ 200–900 K) failed in ChemNet.step_ck with LOCALJ's env (t_tau3), and its photo-rates there are negligible
+const LOCALJWMIN = parse(Float64, get(ENV, "LOCALJWMIN", "0"))
+ljon(p) = LOCALJ && p !== nothing && hasproperty(p, :Tc) && p.Tc > 0 && (LOCALJWMIN == 0 || p.β / beta2s_bb(p.Tc) >= LOCALJWMIN)
 tl3env(m, p) = ljon(p) ?
     (W_ = p.β / beta2s_bb(p.Tc); Tc_ = p.Tc;
      LOCALJTAB ? merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, ljW = W_, tl3 = p)) :
                  merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, tl3 = p))) :
     merge(m.env, (; tabkey = m.env, tl3 = p))
+"""
+CHEMFBNET=n (default 0 = off): the chemistry fallback of a network zone below the equilibrium table's density (PopIIIEqEOS.rho_min, where
+EQ.step would throw: the far cloud, n_H ~ 0.3, t_tau3 at 455 M☉) stays on the network: the step again in n equal sub-steps (u carried from
+sub-step to sub-step through the network EOS); if that fails too, the composition is held and T solved from u at fixed composition.
+"""
+const CHEMFBNET = parse(Int, get(ENV, "CHEMFBNET", "0")); const NCHEMFBNET = Ref(0)
+function chem_fallback_net(m, k, ρ, u, T0, dt, env, ph, cools, exs)
+    x = copy(m.x[k]); T = T0; ua = u
+    try
+        h = dt / CHEMFBNET
+        for _ in 1:CHEMFBNET
+            x, T = CNn.step(x, ρ, ua, T, h, m.net; env, photos = ph, cooling = cools, extra = exs)
+            (all(isfinite, x) && isfinite(T) && T > 0) || error("non-finite")
+            ua = CNn.eos(ρ, T, x, m.net)[1]
+        end
+        return (x, T)
+    catch
+    end
+    x = m.x[k]; f(t) = CNn.eos(ρ, t, x, m.net)[1] - u
+    lo, hi = 1.0, 1e7
+    (f(lo) <= 0 <= f(hi)) || return (x, T0)
+    for _ in 1:200
+        mid = sqrt(lo * hi); f(mid) > 0 ? (hi = mid) : (lo = mid); hi / lo < 1 + 1e-12 && break
+    end
+    (x, sqrt(lo * hi))
+end
+"""
+TL3DEEP=1 (default off): no three-level heats (chemistry heat, cycle heat, LYABB bound–bound) in zones at τ ≥ 3, where the star-light blend
+is thermalised (T_c = T_r, W = 1). There the gas–radiation exchange is the implicit κ_P term; the three-level terms do not cancel in LTE (the
+cycle heat leaves (⟨hν⟩(T_c) − χ_2 − 0.75 kT) ≈ a few % of kT per cycle) and, multiplied by α_B n_e n_p of hot ionized gas, cooled the deep He II
+zone that left the table by ~2000 K per step (zone 73, 2.6e4 K, cycle heat −2.65e-3 erg cm⁻³ s⁻¹ lagged over 1.3e8 s against ρe ≈ 6 erg cm⁻³).
+"""
+const TL3DEEP = get(ENV, "TL3DEEP", "0") == "1"
 "Energy terms of the three-level atom per volume: (chemistry heat, cycle heat for GASQ) at (ρ, T, full composition d)."
 function tl3_heat(ρ, T, d, p)
+    TL3DEEP && hasproperty(p, :deep) && p.deep && return (zero(T), zero(T))
     nH = ρ / CNn.μH(); C = tl3_C(T, p); xH = max(d[:H], zero(T)); xe = max(d[:e], zero(T)); xp = max(d[:Hp], zero(T))
     Q12 = nH * xe * q12_H(T); I = (1 - C) * xH * (Q12 + p.P12); rec = alphaB_recfast(T) * nH * xe * xp
     Ein = p.hν + E21 * p.P12 / (Q12 + p.P12 + 1e-300)
@@ -820,6 +857,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             RL = 3A21LYA * (τS < 1e-6 ? 1.0 : -expm1(-τS) / τS)
             nb = W / expm1(E21 / (CNn.kB * Tc))
             diag.tl3[k] = (; β = W * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
+            TL3DEEP && (diag.tl3[k] = merge(diag.tl3[k], (; deep = tauz_[k] >= 3.0)))
             ov_ = LYAOVR[]; (k <= length(ov_) && ov_[k] !== nothing) && (diag.tl3[k] = merge(diag.tl3[k], ov_[k]))   # LYART: transferred Lyα
         end
         (kHm, kH, kLW, f)
@@ -1159,9 +1197,15 @@ function chem_core!(m::NetGas)
                 ((CHEMFALLBACK[] || (CHEMFBDENSE[] && pgn[k] >= m.pswitch)) && (e isa ErrorException || (p3 !== nothing && e isa ArgumentError))) || rethrow()
                 lock(() -> (NCHEMFB[] += 1), CHEMLOCK); fb = true
                 TL3DBG[] > 0 && @printf("tl3fb k %d r %.3e T %.0f tauz %.2e eqprev %s xe %.2e u %.4e u(10K,x) %.4e u(T,x) %.4e: %s\n", k, rn[k] / 6.957e10, tn[k], tauz[k], eqprev, CNn.full(m.x[k], m.net)[:e], egn[k], CNn.eos(dn[k], 10.0, m.x[k], m.net)[1], CNn.eos(dn[k], tn[k], m.x[k], m.net)[1], first(sprint(showerror, e), 60))
-                coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
-                _, T2 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
-                (x_from_table(m, dn[k], T2), T2)
+                if CHEMFBNET > 0 && dn[k] < EQ.rho_min()
+                    # below the equilibrium table: keep the network (CHEMFBNET sub-steps; failing that, the composition held and T from u)
+                    lock(() -> (NCHEMFBNET[] += 1), CHEMLOCK)
+                    chem_fallback_net(m, k, dn[k], Float64(egn[k]), tn[k], dt, envk, phk, cools, exs)
+                else
+                    coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
+                    _, T2 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
+                    (x_from_table(m, dn[k], T2), T2)
+                end
             end
             fb && !isempty(TX.CHEMB[]) && (TX.CHEMBON[][k] = false)
             m.eqzone[k] || lwheat!(k, x1)
