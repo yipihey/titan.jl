@@ -461,9 +461,9 @@ composition the chemistry left (frozen over the hydro step, as in the EOS). The 
 those of the step (lagged with the radiation field). The ratio form keeps the table's calibration (OPAL lines above ~6300 K) and goes
 to the table where the populations are LTE, so it joins the table zones at τ = PSWTAU continuously; no jump in T anywhere.
 χ ≥ σ_T n_e/ρ of the iterate's electrons (extinction is never below Thomson scattering on the zone's own electrons; this is NLOFIX's floor,
-and what NLOTMAX's table fallback provided in ionized gas). Values exact at every iterate; Newton's derivatives in T and x_H⁺ by one-sided
+and what NLOTMAX's table fallback provided in ionized gas). Values exact at every iterate; Newton's derivatives in T, ρ, x_H⁺ and x_H₂ by one-sided
 differences of R (ln, relative steps 1e-3 and 1e-2), reused while T stays within NLOITJ[1] and x_H⁺ within NLOITJ[2] (relative, ln;
-default 3e-3, 0.1) of where they were taken (an inexact Newton, the converged state unchanged); ∂R/∂ρ is not in the Jacobian (OPAC's is).
+default 3e-3, 0.1; ρ within NLOITJ[1]) of where they were taken (an inexact Newton, the converged state unchanged); ∂R/∂ρ likewise.
 Retires NLOIMPT, NLODAMP, CPLNLOX, NLOFIX, NLOTMAX in network zones (they have no effect with NLOIT).
 """
 const NLOIT = get(ENV, "NLOIT", "0") == "1"
@@ -471,8 +471,8 @@ const NLOITW = let s_ = split(get(ENV, "NLOITW", "5000,6000"), ","); (parse(Floa
 const NLOITJ = let s_ = split(get(ENV, "NLOITJ", "3e-3,0.1"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
 const NLOST = Ref{Vector{Any}}(Any[])        # per zone: (; d, p) at the end of the last chemistry, or nothing
 mutable struct NloC
-    v::NTuple{3,Float64}; R::NTuple{3,Float64}; ne::Float64
-    vJ::NTuple{3,Float64}; qT::NTuple{3,Float64}; qx::NTuple{3,Float64}; hasJ::Bool
+    v::NTuple{4,Float64}; R::NTuple{3,Float64}; ne::Float64
+    vJ::NTuple{4,Float64}; qT::NTuple{3,Float64}; qx::NTuple{3,Float64}; qr::NTuple{3,Float64}; qx2::NTuple{3,Float64}; hasJ::Bool
 end
 const NLOC = Ref{Vector{Any}}(Any[])          # per zone cache
 const NLOITN = Threads.Atomic{Int}(0); const NLOITNS = Threads.Atomic{Int}(0); const NLOCNS = Threads.Atomic{Int}(0); const NLOITJN = Threads.Atomic{Int}(0)     # (evaluations of R, of its slopes)
@@ -575,26 +575,31 @@ function nlo_it(m::NetGas, k, ρ, T, s)
         return chicap(max(κR0, COp.σT * ne / ρ), T), κP0, κP0
     end
     keep = k <= length(NLOC[])                # (the cache is sized by nloc_reset!; a zone beyond it is evaluated without one)
-    c = keep ? NLOC[][k] : nothing; v = (ρv, Tv, xv)
+    c = keep ? NLOC[][k] : nothing; v = (ρv, Tv, xv, xv2)
     if c === nothing || c.v != v
         d, p = nlo_comp(m, k, s, ρv, Tv, xv, xv2)
         R, ne = nlo_ratio(ρv, Tv, d, p)
-        c === nothing ? (c = NloC(v, R, ne, (NaN, NaN, NaN), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), false); keep && (NLOC[][k] = c)) : (c.v = v; c.R = R; c.ne = ne)
+        c === nothing ? (c = NloC(v, R, ne, (NaN, NaN, NaN, NaN), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), false); keep && (NLOC[][k] = c)) : (c.v = v; c.R = R; c.ne = ne)
     end
-    needJ = T isa ForwardDiff.Dual || xd isa ForwardDiff.Dual
-    if needJ && !(c.hasJ && abs(log(Tv / c.vJ[2])) < NLOITJ[1] && (!cz || abs(log(xv / c.vJ[3])) < NLOITJ[2]))
+    needJ = T isa ForwardDiff.Dual || xd isa ForwardDiff.Dual || ρ isa ForwardDiff.Dual
+    if needJ && !(c.hasJ && abs(log(Tv / c.vJ[2])) < NLOITJ[1] && abs(log(ρv / c.vJ[1])) < NLOITJ[1] && (!cz || (abs(log(xv / c.vJ[3])) < NLOITJ[2] && abs(log(xv2 / c.vJ[4])) < NLOITJ[2])))
         εT = 1e-3; d1, p1 = nlo_comp(m, k, s, ρv, Tv * (1 + εT), xv, xv2); R1, _ = nlo_ratio(ρv, Tv * (1 + εT), d1, p1)
         c.qT = ntuple(i -> log(R1[i] / c.R[i]) / log1p(εT), 3)
         if cz
             εx = 1e-2; d2, p2 = nlo_comp(m, k, s, ρv, Tv, xv * (1 + εx), xv2); R2, _ = nlo_ratio(ρv, Tv, d2, p2)
             c.qx = ntuple(i -> log(R2[i] / c.R[i]) / log1p(εx), 3)
+            d4, p4 = nlo_comp(m, k, s, ρv, Tv, xv, xv2 * (1 + εx)); R4, _ = nlo_ratio(ρv, Tv, d4, p4)
+            c.qx2 = ntuple(i -> log(R4[i] / c.R[i]) / log1p(εx), 3)
         end
+        εr = 1e-3; d3, p3 = nlo_comp(m, k, s, ρv * (1 + εr), Tv, xv, xv2); R3, _ = nlo_ratio(ρv * (1 + εr), Tv, d3, p3)
+        c.qr = ntuple(i -> log(R3[i] / c.R[i]) / log1p(εr), 3)
         c.vJ = v; c.hasJ = true; Threads.atomic_add!(NLOITJN, 1)
     end
     RE, RP, RR = c.R
     if needJ
-        lt = log(T / Tv); lx = cz ? log(xd / xv) : zero(lt)
-        RE = RE * exp(c.qT[1] * lt + c.qx[1] * lx); RP = RP * exp(c.qT[2] * lt + c.qx[2] * lx); RR = RR * exp(c.qT[3] * lt + c.qx[3] * lx)
+        lt = log(T / Tv); lx = cz ? log(xd / xv) : zero(lt); lr = log(ρ / ρv); lx2 = cz ? log(xd2 / xv2) : zero(lt)
+        RE = RE * exp(c.qT[1] * lt + c.qx[1] * lx + c.qr[1] * lr + c.qx2[1] * lx2); RP = RP * exp(c.qT[2] * lt + c.qx[2] * lx + c.qr[2] * lr + c.qx2[2] * lx2)
+        RR = RR * exp(c.qT[3] * lt + c.qx[3] * lx + c.qr[3] * lr + c.qx2[3] * lx2)
     end
     ned = cz ? c.ne * (xd / xv) : c.ne
     return chicap(max(κR0 * RR, COp.σT * ned / ρ), T), κP0 * RE, κP0 * RP
