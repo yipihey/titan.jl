@@ -2399,7 +2399,7 @@ try
             TOTH[] += time() - tnow
         end
         TMARK[] = time()
-        haskey(ENV, "SAVE") && CKEVERY > 0 && k % CKEVERY == 0 && all(isfinite, view(TF.var(:tn), a:b)) && all(isfinite, view(TF.var(:dn), a:b)) && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ CKEVERY) % 2), k)
+        haskey(ENV, "SAVE") && CKEVERY > 0 && k % CKEVERY == 0 && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ CKEVERY) % 2), k)
     end)
 catch e
     pr("stopped: %s\n", first(sprint(showerror, e), 400))
