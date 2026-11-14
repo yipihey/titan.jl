@@ -709,8 +709,13 @@ collisionally against radiative recombination (coronal balance): x_e 1.10 instea
 W is recovered from the parameters' β = W β_2s(T_c). The rates are then computed directly (no table in T).
 """
 const LOCALJ = get(ENV, "LOCALJ", "0") == "1"
-tl3env(m, p) = (LOCALJ && p !== nothing && hasproperty(p, :Tc) && p.Tc > 0) ?
-    (W_ = p.β / beta2s_bb(p.Tc); Tc_ = p.Tc; merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, tl3 = p))) :
+# LOCALJTAB (with LOCALJ=1, default 1): the rates from ChemNet.photorates_lj's tables (W a factor, T_c and T tabulated); 0: direct integrals
+const LOCALJTAB = get(ENV, "LOCALJTAB", "1") == "1"
+ljon(p) = LOCALJ && p !== nothing && hasproperty(p, :Tc) && p.Tc > 0
+tl3env(m, p) = ljon(p) ?
+    (W_ = p.β / beta2s_bb(p.Tc); Tc_ = p.Tc;
+     LOCALJTAB ? merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, ljW = W_, tl3 = p)) :
+                 merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, tl3 = p))) :
     merge(m.env, (; tabkey = m.env, tl3 = p))
 "Energy terms of the three-level atom per volume: (chemistry heat, cycle heat for GASQ) at (ρ, T, full composition d)."
 function tl3_heat(ρ, T, d, p)
@@ -979,6 +984,8 @@ function chem_core!(m::NetGas)
     function slterms(k, extra0, cool0)
         slrates === nothing && return extra0, cool0
         kHm, kH, kLW, _ = slrates(k)
+        # LOCALJ: the network's own H⁻ photo-process (with its stimulated attachment) sees the same J = W B(T_c); the extra would count it twice
+        LOCALJ && ljon(SLDIAG[].tl3[k]) && (kHm = 0.0)
         all(isfinite, (kHm, kH, kLW)) || error("starlight: non-finite rates in zone $k: kHm $kHm kH $kH kLW $kLW, T $(tn[k]), ρ $(dn[k]), E_r $(TM.v(:ern)[k])")
         (kHm == 0 && kH == 0 && kLW == 0) && return extra0, cool0
         ex = starlight_terms(m, dn[k], kHm, kH, kLW)
