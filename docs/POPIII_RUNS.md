@@ -2090,3 +2090,21 @@ scale, no threshold; a power-law envelope gives a constant M and a logarithmic m
 **Bit-identical when off**: 300 steps from the IC with z100ic3's settings, 61920a0 (`t_gs_bi5`, run from a `git archive` copy)
 against 237a835 (`t_gs_bi6`): final state md5 053301bd…, aux 62ff4e1d…, all 6 snapshots (180 fields) and every non-timing
 `perf.csv` column identical.
+
+**First tests from the IC (14 Nov, 100 zones, mode 1, final parameter set except where noted).**
+
+| run | IC | result so far | T_c(n_c) vs Lagrangian (mean dev.) | shock zones | photosphere interfaces | dt near 0.15 M☉ |
+|---|---|---|---|---|---|---|
+| `z100ic3` (fixed 100, reference) | abn02z19 2e4 | 51.6 M☉, stall at 53 | 0.103 | — | — | 2e4–3e5 s |
+| `t_gse1` (gmax 10, κ 3) | abn02z19 2e4 | stopped at 0.27 M☉ | 0.120 | 3 | 0 at 118 R☉ | — |
+| `t_gse2` (κ 3) | abn02z19 2e4 | stopped at 0.17 M☉ | — | 4 (min 3) | 8 (min 1) | 4e3–1e4 s |
+| `t_gse3` | abn02z19 2e4 | 0.22 M☉ at step 4200, running | 0.084 | 4 (min 3) | 0 (photosphere left the fine zones) | 2e3–3e4 s |
+| `t_gse_m1e4` | abn02z19 1e4 | 0.16 M☉ at step 2000, running | 0.111 | 4 (min 3) | 6 (min 1) | 1e4–1.5e5 s |
+| `t_gse_m3e4` | abn02z19 3e4 | through core formation, running | 0.107 | — | — | — |
+| `t_gse_abn02` | abn02 1e3 | stuck at log n_c 12, Δt 2 s (central zones 4–5, T/F stalls) | — | — | — | — |
+| `t_gs_fixabn02` (fixed mesh) | abn02 1e3 | DomainError at step 50 (zone 3) | — | — | — | — |
+| `t_gse_p100` (κ 3) | p100 | fails at the outer wall: the unconfined polytrope edge expands, 0.008 K | — | — | — | — |
+
+MCLOUD = 5e4 cannot be built by the abn02z19 set-up (the hydrostatic extension stops at 3 kpc short of the mass). No run has
+reached the accretion phase of z100ic3's stall yet. Open: the photosphere drifts out of the fine zones when the time smoothing
+is slow (κ 30: grid speed 0.03 (|u| + c_s)) and Δt is 5–10 times z100ic3's where the zones are fine (κ 3).
