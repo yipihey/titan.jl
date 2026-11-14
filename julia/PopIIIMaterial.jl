@@ -567,6 +567,22 @@ function nlo_it(m::NetGas, k, ρ, T, s)
     ned = cz ? c.ne * (xd / xv) : c.ne
     return chicap(max(κR0 * RR, COp.σT * ned / ρ), T), κP0 * RE, κP0 * RP
 end
+"(diagnostic, NLOITDIAG=n: n sweeps of fill_opac!) per network zone the NLOIT opacities against those the lagged NLOPAC ratio would give at the same state."
+const NLOITDIAG = Ref(parse(Int, get(ENV, "NLOITDIAG", "0"))); const NLOITDK = Ref(0)
+function nloit_diag(m, k, ρ, T, new)
+    k == Int(TF.getscalar(:ngre)) && (NLOITDIAG[] -= 1)
+    (m.eqzone[k] || k > length(NLOST[]) || (s = NLOST[][k]) === nothing) && return nothing
+    o = nlopc(ρ, T, s.d, s.p); o === nothing && return nothing
+    κR0, κP0 = OPAC[](ρ, T)
+    old = (κR0 * o.RR, κP0 * o.RE, κP0 * o.RP)
+    if NLOTMAX < Inf && T >= NLOTMAX
+        cc = CNn.compiled(m.net); ne = max(CNn.fullvec(m.x[k], cc)[cc.ie], 0.0) * ρ / CNn.μH()
+        old = (max(κR0, COp.σT * ne / ρ), κP0, κP0)
+    end
+    @printf("NLOITDIAG step %d zone %d T %.1f rho %.3e x_e %.3e | chi new %.4e old %.4e (table %.4e) | kE new %.4e old %.4e | kP new %.4e old %.4e (table %.4e)\n",
+            TF.getscalar(:jstep), k - Int(TF.getscalar(:ngrs)) + 1, T, ρ, s.d[:e], new[1], old[1], κR0, new[2], old[2], new[3], old[3], κP0); flush(stdout)
+    nothing
+end
 @inline function TX.material_opac(m::NetGas, ρ, T)
     if NLOIT && NLOPAC[]
         k = TX.ZONE[]
@@ -628,6 +644,7 @@ function TM.fill_opac!(m::NetGas)
         TX.ZONE[] = k
         χ, κE, κP = TX.material_opac(m, dn[k], tn[k])
         chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
+        NLOIT && NLOITDIAG[] > 0 && nloit_diag(m, k, dn[k], tn[k], (χ, κE, κP))
         # electrons for the scattering term of the formal solution (the template state's xnen is not ours)
         xnen[k] = (CNn.HECHEM ? (m.eqzone[k] ? (Tq = min(tn[k], 1e6); z = EQ.composition_he(dn[k], Tq); EQ.composition(dn[k], Tq)[1] + z[1] + 2z[2]) :
                                  CNn.full(m.x[k], m.net)[:e]) :
