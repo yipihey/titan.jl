@@ -356,6 +356,18 @@ function nlopc(ρ, T0, d, p)
     (; T0, RE = E0 / Pe, qE = log(E1 / E0) / lf, RP = P0 / Pe, qP = log(P1 / P0) / lf, RR = R0 / Re, qR = log(R1 / R0) / lf)
 end
 """
+COUPLED: d ln κ/d ln x_H⁺ of the non-LTE opacities at fixed T (x_e, n_p and H⁻ ∝ n_e scaled with x_H⁺, H reduced to keep the H nuclei), so
+that the opacity of a coupled zone follows the Newton iterate's ionization (see TX.material_opac). The lagged factors alone drove a
+two-step limit cycle (±30 % in T of the pre-shock zone every step, Δt held at ~2e3 s; LTE opacities or this: none).
+"""
+function nlopc_x(ρ, T0, d, p, o)
+    o === nothing && return nothing
+    f = 1.05; xp = max(Float64(d[:Hp]), 1e-30); dx = (f - 1) * xp
+    d2 = copy(d); d2[:Hp] = xp * f; d2[:e] = d[:e] + dx; d2[:H] = max(d[:H] - dx, 0.0); haskey(d2, :Hm) && (d2[:Hm] = d[:Hm] * (d2[:e] / max(d[:e], 1e-300)))
+    E0, P0, R0 = nlte_kappas(ρ, T0, d, p); E1, P1, R1 = nlte_kappas(ρ, T0, d2, p); lf = log(f)
+    merge(o, (; x0 = xp, xE = log(E1 / E0) / lf, xP = log(P1 / P0) / lf, xR = log(R1 / R0) / lf))
+end
+"""
 Diagnostic switch, off by default: `CHICAP=κ[,Tmax]` caps the flux-mean opacity χ at κ [cm²/g] where T < Tmax (default 5e4 K). The energy
 means κ_E, κ_P are not changed. With κ = electron scattering it removes the H/H⁻ opacity peak from the radiation force and the diffusion,
 to test what drives the envelope cycle at L ≈ L_Edd. Not physics.
@@ -367,6 +379,10 @@ const CHICAP = let s = split(get(ENV, "CHICAP", "0"), ","); (parse(Float64, s[1]
         k = TX.ZONE[]; c = NLOPC[]
         if k <= length(c) && !m.eqzone[k] && (o = c[k]) !== nothing
             κR0, κP0 = OPAC[](ρ, o.T0); s = T / o.T0
+            if TX.cplz(k) && hasproperty(o, :x0)     # COUPLED: the ionization of the iterate (nlopc_x)
+                w = TX.CPLW[]; xi = w === nothing ? TX.XSN[][1][k] : w[1][k]; r = xi / o.x0
+                return chicap(κR0 * o.RR * s^o.qR * r^o.xR, T), κP0 * o.RE * s^o.qE * r^o.xE, κP0 * o.RP * s^o.qP * r^o.xP
+            end
             return chicap(κR0 * o.RR * s^o.qR, T), κP0 * o.RE * s^o.qE, κP0 * o.RP * s^o.qP
         end
     end
@@ -1052,10 +1068,12 @@ function chem_core!(m::NetGas)
             m.eqzone[k] || lwheat!(k, x1)
             if p3 !== nothing && !m.eqzone[k] && !fb
                 cq, yq = tl3_heat(dn[k], T1, CNn.full(x1, m.net), p3e)
-                isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
-                isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
+                # (COUPLED zones: the hydro solve takes cq and yq of its own iterate, TitanResidFast cpQ/cpY; not booked here)
+                (CPLPOST[] && TX.cplz(k)) || isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
+                (CPLPOST[] && TX.cplz(k)) || isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
                 SLDIAG[].tl3[k] = merge(p3e, (; chemq = cq, cycq = yq, qbb = lya_bb(dn[k], T1, CNn.full(x1, m.net), p3e)))
                 NLOPAC[] && (NLOPC[][k] = nlopc(dn[k], T1, CNn.full(x1, m.net), p3e))
+                NLOPAC[] && CPLPOST[] && TX.cplz(k) && (NLOPC[][k] = nlopc_x(dn[k], T1, CNn.full(x1, m.net), p3e, NLOPC[][k]))
                 if NLODAMP < 1 && NLOPAC[] && k <= length(NLOPREV[]) && (o0 = NLOPREV[][k]) !== nothing && (o1 = NLOPC[][k]) !== nothing
                     w_ = NLODAMP; bl(a0, a1) = exp((1 - w_) * log(a0) + w_ * log(a1))
                     NLOPC[][k] = merge(o1, (; RE = bl(o0.RE, o1.RE), RP = bl(o0.RP, o1.RP), RR = bl(o0.RR, o1.RR)))
@@ -1252,7 +1270,12 @@ function cpl_g(m::NetGas, k, z)
     t = CPLTERMS[][k]; ρ = z[1]; T = z[2]
     x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
     u, p = CNn.eos(ρ, T, x, m.net)
-    Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, CNn.full(x, m.net))
+    dfull = CNn.full(x, m.net)
+    Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, dfull)
+    # three-level heats of the iterate (chemistry heat cq, cycle heat yq; n_e self-consistent as in the cooling closure): the hydro solve
+    # takes them from the gray field implicitly (TitanResidFast cpQ, cpY) instead of the lagged RAYQ/GASQ bookkeeping
+    p3_ = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
+    cq, yq = p3_ === nothing ? (zero(u), zero(u)) : tl3_heat(ρ, T, dfull, merge(p3_, (; ne = ρ / CNn.μH() * max(dfull[:Hp], zero(dfull[:Hp])))))
     if CPLDBGZ[] > 0 && z isa Vector{Float64} && k - Int(TF.getscalar(:ngrs)) + 1 == CPLDBGZ[] && CPLDBGN[] > 0
         CPLDBGN[] -= 1; d = CNn.full(x, m.net); p3 = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
         nHs = ρ / CNn.μH(); p3s = p3 === nothing ? nothing : merge(p3, (; ne = nHs * max(d[:Hp], 0.0)))
@@ -1260,12 +1283,12 @@ function cpl_g(m::NetGas, k, z)
                 CPLDBGZ[], T, ρ, z[3], z[4], d[:e], d[:Hm], Λ, p3 === nothing ? 0.0 : tl3_heat(ρ, T, d, p3)[1], p3s === nothing ? 0.0 : tl3_heat(ρ, T, d, p3s)[1],
                 p3s === nothing ? 0.0 : lya_bb(ρ, T, d, p3s), fs[1], fs[2], u)
     end
-    [p, u, fs[1], fs[2], Λ]
+    [p, u, fs[1], fs[2], Λ, cq, yq]
 end
-cpl_lift(y, J, ρ::Float64, T::Float64, a::Float64, b::Float64) = (y[1], y[2], y[3], y[4], y[5])
+cpl_lift(y, J, ρ::Float64, T::Float64, a::Float64, b::Float64) = Tuple(y)
 function cpl_lift(y, J, ρ::D, T::D, a::D, b::D) where {D<:ForwardDiff.Dual}
     P1, P2, P3, P4 = ForwardDiff.partials(ρ), ForwardDiff.partials(T), ForwardDiff.partials(a), ForwardDiff.partials(b)
-    ntuple(i -> D(y[i], J[i, 1] * P1 + J[i, 2] * P2 + J[i, 3] * P3 + J[i, 4] * P4), 5)
+    ntuple(i -> D(y[i], J[i, 1] * P1 + J[i, 2] * P2 + J[i, 3] * P3 + J[i, 4] * P4), 7)
 end
 cpl_lift(y, J, ρ, T, a, b) = (pr = promote(ρ, T, a, b); cpl_lift(y, J, pr...))
 "(p, e, S_H⁺, S_H₂, Λ) of coupled zone k at (ρ, T, x_H⁺, x_H₂), with derivatives (see COUPLED above)."
@@ -1280,7 +1303,7 @@ const CPLJLAG = let s_ = split(get(ENV, "CPLJLAG", "3e-3,0.1"), ","); s_[1] == "
                            abs(log(v[3] / vJ[3])) < CPLJLAG[2] && abs(log(v[4] / vJ[4])) < CPLJLAG[2]
 function cpl_vj(m, k, v)
     t0 = time_ns(); z0 = [v...]
-    res = ForwardDiff.DiffResults.JacobianResult(zeros(5), z0)
+    res = ForwardDiff.DiffResults.JacobianResult(zeros(7), z0)
     ForwardDiff.jacobian!(res, z -> cpl_g(m, k, z), z0)
     Threads.atomic_add!(CPLPN, 1); Threads.atomic_add!(CPLPT, Int(time_ns() - t0))
     copy(ForwardDiff.DiffResults.value(res)), copy(ForwardDiff.DiffResults.jacobian(res))
@@ -1302,7 +1325,7 @@ function cpl_zone(m::NetGas, k, ρ, T, a, b)
     else
         Threads.atomic_add!(CPLPH, 1)
     end
-    needJ ? cpl_lift(c[2], c[4], ρ, T, a, b) : (c[2][1], c[2][2], c[2][3], c[2][4], c[2][5])
+    needJ ? cpl_lift(c[2], c[4], ρ, T, a, b) : Tuple(c[2])
 end
 function cpl_prepare!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); nf = length(m.net.free)

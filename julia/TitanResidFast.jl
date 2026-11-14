@@ -432,7 +432,7 @@ const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn
     :xkp, :plf, :dvol, :dvoln, :avchi, :qf, :dudr, :db, :dsn, :fl, :ub, :usn, :flu, :fle, :egb, :egsn,
     :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv,
     :mnad, :mcp, :mdl, :mkp,                # MLT coefficients of the threaded pre-pass (MATTHREADS)
-    :xs1, :xs2, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL)     # COUPLED: species iterate, face values, slopes, rates, cooling
+    :xs1, :xs2, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL, :cpQ, :cpY)     # COUPLED: species iterate, face values, slopes, rates, cooling
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
     xnuo::Vector{Float64}
@@ -790,8 +790,9 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         @inbounds for k in ngrs:ngre
             if cplz(k)
                 y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]); W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
+                W.cpQ[k] = y[6]; W.cpY[k] = y[7]
             else
-                W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T)
+                W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
             end
         end
     else
@@ -1106,6 +1107,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         if c.etotal && !c.useint[k]
             w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])     # the gas gets the ray's energy in chemistry: it leaves the total here (as the lrad total row)
+            cplz(k) && (w += W.cpQ[k] * dvol[k])               # COUPLED: the three-level chemistry heat of the iterate (not booked in RAYQ)
         elseif c.lrad && GASROW[]
             egbg = W.egbg
             w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
@@ -1113,6 +1115,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k] -
                 excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k] - src
             isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
+            cplz(k) && (w -= W.cpY[k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
@@ -1128,6 +1131,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 (pg[k] + er[k] * fedd[k]) * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] + qf[k] * dudr[k] * dvol[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
+            cplz(k) && (w += W.cpQ[k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egb[k+1] - (P.phil2 + er[k] * urel[k]) * rmu[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
@@ -1201,6 +1205,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             SHOCK_RAD[] && (w += shock_frac(u[k+1] - u[k]) * qf[k] * dudr[k] * dvol[k])
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
             isempty(GASQ[]) || (w += GASQ[][k] * dvol[k])
+            cplz(k) && (w += (W.cpQ[k] + W.cpY[k]) * dvol[k])  # COUPLED: the three-level heats of the iterate leave the gray field
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * er[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
