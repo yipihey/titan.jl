@@ -2308,14 +2308,11 @@ catch e
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
 pr("run ended: %s; jstep %d jstepe %g timen %.6e tmax %.6e\n", string(RUNEND[]), Int(TF.getscalar(:jstep)), Float64(TF.getscalar(:jstepe)), TF.getscalar(:timen), TF.getscalar(:tmax))
-if haskey(ENV, "SAVE")
-    # never overwrite good state with a non-finite one (a stop after a NaN step): the last auto checkpoint stays the restart point
-    let a_ = Int(TF.getscalar(:ngrs)), b_ = Int(TF.getscalar(:ngre)), fin = all(s_ -> all(isfinite, view(TF.var(s_), a_:b_)), (:rn, :un, :dn, :tn, :egn, :ern, :frn, :xmen))
-        if fin
-            checkpoint(ENV["SAVE"], KLAST[]); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[])
-        else
-            pr("checkpoint %s NOT written: the state at step %d is not finite\n", ENV["SAVE"], KLAST[])
-        end
+if haskey(ENV, "SAVE")      # never overwrite a checkpoint with a non-finite state (a NaN stop would otherwise be saved and restart as NaN)
+    if all(v -> all(isfinite, TF.var(v)[a:b]), (:tn, :dn, :ern, :un))
+        checkpoint(ENV["SAVE"], KLAST[]); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[])
+    else
+        pr("checkpoint %s NOT written: the state at step %d is not finite (restart from the last _auto checkpoint)\n", ENV["SAVE"], KLAST[])
     end
 end
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
