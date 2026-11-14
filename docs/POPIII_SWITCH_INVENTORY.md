@@ -545,3 +545,29 @@ Open questions I could not settle from the code and docs:
   CPLBAND path allows (popiii_m2c.jl:2035).
 - ADVREL is unset in phase B. Whether it matters on the fixed mesh (lgrid=2, no frozen XMINT) is not stated.
 - EQEOS, Z0_TABLE, SHOCKRAD, GRIDWIN and GRIDMAP are off in production; I have no evidence on whether they are still wanted.
+
+## 18. Line cooling and network opacity from the iterate: `LINEIMP`, `NLOIT` (branch `lagimp`, 14 Nov)
+
+Both are default off and bit-identical when off (40-step restarts compared bit for bit: production state `t_c128c` B6_auto1
+on `lagimp`, the `trbdf2-errctl` merge from `t_te1`'s start with `DTERR=0.05`, the `gridseg` merge from `t_gs_ic13`).
+
+**`LINEIMP=1`** (G1, line part). Every transfer call leaves per zone the radiative rates of its last population solve
+(escape probability β and mean intensity J̄ per line; EP: β of the local depths and J̄ = β J_bg; ALI: β = 1 − Λ*,
+J̄ = J̄_fs − Λ* S). Between calls these rates are frozen and the zone's line cooling is re-solved in statistical
+equilibrium at the gas temperature of the iterate, Λ = n_H₂ Σ hν [n_u(T)(Aβ + B_ul J̄) − n_l(T) B_lu J̄] (= the net
+collisional exchange, `H2Levels.netrad`), scaled by n_H₂/n_H₂⁰ of the iterate (ρ, x_H₂ in coupled zones), with ∂Λ/∂T of
+the same model wherever Newton asks (chemistry step, coupled hydro rows, table-zone EOS step). It vanishes where the levels
+are in equilibrium with J̄ and heats below; J̄ ≥ β B_ν(T_CMB). Hybrid NLTE: EP rates × the last ALI/EP factor (bounded to
+[1/LIFMAX, LIFMAX], default 10) between ALI calls; where `LINECOLL` holds the ALI collisional rate (ALIFIX) the zone holds
+the last ALI call's rates instead. Retires as devices: the IMPCOOL slope (second transfer call) and its [−10, 30] clamp,
+the 0.1/`DTCOOL` t_cool cap, `TCOOLTH` (only the cap used it); `LINEFRAC` keeps its meaning as a transfer-refresh interval.
+
+**`NLOIT=1`** (G2, opacity part; needs `NLOPAC`). Network-zone κ_E, κ_P, κ_R are OPAC(ρ, T) × R(ρ, T, x) evaluated at
+every Newton iterate from the zone's own populations (coupled zones: CK expansion of the iterate's x_H⁺, x_H₂; split zones:
+the chemistry's composition) and the step's three-level parameters, with R = κ^nl(d)/base, base = the table below 5000 K
+(κ = κ^nl(d) directly) and the continuum code in equilibrium above 6000 K (the table's calibration), smooth in ln T
+between (`NLOITW`); χ ≥ σ_T n_e/ρ. Derivatives in T, ρ, x_H⁺, x_H₂ by one-sided differences, reused within `NLOITJ`.
+Inactive with it: `NLOIMPT NLODAMP CPLNLOX NLOFIX NLOTMAX` (network zones). At the same state the new opacities equal
+NLOPAC's to < 0.1 % below 5000 K and to 10–15 % in κ_E, κ_P at 5900–6000 K (where NLOPAC switches its base);
+at the τ = 3 boundary (zone 81 of `t_c128c`, 6770 K, x_e 0.9995) κ_R is 4 % above the table, κ_P 10× below it by design
+(H bound–free is carried by the three-level chemistry, not by κ_P).
