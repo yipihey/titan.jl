@@ -474,6 +474,24 @@ LINEIMP && !(NLTE in ("ep", "ali", "hyb")) && error("LINEIMP=1 needs NLTE=ep, al
 LINEIMP && (PM.LINEIMP[] = true; pr("LINEIMP: H2 line cooling of each zone from its own state (populations at the iterate's T, radiative rates of the last transfer call); no t_cool cap, no IMPCOOL slope\n"))
 const LIALI = Ref{Vector{Any}}(Any[]); const LISTAT = zeros(Int, 4)    # (zones with EP, ALI, held-ALI rates; f clamped)
 const LIJCMB = Ref{Vector{Float64}}(Float64[])
+"(diagnostic, NANSCAN=1) report the first zones whose state is not finite."
+const NANSCAN = get(ENV, "NANSCAN", "0") == "1"
+function nanscan(where, k)
+    n = 0
+    for nm in (:tn, :dn, :egn, :ern, :un, :frn, :rn, :pgn, :xkpn, :chifn)
+        v = TF.var(nm)
+        for kk in a:b+1
+            isfinite(v[kk]) && continue
+            n += 1; n <= 12 && pr("NANSCAN step %d %s: %s[%d] (zone %d) = %s; T %.4g rho %.4g eq %s x %s\n", k, where, String(nm), kk, kk - a + 1, string(v[kk]),
+                                  TF.var(:tn)[min(kk, b)], TF.var(:dn)[min(kk, b)], string(mat.eqzone[min(kk, b)]), string(round.(mat.x[min(kk, b)], sigdigits = 3)))
+        end
+    end
+    for kk in a:b
+        all(isfinite, mat.x[kk]) && continue
+        n += 1; n <= 12 && pr("NANSCAN step %d %s: composition of zone %d not finite: %s (T %.4g)\n", k, where, kk - a + 1, string(mat.x[kk]), TF.var(:tn)[kk])
+    end
+    nothing
+end
 "(LINEIMP) zones remapped: drop the line models (the held Λext of the remap is used until the next transfer call)."
 li_inval!() = (PM.li_invalidate!(); fill!(LIALI[], nothing); nothing)
 "(LINEIMP) per TITAN zone, the line model from the transfer call `Lc` (H2Lines.LAST[]) on the reduced grid (see LINEIMP above)."
@@ -2239,18 +2257,22 @@ try
         EB = isempty(TX.CHEMB[]) ? nothing : copy(TF.var(:egn))
         SLZ_ = haskey(ENV, "SLZ") ? parse.(Int, split(ENV["SLZ"], ",")) : nothing
         if SLZ_ !== nothing; xb_ = [copy(mat.x[z]) for z in SLZ_[1]:SLZ_[2]]; Tb_ = TF.var(:tn)[SLZ_[1]:SLZ_[2]]; end
+        NANSCAN && nanscan("after the hydro step", k)
         dT = COUPLED ? PM.cpl_chem!(mat) : PM.chem!(mat)
+        NANSCAN && nanscan("after the chemistry", k)
         prof_report()
         if haskey(ENV, "IFDBG") && IFDBGN[] > 0          # (diagnostic) the zones of a table/network interface after the chemistry
             IFDBGN[] -= 1; z12 = parse.(Int, split(ENV["IFDBG"], ","))
             tn_ = TF.var(:tn); dn_ = TF.var(:dn); er_ = TF.var(:ern); kp_ = TF.var(:xkpn); rn_ = TF.var(:rn); un_ = TF.var(:un)
             for z in z12[1]:z12[2]
-                k = a + z - 1; d_ = mat.eqzone[k] ? nothing : ChemNet.full(mat.x[k], mat.net)
-                xe_ = mat.eqzone[k] ? PopIIIEqEOS.composition(dn_[k], min(tn_[k], 1e6))[1] : d_[:e]
+                kq = a + z - 1; d_ = mat.eqzone[kq] ? nothing : ChemNet.full(mat.x[kq], mat.net)
+                xe_ = mat.eqzone[kq] ? PopIIIEqEOS.composition(dn_[kq], min(tn_[kq], 1e6))[1] : d_[:e]
                 @printf("IFDBG step %d zone %d %s cplz %d r %.1f T %.1f n %.3e x_e %.3e E_r/aT4 %.3f kP %.3e GASQ %.3e RAYQ %.3e Λext %.3e echemoff %.3e u %.2f\n",
-                        TF.getscalar(:jstep), z, mat.eqzone[k] ? "table" : "net", TX.cplz(k), rn_[k] / 6.957e10, tn_[k], dn_[k] / (1.2195 * 1.6726e-24), xe_,
-                        er_[k] / (7.565723e-15 * tn_[k]^4), kp_[k], isempty(TX.GASQ[]) ? 0.0 : TX.GASQ[][k], isempty(TX.RAYQ[]) ? 0.0 : TX.RAYQ[][k], mat.Λext[k],
-                        isempty(PM.ECHEMOFF[]) ? 0.0 : PM.ECHEMOFF[][k], un_[k] / 1e5)
+                        TF.getscalar(:jstep), z, mat.eqzone[kq] ? "table" : "net", TX.cplz(kq), rn_[kq] / 6.957e10, tn_[kq], dn_[kq] / (1.2195 * 1.6726e-24), xe_,
+                        er_[kq] / (7.565723e-15 * tn_[kq]^4), kp_[kq], isempty(TX.GASQ[]) ? 0.0 : TX.GASQ[][kq], isempty(TX.RAYQ[]) ? 0.0 : TX.RAYQ[][kq], mat.Λext[kq],
+                        isempty(PM.ECHEMOFF[]) ? 0.0 : PM.ECHEMOFF[][kq], un_[kq] / 1e5)
+                md_ = PM.li_model(kq)
+                md_ === nothing || @printf("IFDBG step %d zone %d LINEIMP model Λ(T) %.4e (f %.3g)\n", TF.getscalar(:jstep), z, PM.li_cool(md_, dn_[kq], tn_[kq], d_), md_.f)
             end
         end
         if STOLCHEM && !Trbdf2.ERRCTL[]               # (DTERR: the error estimate is the only step-size control)
@@ -2468,7 +2490,7 @@ if haskey(ENV, "SAVE")      # never overwrite a checkpoint with a non-finite sta
     end
 end
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
-PM.NLOIT && pr("NLOIT: %d opacity-ratio evaluations, %d slope refreshes\n", PM.NLOITN[], PM.NLOITJN[])
+PM.NLOIT && pr("NLOIT: %d opacity-ratio evaluations (%.1f s), %d slope refreshes; CK expansions %.1f s\n", PM.NLOITN[], PM.NLOITNS[] * 1e-9, PM.NLOITJN[], PM.NLOCNS[] * 1e-9)
 Trbdf2.DAMP[] && pr("damped Newton: %s\n", string(Trbdf2.DSTATS))
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))

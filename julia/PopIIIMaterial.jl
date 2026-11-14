@@ -60,15 +60,22 @@ li_invalidate!() = (fill!(LIMODEL[], nothing); nothing)
 "(LINEIMP) the zone's line model from the radiative rates of a transfer call (see LINEIMP)."
 function li_set!(k, LV, β, J, nH, nH2, nHe, nHp, ρ, f)
     length(LIMODEL[]) < k && append!(LIMODEL[], Any[nothing for _ in length(LIMODEL[])+1:k])
-    LIMODEL[][k] = (nH2 > 0 && isfinite(f)) ? (; LV, β, J, nH = Float64(nH), nH2 = Float64(nH2), nHe = Float64(nHe), nHp = Float64(nHp), ρ = Float64(ρ), f = Float64(f),
+    LIMODEL[][k] = (nH2 > 0 && isfinite(f)) ? (; LV, β, J, nH = max(Float64(nH), 0.0), nH2 = Float64(nH2), nHe = max(Float64(nHe), 0.0), nHp = max(Float64(nHp), 0.0), ρ = Float64(ρ), f = Float64(f),
                                               c = LiCache(NaN, 0.0, 0.0, false, Main.H2Levels.PopWS(LV))) : nothing
     nothing
 end
 function li_lam(md, Tv, ws)
     HV = Main.H2Levels
     P = HV.populations(md.LV, Tv, md.nH, md.nH2, md.nHe, md.nHp; β = md.β, Jbar = md.J, ws)
-    md.f * HV.netrad(md.LV, P, md.nH2, md.β, md.J)
+    λ = md.f * HV.netrad(md.LV, P, md.nH2, md.β, md.J)
+    if !isfinite(λ) && LIBAD[] < 20
+        LIBAD[] += 1
+        @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e f %.3g; β %s, J̄ %s, pops %s)\n", string(λ), Tv, md.nH, md.nH2, md.nHe, md.nHp, md.f,
+                all(isfinite, md.β) ? "finite" : "NON-FINITE", all(isfinite, md.J) ? "finite" : "NON-FINITE", all(isfinite, P) ? "finite" : "NON-FINITE"); flush(stdout)
+    end
+    λ
 end
+const LIBAD = Ref(0)
 "(LINEIMP) the line cooling [erg cm⁻³ s⁻¹] of the zone with model md at (ρ, T, composition y | nothing); Duals carry ∂/∂T, ∂/∂ρ, ∂/∂x_H₂."
 function li_cool(md, ρ, T, y)
     Tv = max(Float64(ForwardDiff.value(T)), 1.0); c = md.c
@@ -468,7 +475,7 @@ mutable struct NloC
     vJ::NTuple{3,Float64}; qT::NTuple{3,Float64}; qx::NTuple{3,Float64}; hasJ::Bool
 end
 const NLOC = Ref{Vector{Any}}(Any[])          # per zone cache
-const NLOITN = Threads.Atomic{Int}(0); const NLOITJN = Threads.Atomic{Int}(0)     # (evaluations of R, of its slopes)
+const NLOITN = Threads.Atomic{Int}(0); const NLOITNS = Threads.Atomic{Int}(0); const NLOCNS = Threads.Atomic{Int}(0); const NLOITJN = Threads.Atomic{Int}(0)     # (evaluations of R, of its slopes)
 nloc_reset!(n) = (length(NLOC[]) == n ? fill!(NLOC[], nothing) : (NLOC[] = Any[nothing for _ in 1:n]); nothing)
 "CIA kernels on the nlte_means frequencies (every 8th point), tabulated on the union of the tables' node temperatures: exact (kcia and k_h2h2 are piecewise linear in T between those nodes, held outside)."
 const CIATAB = Ref{Any}(nothing)
@@ -484,18 +491,18 @@ function ciatab()
     CIATAB[] = (; Tn, K)
 end
 "nlte_means with the CIA kernels from `ciatab` (NLOIT); otherwise the same arithmetic."
-function nlte_means_fast(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T)
-    F = nlfreq(); sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0; wJ = Tw != T
+nlte_means_fast(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T) = _nlmf(nlfreq(), ciatab(), Float64(ρ), Float64(T), Float64(n1), Float64(n2), Float64(nH2),
+    Float64(nHe), Float64(nHp), Float64(ne), Float64(nHm), Float64(nHmS), hbfP, Float64(Tw))
+function _nlmf(F, ct, ρ, T, n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw)       # (function barrier: F, ct concrete)
+    sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0; wJ = Tw != T
     cia = nH2 > 1e-3 * n1; acia = 0.0; nnl = hbf_levels(T, n2)
-    if cia
-        ct = ciatab(); Tn = ct.Tn; nT = length(Tn)
-        Tc = clamp(T, Tn[1], Tn[end]); jT = clamp(searchsortedlast(Tn, Tc), 1, nT - 1); wT = (Tc - Tn[jT]) / (Tn[jT+1] - Tn[jT])
-    end
+    Tn = ct.Tn; K = ct.K; nT = length(Tn)
+    Tc = clamp(T, Tn[1], Tn[end]); jT = clamp(searchsortedlast(Tn, Tc), 1, nT - 1); wT = (Tc - Tn[jT]) / (Tn[jT+1] - Tn[jT])
     @inbounds for i in eachindex(F.ν)
         ν = F.ν[i]; dν = F.dν[i]; λμ = F.λμ[i]
         stim = -expm1(-COp.h * ν / (COp.kB * T))
         if cia && i % 8 == 1
-            s = (i - 1) ÷ 8 + 1; K = ct.K
+            s = (i - 1) ÷ 8 + 1
             k1 = (1 - wT) * K[1, jT, s] + wT * K[1, jT+1, s]; k2 = (1 - wT) * K[2, jT, s] + wT * K[2, jT+1, s]; k3 = (1 - wT) * K[3, jT, s] + wT * K[3, jT+1, s]
             acia = k1 * nH2^2 + k2 * nH2 * nHe + k3 * nH2 * n1
         end
@@ -522,6 +529,7 @@ function nlost_restart!(m)
 end
 "(NLOIT) the ratios (R_E, R_P, R_R) and n_e [cm⁻³] of composition d (full fractions) at (ρ, T), three-level parameters p."
 function nlo_ratio(ρ, T, d, p)
+    t0_ = time_ns()
     nH = ρ / CNn.μH(); nHe = PC.yHe * nH
     Rt, Pt = OPAC[](ρ, T); w = nlo_w(T); Pq = Rq = 1.0
     if w > 0
@@ -542,7 +550,7 @@ function nlo_ratio(ρ, T, d, p)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
     E, P, R = nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw)
-    Threads.atomic_add!(NLOITN, 1)
+    Threads.atomic_add!(NLOITN, 1); Threads.atomic_add!(NLOITNS, Int(time_ns() - t0_))
     (E / bP, P / bP, R / bR), ne
 end
 "(NLOIT) weight of the table calibration: smooth step in ln T from 0 at NLOITW[1] to 1 at NLOITW[2]."
@@ -551,7 +559,9 @@ nlo_w(T) = (x = clamp((log(T) - log(NLOITW[1])) / (log(NLOITW[2]) - log(NLOITW[1
 function nlo_comp(m, k, s, ρ, T, x1, x2)
     t = (TX.cplz(k) && k <= length(CPLTERMS[])) ? CPLTERMS[][k] : nothing
     t === nothing && return s.d, s.p
+    t0_ = time_ns()
     x, _ = CNn.ck_eval([x1, x2], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
+    Threads.atomic_add!(NLOCNS, Int(time_ns() - t0_))
     CNn.full(x, m.net), (hasproperty(t.env, :tl3) ? t.env.tl3 : s.p)
 end
 "(NLOIT) (χ, κ_E, κ_P) of network zone k at the iterate (see NLOIT)."
