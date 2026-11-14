@@ -333,6 +333,10 @@ matgen/matslv at the converged yₙ₊₁ gives Est, less the solve with the old
 correction: F_r is not in TITAN's Newton convergence measure, so without this the estimate has an h-independent part), directly in TITAN's correction variables (relative r, x_me, ρ, T, E_r; u/unom, F/frnom;
 δ ln x of the coupled species).
 
+**Second filter** (DTERRFILT=2, default; 1 = Est only): EST = (I − h d J)⁻¹ Est, which Hosea & Shampine §6 note gives the correct
+behaviour at infinity (Est still over-estimates a stiff component by the constant factor √2/(3d) instead of ∝ 1/(hλ)); see refilter!.
+On the 100-zone grid the stiff F_r/E_r of the thin zones outside the photosphere made Est nearly h-independent (err 1.0–1.07 over
+dt 2.8e3 → 1.5e3 s, every attempt rejected).
 **Norm** (DTERRNORM=rms (default) | max): err = ‖Est / w‖ with per-variable weights
     ρ, T: rtol·|y|;  E_r: rtol·(E_r + efloor·aT⁴);  u: rtol·max(|u|, c_s) (c_s the larger adjacent sound speed);
     F_r: rtol·max(|F|, ffloor·c E_r);  x_me (Eulerian mass flux): rtol·(larger adjacent zone mass);  r (moving grids): rtol·(smaller adjacent zone width);
@@ -352,12 +356,12 @@ const ERRCTL = Ref(haskey(ENV, "DTERR"))
 const EOPT = let v = haskey(ENV, "DTERR") ? parse.(Float64, split(ENV["DTERR"], ",")) : Float64[], c = parse.(Float64, split(get(ENV, "DTERRCTL", "0.9,0.2,5"), ","))
     (rtol = isempty(v) ? 1e-2 : v[1], xfl = length(v) >= 2 ? v[2] : 1e-6, ffl = length(v) >= 3 ? v[3] : 1e-2, efl = length(v) >= 4 ? v[4] : 0.0,
      safety = c[1], facmin = c[2], facmax = c[3], pi = get(ENV, "DTERRPI", "1") == "1", fail = parse(Float64, get(ENV, "DTERRFAIL", "0.25")),
-     be = get(ENV, "DTERRBE", "0") == "1", maxnorm = get(ENV, "DTERRNORM", "rms") == "max", trace = parse(Int, get(ENV, "DTERRTRACE", "20")))
+     be = get(ENV, "DTERRBE", "0") == "1", filt = parse(Int, get(ENV, "DTERRFILT", "2")), maxnorm = get(ENV, "DTERRNORM", "rms") == "max", trace = parse(Int, get(ENV, "DTERRTRACE", "20")))
 end
 const dW = γ / 2; const wW = sqrt(2) / 4
 const HNEXT = Ref(0.0); const ERRPREV = Ref(0.0); const HEUR = Ref(0.0); const DSAL = Ref{Any}(nothing)
-const ESTATS = Dict(:steps => 0, :rej_err => 0, :fail_newton => 0, :nofsal => 0, :be => 0, :neg_old => 0)
-const LIMHIST = Dict{String,Int}(); const LASTERR = Ref((NaN, "", 0)); const ERR0 = Ref(NaN)   # (ERR0: norm of the converged state's remaining correction)
+const ESTATS = Dict(:steps => 0, :rej_err => 0, :fail_newton => 0, :nofsal => 0, :be => 0, :neg_old => 0, :nonfinite => 0, :nonfinite_est => 0)
+const LIMHIST = Dict{String,Int}(); const LASTERR = Ref((NaN, "", 0)); const ERR0 = Ref(NaN); const ERR1 = Ref(NaN)   # (ERR0: norm of the converged state's remaining correction)
 "Extra text for the DTERR trace line (popiii_m2c: coverage of the COUPLED zones)."
 const TRACE_EXTRA = Ref{Any}(nothing)
 const VNAMES = Dict(1 => "r", 2 => "m", 3 => "rho", 4 => "u", 5 => "T", 6 => "E_r", 7 => "F_r", 8 => "x_H+", 9 => "x_H2")
@@ -441,7 +445,35 @@ function estimate!(Cn, Cg, C1, Cs, Δ)
     old_from!(Co) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
     r(:matgen); r(:matslv); rhs .-= δ0
     e0 = wnorm(δ0); ERR0[] = e0[1]
+    EOPT.filt >= 2 || return wnorm(rhs)
+    ERR1[] = wnorm(rhs)[1]
+    refilter!(copy(rhs), Cs, δ0) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
     wnorm(rhs)
+end
+
+"""
+Second filter (DTERRFILT=2, default; Hosea & Shampine 1996 §6, after their eq. for Est: "(I − h d J) EST = Est … to get the correct
+behavior at infinity"): rhs := (I − h d J)⁻¹ Est. Est is in TITAN's correction variables; its conserved-combination image ΔQ = Q_y Est is
+taken from the residual's own state evaluation (TitanResidFast.residual! at the converged state + ε Est and at + 0, difference / ε) and
+injected through the old arrays as for the first filter.
+"""
+function refilter!(E1, Cs, δ0)
+    c = TX.context(); W = TX.getws(Float64, c.mgr); neqn, k0, nb = c.neqn, c.k0, c.nb; R = zeros(neqn, nb)
+    x = zeros(neqn * nb); mx = 0.0
+    @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = v; mx = max(mx, abs(v)); end
+    ε = mx > 0 ? min(1.0, 1e-3 / mx) : 1.0
+    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2))
+    TX.residual!(R, W, c, zeros(neqn * nb)); C0 = Dict(s_ => copy(v) for (s_, v) in stw())
+    x .*= ε; TX.residual!(R, W, c, x); Cp = stw()
+    Co = Dict{Symbol,Vector{Float64}}()
+    for (s_, v0) in C0
+        vs = Cs[s_]; vp = Cp[s_]; o = similar(v0)
+        @inbounds for k in eachindex(v0); o[k] = vs[k] + (vp[k] - v0[k]) / ε; end
+        Co[s_] = o
+    end
+    old_from!(Co) || return false
+    rhs = TF.var(:rhs); r(:matgen); r(:matslv); rhs .-= δ0
+    true
 end
 
 "Weighted norm of a correction matrix (TITAN's correction variables, see ERRCTL): (norm, variable, zone, largest weighted entry)."
@@ -477,6 +509,18 @@ function wnorm(rhs)
     (err, get(VNAMES, wv, string(wv)), wk, worst)
 end
 
+"All unknowns of the new time level finite (r, x_me, u, ρ, T, E_r, F_r and the coupled species)."
+function finite_new()
+    a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1
+    for s_ in (lrad ? (:rn, :xmen, :un, :dn, :tn, :ern, :frn) : (:rn, :xmen, :un, :dn, :tn))
+        v = vf(s_); @inbounds for k in a:b; isfinite(v[k]) || return false; end
+    end
+    if TX.COUPLED[]
+        for i in 1:2; q = TX.XSN[][i]; @inbounds for k in a:b; TX.cplz(k) && !isfinite(q[k]) && return false; end; end
+    end
+    true
+end
+
 function etrace(kind, Δ, err, info)
     TRACE_EXTRA[] === nothing ? "" : TRACE_EXTRA[]()
 end
@@ -497,6 +541,7 @@ function step_err!()
         Δ = g(:dtime); TD.FULL_DT[] = Δ; err = NaN; Dnew = nothing
         s!(:thet, 0.5); s!(:dtime, γ * Δ); s!(:timen, t0 + γ * Δ)
         ok = newton!()
+        ok && !finite_new() && (ok = false; ESTATS[:nonfinite] += 1)        # a non-finite stage is a failed attempt
         if !ok
             STATS[:fail_tr] += 1
         else
@@ -506,6 +551,7 @@ function step_err!()
                 s!(:thet, 1.0); s!(:dtime, C2 * Δ); s!(:timen, t0 + Δ)
                 TitanCore.predict!(; halve = false)
                 ok = newton!()
+                ok && !finite_new() && (ok = false; ESTATS[:nonfinite] += 1)
                 if ok
                     TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:bdf, C2 * Δ)
                     C1 = combos_new(); Cs = combos_old()
@@ -513,7 +559,9 @@ function step_err!()
                     if DSAL[] === nothing
                         ESTATS[:nofsal] += 1
                     else
-                        e_, v_, z_, w_ = estimate!(Cn, Cg, C1, Cs, Δ); err = e_; info = (v_, z_, w_)
+                        e_, v_, z_, w_ = try estimate!(Cn, Cg, C1, Cs, Δ) catch ex; ex isa InterruptException && rethrow(); (Inf, "estimate failed", 0, Inf) end
+                        isfinite(e_) || (e_ = Inf; ESTATS[:nonfinite_est] += 1)  # a non-finite estimate rejects the step
+                        err = e_; info = (v_, z_, w_)
                     end
                 else
                     STATS[:fail_bdf] += 1
@@ -526,7 +574,7 @@ function step_err!()
         ok && !(err > 1) && break
         if !ok && o.be                    # (testing) the same Δ with backward Euler, accepted without an estimate, not sticky
             r(:reset); s!(:thet, 1.0); s!(:timen, t0 + Δ); TitanCore.predict!(; halve = false)
-            okb = newton!()
+            okb = newton!() && finite_new()
             okb && TD.STAGE_HOOK[] !== nothing && TD.STAGE_HOOK[](:be, Δ)
             s!(:thet, θ0)
             if okb
@@ -541,7 +589,7 @@ function step_err!()
         nrej += 1; rejected = true
         nr = ESTATS[:rej_err] + ESTATS[:fail_newton]
         (nr <= 200 || nr % 100 == 0) && @printf("DTERR reject jstep %d: dt %.3e %s -> dt %.3e%s\n", Int(g(:jstep)), Δ,
-            ok ? @sprintf("err %.3g (max %.3g: %s zone %d; resid %.2g)", err, info[3], info[1], info[2], ERR0[]) : "Newton failure", fac * Δ, etrace(:rej, Δ, err, info))
+            ok ? @sprintf("err %.3g (max %.3g: %s zone %d; resid %.2g, 1st filter %.3g)", err, info[3], info[1], info[2], ERR0[], ERR1[]) : "Newton failure", fac * Δ, etrace(:rej, Δ, err, info))
         s!(:tfac, fac); s!(:dtime, fac * Δ)
         s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)
         r(:reset); s!(:timen, t0 + g(:dtime)); TitanCore.predict!(; halve = false, dtscale = γ)
@@ -564,8 +612,8 @@ function step_err!()
     r(:timstp)                            # (TITAN's rule and caps: diagnostic only)
     HEUR[] = g(:dtime); s!(:dtime, hn); s!(:tfac, hn / Δ)
     if o.trace > 0 && ESTATS[:steps] % o.trace == 0
-        @printf("DTERR jstep %d t %.6e yr: dt %.3e err %.3g (max %.3g: %s zone %d; resid %.2g) next %.3e | heuristic %.3e | steps %d rej %d fail %d%s\n",
-            Int(g(:jstep)), g(:timen) / 3.156e7, Δ, err, info[3], info[1], info[2], ERR0[], hn, HEUR[], ESTATS[:steps], ESTATS[:rej_err], ESTATS[:fail_newton], etrace(:acc, Δ, err, info))
+        @printf("DTERR jstep %d t %.6e yr: dt %.3e err %.3g (max %.3g: %s zone %d; resid %.2g, 1st filter %.3g) next %.3e | heuristic %.3e | steps %d rej %d fail %d%s\n",
+            Int(g(:jstep)), g(:timen) / 3.156e7, Δ, err, info[3], info[1], info[2], ERR0[], ERR1[], hn, HEUR[], ESTATS[:steps], ESTATS[:rej_err], ESTATS[:fail_newton], etrace(:acc, Δ, err, info))
     end
     nothing
 end

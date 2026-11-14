@@ -2301,14 +2301,23 @@ try
             TOTH[] += time() - tnow
         end
         TMARK[] = time()
-        haskey(ENV, "SAVE") && CKEVERY > 0 && k % CKEVERY == 0 && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ CKEVERY) % 2), k)
+        haskey(ENV, "SAVE") && CKEVERY > 0 && k % CKEVERY == 0 && all(isfinite, view(TF.var(:tn), a:b)) && all(isfinite, view(TF.var(:dn), a:b)) && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ CKEVERY) % 2), k)
     end)
 catch e
     pr("stopped: %s\n", first(sprint(showerror, e), 400))
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
 pr("run ended: %s; jstep %d jstepe %g timen %.6e tmax %.6e\n", string(RUNEND[]), Int(TF.getscalar(:jstep)), Float64(TF.getscalar(:jstepe)), TF.getscalar(:timen), TF.getscalar(:tmax))
-haskey(ENV, "SAVE") && (checkpoint(ENV["SAVE"], KLAST[]); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[]))
+if haskey(ENV, "SAVE")
+    # never overwrite good state with a non-finite one (a stop after a NaN step): the last auto checkpoint stays the restart point
+    let a_ = Int(TF.getscalar(:ngrs)), b_ = Int(TF.getscalar(:ngre)), fin = all(s_ -> all(isfinite, view(TF.var(s_), a_:b_)), (:rn, :un, :dn, :tn, :egn, :ern, :frn, :xmen))
+        if fin
+            checkpoint(ENV["SAVE"], KLAST[]); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[])
+        else
+            pr("checkpoint %s NOT written: the state at step %d is not finite\n", ENV["SAVE"], KLAST[])
+        end
+    end
+end
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
 Trbdf2.DAMP[] && pr("damped Newton: %s\n", string(Trbdf2.DSTATS))
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
