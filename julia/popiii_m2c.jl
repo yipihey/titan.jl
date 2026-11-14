@@ -475,7 +475,7 @@ LINEIMP && (PM.LINEIMP[] = true; pr("LINEIMP: H2 line cooling of each zone from 
 const LIALI = Ref{Vector{Any}}(Any[]); const LISTAT = zeros(Int, 4)    # (zones with EP, ALI, held-ALI rates; f clamped)
 const LIJCMB = Ref{Vector{Float64}}(Float64[])
 "(diagnostic, NANSCAN=1) report the first zones whose state is not finite."
-const NANSCAN = get(ENV, "NANSCAN", "0") == "1"
+const NANSCAN = get(ENV, "NANSCAN", "0") == "1"; const FLUSHOUT = get(ENV, "FLUSHOUT", "0") == "1"
 function nanscan(where, k)
     n = 0
     for nm in (:tn, :dn, :egn, :ern, :un, :frn, :rn, :pgn, :xkpn, :chifn)
@@ -2151,6 +2151,7 @@ try
         EB = isempty(TX.CHEMB[]) ? nothing : copy(TF.var(:egn))
         SLZ_ = haskey(ENV, "SLZ") ? parse.(Int, split(ENV["SLZ"], ",")) : nothing
         if SLZ_ !== nothing; xb_ = [copy(mat.x[z]) for z in SLZ_[1]:SLZ_[2]]; Tb_ = TF.var(:tn)[SLZ_[1]:SLZ_[2]]; end
+        FLUSHOUT && flush(stdout)                    # (FLUSHOUT=1: the step's diagnostics reach the output file now)
         NANSCAN && nanscan("after the hydro step", k)
         dT = COUPLED ? PM.cpl_chem!(mat) : PM.chem!(mat)
         NANSCAN && nanscan("after the chemistry", k)
