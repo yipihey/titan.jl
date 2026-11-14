@@ -261,10 +261,30 @@ function cpl_newstep!()
             qs[k] = a * b >= 0 ? cadv * a * b / den : 0.0
         end
     end
+    empty!(CPL_BAD)                                  # (only corrections of this step's Newton iterations count)
     cpl_local_all!(gf(:dtime))
     nothing
 end
-cpl_reset!() = (for i in 1:2; copyto!(XSN[][i], XSO[][i]); end; cpl_local_all!(gf(:dtime)); nothing)
+"""
+Coupled zones whose raw species correction exceeded CPL_BADDELTA (100 in ln x) in a Newton iteration of a failed step: on the reset they are
+handed back to the split chemistry for the rest of the step (CPLZ false; with ECHEMSPLIT treated as network, not table, zones). A zone next to
+the shock whose x_H⁺ had fallen to 1e-9 asked for δ ln x = −1e76 in every retry, the step never converged and Δt collapsed (t_cpl4, step 123110).
+"""
+const CPL_BAD = Set{Int}(); const CPL_BADDELTA = Ref(parse(Float64, get(ENV, "CPLBADDELTA", "100"))); const CPL_NDECOUPLED = Ref(0)
+function cpl_reset!()
+    for i in 1:2; copyto!(XSN[][i], XSO[][i]); end
+    if !isempty(CPL_BAD)
+        a = gi(:ngrs)
+        for k in CPL_BAD
+            cplz(k) || continue
+            CPLZ[][k] = false; CPL_NDECOUPLED[] += 1
+            ECHEMF[] !== nothing && (ECHEMF[][2][k] = false)
+            (CPL_NDECOUPLED[] <= 30 || CPL_NDECOUPLED[] % 100 == 0) && println("COUPLED: zone $(k - a + 1) decoupled for this step (species correction > $(CPL_BADDELTA[]) in ln x), $(CPL_NDECOUPLED[]) so far")
+        end
+        empty!(CPL_BAD)
+    end
+    cpl_local_all!(gf(:dtime)); nothing
+end
 "Apply the Newton correction (update!): x ← x·e^δ in the coupled zones."
 function cpl_update!(rhs, a, b)
     @inbounds for k in a:b
@@ -284,6 +304,7 @@ function cpl_dmax!(rhs, a, b)
             CPLDBG[] > 0 && abs(rhs[i, k]) > 20 && (CPLDBG[] -= 1;
                 println("CPLDBG iter $(gi(:iter)) zone $(k - a + 1) row $i: δ $(rhs[i, k]) x $(q[k]) x_old $(XSO[][i - 7][k]) x(H+,H2) $(XSN[][1][k]), $(XSN[][2][k]) T $(TF.var(:tn)[k]) T_old $(TF.var(:to)[k]) ρ $(TF.var(:dn)[k]) neighbours x_H+ $(XSN[][1][k-1]) $(XSN[][1][k+1]) cplz $(cplz(k-1)) $(cplz(k+1))"))
             isfinite(rhs[i, k]) || (rhs[i, k] = 0.0; d = Inf)                        # a non-finite correction: no change, not converged
+            abs(rhs[i, k]) > CPL_BADDELTA[] && push!(CPL_BAD, k)
             rhs[i, k] = clamp(rhs[i, k], -cl, cl)
             # weight by the larger of the iterate and the old abundance: a species the iterate drove to the floor (x_H⁺ 1e-40 next to the
             # shock, from 1e-3) is not converged; only species that are trace at both ends are left out
