@@ -461,14 +461,14 @@ composition the chemistry left (frozen over the hydro step, as in the EOS). The 
 those of the step (lagged with the radiation field). The ratio form keeps the table's calibration (OPAL lines above ~6300 K) and goes
 to the table where the populations are LTE, so it joins the table zones at τ = PSWTAU continuously; no jump in T anywhere.
 χ ≥ σ_T n_e/ρ of the iterate's electrons (extinction is never below Thomson scattering on the zone's own electrons; this is NLOFIX's floor,
-and what NLOTMAX's table fallback provided in ionized gas). Values exact at every iterate; Newton's derivatives in T, ρ, x_H⁺ and x_H₂ by one-sided
+and what NLOTMAX's table fallback provided in ionized gas). Values exact at every iterate; Newton's derivatives in T (central), ρ, x_H⁺ and x_H₂ (one-sided)
 differences of R (ln, relative steps 1e-3 and 1e-2), reused while T stays within NLOITJ[1] and x_H⁺ within NLOITJ[2] (relative, ln;
-default 3e-3, 0.1; ρ within NLOITJ[1]) of where they were taken (an inexact Newton, the converged state unchanged); ∂R/∂ρ likewise.
+default 0, 0: new slopes at every new iterate; reusing them, e.g. NLOITJ=3e-3,0.1, made Newton stall at ~1e-4 corrections in the warm coupled zones of the production state, and the inexact Jacobian also enters DTERR's filtered estimate); ρ within NLOITJ[1].
 Retires NLOIMPT, NLODAMP, CPLNLOX, NLOFIX, NLOTMAX in network zones (they have no effect with NLOIT).
 """
 const NLOIT = get(ENV, "NLOIT", "0") == "1"
 const NLOITW = let s_ = split(get(ENV, "NLOITW", "5000,6000"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
-const NLOITJ = let s_ = split(get(ENV, "NLOITJ", "3e-3,0.1"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
+const NLOITJ = let s_ = split(get(ENV, "NLOITJ", "0,0"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
 const NLOST = Ref{Vector{Any}}(Any[])        # per zone: (; d, p) at the end of the last chemistry, or nothing
 mutable struct NloC
     v::NTuple{4,Float64}; R::NTuple{3,Float64}; ne::Float64
@@ -587,7 +587,8 @@ function nlo_it(m::NetGas, k, ρ, T, s)
     needJ = T isa ForwardDiff.Dual || xd isa ForwardDiff.Dual || ρ isa ForwardDiff.Dual
     if needJ && !(c.hasJ && abs(log(Tv / c.vJ[2])) < NLOITJ[1] && abs(log(ρv / c.vJ[1])) < NLOITJ[1] && (!cz || (abs(log(xv / c.vJ[3])) < NLOITJ[2] && abs(log(xv2 / c.vJ[4])) < NLOITJ[2])))
         εT = 1e-3; d1, p1 = nlo_comp(m, k, s, ρv, Tv * (1 + εT), xv, xv2); R1, _ = nlo_ratio(ρv, Tv * (1 + εT), d1, p1)
-        c.qT = ntuple(i -> log(R1[i] / c.R[i]) / log1p(εT), 3)
+        d0, p0 = nlo_comp(m, k, s, ρv, Tv / (1 + εT), xv, xv2); R0, _ = nlo_ratio(ρv, Tv / (1 + εT), d0, p0)
+        c.qT = ntuple(i -> log(R1[i] / R0[i]) / (2log1p(εT)), 3)          # (central: the ratio is steep in T, q ~ 10-20)
         if cz
             εx = 1e-2; d2, p2 = nlo_comp(m, k, s, ρv, Tv, xv * (1 + εx), xv2); R2, _ = nlo_ratio(ρv, Tv, d2, p2)
             c.qx = ntuple(i -> log(R2[i] / c.R[i]) / log1p(εx), 3)
@@ -1682,6 +1683,21 @@ function cpl_g(m::NetGas, k, z)
     end
     [p, u, fs[1], fs[2], Λ, cq, yq]
 end
+"(diagnostic, with CPLJCHECK) zone k's local (p, e, S₁, S₂, Λ, cq, yq): ForwardDiff Jacobian against central differences in (ρ, T, x_H⁺, x_H₂)."
+function cpl_gcheck(m::NetGas, k)
+    z0 = [TM.v(:dn)[k], TM.v(:tn)[k], TX.XSN[][1][k], TX.XSN[][2][k]]
+    J = ForwardDiff.jacobian(z -> cpl_g(m, k, z), z0); names = ("p", "e", "S1", "S2", "Λ", "cq", "yq"); vn = ("ρ", "T", "x1", "x2")
+    for j in 1:4, rh in (1e-6, 1e-4, 1e-2)
+        h = rh * z0[j]; zp = copy(z0); zm = copy(z0); zp[j] += h; zm[j] -= h
+        fd = (cpl_g(m, k, zp) .- cpl_g(m, k, zm)) ./ 2h
+        @printf("CPLGCHECK zone %d d/d%s (FD step %.0e): %s\n", k - Int(TF.getscalar(:ngrs)) + 1, vn[j], rh,
+                join((@sprintf("%s AD %.5e FD %.5e", names[i], J[i, j], fd[i]) for i in 1:7 if max(abs(J[i, j]), abs(fd[i])) > 0), " | "))
+    end
+    y0 = cpl_g(m, k, z0); d0 = CNn.full(cpl_ckx(m, k, z0), m.net)
+    @printf("CPLGCHECK zone %d values: Λ %.6e cq %.6e yq %.6e | x_e %.6e x_H %.6e x_H+ %.6e\n", k - Int(TF.getscalar(:ngrs)) + 1, y0[5], y0[6], y0[7], d0[:e], d0[:H], d0[:Hp])
+    nothing
+end
+cpl_ckx(m, k, z) = (t = CPLTERMS[][k]; CNn.ck_eval([z[3], z[4]], z[1], z[2], m.net; env = t.env, phc = t.phc, extra = t.extra)[1])
 cpl_lift(y, J, ρ::Float64, T::Float64, a::Float64, b::Float64) = Tuple(y)
 function cpl_lift(y, J, ρ::D, T::D, a::D, b::D) where {D<:ForwardDiff.Dual}
     P1, P2, P3, P4 = ForwardDiff.partials(ρ), ForwardDiff.partials(T), ForwardDiff.partials(a), ForwardDiff.partials(b)
