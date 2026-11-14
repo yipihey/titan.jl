@@ -506,6 +506,16 @@ function nlte_means_fast(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw =
     end
     (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
 end
+"(NLOIT, restart) NLOST from the checkpoint: network zones that had non-LTE factors (NLOPC) take their composition and the three-level parameters of SLDIAG."
+function nlost_restart!(m)
+    n = length(m.x); NLOST[] = Any[nothing for _ in 1:n]; nloc_reset!(n)
+    sd = SLDIAG[]; (sd === nothing || !hasproperty(sd, :tl3)) && return nothing
+    for k in 1:min(n, length(NLOPC[]), length(sd.tl3))
+        (NLOPC[][k] === nothing || m.eqzone[k] || sd.tl3[k] === nothing) && continue
+        NLOST[][k] = (; d = CNn.full(m.x[k], m.net), p = sd.tl3[k])
+    end
+    nothing
+end
 "(NLOIT) the ratios (R_E, R_P, R_R) and n_e [cm⁻³] of composition d (full fractions) at (ρ, T), three-level parameters p."
 function nlo_ratio(ρ, T, d, p)
     nH = ρ / CNn.μH(); nHe = PC.yHe * nH
@@ -568,9 +578,15 @@ function nlo_it(m::NetGas, k, ρ, T, s)
     return chicap(max(κR0 * RR, COp.σT * ned / ρ), T), κP0 * RE, κP0 * RP
 end
 "(diagnostic, NLOITDIAG=n: n sweeps of fill_opac!) per network zone the NLOIT opacities against those the lagged NLOPAC ratio would give at the same state."
-const NLOITDIAG = Ref(parse(Int, get(ENV, "NLOITDIAG", "0"))); const NLOITDK = Ref(0)
+const NLOITDIAG = Ref(parse(Int, get(ENV, "NLOITDIAG", "0"))); const NLOITDK = Ref(0); const NLOITSW = Ref(false)
 function nloit_diag(m, k, ρ, T, new)
-    k == Int(TF.getscalar(:ngre)) && (NLOITDIAG[] -= 1)
+    js = Int(TF.getscalar(:jstep))
+    if js != NLOITDK[]
+        k == Int(TF.getscalar(:ngrs)) || return nothing          # (one full sweep per step, the first one of the step)
+        NLOITDK[] = js; NLOITDIAG[] -= 1; NLOITSW[] = true
+    end
+    k >= Int(TF.getscalar(:ngre)) && (NLOITSW[] = false)
+    NLOITSW[] || return nothing
     (m.eqzone[k] || k > length(NLOST[]) || (s = NLOST[][k]) === nothing) && return nothing
     o = nlopc(ρ, T, s.d, s.p); o === nothing && return nothing
     κR0, κP0 = OPAC[](ρ, T)
