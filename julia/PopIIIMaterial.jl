@@ -508,6 +508,14 @@ and everywhere at n_H ≳ 1e20 (10 M☉ centre: x_e 0.85 vs 0.04, p −39 %). Wi
 """
 const PSWNH = parse(Float64, get(ENV, "PSWNH", "0"))
 """
+PSWDEEP=τ (default 0, off): a zone above the pressure switch whose optical depth from the surface is at least τ (half of it to stay) is a
+table zone whatever its temperature (PSWTMIN does not apply): it is thermalised (J = B) and collision-dominated, which is what the table
+assumes. Without it a zone of the protostar that cooled below PSWTMIN (4500 K) became a network zone between hot table zones, with the
+network's much lower opacity, at n 1e17–1e21 and τ 1e7–1e8: a radiative window (F/cE −0.65 in an opaque zone; the 48-zone from-IC run
+stalled at Δt ~ 10 s, the 100-zone run's T zigzag in the accretion shock).
+"""
+const PSWDEEP = parse(Float64, get(ENV, "PSWDEEP", "0"))
+"""
 PSWAGREE[] = ε > 0 (three-level runs): below the pressure switch the table is used only where it agrees with the network. The τ rule (PSWTAU)
 flipped bands of zones in the extended photosphere of the non-LTE opacity (τ 1 → 0.4 over nine zones): a zone left the table at τ < 0.5, the
 three-level atom ionized it in one step (x_e 3e-3 → 4.5e-2: the diluted 6000 K star light is hotter than the gas), its κ took τ back over 1,
@@ -1048,7 +1056,8 @@ function chem_core!(m::NetGas)
         # to ~1 % in T at fixed e; at 7000-9500 K the network's H ionization lags the table's Saha by ×5, and switching there drops T by up to 16 %.
         ptab = (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[])
         PSWNH > 0 && !ptab && (ptab = dn[k] / CNn.μH() >= (m.eqzone[k] ? PSWHYS[] : 1.0) * PSWNH && tn[k] >= (m.eqzone[k] ? 0.95 : 1.0) * PSWTMIN[])
-        ag = nothing                                  # PSWAGREE: table only where it agrees with the network (see PSWAGREE)
+        PSWDEEP > 0 && !ptab && (ptab = pgn[k] >= m.pswitch && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWDEEP)     # PSWDEEP: thermalised, any T
+        ag = nothing                                 # PSWAGREE: table only where it agrees with the network (see PSWAGREE)
         if !ptab && PSWAGREE[] > 0 && tl3sw && tn[k] >= PSWTEX[]
             slrates(k); p = SLDIAG[].tl3[k]
             if tauz[k] >= PSWTAUDEEP[]

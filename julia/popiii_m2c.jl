@@ -1722,6 +1722,9 @@ const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = pa
 # Newton controls, applied after any restart: NITER (iterations per attempt), FAILTFAC (Δt factor after a failed attempt)
 haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
 haskey(ENV, "STOL") && TF.setscalar!(:stol, parse(Float64, ENV["STOL"]))
+# CONV (default: unset, TITAN's 1e-5): the Newton tolerance on the largest relative correction (r, m, rho, T, E_r). A looser one (e.g. 1e-3)
+# accepts the limit cycles at the 1e-5..1e-4 level that held the 48-zone from-IC run at dt ~ 10 s for 2000 steps (robustness lever, an accuracy cost)
+haskey(ENV, "CONV") && TF.setscalar!(:conv, parse(Float64, ENV["CONV"]))
 # STOLCHEM=1: the step-size rule (stol on the relative change of r, m, rho, T, E_r, and the caps in DT_HOOKS) is evaluated again after
 # the chemistry step, so that it acts on the change over the whole step (transport + chemistry) and not on the state between the two
 # halves of the operator split, where the transport step has moved T at the old composition. Default off.
