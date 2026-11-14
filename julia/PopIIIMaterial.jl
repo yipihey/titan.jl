@@ -701,6 +701,17 @@ function tl3_recke(T)
     de = (balmer_mean(1.001t0) - balmer_mean(0.999t0)) / (0.002t0)
     e0 + de * (T - t0)
 end
+"""
+LOCALJ=1 (default off): in the zones with three-level parameters, the photo-processes of the network (He I, He II, H⁻, Li, from the levels with
+their Milne inverses) see the diluted blackbody of the star-light rates, J = W B(T_c) (T_c from T_eff in thin gas to the local T_r at τ ≥ 3,
+W = 1 there), instead of the static field of `m.env` (the CMB). Without it He in the thermalised zones that leave the table is ionized only
+collisionally against radiative recombination (coronal balance): x_e 1.10 instead of 1.167 (full He²⁺) at 7e4 K, 1e-11 g/cm³ (t_nt4).
+W is recovered from the parameters' β = W β_2s(T_c). The rates are then computed directly (no table in T).
+"""
+const LOCALJ = get(ENV, "LOCALJ", "0") == "1"
+tl3env(m, p) = (LOCALJ && p !== nothing && hasproperty(p, :Tc) && p.Tc > 0) ?
+    (W_ = p.β / beta2s_bb(p.Tc); Tc_ = p.Tc; merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, tl3 = p))) :
+    merge(m.env, (; tabkey = m.env, tl3 = p))
 "Energy terms of the three-level atom per volume: (chemistry heat, cycle heat for GASQ) at (ρ, T, full composition d)."
 function tl3_heat(ρ, T, d, p)
     nH = ρ / CNn.μH(); C = tl3_C(T, p); xH = max(d[:H], zero(T)); xe = max(d[:e], zero(T)); xp = max(d[:Hp], zero(T))
@@ -862,7 +873,7 @@ function chemreplay(k, m, ρ, u0, T0, x0, dt, phk, exs, c0, p3; xref, Tref)
         for it in 0:npic
             ca = (ρ_, T, d) -> (c0 === nothing ? zero(T) : c0(ρ_, T, d)) - tl3_heat(ρ_, T, d, pc)[1]
             ncall[] += 1
-            xb, Tb = CNn.step(xa, ρ, ua, Ta, hh, m.net; env = merge(m.env, (; tabkey = m.env, tl3 = pc)), photos = phk, cooling = ca, extra = exs)
+            xb, Tb = CNn.step(xa, ρ, ua, Ta, hh, m.net; env = tl3env(m, pc), photos = phk, cooling = ca, extra = exs)
             pn = merge(pc, (; ne = nHk * xel(xb)))
             it < npic && abs(pn.ne / pc.ne - 1) < 1e-3 && (pc = pn; break)
             pc = pn
@@ -1070,7 +1081,7 @@ function chem_core!(m::NetGas)
             envk, phk = m.env, m.photos; fb = false
             p3e = p3                                 # the three-level parameters at the end of the chemistry (n_e refreshed if CHEMSUB sub-stepped)
             if p3 !== nothing
-                envk = merge(m.env, (; tabkey = m.env, tl3 = p3)); phk = ph3
+                envk = tl3env(m, p3); phk = ph3
                 c0 = cools
                 cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, p3)[1]
                 # CHEMCKHSS: n_e of the three-level heat from the current composition, as in ChemNet.step_ck's C
@@ -1118,7 +1129,7 @@ function chem_core!(m::NetGas)
                         function sub(xa, Ta, ua, hh, depth, pa)
                             dmax[] = max(dmax[], depth)
                             ca = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, pa)[1]
-                            xb, Tb = CNn.step(xa, dn[k], ua, Ta, hh, m.net; env = merge(m.env, (; tabkey = m.env, tl3 = pa)), photos = phk, cooling = ca, extra = exs)
+                            xb, Tb = CNn.step(xa, dn[k], ua, Ta, hh, m.net; env = tl3env(m, pa), photos = phk, cooling = ca, extra = exs)
                             (depth >= CHEMSUBMAX[] || !bad(xa, Ta, xb, Tb)) && return (xb, Tb, merge(pa, (; ne = nHk * xel(xb))))
                             xc, Tc_, pc = sub(xa, Ta, ua, hh / 2, depth + 1, pa)
                             sub(xc, Tc_, Float64(CNn.eos(dn[k], Tc_, xc, m.net)[1]), hh / 2, depth + 1, pc)
