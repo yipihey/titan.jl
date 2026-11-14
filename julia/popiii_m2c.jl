@@ -1868,6 +1868,7 @@ CPLPROF=1 (diagnostic, default off; also without COUPLED): wall time of matgen (
 Newton iteration count, and (COUPLED) the local 4-wide Jacobians of PopIIIMaterial.cpl_zone (computed / reused, time); printed every 100 steps.
 """
 const CPLPROF = get(ENV, "CPLPROF", "0") == "1"
+const IFDBGN = Ref(parse(Int, get(ENV, "IFDBGN", "4")))   # IFDBG=z1,z2 (diagnostic): print zones z1..z2 after the chemistry for IFDBGN steps
 const PROFT = Dict{Symbol,Float64}(); const PROFN = Dict{Symbol,Int}(); const PROFSTEP = Ref(-1)
 if CPLPROF
     for s_ in (:matgen, :matslv, :maxdel, :update, :peq, :timstp)
@@ -1960,6 +1961,18 @@ try
         if SLZ_ !== nothing; xb_ = [copy(mat.x[z]) for z in SLZ_[1]:SLZ_[2]]; Tb_ = TF.var(:tn)[SLZ_[1]:SLZ_[2]]; end
         dT = COUPLED ? PM.cpl_chem!(mat) : PM.chem!(mat)
         prof_report()
+        if haskey(ENV, "IFDBG") && IFDBGN[] > 0          # (diagnostic) the zones of a table/network interface after the chemistry
+            IFDBGN[] -= 1; z12 = parse.(Int, split(ENV["IFDBG"], ","))
+            tn_ = TF.var(:tn); dn_ = TF.var(:dn); er_ = TF.var(:ern); kp_ = TF.var(:xkpn); rn_ = TF.var(:rn); un_ = TF.var(:un)
+            for z in z12[1]:z12[2]
+                k = a + z - 1; d_ = mat.eqzone[k] ? nothing : ChemNet.full(mat.x[k], mat.net)
+                xe_ = mat.eqzone[k] ? PopIIIEqEOS.composition(dn_[k], min(tn_[k], 1e6))[1] : d_[:e]
+                @printf("IFDBG step %d zone %d %s cplz %d r %.1f T %.1f n %.3e x_e %.3e E_r/aT4 %.3f kP %.3e GASQ %.3e RAYQ %.3e Λext %.3e echemoff %.3e u %.2f\n",
+                        TF.getscalar(:jstep), z, mat.eqzone[k] ? "table" : "net", TX.cplz(k), rn_[k] / 6.957e10, tn_[k], dn_[k] / (1.2195 * 1.6726e-24), xe_,
+                        er_[k] / (7.565723e-15 * tn_[k]^4), kp_[k], isempty(TX.GASQ[]) ? 0.0 : TX.GASQ[][k], isempty(TX.RAYQ[]) ? 0.0 : TX.RAYQ[][k], mat.Λext[k],
+                        isempty(PM.ECHEMOFF[]) ? 0.0 : PM.ECHEMOFF[][k], un_[k] / 1e5)
+            end
+        end
         if STOLCHEM
             TF.setscalar!(:tfac, TC.TSTP_IN[][1]); TF.setscalar!(:dtime, TC.TSTP_IN[][2]); TD.r(:timstp)
         end

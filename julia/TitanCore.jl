@@ -191,7 +191,15 @@ const ER_THICK = Ref(0.0)
 const ER_TAUMIN = Ref(0.0)
 "tfac and dtime as the last timstp! call found them (STOLCHEM in popiii_m2c.jl evaluates the rule again after the chemistry step)."
 const TSTP_IN = Ref((0.0, 0.0))
+"TSTPDBG=n (diagnostic, default 0): print T new/old, ρ new/old of zone n (from the inner boundary) at every peq! and timstp! call."
+const TSTPDBG = Ref(parse(Int, get(ENV, "TSTPDBG", "0")))
+function tstpdbg(where)
+    TSTPDBG[] > 0 || return nothing
+    k = gi(:ngrs) + TSTPDBG[] - 1; tn, to, dn, do_ = vf(:tn), vf(:to), vf(:dn), vf(:do)
+    println("TSTPDBG $where jstep $(gi(:jstep)) dtime $(gf(:dtime)) zone $(TSTPDBG[]): tn $(tn[k]) to $(to[k]) rel $((tn[k] - to[k]) / to[k]) dn $(dn[k]) do $(do_[k])")
+end
 function timstp!()
+    tstpdbg("timstp")
     TSTP_IN[] = (gf(:tfac), gf(:dtime))
     a, b = gi(:ngrs), gi(:ngre); neqn = gi(:neqn)
     lhydr, lrad, ltur = gi(:lhydr), gi(:lrad), gi(:ltur)
@@ -300,6 +308,7 @@ function update!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
         lrad && (ern[k] = (1.0 + rhs[ie, k]) * ern[k])
     end
     CPLH[] === nothing || CPLH[].update(rhs, a, b)
+    TSTPDBG[] > 0 && (k_ = a + TSTPDBG[] - 1; println("TSTPDBG update iter $(gi(:iter)) lboos $(gi(:lboos)) thet $(gf(:thet)) dtime $(gf(:dtime)): rhs_T $(rhs[it, k_]) tn $(tn[k_]) to $(vf(:to)[k_]) dmax $(gf(:dmax))"))
     _ghost_and_derived!(:update, eos!, opac!)
 end
 
@@ -477,6 +486,7 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     for (o, n) in (lrad ? PEQ_OLD2_RH : PEQ_OLD2_H); copyto!(view(vf(o), a-1:b+1), view(vf(n), a-1:b+1)); end
     lrad && copyto!(view(vf(:avchio), a:b+1), view(vf(:avchin), a:b+1))
     CPLH[] === nothing || CPLH[].newstep()
+    tstpdbg("peq")
     PEQ_HOOK[] === nothing || PEQ_HOOK[]()
     predict!(; eos!, opac!)
 end
