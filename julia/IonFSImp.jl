@@ -303,6 +303,7 @@ function ifsi_core(m::NetGas, k, z, t, u)
 end
 ifsi_u(d) = (max(d[:H], zero(d[:H])), max(d[:He], zero(d[:He])), max(d[:Hep], zero(d[:Hep])))
 const IFSI_NNEWT = Threads.Atomic{Int}(0); const IFSI_NFAIL = Threads.Atomic{Int}(0)
+const IFSI_HEDBG = Ref(parse(Int, get(ENV, "IONFSHEDBG", "0")))   # (diagnostic) print the first n unconverged He Newtons
 """
 He absorbers of ray zone k consistent with their own photo-rates: u* with u = expansion(rates(u)), Newton in ln u on the Float values
 (from the last record; converged to 1e-11, so the result does not depend on the start), then one implicit-function correction with the
@@ -333,7 +334,14 @@ function ifsi_ufix(m::NetGas, k, z, t)
         end
         w .= wn
     end
-    ok || Threads.atomic_add!(IFSI_NFAIL, 1)
+    if !ok
+        Threads.atomic_add!(IFSI_NFAIL, 1)
+        if IFSI_HEDBG[] > 0
+            IFSI_HEDBG[] -= 1; r_ = F(w)
+            @printf("IONFSHEDBG zone %d: He Newton unconverged, |F| %.3e, u %s, z %s, J %s\n", k - Int(TF.getscalar(:ngrs)) + 1, maximum(abs, r_),
+                    string(exp.(w)), string(zf), string(J))
+        end
+    end
     all(z_ -> z_ isa Float64, z) && return Tuple(exp.(w))
     # implicit function: w(z) = w* − J⁻¹ F(w*; z)
     d = ifsi_core(m, k, z, t, Tuple(exp.(w)))[3]; un = ifsi_u(d)
