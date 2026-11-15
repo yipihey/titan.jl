@@ -2123,3 +2123,19 @@ against 2.6e4 s (1.28 h against 0.20 h); 2–5 M☉ 3.9e4 s against 7.6e4 s (0.7
 are cheap. The error controller is held by E_r in the zones of the stellar surface and photosphere (`t_gse3` zones 29–36 at
 170–220 R☉, Δln r 0.026–0.06). `t_gse3` reached 11.2 M☉ (R★ 178 R☉) after 54 000 steps; `t_gse_m1e4` stalled at 10.5 M☉
 (Δt ~1e3 s, 1700 failed solves) and was stopped.
+
+**Δt against resolution** (median Δt by M★ bin, wall hours in parentheses; abn02z19 2e4 M☉, 100 zones, from the IC):
+
+| M★ [M☉] | `z100ic3` fixed Δln r 0.25 | `t_gse3` GRIDEQ gmax 100 (surface Δln r ≈ 0.03, photosphere 0–3 interfaces) | `t_gse7` gmax 300, w_τ 3, κ_f 0.3 (Δln r 0.016, photosphere 8–11) |
+|---|---|---|---|
+| 0.05–0.2 | 9.1e4 s (0.04 h) | 2.4e4 s (0.13 h) | 2.8e3 s (0.29 h) |
+| 0.2–0.5 | 2.6e4 s (0.20 h) | 4.2e3 s (1.28 h) | — |
+| 0.5–1 | 2.6e5 s (0.09 h) | 3.4e4 s (0.30 h) | — |
+| 1–2 | 1.4e6 s (0.06 h) | 2.7e4 s (0.40 h) | — |
+| 2–5 | 7.6e4 s (0.07 h) | 3.9e4 s (0.75 h) | — |
+| 5–10 | 4.9e7 s (0.02 h) | 9.9e6 s (0.16 h) | — |
+| 10–20 | 2.7e7 s (0.04 h) | 3.3e5 s (0.58 h) | — |
+
+Every factor of about 2–3 in the surface zone width costs about a factor 5–10 in Δt in the swelling phases; the error controller
+(DTERR) is held by E_r in the resolved surface/photosphere zones (`t_gse7`: 223 of the last 300 steps, zones 16–20). With the
+photosphere resolved the mesh is no longer the limiter: the radiation closure there is (the target of G4).
