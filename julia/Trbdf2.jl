@@ -155,6 +155,8 @@ function damped_iterate!()
     end
 end
 
+# NEWTONERR=n (diagnostic, default 0): print the first n exceptions that end a Newton solve (they count as divergences)
+const NEWTONERR = Ref(parse(Int, get(ENV, "NEWTONERR", "0")))
 function newton!()
     DAMP[] && return newton_damped!()
     s!(:iter, 1)
@@ -168,6 +170,7 @@ function newton!()
         s!(:lboos, 1); r(:matgen); r(:matslv); r(:maxdel); r(:update); s!(:lboos, 0)
     catch e
         e isa InterruptException && rethrow()
+        NEWTONERR[] > 0 && (NEWTONERR[] -= 1; println("NEWTONERR: ", first(sprint(showerror, e, catch_backtrace()), 3000)))
         s!(:lboos, 0); return false
     end
     all(isfinite, vf(:dn)) && all(isfinite, vf(:tn))
