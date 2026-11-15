@@ -319,6 +319,18 @@ function ifs_post!(m, a, b)
     st.eps = st.Qsrc[1] > 0 ? e / st.Qsrc[1] : 0.0
     nothing
 end
+"After zone k's chemistry (post pass, in order outward): the photons it leaves are the next zone's, whose rates follow."
+function ifs_advance!(m, k, b)
+    st = IFS[]; k < b || return nothing
+    dn, rn, tn = TM.v(:dn), TM.v(:rn), TM.v(:tn); G = st.G
+    x = ifs_x(CNn.full(m.x[k], m.net)); nH = dn[k] / CNn.μH(); dr = rn[k+1] - rn[k]
+    for gg in eachindex(st.nin[k])
+        τ = 0.0; for j in 1:4; τ += x[j] * nH * G.σ[gg, j] * dr; end
+        st.nin[k+1][gg] = st.nin[k][gg] * exp(-τ)
+    end
+    st.on[k+1] && ifs_rates!(st, k + 1, TX.cplz(k + 1) ? st.xabs[k+1] : st.xabs0[k+1], tn[k+1])
+    nothing
+end
 "A table zone beyond k0 that the ray would change goes to the network (it then takes the ray's terms)."
 function ifs_force!(k, dt)
     st = IFS[]; (st === nothing || st.k0 == 0 || k < st.k0) && return false

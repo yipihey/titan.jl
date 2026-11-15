@@ -1249,21 +1249,26 @@ function chem_core!(m::NetGas)
     end
     CHEMZPROF && length(ZPT[]) != length(tn) && (ZPT[] = zeros(length(tn)))
     zrun!(k) = CHEMZPROF ? (t0_ = time_ns(); zone!(k); ZPT[][k] += (time_ns() - t0_) * 1e-9; nothing) : zone!(k)   # CHEMZPROF: time per zone (one task per zone, no race)
+    # IonFS (after the hydro step): the ray's zones in order outward, each with the photons the zones inside it left after their chemistry
+    # (exact photon transport for the split zones; the coupled zones' chemistry is the Newton's); the other zones as usual below
+    ifsr = (IONFS && !CPLPREP[] && (st_ = IFS[]) !== nothing && st_.k0 > 0) ? (st_.k0:min(b, something(findlast(st_.on), st_.k0))) : (1:0)
+    for k in ifsr; zrun!(k); ifs_advance!(m, k, b); end
+    zrest = isempty(ifsr) ? (a:b) : [k for k in a:b if !(k in ifsr)]
     if CHEMTHREADS[] && ray === nothing && Threads.nthreads() > 1    # zones are independent (start-of-step state, per-zone outputs)
         if CHEMSCHED[] === :zone
-            next = Threads.Atomic{Int}(a)
+            next = Threads.Atomic{Int}(1); nz_ = length(zrest)
             @sync for _ in 1:Threads.nthreads()
                 Threads.@spawn while true
-                    kz = Threads.atomic_add!(next, 1)
-                    kz > b && break
-                    zrun!(kz)
+                    iz = Threads.atomic_add!(next, 1)
+                    iz > nz_ && break
+                    zrun!(zrest[iz])
                 end
             end
         else
-            Threads.@threads :dynamic for k in a:b; zrun!(k); end
+            Threads.@threads :dynamic for k in zrest; zrun!(k); end
         end
     else
-        for k in a:b; zrun!(k); end
+        for k in zrest; zrun!(k); end
     end
     dTmax = maximum(view(dTz, a:b))
     if CHEMZPROF && (ZPN[] += 1) % 500 == 0           # the zones that took most of the network time over the last 500 steps
