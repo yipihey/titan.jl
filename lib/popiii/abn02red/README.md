@@ -54,8 +54,21 @@ these differences:
 - **Mass and tables.** M(r) comes from panel B. T(M) from D, f_H2 and f_HI from C, v_r(M) from E.
 - **x_e.** The abn02fin recipe: 2e-4 in the outer cloud (T. Abel), recombined for one local free-fall time at the IC
   density and T, non-decreasing outward. XEFLAT=1 gives the constant. He is neutral.
-- **Dark matter.** The final-time DM line of panel A, read from `../abn02fin/abn02_final_fig2.csv`. The figure shows DM
-  only at z = 19 and at the final time; the final time is the closer one (200 yr against 9 Myr after this output).
+- **Dark matter: `DMLINE=z19` (default) or `final`.** The figure shows DM only at z = 19 and at the final time. In time
+  the final line is the closer one: this output is 9 Myr after z = 19, and the final output follows about 0.33 Myr later.
+  But inside 0.1 pc the final-time DM has contracted along with the collapsed baryons. Inside r_p it reaches
+  10^7.3–7.56 GeV cm⁻³, 20–35 times the core gas density, which is 3.2 M☉ of DM against 0.09 M☉ of gas. Run abnred6
+  (DMLINE=final) shows the consequence: the core collapses on the DM free-fall time, 8e3 yr, against 4.9e4 yr for the
+  gas. By t = 1.4e4 yr (step 15) n_c has gone from 10^5.81 to 10^6.57 and T_c from 254 to 505 K, nearly adiabatically.
+  The default is therefore the z = 19 line (blue solid, SVG path 980, `dm_z19_r` in the CSV). It starts at 0.087 pc
+  at 10^4.38 GeV cm⁻³, about 2 % of the core gas density. Between 0.1 and 1 pc it lies 0.3–0.5 dex below the final
+  line; further out the two agree. Inside 0.087 pc it is held at 10^4.38, the pchip's constant continuation, which gives
+  a uniform DM core with no cusp.
+- **DMCORE** (default on for abn02red only). Inside the DM table's first radius, 1e-4 pc, the DM mass falls as r³.
+  Without it, EXTMASS returns the constant M_DM(1e-4 pc) there, which acts as a central point mass. That is 4e-6 M☉
+  for the final-time line and 2e-8 M☉ at z = 19. Run abnred5, with the ENVLIN mesh reaching 0.01 R☉, shows the effect:
+  zone 1 reached −6.6 km/s and 2400 K in two steps, and step 5 then failed 60 times. abn02fin and abn02z19 still have the
+  point mass, so that DMCORE=0 stays bit-identical.
 - **MCLOUD.** The default is 2e4 M☉, the upper end of panels C, D and E. The smoke test uses 7137 M☉, panel B's mass
   inside 1e9 R☉.
 
