@@ -263,13 +263,16 @@ function TX.material_thermo(m::NetGas, ρ, T)
     (COLDMLT[] > 0 && T > COLDMLT[] && m.eqzone[TX.ZONE[]]) && return cold_thermo(ρ, T)
     return (1e30, 1e9, 1.0)
 end
+# (PERF512) the zones are independent (each writes its own entries; the COUPLED zones their own CPLCACHE entry): on MATTHREADS tasks
+# through TitanResidFast.zone_sweep!, bit-identical to the serial loop. The coupled zones' CK expansion here (every update!) was ~45 % of
+# the hydro step of the 512-zone fixed mesh, serial.
 function TM.fill_eos!(m::NetGas)
     dn, tn, pgn, egn, asn = TM.v(:dn), TM.v(:tn), TM.v(:pgn), TM.v(:egn), TM.v(:asn)
-    @inbounds for k in TM.krange()
-        (dn[k] > 0 && tn[k] > 0) || continue
-        TX.ZONE[] = k
-        pg, eg, as_ = TX.material_gas(m, dn[k], tn[k])
-        pgn[k] = pg; egn[k] = eg; asn[k] = as_
+    TX.zone_sweep!(TM.krange(), k -> @inbounds(dn[k] > 0 && tn[k] > 0)) do k
+        @inbounds begin
+            pg, eg, as_ = TX.material_gas(m, dn[k], tn[k])
+            pgn[k] = pg; egn[k] = eg; asn[k] = as_
+        end
     end
     nothing
 end
@@ -686,9 +689,10 @@ function TM.fill_opac!(m::NetGas)
     OPAC[] === nothing && return nothing
     dn, tn = TM.v(:dn), TM.v(:tn)
     chifn, xken, xkpn, xnen = TM.v(:chifn), TM.v(:xken), TM.v(:xkpn), TM.v(:xnen)
-    @inbounds for k in TM.krange()
-        (dn[k] > 0 && tn[k] > 0) || continue
-        TX.ZONE[] = k
+    # (PERF512) zones independent: threaded as fill_eos! (NLOITDIAG prints per zone, so it keeps the serial order)
+    sweep! = (NLOIT && NLOITDIAG[] > 0) ? ((f, ks, ok) -> (for k in ks; ok(k) || continue; TX.ZONE[] = k; f(k); end)) : TX.zone_sweep!
+    sweep!(TM.krange(), k -> @inbounds(dn[k] > 0 && tn[k] > 0)) do k
+      @inbounds begin
         χ, κE, κP = TX.material_opac(m, dn[k], tn[k])
         chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
         NLOIT && NLOITDIAG[] > 0 && nloit_diag(m, k, dn[k], tn[k], (χ, κE, κP))
@@ -696,6 +700,7 @@ function TM.fill_opac!(m::NetGas)
         xnen[k] = (CNn.HECHEM ? (m.eqzone[k] ? (Tq = min(tn[k], 1e6); z = EQ.composition_he(dn[k], Tq); EQ.composition(dn[k], Tq)[1] + z[1] + 2z[2]) :
                                  CNn.full(m.x[k], m.net)[:e]) :
                    (m.eqzone[k] ? EQ.composition(dn[k], min(tn[k], 1e6))[1] : CNn.full(m.x[k], m.net)[:Hp])) * dn[k] / CNn.μH()
+      end
     end
     nothing
 end
@@ -1760,6 +1765,14 @@ function cpl_prepare!(m::NetGas)
     for k in a:b; TX.CPLZ[][k] = CPLTERMS[][k] !== nothing; end
     NLOIT && nloc_reset!(mgr)                     # (NLOIT: coupled zones' opacity from the terms just prepared)
     bd = CPLBAND[]; dt = TF.getscalar(:dtime); rn = TM.v(:rn)
+    # (PERF512) the zones' values first, on MATTHREADS tasks (independent; each fills its own CPLCACHE entry): the loop below then reads
+    # them from the cache, the same numbers as computing them there
+    let z0 = TX.ZONE0[]
+        TX.zone_sweep!(a:b, TX.cplz) do k
+            cpl_zone(m, k, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k]); nothing
+        end
+        TX.ZONE0[] = z0
+    end
     for k in a:b
         TX.cplz(k) || continue
         y = cpl_zone(m, k, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k])

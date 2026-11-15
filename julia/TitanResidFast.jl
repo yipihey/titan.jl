@@ -243,12 +243,17 @@ composition), and the ±1 clamp needed dozens of iterations.
 """
 function cpl_local_all!(dt)
     CPL_LOCAL[] === nothing && return nothing
-    ngrs = gi(:ngrs); ngre = gi(:ngre); new = [Tuple{Int,Float64,Float64}[] for _ in 1:1]
-    for k in ngrs:ngre
-        cplz(k) || continue
-        y = CPL_LOCAL[](k, dt); y === nothing || push!(new[1], (k, y[1], y[2]))
+    ngrs = gi(:ngrs); ngre = gi(:ngre)
+    # (PERF512) the zones are independent (every one sees the old neighbours; the results are applied together): on MATTHREADS tasks
+    # (zone_sweep!), bit-identical; ~10 % of the hydro step of the 512-zone mesh when serial
+    res = Vector{Union{Nothing,Tuple{Float64,Float64}}}(nothing, ngre); z0 = ZONE0[]
+    zone_sweep!(ngrs:ngre, cplz) do k
+        y = CPL_LOCAL[](k, dt); y === nothing || (res[k] = (Float64(y[1]), Float64(y[2])))
     end
-    for (k, a, b) in new[1]; XSN[][1][k] = a; XSN[][2][k] = b; end      # (applied together: every zone saw the same neighbours)
+    ZONE0[] = z0                                                         # (the serial loop did not touch ZONE[])
+    for k in ngrs:ngre                                                   # (applied together: every zone saw the same neighbours)
+        y = res[k]; y === nothing || (XSN[][1][k] = y[1]; XSN[][2][k] = y[2])
+    end
     nothing
 end
 "Start of a step (TitanCore.peq!): old species := iterate, and their limiter slopes; then the initial guess (cpl_local_all!)."
@@ -764,6 +769,53 @@ function _material_mt!(m, W, c, P, dn, tn, ern, k0, ngre, hassrc, nt)
     end
     kl = kend; @inbounds while kl >= k0 && !(ForwardDiff.value(dn[kl]) > 0 && ForwardDiff.value(tn[kl]) > 0); kl -= 1; end
     kl >= k0 && (ZONE0[] = kl)                # what the serial sweep leaves behind
+    nothing
+end
+"""
+PERF512: `zone_sweep!(f, ks, ok)` calls `f(k)` for every zone `k in ks` with `ok(k)` true, on MATTHREADS tasks when MATTHREADS > 1
+(zones taken one at a time from a shared counter), serially otherwise or when already inside a threaded sweep. For the Float64
+EOS/opacity fills of the state arrays (`TitanMaterials.fill_eos!/fill_opac!` of a material whose zones are independent: each `f(k)` writes
+only entries k). Bit-identical to the serial loop: the same values, ZONE[] left at the last zone of the serial order, and an exception
+rethrown as the serial loop would have (the one of the lowest zone, after all tasks ended; the serial loop would not have evaluated the
+zones above it, whose entries are then written here — the callers' state is reset after a failed evaluation).
+"""
+function zone_sweep!(f::F, ks::UnitRange{Int}, ok::G) where {F,G}
+    nt = min(MAT_THREADS[], Threads.nthreads())
+    if !(nt > 1 && length(ks) >= 4nt && !ZTASK[])
+        for k in ks
+            ok(k) || continue
+            ZONE[] = k; f(k)
+        end
+        return nothing
+    end
+    next = Threads.Atomic{Int}(first(ks)); kend = last(ks)
+    kerr = fill(typemax(Int), nt); errs = Vector{Any}(nothing, nt)
+    ZTASK[] = true
+    try
+        @sync for it in 1:nt
+            Threads.@spawn begin
+                while true
+                    k = Threads.atomic_add!(next, 1)
+                    k > kend && break
+                    ok(k) || continue
+                    try
+                        ZONE[] = k; f(k)
+                    catch e
+                        k < kerr[it] && (kerr[it] = k; errs[it] = e)
+                    end
+                end
+            end
+        end
+    finally
+        ZTASK[] = false
+    end
+    kmin, imin = findmin(kerr)
+    if kmin < typemax(Int)
+        ZONE0[] = kmin
+        throw(errs[imin])
+    end
+    kl = kend; while kl >= first(ks) && !ok(kl); kl -= 1; end
+    kl >= first(ks) && (ZONE0[] = kl)
     nothing
 end
 
