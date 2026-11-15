@@ -232,7 +232,9 @@ The CK expansion of ray zone k at z = (ρ, T, x_H⁺, x_H₂, y₁…y₄) with 
 fractions u = (x_H, x_He, x_He⁺): returns (x, f_slow, d).
 """
 function ifsi_core(m::NetGas, k, z, t, u)
-    st = IFS[]; I = IFSI[]; ρ = z[1]; T = z[2]; rn = TM.v(:rn)
+    # (ck_expand's composition takes the number type of x_s and T: carry the ray's and u's dual numbers there too)
+    o_ = zero(u[1]) + zero(u[2]) + zero(u[3]) + zero(z[5]) + zero(z[6]) + zero(z[7]) + zero(z[8]) + zero(z[1])
+    st = IFS[]; I = IFSI[]; ρ = z[1]; T = z[2] + o_; rn = TM.v(:rn)
     nH = ρ / CNn.μH(); dr = rn[k+1] - rn[k]; V = 4π / 3 * (rn[k+1]^3 - rn[k]^3)
     ys = (z[5], z[6], z[7], z[8]); N = ntuple(g -> exp(ys[g]), 3); σ = st.G.σ; κ2 = st.κ2[k]
     fr_ = m.net.free; iHp = findfirst(==(:Hp), fr_); iH2 = findfirst(==(:H2), fr_)
@@ -261,7 +263,7 @@ function ifsi_core(m::NetGas, k, z, t, u)
     end
     ph0 = t.phc
     phc = Tv -> vcat(ph0(Tv), Any[(st.fpHe[k], RHe, zero(RHe)), (st.fpHep[k], RHep, zero(RHep))])
-    x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc, extra = ex)
+    x, fs = CNn.ck_eval([z[3] + o_, z[4] + o_], ρ, T, m.net; env = t.env, phc, extra = ex)
     x, fs, CNn.full(x, m.net)
 end
 ifsi_u(d) = (max(d[:H], zero(d[:H])), max(d[:He], zero(d[:He])), max(d[:Hep], zero(d[:Hep])))
