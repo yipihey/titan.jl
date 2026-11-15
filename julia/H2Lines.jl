@@ -679,6 +679,7 @@ kq, 0 inside), the same weighting as the J̄ of `transfer_line`.
 Not included: absorption of the continuum between the photosphere and the zone (the grey depth there is < 2/3), the line photons the
 gas takes from or adds to the continuum are not debited from the grey radiation field, and the photosphere is a blackbody of T_eff.
 """
+_incident_jbg(Bc, Bs, Wn, nl, n) = [Bc[i] + 0.5 * (Wn[k] + Wn[k+1]) * (Bs[i] - Bc[i]) for i in 1:nl, k in 1:n]
 function incident(inc, r, ν)
     n = length(r) - 1; nl = length(ν)
     Tb = Float64(inc.Tbg); Ts = Float64(inc.Tstar); Rp = Float64(inc.Rph)
@@ -693,7 +694,8 @@ function incident(inc, r, ν)
             x2 = (r[kq] / r[k])^2; Wn[k] = k == kq ? 0.5 : 0.5 * x2 / (1 + sqrt(1 - x2))
         end
     end
-    Jbg = [Bc[i] + 0.5 * (Wn[k] + Wn[k+1]) * (Bs[i] - Bc[i]) for i in 1:nl, k in 1:n]
+    # (PERF512) through a function barrier: Bs and kq are reassigned above, so a comprehension closing over them saw them boxed
+    Jbg = _incident_jbg(Bc, Bs, Wn, nl, n)
     (; kq, Bc, Bs, Jbg)
 end
 
@@ -832,12 +834,14 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     if mode == :ep
         κ0, S, nmaser = opac(P)
         # local emission n_u A β hν accumulated over the volume
+        # (PERF512) zone-outer loops: the same recursion over k for every line and the same order of the Λem sum over i (bit-identical),
+        # with the column-major arrays traversed by columns (the line-outer order strided by nl through P, β, J_bg and Lline)
         if bgd === nothing
-        for i in 1:nl, k in 1:n
+        for k in 1:n, i in 1:nl
             Lline[i, k+1] = Lline[i, k] + nH2[k] * P[iu[i], k] * LV.A[i] * β[i, k] * h * ν[i] * 4π / 3 * (r[k+1]^3 - r[k]^3)
         end
         else                      # net of the background photons absorbed: β hν [n_u A − (n_l B_lu − n_u B_ul) J_bg]
-            for i in 1:nl, k in 1:n
+            for k in 1:n, i in 1:nl
                 pu = P[iu[i], k]; pl = P[il[i], k]
                 em = nH2[k] * pu * LV.A[i] * β[i, k] * h * ν[i]
                 ab = nH2[k] * (pl * Blu[i] - pu * Bul[i]) * β[i, k] * bgd.Jbg[i, k] * h * ν[i]
