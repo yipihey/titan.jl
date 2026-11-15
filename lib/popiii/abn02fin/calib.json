@@ -1,0 +1,347 @@
+{
+ "x: radius [pc] (A bottom)": {
+  "labels_value_tickpos_labeloffset": [
+   [
+    -6,
+    152.07,
+    -2.9
+   ],
+   [
+    -4,
+    195.027,
+    -3.0
+   ],
+   [
+    -2,
+    238.164,
+    -3.0
+   ],
+   [
+    0,
+    281.297,
+    -1.46
+   ],
+   [
+    2,
+    324.43,
+    -1.46
+   ]
+  ],
+  "slope_per_pt": 0.04640493035142793,
+  "offset": -13.053545822173113,
+  "label_fit_resid": [
+   -0.00327,
+   0.00332,
+   0.00156,
+   -2e-05,
+   -0.00159
+  ],
+  "n_major_ticks": 9,
+  "major_tick_maxdev": 0.003923859748738323,
+  "major_tick_rms": 0.0023277482480441223,
+  "minor_ticks_n": 74,
+  "minor_tick_maxdev": 0.00628544443945056,
+  "minor_tick_rms": 0.0027106996581255658
+ },
+ "y: n [cm^-3] (A left)": {
+  "labels_value_tickpos_labeloffset": [
+   [
+    -2,
+    384.691,
+    0.88
+   ],
+   [
+    0,
+    360.414,
+    0.73
+   ],
+   [
+    2,
+    336.137,
+    0.73
+   ],
+   [
+    4,
+    311.859,
+    0.73
+   ],
+   [
+    6,
+    287.426,
+    0.72
+   ],
+   [
+    8,
+    263.148,
+    0.72
+   ],
+   [
+    10,
+    238.867,
+    0.73
+   ],
+   [
+    12,
+    214.59,
+    0.73
+   ]
+  ],
+  "slope_per_pt": -0.08227852174468485,
+  "offset": 29.654067901212162,
+  "label_fit_resid": [
+   -0.00223,
+   0.00027,
+   0.00276,
+   0.00526,
+   -0.0051,
+   -0.00261,
+   -0.00043,
+   0.00206
+  ],
+  "n_major_ticks": 16,
+  "major_tick_maxdev": 0.006508231070007753,
+  "major_tick_rms": 0.003280973292766216,
+  "minor_ticks_n": 144,
+  "minor_tick_maxdev": 0.009014598095692494,
+  "minor_tick_rms": 0.0039881808631960424
+ },
+ "x: radius [pc] (B bottom-edge ticks, labels of A)": {
+  "labels_value_tickpos_labeloffset": [
+   [
+    -6,
+    152.07,
+    -2.9
+   ],
+   [
+    -4,
+    195.027,
+    -3.0
+   ],
+   [
+    -2,
+    238.164,
+    -3.0
+   ],
+   [
+    0,
+    281.297,
+    -1.46
+   ],
+   [
+    2,
+    324.43,
+    -1.46
+   ]
+  ],
+  "slope_per_pt": 0.04640493035142793,
+  "offset": -13.053545822173113,
+  "label_fit_resid": [
+   -0.00327,
+   0.00332,
+   0.00156,
+   -2e-05,
+   -0.00159
+  ],
+  "n_major_ticks": 9,
+  "major_tick_maxdev": 0.003923859748738323,
+  "major_tick_rms": 0.0023277482480441223
+ },
+ "y: M_enc [Msun] (B left)": {
+  "labels_value_tickpos_labeloffset": [
+   [
+    -3,
+    190.312,
+    0.77
+   ],
+   [
+    -1,
+    161.148,
+    0.77
+   ],
+   [
+    1,
+    131.984,
+    0.77
+   ],
+   [
+    3,
+    102.82,
+    0.76
+   ],
+   [
+    5,
+    73.656,
+    0.76
+   ]
+  ],
+  "slope_per_pt": -0.06857753393128238,
+  "offset": 10.051161926298589,
+  "label_fit_resid": [
+   -0.0,
+   -0.0,
+   0.0,
+   0.0,
+   -0.0
+  ],
+  "n_major_ticks": 9,
+  "major_tick_maxdev": 0.005361048715432304,
+  "major_tick_rms": 0.0035726614237989425,
+  "minor_ticks_n": 73,
+  "minor_tick_maxdev": 0.005691921496620678,
+  "minor_tick_rms": 0.003147239502661321
+ },
+ "x: r [a.u.] (B top)": {
+  "labels_value_tickpos_labeloffset": [
+   [
+    0,
+    164.519,
+    -1.41
+   ],
+   [
+    2,
+    208.18,
+    -1.41
+   ],
+   [
+    4,
+    251.84,
+    -1.41
+   ]
+  ],
+  "slope_per_pt": 0.04580836300377171,
+  "offset": -7.536369740670859,
+  "label_fit_resid": [
+   0.0,
+   -0.0,
+   0.0
+  ],
+  "n_major_ticks": 5,
+  "major_tick_maxdev": 0.004026173371234343,
+  "major_tick_rms": 0.0025456515684501232
+ },
+ "x: M_enc [Msun] (E bottom, shared C/D/E)": {
+  "labels_value_tickpos_labeloffset": [
+   [
+    -1,
+    355.816,
+    -2.9
+   ],
+   [
+    1,
+    405.961,
+    -1.41
+   ],
+   [
+    3,
+    456.109,
+    -1.41
+   ]
+  ],
+  "slope_per_pt": 0.03988314237164221,
+  "offset": -15.19104954954316,
+  "label_fit_resid": [
+   -3e-05,
+   5e-05,
+   -3e-05
+  ],
+  "n_major_ticks": 7,
+  "major_tick_maxdev": 0.006946980272759973,
+  "major_tick_rms": 0.0026259471623977172,
+  "minor_ticks_n": 56,
+  "minor_tick_maxdev": 0.007293977282690933,
+  "minor_tick_rms": 0.0025260584002267977
+ },
+ "y: mass fractions (C right)": {
+  "labels_value_tickpos_labeloffset": [
+   [
+    -4,
+    170.922,
+    0.77
+   ],
+   [
+    -2,
+    122.211,
+    0.77
+   ],
+   [
+    0,
+    73.656,
+    0.77
+   ]
+  ],
+  "slope_per_pt": -0.041124430883662855,
+  "offset": 3.027996293129273,
+  "label_fit_resid": [
+   0.00107,
+   -0.00214,
+   0.00107
+  ],
+  "n_major_ticks": 5,
+  "major_tick_maxdev": 0.0037483245140035315,
+  "major_tick_rms": 0.0020600841923751724,
+  "minor_ticks_n": 37,
+  "minor_tick_maxdev": 0.0037483245140035315,
+  "minor_tick_rms": 0.0019651629089840646
+ },
+ "y: T [K] (D right)": {
+  "labels_value_tickpos_labeloffset": [
+   [
+    2,
+    268.035,
+    0.88
+   ],
+   [
+    3,
+    193.309,
+    0.73
+   ]
+  ],
+  "slope_per_pt": -0.0133821156054203,
+  "offset": 5.58687803272195,
+  "label_fit_resid": [
+   0.0,
+   0.0
+  ],
+  "n_major_ticks": 2,
+  "major_tick_maxdev": 8.881784197001252e-16,
+  "major_tick_rms": 8.881784197001252e-16,
+  "minor_ticks_n": 11,
+  "minor_tick_maxdev": 0.0014485882401191197,
+  "minor_tick_rms": 0.000725056024044716
+ },
+ "y: v [km/s] (E right, linear)": {
+  "labels_value_tickpos_labeloffset": [
+   [
+    -3,
+    384.691,
+    0.88
+   ],
+   [
+    -2,
+    351.43,
+    0.88
+   ],
+   [
+    -1,
+    318.008,
+    0.88
+   ],
+   [
+    0,
+    284.746,
+    0.88
+   ]
+  ],
+  "slope_per_pt": -0.030006771804787637,
+  "offset": 8.543829150033767,
+  "label_fit_resid": [
+   -0.00048,
+   0.00144,
+   -0.00144,
+   0.00048
+  ],
+  "n_major_ticks": 4,
+  "major_tick_maxdev": 0.001441663291222639,
+  "major_tick_rms": 0.00107489734506155
+ }
+}

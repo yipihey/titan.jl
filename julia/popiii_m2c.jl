@@ -65,12 +65,36 @@ q_of(M, n) = let lo = 1.0001, hi = 2.0
     for _ in 1:200; m_ = (lo + hi) / 2; f(m_) > 0 ? (hi = m_) : (lo = m_); end
     (lo + hi) / 2
 end
-if ic in ("abn02", "abn02hs", "abn02z19")
+if ic in ("abn02", "abn02hs", "abn02z19", "abn02fin")
     # ABN02 (Abel, Bryan & Norman 2002, Science 295, 93; arXiv astro-ph/0112088) Fig. 2, profile "9 Myr later"
     # (red dotted with circles), read off the 400-dpi rendering [read-src, approximate ±0.05 dex]: particle number
     # density n(r) (panel A), T(M), H₂ mass fraction (panel C, lower curve), v_r(M) (panel E). ρ = n μ m_H, μ = 1.22.
     z19 = startswith(ic, "abn02z19")
-    if z19
+    # IC=abn02fin: ABN02's FINAL output (z = 18.181164, "200 years later", black dotted with circles), taken exactly from the
+    # vector paths of the arXiv PDF (lib/popiii/abn02fin: CSV, README, overlay; scripts/abn02_fig2). Enclosed mass M(r) from
+    # panel B directly (no μ assumption; inside its first point, r = 4.8e-6 pc, uniform at the density that gives its mass);
+    # T(M) panel D; v_r(M) panel E as the initial velocity (supersonic infall, NOT hydrostatic; inside the first tabulated
+    # mass, 0.01 M☉, homologous v ∝ r to the regular centre); final-time DM line of panel A for TX.EXTMASS. Composition from
+    # panel C: its two curves are the H₂ and atomic-H MASS fractions (f_H2 + f_HI = 0.756 ± 0.005 = X at every mass, so the
+    # second curve is neutral H, as T. Abel (ABN02's first author) confirmed, Nov 2026), x_H₂ = f_H2 / (2 (f_H2 + f_HI)) per
+    # H nucleus. x_e is not in the figure: x_H⁺ = x_e = XE0, default 2e-4 everywhere, the ionised fraction of the outer cloud
+    # given by T. Abel (pers. comm., Nov 2026); the dense-core value is unconstrained by the figure (the set-up does not relax
+    # it: like abn02z19, the IC carries XE0 as given and the chemistry evolves it from step 1). He neutral (He⁺ = He²⁺ = 0).
+    fin = ic == "abn02fin"
+    if fin
+        fincsv = get(ENV, "ABNFINCSV", joinpath(TF.ROOT, "lib", "popiii", "abn02fin", "abn02_final_fig2.csv"))
+        fintab = Dict{String, Tuple{Vector{Float64}, Vector{Float64}}}()
+        for l in eachline(fincsv)
+            (startswith(l, "#") || startswith(l, "curve")) && continue
+            f_ = split(l, ","); k_ = String(f_[1])
+            haskey(fintab, k_) || (fintab[k_] = (Float64[], Float64[]))
+            push!(fintab[k_][1], parse(Float64, f_[2])); push!(fintab[k_][2], parse(Float64, f_[3]))
+        end
+        fincurve(k_) = (xs = fintab[k_][1]; all(>(0), diff(xs)) || error("abn02fin: $k_ not monotone in x"); (xs, fintab[k_][2]))
+        lr_tab, ln_tab = fincurve("n_r"); lrd, lρd = fincurve("dm_r"); lrB_fin, lMB_fin = fincurve("M_r")
+        lMT_fin, lT_fin = fincurve("T_M"); lMH_fin, lfH2_fin = fincurve("fH2_M"); lMI_fin, lfHI_fin = fincurve("fHI_M")
+        lMv_fin, v_fin = fincurve("vr_M")
+    elseif z19
         # z = 19 profile (blue solid lines of ABN02 Fig. 2), read off the 400-dpi rendering [read-src, approximate]
         lr_tab = [-3.0, -1.24, -0.59, -0.27, 0.06, 0.38, 0.71, 0.95, 1.20, 1.44, 1.68, 1.97]   # log r [pc]
         ln_tab = [3.05, 3.05, 3.05, 2.90, 2.61, 2.01, 1.27, 0.60, 0.30, -0.07, -0.59, -1.48]   # log n [cm⁻³]
@@ -130,7 +154,33 @@ if ic in ("abn02", "abn02hs", "abn02z19")
         rm = 0.5 * (rg[j] + rg[j-1]); Mg[j] = Mg[j-1] + 4π * rm^2 * nr(rm) * μ_abn * PC.mH * (rg[j] - rg[j-1])
     end
     Mg .+= 4π / 3 * rg[1]^3 * nr(rg[1]) * μ_abn * PC.mH
-    M = parse(Float64, get(ENV, "MCLOUD", z19 ? "1e4" : "1000")) * Msun
+    if fin
+        # panel-B M(r) (pchip in log M – log r), uniform density inside its first point; the n(r)·1.22 m_H integral above
+        # is printed against it only (μ = 1.22 is atomic gas: the core is molecular, μ ≈ 2.26 there; see the README)
+        MBfin = pchip(lrB_fin, lMB_fin); rB0 = pc * 10^lrB_fin[1]; ρin_fin = 10^lMB_fin[1] * Msun / (4π / 3 * rB0^3)
+        rgA, MgA = rg, Mg
+        global rg = pc .* 10 .^ collect(range(-10.0, lrB_fin[end], length = 60001))
+        global Mg = [r < rB0 ? 4π / 3 * r^3 * ρin_fin : 10^MBfin(log10(r / pc)) * Msun for r in rg]
+        all(>(0), diff(Mg)) || error("abn02fin: panel-B M(r) not increasing")
+        for x in (-5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0)
+            jA = searchsortedfirst(rgA, pc * 10^x); jB = searchsortedfirst(rg, pc * 10^x)
+            println("abn02fin: log r = $x pc  log M panel B ", round(log10(Mg[jB] / Msun), digits = 3), "  n(r) 1.22 m_H integral ",
+                    1 < jA <= length(rgA) ? round(log10(MgA[jA] / Msun), digits = 3) : NaN)
+        end
+        println("abn02fin: inner uniform core n = ", round(ρin_fin / PC.mH, sigdigits = 4), " m_H cm^-3 (panel A n_c = 10^", ln_tab[1],
+                ", i.e. mu_c = ", round(ρin_fin / (PC.mH * 10^ln_tab[1]), digits = 3), ")")
+        Tfin_ = pchip(lMT_fin, lT_fin); fH2fin_ = pchip(lMH_fin, lfH2_fin); fHIfin_ = pchip(lMI_fin, lfHI_fin); vfin_ = pchip(lMv_fin, v_fin)
+        Tfin(m) = 10^Tfin_(log10(m))                                         # m in M☉ (constant below 0.01 M☉)
+        function finy(m)                                                     # (x_H⁺, x_H⁻, x_H₂, x_H₂⁺) per H nucleus at m [M☉]
+            f2 = 10^fH2fin_(log10(m)); f1 = 10^fHIfin_(log10(m))
+            (xe0, 0.0, 0.5 * f2 / (f2 + f1), 0.0)
+        end
+        rM1fin = let m1 = 10^lMv_fin[1] * Msun, j = clamp(searchsortedfirst(Mg, m1), 2, length(Mg))
+            rg[j-1] + (m1 - Mg[j-1]) / (Mg[j] - Mg[j-1]) * (rg[j] - rg[j-1])
+        end
+        vfin(m, r) = m >= 10^lMv_fin[1] ? 1e5 * vfin_(log10(m)) : 1e5 * v_fin[1] * r / rM1fin   # [cm/s]; m [M☉], r [cm]
+    end
+    M = parse(Float64, get(ENV, "MCLOUD", z19 ? "1e4" : fin ? "2e4" : "1000")) * Msun
     if ic in ("abn02hs", "abn02z19")
         # hydrostatic version: ABN02's central density, T(M) and dark matter; dP/dr = −ρ G (M_gas + M_DM)/r² with
         # P = ρ c²(M), c² = k T(M)/(μ m_H): dρ/dr = −[ρ G M_tot/r² + ρ² 4π r² dc²/dM]/c². RK4 in ln r.
@@ -197,13 +247,13 @@ if ic in ("abn02", "abn02hs", "abn02z19")
     rI = [r_of_m(m) for m in mI]; rI[1] = 0.0
     rho = [(mI[j+1] - mI[j]) / (4π / 3 * (rI[j+1]^3 - rI[j]^3)) for j in 1:nsh]
     mz = [0.5 * (mI[j] + mI[j+1]) / Msun for j in 1:nsh]
-    Tz = [interp(log10(m), lM_tab, T_tab) for m in mz]
-    fz = [10^interp(log10(m), lM_tab, lf_tab) for m in mz]
-    uI = ic == "abn02z19" ? [m < Mjoin ? 0.0 : 1e5 * interp(log10(m / Msun), lM_tab, v_tab) * min(1.0, (m - Mjoin) / Mjoin) for m in mI] :
+    Tz = fin ? [Tfin(m) for m in mz] : [interp(log10(m), lM_tab, T_tab) for m in mz]
+    fz = fin ? [10^fH2fin_(log10(m)) for m in mz] : [10^interp(log10(m), lM_tab, lf_tab) for m in mz]   # (fin: mass fraction, unused below)
+    uI = fin ? [vfin(mI[j] / Msun, rI[j]) for j in 1:nsh+1] : ic == "abn02z19" ? [m < Mjoin ? 0.0 : 1e5 * interp(log10(m / Msun), lM_tab, v_tab) * min(1.0, (m - Mjoin) / Mjoin) for m in mI] :
          ic == "abn02hs" ? zeros(nsh + 1) : [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI]; uI[1] = 0.0
     ρc = rho[1]; Tc0 = Tz[1]
-    xe0 = parse(Float64, get(ENV, "XE0", z19 ? "1e-4" : "1e-7"))   # x_e [assumed; ABN02 does not show it]
-    yz = [(xe0, 0.0, f / 2, 0.0) for f in fz]
+    xe0 = parse(Float64, get(ENV, "XE0", z19 ? "1e-4" : fin ? "2e-4" : "1e-7"))   # x_e [assumed; ABN02 does not show it; fin: T. Abel, outer cloud]
+    yz = fin ? [finy(m) for m in mz] : [(xe0, 0.0, f / 2, 0.0) for f in fz]
 else
 le = lane_emden(1.5); ξs, _, μs = le[end]
 le = lane_emden(1.5); ξs, _, μs = le[end]
@@ -1389,7 +1439,7 @@ function xmzero!()
 end
 function iceulbuild!()
     (RAD && ENVCENTRE) || error("ICEUL=1 needs RAD=1 and ENVEUL=0,... (regular centre, ENVCORE)")
-    ic in ("abn02", "abn02hs", "abn02z19") || error("ICEUL=1: only the abn02* initial conditions")
+    ic in ("abn02", "abn02hs", "abn02z19", "abn02fin") || error("ICEUL=1: only the abn02* initial conditions")
     GRIDMAPP === nothing || pr("ICEUL: GRIDMAP starts from the ENVCORE/ENVEUL mesh (no source state to plan it from)\n")
     radsettings!()
     rout = TF.var(:rn)[b+1]; Mtot = M                                          # the IC's outer radius and cloud mass
@@ -1403,12 +1453,13 @@ function iceulbuild!()
     ρz = [(mI_[j+1] - mI_[j]) / (4π / 3 * (rI_[j+1]^3 - rI_[j]^3)) for j in 1:n]
     # mass-weighted zone means of T(M), f_H2(M) (64 midpoints in m per zone; the IC tables are in log M [M☉], constant below their first node)
     zmean(f, j) = (ms = range(mI_[j], mI_[j+1], length = 65); sum(f(0.5 * (ms[i] + ms[i+1]) / Msun) for i in 1:64) / 64)
-    Tz = [zmean(m -> interp(log10(m), lM_tab, T_tab), j) for j in 1:n]
-    fz = [zmean(m -> 10^interp(log10(m), lM_tab, lf_tab), j) for j in 1:n]
-    uI_ = ic == "abn02z19" ? [m < Mjoin ? 0.0 : 1e5 * interp(log10(m / Msun), lM_tab, v_tab) * min(1.0, (m - Mjoin) / Mjoin) for m in mI_] :
+    fin_ = ic == "abn02fin"
+    Tz = fin_ ? [zmean(Tfin, j) for j in 1:n] : [zmean(m -> interp(log10(m), lM_tab, T_tab), j) for j in 1:n]
+    fz = fin_ ? [zmean(m -> finy(m)[3], j) for j in 1:n] : [zmean(m -> 10^interp(log10(m), lM_tab, lf_tab), j) for j in 1:n]   # (fin: x_H2 per H)
+    uI_ = fin_ ? [vfin(mI_[j] / Msun, rI_[j]) for j in 1:n+1] : ic == "abn02z19" ? [m < Mjoin ? 0.0 : 1e5 * interp(log10(m / Msun), lM_tab, v_tab) * min(1.0, (m - Mjoin) / Mjoin) for m in mI_] :
           ic == "abn02hs" ? zeros(n + 1) : [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI_]
     uI_[1] = 0.0; uI_[end] = 0.0                                               # regular centre; fixed outer wall (as the remap)
-    xz = [xinit((xe0, 0.0, f / 2, 0.0)) for f in fz]; eqz = falses(n)
+    xz = fin_ ? [xinit((zmean(m -> finy(m)[1], j), 0.0, fz[j], 0.0)) for j in 1:n] : [xinit((xe0, 0.0, f / 2, 0.0)) for f in fz]; eqz = falses(n)
     # radiation field as radbuild!
     Tb = parse(Float64, get(ENV, "TCMB", "0")); ar = Z0.arad
     χ = [PM.OPAC[](ρz[j], Tz[j])[1] * ρz[j] for j in 1:n]

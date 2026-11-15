@@ -129,7 +129,7 @@ function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, tol 
         any(act) || (act .= true)
         ka = findall(act)
         vspan = 3maximum(vth[ka]) + maximum(max(abs(u[k]), abs(u[k+1])) for k in ka)
-        nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth[ka]))) + 1, nbin, nbinmax)
+        nb = clamp(ceil(Int, min(2vspan / (0.5minimum(vth[ka])), nbinmax)) + 1, nbin, nbinmax)   # (min: a diverged Newton iterate overflowed Int, abn02fin)
         Threads.atomic_max!(nbmax_used, nb)
         xs = range(-vspan, vspan, length = nb); dv = step(xs)
         Fν = zeros(n + 1)                          # ∫ flux over the line (erg cm⁻² s⁻¹) at each interface
@@ -890,7 +890,7 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                 any(act) || (act .= true)
                 ka = findall(act)
                 vspan = 3maximum(vth[ka]) + maximum(max(abs(u[k]), abs(u[k+1])) for k in ka)
-                nb = clamp(ceil(Int, 2vspan / (0.5minimum(vth[ka]))) + 1, nbin, nbinmax)
+                nb = clamp(ceil(Int, min(2vspan / (0.5minimum(vth[ka])), nbinmax)) + 1, nbin, nbinmax)   # (min: a diverged Newton iterate overflowed Int, abn02fin)
                 Threads.atomic_max!(nb_t, nb)
                 xs = range(-vspan, vspan, length = nb)
                 bgl = bgd === nothing ? nothing : (Bc = bgd.Bc[i], Bs = bgd.Bs[i], kq = bgd.kq)
