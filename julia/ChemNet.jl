@@ -741,7 +741,13 @@ function _ck_ud(v, a, b, nH, net, c, ph, ks)
     up, dn
 end
 "Free abundances with the slow ones xs (over ckinfo(net).slow) and the fast ones from equilibrium at T."
-function ck_expand(xs, T, nH, net, ph, ks, extra = nothing)
+"""
+`heold` (IONFS ray zones; default nothing): (f_He, f_He⁺, f_He²⁺ of the start of the step, Δt). The He stages are then the backward-Euler
+step of their three-state rate equations from the old fractions, (1/Δt − M) f = f_old/Δt with M the stage rates of `_ck_ud` (at the
+current iterate), instead of their equilibrium. Where the ray's photo-rates R give R Δt ≫ 1 this is the equilibrium again; where
+R Δt ≲ 1 (a step cut short at a He front) the equilibrium would ionize He in any Δt, faster than its photons arrive.
+"""
+function ck_expand(xs, T, nH, net, ph, ks, extra = nothing; heold = nothing)
     c = compiled(net); ci = ckinfo(net)
     x = zeros(promote_type(eltype(xs), typeof(T), eltype(ks)), length(net.free))
     for (k, i) in enumerate(ci.slow); x[i] = xs[k]; end
@@ -761,6 +767,15 @@ function ck_expand(xs, T, nH, net, ph, ks, extra = nothing)
             v = fullvec(x, c); m = length(ch)
             ud = [_ck_ud(v, ch[k][2], ch[k+1][2], nH, net, c, phi, ks) for k in 1:m-1]
             w = [prod((ud[i][1] for i in 1:k); init = one(eltype(x))) * prod((ud[i][2] for i in k+1:m-1); init = one(eltype(x))) for k in 0:m-1]
+            if heold !== nothing && ch[1][2] == c.iHe && m == 3
+                f0, f1, f2, dt_ = heold; r = 1 / dt_; (u1, d1), (u2, d2) = ud[1], ud[2]
+                # tridiagonal: [r+u1, −d1, 0; −u1, r+d1+u2, −d2; 0, −u2, r+d2] f = r f_old (Thomas)
+                b1 = r + u1; c1 = -d1; a2 = -u1; b2 = r + d1 + u2; c2 = -d2; a3 = -u2; b3 = r + d2
+                g1 = r * f0; g2 = r * f1; g3 = r * f2
+                m2 = a2 / b1; b2 -= m2 * c1; g2 -= m2 * g1; m3 = a3 / b2; b3 -= m3 * c2; g3 -= m3 * g2
+                z3 = g3 / b3; z2 = (g2 - c2 * z3) / b2; z1 = (g1 - c1 * z2) / b1
+                w = [z1, z2, z3]
+            end
             sw = sum(w); tot = ch[1][2] == c.iHe ? yHe : yLi
             for k in 1:m
                 ch[k][1] > 0 || continue
@@ -778,7 +793,7 @@ function _tl3_ne_pass(xs, x1, T, nH, net, env, ph, extra, c)
     ne = nH * max(fullvec(x1, c)[c.ie], zero(eltype(x1)))
     ev = merge(env, (; tl3 = merge(env.tl3, (; ne))))
     ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
-    ck_expand(xs, T, nH, net, ph, ks, extra), ks, ev
+    (hasproperty(env, :heold) ? ck_expand(xs, T, nH, net, ph, ks, extra; heold = env.heold()) : ck_expand(xs, T, nH, net, ph, ks, extra)), ks, ev
 end
 """
     ck_eval(xs, ρ, T, net; env, phc, extra) -> (x, f)
@@ -795,7 +810,7 @@ function ck_eval(xs, ρ, T, net; env, phc, extra)
     ev = tl3 ? merge(env, (; tl3 = merge(env.tl3, (; ne = nH * xs[kHp])))) : env
     ph = phc(ForwardDiff.value(T))
     ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
-    x = ck_expand(xs, T, nH, net, ph, ks, extra)
+    x = hasproperty(env, :heold) ? ck_expand(xs, T, nH, net, ph, ks, extra; heold = env.heold()) : ck_expand(xs, T, nH, net, ph, ks, extra)
     TL3NEFULL && tl3 && ((x, ks, ev) = _tl3_ne_pass(xs, x, T, nH, net, env, ph, extra, compiled(net)))
     f = dxdt_k(x, nH, net, ph, ks); extra === nothing || (f = f .+ extra(x))
     x, f[sl]
@@ -810,7 +825,7 @@ function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, 
         T = exp(z[ns+1]); Tv = ForwardDiff.value(T); ev = envz(z)
         Tv == phT[] || (phc[] = [(p, photorates_t(p, Tv, env)...) for p in photos]; phT[] = Tv)
         ph = phc[]; ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
-        x = ck_expand(z[1:ns], T, nH, net, ph, ks, extra)
+        x = hasproperty(env, :heold) ? ck_expand(z[1:ns], T, nH, net, ph, ks, extra; heold = env.heold()) : ck_expand(z[1:ns], T, nH, net, ph, ks, extra)
         TL3NEFULL && tl3sc && ((x, _, ev) = _tl3_ne_pass(z[1:ns], x, T, nH, net, env, ph, extra, cc))
         (x, T, ph, ev)
     end

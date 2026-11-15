@@ -324,6 +324,9 @@ function ifs_terms(m, k, exs, cools, envk, phk)
     env2 = !IFSENV ? envk : hasproperty(envk, :ljW) ? merge(envk, (; caseB = true, ljcut = IFS_CUT)) :
            (hasproperty(envk, :static) && envk.static) ? merge(envk, (; caseB = true, tabkey = IFS_ENVB[])) :
            (J0 = envk.J; merge(envk, (; caseB = true, J = ν -> CNn.hP * ν >= IFS_CUT ? 0.0 : J0(ν))))
+    # He stages: backward Euler from the start of the step (ChemNet.ck_expand heold), not their instantaneous equilibrium
+    x0 = st.xabs0[k]; yHe_ = CNn.yHe; fHe0 = (x0[3] / yHe_, x0[4] / yHe_, max(1 - (x0[3] + x0[4]) / yHe_, 0.0))
+    env2 = merge(env2, (; heold = () -> (fHe0..., Float64(TF.getscalar(:dtime)))))
     ph2 = Any[phk..., st.fpHe[k], st.fpHep[k]]
     ex2, c2, env2, ph2
 end
