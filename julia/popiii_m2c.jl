@@ -77,9 +77,8 @@ if ic in ("abn02", "abn02hs", "abn02z19", "abn02fin")
     # mass, 0.01 M☉, homologous v ∝ r to the regular centre); final-time DM line of panel A for TX.EXTMASS. Composition from
     # panel C: its two curves are the H₂ and atomic-H MASS fractions (f_H2 + f_HI = 0.756 ± 0.005 = X at every mass, so the
     # second curve is neutral H, as T. Abel (ABN02's first author) confirmed, Nov 2026), x_H₂ = f_H2 / (2 (f_H2 + f_HI)) per
-    # H nucleus. x_e is not in the figure: x_H⁺ = x_e = XE0, default 2e-4 everywhere, the ionised fraction of the outer cloud
-    # given by T. Abel (pers. comm., Nov 2026); the dense-core value is unconstrained by the figure (the set-up does not relax
-    # it: like abn02z19, the IC carries XE0 as given and the chemistry evolves it from step 1). He neutral (He⁺ = He²⁺ = 0).
+    # H nucleus. x_e is not in the figure: x_H⁺ = x_e = XE0 = 2e-4 in the outer cloud (T. Abel, pers. comm., Nov 2026),
+    # recombined for one local free-fall time inside (xefin below; XEFLAT=1 for the constant). He neutral (He⁺ = He²⁺ = 0).
     fin = ic == "abn02fin"
     if fin
         fincsv = get(ENV, "ABNFINCSV", joinpath(TF.ROOT, "lib", "popiii", "abn02fin", "abn02_final_fig2.csv"))
@@ -171,9 +170,27 @@ if ic in ("abn02", "abn02hs", "abn02z19", "abn02fin")
                 ", i.e. mu_c = ", round(ρin_fin / (PC.mH * 10^ln_tab[1]), digits = 3), ")")
         Tfin_ = pchip(lMT_fin, lT_fin); fH2fin_ = pchip(lMH_fin, lfH2_fin); fHIfin_ = pchip(lMI_fin, lfHI_fin); vfin_ = pchip(lMv_fin, v_fin)
         Tfin(m) = 10^Tfin_(log10(m))                                         # m in M☉ (constant below 0.01 M☉)
+        # x_e(M) (T. Abel, 15 Nov 2026): the outer cloud's 2e-4 (XE0) recombined for one local free-fall time at the IC's
+        # density and temperature, so the dense regions do not start with an artificially high x_e (and H₂ formation through
+        # H⁻): dx/dt = −k2(T) n_H x² ⇒ x = x0 / (1 + k2 n_H x0 t_ff), t_ff = sqrt(3π/(32 G ρ)) (as the run's t_ff), k2 = AAZN97
+        # case A (the network's H⁺ + e rate), n_H = ρ/μ_H, ρ from panel B's dM/dr. Made non-decreasing outward
+        # (x(m) = min over m' ≥ m) so wiggles of the differentiated panel-B mass cannot invert it (only the innermost ~0.01 M☉
+        # is affected). XEFLAT=1: constant XE0 everywhere (the 15 Nov morning IC, runs abnfin*, z100fin).
+        xefin_flat = get(ENV, "XEFLAT", "0") == "1"; xefin_0 = parse(Float64, get(ENV, "XE0", "2e-4"))
+        lmxe_fin, lxe_fin = let jj = 2:length(Mg)-1
+            xs = [begin ρ_ = (Mg[j+1] - Mg[j-1]) / (4π * rg[j]^2 * (rg[j+1] - rg[j-1])); m_ = Mg[j] / Msun
+                      xefin_0 / (1 + PC.k2_aazn(Tfin(m_)) * (ρ_ / ChemNet.μH()) * xefin_0 * sqrt(3π / (32PC.G * ρ_))) end for j in jj]
+            for j in length(xs)-1:-1:1; xs[j] = min(xs[j], xs[j+1]); end
+            (log10.(Mg[jj] ./ Msun), log10.(xs))
+        end
+        xefin(m) = xefin_flat ? xefin_0 : 10^(let x = log10(m); x <= lmxe_fin[1] ? lxe_fin[1] : x >= lmxe_fin[end] ? lxe_fin[end] :
+            (j = searchsortedlast(lmxe_fin, x); lxe_fin[j] + (x - lmxe_fin[j]) / (lmxe_fin[j+1] - lmxe_fin[j]) * (lxe_fin[j+1] - lxe_fin[j])) end)
+        for lm_ in (-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0)
+            println("abn02fin: x_e(M = 10^", lm_, " Msun) = ", round(xefin(10^lm_), sigdigits = 3), xefin_flat ? " (XEFLAT)" : " (recombined for one t_ff from XE0)")
+        end
         function finy(m)                                                     # (x_H⁺, x_H⁻, x_H₂, x_H₂⁺) per H nucleus at m [M☉]
             f2 = 10^fH2fin_(log10(m)); f1 = 10^fHIfin_(log10(m))
-            (xe0, 0.0, 0.5 * f2 / (f2 + f1), 0.0)
+            (xefin(m), 0.0, 0.5 * f2 / (f2 + f1), 0.0)
         end
         rM1fin = let m1 = 10^lMv_fin[1] * Msun, j = clamp(searchsortedfirst(Mg, m1), 2, length(Mg))
             rg[j-1] + (m1 - Mg[j-1]) / (Mg[j] - Mg[j-1]) * (rg[j] - rg[j-1])

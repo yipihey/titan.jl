@@ -114,7 +114,17 @@ core would give 2.26. The 0.08 dex excess is the innermost-point uncertainty of 
 - **Temperature.** T(M) from panel D.
 - **Composition.** x_H2 = f_H2 / (2 (f_H2 + f_HI)) per H nucleus, from panel C.
 - **Velocity.** v_r(M) from panel E, with v ∝ r inside 0.01 M☉.
-- **Ionisation.** x_H⁺ = x_e = XE0, default 2e-4 (PI). He is neutral.
+- **Ionisation (15 Nov 2026, T. Abel).** 2e-4 (XE0) is the ionised fraction of the outer cloud. Inside, x_e is that value
+  recombined for one local free-fall time at the IC's density and temperature, so the dense regions do not start with an
+  artificially high x_e (and H₂ formation through H⁻): x = x0 / (1 + k2(T) n_H x0 t_ff), with t_ff = sqrt(3π/(32 G ρ)),
+  k2 the network's H⁺ + e rate (AAZN97 case A), n_H = ρ/μ_H and ρ from panel B's dM/dr. The profile is made
+  non-decreasing outward (only the innermost ~0.01 M☉ needed it). XEFLAT=1 restores the constant XE0 of the first runs
+  (abnfin1–6, z100fin). He is neutral. Values in the IC (printed at start-up, run abnfin7):
+
+  | M (M☉) | 1e-3 | 1e-2 | 0.1 | 1 | 10 | 100 | 1e3 | 1e4 |
+  |---|---|---|---|---|---|---|---|---|
+  | x_e | 3.0e-11 | 3.3e-11 | 5.4e-11 | 4.5e-10 | 4.7e-9 | 4.8e-8 | 5.4e-6 | 1.3e-4 |
+
 - **Dark matter.** TX.EXTMASS comes from the final-time DM line, as with DM=1 for the other abn02* ICs.
 
 ICEUL=1 accepts it. All other ICs are unchanged: an IC=abn02z19 ICEUL start (5 steps) gives an identical checkpoint
