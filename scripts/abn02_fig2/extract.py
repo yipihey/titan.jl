@@ -160,3 +160,36 @@ with open(os.path.join(outdir, 'abn02_final_fig2.csv'), 'w') as f:
         for x, y, (px, py) in zip(c['x'], c['y'], c['page']):
             f.write('%s,%.5f,%.5f,%.4f,%.4f\n' % (nm, x, y, px, py))
 print('wrote', os.path.join(outdir, 'abn02_final_fig2.csv'))
+# ---- optional: the SECOND output ("nine Myrs later", RED dotted with red circles: dasharray 6.66,13.32, stroke rgb(100%,0,0))
+#      -> <outdir_red>/abn02_red_fig2.csv (same format; the figure has no DM line and no -c_s at this time)
+if len(sys.argv) > 4:
+    outred = sys.argv[4]; red = 'rgb(100%,0%,0%)'
+    reddot = sorted(p['line'] for p in P if p['style'].get('stroke') == red and p['style'].get('stroke-dasharray') == '6.65974,13.3195')
+    print('red dotted paths (SVG line numbers):', reddot)
+    assert reddot == [981, 1210, 1254, 1529, 1756, 1949], reddot
+    add('R_n', 981, X_r, Y_A, 'log10_r_pc', 'log10_n_cm3', mcolor=red)
+    add('R_M', 1949, X_rB, Y_B, 'log10_r_pc', 'log10_Menc_Msun', mcolor=red)
+    add('R_a', 1210, X_M, Y_C, 'log10_Menc_Msun', 'log10_massfrac', mcolor=red)
+    add('R_b', 1254, X_M, Y_C, 'log10_Menc_Msun', 'log10_massfrac', mcolor=red)
+    add('R_T', 1756, X_M, Y_D, 'log10_Menc_Msun', 'log10_T_K', mcolor=red)
+    add('R_v', 1529, X_M, Y_E, 'log10_Menc_Msun', 'vr_km_s', mcolor=red)
+    # the z = 19 DM line (BLUE solid, path 980, from 0.087 pc; the z = 19 gas n(r) is the blue solid path 979 from 1e-6 pc)
+    add('R_dm19', 980, X_r, Y_A, 'log10_r_pc', 'log10_rhoDM_GeV_cm3', mcolor='none')
+    rnames = {'R_n': 'n_r', 'R_M': 'M_r', 'R_a': 'fH2_M', 'R_b': 'fHI_M', 'R_T': 'T_M', 'R_v': 'vr_M', 'R_dm19': 'dm_z19_r'}
+    for k in rnames:
+        c = curves[k]
+        print(k, c['svg_line'], c['style'], len(c['x']), 'markers', c['nmark'], 'marker-polyline dist', c['mark_vertex_dist'],
+              'x %.3f..%.3f y %.3f..%.3f' % (min(c['x']), max(c['x']), min(c['y']), max(c['y'])))
+    with open(os.path.join(outred, 'abn02_red_fig2.csv'), 'w') as f:
+        f.write('# ABN02 (Science 295, 93; astro-ph/0112088) Fig. 2, SECOND output ("nine Myrs later", RED dotted with circles): vertices of the\n'
+                '# vector paths of the arXiv PDF page 4 (pdftocairo -svg), mapped to data by the axis tick marks (lib/popiii/abn02fin/calib.json;\n'
+                '# lib/popiii/abn02red/README.md, scripts/abn02_fig2). curve: n_r = log10 n[cm^-3] vs log10 r[pc] (A); M_r = log10 M_enc[Msun]\n'
+                '# vs log10 r[pc] (B); fH2_M, fHI_M = log10 mass fraction vs log10 M_enc[Msun] (C: H2 and neutral atomic H); T_M = log10 T[K]\n'
+                '# vs log10 M (D); vr_M = v_r[km/s] vs log10 M (E). The figure has no DM line and no -c_s at this time; dm_z19_r =\n'
+                '# log10 rho_DM[GeV cm^-3] vs log10 r[pc] of the z = 19 DM line (blue solid, panel A; the final-time one is in ../abn02fin).\n'
+                'curve,x,y,page_x_pt,page_y_pt\n')
+        for k, nm in rnames.items():
+            c = curves[k]
+            for x, y, (px, py) in zip(c['x'], c['y'], c['page']):
+                f.write('%s,%.5f,%.5f,%.4f,%.4f\n' % (nm, x, y, px, py))
+    print('wrote', os.path.join(outred, 'abn02_red_fig2.csv'))
