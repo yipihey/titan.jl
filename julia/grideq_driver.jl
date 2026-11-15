@@ -13,7 +13,7 @@ gmax and Dorfi–Drury smoothing α (neighbours within (1 + α)/α). No markers,
           at most fmove of the zone it moves into per step and |ṙ| ≤ fv (|u| + c_s); no zone shrinks below half its narrower
           neighbour. Mesh motion never limits Δt in this mode.
 
-GEQN=N (with ICEUL): the IC is built on N zones (even; default: envlr's count). GEQW=wρ,wP,wT,wE,wm,wτ (default 1,1,1,1,1,1); GEQC=gmax,alph,κ,fv,fmove,τlo,τhi,ctol,κf (default 100,1.5,30,0.5,0.5,0.1,1e4,0.3,0).
+GEQN=N (with ICEUL): the IC is built on N zones (even; default: envlr's count). GEQW=wρ,wP,wT,wE,wm,wτ,wu (default 1,1,1,1,1,1,0; wu: the term wu ((r ∂u/∂r)/(|u| + c_s))², mode 1 only); GEQC=gmax,alph,κ,fv,fmove,τlo,τhi,ctol,κf (default 100,1.5,30,0.5,0.5,0.1,1e4,0.3,0).
 
 Feature tracking (κf > 0): the features of M move with the velocity v = −(∂M/∂t)(∂M/∂ln r)/((∂M/∂ln r)² + (2M)²) (in ln r per s;
 the pattern speed of ∂M/∂t + v ∂M/∂ln r = 0, damped where M is flat: scale-free), estimated from M of this step and of the last
@@ -24,7 +24,7 @@ With ICEUL the IC is built on the rule's mesh of the IC. No state beyond the mes
 """
 const GRIDEQP = haskey(ENV, "GRIDEQ") ? parse(Int, ENV["GRIDEQ"]) : nothing
 geqv(key, defs) = (v = haskey(ENV, key) ? parse.(Float64, split(ENV[key], ",")) : Float64[]; [i <= length(v) ? v[i] : defs[i] for i in eachindex(defs)])
-const GEQW = geqv("GEQW", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+const GEQW = geqv("GEQW", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0])
 const GEQC = geqv("GEQC", [100.0, 1.5, 30.0, 0.5, 0.5, 0.1, 1e4, 0.3, 0.0])
 const GEQPREV = Ref{Any}(nothing)      # (t, x, M) of the last step: the monitor function's own motion (feature tracking)
 const GEQLAST = Ref{Any}(nothing)
@@ -78,6 +78,8 @@ function grideq_step!()
             tr_ = max(min(κ * tc[j], κf * tfe[j]), dxj * tc[j] / GEQC[4]); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_
             jm, jp = max(j - 1, 2), min(j + 1, n); h = jp - jm == 2 ? 0.5 : 1.0
             sx[a+j-1] = GEQW[6] * (h * (lτc[jp] - lτc[jm]))^2
+            # velocity jump in units of the signal speed, (r ∂u/∂r)/(|u| + c_s): resolves shocks (the zone's own Δu, per zone index)
+            GEQW[7] > 0 && (sx[a+j-1] += GEQW[7] * ((s.u[j+1] - s.u[j]) / (0.5 * (abs(s.u[j]) + abs(s.u[j+1])) + s.cs[j]))^2)
         end
         TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, sx)
     else
