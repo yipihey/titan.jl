@@ -17,8 +17,9 @@ GEQN=N (with ICEUL): the IC is built on N zones (even; default: envlr's count). 
 
 Feature tracking (κf > 0): the features of M move with the velocity v = −(∂M/∂t)(∂M/∂ln r)/((∂M/∂ln r)² + (2M)²) (in ln r per s;
 the pattern speed of ∂M/∂t + v ∂M/∂ln r = 0, damped where M is flat: scale-free), estimated from M of this step and of the last
-one; each zone then relaxes in min(κ t_cross, κf Δln r/|v|) (|v| the largest of the zone and its neighbours), so that the mesh
-keeps up with a moving photosphere or shock without being fast everywhere.
+one; each zone then relaxes in max(min(κ t_cross, κf Δln r/|v|), Δln r t_cross/fv) (|v| the largest of the zone and its
+neighbours; the floor keeps the grid speed below about fv (|u| + c_s)), so that the mesh keeps up with a moving photosphere or
+shock without being fast everywhere.
 With ICEUL the IC is built on the rule's mesh of the IC. No state beyond the mesh: a checkpoint restarts with the same setting.
 """
 const GRIDEQP = haskey(ENV, "GRIDEQ") ? parse(Int, ENV["GRIDEQ"]) : nothing
@@ -72,7 +73,9 @@ function grideq_step!()
         tauv = zeros(length(TF.var(:rn))); sx = zeros(length(TF.var(:rn)))
         lτ = log.(clamp.(max.(s.τ, 1e-300), GEQC[6], GEQC[7])); lτc = [0.5 * (lτ[j] + lτ[j+1]) for j in 1:n]
         for j in 1:n
-            tr_ = min(κ * tc[j], κf * tfe[j]); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_
+            # (feature tracking; floor: a zone moving its own width in t_relax goes at most fv (|u| + c_s))
+            dxj = j >= 2 ? log(s.r[j+1] / s.r[j]) : 1.0
+            tr_ = max(min(κ * tc[j], κf * tfe[j]), dxj * tc[j] / GEQC[4]); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_
             jm, jp = max(j - 1, 2), min(j + 1, n); h = jp - jm == 2 ? 0.5 : 1.0
             sx[a+j-1] = GEQW[6] * (h * (lτc[jp] - lτc[jm]))^2
         end
