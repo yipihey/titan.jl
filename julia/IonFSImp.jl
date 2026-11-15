@@ -317,22 +317,39 @@ function ifsi_ufix(m::NetGas, k, z, t)
     NHe * dt < 1e-12 * CNn.yHe * dn[k] / CNn.μH() * V && return (x0[1], x0[3], x0[4])
     zf = [_fv(q) for q in z]
     F(w) = (u = exp.(w); d = ifsi_core(m, k, zf, t, u)[3]; un = ifsi_u(d); [log(max(un[i], 1e-300)) - w[i] for i in 1:3])
-    xr = st.xabs[k]; w = [log(max(xr[1], 1e-40)), log(max(xr[3], 1e-40)), log(max(xr[4], 1e-40))]
-    J = zeros(3, 3); ok = false
-    for it in 1:60
-        Threads.atomic_add!(IFSI_NNEWT, 1)
-        res = ForwardDiff.DiffResults.JacobianResult(zeros(3), w); ForwardDiff.jacobian!(res, F, w)
-        r = copy(ForwardDiff.DiffResults.value(res)); J .= ForwardDiff.DiffResults.jacobian(res)
-        δ = try -(J \ r) catch; fill(NaN, 3) end; all(isfinite, δ) || break
-        δ .= clamp.(δ, -5.0, 5.0)
-        maximum(abs, δ) < 1e-11 && (w .+= δ; ok = true; break)
-        # backtracking on |F| (the photon-limited He zone's map is nearly singular: full steps overshoot and cycle)
-        n0 = maximum(abs, r); λ = 1.0; wn = w .+ δ
-        for _ in 1:10
-            maximum(abs, F(wn)) < (1 - 1e-4λ) * n0 && break
-            λ /= 2; wn = w .+ λ .* δ
+    J = zeros(3, 3)
+    # Newton with backtracking on |F| (the photon-limited He zone's map is nearly singular: full steps overshoot and cycle); returns
+    # (converged, w, |F|) of the best iterate
+    function solve(w, maxit)
+        bw = copy(w); bn = Inf
+        for it in 1:maxit
+            Threads.atomic_add!(IFSI_NNEWT, 1)
+            res = ForwardDiff.DiffResults.JacobianResult(zeros(3), w); ForwardDiff.jacobian!(res, F, w)
+            r = copy(ForwardDiff.DiffResults.value(res)); J .= ForwardDiff.DiffResults.jacobian(res)
+            n0 = maximum(abs, r); n0 < bn && (bn = n0; bw .= w)
+            n0 < 1e-12 && return (true, w, n0)
+            δ = try -(J \ r) catch; fill(NaN, 3) end; all(isfinite, δ) || return (false, bw, bn)
+            δ .= clamp.(δ, -5.0, 5.0)
+            maximum(abs, δ) < 1e-11 && (w .+= δ; return (true, w, n0))
+            λ = 1.0; wn = w .+ δ
+            for _ in 1:12
+                maximum(abs, F(wn)) < (1 - 1e-4λ) * n0 && break
+                λ /= 2; wn = w .+ λ .* δ
+            end
+            w = wn
         end
-        w .= wn
+        (false, bw, bn)
+    end
+    xr = st.xabs[k]
+    ok, w, nrm = solve([log(max(xr[1], 1e-40)), log(max(xr[3], 1e-40)), log(max(xr[4], 1e-40))], 60)
+    if !ok          # (deterministic restarts: from the start-of-step fractions, then from fully ionized He; the best iterate if none converges)
+        nrm = Inf
+        for w0 in ([log(max(x0[1], 1e-40)), log(max(x0[3], 1e-40)), log(max(x0[4], 1e-40))], [log(max(x0[1], 1e-40)), log(1e-12), log(CNn.yHe)])
+            ok2, w2, n2 = solve(w0, 100)
+            (ok2 || n2 < nrm) && (ok = ok2; w = w2; nrm = n2)
+            ok && break
+        end
+        ok || (J .= ForwardDiff.jacobian(F, w))
     end
     if !ok
         Threads.atomic_add!(IFSI_NFAIL, 1)
