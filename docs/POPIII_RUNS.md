@@ -2108,3 +2108,18 @@ against 237a835 (`t_gs_bi6`): final state md5 053301bd…, aux 62ff4e1d…, all 
 MCLOUD = 5e4 cannot be built by the abn02z19 set-up (the hydrostatic extension stops at 3 kpc short of the mass). No run has
 reached the accretion phase of z100ic3's stall yet. Open: the photosphere drifts out of the fine zones when the time smoothing
 is slow (κ 30: grid speed 0.03 (|u| + c_s)) and Δt is 5–10 times z100ic3's where the zones are fine (κ 3).
+
+**Feature tracking, speed floor and a shock term (14 Nov evening).**
+
+- *Feature tracking* (`GEQC` entry 9, κ_f): M's features move with the pattern speed v = −(∂M/∂t)(∂M/∂ln r)/((∂M/∂ln r)² + (2M)²)
+  (estimated from M of this step and the last; damped where M is flat; scale-free); a zone relaxes in min(κ t_cross, κ_f Δln r/|v|),
+  so the mesh follows a moving photosphere without being fast everywhere.
+- *Speed floor* (mode 1): t_relax ≥ Δln r t_cross/fv. Without it feature tracking moved the grid at 1.5–2.9 (|u| + c_s)
+  (`t_gse4`, `t_gse5`, stopped).
+- *Shock term* (`GEQW` entry 7, w_u): w_u ((r ∂u/∂r)/(|u| + c_s))², the velocity jump in units of the signal speed, frozen per step.
+
+**Cost of resolution** (median Δt and wall time per M☉ by M★ bin; `t_gse3`, old set, against `z100ic3`): 0.2–0.5 M☉ 4.2e3 s
+against 2.6e4 s (1.28 h against 0.20 h); 2–5 M☉ 3.9e4 s against 7.6e4 s (0.75 h against 0.07 h, 14× the steps); above 5 M☉ both
+are cheap. The error controller is held by E_r in the zones of the stellar surface and photosphere (`t_gse3` zones 29–36 at
+170–220 R☉, Δln r 0.026–0.06). `t_gse3` reached 11.2 M☉ (R★ 178 R☉) after 54 000 steps; `t_gse_m1e4` stalled at 10.5 M☉
+(Δt ~1e3 s, 1700 failed solves) and was stopped.
