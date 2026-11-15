@@ -62,7 +62,8 @@ IFCO() = Main.ContinuumOpacity; IFSP() = Main.Spectrum
 function ifs_σ(s, ν)
     CR_ = Main.ChemRates
     s === :H ? CR_.σ_verner(ν, 13.598, CR_.VERNER_HI) : s === :He ? CR_.σ_verner(ν, 24.587, CR_.VERNER_HeI) :
-    s === :Hep ? CR_.σ_verner(ν, 54.418, CR_.VERNER_HeII) : Main.IonRay.σ_H2(ν)
+    s === :Hep ? CR_.σ_verner(ν, 54.418, CR_.VERNER_HeII) : 0.0      # H₂: trace (≤ 1e-15) where the ray reaches; its photoionization (15.4 eV,
+    # 1e7 s⁻¹ per molecule at r_b) made the coupled H₂ row stiff to divergence (t_ion1 B1, first step) and is left out
 end
 mutable struct IFState
     G::Any; N::Vector{Float64}; k0::Int; rb::Float64; step::Int; fnorm::Float64; Lfs::Float64; Lrun::Float64; Qsrc::NTuple{3,Float64}
