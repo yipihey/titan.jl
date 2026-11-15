@@ -2064,3 +2064,44 @@ crashed (`t_gt0` without the τ term at step 26 855, `t_gt1` with it at 26 024, 
 distance to the target per step at any Δt (relaxation-time floor 0), so a failed solve does not slow the mesh; and the
 target, following the flickering surface in zones of 0.005, moves 0.1 zone widths per step, which caps Δt near 10³ s.
 `t_gt2` adds a relaxation floor of 10⁴ s.
+
+## G4: a consistent closure of the gray moments, `VEFIMP` (14 Nov, branch `g4-closure`)
+
+Approved by Tom on 14 Nov (docs/POPIII_SWITCH_INVENTORY.md §15–17, group G4). Default off; bit-identical when off (`t_g4_bitoff`:
+350 steps from t_c128c's `B7_auto1`, every field of 7 snapshots identical to t_c128c's own segment B8).
+
+**Method (option b, formal solution iterated to consistency).** `VEFIMP=1`:
+- f = K/J, g = H⁺/J⁺ and (with FLUXTIE) h = H/J from the formal solution of the **Newton iterate**, in every `update!`
+  (TITAN's ltran = 0 path, `TitanDriver.VEF_ITER`): the variable-Eddington-factor iteration of Auer & Mihalas (1970, MNRAS 149,
+  65) inside Newton, f frozen in the Jacobian of one iteration. Before, f came from the predictor of y_n (TR stage) and of y_γ
+  (BDF stage).
+- The static terms of the momentum row in Auer's (1971, JQSRT 11, 573) sphericality-factor form, ∂(fE)/∂r + (3f − 1)E/r =
+  (r²q)⁻¹ ∂(r²q f E)/∂r with ∂ ln(r²q)/∂r = (3f − 1)/(f r) (as quoted in Higgins & Meiksin 2012, MNRAS 426, 2380, eqs. 26–29):
+  exact for χ = 0 for any f (f = 1: r²E constant), local (the ratio of q at the zone centres to its interface value); the outer
+  boundary row takes E at r_N+1 from the zone centre by the same factor, on the excess over the CMB only (`VEF_SPH`).
+- The CMB as the isotropic background: the rays carry I − I_b (source S − I_b, nothing incoming, positivity on the total) and
+  the moments are completed analytically (`VEF_BG`). Check (`VEFBGCHK`): f, h agree with the unsplit solution to 4e-9 (100-zone
+  state) and 5e-6 (production state), g to 6e-6 at the production edge (where 4e-5 in g is the whole edge flux).
+- FLUXTIE stays the closure of the transparent zones, now with the h of the iterate. `VEFIMP=notie` uses the moment equations
+  everywhere instead (FLUXTIE/ETASWTIE off); `nobg` is notie without the background split.
+
+**Results.**
+- Production (t_c128c `B7_auto1`, its run.env/phaseB.env + VEFIMP=1, `t_g4_prodt3`, 1500 steps): L_ph, L(4e5 R☉), T_eff and the
+  F/cE ≈ 0.971 of the envelope track t_c128c (L_ph 1.759e7 vs 1.773e7 L☉ at step 2 257 000); 43 % more model time in the same
+  steps (1569 vs 1094 yr over steps 2 255 600 → 2 257 000), Newton divergences 1199 vs 1382, wall time +12 %.
+  `VEFIMP=notie` there (`t_g4_prod2`, `t_g4_prodn`) is not consistent: F/cE 0.90–0.94 against h ≈ 0.976, max F/cE up to 1.12,
+  L_edge 4e7–2.3e8 L☉. In the CMB-dominated envelope the moment equation integrated inward carries the ~1e-3 mismatch of the
+  moment and ray discretisations, times E_cmb, into the starlight; the tie (F = h c E) is the well-conditioned closure there.
+- 100-zone grid, DTERR = 0.05 (t_te1 settings): the zone-27/28 flip-flop is **not** caused by the lag. With the consistent tie
+  (`t_g4_te1t3`) Δt sits at 430 s, err 0.26, z₁ ≈ −z₃ at zone 26–27 (as t_lag_te10: 600 s, 0.29). With `notie` the run can stay
+  on a smooth branch (`t_g4_te1v`/`te1w`/`te1nb`, identical: Δt ≈ 2e4 s at steps 200–700, limiting x_H2/E_r at zone 23) or fall
+  into the same 2-cycle at zone 23–27 (`t_g4_te1n`, background split on: a 1e-9 change of f selects the branch at step 27 837).
+  From the 2-cycle state, Δt ≤ 100 s (`t_g4_hscan100`) damps it (err 0.5 → 1e-4); released (`t_g4_hfree`), err grows with h on
+  the smooth branch (5e2 s: 8e-4, 1.2e3 s: 2.2e-3, 4.8e3 s: 3e-2, d ln err/d ln h ≈ 1.6) until a 7.6e3 s step (err 0.47, E_r
+  zone 39) excites the 2-cycle, which then persists at h ≈ 400 s with err ≈ 0.5 < 1, i.e. it passes the error test. It is a
+  period-2 solution of the implicit step at large h, not a lagged closure.
+- From the IC (iceul.env, `t_g4_ic*`): the tie from t = 0 without FLUXTIECORE fails in the collapse (Δt ~ 20 s, `t_g4_ic3`);
+  `notie` dies at step 426–437 (E_r of zone 56 driven negative, `t_g4_icn`, `t_g4_icnb`); VEFIMP=1 with FLUXTIECORE=1 (`t_g4_ict`,
+  1140 steps, stopped by hand) reaches the same t as the lagged baseline (`t_g4_icbase`, 1440 steps) with Δt 1.8e4 s at err 0.06,
+  where the baseline sits at Δt 2e4 s, err 0.35, limited by E_r of zone 28 (the flip-flop) for 400 steps.
+- Bit identity of the final code when off: `t_g4_bitoff2` (ce50412), 3 snapshots identical to t_c128c B8.

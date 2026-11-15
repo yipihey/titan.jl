@@ -431,6 +431,8 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
     PM.PSWSTAY[] || pr("PSWSTAY=0: below the pressure switch a table zone stays on the table only by the tau rule\n")
     PM.PSWAGREE[] > 0 && pr("PSWAGREE: below the pressure switch, table only where it agrees with the three-level network to %.3f in T\n", PM.PSWAGREE[])
     PM.NLOPAC[] && pr("NLOPAC: non-LTE opacity in the three-level network zones (no H bound-free in kappa_P; n=2 of the three-level atom in kappa_R)\n")
+    PM.NLOPAC[] && PM.NLOIT && pr("NLOIT: network-zone opacities from the Newton iterate's own populations (table x continuum-code ratio at the iterate; NLOIMPT, NLODAMP, CPLNLOX, NLOFIX, NLOTMAX inactive there)\n")
+    !PM.NLOPAC[] && PM.NLOIT && error("NLOIT=1 needs NLOPAC=1 (STARLIGHT=1 SL3=1)")
     pr("STARLIGHT: H- detachment%s, LW (shield %s) from the star's light in network zones\n", PM.STARLIGHT[].pH === nothing ? "" : ", H(n>=2) ionization", String(PM.STARLIGHT[].shield))
 end
 const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
@@ -459,6 +461,61 @@ function lineinc()
     Tb = parse(Float64, get(ENV, "TCMB", "0")); sd = PM.SLDIAG[]
     (LINEINC == "cmb" || sd === nothing || !(sd.Te > 0)) && return (Tbg = Tb, Tstar = 0.0, Rph = 0.0)
     (Tbg = Tb, Tstar = Float64(sd.Te), Rph = Float64(TF.var(:rn)[sd.kph+1]))
+end
+# LINEIMP=1 (default off; off = bit-identical): the line cooling of each zone is a function of the zone's state in the chemistry and in
+# the hydro Newton (PopIIIMaterial.LINEIMP: populations re-solved at the iterate's T with the radiative rates β, J̄ of the last transfer
+# call), not Λ held from the last call. Retires as devices: the IMPCOOL slope (second transfer call) and its [−10, 30] clamp, the
+# Δt ≤ 0.1 (or DTCOOL) t_cool cap, TCOOLTH (only the cap used it). LINEFRAC still skips transfer calls (the model is then kept).
+# Hybrid NLTE: on an ALI step the zone takes the ALI rates (β = 1 − Λ*, J̄ = J̄_fs − Λ* S); in between the EP rates of the step × the
+# last ALI/EP factor, bounded to [1/LIFMAX, LIFMAX] (default 10); where LINECOLL holds the ALI collisional rate (ALIFIX: EP and ALI differ
+# in sign), the zone holds the last ALI call's RATES instead, so its cooling still follows its T. Needs NLTE = ep | ali | hyb.
+const LINEIMP = get(ENV, "LINEIMP", "0") == "1"; const LIFMAX = parse(Float64, get(ENV, "LIFMAX", "10"))
+LINEIMP && !(NLTE in ("ep", "ali", "hyb")) && error("LINEIMP=1 needs NLTE=ep, ali or hyb")
+LINEIMP && (PM.LINEIMP[] = true; pr("LINEIMP: H2 line cooling of each zone from its own state (populations at the iterate's T, radiative rates of the last transfer call); no t_cool cap, no IMPCOOL slope\n"))
+const LIALI = Ref{Vector{Any}}(Any[]); const LISTAT = zeros(Int, 4)    # (zones with EP, ALI, held-ALI rates; f clamped)
+const LIJCMB = Ref{Vector{Float64}}(Float64[])
+"(diagnostic, NANSCAN=1) report the first zones whose state is not finite."
+const NANSCAN = get(ENV, "NANSCAN", "0") == "1"; const FLUSHOUT = get(ENV, "FLUSHOUT", "0") == "1"
+function nanscan(where, k)
+    n = 0
+    for nm in (:tn, :dn, :egn, :ern, :un, :frn, :rn, :pgn, :xkpn, :chifn)
+        v = TF.var(nm)
+        for kk in a:b+1
+            isfinite(v[kk]) && continue
+            n += 1; n <= 12 && pr("NANSCAN step %d %s: %s[%d] (zone %d) = %s; T %.4g rho %.4g eq %s x %s\n", k, where, String(nm), kk, kk - a + 1, string(v[kk]),
+                                  TF.var(:tn)[min(kk, b)], TF.var(:dn)[min(kk, b)], string(mat.eqzone[min(kk, b)]), string(round.(mat.x[min(kk, b)], sigdigits = 3)))
+        end
+    end
+    for kk in a:b
+        all(isfinite, mat.x[kk]) && continue
+        n += 1; n <= 12 && pr("NANSCAN step %d %s: composition of zone %d not finite: %s (T %.4g)\n", k, where, kk - a + 1, string(mat.x[kk]), TF.var(:tn)[kk])
+    end
+    nothing
+end
+"(LINEIMP) zones remapped: drop the line models (the held Λext of the remap is used until the next transfer call)."
+li_inval!() = (PM.li_invalidate!(); fill!(LIALI[], nothing); nothing)
+"(LINEIMP) per TITAN zone, the line model from the transfer call `Lc` (H2Lines.LAST[]) on the reduced grid (see LINEIMP above)."
+function li_store!(Lc, fac, dd, nh2, nl, zk, ncz, nz_; ali = false, held = nothing)
+    hasproperty(Lc, :β) || return nothing
+    nk = length(mat.x); length(PM.LIMODEL[]) == nk || (PM.LIMODEL[] = Any[nothing for _ in 1:nk]); length(LIALI[]) == nk || (LIALI[] = Any[nothing for _ in 1:nk])
+    for kk in a:b; PM.LIMODEL[][kk] = nothing; end
+    if isempty(LIJCMB[])
+        Tb = parse(Float64, get(ENV, "TCMB", "0"))
+        LIJCMB[] = [Tb > 0 ? H2Lines.Bν(ν_, Tb) : 0.0 for ν_ in HLL.ν]
+    end
+    jc_ = LIJCMB[]; fill!(LISTAT, 0)
+    for j in ncz+1:nz_
+        kk = zk(j)
+        if held !== nothing && held(j) && LIALI[][kk] !== nothing
+            PM.LIMODEL[][kk] = LIALI[][kk]; LISTAT[3] += 1; continue
+        end
+        β_ = Lc.β[:, j]; J_ = max.(Lc.Jeff[:, j], β_ .* jc_)
+        f_ = fac(j); fc = clamp(f_, 1 / LIFMAX, LIFMAX); fc != f_ && (LISTAT[4] += 1)
+        PM.li_set!(kk, HLV, β_, J_, nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j], dd[j], fc)
+        LISTAT[ali ? 2 : 1] += 1
+        ali && (LIALI[][kk] = PM.LIMODEL[][kk])
+    end
+    nothing
 end
 NLTE in ("ep", "ali", "hyb") && include(joinpath(@__DIR__, "H2Levels.jl"))
 const HLV = NLTE in ("ep", "ali", "hyb") ? H2Levels.load() : nothing
@@ -498,8 +555,13 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
         yc = [ycomp(zk(j)) for j in 1:nz_]; nHn = dd ./ PC.μH
         nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nz_], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nz_])
         inc = lineinc()
-        NLTE != "hyb" && return H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep, inc)
+        if NLTE != "hyb"
+            out_ = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep, inc)
+            LINEIMP && k >= 0 && li_store!(H2Lines.LAST[], j -> 1.0, dd, nh2, nl, zk, ncz, nz_)
+            return out_
+        end
         tq = time(); Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep, inc)
+        LEP = (LINEIMP && k >= 0) ? H2Lines.LAST[] : nothing
         Λg = inc === nothing ? nothing : copy(H2Lines.LAST[].Λem)       # the EP emission alone (Λe is net of the absorbed background)
         TIMING && k >= 0 && pr("        EP call %.1f s (nep %d)\n", time() - tq, H2Lines.LAST[].nep)
         # (ALICAP=n, Nov 2026: the largest interval, default NALI; a separate variable because NALI is part of the restart check)
@@ -514,6 +576,7 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
         end
         if k >= 0 && (k - ALILAST[] >= ALIINT[] || length(ALIFAC[]) != nz_)
             tq = time(); Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali, inc)
+            LINEIMP && li_store!(H2Lines.LAST[], j -> 1.0, dd, nh2, nl, zk, ncz, nz_; ali = true)
             TIMING && pr("        ALI call %.1f s (nep %d, ALI iterations %d, converged %s)\n", time() - tq, H2Lines.LAST[].nep, H2Lines.LAST[].iters, H2Lines.LAST[].converged)
             Λfs = Λa                                     # −∇·F of the formal solution (diagnostics)
             if LINECOLL
@@ -560,6 +623,11 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
             end
             ALIFAC[] = fnew; ALILAST[] = k; NALICALL[] += 1
             return Λa, Lra, xa
+        end
+        if LEP !== nothing                  # LINEIMP: EP rates × the ALI/EP factor; zones that hold the ALI collisional rate (ALIFIX) hold the ALI rates instead
+            hf = length(ALIFAC[]) == nz_
+            li_store!(LEP, j -> hf ? ALIFAC[][j] : 1.0, dd, nh2, nl, zk, ncz, nz_;
+                      held = (LINECOLL && hf && length(ALIFIX[]) == nz_) ? (j -> !isnan(ALIFIX[][j])) : nothing)
         end
         length(ALIFAC[]) == nz_ || return Λe, Lr, x                        # (perturbed call right after the reduced grid changed: EP)
         Λs = Λe .* ALIFAC[]; Lrs = zeros(nz_ + 1)
@@ -613,6 +681,7 @@ function restart!(name; allow = ())
     end
     if hasproperty(s, :lag)                        # (older checkpoints: these start empty, so the first step after a restart differs)
         l_ = s.lag; PM.NLOPC[] = deepcopy(l_.NLOPC); PM.SLDIAG[] = deepcopy(l_.SLDIAG)
+        PM.NLOIT && PM.nlost_restart!(mat)       # (NLOIT: the zones that had non-LTE factors get their composition and three-level parameters back)
         length(l_.GASQ) == length(TX.GASQ[]) && (TX.GASQ[] .= l_.GASQ); length(l_.RAYQ) == length(TX.RAYQ[]) && (TX.RAYQ[] .= l_.RAYQ)
         hasproperty(l_, :CHEMB) && length(l_.CHEMB) == length(TX.CHEMB[]) && (TX.CHEMB[] .= l_.CHEMB)
     end
@@ -769,7 +838,7 @@ function rebuild!(rI, ρz, Tz, uI, Er, Fr, matz)
         end
     end
     for k in 1:a-1; mat.x[k] = copy(mat.x[a]); mat.eqzone[k] = mat.eqzone[a]; end
-    for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end
+    for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end; LINEIMP && li_inval!()
     TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
     TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
     PS.install_julia!(BlockSolver)
@@ -1094,7 +1163,7 @@ function cpl_dtcap()
         max(xn[k], xo[k]) > 1e-4 && abs(log(xn[k] / xo[k])) > w && (w = abs(log(xn[k] / xo[k])); kw = k)
     end
     cap = w > 0 ? TF.getscalar(:dtime) * CPLXSTOL / w : Inf
-    cap < TF.getscalar(:dtime) && @printf("cpl dt cap: zone %d x_H+ %.3e -> %.3e T %.0f, dt %.3e -> cap %.3e\n", kw - a + 1, xo[kw], xn[kw], TF.var(:tn)[kw], TF.getscalar(:dtime), cap)
+    cap < TF.getscalar(:dtime) && !Trbdf2.ERRCTL[] && @printf("cpl dt cap: zone %d x_H+ %.3e -> %.3e T %.0f, dt %.3e -> cap %.3e\n", kw - a + 1, xo[kw], xn[kw], TF.var(:tn)[kw], TF.getscalar(:dtime), cap)
     cap
 end
 function echem_pre!()
@@ -1191,22 +1260,26 @@ function envflags!()
     PM.CHEMFALLBACK[] = true
     XMEPREV[] = copy(TF.var(:xmen)::Vector{Float64})
 end
-function envbuild!()
+"ln r of the fixed mesh's interfaces from the first interface (r_in, or ENVCORE's first interface for a regular centre) to rout (ENVEUL/ENVCORE spacing)."
+function envlr(rout)
     rin, dl1, dl2, rb = ENVEUL[1] * Rsun, ENVEUL[2], ENVEUL[3], ENVEUL[4] * Rsun
-    r0 = TF.var(:rn)[a:b+1]; u0 = TF.var(:un)[a:b+1]; d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]; F0 = TF.var(:frn)[a:b+1]
-    m0 = 4π .* TX.XMINT[][a:b+1]; x0 = [copy(mat.x[a+j-1]) for j in 1:nsh]; eq0 = [mat.eqzone[a+j-1] for j in 1:nsh]
-    t0 = TF.getscalar(:timen); js = TF.getscalar(:jstep)
-    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
     rcb = ENVCENTRE ? ENVCORE[3] * Rsun : 0.0
     lr = [log(ENVCENTRE ? ENVCORE[1] * Rsun : rin)]; dl = ENVCENTRE ? ENVCORE[2] : dl1
     gout_ = length(ENVEUL) >= 5 ? ENVEUL[5] : 1.02; gin_ = length(ENVEUL) >= 6 ? ENVEUL[6] : 0.95
-    while lr[end] < log(r0[end])
+    while lr[end] < log(rout)
         r_ = exp(lr[end])
         r_ > rb ? (dl = min(dl2, gout_ * dl)) : r_ > rcb && (dl = max(dl1, gin_ * dl))
         push!(lr, lr[end] + dl)
     end
     (length(lr) + (ENVCENTRE ? 1 : 0)) % 2 == 0 && pop!(lr)                    # (an even zone count: an odd number of interfaces)
-    lr = lr[1] .+ (lr .- lr[1]) .* (log(r0[end]) - lr[1]) / (lr[end] - lr[1])
+    lr[1] .+ (lr .- lr[1]) .* (log(rout) - lr[1]) / (lr[end] - lr[1])
+end
+function envbuild!()
+    r0 =TF.var(:rn)[a:b+1]; u0 = TF.var(:un)[a:b+1]; d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]; F0 = TF.var(:frn)[a:b+1]
+    m0 = 4π .* TX.XMINT[][a:b+1]; x0 = [copy(mat.x[a+j-1]) for j in 1:nsh]; eq0 = [mat.eqzone[a+j-1] for j in 1:nsh]
+    t0 = TF.getscalar(:timen); js = TF.getscalar(:jstep)
+    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
+    lr = envlr(r0[end])
     if GRIDMAPP !== nothing      # the planned mesh (GridMap) from the source's enclosed mass in place of the ENVCORE/ENVEUL spacing; same first and last interface
         i1 = findfirst(j -> r0[j] > 0 && m0[j] > 0, eachindex(r0)); Nz = Int(GRIDMAPP[1]); (Nz + (ENVCENTRE ? 1 : 0)) % 2 == 0 || (Nz -= 1)
         Mst = GridMap.anchor(m0[i1:end], u0[i1:end])
@@ -1267,7 +1340,7 @@ function envbuild!()
         k = a + j - 1; mat.x[k] = xz[j]; mat.eqzone[k] = eqz[j]; mat.Λext[k] = 0.0; mat.Tref[k] = Tz[j]; mat.slope[k] = 0.0
     end
     for k in 1:a-1; mat.x[k] = copy(mat.x[a]); mat.eqzone[k] = mat.eqzone[a]; end
-    for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end
+    for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end; LINEIMP && li_inval!()
     TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
     PS.install_julia!(BlockSolver)
     for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
@@ -1280,6 +1353,98 @@ function envbuild!()
     pr("ENVEUL: %d zones, r %.3g R_sun .. %.3g pc, Mc %.4f Msun, grid mass %.1f (was %.1f) Msun, L_in %.3e erg/s, %d velocities capped at v_esc, surface zone %d, M_shell0 %.3e Msun\n",
        n, rI[1] / Rsun, rI[end] / 3.0857e18, Mc / Msun, Mnew / Msun, (m0[end] - Mc) / Msun, Lin, ncap, envsurface(), 4π * ENVMS0[] / Msun)
 end
+"""
+ICEUL=1 (with RAD=1, ENVEUL=0,… and ENVCORE; default off): start from the initial condition directly on the fixed mesh of the
+ENVEUL/ENVCORE remap (lgrid = 2, regular centre), at t = 0, instead of the Lagrangian mesh and the later remap. The mesh is the one
+`envbuild!` makes (`envlr`), from ENVCORE's first interface to the outer radius of the IC. Mass-conserving: the interior mass at
+every interface is that of the IC's tabulated M(r) (piecewise-uniform density between its nodes, so the zone masses add up to the
+cloud mass exactly); T and the H₂ fraction are the mass-weighted zone means of the IC's T(M), f_H2(M); u at the interfaces from the
+IC's v(M); x_e as the IC (XE0). Radiation as `radbuild!`: E_r = a [T_CMB⁴ + (T⁴ − T_CMB⁴)(1 − e^{−τ_R})], F_r flux-limited diffusion.
+All fixed-mesh settings as after `envbuild!` (GASROW, REGULAR_CENTRE, no INNER_SINK, xmen/xmtot interior mass, CHEMFALLBACK, empty
+ALI factors). Only the abn02* initial conditions (they carry the tabulated M(r)).
+"""
+const ICEUL = get(ENV, "ICEUL", "0") == "1"
+"""
+Zero point of the mass coordinate at the centre (fixed mesh with a regular centre; used by ICEUL, ICXMZ=0 turns it off). TITAN's
+mass unknown is the exterior mass x_m,e = xmtot − m (per steradian), with xmtot ≥ the grid mass (PS.build!: grid + xmext), and the
+zone masses are its differences. At the IC the central zones of the log mesh hold ~1e-17 of the cloud: zone 39 of the 100-zone mesh
+(r ≈ 1.5e3 R☉) has 4.5e20 g sr⁻¹ against an ulp of 5.9e20 of x_m,e ≈ 3.2e36, so its mass row is round-off and Newton diverged at
+step 1 whatever Δt (T, E_r corrections −9.4 there). Here xmtot := ε (half the central zone's mass) and x_m,e = ε − m: negative outside
+the first interface, but the residual only uses differences of x_m,e, xmtot − x_m,e and relative (sign-preserving) corrections,
+so the interior mass is carried at full relative precision at every radius. Recomputed from the interior masses m (summed from the
+centre by PS.build!), not by shifting x_m,e.
+"""
+function xmzero!()
+    xmen = TF.var(:xmen); xmeo = TF.var(:xmeo); dn = TF.var(:dn); dv = TF.var(:dvoln); xmt0 = TF.getscalar(:xmtot)
+    TF.var(:rn)[a] == 0 || error("xmzero!: needs a regular centre (r = 0 at the first interface)")
+    m = zeros(length(xmen)); for k in a+1:b+2; m[k] = m[k-1] + dn[k-1] * dv[k-1]; end      # interior mass, summed from the centre
+    ε = 0.5 * m[a+1]
+    for k in a:b+2; xmen[k] = ε - m[k]; end
+    xmen[a-1] = 2xmen[a] - xmen[a+1]                                                   # (the regular centre's ghost, as TitanCore's bndry)
+    for k in a-1:b+2; xmeo[k] = xmen[k]; end
+    TF.setscalar!(:xmtot, ε); TF.setscalar!(:xmext, ε - m[b+2])
+    pr("XMZERO: mass zero point at the centre, xmtot %.4e (was %.4e) g/sr; x_m,e at the interfaces %d..%d: %s; grid mass %.6f Msun\n", ε, xmt0, a - 1, a + 2,
+       join((@sprintf("%.4e", xmen[k]) for k in a-1:a+2), " "), 4π * m[b+1] / Msun)
+    nothing
+end
+function iceulbuild!()
+    (RAD && ENVCENTRE) || error("ICEUL=1 needs RAD=1 and ENVEUL=0,... (regular centre, ENVCORE)")
+    ic in ("abn02", "abn02hs", "abn02z19") || error("ICEUL=1: only the abn02* initial conditions")
+    GRIDMAPP === nothing || pr("ICEUL: GRIDMAP starts from the ENVCORE/ENVEUL mesh (no source state to plan it from)\n")
+    radsettings!()
+    rout = TF.var(:rn)[b+1]; Mtot = M                                          # the IC's outer radius and cloud mass
+    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
+    rI_ = exp.(envlr(rout)); rI_[end] = rout; pushfirst!(rI_, 0.0); n = length(rI_) - 1
+    rg3 = rg .^ 3
+    Mof(r) = (r <= 0 && return 0.0; r >= rg[end] && return Mg[end]; j = clamp(searchsortedlast(rg, r), 1, length(rg) - 1);
+              Mg[j] + (r^3 - rg3[j]) / (rg3[j+1] - rg3[j]) * (Mg[j+1] - Mg[j]))
+    mI_ = [Mof(r) for r in rI_]; mI_[end] = Mtot
+    all(>(0), diff(mI_)) || error("ICEUL: a zone without mass")
+    ρz = [(mI_[j+1] - mI_[j]) / (4π / 3 * (rI_[j+1]^3 - rI_[j]^3)) for j in 1:n]
+    # mass-weighted zone means of T(M), f_H2(M) (64 midpoints in m per zone; the IC tables are in log M [M☉], constant below their first node)
+    zmean(f, j) = (ms = range(mI_[j], mI_[j+1], length = 65); sum(f(0.5 * (ms[i] + ms[i+1]) / Msun) for i in 1:64) / 64)
+    Tz = [zmean(m -> interp(log10(m), lM_tab, T_tab), j) for j in 1:n]
+    fz = [zmean(m -> 10^interp(log10(m), lM_tab, lf_tab), j) for j in 1:n]
+    uI_ = ic == "abn02z19" ? [m < Mjoin ? 0.0 : 1e5 * interp(log10(m / Msun), lM_tab, v_tab) * min(1.0, (m - Mjoin) / Mjoin) for m in mI_] :
+          ic == "abn02hs" ? zeros(n + 1) : [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI_]
+    uI_[1] = 0.0; uI_[end] = 0.0                                               # regular centre; fixed outer wall (as the remap)
+    xz = [xinit((xe0, 0.0, f / 2, 0.0)) for f in fz]; eqz = falses(n)
+    # radiation field as radbuild!
+    Tb = parse(Float64, get(ENV, "TCMB", "0")); ar = Z0.arad
+    χ = [PM.OPAC[](ρz[j], Tz[j])[1] * ρz[j] for j in 1:n]
+    τ = zeros(n); for j in n-1:-1:1; τ[j] = τ[j+1] + 0.5 * (χ[j] * (rI_[j+1] - rI_[j]) + χ[j+1] * (rI_[j+2] - rI_[j+1])); end
+    Er = [ar * (Tb^4 + (Tz[j]^4 - Tb^4) * (-expm1(-τ[j]))) for j in 1:n]
+    rc = [0.5 * (rI_[j] + rI_[j+1]) for j in 1:n]; Fr = zeros(n + 1)
+    for j in 2:n
+        gE = (Er[j] - Er[j-1]) / (rc[j] - rc[j-1]); Em = 0.5 * (Er[j] + Er[j-1])
+        Fr[j] = -Z0.c * gE / (3 * 0.5 * (χ[j] + χ[j-1]) + abs(gE) / Em) * (-expm1(-τ[j]))
+    end
+    Fr[n+1] = Fr[n]
+    Mnew = sum(4π / 3 * ρz[j] * (rI_[j+1]^3 - rI_[j]^3) for j in 1:n)
+    TX.GASROW[] = true
+    for k in eachindex(mat.x); j = clamp(k - a + 1, 1, n); mat.x[k] = copy(xz[j]); mat.eqzone[k] = eqz[j]; end
+    PS.build!(; rI = rI_, rho = ρz, T = Tz, u = uI_, geom = 2, rad = true, Er, Fr, lum = nothing, lgrid = 2, inner = :wall, outer = :wall, Mc = 0.0,
+              selfgrav = true, material = mat, av, xmext = Mnew / 4π)
+    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
+    get(ENV, "ICXMZ", "1") == "1" && xmzero!()
+    for j in 1:nsh
+        k = a + j - 1; mat.x[k] = xz[j]; mat.eqzone[k] = eqz[j]; mat.Λext[k] = 0.0; mat.Tref[k] = Tz[j]; mat.slope[k] = 0.0
+    end
+    for k in 1:a-1; mat.x[k] = copy(mat.x[a]); mat.eqzone[k] = mat.eqzone[a]; end
+    for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end
+    TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
+    PS.install_julia!(BlockSolver)
+    for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
+    TF.setscalar!(:timen, 0.0); TF.setscalar!(:timeo, 0.0); TF.setscalar!(:jstep, 0)
+    TF.setscalar!(:dtime, haskey(ENV, "ENVDT0") ? parse(Float64, ENV["ENVDT0"]) : 1e-3tff); TF.setscalar!(:tmax, 1e3tff)
+    radsettings!()
+    envflags!()
+    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
+    empty!(ALIFAC[]); empty!(ALIFIX[]); SNAPS === nothing || empty!(SNAPS)
+    xme = TF.var(:xmen); ENVMS0[] = xme[a] - xme[a+envsurface()-1]
+    pr("ICEUL: initial condition on the fixed mesh: %d zones, r 0, %.3g R_sun .. %.4g pc (dln r %.4f), grid mass %.2f Msun (cloud %.2f), rho_c %.4e T_c %.1f, tau_R(centre) %.3e, %d interfaces falling, dt0 %.3e s, M_shell0 %.3e Msun\n",
+       n, rI_[2] / Rsun, rI_[end] / 3.0857e18, log(rI_[3] / rI_[2]), Mnew / Msun, Mtot / Msun, ρz[1], Tz[1], τ[1], count(<(0), uI_), TF.getscalar(:dtime), 4π * ENVMS0[] / Msun)
+end
 if haskey(ENV, "STARFROM")
     starfrom!(ENV["STARFROM"])
 elseif haskey(ENV, "RADFROM")
@@ -1291,8 +1456,10 @@ elseif haskey(ENV, "RESTART")
     RAD && Int(TF.getscalar(:lrad)) != 1 && error("RAD=1, but checkpoint $(ENV["RESTART"]) has no radiation field: build it with RAD=1 RADFROM=<checkpoint>")
     RAD && (radsettings!(); TD.EOS[](); TD.OPAC[]())
     if ENVEUL !== nothing
-        Int(TF.getscalar(:lgrid)) == 3 ? envbuild!() : (envflags!(); ENVMS0[] = parse(Float64, ENV["ENVMS0"]) * Msun / 4π)
+        Int(TF.getscalar(:lgrid)) == 3 ? envbuild!() : (envflags!(); ENVMS0[] = (ENVCENTRE && !haskey(ENV, "ENVMS0") ? 0.0 : parse(Float64, ENV["ENVMS0"])) * Msun / 4π)   # (regular centre: no sink, ENVMS0 unused)
     end
+elseif ICEUL
+    iceulbuild!()
 elseif RAD
     # RAD=1 switches the CIE continuum cooling off; without a rebuild there is no radiation field to take its place
     error("RAD=1 from the initial condition: run with RAD=0 first, then RAD=1 RADFROM=<checkpoint> (scripts/popiii_run/fullrun.sh)")
@@ -1346,13 +1513,14 @@ function envsplit!(r1, r2, kmax)
     a == a0 || error("ENVSPLIT: ngrs moved")
     for k in eachindex(mat.x)
         ko = clamp(kmap(k), 1, length(mx))
-        mat.x[k] = copy(mx[ko]); mat.eqzone[k] = meq[ko]; mat.Λext[k] = mΛ[ko]; mat.Tref[k] = mTr[ko]; mat.slope[k] = msl[ko]
+        mat.x[k] = copy(mx[ko]); mat.eqzone[k] = meq[ko]; mat.Λext[k] = mΛ[ko]; mat.Tref[k] = mTr[ko]; mat.slope[k] = msl[ko]; LINEIMP && li_inval!()
     end
     for (s_, v_) in lagF                                                        # (in place: PM.RAY etc. hold these arrays)
         o = lagold[s_]; isempty(o) && continue
         for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end
     end
     length(nlo) == length(TF.var(:dn)) && (PM.NLOPC[] = Any[nlo[clamp(kmap(k), 1, length(nlo))] for k in eachindex(nlo)])
+    PM.NLOIT && (fill!(PM.NLOST[], nothing); PM.nloc_reset!(length(TF.var(:dn))))      # (NLOIT: remapped zones take the table for one step)
     if HOTON
         g_ = SG[]; Yo = copy(g_.Y); Ypo = copy(g_.Yprev)
         for k in axes(g_.Y, 2); ko = clamp(kmap(k), 1, size(Yo, 2)); g_.Y[:, k] .= Yo[:, ko]; g_.Yprev[:, k] .= Ypo[:, ko]; end
@@ -1423,7 +1591,7 @@ function envmerge!(r1, r2, kmax)
     a == a0 || error("ENVMERGE: ngrs moved")
     for k in eachindex(mat.x)
         ko = clamp(kmap(k), 1, length(mx))
-        mat.x[k] = copy(mx[ko]); mat.eqzone[k] = meq[ko]; mat.Λext[k] = mΛ[ko]; mat.Tref[k] = mTr[ko]; mat.slope[k] = msl[ko]
+        mat.x[k] = copy(mx[ko]); mat.eqzone[k] = meq[ko]; mat.Λext[k] = mΛ[ko]; mat.Tref[k] = mTr[ko]; mat.slope[k] = msl[ko]; LINEIMP && li_inval!()
     end
     for (j, g) in enumerate(G)                                                  # mass-weighted composition of the merged zones
         length(g) > 1 || continue
@@ -1434,6 +1602,7 @@ function envmerge!(r1, r2, kmax)
         for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end
     end
     length(nlo) == length(TF.var(:dn)) && (PM.NLOPC[] = Any[nlo[clamp(kmap(k), 1, length(nlo))] for k in eachindex(nlo)])
+    PM.NLOIT && (fill!(PM.NLOST[], nothing); PM.nloc_reset!(length(TF.var(:dn))))      # (NLOIT: remapped zones take the table for one step)
     if HOTON
         g_ = SG[]; Yo = copy(g_.Y); Ypo = copy(g_.Yprev)
         for k in axes(g_.Y, 2); ko = clamp(kmap(k), 1, size(Yo, 2)); g_.Y[:, k] .= Yo[:, ko]; g_.Yprev[:, k] .= Ypo[:, ko]; end
@@ -1513,7 +1682,7 @@ function treset!(spec)
         a <= k <= b || error("TRESET: zone $ks is not on the mesh (1..$nsh)")
         Tnew > 0 || error("TRESET: T must be positive")
         push!(L, (k, tn[k], Tnew, eg[k])); tn[k] = Tnew
-        mat.Λext[k] = 0.0; mat.Tref[k] = Tnew; mat.slope[k] = 0.0
+        mat.Λext[k] = 0.0; mat.Tref[k] = Tnew; mat.slope[k] = 0.0; LINEIMP && li_inval!()
     end
     TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
     dE = 0.0
@@ -1656,7 +1825,7 @@ haskey(ENV, "ETASWTIE") && (TX.ETASW_TIE[] = parse(Float64, ENV["ETASWTIE"]))   
 get(ENV, "ETOTGRAVGRID", "0") == "1" && (TX.ETOT_GRAV_GRID[] = true)     # gravity work on Lagrangian zones in the total-energy row (off: as before)
 get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW_EOFF[] = PC.UOFF_TH; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
-const LINEFRAC = parse(Float64, get(ENV, "LINEFRAC", "0")); const LINELAST = [-Inf, 0.0]
+const LINEFRAC = parse(Float64, get(ENV, "LINEFRAC", "0")); const LINELAST = [-Inf, 0.0]; const LINECAPV = Ref(NaN)
 # NEWTKX=1: the largest Newton correction of each equation at every iteration from the third on, with the zone it is in (debugging)
 if get(ENV, "NEWTKX", "0") == "1"
     let md0 = TD.ROUTINES[:maxdel]
@@ -1739,6 +1908,40 @@ if haskey(ENV, "FLUXTIE")
     end
 end
 TC.EDDG_MU0[] = get(ENV, "EDDGMU0", "0") == "1"
+# VEFIMP=1 (G4, default off): consistent closure of the gray moments. The formal solution's f, g and h (h with FLUXTIE) at every Newton
+# iterate (TitanDriver.VEF_ITER), the momentum row and outer boundary in Auer's sphericality-factor form (VEF_SPH), the CMB only as the
+# isotropic background, added to the moments analytically (VEF_BG); FLUXTIE, if set, then ties F = h c E with the h of the iterate.
+# VEFIMP=notie: the same with FLUXTIE (and ETASWTIE) off, the moment equations everywhere; nobg: notie without VEF_BG; it / sph: one part (tests).
+if get(ENV, "VEFIMP", "0") != "0"
+    let v = ENV["VEFIMP"]
+        v in ("1", "notie", "nobg", "it", "sph") || error("VEFIMP must be 1, notie, nobg, it or sph")
+        TD.VEF_ITER[] = v != "sph"; TD.VEF_SPH[] = v != "it"; TD.VEF_BG[] = v in ("1", "notie")
+        if v != "1" && (TD.FLUXTIE[][2] > 0 || TX.ETASW_TIE[] > 0)
+            pr("VEFIMP: FLUXTIE (%g,%g) and ETASWTIE %g switched off\n", TD.FLUXTIE[]..., TX.ETASW_TIE[])
+            TD.FLUXTIE[] = (0.0, 0.0); TX.ETASW_TIE[] = 0.0
+        end
+        pr("VEFIMP=%s: Eddington factors f, g%s %s; radiation momentum row and outer boundary %s%s\n", v, TD.FLUXTIE[][2] > 0 ? " and the flux tie's h" : "",
+           TD.VEF_ITER[] ? "of the formal solution at every Newton iterate (not lagged)" : "lagged (formal solution of the predictor)",
+           TD.VEF_SPH[] ? "in Auer's sphericality-factor form (exact for chi = 0)" : "as TITAN",
+           TD.VEF_BG[] ? "; the CMB only as the isotropic background, added to the formal solution's moments analytically" : "")
+    end
+end
+# VEFBGCHK=n (diagnostic, default 0): at the first n formal solutions compare f, g (and h) of the background split (VEF_BG) with
+# those of the formal solution that carries the CMB along the rays; the two agree to the quadrature error where nothing is clamped
+if parse(Int, get(ENV, "VEFBGCHK", "0")) > 0 && TD.VEF_BG[]
+    let ef0 = TC.EDDFAC[], nchk = Ref(parse(Int, ENV["VEFBGCHK"]))
+        TC.EDDFAC[] = function ()
+            nchk[] <= 0 && return ef0()
+            nchk[] -= 1
+            a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); fe = TF.var(:fedd)
+            TD.VEF_BG[] = false; ef0(); f0 = fe[a_:b_]; g0 = TF.getscalar(:geddr); h0 = length(TD.HEDD) >= b_ ? TD.HEDD[a_:b_] : Float64[]
+            TD.VEF_BG[] = true; ef0(); f1 = fe[a_:b_]; g1 = TF.getscalar(:geddr); h1 = length(TD.HEDD) >= b_ ? TD.HEDD[a_:b_] : Float64[]
+            d = abs.(f1 .- f0); j = argmax(d)
+            pr("VEFBGCHK: g %.8f / %.8f; max |df| %.3e at zone %d (f %.6f / %.6f, f_x %.4f); |df| > 1e-3 in zones %s%s\n", g0, g1, d[j], j, f0[j], f1[j],
+               TD.FXEDD[a_+j-1], join(findall(>(1e-3), d), ","), isempty(h0) ? "" : @sprintf("; max |dh| %.3e", maximum(abs.(h1 .- h0))))
+        end
+    end
+end
 # EDDCHI=1: extinction of the formal solution at most kappa_P + electron scattering. It takes S from kappa_P and scattering; with chi >> kappa_P (thin network zones: chi uses LTE tables, 50-1000 x kappa_P) it would emit
 # chi B where the energy rows emit kappa_P B, and that isotropic light lowers f (0.8 at 1000-25000 R_sun), so E comes out below F/c when the F row integrates it inward.
 if get(ENV, "EDDCHI", "0") == "1"
@@ -2041,7 +2244,7 @@ try
         push!(TC.DT_HOOKS, cpl_dtcap)
         if haskey(ENV, "CPLJCHECK")                # Jacobian test of the coupled rows (TitanResidFast.cpl_jcheck), once
             zs = parse.(Int, split(ENV["CPLJCHECK"], ",")); once = Ref(true); g0 = TD.ROUTINES[:matgen]
-            TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.cpl_jcheck(a_ + z - 1); end); g0())
+            TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.cpl_jcheck(a_ + z - 1); TX.cplz(a_ + z - 1) && PM.cpl_gcheck(mat, a_ + z - 1); end); g0())
         end
         let f0 = TD.STEPFN[]
             TD.STEPFN[] = () -> (PM.cpl_prepare!(mat); f0(); nothing)
@@ -2052,6 +2255,14 @@ try
     end
     if haskey(ENV, "CPLSCAN") && COUPLED            # (diagnostic, then exit) local thermal balance of coupled zone(s) vs T at fixed ρ, E_r
         cplscan(parse.(Int, split(ENV["CPLSCAN"], ","))); exit(0)
+    end
+    if Trbdf2.ERRCTL[]                             # DTERR: coverage of the COUPLED zones and the line cap the heuristic would apply, on the trace lines
+        Trbdf2.TRACE_EXTRA[] = function ()
+            nnet = count(k -> !mat.eqzone[k], a:b); ncpl = count(k -> TX.cplz(k), a:b)
+            @sprintf(" | network zones %d, coupled %d | line cap %.3e", nnet, ncpl, LINECAPV[])
+        end
+        @printf("DTERR: error-controlled TR-BDF2 (rtol %g, x floor %g, F floor %g cE, E floor %g aT^4, %s norm, PI %s, safety/facmin/facmax %g/%g/%g, Newton-failure factor %g, BE retry %s); TITAN's heuristic and caps are diagnostic only\n",
+                Trbdf2.EOPT.rtol, Trbdf2.EOPT.xfl, Trbdf2.EOPT.ffl, Trbdf2.EOPT.efl, Trbdf2.EOPT.maxnorm ? "max" : "rms", Trbdf2.EOPT.pi, Trbdf2.EOPT.safety, Trbdf2.EOPT.facmin, Trbdf2.EOPT.facmax, Trbdf2.EOPT.fail, Trbdf2.EOPT.be)
     end
     RUNEND[] = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k
@@ -2080,21 +2291,26 @@ try
         EB = isempty(TX.CHEMB[]) ? nothing : copy(TF.var(:egn))
         SLZ_ = haskey(ENV, "SLZ") ? parse.(Int, split(ENV["SLZ"], ",")) : nothing
         if SLZ_ !== nothing; xb_ = [copy(mat.x[z]) for z in SLZ_[1]:SLZ_[2]]; Tb_ = TF.var(:tn)[SLZ_[1]:SLZ_[2]]; end
+        FLUSHOUT && flush(stdout)                    # (FLUSHOUT=1: the step's diagnostics reach the output file now)
+        NANSCAN && nanscan("after the hydro step", k)
         dT = COUPLED ? PM.cpl_chem!(mat) : PM.chem!(mat)
+        NANSCAN && nanscan("after the chemistry", k)
         prof_report()
         if haskey(ENV, "IFDBG") && IFDBGN[] > 0          # (diagnostic) the zones of a table/network interface after the chemistry
             IFDBGN[] -= 1; z12 = parse.(Int, split(ENV["IFDBG"], ","))
             tn_ = TF.var(:tn); dn_ = TF.var(:dn); er_ = TF.var(:ern); kp_ = TF.var(:xkpn); rn_ = TF.var(:rn); un_ = TF.var(:un)
             for z in z12[1]:z12[2]
-                k = a + z - 1; d_ = mat.eqzone[k] ? nothing : ChemNet.full(mat.x[k], mat.net)
-                xe_ = mat.eqzone[k] ? PopIIIEqEOS.composition(dn_[k], min(tn_[k], 1e6))[1] : d_[:e]
+                kq = a + z - 1; d_ = mat.eqzone[kq] ? nothing : ChemNet.full(mat.x[kq], mat.net)
+                xe_ = mat.eqzone[kq] ? PopIIIEqEOS.composition(dn_[kq], min(tn_[kq], 1e6))[1] : d_[:e]
                 @printf("IFDBG step %d zone %d %s cplz %d r %.1f T %.1f n %.3e x_e %.3e E_r/aT4 %.3f kP %.3e GASQ %.3e RAYQ %.3e Λext %.3e echemoff %.3e u %.2f\n",
-                        TF.getscalar(:jstep), z, mat.eqzone[k] ? "table" : "net", TX.cplz(k), rn_[k] / 6.957e10, tn_[k], dn_[k] / (1.2195 * 1.6726e-24), xe_,
-                        er_[k] / (7.565723e-15 * tn_[k]^4), kp_[k], isempty(TX.GASQ[]) ? 0.0 : TX.GASQ[][k], isempty(TX.RAYQ[]) ? 0.0 : TX.RAYQ[][k], mat.Λext[k],
-                        isempty(PM.ECHEMOFF[]) ? 0.0 : PM.ECHEMOFF[][k], un_[k] / 1e5)
+                        TF.getscalar(:jstep), z, mat.eqzone[kq] ? "table" : "net", TX.cplz(kq), rn_[kq] / 6.957e10, tn_[kq], dn_[kq] / (1.2195 * 1.6726e-24), xe_,
+                        er_[kq] / (7.565723e-15 * tn_[kq]^4), kp_[kq], isempty(TX.GASQ[]) ? 0.0 : TX.GASQ[][kq], isempty(TX.RAYQ[]) ? 0.0 : TX.RAYQ[][kq], mat.Λext[kq],
+                        isempty(PM.ECHEMOFF[]) ? 0.0 : PM.ECHEMOFF[][kq], un_[kq] / 1e5)
+                md_ = PM.li_model(kq)
+                md_ === nothing || @printf("IFDBG step %d zone %d LINEIMP model Λ(T) %.4e (f %.3g)\n", TF.getscalar(:jstep), z, PM.li_cool(md_, dn_[kq], tn_[kq], d_), md_.f)
             end
         end
-        if STOLCHEM
+        if STOLCHEM && !Trbdf2.ERRCTL[]               # (DTERR: the error estimate is the only step-size control)
             TF.setscalar!(:tfac, TC.TSTP_IN[][1]); TF.setscalar!(:dtime, TC.TSTP_IN[][2]); TD.r(:timstp)
         end
         GRIDMAPP === nothing || gridmap_step!()
@@ -2152,7 +2368,7 @@ try
             nh2 = [dd[j] / PC.μH * ycomp(a + j - 1)[3] for j in 1:nsh]
             # LINEFRAC > 0: keep the last Λ until LINEFRAC × (shortest t_cool) has elapsed; transfer is most of a step's cost
             if LINEFRAC > 0 && TF.getscalar(:timen) - LINELAST[1] < LINEFRAC * LINELAST[2]
-                TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * LINELAST[2]))
+                (LINEIMP || Trbdf2.ERRCTL[]) || TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * LINELAST[2]))
             else
             tl0 = time(); Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k); TLINE[] += time() - tl0
             tcmin = Inf
@@ -2164,7 +2380,7 @@ try
             # G7 (IMPCOOL=1, default): where the explicit cap Δt ≤ 0.1 t_cool would bind, the slope d ln Λ/d ln T from a
             # second transfer call with all T × (1 + ε) makes Λ_j (T/T_j)^s implicit in the chemistry step, and the cap
             # relaxes to Δt ≤ DTCOOL t_cool (default 1); otherwise Λ is held fixed (explicit, accurate there)
-            if IMPCOOL && (IMPALWAYS || 0.1tcmin < TF.getscalar(:dtime))
+            if !LINEIMP && IMPCOOL && (IMPALWAYS || 0.1tcmin < TF.getscalar(:dtime))     # (LINEIMP: the cooling follows T itself, no slope)
                 ε = 0.02; tl0 = time(); Λp, _, _ = linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1); TLINE[] += time() - tl0
                 for j in 1:nsh
                     Λl[j] != 0 && Λp[j] / Λl[j] > 0 && (mat.slope[a+j-1] = clamp(log(Λp[j] / Λl[j]) / log(1 + ε), -10.0, 30.0))
@@ -2175,8 +2391,9 @@ try
             if get(ENV, "DTDIAG", "0") == "1"
                 j_ = JCMIN[]; pr("        line cap: t_cool %.3e s at zone %d (m %.4e Msun, T %.1f, n %.3e, e+U %.3e, Lambda %.3e); dtime before %.3e, smax %.3e\n", tcmin, j_, 4π * xmi(a+j_) / Msun, tt[j_], dd[j_] / (1.22PC.mH),
                                 TF.var(:egn)[a+j_-1] + PC.UOFF_TH, Λl[j_], TF.getscalar(:dtime), TF.getscalar(:smax))
+                LINEIMP && pr("        LINEIMP: zone line models from EP %d, ALI %d, held ALI rates %d (ALI/EP factor clamped in %d); no t_cool cap\n", LISTAT...)
             end
-            TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin))
+            Trbdf2.ERRCTL[] ? (LINECAPV[] = (IMPCOOL ? DTCOOL : 0.1) * tcmin) : (LINEIMP || TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin)))
             LINELAST[1] = TF.getscalar(:timen); LINELAST[2] = tcmin
             end
         end
@@ -2308,7 +2525,9 @@ if haskey(ENV, "SAVE")      # never overwrite a checkpoint with a non-finite sta
     end
 end
 IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
+PM.NLOIT && pr("NLOIT: %d opacity-ratio evaluations (%.1f s), %d slope refreshes; CK expansions %.1f s\n", PM.NLOITN[], PM.NLOITNS[] * 1e-9, PM.NLOITJN[], PM.NLOCNS[] * 1e-9)
 Trbdf2.DAMP[] && pr("damped Newton: %s\n", string(Trbdf2.DSTATS))
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
+Trbdf2.ERRCTL[] && pr("DTERR statistics %s; limiting variable (accepted steps) %s; TR-BDF2 %s\n", string(Trbdf2.ESTATS), string(Trbdf2.LIMHIST), string(Trbdf2.STATS))
 close(io)

@@ -310,6 +310,22 @@ function collcool(L::Levels, T, pops, n_H, n_H2, n_He, n_Hp)
     n_H2 * s
 end
 
+"""
+    netrad(L, pops, n_H2, β, J) -> erg cm⁻³ s⁻¹
+
+Net radiative loss n_H2 Σ hν [n_u (A β + B_ul J̄) − n_l B_lu J̄] of populations `pops` under the radiative rates of `radrates!`
+(β, J̄ per line). For populations in statistical equilibrium under those rates (`populations(...; β, Jbar = J)`) it equals
+`collcool`, the gas's net collisional loss (energy conservation of the level system), at O(lines) cost.
+"""
+function netrad(L::Levels, pops, n_H2, β, J)
+    s = 0.0
+    @inbounds for i in eachindex(L.A)
+        u = L.iu[i]; lo = L.il[i]
+        s += h * L.ν[i] * (pops[u] * (L.A[i] * β[i] + L.Bul[i] * J[i]) - pops[lo] * L.Blu[i] * J[i])
+    end
+    n_H2 * s
+end
+
 "LTE (Boltzmann) fractions over the 63 levels."
 function lte(L::Levels, T)
     w = L.g .* exp.(-(L.E .- L.E[1]) ./ (kB * T)); w ./ sum(w)

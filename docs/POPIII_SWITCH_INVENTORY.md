@@ -545,3 +545,49 @@ Open questions I could not settle from the code and docs:
   CPLBAND path allows (popiii_m2c.jl:2035).
 - ADVREL is unset in phase B. Whether it matters on the fixed mesh (lgrid=2, no frozen XMINT) is not stated.
 - EQEOS, Z0_TABLE, SHOCKRAD, GRIDWIN and GRIDMAP are off in production; I have no evidence on whether they are still wanted.
+
+## 18. Line cooling and network opacity from the iterate: `LINEIMP`, `NLOIT` (branch `lagimp`, 14 Nov)
+
+Both are default off and bit-identical when off (40-step restarts compared bit for bit: production state `t_c128c` B6_auto1
+on `lagimp`, the `trbdf2-errctl` merge from `t_te1`'s start with `DTERR=0.05`, the `gridseg` merge from `t_gs_ic13`).
+
+**`LINEIMP=1`** (G1, line part). Every transfer call leaves per zone the radiative rates of its last population solve
+(escape probability β and mean intensity J̄ per line; EP: β of the local depths and J̄ = β J_bg; ALI: β = 1 − Λ*,
+J̄ = J̄_fs − Λ* S). Between calls these rates are frozen and the zone's line cooling is re-solved in statistical
+equilibrium at the gas temperature of the iterate, Λ = n_H₂ Σ hν [n_u(T)(Aβ + B_ul J̄) − n_l(T) B_lu J̄] (= the net
+collisional exchange, `H2Levels.netrad`), scaled by n_H₂/n_H₂⁰ of the iterate (ρ, x_H₂ in coupled zones), with ∂Λ/∂T of
+the same model wherever Newton asks (chemistry step, coupled hydro rows, table-zone EOS step). It vanishes where the levels
+are in equilibrium with J̄ and heats below; J̄ ≥ β B_ν(T_CMB). Hybrid NLTE: EP rates × the last ALI/EP factor (bounded to
+[1/LIFMAX, LIFMAX], default 10) between ALI calls; where `LINECOLL` holds the ALI collisional rate (ALIFIX) the zone holds
+the last ALI call's rates instead. Retires as devices: the IMPCOOL slope (second transfer call) and its [−10, 30] clamp,
+the 0.1/`DTCOOL` t_cool cap, `TCOOLTH` (only the cap used it); `LINEFRAC` keeps its meaning as a transfer-refresh interval.
+
+**`NLOIT=1`** (G2, opacity part; needs `NLOPAC`). Network-zone κ_E, κ_P, κ_R are OPAC(ρ, T) × R(ρ, T, x) evaluated at
+every Newton iterate from the zone's own populations (coupled zones: CK expansion of the iterate's x_H⁺, x_H₂; split zones:
+the chemistry's composition) and the step's three-level parameters, with R = κ^nl(d)/base, base = the table below 5000 K
+(κ = κ^nl(d) directly) and the continuum code in equilibrium above 6000 K (the table's calibration), smooth in ln T
+between (`NLOITW`); χ ≥ σ_T n_e/ρ. Derivatives in T, ρ, x_H⁺, x_H₂ by one-sided differences, reused within `NLOITJ`.
+Inactive with it: `NLOIMPT NLODAMP CPLNLOX NLOFIX NLOTMAX` (network zones). At the same state the new opacities equal
+NLOPAC's to < 0.1 % below 5000 K and to 10–15 % in κ_E, κ_P at 5900–6000 K (where NLOPAC switches its base);
+at the τ = 3 boundary (zone 81 of `t_c128c`, 6770 K, x_e 0.9995) κ_R is 4 % above the table, κ_P 10× below it by design
+(H bound–free is carried by the three-level chemistry, not by κ_P).
+
+**Tests (14 Nov, runs `t_lag_*` in the run tree).**
+- Production state (`t_c128c` B6_auto1, 480 M☉, `t_lag_c10`, LINEIMP=1 NLOIT=1, ≥ 1500 steps): Δt identical to `t_c128c` B7
+  (1.36e8 s), no failed solves, no chemistry fallbacks; L within 0.3 %, T in zones 56–100 within 0.6 %, x_H⁺ within 0.004 dex at
+  equal t. With NLOIT's slopes reused between iterates (old default NLOITJ=3e-3,0.1) the same state lost Δt to ~1e5 s after 45 steps
+  (Newton stalls at ~1e-4 corrections in coupled zone ~90): slopes are now taken at every iterate.
+- Fixed 100-zone mesh with DTERR=0.05 from `t_te1`'s start (`t_lag_te10`, merge of `trbdf2-errctl` 8f4f409): the z₁ ≈ −z₃
+  flip-flop is gone in zones 22–24 (there z₁ ≈ z₃), but it remains in zone 28 — the zone where FLUXTIE starts ("flux tie from
+  zone 28") — in E_r, F_r and x_H⁺, with err ≈ 0.29 independent of h and Δt ≈ 600 s, as in `t_te1` (≈ 700 s). So the remaining
+  plateau is not the line or opacity lag; the lagged FLUXTIE closure (h = H/J of the last formal solution) is the next suspect (G4).
+  NLOIT alone (`t_lag_te11`) and LINEIMP alone (`t_lag_te12`) give the same picture.
+- Moving mesh (`gridseg` e5d0bd4 merged): `t_gs_ic13` from S1_auto0 passes jstep 3272 with both switches and fails at 3460;
+  `t_gs_ic9` from S1_auto1 fails at 4597 (< 4936). In every failure a zone between a warm (2000–9000 K) and a cooler zone drops
+  to 2–20 K within ~6 steps while its line cooling (both the held Λ and the implicit model) is net HEATING (Λ ≈ −2e-8 … −1e-12):
+  the cold pocket is not made by the lines. At the drop the zone's chemical-energy offset takes its outer neighbour's value
+  (composition replaced by the infall) while T falls: the e/x advection consistency on the moving mesh (ECHEMSPLIT/XADV2, G1/G5).
+- CPLJCHECK of the energy row against x_H⁺ (the coordinator's 49 % in zone 78 at 515 M☉; here 21 % in the first coupled zone):
+  not a Jacobian error. The zone is fully ionized, x_H = 1 − x_H⁺ − … = 5.8e-7, below the check's step (1e-6 in ln x): the FD
+  crosses the max(x_H, 0) clamp of tl3_heat. The AD value is the derivative at the point; the FD tends to the clamped side
+  (129 → 82 for steps 1e-6 → 1e-2). The residual is non-smooth there, which Newton can feel in fully ionized coupled zones.
