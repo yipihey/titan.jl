@@ -20,10 +20,12 @@ photosphere) becomes part of the hydro Newton:
 - **He photo-rates** per atom are N_g fτ(Δτ_g) σ_g,s Δr/V (fτ = (1 − e^{−τ})/τ) with Δτ_g from the zone's own He stages. That is a fixed
   point u = expansion(rates(u)) in u = (x_H, x_He, x_He⁺). It is solved by Newton in ln u (backtracking on |F|) on the Float values, and
   differentiated by one implicit-function step w = w* − J⁻¹F(w*; z) with the residual's dual numbers (`ifsi_ufix`). Converged means
-  |F| < 1e-6 in ln u: x_H = 1 − x_H⁺ − … carries round-off ~1e-16/x_H, and where He²⁺ dominates the CK expansion's fixed sweeps leave
-  ~1e-7 in He⁺; Newton stalls there with a well-conditioned J. Zones whose He photons are negligible (N_He Δt < 1e-12 of their He) take
-  the start-of-step fractions. A plain fixed-point iteration was tried first: in a photon-limited He zone its slope is (x₀ − x_He)/x₀ → 1,
-  it did not converge, and the residual then depended on the previous call (CPLJCHECK ratios 0.5–1 from that noise).
+  |F| < 1e-11 in ln u (fractions floored at 1e-40, so that an iterate with x_H⁺ > 1, x_H < 0, does not stall it); where Newton stalls above
+  that (x_H = 1 − x_H⁺ − … at x_H ~ 1e-8 carries round-off ~1e-16/x_H; He⁺ under a dominant He²⁺) the best of 60 iterations is used
+  (~0.5 % of the solves). Zones whose He photons are negligible (N_He Δt < 1e-12 of their He) take the start-of-step fractions.
+  A plain fixed-point iteration was tried first: in a photon-limited He zone its slope is (x₀ − x_He)/x₀ → 1, it did not converge, and
+  the residual then depended on the previous call (CPLJCHECK ratios 0.5–1 from that noise). A looser tolerance (|F| < 1e-6) left that
+  noise in the residual and the hydro Newton's median Δt over the first 80 steps fell from 380 s to 5 s (t_ifs24 against t_ifs15).
 - **Split zones** inside the ray (coupled zones decoupled by `CPLBADDELTA`, table zones): Δτ from the start-of-step absorbers
   (`CPL_RAYTAU`, LW with the carrier unknown); after the Newton their chemistry uses IonFS's Float terms with the converged photons
   (`ifsi_terms_split`) and IonFS's zone-by-zone transport (`ifs_advance!`).
@@ -101,7 +103,7 @@ both terms goes to the grey field (RAYQ). This probably contributed to t_ion1's 
 ### (a) Bit-identical off
 200 steps from t_c128c B7_auto1 (production run.env), popiii-s6 79d4dc1 (`t_ifs1`) against this branch with the switches off
 (`t_ifs2` at 24d9e23, `t_ifs13` at 8a79b7b): identical uncompressed final state, identical .aux, all snapshots identical in every field
-(`scratchpad/ifs/bitsnap.jl`), identical non-timing perf.csv columns. RESULTS_A
+(`scratchpad/ifs/bitsnap.jl`), identical non-timing perf.csv columns; t_ifs1 also reproduces production B8 over those steps. Later commits change only IONFSIMP paths, diagnostics (NEWTONERR, IONFSHEDBG) and comments.
 
 ### (b) Jacobian against finite differences
 `CPLJCHECK=74,76,82` with `IONFSIMP=1` at the first Newton iteration from t_c128c B7 (t_ifs8, dd20512); `TitanResidFast.cpl_jcheck` now
@@ -115,10 +117,79 @@ includes the ray's rows and columns; `ifsi_gcheck` compares a ray zone's 8-wide 
   with or without the ray. The ray's own T dependence (LW b(T), the He fixed point's ∂F/∂T) is in.
 
 ### (c) Runs
-RESULTS_C
+
+Settings of the production run directories plus `IONFS=1 IONFSIMP=1`. The final-code runs were stopped by the PI's request (no runs past
+500 M☉) before 2000 steps; t_ifs15 (542c651: differs from the final code only in the He fixed point's iteration details and logging) ran
+2100 steps. Production numbers are over the same steps from the same checkpoint (c128c B8; nolte2 B3, which restarted from B2_auto0).
+
+| run (from) | steps | median Δt | mean Δt | divergences/step | chem fallbacks | wall/step |
+|---|---|---|---|---|---|---|
+| t_ifs15, 542c651 (c128c B7) | 2100 | 1.9e3 s | 2.3e5 s | 1.11 | 10 | 3.8 s |
+| t_ifs25, 72fa45b (c128c B7) | 879 | 1.4e3 s | 1.3e5 s | 1.25 | 0 | 3.6 s |
+| production c128c B8, same span | 2000 | 1.1e7 s (100-step marks) | 3.4e7 s | 0.85 | 1 | 1.3 s |
+| t_ifs26, 72fa45b (nolte2 B2_auto0) | 455 | 3.7e2 s | 1.5e5 s | 1.22 | 1 | 7.5 s |
+| production nolte2 B3, same span | 400 | 6.0e7 s | 2.4e7 s | 0.98 | 1 | 0.6 s (8 threads) |
+
+(The first step from each checkpoint is accepted at the full Δt, 8.7e7 / 9e6 s; the collapse comes after it.) Δt is 3–4 orders of
+magnitude below production; see Open issues 1. t_ion1 (explicit IonFS) had 0.02–300 s.
+
+**He²⁺ inside 3e3 R☉** (snapshots, network zones outside the grey photosphere):
+- c128c: production has He²⁺/He 0.02–0.83 at zone 78 and > 1e-3 out to zones 82–84 (2.3–3.8e3 R☉) in all 41 snapshots. With IONFSIMP
+  He²⁺ ≤ 1.3e-10 there in all 42 (t_ifs15) and 17 (t_ifs25) snapshots; He²⁺ > 1e-3 only in zone 73 (157 R☉, the first ray zone, inside
+  the snapshot's photosphere: the He II photons of the formal solution, Q_HeII 3e45–6e47 s⁻¹) and transiently (4 of 17, 5 of 42 snapshots)
+  in a hot He I front zone at 2–3e4 R☉.
+- nolte2: production has He²⁺ 0.999 at zone 76 out to zone 81 (1867 R☉) in all 41 snapshots. t_ifs26 still has He²⁺ 0.72–1 in zones
+  76–77 (460–660 R☉): there the ray's own He II photons ionize the first network zones; beyond them He²⁺ is gone except in the transient
+  front zones (out to 1.2–4e4 R☉ in 4 of 9 snapshots). So LOCALJ's spurious He²⁺ is gone in both; the He III region of the real He II
+  photons remains, and in nolte2 it reaches the first two network zones.
+
+**Photon bookkeeping** (emitted = absorbed + escaped through the last zone, per group, from the Newton's ray): |Q − A − esc|/Q median
+4e-11 (H I), 2e-5…1e-4 (He I), 0 (He II, all absorbed), 4e-10 (LW); worst steps 0.2 (He I, c128c), 0.09 (nolte2): the ray rows are
+converged to the hydro Newton's tolerance, and the worst steps are those where zones were decoupled after the Newton. All H I, He I and
+He II photons are absorbed on the mesh; 4.5e-6 of the LW photons are.
+
+**H₂ photodissociation** (Σ over zones k ≥ k₀, at the same composition): ray 8.9e44 s⁻¹ against 2.0e44 s⁻¹ from STARLIGHT's SLSHIELD
+rate in c128c (ratio 4.45, 4.3–5.7), 6.3e44 against 1.6e44 in nolte2 (ratio 3.9). The shielding factors agree by construction; the
+difference is the field: ×2 L_run/L_fs and the formal solution's harder LW spectrum (see below). The gas outside the photosphere is atomic
+(x_H₂ ≤ 1.2e-11), so the LW band is unshielded and the rates matter only for the trace H₂ and HD.
+
+Earlier runs (in the scratchpad notes): t_ifs9/10 without the He recombination / He⁺ line cooling (hot front zones 5e4–9e4 K, transient
+He²⁺ out to 1e5 R☉), t_ifs21/24 with the loose He tolerance (median Δt 5–14 s).
 
 ## L_run/L_fs ≈ 2
-RESULTS_L
+
+Over the c128c run L_run/L_fs = 1.99 (1.9–2.08): the formal solution of the table region (continuum opacity, static, thermal inner
+boundary at grey τ = 300) carries half the grey luminosity through r_b. `IONFSNORM=1` scales every group, LW included, by it. What it does
+and does not change here:
+- photon budgets ∝ f: the He I front (He⁺ > 0.5) sits near its Strömgren radius, at 2–4e4 R☉, where the recombinations inside balance
+  Q_HeI. For the infall's n ∝ r^−1.5…−2 the recombination integral grows only logarithmically or not at all with radius, so the front
+  position is very sensitive to Q: a factor 2 in Q can move it by many zones (unlike the uniform-density r ∝ Q^{1/3}).
+- the LW rates ∝ f in every unshielded zone (all of them here: x_H₂ ≤ 1.2e-11 in every zone outside the photosphere out to 1e9 R☉, and
+  99.9995 % of the LW photons leave the mesh).
+  The ray's dissociations exceed the SLSHIELD path's by ×4.6 (median; 4.2–6.2); ×2 of it is f, the rest the spectrum: the formal solution's
+  L_ν(12.87 eV) at r_b is 2.6e25 erg s⁻¹ Hz⁻¹ (before f), a T_eff = 2.3e4 K blackbody of the same L_fs at r_b gives 4.3e24, so the
+  escaping LW comes from layers hotter than T_eff. STARLIGHT's W B_ν(T_c) assumes the blackbody.
+- not the temperatures of the photo-heated zones (set by ⟨hν⟩ − χ against the cooling, i.e. by the spectral shape), not the absence of
+  LOCALJ's He²⁺, not the Newton coupling.
+So it matters at the factor-2 level for where the He I front sits and for the LW rates, and should be resolved (which T structure is
+right at r_b: the grey run's or the formal solution's) before front positions are quoted. Not changed here.
 
 ## Open issues
-RESULTS_O
+
+1. **Δt is not production-like.** The coupling is implicit and converges, but the hydro Newton fails (≈1.1–1.3 divergences per step
+   against 0.85–0.9 in production) at the zone that holds the He I front, and Δt sits at 1e2–1e4 s (production 1e6–1e7 s). The limiting
+   zone is the He I front zone (dtlim T@89–92 in c128c, and the largest T and x corrections of the diverging Newton solves are there), not
+   the photosphere zones 73–79 of t_ion1. (A diagnostic with STOL = 1, t_ifs23, ran with the loose He tolerance below and is
+   inconclusive.) The front sits near its Strömgren radius in a density profile for
+   which that radius is very sensitive to Q and to the inner zones' recombinations, and it moves by several zones within a step (t_ifs15:
+   He⁺ > 0.5 out to zone 92 → 82 → 89 within 100 steps around step 2256000, after one step of 1.4e6 s). A zone-mean He front has no
+   sub-zone model; IonFS's two-phase recombination term κ₂ exists for H only. Candidates: the same two-phase term for He I/He II, or
+   carrying x_He⁺ as a Newton unknown (like x_H⁺) instead of the CK-algebraic He chain with the inner fixed point.
+2. The He fixed point stalls above 1e-11 in ~0.5 % of the solves (round-off where x_H ~ 1e-8 or He⁺ ≪ He²⁺); the best iterate is then
+   history-dependent at that level. A looser tolerance was worse (Tests). Better: a He-chain formulation without the cancellation.
+3. Cost: ~3.5–5 s per step (production 1.3 s): 13 instead of 9 unknowns, the 8-wide local Jacobians of ~45 ray zones and the He Newton.
+4. The k_end criterion makes the ray span the whole mesh for LW (k_end → 128); the LW band is ~unabsorbed (x_H₂ ≤ 1e-11), so it costs
+   rows without changing anything. An LW-only cut (switch the LW group off where Δτ_LW < 1e-6 for all zones) would save most of the ray
+   zones beyond the He I front.
+5. L_run/L_fs ≈ 2 (above). NLOIT's opacity iterate (`nlo_comp`) does not include the implicit ray's rates (NLOIT is off in production).
+6. H₂ photoionization and H⁻ in the LW band are left out (trace absorbers here).
