@@ -1294,7 +1294,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)
-        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc) : ern[ngre])
+        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
         R[iF, 1] = X(iF, k0)
         k = ngrs - 1
         R[iF, kb(k)] = P.lribc == 2 ? frn[k+2] + frn[k] : rn[k+1]^mu * frn[k+1] - rn[k]^mu * frn[k]
@@ -1315,13 +1315,18 @@ zone centres to its value at the interface, so that q f E is differenced across 
 end
 """
 VEF_SPH: energy density at the outer boundary radius r_N+1 from the outer zone's centre value (new time level, as TITAN's boundary
-row), integrating the static momentum equation d(q f E)/dr = −q χρ F/c over the half zone r_c,N → r_N+1 with f = f_N:
-E_s = e^{−s} E_N − e^{−s/2} χ_N ρ_N F_N+1 (r_N+1 − r_c,N)/(c f_N), s = (μ/2)(3 − 1/f_N) ln(r_N+1/r_c,N).
+row). The incoming background (the CMB, intensity I_in = ximr, E_b = 4π I_in/c) is isotropic, K_b = E_b/3, and carried unchanged
+to r_N+1; only the excess E_x = E_N − E_b is carried by the static momentum equation d(q f_x E_x)/dr = −q χρ F/c over the half zone
+r_c,N → r_N+1 with its own Eddington factor f_x = (f_N E_N − E_b/3)/E_x (K = K_x + K_b), held over the half zone and clamped to
+[1/3, 1] (where E_x ≪ E_b, f_x is the difference of two nearly equal numbers; the clamp bounds the correction to the dilution of a
+beam, e^{−2Δ}, so that the quadrature error of f, ~1e-3, is not multiplied by E_b/E_x ~ 1e5 in the boundary flux):
+E_s = E_b + e^{−s} E_x − e^{−s/2} χ_N ρ_N F_N+1 (r_N+1 − r_c,N)/(c f_x), s = (μ/2)(3 − 1/f_x) ln(r_N+1/r_c,N).
 """
-@inline function vef_esurf(W, fedd, N, xmu, cc)
-    rn = W.rn; fN = max(fedd[N], 0.01); rc = 0.5 * (rn[N] + rn[N+1])
-    s = 0.5xmu * (3 - 1 / fN) * log(rn[N+1] / rc)
-    exp(-s) * W.ern[N] - exp(-0.5s) * W.chifn[N] * W.dn[N] * W.frn[N+1] * (rn[N+1] - rc) / (cc * fN)
+@inline function vef_esurf(W, fedd, N, xmu, cc, Eb)
+    rn = W.rn; rc = 0.5 * (rn[N] + rn[N+1]); Ex = W.ern[N] - Eb
+    fx = ForwardDiff.value(Ex) != 0 ? clamp(ForwardDiff.value((fedd[N] * W.ern[N] - Eb / 3) / Ex), 1 / 3, 1.0) : 1 / 3
+    s = 0.5xmu * (3 - 1 / fx) * log(rn[N+1] / rc)
+    Eb + exp(-s) * Ex - exp(-0.5s) * W.chifn[N] * W.dn[N] * W.frn[N+1] * (rn[N+1] - rc) / (cc * fx)
 end
 # ------------------------------------------------------------------ total energy (item 2)
 "Total pressure (gas + radiation fE) of zone k at the θ-level."
