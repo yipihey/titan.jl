@@ -56,6 +56,10 @@ const IFSNORM = get(ENV, "IONFSNORM", "1") == "1"
 const IFSTOL = parse(Float64, get(ENV, "IONFSTOL", "0.1"))
 # (tests) IONFSITER=0: no re-sweep after the Newton updates (start-of-step ray only); IONFSENV=0: no case-B/ljcut env change in the ray zones;
 # IONFSDBG=n: the ray's zone table at the first n set-ups
+# IONFSCPL=f (default 1e-2): a COUPLED zone whose ray absorption over the step, A Δt, exceeds f n_H V (it can ionize more than the fraction f of
+# its H) takes the split chemistry for the step (CPLZ false, as outside CPLBAND): at the front the H₂/H⁺ rows change by e^{±30…90} in one
+# step (H₂ destroyed by charge exchange as H ionizes), which the Newton's clamped log-species corrections cannot follow (t_ion1 B4)
+const IFSCPL = parse(Float64, get(ENV, "IONFSCPL", "1e-2")); const IFSNDEC = Ref(0)
 const IFSITER = get(ENV, "IONFSITER", "1") == "1"; const IFSENV = get(ENV, "IONFSENV", "1") == "1"; const IFSDBG = Ref(parse(Int, get(ENV, "IONFSDBG", "0")))
 const IFS_EDGES = [13.598, 15.0, 17.0, 20.0, 24.587, 30.0, 40.0, 54.418, 70.0, 100.0, 150.0, 300.0]
 const IFS_SP = [:H, :H2, :He, :Hep]
@@ -275,6 +279,18 @@ function ifs_iter!(m)
         (dn_ > 1e-10 || dr_ > 1e-10) && k <= length(CPLCACHE[]) && (CPLCACHE[][k] = nothing)
     end
     st.niter += 1; st.epsit = dmax
+    nothing
+end
+"cpl_prepare! (after CPLBAND): the zones the ray changes by more than IONFSCPL of their H this step are not coupled."
+function ifs_decouple!(a, b, dt)
+    st = IFS[]; (st === nothing || st.k0 == 0) && return nothing
+    dn, rn = TM.v(:dn), TM.v(:rn); n = 0
+    for k in a:b
+        (st.on[k] && TX.cplz(k)) || continue
+        V = 4π / 3 * (rn[k+1]^3 - rn[k]^3)
+        st.absd[k] * dt > IFSCPL * dn[k] / CNn.μH() * V && (TX.CPLZ[][k] = false; n += 1)
+    end
+    IFSNDEC[] += n
     nothing
 end
 "A failed step's retry (COUPLED reset): back to the start-of-step ray."

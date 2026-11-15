@@ -1514,6 +1514,7 @@ function cpl_prepare!(m::NetGas)
                bd[1] === :z ? bd[2][1] <= k - a + 1 <= bd[2][2] : error("CPLBAND: unknown kind $(bd[1])")
         keep || (TX.CPLZ[][k] = false)
     end
+    IONFS && ifs_decouple!(a, b, dt)                 # (IonFS: the zones the ray changes this step take the split chemistry)
     nothing
 end
 "After the hydro step (and advect_species!, which moved the HD tail): the coupled zones' free species := CK expansion of the solution."
