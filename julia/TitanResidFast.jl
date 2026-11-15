@@ -247,10 +247,10 @@ function cpl_local_all!(dt)
     # (PERF512) the zones are independent (every one sees the old neighbours; the results are applied together): on MATTHREADS tasks
     # (zone_sweep!), bit-identical; ~10 % of the hydro step of the 512-zone mesh when serial
     res = Vector{Union{Nothing,Tuple{Float64,Float64}}}(nothing, ngre); z0 = ZONE0[]
-    zone_sweep!(ngrs:ngre, cplz) do k
+    try zone_sweep!(ngrs:ngre, cplz) do k
         y = CPL_LOCAL[](k, dt); y === nothing || (res[k] = (Float64(y[1]), Float64(y[2])))
     end
-    ZONE0[] = z0                                                         # (the serial loop did not touch ZONE[])
+    finally ZONE0[] = z0 end                                             # (the serial loop did not touch ZONE[])
     for k in ngrs:ngre                                                   # (applied together: every zone saw the same neighbours)
         y = res[k]; y === nothing || (XSN[][1][k] = y[1]; XSN[][2][k] = y[2])
     end
@@ -611,9 +611,9 @@ function source_old!(ngrs, ngre)
     m = MATERIAL[]; buf = get!(() -> zeros(TF.MGR), BUFS, :srco)::Vector{Float64}; fill!(buf, 0.0); SRCO[] = buf
     (m !== nothing && has_source(m)) || return
     dO, tO = v(:do), v(:to)
-    @inbounds for k in ngrs:ngre
-        (dO[k] > 0 && tO[k] > 0) || continue
-        ZONE[] = k; buf[k] = material_source(m, dO[k], tO[k])
+    # (PERF512) zones independent: on MATTHREADS tasks (zone_sweep!: the serial loop's ZONE[] and exception), bit-identical
+    zone_sweep!(ngrs:ngre, k -> @inbounds(dO[k] > 0 && tO[k] > 0)) do k
+        @inbounds buf[k] = material_source(m, dO[k], tO[k])
     end
 end
 "`material_thermo(m, ρ, T) -> (∇_ad, c_P, δ)` of gas + equilibrium radiation (Float64), for the MLT flux."
@@ -872,13 +872,18 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         finally
             CPLW[] = nothing
         end
-        @inbounds for k in ngrs:ngre
-            if cplz(k)
-                y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]); W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
-                W.cpQ[k] = y[6]; W.cpY[k] = y[7]
-            else
-                W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
+        # (PERF512) the coupled zones' rates in the Jacobian's Dual numbers on MATTHREADS tasks (zones independent; the material sweep above
+        # left their values and local Jacobians in the zones' cache entries); bit-identical. ZONE[] is not used here and is kept.
+        let z0 = ZONE0[]
+            try zone_sweep!(ngrs:ngre, k -> true) do k
+                @inbounds if cplz(k)
+                    y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]); W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
+                    W.cpQ[k] = y[6]; W.cpY[k] = y[7]
+                else
+                    W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
+                end
             end
+            finally ZONE0[] = z0 end
         end
     else
         MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)

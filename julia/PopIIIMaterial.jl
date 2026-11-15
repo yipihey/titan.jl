@@ -1768,10 +1768,11 @@ function cpl_prepare!(m::NetGas)
     # (PERF512) the zones' values first, on MATTHREADS tasks (independent; each fills its own CPLCACHE entry): the loop below then reads
     # them from the cache, the same numbers as computing them there
     let z0 = TX.ZONE0[]
-        TX.zone_sweep!(a:b, TX.cplz) do k
-            cpl_zone(m, k, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k]); nothing
+        try TX.zone_sweep!(a:b, TX.cplz) do k
+            try cpl_zone(m, k, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k]) catch end    # (a failing zone fails again, in order, below)
+            nothing
         end
-        TX.ZONE0[] = z0
+        finally TX.ZONE0[] = z0 end
     end
     for k in a:b
         TX.cplz(k) || continue
