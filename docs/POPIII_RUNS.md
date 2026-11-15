@@ -2101,5 +2101,7 @@ Approved by Tom on 14 Nov (docs/POPIII_SWITCH_INVENTORY.md §15–17, group G4).
   zone 39) excites the 2-cycle, which then persists at h ≈ 400 s with err ≈ 0.5 < 1, i.e. it passes the error test. It is a
   period-2 solution of the implicit step at large h, not a lagged closure.
 - From the IC (iceul.env, `t_g4_ic*`): the tie from t = 0 without FLUXTIECORE fails in the collapse (Δt ~ 20 s, `t_g4_ic3`);
-  `notie` dies at step 426–437 (E_r of zone 56 driven negative, `t_g4_icn`, `t_g4_icnb`); VEFIMP=1 with FLUXTIECORE=1 (`t_g4_ict`)
-  runs like the lagged baseline (`t_g4_icbase`).
+  `notie` dies at step 426–437 (E_r of zone 56 driven negative, `t_g4_icn`, `t_g4_icnb`); VEFIMP=1 with FLUXTIECORE=1 (`t_g4_ict`,
+  1140 steps, stopped by hand) reaches the same t as the lagged baseline (`t_g4_icbase`, 1440 steps) with Δt 1.8e4 s at err 0.06,
+  where the baseline sits at Δt 2e4 s, err 0.35, limited by E_r of zone 28 (the flip-flop) for 400 steps.
+- Bit identity of the final code when off: `t_g4_bitoff2` (ce50412), 3 snapshots identical to t_c128c B8.
