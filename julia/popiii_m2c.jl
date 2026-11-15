@@ -1908,21 +1908,22 @@ if haskey(ENV, "FLUXTIE")
     end
 end
 TC.EDDG_MU0[] = get(ENV, "EDDGMU0", "0") == "1"
-# VEFIMP=1 (G4, default off): consistent variable-Eddington-factor closure, f and g of the formal solution at every Newton iterate
-# (TitanDriver.VEF_ITER) and the momentum row and outer boundary in Auer's sphericality-factor form (TitanDriver.VEF_SPH);
-# VEFIMP=it / sph: one part only (tests). It replaces the flux tie, so FLUXTIE and ETASWTIE are switched off with it.
+# VEFIMP=1 (G4, default off): consistent closure of the gray moments. The formal solution's f, g and h (h with FLUXTIE) at every Newton
+# iterate (TitanDriver.VEF_ITER), the momentum row and outer boundary in Auer's sphericality-factor form (VEF_SPH), the CMB only as the
+# isotropic background, added to the moments analytically (VEF_BG); FLUXTIE, if set, then ties F = h c E with the h of the iterate.
+# VEFIMP=notie: the same with FLUXTIE (and ETASWTIE) off, the moment equations everywhere; nobg: notie without VEF_BG; it / sph: one part (tests).
 if get(ENV, "VEFIMP", "0") != "0"
     let v = ENV["VEFIMP"]
-        v in ("1", "it", "sph", "nobg") || error("VEFIMP must be 1, it, sph or nobg")
-        TD.VEF_ITER[] = v in ("1", "it", "nobg"); TD.VEF_SPH[] = v in ("1", "sph", "nobg"); TD.VEF_BG[] = v == "1"   # (nobg: without the background split)
-        if TD.FLUXTIE[][2] > 0 || TX.ETASW_TIE[] > 0
+        v in ("1", "notie", "nobg", "it", "sph") || error("VEFIMP must be 1, notie, nobg, it or sph")
+        TD.VEF_ITER[] = v != "sph"; TD.VEF_SPH[] = v != "it"; TD.VEF_BG[] = v in ("1", "notie")
+        if v != "1" && (TD.FLUXTIE[][2] > 0 || TX.ETASW_TIE[] > 0)
             pr("VEFIMP: FLUXTIE (%g,%g) and ETASWTIE %g switched off\n", TD.FLUXTIE[]..., TX.ETASW_TIE[])
             TD.FLUXTIE[] = (0.0, 0.0); TX.ETASW_TIE[] = 0.0
         end
-        pr("VEFIMP=%s: Eddington factors f, g %s; radiation momentum row and outer boundary %s\n", v,
+        pr("VEFIMP=%s: Eddington factors f, g%s %s; radiation momentum row and outer boundary %s%s\n", v, TD.FLUXTIE[][2] > 0 ? " and the flux tie's h" : "",
            TD.VEF_ITER[] ? "of the formal solution at every Newton iterate (not lagged)" : "lagged (formal solution of the predictor)",
-           TD.VEF_SPH[] ? "in Auer's sphericality-factor form (exact for chi = 0)" : "as TITAN")
-        TD.VEF_BG[] && pr("VEFIMP: the CMB (I_b = %.4e) only as the isotropic background: formal solution and momentum row for the excess E - E_b, boundary F = c g_x (E_s - E_b)\n", TF.getscalar(:ximr))
+           TD.VEF_SPH[] ? "in Auer's sphericality-factor form (exact for chi = 0)" : "as TITAN",
+           TD.VEF_BG[] ? "; the CMB only as the isotropic background, added to the formal solution's moments analytically" : "")
     end
 end
 # EDDCHI=1: extinction of the formal solution at most kappa_P + electron scattering. It takes S from kappa_P and scattering; with chi >> kappa_P (thin network zones: chi uses LTE tables, 50-1000 x kappa_P) it would emit
