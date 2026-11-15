@@ -105,6 +105,16 @@ if ic in ("abn02", "abn02hs", "abn02z19", "abn02fin", "abn02red")
         redtab = red ? readfig2(get(ENV, "ABNREDCSV", joinpath(TF.ROOT, "lib", "popiii", "abn02red", "abn02_red_fig2.csv"))) : fintab
         fincurve(k_, t = redtab) = (xs = t[k_][1]; all(>(0), diff(xs)) || error("$ic: $k_ not monotone in x"); (xs, t[k_][2]))
         lr_tab, ln_tab = fincurve("n_r"); lrd, lρd = fincurve("dm_r", fintab); lrB_fin, lMB_fin = fincurve("M_r")
+        # abn02red, DMLINE=z19 (default) | final: which DM line of panel A. The final-time one has contracted with the collapsed
+        # baryons: inside r_p it is 20–35× the red core's gas density (3.2 M☉ of DM inside 9e-3 pc against 0.09 M☉ of gas), and
+        # the core then collapses on the DM free-fall time (8e3 yr; run abnred6). The z = 19 line (blue solid, from 0.087 pc,
+        # 10^4.38 GeV cm⁻³ there, ~2 % of the core gas density) is used instead, held at that density inside 0.087 pc (the
+        # pchip's constant continuation: a uniform DM core, no cusp; with DMCORE no point mass inside 1e-4 pc either).
+        if red
+            dmline = get(ENV, "DMLINE", "z19"); dmline in ("z19", "final") || error("DMLINE=$dmline: z19 or final")
+            dmline == "z19" && ((lrd, lρd) = fincurve("dm_z19_r"))
+            println("abn02red: DM line ", dmline, " (log rho_DM = ", lρd[1], " GeV cm^-3 at log r = ", lrd[1], " pc and inside)")
+        end
         lMT_fin, lT_fin = fincurve("T_M"); lMH_fin, lfH2_fin = fincurve("fH2_M"); lMI_fin, lfHI_fin = fincurve("fHI_M")
         lMv_fin, v_fin = fincurve("vr_M")
     elseif z19

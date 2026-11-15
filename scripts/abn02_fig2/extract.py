@@ -173,7 +173,9 @@ if len(sys.argv) > 4:
     add('R_b', 1254, X_M, Y_C, 'log10_Menc_Msun', 'log10_massfrac', mcolor=red)
     add('R_T', 1756, X_M, Y_D, 'log10_Menc_Msun', 'log10_T_K', mcolor=red)
     add('R_v', 1529, X_M, Y_E, 'log10_Menc_Msun', 'vr_km_s', mcolor=red)
-    rnames = {'R_n': 'n_r', 'R_M': 'M_r', 'R_a': 'fH2_M', 'R_b': 'fHI_M', 'R_T': 'T_M', 'R_v': 'vr_M'}
+    # the z = 19 DM line (BLUE solid, path 980, from 0.087 pc; the z = 19 gas n(r) is the blue solid path 979 from 1e-6 pc)
+    add('R_dm19', 980, X_r, Y_A, 'log10_r_pc', 'log10_rhoDM_GeV_cm3', mcolor='none')
+    rnames = {'R_n': 'n_r', 'R_M': 'M_r', 'R_a': 'fH2_M', 'R_b': 'fHI_M', 'R_T': 'T_M', 'R_v': 'vr_M', 'R_dm19': 'dm_z19_r'}
     for k in rnames:
         c = curves[k]
         print(k, c['svg_line'], c['style'], len(c['x']), 'markers', c['nmark'], 'marker-polyline dist', c['mark_vertex_dist'],
@@ -183,7 +185,8 @@ if len(sys.argv) > 4:
                 '# vector paths of the arXiv PDF page 4 (pdftocairo -svg), mapped to data by the axis tick marks (lib/popiii/abn02fin/calib.json;\n'
                 '# lib/popiii/abn02red/README.md, scripts/abn02_fig2). curve: n_r = log10 n[cm^-3] vs log10 r[pc] (A); M_r = log10 M_enc[Msun]\n'
                 '# vs log10 r[pc] (B); fH2_M, fHI_M = log10 mass fraction vs log10 M_enc[Msun] (C: H2 and neutral atomic H); T_M = log10 T[K]\n'
-                '# vs log10 M (D); vr_M = v_r[km/s] vs log10 M (E). The figure has no DM line and no -c_s at this time.\n'
+                '# vs log10 M (D); vr_M = v_r[km/s] vs log10 M (E). The figure has no DM line and no -c_s at this time; dm_z19_r =\n'
+                '# log10 rho_DM[GeV cm^-3] vs log10 r[pc] of the z = 19 DM line (blue solid, panel A; the final-time one is in ../abn02fin).\n'
                 'curve,x,y,page_x_pt,page_y_pt\n')
         for k, nm in rnames.items():
             c = curves[k]
