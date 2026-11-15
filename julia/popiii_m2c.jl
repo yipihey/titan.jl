@@ -2297,20 +2297,44 @@ Newton iteration count, and (COUPLED) the local 4-wide Jacobians of PopIIIMateri
 const CPLPROF = get(ENV, "CPLPROF", "0") == "1"
 const IFDBGN = Ref(parse(Int, get(ENV, "IFDBGN", "4")))   # IFDBG=z1,z2 (diagnostic): print zones z1..z2 after the chemistry for IFDBGN steps
 const PROFT = Dict{Symbol,Float64}(); const PROFN = Dict{Symbol,Int}(); const PROFSTEP = Ref(-1)
+const PROFB = Dict{Symbol,Float64}()            # (PERF) bytes allocated inside each routine (all threads, Base.gc_bytes)
+const CPLPROFEVERY = parse(Int, get(ENV, "CPLPROFEVERY", "100"))   # (PERF) CPLPROF print interval in steps
 if CPLPROF
     for s_ in (:matgen, :matslv, :maxdel, :update, :peq, :timstp)
         let f0 = TD.ROUTINES[s_], s_ = s_
-            TD.ROUTINES[s_] = () -> (t0 = time(); try f0() finally PROFT[s_] = get(PROFT, s_, 0.0) + time() - t0; PROFN[s_] = get(PROFN, s_, 0) + 1 end)
+            TD.ROUTINES[s_] = () -> (t0 = time(); b0 = Base.gc_bytes(); try f0() finally PROFT[s_] = get(PROFT, s_, 0.0) + time() - t0; PROFN[s_] = get(PROFN, s_, 0) + 1
+                                     PROFB[s_] = get(PROFB, s_, 0.0) + (Base.gc_bytes() - b0) end)
         end
     end
 end
 const PROFSAMPLE = haskey(ENV, "CPLPROFILE") ? parse(Int, ENV["CPLPROFILE"]) : -1     # step at which a 200-step Profile sample starts
 const PROFSAMPLEN = parse(Int, get(ENV, "CPLPROFILEN", "200"))                       # (PERF512) its length in steps
 PROFSAMPLE >= 0 && @eval using Profile
+# (PERF) CPLPROFALLOC=rate: an allocation profile (Profile.Allocs, sampling rate) over the same steps, summarised by the innermost
+# repository frame and by the chain of the three innermost repository frames (bytes of the sampled allocations / rate)
+const PROFALLOC = parse(Float64, get(ENV, "CPLPROFALLOC", "0"))
+function alloc_report(io, rate)
+    r = Profile.Allocs.fetch(); byf = Dict{String,Float64}(); byc = Dict{String,Float64}(); tot = 0.0
+    for a in r.allocs
+        fr = [f for f in a.stacktrace if occursin(".jl", string(f.file)) && !startswith(string(f.file), "@") && !occursin("/share/julia/", string(f.file)) &&
+              !occursin("/.julia/", string(f.file))]
+        key1 = isempty(fr) ? "(no repository frame)" : string(basename(string(fr[1].file)), ":", fr[1].line, " ", fr[1].func)
+        keyc = isempty(fr) ? key1 : join((string(basename(string(f.file)), ":", f.line, " ", f.func) for f in fr[1:min(3, end)]), " < ")
+        byf[key1] = get(byf, key1, 0.0) + a.size / rate; byc[keyc] = get(byc, keyc, 0.0) + a.size / rate; tot += a.size / rate
+    end
+    @printf(io, "allocation profile: %.1f GB estimated (%d samples, rate %g)\n\nby innermost repository frame:\n", tot / 1e9, length(r.allocs), rate)
+    for (k, v) in sort(collect(byf); by = last, rev = true)[1:min(60, end)]; @printf(io, "%10.3f GB  %5.1f %%  %s\n", v / 1e9, 100v / tot, k); end
+    println(io, "\nby the three innermost repository frames:")
+    for (k, v) in sort(collect(byc); by = last, rev = true)[1:min(80, end)]; @printf(io, "%10.3f GB  %5.1f %%  %s\n", v / 1e9, 100v / tot, k); end
+end
 function prof_sample(js)
     if js == PROFSAMPLE
-        Base.invokelatest(() -> (Profile.init(n = 10^7, delay = 0.01); Profile.clear(); Profile.start_timer()))
+        Base.invokelatest(() -> (Profile.init(n = 10^7, delay = 0.01); Profile.clear(); PROFALLOC > 0 ? (Profile.Allocs.clear(); Profile.Allocs.start(sample_rate = PROFALLOC)) : Profile.start_timer()))
     elseif js == PROFSAMPLE + PROFSAMPLEN
+        PROFALLOC > 0 && return Base.invokelatest() do
+            Profile.Allocs.stop()
+            open(io -> alloc_report(io, PROFALLOC), joinpath(get(ENV, "POPIII_OUT", "."), "cplallocs_$(js).txt"), "w")
+        end
         Base.invokelatest() do
             Profile.stop_timer()
             open(joinpath(get(ENV, "POPIII_OUT", "."), "cplprofile_$(js).txt"), "w") do io
@@ -2325,10 +2349,11 @@ function prof_sample(js)
 end
 function prof_report()
     js = Int(TF.getscalar(:jstep)); PROFSAMPLE >= 0 && prof_sample(js)
-    (CPLPROF && js % 100 == 0 && js != PROFSTEP[]) || return nothing
+    (CPLPROF && js % CPLPROFEVERY == 0 && js != PROFSTEP[]) || return nothing
     PROFSTEP[] = js
-    @printf("CPLPROF step %d:", js); for s_ in (:matgen, :matslv, :maxdel, :update, :peq, :timstp); @printf(" %s %.1f s/%d", s_, get(PROFT, s_, 0.0), get(PROFN, s_, 0)); end
-    @printf("  cpl_zone jacobians %d (%.1f s), reused %d\n", PM.CPLPN[], PM.CPLPT[] * 1e-9, PM.CPLPH[])
+    @printf("CPLPROF step %d:", js); for s_ in (:matgen, :matslv, :maxdel, :update, :peq, :timstp); @printf(" %s %.1f s/%d %.1f GB", s_, get(PROFT, s_, 0.0), get(PROFN, s_, 0), get(PROFB, s_, 0.0) / 1e9); end
+    empty!(PROFB)
+    @printf("  cpl_zone jacobians %d (%.1f s), reused %d\n", PM.CPLPN[], PM.CPLPT[] * 1e-9, PM.CPLPH[]); flush(stdout)
     empty!(PROFT); empty!(PROFN); PM.CPLPN[] = 0; PM.CPLPH[] = 0; PM.CPLPT[] = 0
     nothing
 end
