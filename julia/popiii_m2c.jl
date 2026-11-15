@@ -160,6 +160,15 @@ if ic in ("abn02", "abn02hs", "abn02z19", "abn02fin", "abn02red")
         lrg = log10.(rgd); lMg = log10.(Mgd ./ 4π)                         # per steradian
         TX.EXTMASS[] = r -> (x = log10(max(ForwardDiff.value(r), rgd[1])); j = clamp(searchsortedlast(lrg, x), 1, length(lrg) - 1);
                              10^(lMg[j] + (x - lrg[j]) / (lrg[j+1] - lrg[j]) * (lMg[j+1] - lMg[j])) * one(r))
+        # DMCORE=1 (default for abn02red only): inside the table's first radius (1e-4 pc) the DM mass falls as r³ (uniform
+        # density, as Mgd[1] assumes) instead of staying at M_DM(1e-4 pc) — that constant is a central POINT MASS (2e-8 M☉
+        # for abn02z19, 4e-6 M☉ for abn02fin/red) which, on a mesh reaching 0.01 R☉, dominates the gas gravity at the centre
+        # (abnred5: zone 1 to −6.6 km/s and 2400 K in two steps)
+        if get(ENV, "DMCORE", ic == "abn02red" ? "1" : "0") == "1"
+            let f0 = TX.EXTMASS[], r1 = rgd[1], m1 = 10^lMg[1]
+                TX.EXTMASS[] = r -> (rv = ForwardDiff.value(r); rv < r1 ? m1 * (rv / r1)^3 * one(r) : f0(r))
+            end
+        end
     end
     # M(r) by integrating ρ(r) on a fine log grid
     rg = [pc * 10^x for x in range(-4.0, 1.5, length = 20001)]; Mg = zeros(length(rg))
