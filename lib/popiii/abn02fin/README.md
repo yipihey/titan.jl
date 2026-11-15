@@ -104,3 +104,28 @@ from panel B directly**, so no μ is assumed. Inside panel B's first point, r = 
 is uniform. That density is ρ/m_H = 8.9e13 = 10^13.95, which is μ_c = 2.71 times panel A's n_c. A fully molecular
 core would give 2.26. The 0.08 dex excess is the innermost-point uncertainty of panel B, whose curve rises 2 dex per
 0.5 dex in r there.
+
+## IC=abn02fin (julia/popiii_m2c.jl) and the smoke test
+
+`IC=abn02fin` reads the CSV at run time, or `ABNFINCSV` if that is set. It builds the IC from these pieces:
+
+- **Mass.** M(r) comes from panel B (pchip in log–log) and the gas mass is MCLOUD, default 2e4 M☉. 2e4 M☉ is the upper
+  end of panels C, D and E (10^4.30). Panel B reaches 4.3e4 M☉, and beyond 2e4 the T, f and v tables are extrapolated.
+- **Temperature.** T(M) from panel D.
+- **Composition.** x_H2 = f_H2 / (2 (f_H2 + f_HI)) per H nucleus, from panel C.
+- **Velocity.** v_r(M) from panel E, with v ∝ r inside 0.01 M☉.
+- **Ionisation.** x_H⁺ = x_e = XE0, default 2e-4 (PI). He is neutral.
+- **Dark matter.** TX.EXTMASS comes from the final-time DM line, as with DM=1 for the other abn02* ICs.
+
+ICEUL=1 accepts it. All other ICs are unchanged: an IC=abn02z19 ICEUL start (5 steps) gives an identical checkpoint
+to popiii-s6 79d4dc1.
+
+Smoke test, z100ic3 settings with ICEUL=1, NZ=128 and 4 threads (runs/abnfin*). The fixed mesh has 96 zones from
+0.1 R☉ to 63.9 pc.
+
+- **Settings unchanged (abnfin4).** The run stops at step 95, at t = 0.65 yr and n_c = 10^14.7. Step 94 is accepted
+  with T = 0 in zone 2, and step 95 then fails 60 times. The dense core stays in the network: with PSWTMIN=4500, no zone
+  below 4500 K uses the equilibrium table.
+- **With PSWTMIN=0 PSWITCH=1, table in the core (abnfin6).** 1500 steps run with 70 Newton failures and 40 error
+  rejections. A second core forms at t = 6.69 yr (central t_ff = 5.5 yr), with n_c 10^23.3 and T_c 1.07e5 K by the end.
+  M* reaches 0.43 M☉ at R* = 73 R☉ by t = 15.9 yr, and dt is about 2e4 s late in the run.
