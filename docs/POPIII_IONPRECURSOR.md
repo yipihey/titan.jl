@@ -60,3 +60,19 @@ T_eff blackbody. It is case B already; it serializes the chemistry sweep (CHEMTH
 (radgroups-3g: the 3-group step costs +6 %) has a stiff group opacity (x_H from 1e-9 to 1 across the front, τ_912 ~ 1e3 per zone)
 and cannot place a front thinner than a zone. Feeding the network J_ν from the formal solution needs Γ_net (J − S), not Γ_gross,
 or it double-counts the on-the-spot photons.
+
+## IONFS=1 test from t_c128c B7_auto1 (554 M☉, 14 Nov evening)
+
+Switch: IONFS=1 (julia/IonFS.jl; default off; t_ion0 with it off is bit-identical to production B8, 6/6 and 12/12 snapshots).
+t_ion1 (production run.env/phaseB.env + IONFS=1), 2040 steps (2255473–2257514):
+- Source at the grey photosphere (r_b 129–185 R☉): Q_H 1.2–3.0e49, Q_HeI ≈ 4.8e48, Q_HeII ≈ 6e45 s⁻¹ (L_run/L_fs 1.2–2.4).
+  Q reaching 1e3 R☉: 1.6–2.4e49; 1e4 R☉: 1e-3–1.1e49; nothing beyond 4.6e4 R☉ (zone 93).
+- He I front 3.3e3 → 1.9e4 R☉; T +600…+1700 K between 130 and 1.9e4 R☉; He²⁺ → He⁺ inside 3e3 R☉. The He²⁺ there was
+  LOCALJ's unattenuated W B(T_c); the ray brings only 6e45 He II photons. H: x_H = 0.5 unchanged at 3.3e5 R☉ (ionized by the three-level
+  Balmer process).
+- Δt 0.02–300 s (production 1e6–1e7 s), limited by T at zones 73–79 (just outside the photosphere); 1.4 Newton divergences per step
+  (production 0.9), 246 chemistry fallbacks, no abort. Photon bookkeeping ε ≤ 1.5e-3. Simulated time 7 h: Ṁ unchanged
+  (1.20e-4 / 1.22e-4 / 1.13e-4 / 1.13e-4 M☉/yr at 1e2/1e3/1e4/1e5 R☉).
+- Strömgren budget (stromgren.jl, production step 2261350): Q = 2.6e49 from 185 R☉ is used up by case-B recombinations at 5.1e5 R☉
+  (0.011 pc) with the present ionization, or 1.25e6 R☉ (0.028 pc) fully ionized. Breaking out of the mesh needs Q ≳ 4.1e50. No
+  break-out past the 7000 K front (0.13 pc) at this Q.
