@@ -13,13 +13,19 @@ gmax and Dorfi–Drury smoothing α (neighbours within (1 + α)/α). No markers,
           at most fmove of the zone it moves into per step and |ṙ| ≤ fv (|u| + c_s); no zone shrinks below half its narrower
           neighbour. Mesh motion never limits Δt in this mode.
 
-GEQN=N (with ICEUL): the IC is built on N zones (even; default: envlr's count). GEQW=wρ,wP,wT,wE,wm,wτ (default 1,1,1,1,1,1); GEQC=gmax,alph,κ,fv,fmove,τlo,τhi,ctol (default 100,1.5,30,0.5,0.5,0.1,1e4,0.3).
+GEQN=N (with ICEUL): the IC is built on N zones (even; default: envlr's count). GEQW=wρ,wP,wT,wE,wm,wτ (default 1,1,1,1,1,1); GEQC=gmax,alph,κ,fv,fmove,τlo,τhi,ctol,κf (default 100,1.5,30,0.5,0.5,0.1,1e4,0.3,0).
+
+Feature tracking (κf > 0): the features of M move with the velocity v = −(∂M/∂t)(∂M/∂ln r)/((∂M/∂ln r)² + (2M)²) (in ln r per s;
+the pattern speed of ∂M/∂t + v ∂M/∂ln r = 0, damped where M is flat: scale-free), estimated from M of this step and of the last
+one; each zone then relaxes in min(κ t_cross, κf Δln r/|v|) (|v| the largest of the zone and its neighbours), so that the mesh
+keeps up with a moving photosphere or shock without being fast everywhere.
 With ICEUL the IC is built on the rule's mesh of the IC. No state beyond the mesh: a checkpoint restarts with the same setting.
 """
 const GRIDEQP = haskey(ENV, "GRIDEQ") ? parse(Int, ENV["GRIDEQ"]) : nothing
 geqv(key, defs) = (v = haskey(ENV, key) ? parse.(Float64, split(ENV[key], ",")) : Float64[]; [i <= length(v) ? v[i] : defs[i] for i in eachindex(defs)])
 const GEQW = geqv("GEQW", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
-const GEQC = geqv("GEQC", [100.0, 1.5, 30.0, 0.5, 0.5, 0.1, 1e4, 0.3])
+const GEQC = geqv("GEQC", [100.0, 1.5, 30.0, 0.5, 0.5, 0.1, 1e4, 0.3, 0.0])
+const GEQPREV = Ref{Any}(nothing)      # (t, x, M) of the last step: the monitor function's own motion (feature tracking)
 const GEQLAST = Ref{Any}(nothing)
 "State on the present mesh (interfaces centre first; m per steradian)."
 function geq_state()
@@ -44,12 +50,29 @@ function geq_diag(s)
     (; nsk, rsk = s.r[ku], uk = s.u[ku], nph, dlmin = minimum(dl), rat)
 end
 function grideq_step!()
-    s = geq_state(); n = nsh; dt = TF.getscalar(:dtime); tc = geq_tcross(s); κ = GEQC[3]
+    s = geq_state(); n = nsh; dt = TF.getscalar(:dtime); tc = geq_tcross(s); κ = GEQC[3]; κf = GEQC[9]
+    tfe = fill(Inf, n); nfast = 0                                 # feature-crossing time of each zone (feature tracking)
+    if κf > 0
+        D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7])
+        t = TF.getscalar(:timen); pv = GEQPREV[]
+        if pv !== nothing && t > pv[1]
+            Mp = [GridEq.lin(pv[2], pv[3], x) for x in D.x]; nd = length(D.x); v = zeros(nd)
+            for i in 1:nd
+                il, ih = max(i - 1, 1), min(i + 1, nd); Md = (D.M[ih] - D.M[il]) / (D.x[ih] - D.x[il])
+                v[i] = -(D.M[i] - Mp[i]) / (t - pv[1]) * Md / (Md^2 + (2D.M[i])^2)
+            end
+            for i in 1:nd
+                vm = maximum(abs, v[max(i - 1, 1):min(i + 1, nd)]); j = i + 1      # (D covers zones 2…n)
+                vm > 0 && (tfe[j] = log(s.r[j+1] / s.r[j]) / vm)
+            end
+        end
+        GEQPREV[] = (t, D.x, D.M)
+    end
     if GRIDEQP == 1
         tauv = zeros(length(TF.var(:rn))); sx = zeros(length(TF.var(:rn)))
         lτ = log.(clamp.(max.(s.τ, 1e-300), GEQC[6], GEQC[7])); lτc = [0.5 * (lτ[j] + lτ[j+1]) for j in 1:n]
         for j in 1:n
-            tauv[a+j-1] = κ * tc[j]
+            tr_ = min(κ * tc[j], κf * tfe[j]); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_
             jm, jp = max(j - 1, 2), min(j + 1, n); h = jp - jm == 2 ? 0.5 : 1.0
             sx[a+j-1] = GEQW[6] * (h * (lτc[jp] - lτc[jm]))^2
         end
@@ -71,7 +94,7 @@ function grideq_step!()
             end
         end
     end
-    GEQLAST[] = geq_diag(s)
+    GEQLAST[] = merge(geq_diag(s), (; nfast))
     nothing
 end
 function grideq_line()
@@ -82,6 +105,6 @@ function grideq_line()
             v = abs(rn[k] - ro[k]) / dt / (abs(un[k]) + 0.5 * (cs[k-1] + cs[k])); vmax = max(vmax, v)
         end
     end
-    @sprintf("        grid eq: shock at %.4g R_sun (u %.1f km/s) across %d zones, photosphere (0.1 <= tau <= 10) across %d interfaces; dln r min %.3e, max neighbour ratio %.2f; grid speed max %.3f (|u| + c_s)\n",
-             d.rsk / Rsun, d.uk / 1e5, d.nsk, d.nph, d.dlmin, d.rat, vmax)
+    @sprintf("        grid eq: shock at %.4g R_sun (u %.1f km/s) across %d zones, photosphere (0.1 <= tau <= 10) across %d interfaces; dln r min %.3e, max neighbour ratio %.2f; grid speed max %.3f (|u| + c_s); %d zones relaxing at their feature speed\n",
+             d.rsk / Rsun, d.uk / 1e5, d.nsk, d.nph, d.dlmin, d.rat, vmax, d.nfast)
 end
