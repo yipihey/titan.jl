@@ -236,12 +236,8 @@ function photorates(p::Photo, T, env; n = 200)
     lnK = lnKeq([p.R], p.P, T); Z = p.Z(T); R = 0.0; A = 0.0
     for (Ex, g, Eth, σf) in p.levels
         ν0 = Eth / hP; νs = [ν0 * exp(x) for x in range(0.0, log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), length = n + 1)]
-        w = g / Z; Rl = 0.0; Al = 0.0
-        for i in 1:n
-            ν = 0.5 * (νs[i] + νs[i+1]); dν = νs[i+1] - νs[i]; σ = σf(ν); J = env.J(ν)
-            Rl += 4π * σ * J / (hP * ν) * dν
-            Al += 4π * σ / (hP * ν) * (2hP * ν^3 / c^2 + J) * exp(-(Ex + hP * ν) / (kB * T) - lnK) * dν
-        end
+        w = g / Z
+        Rl, Al = _photoRA(σf, env.J, νs, n, Ex, T, lnK)
         # env.caseB (on the spot): recombinations directly to a level with Ex = 0 of a multi-level atom make a photon that is reabsorbed nearby, so they do not count
         caseB = hasproperty(env, :caseB) && env.caseB && Ex == 0 && length(p.levels) > 1
         R += w * exp(-Ex / (kB * T)) * Rl; caseB || (A += w * Al)
@@ -249,6 +245,18 @@ function photorates(p::Photo, T, env; n = 200)
     R, A
 end
 
+# (PERF-RED) the quadrature of `photorates` behind a function barrier: σf (an untyped field of Photo) and env.J are concrete here, so the
+# loop no longer boxes every intermediate (it allocated ~150 GB per step in the LOCALJ run, whose rates fall back to this direct integral
+# where T_c is outside photorates_lj's tables). The same arithmetic in the same order: bit-identical.
+function _photoRA(σf::F, Jf::G, νs, n, Ex, T, lnK) where {F,G}
+    Rl = 0.0; Al = 0.0
+    for i in 1:n
+        ν = 0.5 * (νs[i] + νs[i+1]); dν = νs[i+1] - νs[i]; σ = σf(ν); J = Jf(ν)
+        Rl += 4π * σ * J / (hP * ν) * dν
+        Al += 4π * σ / (hP * ν) * (2hP * ν^3 / c^2 + J) * exp(-(Ex + hP * ν) / (kB * T) - lnK) * dν
+    end
+    Rl, Al
+end
 """
 Photo-rate R of `photorates` alone: the same arithmetic in the same order (R is bit-identical), without the integrand of the
 Milne coefficient. For callers that use only R (the star-light rates of every zone and step: the unused α was half of their cost).
