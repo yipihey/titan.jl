@@ -183,3 +183,25 @@ Changes of the numerics (not adopted; would need a default-off switch and a phys
 11. Note (latent): `convcoef`'s optical-depth loop calls `material_opac` without setting ZONE[]; for NetGas with NLOFIX the
     electron-scattering floor then uses the composition of the last zone of the preceding sweep for every k. Kept as is
     (bit-identity); setting ZONE[] = k there changes τ for the MLT weight slightly.
+
+## 7. PERF-RED (branch `perf-red` from popiii-s6 c69c49c): the abn02red from-IC run
+
+abnred8 (IC=abn02red, ICEUL, 300 network zones, full COUPLED, DTERR, NLOPAC, VEFIMP, LINEIMP, NLOIT, LOCALJ, MATTHREADS=8) cost
+62–76 s per step with 150–230 GB allocated per step. Allocation profile (`CPLPROFALLOC=1e-4` over steps 1–3, t_perfr1): **97 % of
+the bytes come from `ChemNet.photorates`, the direct frequency quadrature (n = 200 per level)**, called by `photorates_lj` (LOCALJ)
+whenever T_c of the local diluted blackbody is outside the tables (log T_c < 3: no star yet at the start, every zone), i.e. in every
+CK expansion's photo-rates and in every `nlo_comp` of the NLOIT opacity (whose photo-rates are uncached, 3–6 evaluations per
+Jacobian refresh). The loop boxed every intermediate because the cross section σ(ν) (an untyped field of `Photo`) and J(ν) were
+called through untyped values. Per call (isolated test): 132 kB and 120 µs → 4 kB and 9.7 µs.
+
+Fix (30ad384): the quadrature behind a function barrier (`_photoRA`), the same arithmetic in the same order; bit-identical
+(360 old/new comparisons incl. Dual T; 6-step ICEUL start t_perfr2 vs c69c49c t_perfr3: all 591 state arrays and the .aux identical).
+
+| steps 10–20 (8 threads) | step s/step | alloc GB/step | GC s/step |
+|---|---|---|---|
+| c69c49c (abnred8) | 75.6 | 229 | 15.3 |
+| perf-red (t_perfr5) | 9.9 | 10.4 | 0.8 |
+
+Remaining: matgen 0.49 s and 0.49 GB per call (127 per 10 steps); `_nlmf` (NLOIT non-LTE means) ~1.2 GB/step; Base array allocations
+~4 GB/step of unresolved origin. Changes of the numerics (report only): extend the photorates_lj tables to T_c < 1e3 K (or skip the
+local-J term where W B(T_c) ≪ the CMB), cache NLOIT's photo-rates per zone and T.
