@@ -458,19 +458,21 @@ function ifsi_log(m, a, b, js)
         Dr += I.kLW[k] * xH2 * nH * V; Ds += I.kLWsl[k] * xH2 * nH * V
     end
     # He²⁺ (per He) inside 3e3 R☉, network zones outside the grey photosphere, and every zone
-    h2n = 0.0; h2a = 0.0
+    h2n = 0.0; h2a = 0.0; kh2 = a - 1
     for k in a:b
         0.5 * (rn[k] + rn[k+1]) < 3e3 * 6.957e10 || continue
         x = max(CNn.full(m.x[k], m.net)[:Hepp], 0.0) / CNn.yHe
-        h2a = max(h2a, x); (k >= st.k0 && !m.eqzone[k]) && (h2n = max(h2n, x))
+        h2a = max(h2a, x); (k >= st.k0 && !m.eqzone[k]) && x > h2n && (h2n = x; kh2 = k)
     end
     eb(g) = abs(I.emit[g] - I.absb[g] - I.esc[g]) / max(I.emit[g], 1e-300)
     open(f, "a") do io
-        new && println(io, "step,t_yr,dt_s,k0,kend,r_b_Rsun,Q_H,Q_HeI,Q_HeII,Q_LW,abs_H,abs_HeI,abs_HeII,abs_LW,esc_H,esc_HeI,esc_HeII,esc_LW,err_H,err_HeI,err_HeII,err_LW,rowerr,D_ray,D_slshield,sigma_d,xHepp_net_3e3,xHepp_all_3e3,fnorm,L_fs_Lsun,L_run_Lsun,ncoupled_ray")
+        new && println(io, "step,t_yr,dt_s,k0,kend,r_b_Rsun,Q_H,Q_HeI,Q_HeII,Q_LW,abs_H,abs_HeI,abs_HeII,abs_LW,esc_H,esc_HeI,esc_HeII,esc_LW,err_H,err_HeI,err_HeII,err_LW,rowerr,D_ray,D_slshield,sigma_d,xHepp_net_3e3,xHepp_all_3e3,fnorm,L_fs_Lsun,L_run_Lsun,ncoupled_ray,nnewt_He,nfail_He,Tmax_ray,zTmax,khepp")
         nc = count(k -> TX.cplz(k), st.k0:I.kend)
-        @printf(io, "%d,%.8e,%.4e,%d,%d,%.5g,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.3e,%.3e,%.3e,%.3e,%.3e,%.5e,%.5e,%.4e,%.4e,%.4e,%.5g,%.5e,%.5e,%d\n",
+        Tm = 0.0; kTm = 0; for k in st.k0:I.kend; tn[k] > Tm && (Tm = tn[k]; kTm = k); end
+        @printf(io, "%d,%.8e,%.4e,%d,%d,%.5g,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.3e,%.3e,%.3e,%.3e,%.3e,%.5e,%.5e,%.4e,%.4e,%.4e,%.5g,%.5e,%.5e,%d,%d,%d,%.1f,%d,%d\n",
                 js, TF.getscalar(:timen) / 3.156e7, TF.getscalar(:timen) - TF.getscalar(:timeo), st.k0 - a + 1, I.kend - a + 1, st.rb / 6.957e10,
-                I.emit..., I.absb..., I.esc..., eb(1), eb(2), eb(3), eb(4), I.rowerr, Dr, Ds, I.σd, h2n, h2a, st.fnorm, st.Lfs / 3.83e33, st.Lrun / 3.83e33, nc)
+                I.emit..., I.absb..., I.esc..., eb(1), eb(2), eb(3), eb(4), I.rowerr, Dr, Ds, I.σd, h2n, h2a, st.fnorm, st.Lfs / 3.83e33, st.Lrun / 3.83e33, nc,
+                IFSI_NNEWT[], IFSI_NFAIL[], Tm, kTm - a + 1, kh2 - a + 1)
     end
     nothing
 end
