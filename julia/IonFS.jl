@@ -54,6 +54,9 @@ const IFSXMIN = parse(Float64, get(ENV, "IONFSXMIN", "1e-6"))
 const IFSTP = parse(Float64, get(ENV, "IONFSTP", "10"))
 const IFSNORM = get(ENV, "IONFSNORM", "1") == "1"
 const IFSTOL = parse(Float64, get(ENV, "IONFSTOL", "0.1"))
+# (tests) IONFSITER=0: no re-sweep after the Newton updates (start-of-step ray only); IONFSENV=0: no case-B/ljcut env change in the ray zones;
+# IONFSDBG=n: the ray's zone table at the first n set-ups
+const IFSITER = get(ENV, "IONFSITER", "1") == "1"; const IFSENV = get(ENV, "IONFSENV", "1") == "1"; const IFSDBG = Ref(parse(Int, get(ENV, "IONFSDBG", "0")))
 const IFS_EDGES = [13.598, 15.0, 17.0, 20.0, 24.587, 30.0, 40.0, 54.418, 70.0, 100.0, 150.0, 300.0]
 const IFS_SP = [:H, :H2, :He, :Hep]
 const IFS_CUT = 13.598 * EVERG
@@ -243,11 +246,20 @@ function ifs_setup!(m, a, b, tauz, slrates, dt)
     end
     for k in a:b; st.nin0[k] .= st.nin[k]; end
     st.niter = 0; st.epsit = 0.0
+    if IFSDBG[] > 0
+        IFSDBG[] -= 1; ng = length(st.N); i1 = findall(gg -> IFS_EDGES[gg] >= 24.587, 1:ng)
+        @printf("IONFSDBG step %d k0 %d dt %.3e: zone r[R☉] T n_H x_H x_He x_He+ x_e | Q_H Q_HeI in | absorbed R_He R_He+ κ₂ on\n", js, k0 - a + 1, dt)
+        for k in k0:min(b, k0 + 40)
+            x = st.xabs0[k]
+            @printf("  %3d %9.3e %8.0f %8.2e %8.2e %8.2e %8.2e %6.3f | %9.2e %9.2e | %9.2e %9.2e %9.2e %9.2e %d\n", k - a + 1, rn[k] / 6.957e10, tn[k], dn[k] / CNn.μH(),
+                    x[1], x[3], x[4], x[6], sum(st.nin[k]), sum(st.nin[k][i1]), st.absd[k], st.fpHe[k].rate[], st.fpHep[k].rate[], st.κ2[k], st.on[k])
+        end
+    end
     nothing
 end
 "After each Newton update (COUPLED): sweep from the iterate, refresh the ray zones' rates, drop the cached Jacobians that changed."
 function ifs_iter!(m)
-    st = IFS[]; (st === nothing || st.k0 == 0) && return nothing
+    st = IFS[]; (st === nothing || st.k0 == 0 || !IFSITER) && return nothing
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); tn = TM.v(:tn)
     old = [copy(st.nin[k]) for k in a:b]
     ifs_sweep!(st, k -> TX.cplz(k) ? st.xabs[k] : st.xabs0[k], a, b)
@@ -309,7 +321,7 @@ function ifs_terms(m, k, exs, cools, envk, phk)
     ex2 = exs === nothing ? exr : (x -> exs(x) .+ exr(x))
     c2 = (ρ, T, d) -> (cools === nothing ? zero(T) : cools(ρ, T, d)) - src.heat(d)
     IFS_ENVB[] === nothing && (IFS_ENVB[] = merge(m.env, (; caseB = true)))
-    env2 = hasproperty(envk, :ljW) ? merge(envk, (; caseB = true, ljcut = IFS_CUT)) :
+    env2 = !IFSENV ? envk : hasproperty(envk, :ljW) ? merge(envk, (; caseB = true, ljcut = IFS_CUT)) :
            (hasproperty(envk, :static) && envk.static) ? merge(envk, (; caseB = true, tabkey = IFS_ENVB[])) :
            (J0 = envk.J; merge(envk, (; caseB = true, J = ν -> CNn.hP * ν >= IFS_CUT ? 0.0 : J0(ν))))
     ph2 = Any[phk..., st.fpHe[k], st.fpHep[k]]
