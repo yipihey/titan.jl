@@ -76,3 +76,8 @@ t_ion1 (production run.env/phaseB.env + IONFS=1), 2040 steps (2255473–2257514)
 - Strömgren budget (stromgren.jl, production step 2261350): Q = 2.6e49 from 185 R☉ is used up by case-B recombinations at 5.1e5 R☉
   (0.011 pc) with the present ionization, or 1.25e6 R☉ (0.028 pc) fully ionized. Breaking out of the mesh needs Q ≳ 4.1e50. No
   break-out past the 7000 K front (0.13 pc) at this Q.
+
+## IONFSIMP (15 Nov)
+
+The ray in the Newton solve, with the Lyman–Werner band, and the He recombination / He⁺ line cooling the ray zones lacked: see
+`docs/POPIII_IONFS_IMPLICIT.md`.

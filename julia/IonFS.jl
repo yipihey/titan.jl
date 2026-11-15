@@ -54,6 +54,11 @@ the continuum that leaves the run's grey photosphere. The source is set as follo
 Table zones beyond k0 that the ray would change (Nin Δt/(n_H V) > IONFSXMIN) go to the network, as in IonRay.
 
 Diagnostics: <RUNREC>/ionfs.csv per step, and the snapshot field `ionfs` (Q_H, Q_HeI, Q_HeII at the interfaces, k0, front).
+
+IONFSIMP=1 (IonFSImp.jl, docs/POPIII_IONFS_IMPLICIT.md) replaces 6. by the ray in the Newton: ln N_g of four groups (H I, He I, He II
+bands and the Lyman–Werner band, the latter with photon-conserving H₂ self-shielding consistent with SLSHIELD) are unknowns 10–13, the
+coupled ray zones' rates and heating depend on them with exact derivatives, IONFSCPL and IONFSITER are not used, LOCALJ's ljcut and case B
+apply in every zone outside the photosphere, and the ray zones get He recombination and He⁺ collisional-excitation cooling.
 """
 const IONFS = get(ENV, "IONFS", "0") == "1"
 const IFSN = parse(Int, get(ENV, "IONFSN", "20"))

@@ -436,7 +436,8 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
     !PM.NLOPAC[] && PM.NLOIT && error("NLOIT=1 needs NLOPAC=1 (STARLIGHT=1 SL3=1)")
     pr("STARLIGHT: H- detachment%s, LW (shield %s) from the star's light in network zones\n", PM.STARLIGHT[].pH === nothing ? "" : ", H(n>=2) ionization", String(PM.STARLIGHT[].shield))
 end
-# IONFS=1 (PM IonFS.jl): the Lyman continuum as a photon-conserving ray (H I, He I, He II, case B), sourced by a formal solution of the table region
+# IONFS=1 (PM IonFS.jl): the Lyman continuum as a photon-conserving ray (H I, He I, He II, case B), sourced by a formal solution of the table region.
+# IONFSIMP=1 (PM IonFSImp.jl, with COUPLED=1): that ray and the Lyman-Werner band as unknowns of the hydro Newton (docs/POPIII_IONFS_IMPLICIT.md)
 if PM.IONFS
     mat isa PM.NetGas && PM.STARLIGHT[] !== nothing || error("IONFS=1 needs the network gas and STARLIGHT=1")
     PM.IFSIMP && get(ENV, "COUPLED", "0") != "1" && error("IONFSIMP=1 needs COUPLED=1")
