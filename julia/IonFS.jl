@@ -173,6 +173,8 @@ function ifs_source!(st, m, a, b, k0, tauz)
     st.fnorm = f; st.Lfs = Lfs; st.Lrun = Lrun
     st.Qsrc = (sum(st.N), sum(st.N[gg] for gg in 1:ng if IFS_EDGES[gg] >= 24.587), sum(st.N[gg] for gg in 1:ng if IFS_EDGES[gg] >= 54.418))
     st.nsrc += 1; st.tsrc += time() - t0
+    (st.nsrc <= 20 || st.nsrc % 50 == 0) && @printf("IONFS source step %d: zones %d-%d (r_b %.1f R☉, T %.0f-%.0f K), Q_H %.3e Q_HeI %.3e Q_HeII %.3e s⁻¹, L_fs %.3e L_run %.3e L☉ (norm %.3g), %.2f s\n",
+                                                  st.step, kc - a + 1, k0 - a, rn[k0] / 6.957e10, tn[kc], tn[k0-1], st.Qsrc..., Lfs / 3.83e33, Lrun / 3.83e33, f, time() - t0)
     nothing
 end
 
