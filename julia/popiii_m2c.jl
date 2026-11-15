@@ -439,6 +439,7 @@ end
 # IONFS=1 (PM IonFS.jl): the Lyman continuum as a photon-conserving ray (H I, He I, He II, case B), sourced by a formal solution of the table region
 if PM.IONFS
     mat isa PM.NetGas && PM.STARLIGHT[] !== nothing || error("IONFS=1 needs the network gas and STARLIGHT=1")
+    PM.IFSIMP && get(ENV, "COUPLED", "0") != "1" && error("IONFSIMP=1 needs COUPLED=1")
     PM.RAY[] === nothing || error("IONFS=1 replaces RAY=1; set one")
     isdefined(Main, :Spectrum) || include(joinpath(@__DIR__, "Spectrum.jl"))
     PM.ifs_init!()
@@ -2265,7 +2266,10 @@ try
         ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
         TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
         get(ENV, "CPLLOCAL", "1") == "1" && (TX.CPL_LOCAL[] = (k, dt) -> PM.cpl_local!(mat, k, dt))
-        TC.CPLH[] = PM.IONFS ? (; newstep = TX.cpl_newstep!, reset = () -> (PM.ifs_reset!(); TX.cpl_reset!()),
+        TC.CPLH[] = PM.IFSIMP ? (; newstep = TX.cpl_newstep!, reset = () -> (PM.ifs_reset!(); TX.cpl_reset!(); TX.ray_reset!()),
+                                    update = (r_, a_, b_) -> (TX.cpl_update!(r_, a_, b_); TX.ray_update!(r_, a_, b_)),
+                                    dmax = (r_, a_, b_) -> max(TX.cpl_dmax!(r_, a_, b_), TX.ray_dmax!(r_, a_, b_))) :
+                    PM.IONFS ? (; newstep = TX.cpl_newstep!, reset = () -> (PM.ifs_reset!(); TX.cpl_reset!()),
                                   update = (r_, a_, b_) -> (TX.cpl_update!(r_, a_, b_); PM.ifs_iter!(mat)), dmax = TX.cpl_dmax!) :
                     (; newstep = TX.cpl_newstep!, reset = TX.cpl_reset!, update = TX.cpl_update!, dmax = TX.cpl_dmax!)
         # IONFS: a step whose final ray differs from the one the Newton used by more than IONFSTOL (photons absorbed, per source photon) halves the next Δt
@@ -2279,7 +2283,15 @@ try
             TD.STEPFN[] = () -> (PM.cpl_prepare!(mat); f0(); nothing)
         end
         @printf("COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn %d), CPLXSTOL %.3g\n", TF.PARAMS[:meqn], CPLXSTOL)
-    elseif Int(TF.getscalar(:neqn)) == 9
+        if PM.IFSIMP                               # IONFSIMP: the ray's ln N_g as unknowns 10-13 (TitanResidFast.RAYIMP, PopIIIMaterial IonFSImp.jl)
+            TF.PARAMS[:meqn] >= 13 || error("IONFSIMP=1: meqn = $(TF.PARAMS[:meqn]) < 13")
+            TX.RAYIMP[] = true; TF.setscalar!(:neqn, 13)
+            TX.CPL_RAY[] = (k, ρ, T, a_, b_, y1, y2, y3, y4) -> PM.cpl_rayzone(mat, k, ρ, T, a_, b_, y1, y2, y3, y4)
+            TX.CPL_RAYTAU[] = (k, y1, y2, y3, y4) -> PM.ifsi_tau(k, y1, y2, y3, y4)
+            @printf("IONFSIMP: ln N of the ray's groups (H I, He I, He II, LW %s) are unknowns 10-13 of the hydro Newton (neqn 13), p_diss %.3g, He fixed point %d, ljcut %s\n",
+                    PM.IFSI_LWON ? "on" : "off", PM.IFSI_PD, PM.IFSI_FP, PM.IFSI_LJ)
+        end
+    elseif Int(TF.getscalar(:neqn)) == 9 || Int(TF.getscalar(:neqn)) == 13
         TF.setscalar!(:neqn, 7)                    # (restart from a COUPLED checkpoint)
     end
     if haskey(ENV, "CPLSCAN") && COUPLED            # (diagnostic, then exit) local thermal balance of coupled zone(s) vs T at fixed ρ, E_r
@@ -2325,6 +2337,7 @@ try
         dT = COUPLED ? PM.cpl_chem!(mat) : PM.chem!(mat)
         NANSCAN && nanscan("after the chemistry", k)
         PM.IONFS && ionfs_log(k)
+        PM.IFSIMP && PM.ifsi_log(mat, a, b, k)
         prof_report()
         if haskey(ENV, "IFDBG") && IFDBGN[] > 0          # (diagnostic) the zones of a table/network interface after the chemistry
             IFDBGN[] -= 1; z12 = parse.(Int, split(ENV["IFDBG"], ","))

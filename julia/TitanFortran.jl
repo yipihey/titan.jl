@@ -104,6 +104,8 @@ function parse_params(path = joinpath(FSRC, "titan.par"))
             if lowercase(k) == "meqn" && get(ENV, "COUPLED", "0") == "1"
                 get(ENV, "TITAN_NOLIB", "0") == "1" || error("COUPLED=1 needs TITAN_NOLIB=1 (libtitan has meqn = $(P[:meqn]))")
                 P[:meqn] = max(P[:meqn], 9)
+                # IONFSIMP=1 (PopIIIMaterial IonFSImp.jl): four ray rows (ln N_g) behind the species
+                get(ENV, "IONFS", "0") == "1" && get(ENV, "IONFSIMP", "0") == "1" && (P[:meqn] = max(P[:meqn], 13))
             end
         end
     end

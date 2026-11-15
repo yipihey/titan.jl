@@ -77,6 +77,9 @@ const IFSGASQ = get(ENV, "IONFSGASQ", "0") == "1"
 const IFSR0 = get(ENV, "IONFSR0", "ph")
 const IFSITER = get(ENV, "IONFSITER", "1") == "1"; const IFSENV = get(ENV, "IONFSENV", "1") == "1"; const IFSDBG = Ref(parse(Int, get(ENV, "IONFSDBG", "0")))
 const IFS_EDGES = [13.598, 15.0, 17.0, 20.0, 24.587, 30.0, 40.0, 54.418, 70.0, 100.0, 150.0, 300.0]
+# IONFSIMP=1 (IonFSImp.jl): the ray as Newton unknowns, three ionizing groups (IFSI_EDGES) and the LW band
+const IFSIMP = IONFS && get(ENV, "IONFSIMP", "0") == "1"
+ifs_edges() = IFSIMP ? IFSI_EDGES : IFS_EDGES
 const IFS_SP = [:H, :H2, :He, :Hep]
 const IFS_CUT = 13.598 * EVERG
 # (ContinuumOpacity, ChemRates, Spectrum and IonRay are looked up in Main at run time: other scripts load PopIIIMaterial without them)
@@ -241,7 +244,7 @@ end
 "Per-step set-up (start of the step: the prepare pass, or the only pass without COUPLED)."
 function ifs_setup!(m, a, b, tauz, slrates, dt)
     dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); h = HOT[]
-    st = IFS[]; mgr = length(dn); ng = length(IFS_EDGES) - 1
+    st = IFS[]; mgr = length(dn); ng = length(ifs_edges()) - 1
     (st === nothing || length(st.on) != mgr) && (st = IFS[] = ifs_alloc(mgr, ng))
     fill!(st.on, false); fill!(st.κ2, 0.0); for k in 1:mgr; st.fpHe[k].rate[] = 0.0; st.fpHep[k].rate[] = 0.0; end
     k0 = 0
@@ -250,8 +253,14 @@ function ifs_setup!(m, a, b, tauz, slrates, dt)
         kph_ = a; for k in b:-1:a; tauz[k] >= 2 / 3 && (kph_ = k; break); end
         k0 = max(k0, kph_ + 1)
     end
-    (k0 <= a + 2) && (st.k0 = 0; return nothing)                     # no table region in front of the network: nothing to source
+    (k0 <= a + 2) && (st.k0 = 0; IFSIMP && (TX.RAYK[] = (0, -1)); return nothing)    # no table region in front of the network: nothing to source
     js = Int(TF.getscalar(:jstep))
+    if IFSIMP
+        (IFSI[] === nothing || length(IFSI[].fhi) != mgr) && (IFSI[] = ifsi_alloc(mgr))
+        (st.G === nothing || js - st.step >= IFSN || k0 != st.k0) && ifsi_source!(st, m, a, b, k0, tauz)
+        for k in a:b; st.xabs0[k] = ifs_x(CNn.full(m.x[k], m.net)); st.xabs[k] = st.xabs0[k]; end
+        return ifsi_setup!(st, m, a, b, k0, tauz, slrates, dt)
+    end
     (st.G === nothing || js - st.step >= IFSN || k0 != st.k0) && ifs_source!(st, m, a, b, k0, tauz)
     for k in a:b; st.xabs0[k] = ifs_x(CNn.full(m.x[k], m.net)); st.xabs[k] = st.xabs0[k]; end
     ifs_sweep!(st, k -> st.xabs0[k], a, b)
@@ -422,7 +431,7 @@ end
 "Q_H, Q_HeI, Q_HeII through the interfaces a..b+1 (the last sweep), the front zone and radius."
 function ifs_profile(m, a, b)
     st = IFS[]; (st === nothing || st.k0 == 0) && return nothing
-    ng = length(st.N); iHe1 = findall(gg -> IFS_EDGES[gg] >= 24.587, 1:ng); iHe2 = findall(gg -> IFS_EDGES[gg] >= 54.418, 1:ng)
+    ng = length(st.N); iHe1 = findall(gg -> ifs_edges()[gg] >= 24.587, 1:ng); iHe2 = findall(gg -> ifs_edges()[gg] >= 54.418, 1:ng)
     dn, rn = TM.v(:dn), TM.v(:rn)
     Q = zeros(b - a + 2); Q1 = zeros(b - a + 2); Q2 = zeros(b - a + 2)
     Nout = ifs_sweep!(st, k -> ifs_x(CNn.full(m.x[k], m.net)), a, b)

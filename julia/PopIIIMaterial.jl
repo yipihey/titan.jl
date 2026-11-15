@@ -1102,6 +1102,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         if k > kph && sl.shield !== :off
             f = sl.shield === :none ? 1.0 : fsh_h2(NH2[k], tn[k]) * fsh_hi(NHI[k])
             kLW = 1.1e8 * 4π * W * _bnu(νLW, Tc) * f
+            IFSIMP && (kLW = ifsi_klw(k, kLW))          # (IONFSIMP: the ray's LW rate; SLSHIELD's kept for the comparison)
         end
         diag.kHm[k] = kHm; diag.kH[k] = kH; diag.kLW[k] = kLW; diag.fsh[k] = f
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
@@ -1122,6 +1123,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
 end
 include(joinpath(@__DIR__, "LyaTransfer.jl"))
 include(joinpath(@__DIR__, "IonFS.jl"))
+include(joinpath(@__DIR__, "IonFSImp.jl"))
 "dx/dt of the star-light reactions (rates lagged) for ChemNet.step's `extra`. No heat here: the LW energy goes to TitanResidFast.GASQ (see `lwheat`)."
 function starlight_terms(m::NetGas, ρ, kHm, kH, kLW)
     fr_ = m.net.free; iHp = findfirst(==(:Hp), fr_); iHm = findfirst(==(:Hm), fr_); iH2 = findfirst(==(:H2), fr_)
@@ -1275,7 +1277,7 @@ function chem_core!(m::NetGas)
     end
     slrates = STARLIGHT[] === nothing ? nothing : starlight_setup(m, a, b, tauz)
     if IONFS                                  # the formal-solution-sourced ray (IonFS.jl): start of the step, or the COUPLED post pass
-        (CPLPREP[] || !TX.COUPLED[]) ? ifs_setup!(m, a, b, tauz, slrates, TF.getscalar(:dtime)) : CPLPOST[] && ifs_post!(m, a, b)
+        (CPLPREP[] || !TX.COUPLED[]) ? ifs_setup!(m, a, b, tauz, slrates, TF.getscalar(:dtime)) : CPLPOST[] && (IFSIMP ? ifsi_post!(m, a, b) : ifs_post!(m, a, b))
     end
     # the star-light terms of zone k for ChemNet.step: (extra, cooling) composed with the ray's / the zone's own
     function slterms(k, extra0, cool0)
@@ -1283,6 +1285,7 @@ function chem_core!(m::NetGas)
         kHm, kH, kLW, _ = slrates(k)
         # LOCALJ: the network's own H⁻ photo-process (with its stimulated attachment) sees the same J = W B(T_c); the extra would count it twice
         LOCALJ && ljon(SLDIAG[].tl3[k]) && (kHm = 0.0)
+        IFSIMP && CPLPREP[] && ifsi_on(k) && (kLW = 0.0)     # (IONFSIMP: a ray zone's LW dissociation is the Newton's)
         all(isfinite, (kHm, kH, kLW)) || error("starlight: non-finite rates in zone $k: kHm $kHm kH $kH kLW $kLW, T $(tn[k]), ρ $(dn[k]), E_r $(TM.v(:ern)[k])")
         (kHm == 0 && kH == 0 && kLW == 0) && return extra0, cool0
         ex = starlight_terms(m, dn[k], kHm, kH, kLW)
@@ -1400,7 +1403,9 @@ function chem_core!(m::NetGas)
                 end
             end
             if IONFS && (st_ = IFS[]) !== nothing && st_.k0 > 0 && k <= length(st_.on) && st_.on[k]       # IonFS: the ray's terms
-                exs, cools, envk, phk = ifs_terms(m, k, exs, cools, envk, phk)
+                exs, cools, envk, phk = (IFSIMP && CPLPREP[]) ? ifsi_terms(m, k, exs, cools, envk, phk) : ifs_terms(m, k, exs, cools, envk, phk)
+            elseif IFSIMP && ifsi_ljzone(k)           # IONFSIMP: LOCALJ's diluted blackbody only below 13.598 eV, case B, in every zone outside the photosphere
+                envk = ifsi_env(envk)
             end
             if !isempty(TX.CHEMB[])                  # BALSPLIT: the hydro step already gave the zone c̄ (TitanResidFast.CHEMB)
                 cb = eqprev ? 0.0 : TX.CHEMB[][k]; TX.CHEMBON[][k] = !eqprev
@@ -1424,6 +1429,7 @@ function chem_core!(m::NetGas)
                 # (IonFS: the ray's He rates change between Newton iterations at the same T, so they are read outside the cache)
                 phc = isempty(phf_) ? phc0 : (Tv -> vcat(phc0(Tv), Any[(p_, p_.rate[], 0.0) for p_ in phf_]))
                 CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs, phraw = (phc_, envc, phf_))   # (phraw: NLOIT's uncached photo-rates; phf_: IonFS's ray rates)
+                IFSIMP && ifsi_on(k) && (CPLTERMS[][k] = merge(CPLTERMS[][k], (; ray = true)))      # (IONFSIMP: the ray's terms in cpl_g)
                 return nothing
             end
             if CPLPOST[] && TX.cplz(k) && p3 !== nothing
@@ -1689,6 +1695,7 @@ const CPLBAND = Ref{Any}(let v = get(ENV, "CPLBAND", ""); isempty(v) ? nothing :
 const CPLTERMS = Ref(Any[]); const CPLCACHE = Ref(Any[])
 function cpl_g(m::NetGas, k, z)
     t = CPLTERMS[][k]; ρ = z[1]; T = z[2]
+    IFSIMP && hasproperty(t, :ray) && return ifsi_g(m, k, z, t)[1:7]      # (IONFSIMP ray zone, at the iterate's ray)
     x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
     u, p = CNn.eos(ρ, T, x, m.net)
     dfull = CNn.full(x, m.net)
@@ -1747,6 +1754,10 @@ function cpl_vj(m, k, v)
 end
 function cpl_zone(m::NetGas, k, ρ, T, a, b)
     v = (Float64(ForwardDiff.value(ρ)), Float64(ForwardDiff.value(T)), Float64(ForwardDiff.value(a)), Float64(ForwardDiff.value(b)))
+    if IFSIMP && hasproperty(CPLTERMS[][k], :ray)           # (IONFSIMP: a ray zone's values at the iterate's ray; the residual uses cpl_rayzone)
+        (ρ isa Float64 && T isa Float64 && a isa Float64 && b isa Float64) || error("cpl_zone: ray zone $k with dual numbers")
+        return Tuple(ifsi_g(m, k, [v...], CPLTERMS[][k])[1:7])
+    end
     needJ = !(ρ isa Float64 && T isa Float64 && a isa Float64 && b isa Float64)
     c = CPLCACHE[][k]                                         # (v, y(v), v_J, J(v_J))
     if c === nothing || c[1] != v
@@ -1792,7 +1803,7 @@ function cpl_prepare!(m::NetGas)
                bd[1] === :z ? bd[2][1] <= k - a + 1 <= bd[2][2] : error("CPLBAND: unknown kind $(bd[1])")
         keep || (TX.CPLZ[][k] = false)
     end
-    IONFS && ifs_decouple!(a, b, dt)                 # (IonFS: the zones the ray changes this step take the split chemistry)
+    IONFS && !IFSIMP && ifs_decouple!(a, b, dt)      # (IonFS: the zones the ray changes this step take the split chemistry; not with IONFSIMP)
     nothing
 end
 "After the hydro step (and advect_species!, which moved the HD tail): the coupled zones' free species := CK expansion of the solution."
@@ -1801,7 +1812,8 @@ function cpl_finish!(m::NetGas)
     for k in a:b
         TX.cplz(k) || continue
         t = CPLTERMS[][k]
-        x, _ = CNn.ck_eval([TX.XSN[][1][k], TX.XSN[][2][k]], dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)
+        x = (IFSIMP && hasproperty(t, :ray)) ? ifsi_finish_x(m, k) :
+            CNn.ck_eval([TX.XSN[][1][k], TX.XSN[][2][k]], dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)[1]
         old = m.x[k]; m.x[k] = length(old) > nf ? vcat(x, old[nf+1:end]) : x
     end
     nothing

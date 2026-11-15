@@ -227,6 +227,39 @@ rule, x_γ ≈ −x_n: unreachable in the logarithmic species variables, so the 
 """
 const CPL_THETA = Ref(parse(Float64, get(ENV, "CPLTHETA", "1")))
 @inline cplz(k) = COUPLED[] && k <= length(CPLZ[]) && CPLZ[][k]
+"""
+RAYIMP (PopIIIMaterial IONFSIMP=1 with COUPLED; default false): the IonFS ray as Newton unknowns. Rows/unknowns 10…13 are
+y_g = ln N_g, the photon rate of group g (H I, He I, He II bands, Lyman–Werner) entering zone k through its inner interface,
+as corrections to the iterate `YRN` (absolute ln N). In the ray's zones k₀ ≤ k ≤ k_end (`RAYK`)
+  zone k₀:   y_g(k₀) − ln N_g,src = 0,      zone k > k₀:   y_g(k) − y_g(k−1) + Δτ_g(k−1) = 0,
+Δτ_g of zone k−1 from its iterate (coupled zones: `CPL_RAY`, with p, e, S, Λ that depend on y_g(k−1); split zones: `CPL_RAYTAU` with
+their start-of-step absorbers). Other zones: δ = 0. Block-tridiagonal: a row reads its own and the inner neighbour's unknowns.
+"""
+const RAYIMP = Ref(false); const NRAY = 4
+const YRN = Ref([Float64[] for _ in 1:4]); const YR0 = Ref([Float64[] for _ in 1:4]); const YSRC = Ref(zeros(4))
+const RAYK = Ref((0, -1))
+const CPL_RAY = Ref{Any}(nothing)               # (k, ρ, T, x1, x2, y1, y2, y3, y4) -> (p, e, S1, S2, Λ, cq, yq, τ1, τ2, τ3, τ4)
+const CPL_RAYTAU = Ref{Any}(nothing)            # (k, y1, y2, y3, y4) -> (τ1, τ2, τ3, τ4) of a split zone in the ray
+@inline rayz(k) = RAYIMP[] && RAYK[][1] <= k <= RAYK[][2]
+"Apply the ray corrections: y ← y + δ in the ray's zones."
+function ray_update!(rhs, a, b)
+    @inbounds for k in a:b
+        rayz(k) || continue
+        for g in 1:NRAY; YRN[][g][k] += rhs[9+g, k]; end
+    end
+    nothing
+end
+"Convergence measure of the ray rows: |δ y_g| weighted by the fraction of the source's photons left, N_g/N_g,src (and non-finite → Inf)."
+function ray_dmax!(rhs, a, b)
+    d = 0.0
+    @inbounds for k in a:b, g in 1:NRAY
+        rayz(k) || (rhs[9+g, k] = 0.0; continue)
+        isfinite(rhs[9+g, k]) || (rhs[9+g, k] = 0.0; d = Inf; continue)
+        w = exp(min(0.0, YRN[][g][k] - YSRC[][g])); d = max(d, abs(rhs[9+g, k]) * w)
+    end
+    d
+end
+ray_reset!() = (for g in 1:NRAY; copyto!(YRN[][g], YR0[][g]); end; nothing)
 "Size the species arrays to mgr (keeps values where present)."
 function cpl_alloc!(mgr)
     for R_ in (XSN, XSO, XSSO, XSRCO), i in 1:2
@@ -465,7 +498,8 @@ const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn
     :xkp, :plf, :dvol, :dvoln, :avchi, :qf, :dudr, :db, :dsn, :fl, :ub, :usn, :flu, :fle, :egb, :egsn,
     :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv,
     :mnad, :mcp, :mdl, :mkp,                # MLT coefficients of the threaded pre-pass (MATTHREADS)
-    :xs1, :xs2, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL, :cpQ, :cpY)     # COUPLED: species iterate, face values, slopes, rates, cooling
+    :xs1, :xs2, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL, :cpQ, :cpY,
+    :yr1, :yr2, :yr3, :yr4, :rt1, :rt2, :rt3, :rt4)     # RAYIMP: ray iterate ln N_g and the zones' Δτ_g     # COUPLED: species iterate, face values, slopes, rates, cooling
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
     xnuo::Vector{Float64}
@@ -814,6 +848,11 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         @inbounds for bb in 1:nb
             k = k0 + bb - 1; xs1[k] = xn1[k] * exp(x[(bb-1)*neqn+8]); xs2[k] = xn2[k] * exp(x[(bb-1)*neqn+9])
         end
+        if RAYIMP[]
+            yrs = (W.yr1, W.yr2, W.yr3, W.yr4); yb = YRN[]
+            @inbounds for g in 1:NRAY, k in k0:ngre+2; yrs[g][k] = yb[g][k]; end
+            @inbounds for g in 1:NRAY, bb in 1:nb; k = k0 + bb - 1; yrs[g][k] = yb[g][k] + x[(bb-1)*neqn+9+g]; end
+        end
         CPLW[] = (xs1, xs2)
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
@@ -822,10 +861,20 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
         @inbounds for k in ngrs:ngre
             if cplz(k)
-                y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]); W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
+                if rayz(k)
+                    y = CPL_RAY[](k, dn[k], tn[k], xs1[k], xs2[k], W.yr1[k], W.yr2[k], W.yr3[k], W.yr4[k])
+                    W.rt1[k] = y[8]; W.rt2[k] = y[9]; W.rt3[k] = y[10]; W.rt4[k] = y[11]
+                else
+                    y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k])
+                end
+                W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
                 W.cpQ[k] = y[6]; W.cpY[k] = y[7]
             else
                 W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
+                if rayz(k)
+                    τs = CPL_RAYTAU[](k, W.yr1[k], W.yr2[k], W.yr3[k], W.yr4[k])
+                    W.rt1[k] = τs[1]; W.rt2[k] = τs[2]; W.rt3[k] = τs[3]; W.rt4[k] = τs[4]
+                end
             end
         end
     else
@@ -1209,6 +1258,13 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     if COUPLED[]
         # ------------------------------------------------------------ SPECIES (COUPLED)
         @inbounds for kb_ in 1:nb, i in 8:9; R[i, kb_] = x[(kb_-1)*neqn+i]; end
+        if RAYIMP[]                                  # ray rows (see RAYIMP): δ = 0 outside the ray's zones
+            @inbounds for kb_ in 1:nb, i in 10:9+NRAY; R[i, kb_] = x[(kb_-1)*neqn+i]; end
+            yrs = (W.yr1, W.yr2, W.yr3, W.yr4); rts = (W.rt1, W.rt2, W.rt3, W.rt4); kr0, kr1 = RAYK[]
+            @inbounds for k in max(kr0, ngrs):min(kr1, ngre), g in 1:NRAY
+                R[9+g, kb(k)] = k == kr0 ? yrs[g][k] - YSRC[][g] : yrs[g][k] - yrs[g][k-1] + rts[g][k-1]
+            end
+        end
         # no radiation (lrad = 0, the collapse stages): rows 6–7 (E_r, F_r) are not formed above, but neqn = 9 puts the species at 8–9;
         # make them trivial (δ = 0) instead of leaving the buffer's stale values (a singular block: all Newton corrections 0, step 1 fails)
         c.lrad || @inbounds for kb_ in 1:nb, i in 6:7; R[i, kb_] = x[(kb_-1)*neqn+i]; end
@@ -1535,11 +1591,12 @@ function cpl_jcheck(kz; h = parse(Float64, get(ENV, "CPLJCHH", "1e-6")))
     E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); neqn = c.neqn; nb = c.nb; k0 = c.k0; it = c.ix[5]
     ws = getws(Float64, c.mgr); R1 = zeros(neqn, nb); R2 = zeros(neqn, nb); xz = zeros(neqn * nb)
     kbz = kz - k0 + 1
-    for j in (it, 8, 9)
+    cols = RAYIMP[] ? (it, 8, 9, 10, 11, 12, 13) : (it, 8, 9)       # (RAYIMP: also the ray's columns and rows)
+    for j in cols
         idx = (kbz - 1) * neqn + j
         xz[idx] = h; residual!(R1, ws, c, xz); xz[idx] = -h; residual!(R2, ws, c, xz); xz[idx] = 0.0
         worst = 0.0; wl = ""
-        for kr in kz-2:kz+2, i in (it, 8, 9)
+        for kr in kz-2:kz+2, i in cols
             kbr = kr - k0 + 1; (1 <= kbr <= nb) || continue
             fd = (R1[i, kbr] - R2[i, kbr]) / 2h; ad = E[kz - kr + 3][i, j, kr]
             sc = max(abs(fd), abs(ad)); sc == 0 && continue
@@ -1549,7 +1606,7 @@ function cpl_jcheck(kz; h = parse(Float64, get(ENV, "CPLJCHH", "1e-6")))
             rel = abs(fd - ad) / max(sc, 1e-6 * rowmax)
             rel > worst && (worst = rel; wl = "row $i zone $kr: AD $(round(ad, sigdigits = 6)) FD $(round(fd, sigdigits = 6))")
         end
-        println("CPLJCHECK zone $kz column $j (cplz $(cplz(kz))): worst relative difference $(round(worst, sigdigits = 3))  ($wl)")
+        println("CPLJCHECK zone $kz column $j (cplz $(cplz(kz)), ray $(rayz(kz))): worst relative difference $(round(worst, sigdigits = 3))  ($wl)")
     end
     nothing
 end
