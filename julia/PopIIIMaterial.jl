@@ -633,6 +633,8 @@ function nloit_diag(m, k, ρ, T, new)
             TF.getscalar(:jstep), k - Int(TF.getscalar(:ngrs)) + 1, T, ρ, s.d[:e], new[1], old[1], κR0, new[2], old[2], new[3], old[3], κP0); flush(stdout)
     nothing
 end
+# (PERF512) the Float64 opacity of NetGas writes no caches unless NLOIT (nlo_it keeps per-zone caches)
+TX.opac_pure(::NetGas) = !NLOIT
 @inline function TX.material_opac(m::NetGas, ρ, T)
     if NLOIT && NLOPAC[]
         k = TX.ZONE[]

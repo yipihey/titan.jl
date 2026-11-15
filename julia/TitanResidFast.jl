@@ -450,10 +450,27 @@ function convcoef(ngrs, ngre, base)
     # the outer boundary on this iterate). Weight w(τ) per interface: a smooth step in ln τ from 0 at TAU_MLT/2 to 1
     # at 2·TAU_MLT (it was a sharp cut at TAU_MLT: a flux that jumps when τ crosses the cut makes Newton cycle).
     cvw = get!(() -> zeros(mgr), BUFS, :cvw)::Vector{Float64}; fill!(cvw, 0.0)
+    # (PERF512) for a material whose Float64 opacity has no side effects (`opac_pure(m)`), the zones' χ first on MATTHREADS tasks, then the
+    # serial sum. The serial loop calls material_opac without setting ZONE[] (a material that reads ZONE[] sees the zone left by the last
+    # sweep, for every k), so the tasks use that same ZONE[]; a zone whose evaluation throws is evaluated again in the loop, which then throws
+    # as before. Bit-identical.
+    χτ = get!(() -> zeros(mgr), BUFS, :cvchi)::Vector{Float64}; okτ = get!(() -> zeros(Bool, mgr), BUFS, :cvchiok)::Vector{Bool}; fill!(okτ, false)
+    if opac_pure(m)
+        z0 = ZONE0[]
+        try zone_sweep!(ngrs+1:ngre, k -> @inbounds(base[k, 3] > 0 && base[k, 5] > 0)) do k
+            ZONE[] = z0
+            try
+                y = @inbounds material_opac(m, base[k, 3], base[k, 5])[1]
+                y isa Float64 && (@inbounds χτ[k] = y; @inbounds okτ[k] = true)
+            catch
+            end
+        end
+        finally ZONE0[] = z0 end
+    end
     τ = 0.0
     @inbounds for k in ngre:-1:ngrs+1
         (base[k, 3] > 0 && base[k, 5] > 0) &&
-            (τ += material_opac(m, base[k, 3], base[k, 5])[1] * base[k, 3] * (base[k+1, 1] - base[k, 1]))
+            (τ += (okτ[k] ? χτ[k] : material_opac(m, base[k, 3], base[k, 5])[1]) * base[k, 3] * (base[k+1, 1] - base[k, 1]))
         x = clamp((log(max(τ, 1e-300)) - log(TAU_MLT[] / 2)) / log(4.0), 0.0, 1.0)
         cvw[k] = x * x * (3 - 2x)
         if MLT_NOINFALL[]          # no MLT flux in infalling gas: smooth step from inflow 10 km/s (MLT on) to 30 (off)
@@ -595,6 +612,8 @@ function compton_old!(ngrs, ngre)
     end
 end
 function material_opac end
+"(PERF512) true if `material_opac(m, ρ::Float64, T::Float64)` has no side effects (no per-zone caches), so it may run on several tasks with the same ZONE[]."
+opac_pure(m) = false
 """
 Nuclear (or other volumetric) energy source of a material, S4. `has_source(m)` (default false) switches it on;
 `material_source(m, ρ, T) -> ε` [erg g⁻¹ s⁻¹, net of neutrino losses; ρ, T may be Duals; composition of zone `ZONE[]`,
