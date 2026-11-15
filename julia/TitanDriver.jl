@@ -101,19 +101,21 @@ G4 consistent variable-Eddington-factor (VEF) closure (S6, ENV `VEFIMP`, default
   set) come from the formal solution of the **Newton iterate** (TitanCore.eddfac! in every update!, as TITAN's ltran = 0),
   so at convergence of every stage the moment equations are closed with the factors of their own solution: no lag over the
   step, nor between the TR and BDF stages (which until now took f from the predictor of y_n and of y_γ respectively). This is
-  the classical VEF iteration of Auer & Mihalas (1970, ApJ 160, 233) / Mihalas & Mihalas (1984, Foundations of Radiation
-  Hydrodynamics, §6.? "variable Eddington factors"), done inside Newton: f is frozen in the Jacobian of an iteration and
+  the variable-Eddington-factor iteration of Auer & Mihalas (1970, MNRAS 149, 65; 1970MNRAS.149...65A), which TITAN uses with
+  f lagged (Gehmeyr & Mihalas 1994, Physica D 77, 320; 1994PhyD...77..320G), done inside Newton: f is frozen in the Jacobian of an iteration and
   refreshed at the next iterate (the derivative ∂f/∂x is dense and small, docs/PORTING_NOTES.md "Dropped term 1").
 * `VEF_SPH[]` (VEFIMP=1 or `sph`): the static part of the radiation momentum equation, ∂(fE)/∂r + (3f − 1)E/r, is
-  differenced in Auer's (1971, JQSRT 11, 573) sphericality-factor form (1/q) ∂(q f E)/∂r with d ln q/d ln r = (3f − 1)/f
-  (here q includes the r² of Auer's q; for μ = 0 q = 1): across interface k between the zone centres r_c,k−1 and r_c,k
+  differenced in Auer's (1971, JQSRT 11, 573; 1971JQSRT..11..573A) sphericality-factor form: with ∂ ln(r² q)/∂r = (3f − 1)/(f r),
+  ∂(fE)/∂r + (3f − 1)E/r = (r² q)⁻¹ ∂(r² q f E)/∂r (as quoted in Higgins & Meiksin 2012, MNRAS 426, 2380, eqs. 26–29; for μ = 0
+  the factor is 1): across interface k between the zone centres r_c,k−1 and r_c,k
   (r_c = (r_k + r_k+1)/2, where the formal solution samples f),
       r_k² [ e^{s/2} f_k E_k − e^{−s/2} f_k−1 E_k−1 ],  s = (μ/4) (3 − 1/f_k−1 + 3 − 1/f_k) ln(r_c,k / r_c,k−1),
   instead of r_k² (f_k E_k − f_k−1 E_k−1) + (μ/4r_k) Σ (3f − 1) E ΔV. Both are the same to second order where the zones are
   thin in ln r; Auer's form is exact for χ = 0 for any f profile (f = 1: r_c² E constant), TITAN's is not: on the coarse log
   mesh (Δ ln r ≈ 0.25) its trapezoid of the geometric term leaves an error per zone that the transparent envelope (where the
   momentum row integrates E inward from the boundary) accumulates to factors of 3 (F/cE = 3; ERTAUCONV, EDDREAL, FLUXTIE).
-  The outer boundary row F = c g E_s − π(2g + 1) I_in (Mihalas & Mihalas §6.?; I_in = the CMB, ximr) then takes the energy
+  The outer boundary row is TITAN's F = c g E_s − π(2g + 1) I_in (g = H⁺/J⁺ of the outgoing rays, I_in = the isotropic CMB,
+  ximr; from H = g J⁺ − I_in/4 and J = J⁺ + I_in/2), which then takes the energy
   density at the boundary radius, E_s, from the zone centre value by the same sphericality factor over the half zone
   (including its χρF/c), not E_N itself (in free streaming E_N/E_s = (r_N+1/r_c,N)² ≈ 1.3 at Δ ln r = 0.25).
 With either part on, FLUXTIE (and ETASWTIE, which needs it) is disabled by popiii_m2c.
