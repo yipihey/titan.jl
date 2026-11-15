@@ -817,8 +817,21 @@ function tiew!(a, b, dtau)
         τ += dtau[k]
         W[k] = τ <= τ1 ? 1.0 : τ >= τ2 ? 0.0 : (q = log(τ2 / τ) / log(τ2 / τ1); q * q * (3 - 2q))
     end
+    if TIECORE[]                     # FLUXTIECORE: no tie without an opaque core to stream from (see TIECORE)
+        τc = τ + dtau[a]; q = clamp(log(max(τc, 1e-300) / τ2) / log(10.0), 0.0, 1.0); q = q * q * (3 - 2q)
+        q < 1 && (@inbounds for k in a+1:b; W[k] *= q; end)
+    end
     nothing
 end
+"""
+TIECORE[] (ENV FLUXTIECORE=1, default off): the FLUXTIE weights are multiplied by a smooth step in the flux-mean optical depth τ_c from the
+outer boundary to the centre, 0 for τ_c ≤ τ2 (FLUXTIE's second entry), 1 for τ_c ≥ 10 τ2. The tie F = h c E is the closure of light
+streaming out of a photosphere; with no opaque core (the collapsing cloud before the second collapse, τ_c ~ 1e-8) h = H/J of the formal
+solution is that of the isotropic CMB plus noise of the central rays (0 in zones 1–12, 0.5 in 13–22 of the from-IC run) and the tie trapped
+E_r at 1500 × E_CMB in the centre and emptied the zones outside it (z100ic tests, 14 Nov). The moment equation is used there instead; the tie
+switches on by itself as the core becomes opaque.
+"""
+const TIECORE = Ref(get(ENV, "FLUXTIECORE", "0") == "1")
 
 # ------------------------------------------------------------------ totnrg (totnrg.f)
 "Energy bookkeeping. If `io` is given, appends the .nrg record (same columns as TITAN)."
