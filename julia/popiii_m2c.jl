@@ -445,7 +445,7 @@ if PM.IONFS
     PM.ifs_init!()
     isempty(TX.RAYQ[]) && (TX.RAYQ[] = zeros(length(mat.x)))
     pr("IONFS: Lyman-continuum ray from the formal solution at the table/network boundary (%d groups 13.6-300 eV, source every %d steps, norm %s, xmin %g, two-phase tau %g, tol %g)\n",
-       length(PM.IFS_EDGES) - 1, PM.IFSN, PM.IFSNORM ? "L_run" : "none", PM.IFSXMIN, PM.IFSTP, PM.IFSTOL)
+       length(PM.ifs_edges()) - 1, PM.IFSN, PM.IFSNORM ? "L_run" : "none", PM.IFSXMIN, PM.IFSTP, PM.IFSTOL)
 end
 "IONFS: one line per step in <RUNREC>/ionfs.csv (the source, the front, the convergence check)."
 function ionfs_log(k)
@@ -2266,7 +2266,7 @@ try
         ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
         TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
         get(ENV, "CPLLOCAL", "1") == "1" && (TX.CPL_LOCAL[] = (k, dt) -> PM.cpl_local!(mat, k, dt))
-        TC.CPLH[] = PM.IFSIMP ? (; newstep = TX.cpl_newstep!, reset = () -> (PM.ifs_reset!(); TX.cpl_reset!(); TX.ray_reset!()),
+        TC.CPLH[] = PM.IFSIMP ? (; newstep = TX.cpl_newstep!, reset = () -> (PM.ifs_reset!(); TX.ray_reset!(); TX.cpl_reset!()),
                                     update = (r_, a_, b_) -> (TX.cpl_update!(r_, a_, b_); TX.ray_update!(r_, a_, b_)),
                                     dmax = (r_, a_, b_) -> max(TX.cpl_dmax!(r_, a_, b_), TX.ray_dmax!(r_, a_, b_))) :
                     PM.IONFS ? (; newstep = TX.cpl_newstep!, reset = () -> (PM.ifs_reset!(); TX.cpl_reset!()),
@@ -2288,8 +2288,8 @@ try
             TX.RAYIMP[] = true; TF.setscalar!(:neqn, 13)
             TX.CPL_RAY[] = (k, ρ, T, a_, b_, y1, y2, y3, y4) -> PM.cpl_rayzone(mat, k, ρ, T, a_, b_, y1, y2, y3, y4)
             TX.CPL_RAYTAU[] = (k, y1, y2, y3, y4) -> PM.ifsi_tau(k, y1, y2, y3, y4)
-            @printf("IONFSIMP: ln N of the ray's groups (H I, He I, He II, LW %s) are unknowns 10-13 of the hydro Newton (neqn 13), p_diss %.3g, He fixed point %d, ljcut %s\n",
-                    PM.IFSI_LWON ? "on" : "off", PM.IFSI_PD, PM.IFSI_FP, PM.IFSI_LJ)
+            @printf("IONFSIMP: ln N of the ray's groups (H I, He I, He II, LW %s) are unknowns 10-13 of the hydro Newton (neqn 13), p_diss %.3g, ljcut %s\n",
+                    PM.IFSI_LWON ? "on" : "off", PM.IFSI_PD, PM.IFSI_LJ)
         end
     elseif Int(TF.getscalar(:neqn)) == 9 || Int(TF.getscalar(:neqn)) == 13
         TF.setscalar!(:neqn, 7)                    # (restart from a COUPLED checkpoint)

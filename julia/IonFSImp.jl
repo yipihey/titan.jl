@@ -14,7 +14,8 @@ y_g(k) = y_g(k−1) − Δτ_g(k−1), with Δτ_g of zone k−1 a function of i
 and y_g(k₀) = ln N_g,src. In coupled zone k the photo-rates, the photo-heating and (LW) the H₂ dissociation depend on y_g(k) and on the
 zone's own composition (photon-conserving: absorbed N_g (1 − e^{−Δτ_g}), shared by Δτ_g,s/Δτ_g), all with exact derivatives in the
 Newton (the zone's local Jacobian is 8 wide: ρ, T, x_H⁺, x_H₂, y_1…y_4). He I/He II photo-rates per atom are N_g fτ(Δτ_g) σ_g,s Δr/V,
-fτ = (1 − e^{−τ})/τ, with Δτ_g from the zone's He stages: a fixed point (`IONFSFP` passes of the CK expansion) inside the residual.
+fτ = (1 − e^{−τ})/τ, with Δτ_g from the zone's own He stages: a fixed point u = expansion(rates(u)) in (x_H, x_He, x_He⁺), solved by
+Newton inside the residual and differentiated by the implicit-function theorem (`ifsi_ufix`).
 
 Lyman–Werner (photon-conserving self-shielding consistent with SLSHIELD's fits): the dissociation rate per molecule at H₂ column N is
 k(N) = σ_d φ f_sh(N, T) f_HI(N_HI) (Wolcott-Green, Haiman & Bryan 2011 eq. 10 with α = 1.1, and eq. 13 of Wolcott-Green & Haiman 2011:
@@ -41,7 +42,8 @@ Diagnostics: <RUNREC>/ionfsi.csv per step (photon bookkeeping per group, LW diss
 const IFSI_EDGES = [13.598, 24.587, 54.418, 300.0]
 const IFSI_LW = (11.2, 13.598)
 const IFSI_PD = parse(Float64, get(ENV, "IONFSPD", "0.15"))          # ⟨p_diss⟩, Draine & Bertoldi (1996) §4
-const IFSI_FP = parse(Int, get(ENV, "IONFSFP", "3"))
+>>>
+
 const IFSI_NSUB = parse(Int, get(ENV, "IONFSNSUB", "8"))
 const IFSI_LJ = get(ENV, "IONFSLJ", "out")
 const IFSI_LWMIN = parse(Float64, get(ENV, "IONFSLWMIN", "1e-2"))
@@ -226,14 +228,13 @@ end
 
 # ---------------------------------------------------------------- the coupled zone with the ray
 """
-(p, e, S_H⁺, S_H₂, Λ, cq, yq, Δτ₁, Δτ₂, Δτ₃, Δτ_LW) of coupled ray zone k at z = (ρ, T, x_H⁺, x_H₂[, y₁…y₄]) (y from TX.YRN if absent).
-`wantx`: also the CK-expanded composition.
+The CK expansion of ray zone k at z = (ρ, T, x_H⁺, x_H₂, y₁…y₄) with the ray's terms, the He photo-rates per atom taken at the absorber
+fractions u = (x_H, x_He, x_He⁺): returns (x, f_slow, d).
 """
-function ifsi_g(m::NetGas, k, z, t; wantx = false)
+function ifsi_core(m::NetGas, k, z, t, u)
     st = IFS[]; I = IFSI[]; ρ = z[1]; T = z[2]; rn = TM.v(:rn)
     nH = ρ / CNn.μH(); dr = rn[k+1] - rn[k]; V = 4π / 3 * (rn[k+1]^3 - rn[k]^3)
-    ys = length(z) >= 8 ? (z[5], z[6], z[7], z[8]) : ntuple(g -> TX.YRN[][g][k], 4)
-    N = ntuple(g -> exp(ys[g]), 3); σ = st.G.σ; κ2 = st.κ2[k]
+    ys = (z[5], z[6], z[7], z[8]); N = ntuple(g -> exp(ys[g]), 3); σ = st.G.σ; κ2 = st.κ2[k]
     fr_ = m.net.free; iHp = findfirst(==(:Hp), fr_); iH2 = findfirst(==(:H2), fr_)
     function exray(x)
         d = CNn.full(x, m.net); o = zero(eltype(x)) + zero(N[1]) + zero(ys[4]) + zero(T)
@@ -252,34 +253,72 @@ function ifsi_g(m::NetGas, k, z, t; wantx = false)
         f
     end
     ex = t.extra === nothing ? exray : (x -> t.extra(x) .+ exray(x))
-    xa = st.xabs[k]; xc = (xa[1], xa[2], xa[3], xa[4])
-    x = nothing; fs = nothing; d = nothing; τo = (NaN, NaN, NaN)
-    for it in 1:IFSI_FP
-        τs = ifsi_tauion(st, xc, nH, dr)
-        RHe = zero(N[1]) + zero(T); RHep = zero(RHe)
-        for g in 1:3
-            τ = τs[g]; fτ = _fv(τ) > 1e-12 ? -expm1(-τ) / τ : one(τ) - τ / 2
-            RHe += N[g] * fτ * σ[g, 3] * dr / V; RHep += N[g] * fτ * σ[g, 4] * dr / V
-        end
-        ph0 = t.phc
-        phc = Tv -> vcat(ph0(Tv), Any[(st.fpHe[k], RHe, zero(RHe)), (st.fpHep[k], RHep, zero(RHep))])
-        x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc, extra = ex)
-        d = CNn.full(x, m.net)
-        xc = (max(d[:H], zero(d[:H])), max(d[:H2], zero(d[:H2])), max(d[:He], zero(d[:He])), max(d[:Hep], zero(d[:Hep])))
-        τn = map(_fv, ifsi_tauion(st, xc, nH, dr))
-        conv = all(g -> abs(τn[g] - _fv(τs[g])) <= 1e-8 * (abs(τn[g]) + 1e-30), 1:3)
-        τo = τn; conv && break
+    RHe = zero(N[1]) + zero(T) + zero(u[1]); RHep = zero(RHe)
+    for g in 1:3
+        τ = (u[1] * σ[g, 1] + u[2] * σ[g, 3] + u[3] * σ[g, 4]) * nH * dr
+        fτ = _fv(τ) > 1e-12 ? -expm1(-τ) / τ : one(τ) - τ / 2
+        RHe += N[g] * fτ * σ[g, 3] * dr / V; RHep += N[g] * fτ * σ[g, 4] * dr / V
     end
-    u, p = CNn.eos(ρ, T, x, m.net)
+    ph0 = t.phc
+    phc = Tv -> vcat(ph0(Tv), Any[(st.fpHe[k], RHe, zero(RHe)), (st.fpHep[k], RHep, zero(RHep))])
+    x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc, extra = ex)
+    x, fs, CNn.full(x, m.net)
+end
+ifsi_u(d) = (max(d[:H], zero(d[:H])), max(d[:He], zero(d[:He])), max(d[:Hep], zero(d[:Hep])))
+const IFSI_NNEWT = Threads.Atomic{Int}(0); const IFSI_NFAIL = Threads.Atomic{Int}(0)
+"""
+He absorbers of ray zone k consistent with their own photo-rates: u* with u = expansion(rates(u)), Newton in ln u on the Float values
+(from the last record; converged to 1e-11, so the result does not depend on the start), then one implicit-function correction with the
+inputs' dual numbers (w = w* − J⁻¹ F(w*; z)), so that the residual's derivatives are those of the fixed point. Zones whose He photons are
+negligible (N_He Δt < 1e-12 of the zone's He) take the start-of-step fractions.
+"""
+function ifsi_ufix(m::NetGas, k, z, t)
+    st = IFS[]; dn, rn = TM.v(:dn), TM.v(:rn); V = 4π / 3 * (rn[k+1]^3 - rn[k]^3)
+    x0 = st.xabs0[k]; dt = TF.getscalar(:dtime)
+    NHe = exp(_fv(z[6])) + exp(_fv(z[7]))
+    NHe * dt < 1e-12 * CNn.yHe * dn[k] / CNn.μH() * V && return (x0[1], x0[3], x0[4])
+    zf = [_fv(q) for q in z]
+    F(w) = (u = exp.(w); d = ifsi_core(m, k, zf, t, u)[3]; un = ifsi_u(d); [log(max(un[i], 1e-300)) - w[i] for i in 1:3])
+    xr = st.xabs[k]; w = [log(max(xr[1], 1e-40)), log(max(xr[3], 1e-40)), log(max(xr[4], 1e-40))]
+    J = zeros(3, 3); ok = false
+    for it in 1:40
+        Threads.atomic_add!(IFSI_NNEWT, 1)
+        res = ForwardDiff.DiffResults.JacobianResult(zeros(3), w); ForwardDiff.jacobian!(res, F, w)
+        r = ForwardDiff.DiffResults.value(res); J .= ForwardDiff.DiffResults.jacobian(res)
+        δ = -(J \ r); all(isfinite, δ) || break
+        δ .= clamp.(δ, -5.0, 5.0); w .+= δ
+        maximum(abs, δ) < 1e-11 && (ok = true; break)
+    end
+    ok || Threads.atomic_add!(IFSI_NFAIL, 1)
+    all(z_ -> z_ isa Float64, z) && return Tuple(exp.(w))
+    # implicit function: w(z) = w* − J⁻¹ F(w*; z)
+    d = ifsi_core(m, k, z, t, Tuple(exp.(w)))[3]; un = ifsi_u(d)
+    Fz = [log(max(un[i], 1e-300 + zero(un[i]))) - w[i] for i in 1:3]
+    Ji = inv(J); wz = [w[i] - sum(Ji[i, j] * Fz[j] for j in 1:3) for i in 1:3]
+    Tuple(exp.(wz))
+end
+"""
+(p, e, S_H⁺, S_H₂, Λ, cq, yq, Δτ₁, Δτ₂, Δτ₃, Δτ_LW) of coupled ray zone k at z = (ρ, T, x_H⁺, x_H₂[, y₁…y₄]) (y from TX.YRN if absent).
+`wantx`: also the CK-expanded composition.
+"""
+function ifsi_g(m::NetGas, k, z, t; wantx = false)
+    st = IFS[]; I = IFSI[]; rn = TM.v(:rn)
+    length(z) >= 8 || (z = vcat(z[1:4], [TX.YRN[][g][k] + zero(z[1]) for g in 1:4]))
+    ρ = z[1]; T = z[2]; nH = ρ / CNn.μH(); dr = rn[k+1] - rn[k]; V = 4π / 3 * (rn[k+1]^3 - rn[k]^3)
+    u = ifsi_ufix(m, k, z, t)
+    x, fs, d = ifsi_core(m, k, z, t, u)
+    N = ntuple(g -> exp(z[4+g]), 3)
+    uE, p = CNn.eos(ρ, T, x, m.net)
     ifs_record!(k, d)
+    xc = (max(d[:H], zero(d[:H])), max(d[:H2], zero(d[:H2])), max(d[:He], zero(d[:He])), max(d[:Hep], zero(d[:Hep])))
     τf = ifsi_tauion(st, xc, nH, dr)
-    heat = zero(u)
+    heat = zero(uE)
     for g in 1:3; heat += N[g] * (-expm1(-τf[g])) * st.G.Ec[g]; end
-    Λ = (t.cooling === nothing ? zero(u) : t.cooling(ρ, T, d)) - heat / V
+    Λ = (t.cooling === nothing ? zero(uE) : t.cooling(ρ, T, d)) - heat / V
     p3_ = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
-    cq, yq = p3_ === nothing ? (zero(u), zero(u)) : tl3_heat(ρ, T, d, merge(p3_, (; ne = ρ / CNn.μH() * max(d[TL3NEK], zero(d[TL3NEK])))))
-    τL, _ = ifsi_lw(I, k, ys[4], T, xc[2], nH, dr)
-    out = [p, u, fs[1], fs[2], Λ, cq, yq, min(τf[1], IFSI_TMAX), min(τf[2], IFSI_TMAX), min(τf[3], IFSI_TMAX), min(τL, IFSI_TMAX)]
+    cq, yq = p3_ === nothing ? (zero(uE), zero(uE)) : tl3_heat(ρ, T, d, merge(p3_, (; ne = ρ / CNn.μH() * max(d[TL3NEK], zero(d[TL3NEK])))))
+    τL, _ = ifsi_lw(I, k, z[8], T, xc[2], nH, dr)
+    out = [p, uE, fs[1], fs[2], Λ, cq, yq, min(τf[1], IFSI_TMAX), min(τf[2], IFSI_TMAX), min(τf[3], IFSI_TMAX), min(τL, IFSI_TMAX)]
     wantx ? (out, x) : out
 end
 "Δτ of the four groups in a split (not coupled) zone of the ray: start-of-step absorbers and T; LW in the carrier y₄."
