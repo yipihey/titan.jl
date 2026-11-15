@@ -741,12 +741,10 @@ function _ck_ud(v, a, b, nH, net, c, ph, ks)
     up, dn
 end
 "Free abundances with the slow ones xs (over ckinfo(net).slow) and the fast ones from equilibrium at T."
-"""
-`heold` (IONFS ray zones; default nothing): (f_He, f_He⁺, f_He²⁺ of the start of the step, Δt). The He stages are then the backward-Euler
-step of their three-state rate equations from the old fractions, (1/Δt − M) f = f_old/Δt with M the stage rates of `_ck_ud` (at the
-current iterate), instead of their equilibrium. Where the ray's photo-rates R give R Δt ≫ 1 this is the equilibrium again; where
-R Δt ≲ 1 (a step cut short at a He front) the equilibrium would ionize He in any Δt, faster than its photons arrive.
-"""
+# `heold` (IONFS ray zones; default nothing): (f_He, f_He⁺, f_He²⁺ of the start of the step, Δt). The He stages are then the backward-Euler
+# step of their three-state rate equations from the old fractions, (1/Δt − M) f = f_old/Δt with M the stage rates of `_ck_ud` (at the
+# current iterate), instead of their equilibrium. Where the ray's photo-rates R give R Δt ≫ 1 this is the equilibrium again; where
+# R Δt ≲ 1 (a step cut short at a He front) the equilibrium would ionize He in any Δt, faster than its photons arrive.
 function ck_expand(xs, T, nH, net, ph, ks, extra = nothing; heold = nothing)
     c = compiled(net); ci = ckinfo(net)
     x = zeros(promote_type(eltype(xs), typeof(T), eltype(ks)), length(net.free))
