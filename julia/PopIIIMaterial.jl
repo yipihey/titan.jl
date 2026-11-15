@@ -225,7 +225,13 @@ end
     elseif TX.cplz(k)
         # COUPLED: the network EOS of the CK expansion of the Newton iterate (inside the residual) or of the current species (outside)
         w = TX.CPLW[]
-        y = w === nothing ? cpl_zone(m, k, ρ, T, TX.XSN[][1][k], TX.XSN[][2][k]) : cpl_zone(m, k, ρ, T, w[1][k], w[2][k])
+        if IFSIMP && TX.rayz(k) && hasproperty(CPLTERMS[][k], :ray)      # (IONFSIMP ray zone: also at the iterate's ray)
+            wy = TX.CPLWY[]; yb = TX.YRN[]
+            y = w === nothing ? cpl_rayzone(m, k, ρ, T, TX.XSN[][1][k], TX.XSN[][2][k], yb[1][k], yb[2][k], yb[3][k], yb[4][k]) :
+                                cpl_rayzone(m, k, ρ, T, w[1][k], w[2][k], wy[1][k], wy[2][k], wy[3][k], wy[4][k])
+        else
+            y = w === nothing ? cpl_zone(m, k, ρ, T, TX.XSN[][1][k], TX.XSN[][2][k]) : cpl_zone(m, k, ρ, T, w[1][k], w[2][k])
+        end
         p = y[1]; u = y[2]
     else
         u, p = CNn.eos(ρ, T, m.x[k], m.net)

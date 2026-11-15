@@ -238,6 +238,7 @@ their start-of-step absorbers). Other zones: δ = 0. Block-tridiagonal: a row re
 const RAYIMP = Ref(false); const NRAY = 4
 const YRN = Ref([Float64[] for _ in 1:4]); const YR0 = Ref([Float64[] for _ in 1:4]); const YSRC = Ref(zeros(4))
 const RAYK = Ref((0, -1))
+const CPLWY = Ref{Any}(nothing)                 # (yr1…yr4) of the residual's iterate while the material is evaluated
 const CPL_RAY = Ref{Any}(nothing)               # (k, ρ, T, x1, x2, y1, y2, y3, y4) -> (p, e, S1, S2, Λ, cq, yq, τ1, τ2, τ3, τ4)
 const CPL_RAYTAU = Ref{Any}(nothing)            # (k, y1, y2, y3, y4) -> (τ1, τ2, τ3, τ4) of a split zone in the ray
 @inline rayz(k) = RAYIMP[] && RAYK[][1] <= k <= RAYK[][2]
@@ -853,11 +854,11 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             @inbounds for g in 1:NRAY, k in k0:ngre+2; yrs[g][k] = yb[g][k]; end
             @inbounds for g in 1:NRAY, bb in 1:nb; k = k0 + bb - 1; yrs[g][k] = yb[g][k] + x[(bb-1)*neqn+9+g]; end
         end
-        CPLW[] = (xs1, xs2)
+        CPLW[] = (xs1, xs2); RAYIMP[] && (CPLWY[] = (W.yr1, W.yr2, W.yr3, W.yr4))
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
         finally
-            CPLW[] = nothing
+            CPLW[] = nothing; CPLWY[] = nothing
         end
         @inbounds for k in ngrs:ngre
             if cplz(k)
