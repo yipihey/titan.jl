@@ -68,7 +68,7 @@ function kcia(t::CIA, σ, T)
     w = (T - t.T[lo]) / (t.T[hi] - t.T[lo]); (1 - w) * klo + w * khi
 end
 
-const DIR = joinpath(homedir(), "Projects", "popiii_lit", "CIA")
+const DIR = joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "CIA")
 """
 Borysow, Jørgensen & Zheng (1997, A&A 324, 185) H₂–H₂ CIA, 1000–7000 K (A. Borysow's distribution `cia_h2h2.dat`,
 800–20 088 cm⁻¹, 211 wavenumbers; units cm⁻¹ amagat⁻² → cm⁵ by 1/n_L², n_L = 2.6867811e19 cm⁻³ — checked against HITRAN:

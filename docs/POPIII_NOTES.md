@@ -1689,9 +1689,8 @@ extended 41 %, blends 3 %):
 - Conduction (all T, switched on over log ρ −6…−5 and log T 4…5): 1/κ = 1/κ_rad + w_c/κ_cond, κ_cond = 16σT³/(3ρK) with Cassisi's K,
   1/K = X/K_H + Y/K_He. Negligible except in degenerate matter: at ρ = 150, T = 1.5e7 (solar centre) κ_cond/κ_rad = 1000; a He core
   at ρ = 1e6, 1e7 K has κ_rad 390, κ_cond 6e-5 (conduction decides). During Pop III hydrogen burning ρ_c ≲ 1e2–1e3: irrelevant.
-- Planck mean: own means below 3.8; blend over 3.8–4.1; above, the Z0Physics continuum Planck mean for general X (Saha H/He, bound-free,
-  free-free with g = 1, H⁻), times the free-free Pauli factor above 1e6 K. **No lines** (a lower bound at 10⁴–10⁵ K, where lines raise κ_P
-  by a factor of a few), agrees with the Z0Physics table at X = 0.76 to ≤ 0.3 % for log R ≤ −4, log T 4.5–7.
+- Planck mean: own means below 3.8; blend over 3.8–4.1; above, the Z0Physics Planck mean with lines for general X, times the free-free
+  Pauli factor above 1e6 K. (Before S6-C1e this was a continuum mean with g = 1 and no lines, with a level-population bug: see there.)
 
 **High-T model** (`kappa_high`): κ_es = 0.2(1+X) f_T D with f_T = 1/(1+(T/4.5e8)^0.95) (Buchler–Yueh/Paczyński form; exponent refitted from
 0.86 to OPAL's R = 1e-8 column, 1 % over 1e6–3e8 K), D = 1/(1+2.7e11ρ/T²) (Paczyński degeneracy), plus free–free 3.68e22 g(T)(1+X)ρT^-3.5/
@@ -1884,3 +1883,280 @@ CNO self-production, 100 M☉ (t; X_CNO,c; ε_CNO/ε; T_c): 1e3 yr 1.5e-12, 0.04
 Evolution, 100 M☉ (X_c; t [yr]; R; log L; log Teff; T_c [1e8 K]): 0.745; 3.2e4; 4.28; 6.128; 4.977; 1.281 | 0.5; 1.38e6; 6.06; 6.234; 4.928; 1.190 | 0.3; 2.19e6; 9.2; 6.309; 4.856; 1.194 | 0.1; 2.78e6; 21.9; 6.367; 4.682; 1.225 | 1e-3; 3.026e6; 76.7; 6.406; 4.420; 1.382.
 15 M☉: 0.745; 1.09e5; 1.47; 4.362; 4.769; 0.994 | 0.5; 4.76e6; 1.87; 4.486; 4.747; 1.009 | 0.3; 7.52e6; 2.40; 4.577; 4.715; 1.017 | 0.1; 9.34e6; 3.23; 4.650; 4.669; 1.048 | 1e-3; 1.003e7; 3.56; 4.700; 4.661; 1.230.
 Ledger: cumulative closure 4.7e-5 (100 M☉; max 4e-4 after 1e4 yr) / 2.4e-5 (15 M☉); MS ⟨L_surf⟩/⟨L_nuc⟩ 0.9970 / 0.9967. Steps, last segment incl. 53/49 relaxation: 3375 / 1524, wall 1.16e4 s / 4.4e3 s (4 threads); whole 100 M☉ chain 5.9e3 steps.
+
+---
+
+## S6-A Checkpoint / restart of the collapse driver (30 Oct 2026) [run]
+
+`popiii_m2c.jl`: `SAVE=name` writes `lib/popiii/ck/m2c_<name>.tstate.gz` (TF.save_state) + `.aux` (serialized: the NetGas
+per-zone state x, eqzone, Λext, Tref, slope; the hybrid-NLTE bookkeeping ALIFAC/ALILAST/ALIINT/NALICALL; NIMP, LLINE,
+nextln, SNAPNEXT, SNAPS; Trbdf2.STATS and BE_LEFT; PEXT; the step number; the ENV of the settings in `CKENV`) at the end
+and every `CKEVERY` [500] steps (`<name>_auto0/1`). `RESTART=name` runs the set-up as usual (same ENV; a mismatch in
+`CKENV` is an error), then replaces state, material, bookkeeping and step number; tmax is reset (a TSTOP/NSTOP stop sets it to
+the last time). The log is appended to. NetGas only (CHEM=net*).
+
+**Test [run]** (z = 19 settings of the final2 run): 600 steps straight vs 300 + SAVE + RESTART + 300: all 591 TITAN state
+arrays, the material state and the bookkeeping identical bit for bit.
+
+**Rerun of z = 19 final2 on the Linux machine (Julia 1.12.6)** with SAVE (`m2c_abn02z19_lines_n200_s6base.log`): 9742 steps,
+1 BDF retry, the same as final2; the logged rows (e.g. steps 345, 500; T_c 1796 K at log n_c 14.14) agree digit for digit.
+Wall time ≈ 4 h (4 threads), ~16 s/step once the H₂ lines are thick (line transfer dominates).
+
+Data outside the repository, fetched on this machine into `~/Projects/popiii_lit/`: ExoMol RACPPK states/trans (exomol.com),
+Cloudy c25.00 `data/h2/coll_rates_*.dat` (gitlab.nublado.org, tag c25.00), SCVH95 `h_tab_i.dat`, `he_tab_i.dat` (yreclab/yrec
+`input/eos/scv/`; sha256 as in S2 above ✓), REACLIB `reaclib_default2_20250330` (pynucastro 3.1.0 `pynucastro/data/`;
+sha256 24e1f37c…ba862 ✓). HITRAN CIA not reachable (not needed by these runs: StellarOpacity is a table in the repo).
+`popiii_tests.jl`: `POPIII_PROJECT` selects the Julia project of the test processes (the repo env's RunConvention source path
+exists only on the Mac).
+
+## S6-B Second collapse with TITAN radiation: protostellar core (30–31 Oct 2026) [run]
+
+**Mode.** `RAD=1 RADFROM=<checkpoint>` restores a hydrodynamics-only checkpoint and rebuilds its profile (r, ρ, T, u) as a
+radiating state (`PS.build!(rad = true)`: SUBC template, neqn = 7, ngrs 4 → 5; the material's zone arrays shifted), carrying over
+time, Δt, step number and the solver controls (niter, ntry, omega, sigd, sige, stol, conv, thet). Opacity:
+`PopIIIMaterial.OPAC[] = StellarOpacity` κ_R, κ_P at X = 0.75 (own CIA/H⁻ means in chemical equilibrium below 10^3.8 K, OPAL
+above). The RA04 CIE escape-factor term is dropped (the continuum is in the transfer); the H₂ lines stay as Λext (H2Lines,
+hybrid NLTE). Outer boundary: incoming CMB intensity, ximr = σT_CMB⁴/π. Initial field: E_r = a[T_CMB⁴ + (T⁴ − T_CMB⁴)(1 − e^−τ_R)]
+inside the photosphere, outside it the steady free-streaming field of the photospheric luminosity on the CMB; F_r flux-limited
+diffusion inside, L_ph/4πr² outside.
+
+**Four things that had to be fixed** before the run went:
+1. **`xnen` (bug).** NetGas never set the electron density, so the formal solution's scattering term used the SUBC template's
+   4.7e14 cm⁻³ in zones 1–104 and 0 beyond: S = J where σ_e n_e ≫ χρ by 10⁷, an inconsistent seam at zone 104 and runaway
+   E_r with F/cE up to 165 in the thin envelope. `fill_opac!(::NetGas)` now sets xnen from the zone's H⁺ (table or network).
+2. **Δt from E_r of the thin envelope.** TITAN's timstp includes |ΔE_r/E_r| in every zone; in the optically thin envelope E_r
+   (≈ CMB + dilute photospheric light, decoupled from the gas) set Δt to ~50 s. `TitanCore.ER_TAUMIN[]` (default 0 = TITAN's
+   rule; RAD runs `ERTAUMIN` = 1) leaves zones with τ_R from the surface < 1 out of the criterion.
+3. **Newton failures for Δt ≳ r/c of the near-free-streaming layers** (r ~ 1e14 cm, ~3e3 s; Eddington factors lagged over the
+   step): cap `DTRADMAX` [1500 s] through `TC.DT_HOOKS`. Without the cap (after fix 1) still 10 divergences in the first 60
+   steps, similar progress; with it none. The collapse's own C_dyn limit is below 1500 s from log n_c ≈ 20.
+4. **Eddington approximation tried and rejected:** `LTRAN=2` (f = 1/3, g = ½) diverges on the first step for any Δt (10 retries).
+Diagnostics: `ERDIAG=steps` (radiation field per zone: τ, E/aT⁴, E/aT_CMB⁴, F/cE, f), `DTDIAG` now names the E_r limit,
+`MSG=1` prints Newton divergences with the last correction per equation (`TitanDriver.msg`, only when MSGIO is not devnull),
+`PRINTEVERY`.
+
+**Run** (`m2c_abn02z19_lines_n200_rad.log`, snapshots `snaps_abn02z19_lines_n200_rad.jls`, checkpoints `ck/m2c_z19rad*`): from the
+step-9500 checkpoint of S6-A (log n_c 18.55, T_c 3639 K, τ_R(centre) = 790, photosphere at zone 81, r = 4.1e12 cm,
+L_ph = 1.1e35 erg/s), TSTOP = 1e5, NSTOP = 1e25, TR-BDF2:
+
+| log n_c | 19.0 | 19.6 | 20.0 | 20.5 | 21.0 | 21.5 | 22.0 | 22.5 | 22.9 | 22.99 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| T_c [K] | 4087 | 4905 | 5943 | 8326 | 14272 | 20651 | 28560 | 41291 | 63245 | 71112 (step 18150) |
+| f_H₂,c | 0.56 | 0.43 | 0.31 | 0.15 | 0.053 | 0.046 | 0.048 | 0.038 | 0.027 | 0.025 |
+| u_min [km/s] | −6.7 | −7.2 | −7.6 | −8.2 | −9.7 | −11.8 | −13.0 | −13.6 | −13.6 | −13.5 |
+
+- Below log n_c = 20 the radiating run is 10–15 % below ON98, as the hydro-only run (T_c 4087 vs 3975 K at 18.9: radiation
+  transfer vs the RA04 escape factor changes T_c by ≲ 3 % here).
+- H₂ dissociation (f_H₂,c 0.6 → 0.05 between 1e19 and 1e21) drives the second collapse; T_c passes 1e4 K at log n_c 20.7.
+- **Protostellar core** (snapshot at step 10713, log n_c 21.7): the inner 2.4e-3 M☉ is nearly static (|u| ≤ 2 km/s), T_c = 2.5e4 K,
+  n_c = 5e21; accretion shock at m = 2.4e-3 M☉, r = 1.3 R☉ (infall −12.5 → −5 km/s, n 1e21 → 1e19 across interfaces 61–65).
+  1.7 d later (step 12365): 3.4e-3 M☉, 0.84 R☉, T_c 5.7e4 K, pre-shock −13.8 km/s; Ṁ ≈ 0.2 M☉/yr (shell-resolution limited,
+  ±30 %). Core mass and radius as ON98 / Yoshida, Omukai & Hernquist 2008 (few 1e-3 M☉, ~1 R☉) [comparison from memory of those
+  papers: check against the tables before quoting].
+- n_c saturates at 10^22.99 from step ~14000; the core contracts slowly (Δt ≈ 47 s, ~25 s/step: the H₂ line transfer with up to
+  200 bins dominates the cost).
+
+**Limits for the accretion phase (S6-C).** (i) The shock is resolved by 2–4 shells of ~3e-4 M☉; the geometric shells reach
+0.1 M☉ at 1 M☉ enclosed: conservative mass rezoning is needed (C2). (ii) Above ~1e5–1e6 K the core needs StarMaterial
+(StellarEOS, NucNet: D burning) instead of the chemistry gas (C1). (iii) Cost: the H₂ line transfer over the whole grid at
+every step; inside the continuum photosphere the lines can be dropped.
+
+## S6-C2 Conservative mass rezoning (31 Oct 2026) [run]
+
+**Code.** `julia/Rezone.jl` (profile-level split/merge, see its docstring) + `popiii_m2c.jl` `rezone!` (REZONE=1, every
+REZEVERY [20] steps, RAD runs only): the TITAN state is rebuilt from the new profile by `rebuild!` (shared with the RAD rebuild)
+— no COMMON array is edited zone by zone. Split: equal-mass halves, minmod-limited linear reconstruction of ln ρ (interface from
+the inner half's mass), e (mass-weighted ±δ), ln E_r (volume-weighted); T of each half from the material EOS. Merge: mass-weighted
+e and composition, volume-weighted E_r and Λext, kinetic-energy change of the staggered grid into e. Criteria: indicator J = max
+over the zone and its neighbours of |second difference| of ln ρ, ln T and compression/c_s (a plain jump test flags every zone of
+the steep geometric envelope); split if J > REZJSPLIT [0.3] and Δm > REZFRAC [0.01] × enclosed mass; neighbouring masses within
+REZQMAX [2.5] (1.5 cascades: one split leaves the q = 1.12 neighbour 2.2× heavier); merges (J < 0.05, outside the inner 5 zones)
+only above REZNMAX [260] zones; hard limit mgr − 12; even zone count (PS.build!). REZDBG=1 lists the operations.
+A piecewise-constant split was tried first: its staircase re-triggers the curvature indicator at the edge of the refined band
+(splits 2, 6, 14, 22, 30, 38 per rezone, then 22 splits + 22 merges every time). With the linear reconstruction the refinement
+converges (26 splits in 5 rezones, then none).
+
+**Conservation [run]** (z = 19, from step 18100, measured over the changed zones only: whole-grid totals are dominated by the
+1e4 M☉ envelope): mass 1e-16, Eint + Ekin + Erad ≤ 1.4e-13 (after the rebuild, i.e. including the T inversion); momentum
+round-off for splits, ≤ 8e-4 of the local Σ m u when merges are involved. Standalone unit test (synthetic profile, 14 splits +
+2 merges): mass 2e-16, energy 8e-17, radiation energy 1e-16.
+
+**Validation [run]** (`*_rez.log`, `*_norez.log`, snapshots every 100 steps; both from checkpoint z19c2 = step 18100, 400 steps):
+- T_c identical to 0.5 K (71211.8 vs 71212.3 K at step 18300), pre-shock infall −13.47 vs −13.48 km/s.
+- Resolution at the core surface: zone Δm/m 0.014 (rezoned, 224 zones) vs 0.105.
+- The "accretion shock" at this stage is a broad settling layer (infall decelerates from −13.5 km/s to ~0 over m ≈ 0.0045–0.009
+  M☉, Δm/m ≈ 0.5), already resolved by ~6 zones of the original grid; n, T, u of both runs agree.
+- **Velocity blip (open at first, resolved below, S6-C2b):** the rezoned run has an outward velocity at the inner edge of the
+  refined band (m ≈ 0.0046 M☉): +1.39 km/s at step 18200, +1.63 at 18300; none in the unrezoned run. Not the rebuild.
+
+**Cost.** The H₂ line ALI (≈ 50–70 s per call at 200–224 zones; an EP step ≈ 1 s) dominates every RAD step in this phase. The
+adaptive refresh (ALIINT) needs a factor drift < 1 % to grow and ALI noise is ~1–5 %, so it sits at 1–2: options ALIGROW,
+ALISHRINK (defaults 0.01, 0.05 as before) and ALIWMIN (weight the drift by line luminosity; default 0 = as before). ALIGROW = 0.03
++ ALIWMIN = 1e-4: ALI on 20 of 30 steps instead of 18 of 20, T_c unchanged. A real speed-up (lines only outside the continuum
+photosphere, fewer bins) is still to do.
+
+## S6-C2b Rezoning follow-ups, cost, resolution (31 Oct – 1 Nov 2026) [run]
+
+**The blip is refinement of a formed core, not the rebuild.** REZNULL=1 (rebuild with no zone change) moves the solution by 2e-8.
+A pressure-consistent split (REZPSPLIT) does not remove the blip. Static pre-refinement before the core forms (REFINE=mlo,mhi,frac)
+gives no outward motion. Cause: halves of a formed core are not in the discrete balance of the finer grid. Use REFINE for the
+core, and REZWIN=flo,fhi,frac (moving window around the shock, in units of its enclosed mass) for accretion.
+
+**Line transfer cost.** Line transfer was > 99 % of a step. LTAUCUT [10]: zones deeper than continuum τ = LTAUCUT merge into one
+transparent zone for the line transfer; with threaded opacity and escape probability, ALI 32 → 3.2 s (-t 16). T_c and L_lines
+unchanged in the printed digits. LTRAN=2 diverges (rejected).
+
+**L_lines and the hybrid ALI factor (1 Nov; LLDIAG=1 prints the closure).** At step 13001 (T_c 96 100 K): uncorrected EP Lr = 2.915e36,
+ALI Lr = 5.392e36 erg/s. Older logs printed the EP value on EP steps (bins 0) and the ALI value on ALI steps (bins > 0), hence the
+flip; the print now reports the Λ applied. That also exposed a real inconsistency, **not fixed**: Λ = f Λ_EP with f = Λ_ALI/Λ_EP falls
+back to f = 1 where the two differ in sign. Those are 8 cold far-envelope zones (T 240–390 K, r 4e18–1.6e19 cm) where ALI gives net line
+heating, −5.1e35 erg/s in total, and EP a negligible +4e32. So on EP steps Σ f Λ_EP V = 5.905e36, 10 % above ALI, and this heating is
+dropped; on ALI steps it is applied. In this phase ALI and EP steps are of comparable number. Negligible for the protostar over the
+years simulated (those zones have dynamical times ~1e6 yr), but it would matter for long integrations of the envelope.
+
+**Δt.** Removing the Δt limits (CDYN 10–1000, DTRADMAX=0): no divergences; 800 steps → 0.5 yr, ≈ 315 steps per e-fold of core
+mass; then limited by stol at the accretion layer. CDYN 10 vs 1000: 4 K at 0.23 yr, ~1 % by 0.4 yr.
+
+**EOS switch limit cycle.** At PSWITCH a zone cycled (zone 98, T 8338 ↔ 9298 K, Δt → 0.01 s). PSWHYS=0.3 adds hysteresis.
+
+**Resolution of core formation** (z = 19; 200, 326 and 696 zones, the last two REFINE'd; values at T_c ≈ 42 000 K from snapshots):
+
+| zones | m(u_min) [M☉] | u_min [km/s] | m(u < −2 km/s) [M☉] | r there [R☉] |
+|---|---|---|---|---|
+| 200 | 4.7e-3 | −13.6 | 1.2e-3 | 0.39 |
+| 326 | 3.1e-3 | −22.0 | 2.6e-4 | 0.20 |
+| 696 | 3.0e-3 | −25.2 | 1.5e-4 | 0.16 |
+
+The mass at the fastest infall (the core's shock) is converged to ~3e-3 M☉ between 326 and 696 zones; the infall speed is still
+rising ~15 % per doubling; the u < −2 km/s mass is not a usable core mass (the core is still contracting and the measure jumps).
+T_c(n_c) is insensitive (46098 vs 46072 K at 10^22.64, 326 vs 200 zones). Not yet compared with published tables.
+
+**Central pulse in the 696-zone run.** T_c rises from 34 600 to 46 900 K and returns to 37 500 K over steps 10780–10830 (~3000 s),
+log n_c +0.33 and back, reproduced step for step from a checkpoint. At steps 10800 and 10804 the innermost zones themselves move
+in at > 2 km/s. Reading: a compression pulse focusing at the centre, on the sound-crossing time of the core. Not seen in the rows of
+the 326-zone run; origin of the pulse not traced, and whether it is physical is not established. T_c afterwards rejoins the trend.
+
+## S6-C1 Hot branch of NetGas and S5 implicit coupling (1 Nov 2026) [run]
+
+**Blend.** NetGas blends to StellarEOS over T1–T2 [3e5, 9e5 K] with an energy offset Δ0 = e_star − e_net at (1e-4, 1e6) = 1.092e13
+erg/g; chemistry skipped above T1; abundances (D/H 2.5e-5, ³He/H 1e-5) carried in a StarGas holder (`SG[]`); opacity from
+StellarOpacity (table logT 1.5–9.5).
+
+**Coupling (HOT=1).** The first version burned operator-split after each step. Now the S5 scheme: ε(ρ, T) in TITAN's energy row
+with ∂ε/∂T in the Jacobian (`TX.material_source`, zones above T1), level factor f_k, stage ledger, `SM.solve_step!` (TD.STEPFN),
+`burn!` along each step's T–ρ path, `mix!`, composition Δt caps. `StarMaterial` gets two hooks, TSOLVE (T from e through the blend) and
+ZONEOK (hot zones only); defaults keep S5 unchanged. Star state (fscale, fslope, fcur, Dmix, dtcap, capE, ledger, Yprev) is
+checkpointed and mapped through rezoning; older checkpoints load.
+
+**Validation against S5 [run].** 100 M☉, Z = 0, 140 zones, from the same S5 checkpoint (t = 2.01 yr, STARFROM), HOTT1=2e4 HOTT2=3e4 so
+the whole star is on the stellar branch, S5NUM=1 (S5's predictor and Δt rule), to 3400 yr:
+
+| t [yr] | T_c/1e8 hot | S5 | CNO_c hot | S5 | L_nuc hot [erg/s] | S5 ⟨L_nuc⟩ (10-step mean) |
+|---|---|---|---|---|---|---|
+| 1000 | 1.12625 | 1.12624 | 1.410e-12 | 1.409e-12 | 1.463e38 | 1.456e38 |
+| 2000 | 1.20321 | 1.20319 | 2.450e-11 | 2.447e-11 | 2.132e38 | 2.123e38 |
+| 3000 | 1.27893 | 1.27891 | 1.330e-10 | 1.331e-10 | 5.177e38 | 5.141e38 |
+| 3300 | 1.30015 | 1.30014 | 1.620e-10 | 1.622e-10 | 8.238e38 | 8.135e38 |
+
+max |ΔT_c/T_c| = 2e-5; integrator statistics identical (1622 steps, 1038 TR failures, 32 sticky BE, 4 fallbacks). CNO ≥ 90 % of ε from
+about 3000 yr. **Scope:** this tests the transplant of the numerics, not independent physics. It stops at L_nuc/L ≈ 0.16, before
+the T_c peak (1.33e8 K, ~1e4 yr). Burning through the blend band and rezoning with burning are not covered by it.
+
+**No effect below T1 [run].** HOT=1 vs off, 25 steps from step 18900 (T_c 112 682 K): printed rows identical; also identical to
+the same rows before the coupling. Full suite 19/20, S4 regression bit-identical, s5_zams15 pass; `stellaropacity` fails only for
+the missing OPAL GN93 file.
+
+## S6-C1b Δt collapse in the accretion run: E_r of the thin envelope (1 Nov 2026) [run]
+
+The accretion run stalled at step ~13650 (T_c 100 744 K, m* ≈ 0.04 M☉): Δt fell from ~1e3 s to 1e-245 s over 3300 steps, then NaN. Replays
+from step 13000 with HOT=1 and HOT=0 agree in every printed row to step 13620, and HOT=0 stalls as well: not the S5 coupling. The Newton correction
+that does not shrink with Δt is relative E_r in thin zones (τ ~ 1e-4, z ≈ 249), through `dmax` it damps and blocks the whole grid. The radiation
+field there is unphysical: F/cE up to 440 (z 236–264 all > 1) with E/aT⁴ ≪ 1. Reading: E and F are nearly uncoupled there, E follows from
+integrating the Eddington factor inward from the CMB boundary, and the discretisation error over the transition from the core's beam to the
+isotropic field leaves E too low; the discrete solution wants E < 0. Growing L makes this worse with time.
+
+First fix, E_r correction ignored for τ < 0.01: results before the stall unchanged but the failure only moved to z 227, just inside that limit.
+**Fix (`TC.ER_TAUCONV`, driver ERTAUCONV [1], TitanCore default 0 = off):** for τ < ERTAUCONV, where E(1+δ) < |F|/c, E is set to |F|/c (wrong for inward flux; corrected in S6-C1e) and that
+correction neither enters dmax nor is damped. From step 13620: through the stall, to 13920 (T_c 103 400 K, m* 0.041 M☉) with 1 divergence in 300
+steps. Rows to step 13180 identical to the run without the floor. The floor is a repair of a closure failure, not a solution of the thin transfer:
+E_r there is only a lower bound, and it enters the gas energy through χ_P c E with E/aT⁴ ≲ 0.03 in tiny χ.
+
+**Not understood yet:** since step ~12500 the accretion layer breathes (u_min between −20 and −37 km/s, R* 3–11 R☉, Δt 50–2e4 s, T_c not monotonic
+at the 1e3 K level), ρ and T non-monotonic in the layer (z ~ 180 at 3–5 R☉). Present with the old and new code. Whether this is physical
+(the ionization of H in the radiative precursor) or numerical has not been tested; the core's mean trend looks steady.
+
+DTSTOP stops an unattended run whose Δt has collapsed, before the alternating checkpoints are overwritten with the dead state (it happened here; a
+copy of step 13000 saved the run).
+
+**ChemNet Newton freeze (step 14267).** Network zone at n_H = 8.9e15, T = 3315 K: every h down to dt/4096 failed. H₂ row far from balance
+(residual 16 at x_H₂ = 0.23), the linearised H₂⁺ update strongly negative, and the positivity limiter scaled the whole correction: λ ≈ 0.9 x/|δ|, x_H₂⁺
+from 6e-15 to 6e-74 in 60 iterations, λ → 4e-60, T and the rest frozen. `ChemNet.CLIPDEPTH` [4]: from that recursion depth a failed Newton is
+retried clipping each free abundance on its own. Runs that do not reach depth 4 are bit-identical. Passes step 14267.
+
+
+### S6-C1c: the Δt collapse at step 14800 was a false MLT flux
+
+The accretion run stalled again at step 14854 (Δt from 10³ s to 10⁻² s, no NaN). One zone pair exchanged energy: over steps
+14750–14850 every zone near it stays adiabatic (de = −p dV to 10⁻⁵), while zones 157 and 158 show exactly opposite residuals,
+growing from 3×10³³ to 2×10⁴⁰ erg/s, e-folding in seconds. The radiative flux between them is ~10²⁸ erg/s (τ ≈ 10¹³).
+
+Cause: below T1 `material_thermo(::NetGas)` "switched off" MLT with ∇_ad = 10, and ∇ = Δln T/Δln P at that interface crossed 10
+(9.98 at 14750, 10.003 at 14790, 13.0 at 14850) because of the T jump there (below). The flux then used the placeholder
+c_P = 10⁹. So below T1 HOT=1 was not strictly a no-op, as S6-C1 said; it was until ∇ reached 10. ∇_ad is now 10³⁰. The run from
+step 14700 repeats the rows up to 14790 and passes 14854 with Δt 10³–10⁴ s and no divergence; the quick suite passes (8/8).
+
+Still open: the T jumps themselves. Interior zones alternate by up to a factor of 2 in T, with ρ opposite and p continuous
+(step 14850: 72,800 / 147,100 / 124,400 / 67,000 / 48,000 K at m ≈ 0.018 M⊙). They are frozen entropy bands, from m ≈ 0.0036 M⊙
+outwards. T_max = 147,000 K is in such a band, so it is not a physical temperature peak of the star. They are older than the
+coupling and the rezoning: the HOT=0 run without rezoning has 6 jumps with |Δln T| > 0.2 at T_c = 71,000 K. There is no
+convection below T1 to remove them, although ∇ ≫ ∇_ad at their edges.
+
+### S6-C1d: the breathing is zoning; MLT below T1 removes the entropy bands
+
+Breathing (all from step 14200): u_min moves out exactly one zone per cycle, so it comes from the mass zoning, not the star. The
+interval between zones is close to Δm/Ṁ (Ṁ ≈ 0.1 M⊙/yr): 6.5 and 5.7 d at Δm = 0.00155 M⊙, 0.7–2.6 d at 0.00039; at 0.00078, during
+refinement, 4.5–5.2 d against 2.8 predicted. A 10× lower Δt cap (1000 s) keeps the cycle. Finer zones narrow the swing of r(u_min)
+from 33–63 to 25–33 R⊙ and of u_min from −19…−41 to −24…−33 km/s, but only ~9 d were run at the finest zoning and do not remove it.
+That run stopped at step 14848 (Δt collapse); it had the old ∇_ad = 10 code, and the cause there was not checked.
+`CDYN=10` is no test of Δt: it never limits, the rows equal CDYN=1000.
+
+`COLDMLT=<Tmin>` (default off): MLT also on the table EOS, in equilibrium zones with T > Tmin, `MLT_NOINFALL` on. From step 15000 (10⁴ K):
+
+| α | outcome |
+|---|---|
+| 1.5 from the banded state | Δt collapses in the first step |
+| 0.2 from the banded state | Δt ~1 s, no progress |
+| 0.05 | jumps with |Δln T| > 0.2: 36 → 3 in 33 d, T_max 152,000 → 126,000 K, no divergence |
+| ramp 0.05, 0.1, 0.2, 0.5, 1, 1.5 | no divergence in 1400 steps to 16400 (157 d), Δt up to 5×10⁴ s |
+
+At step 16400 with α = 1.5, m(u_min) = 0.115 M⊙, entropy rises outwards at all sampled zones from m = 0.0035 to 0.10 M⊙, and the only jumps left are the two at
+the surface. Small zone-to-zone T wiggles remain (a few %). T_max = 131,800 K at m = 0.0033 M⊙ against T_c = 114,700 K: this off-centre peak survives
+convection, not yet examined. The route through low α is a way past the banded state, and MLT at ∇ ≫ ∇_ad is outside its validity, so that history carries no
+physics; only what the run does at α = 1.5 afterwards counts. Breathing continues with MLT (u_min −19 to −41 km/s, r(u_min) up to 114 R⊙). Not done: the full test
+suite with these changes, an MLT run from the start of the protostar instead of from a banded state, a comparison with published protostar models.
+
+### S6-C1e: opacity physics, the E_r floor, and what they changed
+
+**Z0 opacity.** OPAL was right and Z0 wrong. `level_pops` normalized the Saha ground-state density across all levels, and there were no lines.
+Now: occupation probabilities, dissolved bound-free, van Hoof g_ff, Stobbe/Seaton g_bf, exact f_nn', Stark patterns, NIST He I. Details and limits in
+`Z0_EOS_OPACITY.md`. Both Z0 tables and the Planck part of `kaptable_stellar` were rebuilt; stellar log κ_R is unchanged (max |Δ| = 7e-15). Stellar Δlog κ_P: 1.5–2.6 at
+log T 4–4.5 (log R = −8), 0.3–1.1 at log T 5–6. The first Z0 build predated the U floor fix and had 44,815 NaN nodes at log T ≥ 6.075; those nodes were recomputed. Table against direct
+calculation at 966 off-node points: 99 % within 0.5 % (κ_R) and 1 % (κ_P), worst 1.29 at log T 4.75, log R 0.7. Z0 vs OPAL: ≤ 1.17 at log R ≤ −2, ×1.74 at log R = −1; dense gas (log R 0–1, log T 4.25–4.75) is ×1.6–6 low
+and stays unresolved. The Stark impact width has `IMPACT_CAL = 0.2`, calibrated to Gigosos 2003 widths whose coefficients were not checked against the paper.
+
+**E_r causality floor bug (commit 4b90c91, ER_TAUCONV).** The floor used |F|/c, so an inward flux set E, and E drove that flux: energy from nothing. The main run stopped at step 22462 (Δt → 2e-3 s); with DTSTOP lowered
+zone 218 reached 191,000 K at constant ρ, u (~1e45 erg gained). The floor now uses outward flux only, `max(F_k, F_k+1, 0)/c`, and otherwise only keeps E positive (`TC.ESRC_FLOORS` counts activations). The same stretch then runs at Δt 1e4–2e5 s with L ≈ 3–5e37 erg/s, against L_acc ≈ 8e37.
+
+Checks (each a restart comparison at equal time):
+| comparison | span | result |
+|---|---|---|
+| patched vs old floor | 16400 → 17400 (146 d) | T_c +31 K, T(0.03) +0.15 %, T(0.1) +0.7 %, entropy ≤ 0.001, R(u_min) 98.5 vs 101.9 R⊙ |
+| new vs old tables | ~22400 → 23200 | T_c 1 K, T(0.3) 0.02 %; largest at the surface zones: zone 218 −1.4 % |
+| κ_cond ×0.3, κ_rad ×3 beyond log R = 1 vs nominal | same | T_c 4 K of 129,000; R(u_min) 283.1 vs 284.5 R⊙ |
+
+κ_P changes little because the zones where it changed have e/(c κ_P a T⁴) ≲ 3e-6 s, so they are already at T = T_rad; the T drop through the photosphere (11,600 → 4,600 K, zones 217→218) is one zone, below the range where lines were added. So this
+says nothing about a resolved photosphere. The core test covers about a year; the core diffusion time was only estimated (~1e6 yr), not measured. Floor effect before step 16400 and after 17400 is not measured (run `_p2` extends it).
+
+Main run vs finer zones (`_mf`, to step 17900, day 151): T(0.1) differs by up to ±9 %, entropy ≤ 0.03 at m = 0.03, 0.1 and up to 0.18 at m = 0.12; breathing period ~15 d (fine) vs 18–26 d. Inconclusive: fine zones begin only at ~0.15 M⊙. The shock spans one zone.
+
+Open: m*(t), R*(t) are not results until the breathing is resolved or replaced by a boundary treatment. Not compared yet with Hosokawa+2012, Omukai & Palla 2003 tables in `popiii_lit/stellar`.

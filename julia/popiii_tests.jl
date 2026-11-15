@@ -17,7 +17,9 @@ allnums(rx, s) = [parse(Float64, m.captures[1]) for m in eachmatch(rx, s)]
 "The first match of rx in s as a string (\"?\" if none)."
 grab(rx, s) = (m = match(rx, s); m === nothing ? "?" : strip(m.match))
 env(c::Cmd, kv...) = addenv(c, kv...)
-julia(args...; t = 1) = `julia -t $t --project=$(joinpath(J, "env")) $args`
+"Julia project of the test processes (POPIII_PROJECT overrides, e.g. an environment without the Mac-only RunConvention path)."
+const PROJ = get(ENV, "POPIII_PROJECT", joinpath(J, "env"))
+julia(args...; t = 1) = `julia -t $t --project=$PROJ $args`
 
 "S5 15 Msun ZAMS check (Schaerer 2002 Table 3: log L 4.324, log Teff 4.759)."
 function check_s5_zams15(o)

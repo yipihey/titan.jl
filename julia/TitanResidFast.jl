@@ -62,6 +62,23 @@ const BUFS = Dict{Symbol,Any}()     # reused context buffers (allocation-free co
 "Defaults for the energy formulation (Phase 4 item 2); ETOTAL[] = true selects the total-energy row."
 const ETOTAL = Ref(false)
 const ETASW = Ref(0.0)
+"Added to e in the dual-energy test, for a material whose e has a negative zero point (Population III: −1e13 erg/g), where the ratio otherwise has no meaning and can be singular."
+const ETASW_EOFF = Ref(0.0)
+"""
+ETASW_TH[] (`ETASWTH`, default 0 = off): a zone also keeps the internal-energy row where its thermal energy 3p/2ρ is less than this fraction of
+3p/2ρ + E_r/ρ + K/m. There the total-energy row gives the gas energy as a small difference, and it is not the first law of the gas: total row minus
+kinetic energy minus radiation-energy row leaves −u [∂(fE)/∂r + (3f − 1)E/r + χρF/c] on the gas, which vanishes only if the radiation momentum equation
+holds in its static form. In transparent zones with a gradient of E_r it does not (the row is `FLUXTIE`'s there), and inflow against the gradient
+cools the gas: 0.12 K/yr at 2.6 pc in the 146-zone run, to 17 K and then 11.7 K, where the run stopped twice (11 Nov 2026; docs/POPIII_RUNS.md).
+"""
+const ETASW_TH = Ref(0.0)
+"""
+ETASW_TIE[] (`ETASWTIE`, default 0 = off): a zone also keeps the internal-energy row where the FLUXTIE weight at its inner
+interface is at least this value (0 < ETASWTIE <= 1). Where the radiation momentum row is the closure F = h c E instead of the
+moment equation, total-energy row − kinetic energy − radiation-energy row leaves −u × (moment-equation residual) on the gas;
+this selects the first law there by cause instead of by the size of the thermal energy (ETASWTH).
+"""
+const ETASW_TIE = Ref(0.0)
 """
 GASROW[] (lrad = 1 only): energy row of the gas ALONE,
   Δ(m e_g)/dt + advection of e_g + p_g ∇·u + Q_visc + MLT flux = −(c κ_E E − 4π κ_P B) ρ dV,
@@ -106,11 +123,43 @@ Empty (default) = TITAN's x_mtot − x_me.
 """
 const XMINT = Ref(Float64[])
 """
+ADV_REL[] (ENV ADVREL=1; default off): on the Lagrangian grid with frozen interior masses (XMINT) the interfaces move with the gas only at convergence. In
+an unconverged iterate u_rel = u − Δr/Δt ≠ 0 and the continuity row carries mass r² u_rel ρ_b across the interfaces, but with dm_e/dt = 0 that mass carried no
+momentum and no energy. The energy row then holds e × (the zone's mass defect), which depends on the zero point of e: with e = 0 for ionised gas, neutral gas
+has e ≈ −1e13 erg/g ≈ 400 c_v T at 250 K, so a zone that gains 1e-3 of its mass in the linearised step is heated by 40 %. Above a critical Δt that feedback
+makes the Jacobian singular at the predicted state (one singular value 1e-15, a zone-to-zone mode in u of the central zones) and Newton diverges from its first
+iteration. With ADV_REL the same mass flux advects momentum and energy (dm_e/dt := −r² u_rel ρ_b in those rows), as on TITAN's own grids. The converged
+solution is unchanged (u_rel = 0 there).
+"""
+const ADV_REL = Ref(get(ENV, "ADVREL", "0") == "1")
+"""
 PEXT[] (lgrid = 3, llobc = 1): free outer boundary. The outermost interface obeys the momentum equation of its half
 zone with a constant external pressure PEXT[] outside (RHFC02 App. A2.3) instead of the piston u = uextr. NaN
 (default) = TITAN's piston.
 """
 const PEXT = Ref(NaN)
+"""
+GRIDWIN[] (lgrid = 2 only): adaptive window on the fixed mesh. `nothing` (default) = every interface fixed. Otherwise a
+NamedTuple (; k1, k2, tau, alph, wd, wt, gmax): interfaces k1 and k2 stay fixed and bound the window; the interfaces in between
+obey a Dorfi–Drury grid equation, equal arc length per zone, n̂_j = x̃_j / sqrt(1 + ν_j² S_j) equal for neighbouring zones,
+with ν_j = r̄_j/Δr_j (logarithmic baseline, as ladx = 2), S_j = wd (½ Δ ln ρ)² + wt (½ Δ ln T)² with the centred
+differences Δy_j = y_{j+1} − y_{j−1}, spatial smoothing x̃ = ν − α(1+α) Δ²ν (α = alph; neighbouring zones then differ
+by at most (1+α)/α) and time smoothing x̃ → (1 + τ/Δt) x̃ − (τ/Δt) x̃_old (τ = tau). The gradient term G² = ν² S is capped smoothly,
+G² gmax²/(G² + gmax²): a front that keeps steepening would otherwise pull zones without limit (Δt then follows the shrinking zones). The zones next to the window enter the
+smoothing with their fixed widths. Everything else in the residual is TITAN's moving-grid form (u_rel = u − ṙ, fluxes
+through the moving faces), which the fixed mesh had reduced to u_rel = u.
+"""
+const GRIDWIN = Ref{Any}(nothing)
+"""
+GRIDVEL[] (lgrid = 2 only): `nothing` (default) = every interface fixed. Otherwise a vector of interface velocities w [cm/s] (driver
+index, zero for an interface that stays): the grid row is r_new − r_old − w Δt with the Δt of the stage, so an interface follows the
+same straight path r_old + w t through the TR, the BDF2 and the backward-Euler stage of a step. The driver sets w between steps
+(`GRIDMAP` in popiii_m2c.jl: the mesh relaxes to a target computed from the state), so the row adds nothing to the Jacobian. All
+else is TITAN's moving-grid form as for GRIDWIN (u_rel = u − ṙ, fluxes through the moving faces, lab-frame gravity work).
+"""
+const GRIDVEL = Ref{Union{Nothing,Vector{Float64}}}(nothing)
+"A mesh with lgrid = 2 whose interfaces move (GRIDWIN window or GRIDVEL)."
+@inline gridmoves() = GRIDWIN[] !== nothing || GRIDVEL[] !== nothing
 """
 AV_ZONE[] (G1): viscous length proportional to the local zone width. When > 0, zone k uses the length
 l_k = AV_ZONE[] × (r[k+1] − r[k]) (θ-centred radii, ForwardDiff-differentiable) instead of ql0 + ql1 r̄; ql0, ql1 are then
@@ -121,6 +170,191 @@ q = cqvis·cq2·l²·ρ·qv·(du/dr) ≈ cqvis·cq2·c²·ρ (Δr div u)², i.e.
 c_q = 4 needs c² ≈ 3/cq2). This mapping is derived here, not taken from the source. Default 0 = the old formula.
 """
 const AV_ZONE = Ref(0.0)
+"RAYQ[] (M3; empty = off): per zone, the energy the ray (IonRay) takes from the star's light [erg cm⁻³ s⁻¹]. The gas receives it in chemistry; here it leaves the gray field, so it is not counted twice."
+const RAYQ = Ref(Float64[])
+"""
+GASQ[] (M3a; empty = off): per zone, energy moved from the gray field to the gas inside the hydro step [erg cm⁻³ s⁻¹], lagged over the step
+(Lyman-Werner photons absorbed by H₂, PopIIIMaterial.STARLIGHT). Unlike RAYQ the gas receives it here, in the implicit energy equation, where
+its radiative cooling is: given to the gas in the chemistry step (no cooling there in RAD runs) it heated a zone near the photosphere from
+7300 to 18500 K over one step. Rad row +GASQ, gas-only row −GASQ, total rows nothing (an internal transfer)."""
+const GASQ = Ref(Float64[])
+"""
+CHEMB[] (S6, ENV BALSPLIT=1; empty = off): balanced operator splitting (Speth, Green, MacNamara & Strang 2013) of the gas energy between this
+hydro step and the network chemistry. Per zone, c̄ [erg g⁻¹ s⁻¹] = the chemistry's net specific heating rate of the last step; the gas
+energy row gets +ρ c̄ (here, all variants) and the chemistry integrates its heating − c̄ (PopIIIMaterial.chem!, network zones), so the sum
+is the unsplit equations and in a steady state neither operator moves T. Without it, at 107.5 M_sun, the first network zone outside the
+photosphere was heated 6227 → 8097 K in every hydro step (lagged three-level cycle heat GASQ against its radiative cooling) and cooled
+back by its recombination losses in the chemistry: the 30 % excursion held Δt at the STOL limit (~2e3 s) for tens of thousands of steps.
+c̄ ← c̄ + Δe_chem/Δt after each chemistry step in zones that stayed on the network (zero elsewhere). CHEMBON[k]: zone k was balanced.
+"""
+const CHEMB = Ref(Float64[]); const CHEMBON = Ref(Bool[])
+"""
+ECHEMF[] = (off, tab) (popiii_m2c ECHEMSPLIT; default nothing): the hydro step advects ẽ = e − off_k (off: the zone's chemical energy per gram at its
+frozen composition). A zone with `tab[k]` (equilibrium EOS: its latent heat is implicit in the Newton) gets in its energy row the chemical energy
+that the mass crossing each interface brings relative to its own offset, ṁ (off_donor − off_k), the donor taken by the sign of the mass flux;
+network zones get theirs with the species, after the step.
+"""
+const ECHEMF = Ref{Any}(nothing)
+
+"""
+COUPLED (popiii_m2c COUPLED=1; default false): the slow species of the reduced network (ChemNet CHEMCK: x_H⁺, x_H₂ per H nucleus) are
+unknowns 8 and 9 of the Newton system (neqn = 9, meqn ≥ 9), in logarithmic variables (x = base·e^δ, positive by construction), in the
+network zones below the hot branch at the start of the step (`CPLZ`); other zones carry them frozen (row δ = 0). Per coupled zone
+  species row  (ρ x ΔV)ⁿ⁺¹ − (ρ x ΔV)ⁿ)/Δt + ṁ-fluxes of the face values (advect!, the scheme and mass fluxes of the energy row)
+               − [θ ρⁿ⁺¹ΔVⁿ⁺¹ S(ρ, T, x) + (1 − θ) ρⁿΔVⁿ Sⁿ] = 0,       S = dx/dt of the CK-expanded composition (ChemNet.ck_eval)
+  energy row   + [θ Λ(ρ, T, x) + (1 − θ) Λⁿ] ΔV,                       Λ the zone's chemistry cooling (lines, HD, three-level heat, …)
+and the zone's EOS is the network EOS of the CK expansion of the iterate, so the latent heat of ionisation and H₂ formation is in the
+Jacobian. The material provides (p, e, S₁, S₂, Λ) of a zone with their derivatives with respect to (ρ, T, x₁, x₂) through `CPL_ZONE`
+(a 4-wide local ForwardDiff Jacobian lifted onto the residual's duals). Old-state arrays: `XSO` (and its limiter slopes `XSSO`), the old
+rates `XSRCO` and cooling `XLAMO` (θ < 1 stages only). Trbdf2 combines `XSO` on ρ x ΔV for its BDF2 stage.
+"""
+const COUPLED = Ref(false)
+const XSN = Ref([Float64[], Float64[]]); const XSO = Ref([Float64[], Float64[]]); const XSSO = Ref([Float64[], Float64[]])
+const XSRCO = Ref([Float64[], Float64[]]); const XLAMO = Ref(Float64[]); const CPLZ = Ref(Bool[])
+const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's iterate while the material is evaluated
+const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
+const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
+"Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
+# COUPLED: the three-level heats cq, yq of the iterate in the rows (CPLIMPQ=1, experimental: with CPLNLOX its Δt → 0 limit was ~300 K below
+# the split scheme's in the pre-shock band, unexplained); default 0: booked lagged in RAYQ/GASQ as for split zones (matches split within 15 K)
+const CPL_IMPQ = Ref(get(ENV, "CPLIMPQ", "0") == "1")
+@inline cplq(k) = CPL_IMPQ[] && cplz(k)
+const CPL_XFLOOR = Ref(1e-8); const CPL_CLAMP = Ref(parse(Float64, get(ENV, "CPLCLAMP", "1"))); const CPLDBG = Ref(parse(Int, get(ENV, "CPLDBG", "0")))
+"""
+Time weight of the chemistry source and cooling in the coupled rows (default 1: backward Euler in every stage, also in TR-BDF2's
+trapezoidal stage; the residual's θ otherwise). A species relaxing in seconds within a step of 1e3–1e6 s has, under the trapezoidal
+rule, x_γ ≈ −x_n: unreachable in the logarithmic species variables, so the TR stage failed and the step fell back to backward Euler.
+"""
+const CPL_THETA = Ref(parse(Float64, get(ENV, "CPLTHETA", "1")))
+@inline cplz(k) = COUPLED[] && k <= length(CPLZ[]) && CPLZ[][k]
+"Size the species arrays to mgr (keeps values where present)."
+function cpl_alloc!(mgr)
+    for R_ in (XSN, XSO, XSSO, XSRCO), i in 1:2
+        length(R_[][i]) == mgr || (R_[][i] = zeros(mgr))
+    end
+    length(XLAMO[]) == mgr || (XLAMO[] = zeros(mgr)); length(CPLZ[]) == mgr || (CPLZ[] = falses(mgr) |> collect)
+    nothing
+end
+"""
+Newton's initial species of a coupled zone: its two species rows solved alone at the zone's (ρ, T), with the neighbours' species and
+the mass fluxes of the last step frozen and first-order upwind faces (`CPL_LOCAL`, a 2×2 Newton in ln x). Without it the first Newton
+corrections of ln x reached −25 … +440 in the pre-shock zones (the stiff chemistry's solution for the step lies far from the start
+composition), and the ±1 clamp needed dozens of iterations.
+"""
+function cpl_local_all!(dt)
+    CPL_LOCAL[] === nothing && return nothing
+    ngrs = gi(:ngrs); ngre = gi(:ngre)
+    # (PERF512) the zones are independent (every one sees the old neighbours; the results are applied together): on MATTHREADS tasks
+    # (zone_sweep!), bit-identical; ~10 % of the hydro step of the 512-zone mesh when serial
+    res = Vector{Union{Nothing,Tuple{Float64,Float64}}}(nothing, ngre); z0 = ZONE0[]
+    try zone_sweep!(ngrs:ngre, cplz) do k
+        y = CPL_LOCAL[](k, dt); y === nothing || (res[k] = (Float64(y[1]), Float64(y[2])))
+    end
+    finally ZONE0[] = z0 end                                             # (the serial loop did not touch ZONE[])
+    for k in ngrs:ngre                                                   # (applied together: every zone saw the same neighbours)
+        y = res[k]; y === nothing || (XSN[][1][k] = y[1]; XSN[][2][k] = y[2])
+    end
+    nothing
+end
+"Start of a step (TitanCore.peq!): old species := iterate, and their limiter slopes; then the initial guess (cpl_local_all!)."
+function cpl_newstep!()
+    ngrs = gi(:ngrs); ngre = gi(:ngre); cadv = gf(:cadv); eps = gf(:epsadv)
+    for i in 1:2
+        copyto!(XSO[][i], XSN[][i]); q = XSO[][i]; qs = XSSO[][i]; fill!(qs, 0.0)
+        @inbounds for k in ngrs:ngre+1
+            a = q[k] - q[k-1]; b = q[k+1] - q[k]; sdq = a + b; den = sdq + (sdq >= 0 ? eps : -eps)
+            qs[k] = a * b >= 0 ? cadv * a * b / den : 0.0
+        end
+    end
+    empty!(CPL_BAD)                                  # (only corrections of this step's Newton iterations count)
+    cpl_local_all!(gf(:dtime))
+    nothing
+end
+"""
+Coupled zones whose raw species correction exceeded CPL_BADDELTA (100 in ln x) in a Newton iteration of a failed step: on the reset they are
+handed back to the split chemistry for the rest of the step (CPLZ false; with ECHEMSPLIT treated as network, not table, zones). A zone next to
+the shock whose x_H⁺ had fallen to 1e-9 asked for δ ln x = −1e76 in every retry, the step never converged and Δt collapsed (t_cpl4, step 123110).
+"""
+const CPL_BAD = Set{Int}(); const CPL_BADDELTA = Ref(parse(Float64, get(ENV, "CPLBADDELTA", "100"))); const CPL_NDECOUPLED = Ref(0)
+"""
+CPLTRACEX=x (default 0 = off): in a coupled zone, a species row whose iterate and old abundance are both below x gets no Newton correction
+(held for the step) and does not count for CPLBADDELTA. In the thermalised zones that leave the table (He II layer, 2–3e4 K) trace H₂
+(x ~ 1e-24) asked for δ ln x of −600…+550 and decoupled zones 70–72 (t_nolte, jstep 2217816).
+"""
+const CPL_TRACEX = Ref(parse(Float64, get(ENV, "CPLTRACEX", "0")))
+function cpl_reset!()
+    for i in 1:2; copyto!(XSN[][i], XSO[][i]); end
+    if !isempty(CPL_BAD)
+        a = gi(:ngrs)
+        for k in CPL_BAD
+            cplz(k) || continue
+            CPLZ[][k] = false; CPL_NDECOUPLED[] += 1
+            ECHEMF[] !== nothing && (ECHEMF[][2][k] = false)
+            (CPL_NDECOUPLED[] <= 30 || CPL_NDECOUPLED[] % 100 == 0) && println("COUPLED: zone $(k - a + 1) decoupled for this step (species correction > $(CPL_BADDELTA[]) in ln x), $(CPL_NDECOUPLED[]) so far")
+        end
+        empty!(CPL_BAD)
+    end
+    cpl_local_all!(gf(:dtime)); nothing
+end
+"Apply the Newton correction (update!): x ← x·e^δ in the coupled zones."
+function cpl_update!(rhs, a, b)
+    @inbounds for k in a:b
+        cplz(k) || continue
+        XSN[][1][k] *= exp(rhs[8, k]); XSN[][2][k] *= exp(rhs[9, k])
+    end
+    nothing
+end
+"maxdel: clamp the species corrections to ±CPL_CLAMP and return their weighted maximum (convergence measure)."
+function cpl_dmax!(rhs, a, b)
+    d = 0.0; cl = CPL_CLAMP[]; f = CPL_XFLOOR[]; kx = TF.var(:kx); dx = TF.var(:dx)
+    for i in 8:9; kx[i] = 0; dx[i] = 0.0; end
+    @inbounds for k in a:b
+        cplz(k) || continue
+        for (i, q) in ((8, XSN[][1]), (9, XSN[][2]))
+            abs(rhs[i, k]) > abs(dx[i]) && (kx[i] = k - a + 1; dx[i] = rhs[i, k])     # (raw correction, for the divergence message)
+            CPLDBG[] > 0 && abs(rhs[i, k]) > 20 && (CPLDBG[] -= 1;
+                println("CPLDBG iter $(gi(:iter)) zone $(k - a + 1) row $i: δ $(rhs[i, k]) x $(q[k]) x_old $(XSO[][i - 7][k]) x(H+,H2) $(XSN[][1][k]), $(XSN[][2][k]) T $(TF.var(:tn)[k]) T_old $(TF.var(:to)[k]) ρ $(TF.var(:dn)[k]) neighbours x_H+ $(XSN[][1][k-1]) $(XSN[][1][k+1]) cplz $(cplz(k-1)) $(cplz(k+1))"))
+            isfinite(rhs[i, k]) || (rhs[i, k] = 0.0; d = Inf)                        # a non-finite correction: no change, not converged
+            # CPLTRACEX: a trace species (x and x_old below it) is held for the step and does not decouple the zone
+            CPL_TRACEX[] > 0 && max(q[k], XSO[][i - 7][k]) < CPL_TRACEX[] && (rhs[i, k] = 0.0)
+            abs(rhs[i, k]) > CPL_BADDELTA[] && push!(CPL_BAD, k)
+            rhs[i, k] = clamp(rhs[i, k], -cl, cl)
+            # weight by the larger of the iterate and the old abundance: a species the iterate drove to the floor (x_H⁺ 1e-40 next to the
+            # shock, from 1e-3) is not converged; only species that are trace at both ends are left out
+            xm_ = max(q[k], XSO[][i - 7][k]); d = max(d, abs(rhs[i, k]) * xm_ / (xm_ + f))
+        end
+    end
+    d
+end
+
+"""
+AV_TENSION[] (default true = TITAN): keep the viscous stress of a zone that shrinks in volume (div u < 0) while it is stretched
+radially relative to the mean (dudr > 0, the traceless form). Then q < 0, a tension. With l = AV_ZONE·Δr and Δr ~ r (the stretched
+zones outside an accretion shock) it can reach ~10× gravity and accelerate an infalling shell past the escape speed.
+false: viscosity only under radial compression.
+AV_CAP[] (default 0 = off): viscous length limited to AV_CAP × r̄.
+AV_TFRAC[], AV_TRAD[] (default 0, false = off; used with AV_TENSION[] = false): a reduced tension. AV_TFRAC = f in (0, 1): the stress of
+the tension zones is kept, times f. AV_TRAD: it is kept only where the zone is compressed radially in the plain sense (∂u/∂r < 0: the
+ramp of a shock whose zones are wide, Δr ~ r), not in smooth free fall (∂u/∂r > 0); times AV_TFRAC if that is set.
+"""
+const AV_TENSION = Ref(true)
+const AV_CAP = Ref(0.0)
+const AV_TFRAC = Ref(0.0); const AV_TRAD = Ref(false)
+"""
+SHOCK_RAD[] (S6, default false; lrad = 1, TITAN's gas + radiation row): sub-grid radiative shock. The viscous heat of a zone whose velocity jump
+would give a post-shock temperature T_s = (3/16) μ m_H Δu²/k above SHOCK_DU[] goes to the radiation energy row instead of the gas. Physically the gas
+behind such a shock cools in ≪ the flow time through a layer far thinner than a zone (lines above ≈ 6000 K), so the zone-averaged gas should not hold this heat.
+The total energy row is untouched, so energy is conserved; momentum (q in the gas momentum row) too. Fraction: smoothstep in log Δu between the two values.
+"""
+const SHOCK_RAD = Ref(false)
+const SHOCK_DU = Ref((1.47e6, 1.9e6))     # cm/s: T_s = 6000 K, 1e4 K at μ = 1.22
+@inline function shock_frac(du::T) where {T}
+    du1, du2 = SHOCK_DU[]
+    (val(du) >= -du1) && return zero(T)
+    (val(du) <= -du2) && return one(T)
+    x = log(-du / du1) / log(du2 / du1)
+    return x * x * (3 - 2x)
+end
 """
 EXTMASS[] (Population III): static external mass distribution (e.g. the dark-matter halo of ABN02), a function
 r -> M_ext(< r) per steradian, added to the gas interior mass in the gravity terms (evaluated at the θ-centred radius;
@@ -140,8 +374,25 @@ function dualswitch(ngrs, ngre, lrad, ηsw)
     ηsw > 0 || return ui
     dO, dv, uo = v(:do), v(:dvolo), v(:uo); eo = lrad ? v(:egro) : v(:ego)
     for k in ngrs:ngre
-        m = dO[k] * dv[k]; ein = m * eo[k]; K = 0.25m * (uo[k]^2 + uo[k+1]^2)
+        eoff = ECHEMF[] === nothing ? 0.0 : ECHEMF[][1][k]      # (ECHEMSPLIT: e − Σ x E0 is advected; the switch keeps judging e)
+        m = dO[k] * dv[k]; ein = m * max(eo[k] + eoff + ETASW_EOFF[], 0.0); K = 0.25m * (uo[k]^2 + uo[k+1]^2)
         ui[k] = ein / (ein + K) < ηsw
+    end
+    ηth = ETASW_TH[]
+    if ηth > 0 && lrad
+        pgo, ero = v(:pgo), v(:ero)
+        for k in ngrs:ngre
+            ui[k] && continue
+            eth = 1.5 * pgo[k] / dO[k]
+            ui[k] = eth < ηth * (eth + ero[k] / dO[k] + 0.25 * (uo[k]^2 + uo[k+1]^2))
+        end
+    end
+    wtie = ETASW_TIE[]
+    if wtie > 0 && lrad && TD.FLUXTIE[][2] > 0 && length(TD.TIEW) >= ngre
+        W = TD.TIEW
+        for k in ngrs:ngre
+            ui[k] || (ui[k] = W[k] >= wtie)
+        end
     end
     ui
 end
@@ -199,10 +450,27 @@ function convcoef(ngrs, ngre, base)
     # the outer boundary on this iterate). Weight w(τ) per interface: a smooth step in ln τ from 0 at TAU_MLT/2 to 1
     # at 2·TAU_MLT (it was a sharp cut at TAU_MLT: a flux that jumps when τ crosses the cut makes Newton cycle).
     cvw = get!(() -> zeros(mgr), BUFS, :cvw)::Vector{Float64}; fill!(cvw, 0.0)
+    # (PERF512) for a material whose Float64 opacity has no side effects (`opac_pure(m)`), the zones' χ first on MATTHREADS tasks, then the
+    # serial sum. The serial loop calls material_opac without setting ZONE[] (a material that reads ZONE[] sees the zone left by the last
+    # sweep, for every k), so the tasks use that same ZONE[]; a zone whose evaluation throws is evaluated again in the loop, which then throws
+    # as before. Bit-identical.
+    χτ = get!(() -> zeros(mgr), BUFS, :cvchi)::Vector{Float64}; okτ = get!(() -> zeros(Bool, mgr), BUFS, :cvchiok)::Vector{Bool}; fill!(okτ, false)
+    if opac_pure(m)
+        z0 = ZONE0[]
+        try zone_sweep!(ngrs+1:ngre, k -> @inbounds(base[k, 3] > 0 && base[k, 5] > 0)) do k
+            ZONE[] = z0
+            try
+                y = @inbounds material_opac(m, base[k, 3], base[k, 5])[1]
+                y isa Float64 && (@inbounds χτ[k] = y; @inbounds okτ[k] = true)
+            catch
+            end
+        end
+        finally ZONE0[] = z0 end
+    end
     τ = 0.0
     @inbounds for k in ngre:-1:ngrs+1
         (base[k, 3] > 0 && base[k, 5] > 0) &&
-            (τ += material_opac(m, base[k, 3], base[k, 5])[1] * base[k, 3] * (base[k+1, 1] - base[k, 1]))
+            (τ += (okτ[k] ? χτ[k] : material_opac(m, base[k, 3], base[k, 5])[1]) * base[k, 3] * (base[k+1, 1] - base[k, 1]))
         x = clamp((log(max(τ, 1e-300)) - log(TAU_MLT[] / 2)) / log(4.0), 0.0, 1.0)
         cvw[k] = x * x * (3 - 2x)
         if MLT_NOINFALL[]          # no MLT flux in infalling gas: smooth step from inflow 10 km/s (MLT on) to 30 (off)
@@ -217,7 +485,9 @@ end
 const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn, :xken, :xkpn, :plfn,
     :egrn, :r, :u, :fr, :xm, :dmdt, :urel, :rmu, :rmup1, :d, :pg, :eg, :as, :er, :egr, :chif, :xke,
     :xkp, :plf, :dvol, :dvoln, :avchi, :qf, :dudr, :db, :dsn, :fl, :ub, :usn, :flu, :fle, :egb, :egsn,
-    :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv)
+    :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv,
+    :mnad, :mcp, :mdl, :mkp,                # MLT coefficients of the threaded pre-pass (MATTHREADS)
+    :xs1, :xs2, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL, :cpQ, :cpY)     # COUPLED: species iterate, face values, slopes, rates, cooling
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
     xnuo::Vector{Float64}
@@ -241,9 +511,38 @@ const DEC = Dict{Tuple{Symbol,Int},Vector{Bool}}()
     @inbounds return v[k]
 end
 
+"""
+EXCAP[] > 0: factor on the gas-radiation exchange of the two energy rows, so that c κ_E ρ Δt never exceeds EXCAP[]. In an opaque zone that product can be
+1e20 and the rows carry it as round-off; E = aT⁴ there holds to about 1/EXCAP anyway. The same factor in both rows keeps energy conserved. A constant of the iteration (no derivative).
+"""
+const EXCAP = Ref(0.0)
+@inline function excap(cc, κ, ρ, dt)
+    EXCAP[] > 0 || return 1.0
+    return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
+end
+
+"""
+`UPFREEZE=n` (default 0 = off): from Newton iteration n of a solve on, every interface keeps the upwind direction that iteration
+n − 1 found.  Where the flow relative to the grid is near zero (a moving grid window that follows a contact: `GRIDWIN`), the hard
+donor choice makes the residual's slope jump at zero flow by the ratio of the two zones' densities, and the Newton iteration
+alternates between the two directions for ever (traced 10 Nov 2026: `up` of four advected quantities flipping at one interface in
+every iteration, correction constant at 2e-5).  The flux itself is continuous at zero flow, so the frozen direction changes the
+converged state by the product of that near-zero flow and the jump.
+"""
+const UPFREEZE = Ref(parse(Int, get(ENV, "UPFREEZE", "0")))
+const UPHOLD = Ref(false)
+const UPDEC = Dict{Int,Vector{Bool}}()
+@inline function upwind(uf, hold::Bool, id::Int, k::Int, x::Bool)
+    up = decide(:up, id, k, x)
+    uf === nothing && return up
+    hold && return @inbounds uf[k]
+    @inbounds uf[k] = up
+    up
+end
 "van Leer interpolation (advectc: centred=true, advecti: centred=false)."
 @inline function advect!(qb, qsn, qn, qo, qso, flow, θ, cadv, eps, ngrs, ngre, centred::Bool, id::Int = 0)
     T = eltype(qb)
+    uf = UPFREEZE[] > 0 ? get!(() -> fill(true, TF.MGR), UPDEC, id) : nothing; hold = UPHOLD[]
     @inbounds for k in ngrs:ngre+1
         a = qn[k] - qn[k-1]; b = qn[k+1] - qn[k]; sdq = a + b
         den = sdq + (decide(:sgn, id, k, val(sdq) >= 0) ? eps : -eps)
@@ -251,13 +550,13 @@ end
     end
     if centred
         @inbounds for k in ngrs+1:ngre+1
-            s = decide(:up, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
+            s = upwind(uf, hold, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
             qb[k] = (0.5 + s) * (θ * (qn[k-1] + 0.5qsn[k-1]) + (1 - θ) * (qo[k-1] + 0.5qso[k-1])) +
                     (0.5 - s) * (θ * (qn[k]   - 0.5qsn[k])   + (1 - θ) * (qo[k]   - 0.5qso[k]))
         end
     else
         @inbounds for k in ngrs:ngre
-            s = decide(:up, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
+            s = upwind(uf, hold, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
             qb[k] = (0.5 + s) * (θ * (qn[k]   + 0.5qsn[k])   + (1 - θ) * (qo[k]   + 0.5qso[k])) +
                     (0.5 - s) * (θ * (qn[k+1] - 0.5qsn[k+1]) + (1 - θ) * (qo[k+1] - 0.5qso[k+1]))
         end
@@ -279,7 +578,17 @@ Otherwise a material object for which `material_gas(m, ρ, T) -> (p_gas, e_gas, 
 """
 const MATERIAL = Ref{Any}(nothing)
 "Zone index of the current material call (set by `_material!` and by the fills), for materials with a composition per zone."
-const ZONE = Ref(0)
+struct ZoneCell end
+const ZONE = ZoneCell(); const ZONE0 = Ref(0); const ZTASK = Ref(false)
+# `ZONE[]` is one global cell, except inside a threaded material sweep (ZTASK[]), where every task has its own
+@inline Base.getindex(::ZoneCell) = ZTASK[] ? (task_local_storage(:titan_zone)::Int) : ZONE0[]
+@inline Base.setindex!(::ZoneCell, k) = (ZTASK[] ? task_local_storage(:titan_zone, Int(k)) : (ZONE0[] = k); k)
+"""
+MATTHREADS = n > 1: the material sweep of the residual (`_material!`: EOS, nuclear source and opacity of every zone, in the Jacobian's
+Dual numbers ~70 % of the implicit solve) on n tasks. The zones are independent and each writes only its own entries, so the result is
+bit-identical to the serial sweep. 0 or 1 (the default): serial.
+"""
+const MAT_THREADS = Ref(parse(Int, get(ENV, "MATTHREADS", "0")))
 function material_gas end
 "`material_gasne(m, ρ, T) -> (p_gas, e_gas, a_s, n_e)`; default: material_gas and n_e = 0 (no Compton exchange)."
 material_gasne(m, ρ, T) = (material_gas(m, ρ, T)..., zero(ρ))
@@ -303,6 +612,8 @@ function compton_old!(ngrs, ngre)
     end
 end
 function material_opac end
+"(PERF512) true if `material_opac(m, ρ::Float64, T::Float64)` has no side effects (no per-zone caches), so it may run on several tasks with the same ZONE[]."
+opac_pure(m) = false
 """
 Nuclear (or other volumetric) energy source of a material, S4. `has_source(m)` (default false) switches it on;
 `material_source(m, ρ, T) -> ε` [erg g⁻¹ s⁻¹, net of neutrino losses; ρ, T may be Duals; composition of zone `ZONE[]`,
@@ -319,9 +630,9 @@ function source_old!(ngrs, ngre)
     m = MATERIAL[]; buf = get!(() -> zeros(TF.MGR), BUFS, :srco)::Vector{Float64}; fill!(buf, 0.0); SRCO[] = buf
     (m !== nothing && has_source(m)) || return
     dO, tO = v(:do), v(:to)
-    @inbounds for k in ngrs:ngre
-        (dO[k] > 0 && tO[k] > 0) || continue
-        ZONE[] = k; buf[k] = material_source(m, dO[k], tO[k])
+    # (PERF512) zones independent: on MATTHREADS tasks (zone_sweep!: the serial loop's ZONE[] and exception), bit-identical
+    zone_sweep!(ngrs:ngre, k -> @inbounds(dO[k] > 0 && tO[k] > 0)) do k
+        @inbounds buf[k] = material_source(m, dO[k], tO[k])
     end
 end
 "`material_thermo(m, ρ, T) -> (∇_ad, c_P, δ)` of gas + equilibrium radiation (Float64), for the MLT flux."
@@ -377,14 +688,12 @@ made Newton converge only linearly (factor ⅓ per iteration) in the central zon
 """
 const MLT_HSDISC = Ref(false)
 "Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
-function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
-    pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
-    hassrc = has_source(m)
-    @inbounds for k in k0:ngre+2
+@inline function _matzone!(m, W, c, P, dn, tn, ern, k, hassrc)
+    @inbounds begin
         if !(ForwardDiff.value(dn[k]) > 0 && ForwardDiff.value(tn[k]) > 0)   # unused ghost zones (e.g. ngrs-2)
-            pgn[k] = zero(dn[k]); egn[k] = zero(dn[k]); asn[k] = zero(dn[k]); hassrc && (W.snuc[k] = zero(dn[k]))
-            c.lrad && (chifn[k] = zero(dn[k]); xken[k] = zero(dn[k]); xkpn[k] = zero(dn[k]); plfn[k] = zero(dn[k]); egrn[k] = zero(dn[k]))
-            continue
+            W.pgn[k] = zero(dn[k]); W.egn[k] = zero(dn[k]); W.asn[k] = zero(dn[k]); hassrc && (W.snuc[k] = zero(dn[k]))
+            c.lrad && (W.chifn[k] = zero(dn[k]); W.xken[k] = zero(dn[k]); W.xkpn[k] = zero(dn[k]); W.plfn[k] = zero(dn[k]); W.egrn[k] = zero(dn[k]))
+            return false
         end
         ZONE[] = k
         if COMPTON[]
@@ -392,21 +701,162 @@ function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
         else
             pg, eg, as_ = material_gas(m, dn[k], tn[k])
         end
-        pgn[k] = pg; egn[k] = eg; asn[k] = as_
+        W.pgn[k] = pg; W.egn[k] = eg; W.asn[k] = as_
         hassrc && (W.snuc[k] = material_source(m, dn[k], tn[k]))
         if c.lrad
             χ, κE, κP = material_opac(m, dn[k], tn[k])
-            chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
+            W.chifn[k] = χ; W.xken[k] = κE; W.xkpn[k] = κP
             t2 = tn[k] * tn[k]
-            plfn[k] = P.csigr * (t2 * t2) / P.cpi
-            egrn[k] = egn[k] + ern[k] / dn[k]
+            W.plfn[k] = P.csigr * (t2 * t2) / P.cpi
+            W.egrn[k] = W.egn[k] + ern[k] / dn[k]
         end
     end
+    true
+end
+"""
+MATTHREADS pre-pass of the MLT loop: ∇_ad, c_P, δ and κ_R at the interface state (the means of the two zones, as in the
+loop) of every interface with an MLT weight, on `nt` tasks. A zone whose evaluation throws is left unmarked and the serial
+loop evaluates it itself, in order: the loop then behaves as without the pre-pass, exception included.
+"""
+function _mlt_pre!(m, W, cvw, mok, dn, tn, ngrs, ngre, nt)
+    fill!(mok, false); next = Threads.Atomic{Int}(ngrs + 1)
+    ZTASK[] = true
+    try
+        @sync for it in 1:nt
+            Threads.@spawn begin
+                while true
+                    k = Threads.atomic_add!(next, 1)
+                    k > ngre && break
+                    @inbounds cvw[k] > 0 || continue
+                    try
+                        @inbounds begin
+                            Ti = 0.5 * (tn[k-1] + tn[k]); ρi = 0.5 * (dn[k-1] + dn[k])
+                            ZONE[] = k
+                            nad, cpk, δk = material_thermo(m, ρi, Ti)
+                            W.mnad[k] = nad; W.mcp[k] = cpk; W.mdl[k] = δk; W.mkp[k] = material_opac(m, ρi, Ti)[1]
+                            mok[k] = true
+                        end
+                    catch
+                    end
+                end
+            end
+        end
+    finally
+        ZTASK[] = false
+    end
+    nothing
+end
+function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
+    hassrc = has_source(m)
+    nt = min(MAT_THREADS[], Threads.nthreads())
+    (nt > 1 && ngre + 3 - k0 >= 4nt && !ZTASK[]) && return _material_mt!(m, W, c, P, dn, tn, ern, k0, ngre, hassrc, nt)
+    for k in k0:ngre+2
+        _matzone!(m, W, c, P, dn, tn, ern, k, hassrc)
+    end
+    nothing
+end
+"""
+The sweep of `_material!` on `nt` tasks, which take zones one at a time from a shared counter (the cost per zone is very uneven: stellar
+EOS + network + opacity table in the hot core, a few table lookups outside). An exception in a zone is rethrown as in the serial sweep:
+the one of the lowest zone, unwrapped, after all tasks have ended (the Newton iteration's `catch` then sees what it always saw).
+"""
+function _material_mt!(m, W, c, P, dn, tn, ern, k0, ngre, hassrc, nt)
+    kend = ngre + 2; next = Threads.Atomic{Int}(k0)
+    kerr = fill(typemax(Int), nt); errs = Vector{Any}(nothing, nt)
+    ZTASK[] = true
+    try
+        @sync for it in 1:nt
+            Threads.@spawn begin
+                while true
+                    k = Threads.atomic_add!(next, 1)
+                    k > kend && break
+                    try
+                        _matzone!(m, W, c, P, dn, tn, ern, k, hassrc)
+                    catch e
+                        k < kerr[it] && (kerr[it] = k; errs[it] = e)
+                    end
+                end
+            end
+        end
+    finally
+        ZTASK[] = false
+    end
+    kmin, imin = findmin(kerr)
+    if kmin < typemax(Int)
+        ZONE0[] = kmin
+        throw(errs[imin])
+    end
+    kl = kend; @inbounds while kl >= k0 && !(ForwardDiff.value(dn[kl]) > 0 && ForwardDiff.value(tn[kl]) > 0); kl -= 1; end
+    kl >= k0 && (ZONE0[] = kl)                # what the serial sweep leaves behind
+    nothing
+end
+"""
+PERF512: `zone_sweep!(f, ks, ok)` calls `f(k)` for every zone `k in ks` with `ok(k)` true, on MATTHREADS tasks when MATTHREADS > 1
+(zones taken one at a time from a shared counter), serially otherwise or when already inside a threaded sweep. For the Float64
+EOS/opacity fills of the state arrays (`TitanMaterials.fill_eos!/fill_opac!` of a material whose zones are independent: each `f(k)` writes
+only entries k). Bit-identical to the serial loop: the same values, ZONE[] left at the last zone of the serial order, and an exception
+rethrown as the serial loop would have (the one of the lowest zone, after all tasks ended; the serial loop would not have evaluated the
+zones above it, whose entries are then written here — the callers' state is reset after a failed evaluation).
+"""
+function zone_sweep!(f::F, ks::UnitRange{Int}, ok::G) where {F,G}
+    nt = min(MAT_THREADS[], Threads.nthreads())
+    if !(nt > 1 && length(ks) >= 4nt && !ZTASK[])
+        for k in ks
+            ok(k) || continue
+            ZONE[] = k; f(k)
+        end
+        return nothing
+    end
+    next = Threads.Atomic{Int}(first(ks)); kend = last(ks)
+    kerr = fill(typemax(Int), nt); errs = Vector{Any}(nothing, nt)
+    ZTASK[] = true
+    try
+        @sync for it in 1:nt
+            Threads.@spawn begin
+                while true
+                    k = Threads.atomic_add!(next, 1)
+                    k > kend && break
+                    ok(k) || continue
+                    try
+                        ZONE[] = k; f(k)
+                    catch e
+                        k < kerr[it] && (kerr[it] = k; errs[it] = e)
+                    end
+                end
+            end
+        end
+    finally
+        ZTASK[] = false
+    end
+    kmin, imin = findmin(kerr)
+    if kmin < typemax(Int)
+        ZONE0[] = kmin
+        throw(errs[imin])
+    end
+    kl = kend; while kl >= first(ks) && !ok(kl); kl -= 1; end
+    kl >= first(ks) && (ZONE0[] = kl)
     nothing
 end
 
 # ------------------------------------------------------------------ residual
+"Grid-equation rows of the adaptive window (see GRIDWIN) for the interfaces k1+1 … k2−1."
+function gridwin_rows!(R, ir, k0, rn, ro, dn, tn, dt, gw)
+    α = gw.alph * (1 + gw.alph); gam = gw.tau / dt
+    ν(j) = (rn[j+1] + rn[j]) / (2 * (rn[j+1] - rn[j])); νo(j) = (ro[j+1] + ro[j]) / (2 * (ro[j+1] - ro[j]))
+    function nhat(j)
+        xnt = ν(j) - α * (ν(j-1) - 2ν(j) + ν(j+1)); xnto = νo(j) - α * (νo(j-1) - 2νo(j) + νo(j+1))
+        S = gw.wd * (0.5 * log(dn[j+1] / dn[j-1]))^2 + gw.wt * (0.5 * log(tn[j+1] / tn[j-1]))^2
+        G2 = ν(j)^2 * S; G2 = isfinite(gw.gmax) ? G2 * gw.gmax^2 / (G2 + gw.gmax^2) : G2   # gradient cap: zones at most √(1+gmax²) finer than in smooth gas
+        ((1 + gam) * xnt - gam * xnto) / sqrt(1 + G2)
+    end
+    @inbounds for k in gw.k1+1:gw.k2-1
+        R[ir, k - k0 + 1] = nhat(k) - nhat(k - 1)
+    end
+    nothing
+end
+
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
+    UPFREEZE[] > 0 && (UPHOLD[] = TF.getscalar(:iter) >= UPFREEZE[])
     ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
     P = c.p; θ = P.θ; dt = P.dt; xmu = Float64(mu); xmup1 = xmu + 1; cc = P.cc
     ir, im, id, iu, it, ie, iF = c.ix
@@ -417,7 +867,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         newv[cde][k] = c.base[k, cde]
     end
     @inbounds for j in 1:neqn
-        cde = c.code[j]; a = newv[cde]
+        cde = c.code[j]; cde == 0 && continue; a = newv[cde]
         if cde == 4
             for bb in 1:nb; k = k0 + bb - 1; a[k] = c.base[k, 4] + x[(bb-1)*neqn+j] * c.nomu[k]; end
         elseif cde == 7
@@ -429,7 +879,34 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     # EOS / opacity (TITAN built-in physics unless a material is installed, see TitanMaterials)
     Rg = P.ck / (P.cm0 * P.gmu); γ = P.gam
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
-    MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
+    if COUPLED[]
+        xs1, xs2 = W.xs1, W.xs2; xn1, xn2 = XSN[]
+        @inbounds for k in k0:ngre+2; xs1[k] = xn1[k]; xs2[k] = xn2[k]; end
+        @inbounds for bb in 1:nb
+            k = k0 + bb - 1; xs1[k] = xn1[k] * exp(x[(bb-1)*neqn+8]); xs2[k] = xn2[k] * exp(x[(bb-1)*neqn+9])
+        end
+        CPLW[] = (xs1, xs2)
+        try
+            MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
+        finally
+            CPLW[] = nothing
+        end
+        # (PERF512) the coupled zones' rates in the Jacobian's Dual numbers on MATTHREADS tasks (zones independent; the material sweep above
+        # left their values and local Jacobians in the zones' cache entries); bit-identical. ZONE[] is not used here and is kept.
+        let z0 = ZONE0[]
+            try zone_sweep!(ngrs:ngre, k -> true) do k
+                @inbounds if cplz(k)
+                    y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]); W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
+                    W.cpQ[k] = y[6]; W.cpY[k] = y[7]
+                else
+                    W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
+                end
+            end
+            finally ZONE0[] = z0 end
+        end
+    else
+        MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
+    end
     MATERIAL[] === nothing && @inbounds for k in k0:ngre+2
         pgn[k] = Rg * dn[k] * tn[k]; egn[k] = Rg * tn[k] / (γ - 1); asn[k] = sqrt(γ * pgn[k] / dn[k])
         if c.lrad
@@ -477,16 +954,29 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     @inbounds for k in ngrs:ngre
         dudr[k] = (u[k+1] - u[k]) / (r[k+1] - r[k]) - xmu4 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
         ql = AV_ZONE[] > 0 ? AV_ZONE[] * (r[k+1] - r[k]) : P.ql0 + P.ql1 * 0.5 * (r[k] + r[k+1])
+        AV_CAP[] > 0 && (ql = min(ql, AV_CAP[] * 0.5 * (r[k] + r[k+1])))
         div = (rmu[k+1] * u[k+1] - rmu[k] * u[k]) / dvol[k]
-        qv = decide(:vis, 0, k, val(div) < 0) ? div : zero(T)
+        if AV_TFRAC[] > 0 || AV_TRAD[]            # reduced tension (see AV_TFRAC)
+            rc = val(div) < 0 && val(dudr[k]) < 0
+            ten = val(div) < 0 && !rc && (!AV_TRAD[] || val(u[k+1]) < val(u[k]))
+            qv = decide(:vis, 0, k, rc) ? div : decide(:vis, 1, k, ten) ? (AV_TFRAC[] > 0 ? AV_TFRAC[] : 1.0) * div : zero(T)
+        else
+            qv = decide(:vis, 0, k, val(div) < 0 && (AV_TENSION[] || val(dudr[k]) < 0)) ? div : zero(T)
+        end
         qm = ql * (P.cq1 * as[k] - P.cq2 * ql * qv)
         qf[k] = -P.cqvis * d[k] * qm * dudr[k]
     end
     # advection
     db, dsn, fl, ub, usn, flu, fle, egb, egsn = W.db, W.dsn, W.fl, W.ub, W.usn, W.flu, W.fle, W.egb, W.egsn
-    @inbounds for k in ngrs+1:ngre+1; fl[k] = urel[k]; fle[k] = -dmdt[k]; end
-    @inbounds for k in ngrs:ngre; flu[k] = -(dmdt[k] + dmdt[k+1]); end
+    @inbounds for k in ngrs+1:ngre+1; fl[k] = urel[k]; end
     advect!(db, dsn, dn, c.do_, c.dso, fl, θ, P.cadv, P.eps, ngrs, ngre, true, 1)
+    # ADV_REL: with frozen interior masses the continuity row still moves mass across the interior interfaces of an unconverged iterate (r² u_rel ρ_b);
+    # momentum and energy follow it, as they follow dm_e/dt on TITAN's own grids
+    if ADV_REL[] && !isempty(XMINT[])
+        @inbounds for k in ngrs+1:ngre; dmdt[k] = -rmu[k] * urel[k] * db[k]; end
+    end
+    @inbounds for k in ngrs+1:ngre+1; fle[k] = -dmdt[k]; end
+    @inbounds for k in ngrs:ngre; flu[k] = -(dmdt[k] + dmdt[k+1]); end
     advect!(ub, usn, un, c.uo, c.uso, flu, θ, P.cadv, P.eps, ngrs, ngre, false, 2)
     if c.lrad
         advect!(egb, egsn, egrn, c.egro, c.egrso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 3)
@@ -502,6 +992,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         advect!(egb, egsn, egn, c.ego, c.egso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 6)
     end
     erb, frb = W.erb, W.frb
+    if COUPLED[]
+        advect!(W.xb1, W.xsn1, W.xs1, XSO[][1], XSSO[][1], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 7)
+        advect!(W.xb2, W.xsn2, W.xs2, XSO[][2], XSSO[][2], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 8)
+    end
     # diffusion
     dfm, dfe = W.dfm, W.dfe
     @inbounds for k in ngrs:ngre+1
@@ -565,7 +1059,13 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         P.leobc > 0 && (R[ir, kb(ngre+1)] = rn[ngre+1] - c.ro[ngre+1])
         P.llobc > 0 && (R[ir, kb(ngre+1)] = (rn[ngre+1] - c.ro[ngre+1]) / dt - u[ngre+1])
     elseif P.lgrid == 2
-        @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k]; end
+        gv = GRIDVEL[]
+        if gv === nothing
+            @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k]; end
+        else
+            @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k] - gv[k] * dt; end
+        end
+        GRIDWIN[] === nothing || gridwin_rows!(R, ir, k0, rn, c.ro, dn, tn, dt, GRIDWIN[])
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
     end
@@ -661,6 +1161,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     if c.conv
         nadv, cpv, δv, κv = c.cv; cvw = BUFS[:cvw]::Vector{Float64}
         arad = 4P.csigr / cc
+        ntm = min(MAT_THREADS[], Threads.nthreads())
+        mpre = MLT_AD[] && ntm > 1 && ngre - ngrs >= 4ntm && !ZTASK[]
+        mok = get!(() -> fill(false, length(cvw)), BUFS, :mltok)::Vector{Bool}
+        mpre && _mlt_pre!(MATERIAL[], W, cvw, mok, dn, tn, ngrs, ngre, ntm)
         @inbounds for k in ngrs+1:ngre
             Pm = pgn[k-1] + c.fedd[k-1] * ern[k-1]; Pp = pgn[k] + c.fedd[k] * ern[k]
             wτ = cvw[k]; wτ > 0 || continue          # optically thin: no MLT flux
@@ -683,8 +1187,12 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             ∇ = log(tn[k] / tn[k-1]) / lp
             if MLT_AD[]                              # coefficients on the current state, differentiated
                 ZONE[] = k
-                th = material_thermo(MATERIAL[], ρi, Ti); nad, cpk, δk = th
-                κk = material_opac(MATERIAL[], ρi, Ti)[1]
+                if mpre && mok[k]                    # from the threaded pre-pass: the same calls on the same arguments
+                    nad, cpk, δk, κk = W.mnad[k], W.mcp[k], W.mdl[k], W.mkp[k]
+                else
+                    th = material_thermo(MATERIAL[], ρi, Ti); nad, cpk, δk = th
+                    κk = material_opac(MATERIAL[], ρi, Ti)[1]
+                end
             else                                     # lagged: from the Newton iterate, constant in the Jacobian
                 nad, cpk, δk, κk = nadv[k], cpv[k], δv[k], κv[k]
                 cpk > 0 || continue
@@ -707,12 +1215,16 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         hassrc && (W.srcw[k] = src)
         if c.etotal && !c.useint[k]
             w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
+            isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])     # the gas gets the ray's energy in chemistry: it leaves the total here (as the lrad total row)
+            cplq(k) && (w += W.cpQ[k] * dvol[k])               # COUPLED: the three-level chemistry heat of the iterate (not booked in RAYQ)
         elseif c.lrad && GASROW[]
             egbg = W.egbg
             w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
                 dfe[k+1] + dfe[k] + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
                 pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k] -
-                (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k] - src
+                excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k] - src
+            isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
+            cplq(k) && (w -= W.cpY[k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
@@ -727,6 +1239,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
                 (pg[k] + er[k] * fedd[k]) * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] + qf[k] * dudr[k] * dvol[k] - src
+            isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
+            cplq(k) && (w += W.cpQ[k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egb[k+1] - (P.phil2 + er[k] * urel[k]) * rmu[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
@@ -749,6 +1263,17 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 w += -dmdt[k+1] * egb[k+1] + dmdt[k] * egb[k]
             end
         end
+        isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
+        cplz(k) && (θc = max(θ, CPL_THETA[]); w += (θc * W.cpL[k] + (1 - θc) * XLAMO[][k]) * dvol[k])   # COUPLED: the chemistry cooling, implicit
+        if ECHEMF[] !== nothing && ECHEMF[][2][k]
+            off_ = ECHEMF[][1]
+            if k < ngre || P.leobc == 3
+                i = k + 1; w += -dmdt[i] * ((ForwardDiff.value(dmdt[i]) > 0 ? off_[k] : off_[k+1]) - off_[k])
+            end
+            if k > ngrs
+                w += dmdt[k] * ((ForwardDiff.value(dmdt[k]) > 0 ? off_[k-1] : off_[k]) - off_[k])
+            end
+        end
         R[it, kb(k)] = w
     end
     R[it, 1] = X(it, k0)
@@ -757,6 +1282,30 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     for k in ngre+1:ngre+2
         R[it, kb(k)] = (P.leobc in (1, 3) || P.llobc > 0) ? -egn[k-1] + egn[k] : X(it, k)
     end
+    if COUPLED[]
+        # ------------------------------------------------------------ SPECIES (COUPLED)
+        @inbounds for kb_ in 1:nb, i in 8:9; R[i, kb_] = x[(kb_-1)*neqn+i]; end
+        # no radiation (lrad = 0, the collapse stages): rows 6–7 (E_r, F_r) are not formed above, but neqn = 9 puts the species at 8–9;
+        # make them trivial (δ = 0) instead of leaving the buffer's stale values (a singular block: all Newton corrections 0, step 1 fails)
+        c.lrad || @inbounds for kb_ in 1:nb, i in 6:7; R[i, kb_] = x[(kb_-1)*neqn+i]; end
+        @inbounds for k in ngrs:ngre
+            cplz(k) || continue
+            for (i, q, qo, qb, S_, So) in ((8, W.xs1, XSO[][1], W.xb1, W.cpS1, XSRCO[][1]), (9, W.xs2, XSO[][2], W.xb2, W.cpS2, XSRCO[][2]))
+                θc = max(θ, CPL_THETA[])
+                w = (dn[k] * q[k] * dvoln[k] - c.do_[k] * qo[k] * c.dvolo[k]) / dt -
+                    (θc * dn[k] * dvoln[k] * S_[k] + (1 - θc) * c.do_[k] * c.dvolo[k] * So[k])
+                if k == ngrs
+                    w += -dmdt[k+1] * qb[k+1]
+                elseif k == ngre
+                    w += dmdt[k] * qb[k]
+                    P.leobc == 3 && (w += -dmdt[k+1] * qb[k+1])
+                else
+                    w += -dmdt[k+1] * qb[k+1] + dmdt[k] * qb[k]
+                end
+                R[i, kb(k)] = w
+            end
+        end
+    end
     if c.lrad
         # ------------------------------------------------------------ RADIATION ENERGY
         @inbounds for k in ngrs:ngre
@@ -764,7 +1313,11 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             w = (ern[k] * dvoln[k] - c.ero[k] * c.dvolo[k]) / dt + rmu[k+1] * fr[k+1] - rmu[k] * fr[k] +
                 fedd[k] * er[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] +
-                (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
+                excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
+            SHOCK_RAD[] && (w += shock_frac(u[k+1] - u[k]) * qf[k] * dudr[k] * dvol[k])
+            isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
+            isempty(GASQ[]) || (w += GASQ[][k] * dvol[k])
+            cplq(k) && (w += (W.cpQ[k] + W.cpY[k]) * dvol[k])  # COUPLED: the three-level heats of the iterate leave the gray field
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * er[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
@@ -783,8 +1336,11 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         R[ie, kb(ngre+2)] = -ern[ngre+1] + ern[ngre+2]
         # ------------------------------------------------------------ RADIATION MOMENTUM
         qF = W.qF
+        tie = TD.FLUXTIE[][2] > 0 && length(TD.TIEW) >= ngre + 1 && length(TD.HEDD) >= ngre + 1
+        sph = TD.VEF_SPH[]                   # Auer's sphericality-factor form of the static terms (TitanDriver.VEF_SPH)
         @inbounds for k in ngrs+1:ngre
             qFo = c.fro[k] * 2 / (c.do_[k] + c.do_[k-1])
+            if !sph
             R[iF, kb(k)] =
                 (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
                  qFo * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
@@ -793,10 +1349,28 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 0.5 * rmu[k] * (fr[k] / cc^2) * (u[k+1] - u[k-1]) +
                 (0.25xmu / r[k]) * ((3fedd[k-1] - 1) * er[k-1] * dvol[k-1] + (3fedd[k] - 1) * er[k] * dvol[k]) +
                 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
+            else                                     # VEF_SPH: static terms in the sphericality-factor form (TitanDriver.VEF_SPH)
+                qs = vefq(fedd, r, xmu, k)
+                R[iF, kb(k)] =
+                    (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
+                     qFo * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
+                    ((dmdt[k] + dmdt[k+1]) * frb[k] - (dmdt[k-1] + dmdt[k]) * frb[k-1]) / (2cc^2) +
+                    rmu[k] * (qs * fedd[k] * er[k] - fedd[k-1] * er[k-1] / qs) +
+                    0.5 * rmu[k] * (fr[k] / cc^2) * (u[k+1] - u[k-1]) +
+                    0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
+            end
+            wt = tie ? TD.TIEW[k] : 0.0
+            if wt > 0                                # FLUXTIE: F = h c E (TitanDriver.FLUXTIE)
+                rcm = (0.5 * (r[k-1] + r[k]))^mu; rcp = (0.5 * (r[k] + r[k+1]))^mu
+                # upwind (donor cell): outward light from the zone inside, inward from the zone outside, diluted as r^-2. The centred
+                # average ½(hE_(k−1) + hE_k) cannot see an odd–even E mode, which nothing damps in thin gas (E → 0 at zone 214, step 87126)
+                B = rmu[k] * fr[k] / cc - (rcm * max(TD.HEDD[k-1], 0.0) * er[k-1] + rcp * min(TD.HEDD[k], 0.0) * er[k])
+                R[iF, kb(k)] = (1 - wt) * R[iF, kb(k)] + wt * B
+            end
         end
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)
-        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * ern[ngre]
+        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
         R[iF, 1] = X(iF, k0)
         k = ngrs - 1
         R[iF, kb(k)] = P.lribc == 2 ? frn[k+2] + frn[k] : rn[k+1]^mu * frn[k+1] - rn[k]^mu * frn[k]
@@ -805,6 +1379,31 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     nothing
 end
 
+"""
+VEF_SPH: e^{s/2} at interface k, s = (μ/4)(3 − 1/f_k−1 + 3 − 1/f_k) ln(r_c,k/r_c,k−1), r_c the zone midpoints (TitanDriver.VEF_SPH).
+The momentum row's static terms are r_k² [e^{s/2} f_k E_k − e^{−s/2} f_k−1 E_k−1]: the ratio of Auer's sphericality factor at the
+zone centres to its value at the interface, so that q f E is differenced across the interface. f ≥ 0.01 only guards 1/f.
+"""
+@inline function vefq(fedd, r, xmu, k)
+    gq(f) = 3 - 1 / max(f, 0.01)
+    rcm = 0.5 * (r[k-1] + r[k]); rcp = 0.5 * (r[k] + r[k+1])
+    exp(0.125xmu * (gq(fedd[k-1]) + gq(fedd[k])) * log(rcp / rcm))
+end
+"""
+VEF_SPH: energy density at the outer boundary radius r_N+1 from the outer zone's centre value (new time level, as TITAN's boundary
+row). The incoming background (the CMB, intensity I_in = ximr, E_b = 4π I_in/c) is isotropic, K_b = E_b/3, and carried unchanged
+to r_N+1; only the excess E_x = E_N − E_b is carried by the static momentum equation d(q f_x E_x)/dr = −q χρ F/c over the half zone
+r_c,N → r_N+1 with its own Eddington factor f_x = (f_N E_N − E_b/3)/E_x (K = K_x + K_b), held over the half zone and clamped to
+[1/3, 1] (where E_x ≪ E_b, f_x is the difference of two nearly equal numbers; the clamp bounds the correction to the dilution of a
+beam, e^{−2Δ}, so that the quadrature error of f, ~1e-3, is not multiplied by E_b/E_x ~ 1e5 in the boundary flux):
+E_s = E_b + e^{−s} E_x − e^{−s/2} χ_N ρ_N F_N+1 (r_N+1 − r_c,N)/(c f_x), s = (μ/2)(3 − 1/f_x) ln(r_N+1/r_c,N).
+"""
+@inline function vef_esurf(W, fedd, N, xmu, cc, Eb)
+    rn = W.rn; rc = 0.5 * (rn[N] + rn[N+1]); Ex = W.ern[N] - Eb
+    fx = ForwardDiff.value(Ex) != 0 ? clamp(ForwardDiff.value((fedd[N] * W.ern[N] - Eb / 3) / Ex), 1 / 3, 1.0) : 1 / 3
+    s = 0.5xmu * (3 - 1 / fx) * log(rn[N+1] / rc)
+    Eb + exp(-s) * Ex - exp(-0.5s) * W.chifn[N] * W.dn[N] * W.frn[N+1] * (rn[N+1] - rc) / (cc * fx)
+end
 # ------------------------------------------------------------------ total energy (item 2)
 "Total pressure (gas + radiation fE) of zone k at the θ-level."
 @inline ptot(k, c, W) = c.lrad ? W.pg[k] + c.fedd[k] * W.er[k] : W.pg[k]
@@ -842,13 +1441,37 @@ kinetic-energy, work and viscous pieces of the adjacent zone.
     end
     Fl
 end
+"ETOT_GRAV[]: the total-energy row includes the work of gravity (self-gravity or P.g). Default false, as in the tests and ledgers that book the potential energy themselves."
+const ETOT_GRAV = Ref(false)
+"ETOT_GRAV_GRID[] (ENV ETOTGRAVGRID=1; default off): with ETOT_GRAV[], also the work of gravity on mass carried by moving faces. Without it the total-energy row of a Lagrangian zone has no gravity work at all, and the kinetic energy gravity gives the gas is taken from its thermal energy (cloud-phase test of 2026-11-09)."
+const ETOT_GRAV_GRID = Ref(false)
 "Conservative total-energy row of zone k: Δ[m(e_g [+E_r/ρ]) + m(u_k²+u_{k+1}²)/4]/dt + Φ_{k+1} − Φ_k."
 @inline function etot_row(k, c, W, ::Type{T}) where {T}
     dn, un, dvoln = W.dn, W.un, W.dvoln
     en = c.lrad ? W.egrn[k] : W.egn[k]; eo = c.lrad ? c.egro[k] : c.ego[k]
-    (dn[k] * dvoln[k] * (en + 0.25 * (un[k]^2 + un[k+1]^2)) -
-     c.do_[k] * c.dvolo[k] * (eo + 0.25 * (c.uo[k]^2 + c.uo[k+1]^2))) / c.p.dt +
-    eflux(k + 1, c, W, T) - eflux(k, c, W, T)
+    w = (dn[k] * dvoln[k] * (en + 0.25 * (un[k]^2 + un[k+1]^2)) -
+         c.do_[k] * c.dvolo[k] * (eo + 0.25 * (c.uo[k]^2 + c.uo[k+1]^2))) / c.p.dt +
+        eflux(k + 1, c, W, T) - eflux(k, c, W, T)
+    if ETOT_GRAV[]
+        # Work of gravity on the mass that actually crosses each face (the continuity row's flux r² u ρ_b), over half a zone on each side: the rows sum to
+        # Σ_faces (mass flux) g Δr, the change of Σ m Φ, so gas + kinetic + potential energy is conserved. The momentum row's force g m_k with m_k the mean of the
+        # neighbouring zones differs from this where ρ is steep across a face (the accretion shock on a fixed mesh), and that difference must not create energy.
+        xmu = Float64(c.mu); P = c.p
+        gi_(j) = 2xmu * P.cpi * P.cgrav * W.xm[j] / W.rmu[j] + (1 - 0.5xmu) * P.g
+        Δr = 0.5 * (W.r[k+1] - W.r[k])
+        # (moving interfaces on lgrid = 2, GRIDWIN or GRIDVEL: the lab-frame mass flux r² u ρ_b; zones carried by the grid also change Σ m Φ)
+        uf(j) = gridmoves() ? W.u[j] : W.urel[j]
+        k > c.ngrs && (w += W.rmu[k] * uf(k) * W.db[k] * gi_(k) * Δr)
+        k < c.ngre && (w += W.rmu[k+1] * uf(k + 1) * W.db[k+1] * gi_(k + 1) * Δr)
+        if ETOT_GRAV_GRID[] && !gridmoves()
+            # Mass carried by moving faces (Lagrangian zones: urel = 0, so the term above vanishes): the momentum row's force g_j (m_{j-1} + m_j)/2 does the work
+            # u_grid,j g_j (m_{j-1} + m_j)/2 at face j, half of it in each neighbouring zone, matching the zone's kinetic energy m(u_k² + u_{k+1}²)/4. Zero on a fixed mesh.
+            mh = 0.5 * W.d[k] * W.dvol[k]
+            k > c.ngrs && (w += mh * (W.u[k] - W.urel[k]) * gi_(k))
+            w += mh * (W.u[k+1] - W.urel[k+1]) * gi_(k + 1)
+        end
+    end
+    w
 end
 
 """
@@ -977,5 +1600,34 @@ function store_side!(c::Ctx, ws::WS{D}) where {D}
 end
 
 matgen!(; ncol = 6) = (assemble!(context(); ncol); nothing)
+
+"""
+COUPLED test (popiii_m2c CPLJCHECK=n1,n2,…: zone numbers from the inner boundary, at the first Newton iteration of the first step): the
+AD Jacobian blocks of the energy and species rows of zones k−2…k+2 with respect to T, x_H⁺, x_H₂ of zone k, against central finite
+differences of the Float residual (step h in the logarithmic variables). Prints the worst relative difference per column.
+"""
+function cpl_jcheck(kz; h = parse(Float64, get(ENV, "CPLJCHH", "1e-6")))
+    c = context(); assemble!(c)
+    E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); neqn = c.neqn; nb = c.nb; k0 = c.k0; it = c.ix[5]
+    ws = getws(Float64, c.mgr); R1 = zeros(neqn, nb); R2 = zeros(neqn, nb); xz = zeros(neqn * nb)
+    kbz = kz - k0 + 1
+    for j in (it, 8, 9)
+        idx = (kbz - 1) * neqn + j
+        xz[idx] = h; residual!(R1, ws, c, xz); xz[idx] = -h; residual!(R2, ws, c, xz); xz[idx] = 0.0
+        worst = 0.0; wl = ""
+        for kr in kz-2:kz+2, i in (it, 8, 9)
+            kbr = kr - k0 + 1; (1 <= kbr <= nb) || continue
+            fd = (R1[i, kbr] - R2[i, kbr]) / 2h; ad = E[kz - kr + 3][i, j, kr]
+            sc = max(abs(fd), abs(ad)); sc == 0 && continue
+            rel = abs(fd - ad) / sc
+            # relative to the row's largest Jacobian entry (a tiny entry may differ by round-off)
+            rowmax = maximum(abs(E[o][i, jj, kr]) for o in 1:5 for jj in 1:neqn)
+            rel = abs(fd - ad) / max(sc, 1e-6 * rowmax)
+            rel > worst && (worst = rel; wl = "row $i zone $kr: AD $(round(ad, sigdigits = 6)) FD $(round(fd, sigdigits = 6))")
+        end
+        println("CPLJCHECK zone $kz column $j (cplz $(cplz(kz))): worst relative difference $(round(worst, sigdigits = 3))  ($wl)")
+    end
+    nothing
+end
 
 end # module

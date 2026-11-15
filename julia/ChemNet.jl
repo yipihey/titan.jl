@@ -29,7 +29,7 @@ using ForwardDiff, Printf
 
 const kB = 1.380649e-16; const hP = 6.62607015e-27; const c = 2.99792458e10; const eV = 1.602176634e-12
 const mH = 1.6735575e-24; const me = 9.1093837e-28; const mp = 1.67262192e-24
-const yHe = 1 / 12; const yLi = 4.15e-10
+const yHe = parse(Float64, get(ENV, "CHEM_YHE", string(1 / 12))); const yLi = 4.15e-10   # (CHEM_YHE=0: the pure-H benchmarks)
 
 # ------------------------------------------------------------------ species
 struct Species
@@ -46,13 +46,46 @@ function Zrot_H2(T)
     Zr = zero(T); for J in 0:60; Zr += (iseven(J) ? 1 : 3) * (2J + 1) * exp(-J * (J + 1) * θrot_H2 / T); end; Zr
 end
 Zvib(T, θ) = 1 / (1 - exp(-θ / T))
-"RHFC02 A9 (ON98): 1/(γ_H₂ − 1) = 5/2 + x² eˣ/(eˣ − 1)², x = 6100 K/T — energy per H₂ (thermal) = this × kT."
-u_H2(T) = (x = 6100 / T; 5 / 2 + x^2 * exp(x) / expm1(x)^2)
+"""
+RHFC02 A9 (ON98): 1/(γ_H₂ − 1) = 5/2 + x² eˣ/(eˣ − 1)², x = 6100 K/T — energy per H₂ (thermal) = this × kT.
+For x ≥ 100 (T ≤ 61 K) the vibrational term is written x² e⁻ˣ/(1 − e⁻ˣ)², the same function. The first form overflows there:
+its automatic derivative is NaN below 17.3 K (eˣ·(eˣ − 1)·∂x exceeds 1.8e308; a NaN Jacobian stopped the 146-zone run at step
+415553 on 11 Nov 2026, when a zone at 2.6 pc reached 17.35 K) and its value is NaN below 8.6 K. For x < 100 nothing changes,
+bit for bit; for x ≥ 100 the term is below 1e-39 of the 5/2.
+"""
+function u_H2(T)
+    x = 6100 / T
+    ForwardDiff.value(x) < 100 && return 5 / 2 + x^2 * exp(x) / expm1(x)^2
+    em = exp(-x)
+    5 / 2 + x^2 * em / (1 - em)^2
+end
 const χH = 13.598eV; const EA_H = 0.754eV; const D0_H2 = 4.478eV; const D0_H2p = 2.65eV
 const χLi = 5.3917eV
 "Levels of atomic H kept in its partition function and photo-ionisation (n ≤ NH_LEVELS; the sum diverges without a
 cut-off — at the densities where excited levels matter they are pressure-dissolved and SCVH95 takes over)."
 const NH_LEVELS = 15
+const χHe1 = 24.587387eV; const χHe2 = 54.417763eV     # NIST ASD ionisation energies of He I and He II
+"""
+`HECHEM=1` (default off): helium is a chemical element of the network — He, He⁺, He²⁺ with He eliminated by nuclei
+conservation (`full`, `fullvec`) and the electrons following from the charge sum. With it off, He stays the inert neutral
+spectator of before (Z_int = 1, x_He = y_He), bit for bit. Energy zero: neutral He at 0, He⁺ at +χHe1, He²⁺ at +χHe1 + χHe2
+(only differences within an element matter; this keeps u of every existing state unchanged).
+"""
+const HECHEM = get(ENV, "HECHEM", "0") == "1"
+"""
+He I levels for the partition function and photo-ionisation: 1¹S (g 1), the four n = 2 terms at their NIST energies
+(2³S 19.8196, 2¹S 20.6158, 2³P 20.9641, 2¹P 21.2180 eV), and n = 3 … NH_LEVELS hydrogenic for the outer electron,
+E_n = χHe1 − Ry/n², g = 4n² (singlets and triplets, all l) [approximate for n ≥ 3: 3³S at 22.72 eV against 23.08 hydrogenic].
+Returns (E_exc [erg], g, n) per level.
+"""
+const HEI_LEVELS = let Ry = 13.605693 * 1.602176634e-12
+    lv = [(0.0, 1.0, 1.0), (19.8196eV, 3.0, 2.0), (20.6158eV, 1.0, 2.0), (20.9641eV, 9.0, 2.0), (21.2180eV, 3.0, 2.0)]
+    for n in 3:NH_LEVELS; push!(lv, (χHe1 - Ry / n^2, 4.0 * n^2, Float64(n))); end
+    lv
+end
+ZHe_el(T) = (z = zero(T); for (E, g, _) in HEI_LEVELS; z += g * exp(-E / (kB * T)); end; z)
+"He II (hydrogenic, Z = 2): g = 2n², E_n = χHe2 (1 − 1/n²), n ≤ NH_LEVELS."
+ZHep_el(T) = (z = zero(T); for n in 1:NH_LEVELS; z += 2n^2 * exp(-χHe2 * (1 - 1 / n^2) / (kB * T)); end; z)
 """
 Li I levels for the partition function and photo-ionisation: ground 2s (g = 2) plus quantum-defect hydrogenic levels
 n ≤ NH_LEVELS, l ≤ 3, E_nl = χ_Li − Ry/(n − δ_l)², δ_s = 0.40, δ_p = 0.05, δ_d = δ_f = 0, g = 2(2l + 1)
@@ -80,7 +113,9 @@ const SPECIES = Dict{Symbol,Species}(
     :H2  => Species(:H2, 2mH, 0, (2, 0, 0), -(2χH + D0_H2), T -> Zrot_H2(T) * Zvib(T, θvib_H2), T -> NaN),   # c_v via u_H2
     :H2p => Species(:H2p, 2mH - me, 1, (2, 0, 0), -(χH + D0_H2p), Zint_H2p, T -> 2.5),
     :e   => Species(:e, me, -1, (0, 0, 0), 0.0, T -> 2 + zero(T), T -> 1.5),
-    :He  => Species(:He, 4.0026 * 1.66053907e-24, 0, (0, 1, 0), 0.0, T -> 1 + zero(T), T -> 1.5),
+    :He  => Species(:He, 4.0026 * 1.66053907e-24, 0, (0, 1, 0), 0.0, HECHEM ? ZHe_el : (T -> 1 + zero(T)), T -> 1.5),
+    :Hep  => Species(:Hep, 4.0026 * 1.66053907e-24 - me, 1, (0, 1, 0), χHe1, ZHep_el, T -> 1.5),
+    :Hepp => Species(:Hepp, 4.0026 * 1.66053907e-24 - 2me, 2, (0, 1, 0), χHe1 + χHe2, T -> 1 + zero(T), T -> 1.5),
     :Li  => Species(:Li, 7.016 * 1.66053907e-24, 0, (0, 0, 1), -χLi, T -> 4 * ZLi_el(T), T -> 1.5),     # × nuclear spin 4
     :Lip => Species(:Lip, 7.016 * 1.66053907e-24 - me, 1, (0, 0, 1), 0.0, T -> 4 + zero(T), T -> 1.5),
 )
@@ -89,6 +124,40 @@ Ztr(s::Species, T) = (2π * s.m * kB * T / hP^2)^1.5
 Keq(R, P, T) = exp(lnKeq(R, P, T))
 "ln Keq — use this where K itself under- or overflows (ionisation equilibria below a few hundred K)."
 function lnKeq(R, P, T)
+    lnK = zero(T)
+    for p in P; s = SPECIES[p]; lnK += log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
+    for r in R; s = SPECIES[r]; lnK -= log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
+    lnK
+end
+"""
+PERF512: Float64 T: the species terms ln(Z_tr Z_int) − E0/kT (partition functions summed over up to 61 levels each) are kept per thread for the
+last T, so that the reverse rates of all reactions of a zone evaluated at one T compute each species' term once. The same term, added in
+the same order: bit-identical to the generic method. (No yield point lies between reading the thread's memo and using it, so a task cannot
+change threads in between.)
+"""
+mutable struct LnKMemo
+    T::Float64
+    v::Dict{Symbol,Float64}
+end
+const LNKMEMO = [LnKMemo(NaN, Dict{Symbol,Float64}()) for _ in 1:Threads.maxthreadid()]
+@inline _spterm(s::Species, T) = log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T)
+function _spterm_memo(m::LnKMemo, p::Symbol, T::Float64)
+    t = get(m.v, p, NaN)
+    isnan(t) || return t
+    t = _spterm(SPECIES[p], T)::Float64; m.v[p] = t
+    t
+end
+function lnKeq(R, P, T::Float64)
+    tid = Threads.threadid()
+    tid <= length(LNKMEMO) || return _lnKeq_direct(R, P, T)
+    m = LNKMEMO[tid]
+    m.T === T || (m.T = T; empty!(m.v))
+    lnK = 0.0
+    for p in P; lnK += _spterm_memo(m, p, T); end
+    for r in R; lnK -= _spterm_memo(m, r, T); end
+    lnK
+end
+function _lnKeq_direct(R, P, T::Float64)
     lnK = zero(T)
     for p in P; s = SPECIES[p]; lnK += log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
     for r in R; s = SPECIES[r]; lnK -= log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
@@ -140,7 +209,7 @@ direction, close to a power law in T — is extrapolated from [T_u, 2T_u] as a p
 error of an endothermic fit by e^{ΔE/kT} (AAZN97 k1 below 1e4 K gave three-body recombination of H⁺ in 1e-9 s at 200 K).
 """
 function reverse_k(r::Reaction; Tmin = 0.0)
-    Tu = Ref(NaN)
+    Tu = Ref(NaN); Ta = Ref(NaN); Ts = Ref(NaN)
     lnkr(T, env) = log(r.k(T, env)) - lnKeq(r.R, r.P, T)
     function k(T, env)
         kf = r.k(T, env)
@@ -151,8 +220,12 @@ function reverse_k(r::Reaction; Tmin = 0.0)
             Tu[] = t
         end
         Tu[] >= 1e6 && return zero(T)
-        a = lnkr(Tu[], env); s = (lnkr(2Tu[], env) - a) / log(2.0)
-        exp(a + s * log(T / Tu[]))
+        # the power law fixed at T_u: computed once (it was recomputed on every call; same values, bit-identical). The forward
+        # fits of all detailed-balance pairs ignore env (the three-level atom's env-dependent factor wraps a forward reaction only).
+        if isnan(Ta[])
+            a = lnkr(Tu[], env); Ts[] = (lnkr(2Tu[], env) - a) / log(2.0); Ta[] = a
+        end
+        exp(Ta[] + Ts[] * log(T / Tu[]))
     end
 end
 
@@ -169,22 +242,57 @@ function photorates(p::Photo, T, env; n = 200)
             Rl += 4π * σ * J / (hP * ν) * dν
             Al += 4π * σ / (hP * ν) * (2hP * ν^3 / c^2 + J) * exp(-(Ex + hP * ν) / (kB * T) - lnK) * dν
         end
-        R += w * exp(-Ex / (kB * T)) * Rl; A += w * Al
+        # env.caseB (on the spot): recombinations directly to a level with Ex = 0 of a multi-level atom make a photon that is reabsorbed nearby, so they do not count
+        caseB = hasproperty(env, :caseB) && env.caseB && Ex == 0 && length(p.levels) > 1
+        R += w * exp(-Ex / (kB * T)) * Rl; caseB || (A += w * Al)
     end
     R, A
+end
+
+"""
+Photo-rate R of `photorates` alone: the same arithmetic in the same order (R is bit-identical), without the integrand of the
+Milne coefficient. For callers that use only R (the star-light rates of every zone and step: the unused α was half of their cost).
+"""
+function photorate(p::Photo, T, env; n = 200)
+    Z = p.Z(T); R = 0.0
+    for (Ex, g, Eth, σf) in p.levels
+        Rl = _photoR(σf, env.J, Eth / hP, range(0.0, log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), length = n + 1), n)
+        w = g / Z
+        R += w * exp(-Ex / (kB * T)) * Rl
+    end
+    R
+end
+# function barrier: compiled for the concrete cross-section and J closures (σf is an untyped field of Photo)
+function _photoR(σf::F, Jf::G, ν0, xs, n) where {F,G}
+    Rl = 0.0; νa = ν0 * exp(xs[1])
+    for i in 1:n
+        νb = ν0 * exp(xs[i+1]); ν = 0.5 * (νa + νb); dν = νb - νa; σ = σf(ν); J = Jf(ν)
+        Rl += 4π * σ * J / (hP * ν) * dν; νa = νb
+    end
+    Rl
 end
 
 """
 photorates through a table in log T (1–1e6 K, 0.005 dex, Catmull–Rom in ln R and ln α) when the radiation field is the same in
 every zone (`env.static == true`, e.g. the CMB or none); otherwise direct. Table vs direct ≤ 3e-3 at 20 K–9e5 K (H, H⁻, Li; J = B(54 K)); the larger differences, H⁻ α above 7e4 K, are the direct quadrature's own (n = 200 vs 800: 3 %).
 """
-const PHTAB = IdDict{Any,Any}()
+const PHTAB = IdDict{Any,Any}(); const PHLOCK = ReentrantLock()
 function photorates_t(p::Photo, T, env)
+    hasproperty(env, :ljW) && return photorates_lj(p, T, env)
     (hasproperty(env, :static) && env.static) || return photorates(p, T, env)
-    tab = get!(PHTAB, (p, env)) do
-        lT = collect(0.0:0.005:6.0)
-        v = [photorates(p, 10^x, env) for x in lT]
-        (lT, [log(max(a[1], 1e-300)) for a in v], [log(max(a[2], 1e-300)) for a in v])
+    # env.tabkey: a per-zone env (extra fields for reactions) that shares the static J of `tabkey`, and so its table
+    key = (p, hasproperty(env, :tabkey) ? env.tabkey : env)
+    tab = get(PHTAB, key, nothing)
+    if tab === nothing
+        # built once, under a lock: the chemistry threads all arrive here in the first step (they used to build the table 16
+        # times over, 5 s each, and to insert into the IdDict concurrently)
+        tab = lock(PHLOCK) do
+            get!(PHTAB, key) do
+                lT = collect(0.0:0.005:6.0)
+                v = [photorates(p, 10^x, env) for x in lT]
+                (lT, [log(max(a[1], 1e-300)) for a in v], [log(max(a[2], 1e-300)) for a in v])
+            end
+        end
     end
     lT, lR, lA = tab; n = length(lT); x = clamp(log10(T), 0.0, 6.0); i = clamp(Int(floor(x / 0.005)) + 1, 2, n - 2); w = (x - lT[i]) / 0.005
     function cr(f)                                                 # Catmull–Rom
@@ -195,12 +303,83 @@ function photorates_t(p::Photo, T, env)
     (R < 1e-290 ? 0.0 : R), A
 end
 
+"""
+Photo-rates in a diluted blackbody J = W B(T_c) from tables (PopIIIMaterial LOCALJ with LOCALJTAB=1: the env carries `ljW` = W and
+`Trad` = T_c). Exact decompositions of `photorates`, tabulated once per process:
+- R = W Σ_l (g_l/Z(T)) e^{−E_x,l/kT} R_l(T_c), R_l = 4π∫σ_l B(T_c)/(hν) dν per level: 1-D tables of ln R_l in log T_c (3.0–6.5, 0.005 dex);
+- α = α₀(T) + W α_st(T, T_c) (α is linear in J): ln α₀ in log T (0.5–6.5, 0.005 dex, J = 0) and ln(α_st/α₀) on a (log T, log T_c)
+  grid (log T 1.0–6.5, log T_c 3.0–6.5, 0.05 dex); the ratio matters only where it is not small, and there it is smooth. The α parts
+  are integrated on the gas-T grid with n = 1000, R_l on `photorates`' T_c grid with n = 1000 (both more accurate than the direct path).
+Catmull–Rom in each direction (as the static tables). Outside the ranges, or with `caseB`, the direct integrals.
+"""
+const LJTAB = IdDict{Any,Any}(); const LJLOCK = ReentrantLock()
+# quadrature points of the table integrals (LJTABN, default 1000). Against n = 4000 integrals at n = 1000: Li ≤ 4e-4, H⁻ ≤ 5e-3 (flow 1e-5),
+# He I ≤ 2e-3 (thick) / 1e-2 (flow α), He II ≤ 1e-2 / 5e-2; the direct path (n = 200) 5–30× larger. Build time ∝ n.
+const LJTABN = parse(Int, get(ENV, "LJTABN", "1000"))
+const LJ_T = (0.5, 0.005, 1201); const LJ_C = (3.0, 0.005, 701); const LJ_2T = (1.0, 0.05, 111); const LJ_2C = (3.0, 0.05, 71)
+_ljv(x::ForwardDiff.Dual) = _ljv(ForwardDiff.value(x)); _ljv(x::Real) = Float64(x)
+_bnu_lj(ν, T) = (x = hP * ν / (kB * T); x > 700 ? 0.0 : 2hP * ν^3 / c^2 / expm1(x))
+function lj_tables(p::Photo)
+    t = get(LJTAB, p, nothing); t === nothing || return t
+    lock(LJLOCK) do
+        get!(LJTAB, p) do
+            n = 200; z0 = (Trad = 0.0, J = ν -> 0.0)
+            lc = [LJ_C[1] + LJ_C[2] * (i - 1) for i in 1:LJ_C[3]]
+            # R_l with n = 1000 on the T_c grid (n = 200, as `photorates`, is under-resolved by up to 7 % (He I) and 30 % (He II levels))
+            lvs = p.levels; lR = zeros(length(lvs), length(lc))
+            Threads.@threads for ij in 1:length(lR)
+                l, j = Tuple(CartesianIndices(lR)[ij]); (Ex, g, Eth, σf) = lvs[l]; Tc = 10^lc[j]; Jb = ν -> _bnu_lj(ν, Tc); nR = LJTABN
+                lR[l, j] = log(max(_photoR(σf, Jb, Eth / hP, range(0.0, log(1 + 60kB * Tc / Eth + 30.0), length = nR + 1), nR), 1e-300))
+            end
+            # the Milne coefficients on a frequency grid set by the gas T (Trad = 0: the integrand lives within kT of each threshold; with
+            # the grid of max(T, T_c) and n = 200, as `photorates` with this J, it is under-resolved by up to 30–60 % where T ≪ T_c), n = 1000
+            lt = [LJ_T[1] + LJ_T[2] * (i - 1) for i in 1:LJ_T[3]]; lA0 = zeros(length(lt))
+            Threads.@threads for i in eachindex(lt); lA0[i] = log(max(photorates(p, 10^lt[i], z0; n = LJTABN)[2], 1e-300)); end
+            l2t = [LJ_2T[1] + LJ_2T[2] * (i - 1) for i in 1:LJ_2T[3]]; l2c = [LJ_2C[1] + LJ_2C[2] * (j - 1) for j in 1:LJ_2C[3]]
+            lr = zeros(length(l2t), length(l2c)); a0s = [photorates(p, 10^x, z0; n = LJTABN)[2] for x in l2t]
+            Threads.@threads for ij in 1:length(lr)
+                i, j = Tuple(CartesianIndices(lr)[ij]); T = 10^l2t[i]; Tc = 10^l2c[j]
+                a1 = photorates(p, T, (Trad = 0.0, J = ν -> _bnu_lj(ν, Tc)); n = LJTABN)[2]
+                lr[i, j] = log(max(a1 / max(a0s[i], 1e-300) - 1, 1e-300))
+            end
+            (; lR, lA0, lr)
+        end
+    end
+end
+@inline function _cr4(p0, p1, p2, p3, w)
+    p1 + 0.5w * (p2 - p0 + w * (2p0 - 5p1 + 4p2 - p3 + w * (3(p1 - p2) + p3 - p0)))
+end
+@inline _ljidx(x, g) = (i = clamp(Int(floor((_ljv(x) - g[1]) / g[2])) + 1, 2, g[3] - 2); (i, (x - (g[1] + g[2] * (i - 1))) / g[2]))
+function photorates_lj(p::Photo, T, env)
+    Tc = Float64(env.Trad); W = Float64(env.ljW); lT = log10(T); lc = log10(Tc); lTv = _ljv(lT)
+    ok = !(hasproperty(env, :caseB) && env.caseB) && LJ_T[1] + 2LJ_T[2] <= lTv <= LJ_T[1] + LJ_T[2] * (LJ_T[3] - 3) &&
+         LJ_C[1] + 2LJ_C[2] <= lc <= LJ_C[1] + LJ_C[2] * (LJ_C[3] - 3) && LJ_2C[1] + 2LJ_2C[2] <= lc <= LJ_2C[1] + LJ_2C[2] * (LJ_2C[3] - 3) &&
+         LJ_2T[1] + 2LJ_2T[2] <= lTv <= LJ_2T[1] + LJ_2T[2] * (LJ_2T[3] - 3)
+    ok || return photorates(p, T, env)
+    tb = lj_tables(p)
+    ic, wc = _ljidx(lc, LJ_C); Z = p.Z(T); R = zero(T)
+    for (l, (Ex, g, Eth, σf)) in enumerate(p.levels)
+        Rl = exp(_cr4(tb.lR[l, ic-1], tb.lR[l, ic], tb.lR[l, ic+1], tb.lR[l, ic+2], wc))
+        R += g / Z * exp(-Ex / (kB * T)) * Rl
+    end
+    it, wt = _ljidx(lT, LJ_T); a0 = exp(_cr4(tb.lA0[it-1], tb.lA0[it], tb.lA0[it+1], tb.lA0[it+2], wt))
+    jt, vt = _ljidx(lT, LJ_2T); jc, vc = _ljidx(lc, LJ_2C)
+    row(j) = _cr4(tb.lr[jt-1, j], tb.lr[jt, j], tb.lr[jt+1, j], tb.lr[jt+2, j], vt)
+    r = exp(_cr4(row(jc - 1), row(jc), row(jc + 1), row(jc + 2), vc))
+    R = W * R
+    (R < 1e-290 ? zero(R) : R), a0 * (1 + W * r)
+end
+
 # ------------------------------------------------------------------ composition
-"Eliminated species: H (H nuclei), Li (Li nuclei), e (charge); He fixed at y_He."
+"Eliminated species: H (H nuclei), Li (Li nuclei), e (charge); He fixed at y_He, or from He nuclei when He⁺/He²⁺ are free (HECHEM)."
 function full(x, net)
     d = Dict{Symbol,eltype(x)}()
     for (i, s) in enumerate(net.free); d[s] = x[i]; end
-    get!(d, :He, yHe + zero(eltype(x)))
+    if any(s -> SPECIES[s].el[2] > 0, net.free)
+        d[:He] = yHe - sum((SPECIES[s].el[2] * d[s] for s in net.free if SPECIES[s].el[2] > 0); init = zero(eltype(x)))
+    else
+        get!(d, :He, yHe + zero(eltype(x)))
+    end
     hasLi = :Li in net.species
     H = 1 - sum((SPECIES[s].el[1] * d[s] for s in net.free if s != :H); init = zero(eltype(x)))
     d[:H] = H
@@ -219,6 +398,7 @@ struct Compiled
     R::Vector{Vector{Int}}; P::Vector{Vector{Int}}
     iH::Int; iLi::Int; ie::Int; iHe::Int
     elH::Vector{Float64}; elLi::Vector{Float64}; q::Vector{Float64}       # per free species
+    elHe::Vector{Float64}; hasHe::Bool                                     # He nuclei per free species; He eliminated (HECHEM)
     cv::Vector{Function}; E0::Vector{Float64}; isH2::Vector{Bool}
 end
 const COMPILED = IdDict{Any,Compiled}()
@@ -228,19 +408,25 @@ compiled(net) = get!(COMPILED, net) do
     Compiled(sp, idx, fr, [[idx[s] for s in r.R] for r in net.reactions], [[idx[s] for s in r.P] for r in net.reactions],
              get(idx, :H, 0), get(idx, :Li, 0), get(idx, :e, 0), idx[:He],
              [s == :H ? 0.0 : Float64(SPECIES[s].el[1]) for s in net.free], [Float64(SPECIES[s].el[3]) for s in net.free],
-             [Float64(SPECIES[s].q) for s in net.free], [SPECIES[s].cv for s in sp], [SPECIES[s].E0 for s in sp], [s == :H2 for s in sp])
+             [Float64(SPECIES[s].q) for s in net.free], [Float64(SPECIES[s].el[2]) for s in net.free], any(s -> SPECIES[s].el[2] > 0, net.free),
+             [SPECIES[s].cv for s in sp], [SPECIES[s].E0 for s in sp], [s == :H2 for s in sp])
 end
-"Full composition as a vector over compiled(net).sp (same elimination as `full`)."
+"Full composition as a vector over compiled(net).sp (same elimination as `full`); entries of x behind the free species are ignored."
 function fullvec(x, c::Compiled)
     v = zeros(eltype(x), length(c.sp))
     for (i, j) in enumerate(c.free); v[j] = x[i]; end
-    v[c.iHe] = yHe
-    c.iH > 0 && (v[c.iH] = 1 - sum(c.elH[i] * x[i] for i in eachindex(x)))
-    c.iLi > 0 && (v[c.iLi] = yLi - sum(c.elLi[i] * x[i] for i in eachindex(x)))
-    c.ie > 0 && (v[c.ie] = sum(c.q[i] * x[i] for i in eachindex(x)))
+    v[c.iHe] = c.hasHe ? yHe - sum(c.elHe[i] * x[i] for i in eachindex(c.free)) : yHe
+    c.iH > 0 && (v[c.iH] = 1 - sum(c.elH[i] * x[i] for i in eachindex(c.free)))
+    c.iLi > 0 && (v[c.iLi] = yLi - sum(c.elLi[i] * x[i] for i in eachindex(c.free)))
+    c.ie > 0 && (v[c.ie] = sum(c.q[i] * x[i] for i in eachindex(c.free)))
     v
 end
 
+"Chemical energy per gram Σ x_j E0_j/μ_H of composition x (the T-independent part of `eos`'s u; 0 for fully ionized gas)."
+function echem(x, net)
+    c = compiled(net); v = fullvec(x, c)
+    sum(v[j] * c.E0[j] for j in eachindex(v)) / μH()
+end
 "Internal energy per gram and pressure."
 function eos(ρ, T, x, net)
     c = compiled(net); v = fullvec(x, c); nH = ρ / μH()
@@ -270,49 +456,545 @@ function dxdt(x, nH, T, net, env, photo)
     dd[c.free]
 end
 
+"dxdt with the rate coefficients precomputed: ks[ir] = k_ir(T, env) n_H^(n_R − 1) (as in `ck_expand`); same result as `dxdt`."
+function dxdt_k(x, nH, net, ph, ks)
+    c = compiled(net); v = fullvec(x, c); dd = zeros(promote_type(eltype(x), eltype(ks)), length(v))
+    for ir in eachindex(net.reactions)
+        Ri = c.R[ir]; rate = ks[ir]
+        for j in Ri; rate *= v[j]; end
+        for j in Ri; dd[j] -= rate; end
+        for j in c.P[ir]; dd[j] += rate; end
+    end
+    for (p, R, α) in ph
+        jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]
+        rate = R * v[jr]; for j in jp; dd[j] += rate; end; dd[jr] -= rate
+        inv_ = α * nH^(length(jp) - 1); for j in jp; inv_ *= v[j]; end
+        for j in jp; dd[j] -= inv_; end; dd[jr] += inv_
+    end
+    dd[c.free]
+end
+
 """
-    step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing) -> (x, T)
+From this recursion depth, a failed Newton is retried with each free abundance clipped on its own (x → 0.1 x) instead of scaling the
+whole correction. A trace species whose linearised update is strongly negative (H₂⁺ at n ≈ 1e16, T ≈ 3300 K, with the H₂ row far from
+balance) otherwise sets λ ≈ 0.9 x/|δ| for all unknowns: x falls by 10 % per iteration, λ → 1e-60, and Newton freezes for every h.
+Runs that never reach this depth are unchanged bit for bit.
+"""
+const CLIPDEPTH = 4
+"""Non-finite Jacobian = failed attempt (halve h), and the clipped retry clips trace Li on its own species (ENV CHEMROBUST=1, default off;
+off keeps the old behaviour: `\\` throws, and Li → 0 sets λ for every unknown)."""
+const ROBUST = Ref(get(ENV, "CHEMROBUST", "0") != "0")
+"""
+CHEMTRCLIP=f (default 0, off): positivity of trace species per species instead of through the common step length. A free species
+below f per H nucleus whose Newton update would make it negative has its own update cut to −0.9 of its value, and an eliminated Li
+nucleus going negative scales only the Li species' updates; the common λ is then set by the major species (H, e, He) and T alone.
+Without it a trace species (He⁺ ~1e-10 with HECHEM=1, neutral Li) whose linear update overshoots by ×1e4 sets λ ~ 1e-6, every
+other unknown stays put, λ falls ×10 per iteration and the attempt fails (13 Nov 2026, the pre-shock zones of t_b224c8: 42
+failed attempts in one step at h ≥ dt/16).
+"""
+const TRCLIP = Ref(parse(Float64, get(ENV, "CHEMTRCLIP", "0")))
+"""
+CHEMLOGX=1 (default off): Newton of `step` in w = ln x for the free species (and ln T), so that their positivity holds by
+construction and the exponential dependence of trace species in fast equilibrium (H⁻, H₂⁺, He⁺, Li⁺ …) on T is linear in the
+unknowns. The eliminated H, e, He keep the common step length (halved until non-negative); the eliminated Li scales only the Li
+species' updates. Species below 1e-25 per H nucleus do not enter the convergence test (floor 1e-60). On failure the halving and
+the CLIPDEPTH retries of the linear form follow as before.
+"""
+const LOGX = Ref(get(ENV, "CHEMLOGX", "0") == "1")
+"""
+CHEMSUBCYC=ε (default 0, off): `step` without `accepted` (a ray) and `Tfix` integrates by sub-cycling instead of one backward-Euler Newton
+solve (the approach of ChemistryKernels.jl's sub-cycler; Anninos et al. 1997, NewA 2, 209). Per sub-step h, every free species
+from its formation C and destruction rate D at the start of the sub-step, x' = (x + C h)/(1 + D h) (positive for any h; species in
+fast equilibrium, D h ≫ 1, take x = C/D: H⁻, H₂⁺, He⁺, Li⁺ …), then T from u(ρ, T, x') = u − h Λ(ρ, T, x')/ρ (one variable, after T of u at the start composition,
+cooling implicit in T). h is limited to ε of x/|dx/dt| for x_e and every free species above 1e-8 per H that is not in fast
+equilibrium, |Δ ln T| ≤ max(ε, 0.02), growth ×2 per sub-step; a sub-step that leaves an eliminated abundance negative or a T
+solve that fails is retried with h/4.
+Motivation (13 Nov 2026, the pre-shock zones of t_b224c8 at n ~ 3e12, T 5500-7000 K, dt ~ 1.3e6 s): the single backward-Euler
+step needs 160-500 Newton iterations in 13-31 halvings per call; from the start state Newton is outside the basin of the root
+(positivity damping by trace species, or a spurious x_e → 0 attractor in ln x), and the CHEMSUB halving tree costs 0.5-1 s per zone.
+"""
+const SUBCYC = Ref(parse(Float64, get(ENV, "CHEMSUBCYC", "0"))); const NSUBCYC = Threads.Atomic{Int}(0)
+const SUBMAX = Ref(parse(Int, get(ENV, "CHEMSUBMAX_SC", "200000")))   # sub-step cap of CHEMSUBCYC
+"""
+Formation C and destruction L per H nucleus and second for every species of compiled(net).sp (dx/dt = C − L), with the full vector v,
+and Dx: for a free species formed from an eliminated parent E (H, Li, He with HECHEM) the parent's own dependence on it,
+E = … − el x_j, as an extra destruction coefficient (rate m r/E × el per unit x_j), so that the sub-step's x_j cannot exceed what E holds.
+"""
+function cdrates(x, nH, T, net, env, ph)
+    c = compiled(net); v = fullvec(x, c); C = zeros(length(v)); L = zeros(length(v)); Dx = zeros(length(v))
+    fpos = Dict(j => i for (i, j) in enumerate(c.free))
+    elim = ((c.iH, c.elH), (c.iLi, c.elLi), (c.hasHe ? c.iHe : 0, c.elHe))
+    for (ir, r) in enumerate(net.reactions)
+        Ri = c.R[ir]; rate = r.k(T, env) * nH^(length(Ri) - 1)
+        for j in Ri; rate *= v[j]; end
+        for j in Ri; L[j] += rate; end
+        for j in c.P[ir]; C[j] += rate; end
+        rate > 0 || continue
+        for (iE, el) in elim
+            iE > 0 && v[iE] > 0 || continue
+            m = count(==(iE), Ri); m == 0 && continue
+            for j in c.P[ir]
+                i = get(fpos, j, 0); (i > 0 && el[i] > 0) || continue
+                Dx[j] += m * rate / v[iE] * el[i]
+            end
+        end
+    end
+    for (p, R, α) in ph
+        jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]
+        rate = R * v[jr]; for j in jp; C[j] += rate; end; L[jr] += rate
+        inv_ = α * nH^(length(jp) - 1); for j in jp; inv_ *= v[j]; end
+        for j in jp; L[j] += inv_; end; C[jr] += inv_
+    end
+    v, C, L, Dx
+end
+"The sub-cycled integration of CHEMSUBCYC (see there); returns (x, T) as `step`."
+function step_sub(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, ε = SUBCYC[], maxsub = SUBMAX[])
+    nH = ρ / μH(); c = compiled(net); nf = length(net.free)
+    x = collect(Float64, x0); T = Float64(T0); ucur = Float64(u)
+    t = 0.0; h = dt; nsub = 0; εT = max(ε, 0.02)
+    function tsolve(xn, hh, Tg)
+        dn = full(xn, net)
+        g(lT) = (Tq = exp(lT); (eos(ρ, Tq, xn, net)[1] - ucur + (cooling === nothing || hh == 0 ? zero(Tq) : hh * cooling(ρ, Tq, dn) / ρ)) / (kB * Tq / μH()))
+        lT = log(Tg)
+        for it in 1:80
+            gv = g(lT); dg = ForwardDiff.derivative(g, lT)
+            (isfinite(gv) && isfinite(dg) && dg != 0) || return (false, lT)
+            δ = clamp(-gv / dg, -0.2, 0.2); lT += δ
+            abs(δ) < 1e-11 && return (true, lT)
+        end
+        (false, lT)
+    end
+    # T of the zone's u at the start composition (T0 is the previous step's T; the hydro step has changed u since)
+    ok0, lT0 = tsolve(x, 0.0, T); ok0 || error("ChemNet.step_sub: no start temperature (nH = $nH, T0 = $T0, u = $u)"); T = exp(lT0)
+    while t < dt * (1 - 1e-12)
+        nsub += 1; nsub > maxsub && error("ChemNet.step_sub: more than $maxsub sub-steps (nH = $nH, T0 = $T0, dt = $dt, u = $u)")
+        CHEMSTATS && Threads.atomic_add!(NADV, 1)
+        ph = [(p, photorates_t(p, T, env)...) for p in photos]
+        v, C, L, Dx = cdrates(x, nH, T, net, env, ph)
+        for (i, j) in enumerate(c.free); C[j] += Dx[j] * x[i]; end      # (C − (L/x + Dx) x unchanged at the sub-step's start)
+        if extra !== nothing                         # (star light: extra dx/dt of the free species, at the sub-step's start)
+            ex = extra(x)
+            for i in 1:nf; j = c.free[i]; ex[i] >= 0 ? (C[j] += ex[i]) : (L[j] -= ex[i]); end
+        end
+        hh = min(h, dt - t); lim = h < dt - t ? :growth : :end
+        for (i, j) in enumerate(c.free)
+            D = L[j] / max(v[j], 1e-300) + Dx[j]
+            (x[i] > 1e-8 && D * hh < 1) || continue
+            r = abs(C[j] - L[j] - Dx[j] * x[i]) / x[i]; r > 0 && ε / r < hh && (hh = ε / r; lim = net.free[i])
+        end
+        if c.ie > 0 && v[c.ie] > 1e-8
+            de = sum(c.q[i] * (C[c.free[i]] - L[c.free[i]] - Dx[c.free[i]] * x[i]) for i in 1:nf); de != 0 && ε * v[c.ie] / abs(de) < hh && (hh = ε * v[c.ie] / abs(de); lim = :e)
+        end
+        TRACEALL[] && (nsub <= 60 || nsub % 2000 == 0) && println("    sub ", nsub, " t/dt ", round(t / dt, sigdigits = 4), " h ", round(hh, sigdigits = 3), " lim ", lim, " T ", round(T, digits = 1), " x_e ", round(v[c.ie], sigdigits = 4), " x_H2 ", round(get(Dict(zip(net.free, x)), :H2, NaN), sigdigits = 3))
+        hh = max(hh, 1e-12 * dt)
+        xn = similar(x)
+        for (i, j) in enumerate(c.free)
+            xn[i] = (x[i] + C[j] * hh) / (1 + (L[j] / max(v[j], 1e-300) + Dx[j]) * hh)
+        end
+        vn = fullvec(xn, c)
+        if any(j -> j > 0 && vn[j] < 0, (c.iH, c.ie, c.iHe, c.iLi))
+            hh <= 1e-12 * dt && error("ChemNet.step_sub: negative eliminated abundance at the smallest sub-step (nH = $nH, T = $T, H $(vn[c.iH]) e $(vn[c.ie]) He $(vn[c.iHe]) Li $(c.iLi > 0 ? vn[c.iLi] : 0.0))")
+            h = hh / 4; continue
+        end
+        ok, lT = tsolve(xn, hh, T)
+        TRACEALL[] && nsub <= 60 && (!ok || abs(lT - log(T)) > εT) && println("      reject: T ok ", ok, " Δ ln T ", round(lT - log(T), sigdigits = 3))
+        if !ok || abs(lT - log(T)) > εT
+            hh <= 1e-12 * dt && error("ChemNet.step_sub: no temperature at the smallest sub-step (nH = $nH, T = $T, ok $ok, Δ ln T $(lT - log(T)), t/dt $(t / dt))")
+            h = hh / (ok ? 2 : 4); continue
+        end
+        x = xn; T = exp(lT); ucur = Float64(eos(ρ, T, x, net)[1]); t += hh; h = 2hh
+    end
+    CHEMSTATS && Threads.atomic_add!(NSUBCYC, nsub)
+    x, T
+end
+"Print the first N non-finite Jacobians of `step` (ENV CHEMNANDBG; diagnostics)."
+const NANDBG = Ref(parse(Int, get(ENV, "CHEMNANDBG", "0")))
+"""
+`CHEMSTATS=1` (diagnostic, default off): count calls of `step`, sub-step attempts (`adv` calls: halvings included) and Jacobians
+(= Newton iterations); totals printed at exit.
+"""
+const CHEMSTATS = get(ENV, "CHEMSTATS", "0") == "1"
+"""
+`CHEMSTAG=n` (default 0 = off): accept a Newton attempt that has stagnated at round-off (full step λ = 1, every abundance changed by
+< 1e-6 relative and ln T by < 1e-8, the acceptance test applied after `maxit` iterations) already from iteration n on. Measured
+12 Nov: in b224's network zones the step took 24 Newton iterations on average against 3.2 in c128, many running to maxit = 60 with
+a trace species flipping in its last digits. Results differ from the default at the round-off level of those species.
+"""
+const CHEMSTAG = parse(Int, get(ENV, "CHEMSTAG", "0"))
+"""
+`CHEMGIVEUP=n` (default 0 = off): an attempt that at iteration n is still far from converged (damped step, or a relative change
+above 1e-3) is abandoned as failed, so the step is halved at once instead of after `maxit` = 60 iterations. Measured 12 Nov in b224:
+~17 000 of ~56 000 attempts failed, each after 60 iterations, ≈ all of the ~0.9 million Jacobians.
+"""
+const CHEMGIVEUP = parse(Int, get(ENV, "CHEMGIVEUP", "0"))
+const NSTEP = Threads.Atomic{Int}(0); const NADV = Threads.Atomic{Int}(0); const NJAC = Threads.Atomic{Int}(0)
+CHEMSTATS && atexit(() -> println("CHEMSTATS: ChemNet.step calls ", NSTEP[], ", sub-step attempts ", NADV[], ", Jacobians (Newton iterations) ", NJAC[]))
+"Print the Newton iterations of the first N failed steps (ENV CHEMTRACE; diagnostics)."
+const TRACEDBG = Ref(parse(Int, get(ENV, "CHEMTRACE", "0")))
+"Diagnostics (default false): trace every attempt of `step` (set from code, e.g. PopIIIMaterial.chemreplay)."
+const TRACEALL = Ref(false)
+
+
+# ------------------------------------------------------------------ CHEMCK: reduced network (ChemistryKernels approach)
+"""
+`CHEMCK=1` (default off): the approach of ChemistryKernels.jl. Only H₂, H⁺ (the slow species) and T are Newton unknowns of the
+backward-Euler step; the fast species are algebraic functions of them: H⁻ and H₂⁺ in chemical steady state (creation = destruction,
+`CHEMCKSWEEPS` Gauss–Seidel sweeps, default 3, as CK evaluates them twice), He, He⁺, He²⁺ and Li, Li⁺ in ionisation equilibrium
+(every process of the network between adjacent stages balanced: collisional ionisation ⇌ three-body recombination, photo-ionisation ⇌
+radiative recombination, charge transfer), with n_e from charge conservation. The fast species cannot go negative and no longer limit
+the Newton step (the stall of 13 Nov: λ falling ×10 per iteration on trace He⁺/He²⁺ and the eliminated Li). Assumes the fast species
+relax faster than the step. `extra` (star light: H⁻ photodetachment, LW, H photoionisation; a ray) enters the slow rows directly and
+the H⁻/H₂⁺ balance as a source and a loss linear in the species' own abundance (extra with the fast singles at 0 and at 1, evaluated
+once per call at the slow state); not the He/Li stages.
+"""
+const CK = Ref(get(ENV, "CHEMCK", "0") == "1"); const CKSWEEPS = Ref(parse(Int, get(ENV, "CHEMCKSWEEPS", "3")))
+"""
+`CHEMCKADAPT=fT,fx` (with CHEMCK=1; default off): the reduced step integrates dt in adaptive backward-Euler sub-steps, each accepted
+only if T changes by less than the factor fT and x_e by less than fx (else halved; after an accepted one h doubles). A single
+backward-Euler step over ~1e6 s in the partially ionized pre-shock gas converges to the hot, ionized root (x_e 0.87 instead of 0.10
+sub-stepped), which the material's CHEMSUB tree then splits to depth 16.
+"""
+const CKADAPT = Ref(let v = get(ENV, "CHEMCKADAPT", ""); isempty(v) ? (0.0, 0.0) : Tuple(parse.(Float64, split(v, ","))) end)
+const CKMAXSUB = 10000
+"""
+`CHEMCKHSS=f` (with CHEMCK=1; default 0 = off): H⁺ in steady state where it relaxes fast. In a three-level zone (env carries `tl3`) n_e in
+the Peebles C is taken from the current iterate (x_H⁺) instead of the start-of-step value, and where |∂f_H⁺/∂x_H⁺| dt > f at the start of
+the step the H⁺ row is the steady state f_H⁺ = 0 instead of backward Euler. The pre-shock zones (n 3–9e12, T 5300–6700 K) ionize by an
+electron avalanche e-folding in seconds within steps of 1e5–1e6 s, which the material's CHEMSUB tree (lagged n_e) bisected to ~10 s
+(48 % of the chemistry time in 4 zones, t_cka, 13 Nov). The material skips CHEMSUB and takes the same n_e in tl3_heat when this is on.
+"""
+const CKHSS = Ref(parse(Float64, get(ENV, "CHEMCKHSS", "0")))
+const CKFAST = (:Hm, :H2p, :Hep, :Hepp, :Lip)
+struct CKInfo
+    fast::Vector{Int}; slow::Vector{Int}                 # positions in net.free
+    single::Vector{Tuple{Int,Int}}                       # H⁻, H₂⁺: (position in net.free, index in compiled sp)
+    chains::Vector{Vector{Tuple{Int,Int}}}               # element ionisation stages from the neutral up: (free position or 0, sp index)
+end
+const CKINFO = IdDict{Any,CKInfo}()
+ckinfo(net) = get!(CKINFO, net) do
+    c = compiled(net); fp(s) = (i = findfirst(==(s), net.free); i === nothing ? 0 : i)
+    fast = [fp(s) for s in CKFAST if fp(s) > 0]; slow = [i for i in eachindex(net.free) if !(i in fast)]
+    single = [(fp(s), c.idx[s]) for s in (:Hm, :H2p) if fp(s) > 0]
+    chains = Vector{Tuple{Int,Int}}[]
+    for ch in ((:He, :Hep, :Hepp), (:Li, :Lip))
+        all(s -> haskey(c.idx, s), ch) && any(s -> fp(s) > 0, ch[2:end]) || continue
+        push!(chains, [(fp(s), c.idx[s]) for s in ch])
+    end
+    CKInfo(fast, slow, single, chains)
+end
+"k · Π v[Ri] with one occurrence of index j left out."
+@inline function _rwo(r0, v, Ri, j)
+    r = r0; sk = true
+    for i in Ri; if sk && i == j; sk = false; else r *= v[i]; end; end
+    r
+end
+"Creation rate of sp index j and its loss rate per unit x_j (per H nucleus), ks = k n_H^(n−1) per reaction, ph per-zone photo-rates."
+function _ck_cl(v, j, nH, net, c, ph, ks)
+    C = zero(eltype(v)); L = zero(eltype(v))
+    for ir in eachindex(net.reactions)
+        Ri = c.R[ir]; Pi = c.P[ir]; nr = count(==(j), Ri); np = count(==(j), Pi)
+        nr == 0 && np == 0 && continue
+        nr > 0 && (L += nr * _rwo(ks[ir], v, Ri, j))
+        np > 0 && (C += np * _rwo(ks[ir], v, Ri, 0))
+    end
+    for (jr, jp, R, α) in ph
+        inv0 = α * nH^(length(jp) - 1)
+        if jr == j; L += R; C += _rwo(inv0, v, jp, 0); end
+        if j in jp; C += R * v[jr]; L += _rwo(inv0, v, jp, j); end
+    end
+    C, L
+end
+"Rates per unit x_a of a → b and per unit x_b of b → a (a, b sp indices of adjacent ionisation stages)."
+function _ck_ud(v, a, b, nH, net, c, ph, ks)
+    up = zero(eltype(v)); dn = zero(eltype(v))
+    for ir in eachindex(net.reactions)
+        Ri = c.R[ir]; Pi = c.P[ir]
+        a in Ri && b in Pi && (up += _rwo(ks[ir], v, Ri, a))
+        b in Ri && a in Pi && (dn += _rwo(ks[ir], v, Ri, b))
+    end
+    for (jr, jp, R, α) in ph
+        jr == a && b in jp && (up += R; dn += _rwo(α * nH^(length(jp) - 1), v, jp, b))
+    end
+    up, dn
+end
+"Free abundances with the slow ones xs (over ckinfo(net).slow) and the fast ones from equilibrium at T."
+function ck_expand(xs, T, nH, net, ph, ks, extra = nothing)
+    c = compiled(net); ci = ckinfo(net)
+    x = zeros(promote_type(eltype(xs), typeof(T), eltype(ks)), length(net.free))
+    for (k, i) in enumerate(ci.slow); x[i] = xs[k]; end
+    phi = [(c.idx[p.R], [c.idx[s] for s in p.P], R, α) for (p, R, α) in ph]
+    # extra (star light, ray) in the H⁻/H₂⁺ rows, taken as a + b x_j: two calls, all fast singles at 0 and at 1
+    ea = eb = nothing
+    if extra !== nothing && !isempty(ci.single)
+        xt = copy(x); ea = extra(xt); for (f, _) in ci.single; xt[f] = one(eltype(x)); end; eb = extra(xt) .- ea
+    end
+    for _ in 1:CKSWEEPS[]
+        for (f, j) in ci.single
+            v = fullvec(x, c); C, L = _ck_cl(v, j, nH, net, c, phi, ks)
+            ea === nothing || (ea[f] > 0 && (C += ea[f]); eb[f] < 0 && (L -= eb[f]))
+            x[f] = L > 0 ? C / L : zero(C)
+        end
+        for ch in ci.chains
+            v = fullvec(x, c); m = length(ch)
+            ud = [_ck_ud(v, ch[k][2], ch[k+1][2], nH, net, c, phi, ks) for k in 1:m-1]
+            w = [prod((ud[i][1] for i in 1:k); init = one(eltype(x))) * prod((ud[i][2] for i in k+1:m-1); init = one(eltype(x))) for k in 0:m-1]
+            sw = sum(w); tot = ch[1][2] == c.iHe ? yHe : yLi
+            for k in 1:m
+                ch[k][1] > 0 || continue
+                x[ch[k][1]] = sw > 0 ? tot * w[k] / sw : zero(sw)
+            end
+        end
+    end
+    x
+end
+# TL3NEFULL=1 (default off): n_e of the three-level atom (Peebles C, the collisional rates) is the charge-conservation n_e of the zone (H⁺,
+# He⁺, 2He²⁺, Li⁺, − H⁻), not n_H x_H⁺. In ck_eval and step_ck: a first expansion with n_H x_H⁺, then n_e from it and a second expansion
+# (generic in the number type: the hydro Newton and step_ck's Jacobian differentiate through both passes).
+const TL3NEFULL = get(ENV, "TL3NEFULL", "0") == "1"
+function _tl3_ne_pass(xs, x1, T, nH, net, env, ph, extra, c)
+    ne = nH * max(fullvec(x1, c)[c.ie], zero(eltype(x1)))
+    ev = merge(env, (; tl3 = merge(env.tl3, (; ne))))
+    ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
+    ck_expand(xs, T, nH, net, ph, ks, extra), ks, ev
+end
+"""
+    ck_eval(xs, ρ, T, net; env, phc, extra) -> (x, f)
+
+COUPLED (TitanResidFast): the full free-species vector x of the reduced network (slow abundances `xs` over `ckinfo(net).slow`, fast ones
+from `ck_expand`) and dx/dt of the slow species, at (ρ, T), generic in the number types (the hydro Newton differentiates through it). In a
+three-level zone (env carries `tl3`) n_e of the Peebles C is n_H x_H⁺ of `xs` (self-consistent, as CHEMCKHSS). `phc(Tv)` returns the
+per-zone photo-rate tuples at the Float temperature Tv (lagged in T as in `step`).
+"""
+function ck_eval(xs, ρ, T, net; env, phc, extra)
+    nH = ρ / μH(); ci = ckinfo(net); sl = ci.slow
+    kHp = findfirst(==(:Hp), net.free[sl])
+    tl3 = kHp !== nothing && hasproperty(env, :tl3) && env.tl3 !== nothing
+    ev = tl3 ? merge(env, (; tl3 = merge(env.tl3, (; ne = nH * xs[kHp])))) : env
+    ph = phc(ForwardDiff.value(T))
+    ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
+    x = ck_expand(xs, T, nH, net, ph, ks, extra)
+    TL3NEFULL && tl3 && ((x, ks, ev) = _tl3_ne_pass(xs, x, T, nH, net, env, ph, extra, compiled(net)))
+    f = dxdt_k(x, nH, net, ph, ks); extra === nothing || (f = f .+ extra(x))
+    x, f[sl]
+end
+function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, tol, maxit)
+    nH = ρ / μH(); ci = ckinfo(net); sl = ci.slow; ns = length(sl); cc = compiled(net)
+    phT = Ref(NaN); phc = Ref{Any}(nothing); ucur = Ref(Float64(u))
+    kHp = findfirst(==(:Hp), net.free[sl]); tl3sc = CKHSS[] > 0 && kHp !== nothing && hasproperty(env, :tl3) && env.tl3 !== nothing
+    envz(z) = tl3sc ? merge(env, (; tl3 = merge(env.tl3, (; ne = nH * z[kHp])))) : env
+    hss = Ref(false)
+    function xT(z)
+        T = exp(z[ns+1]); Tv = ForwardDiff.value(T); ev = envz(z)
+        Tv == phT[] || (phc[] = [(p, photorates_t(p, Tv, env)...) for p in photos]; phT[] = Tv)
+        ph = phc[]; ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
+        x = ck_expand(z[1:ns], T, nH, net, ph, ks, extra)
+        TL3NEFULL && tl3sc && ((x, _, ev) = _tl3_ne_pass(z[1:ns], x, T, nH, net, env, ph, extra, cc))
+        (x, T, ph, ev)
+    end
+    function fslow(z)
+        x, T, ph, ev = xT(z)
+        f = dxdt(x, nH, T, net, ev, ph); extra === nothing || (f = f .+ extra(x))
+        x, T, f
+    end
+    function resid(z, xs0, h)
+        x, T, f = fslow(z)
+        r = x[sl] .- xs0 .- h .* f[sl]
+        hss[] && (r = [i == kHp ? -h * f[sl[i]] : r[i] for i in eachindex(r)])
+        ue = eos(ρ, T, x, net)[1] - ucur[] + (cooling === nothing ? zero(T) : h * cooling(ρ, T, full(x, net)) / ρ)
+        vcat(r, ue / (kB * T / μH()))
+    end
+    function attempt(xs0, T0, h)
+        z = vcat(collect(Float64, xs0), log(T0)); rel = Inf; dT = Inf; λ = 0.0
+        for it in 1:maxit
+            R = resid(z, xs0, h)
+            CHEMSTATS && Threads.atomic_add!(NJAC, 1)
+            Jm = ForwardDiff.jacobian(zz -> resid(zz, xs0, h), z)
+            (all(isfinite, Jm) && all(isfinite, R)) || return (z, false)
+            δ = -(Jm \ R); all(isfinite, δ) || return (z, false)
+            λ = 1.0
+            # a trace slow species (H₂ in ionized gas, H⁺ in molecular gas) is clipped on its own; only a major one limits the whole step
+            for i in 1:ns; z[i] < 1e-6 && z[i] + δ[i] < 0 && (δ[i] = -0.9 * z[i]); end
+            for i in 1:ns; z[i] + λ * δ[i] < 0 && 0.9 * z[i] / -δ[i] < λ && (λ = 0.9 * z[i] / -δ[i]); end
+            # the eliminated H, linear in the slow species (the fast ones are trace)
+            H0 = 1 - sum(cc.elH[i] * xi for (i, xi) in enumerate(xT(z)[1])); dH = -sum(cc.elH[sl[k]] * δ[k] for k in 1:ns)
+            H0 + λ * dH < 0 && 0.9 * H0 / -dH < λ && (λ = 0.9 * H0 / -dH)
+            abs(δ[ns+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[ns+1]))
+            z .+= λ .* δ
+            rel = maximum(abs.(δ[1:ns]) ./ max.(abs.(z[1:ns]), 1e-20)); dT = abs(δ[ns+1])
+            TRACEALL[] && println("    ck it ", it, " λ ", round(λ, sigdigits = 3), " T ", round(exp(z[ns+1]), digits = 1), " rel ", round(rel, sigdigits = 3), " |R| ", round(maximum(abs, R), sigdigits = 3))
+            λ == 1.0 && rel < tol && dT < tol && return (z, true)
+            CHEMSTAG > 0 && it >= CHEMSTAG && λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (z, true)
+            CHEMGIVEUP > 0 && it == CHEMGIVEUP && !(λ == 1.0 && rel < 1e-3) && return (z, false)
+        end
+        λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (z, true)
+        (z, false)
+    end
+    function adv(xs0, T0, h, depth)
+        CHEMSTATS && Threads.atomic_add!(NADV, 1)
+        z, ok = attempt(xs0, T0, h)
+        if ok
+            accepted === nothing || accepted(xT(z)[1], h)
+            return (z[1:ns], exp(z[ns+1]))
+        end
+        depth >= 12 && error("ChemNet.step_ck: Newton failed (nH = $nH, T0 = $T0, dt = $dt, u = $u)")
+        xs1, T1 = adv(xs0, T0, h / 2, depth + 1)
+        cooling === nothing || (ucur[] = Float64(eos(ρ, T1, xT(vcat(xs1, log(T1)))[1], net)[1]))
+        adv(xs1, T1, h / 2, depth + 1)
+    end
+    if tl3sc
+        z0 = vcat(collect(Float64, x0[sl]), log(T0))
+        dfdx = ForwardDiff.derivative(y -> fslow([i == kHp ? y + zero(y) * z0[i] : z0[i] + zero(y) for i in eachindex(z0)])[3][sl[kHp]], z0[kHp])
+        hss[] = abs(dfdx) * dt > CKHSS[]
+    end
+    fT, fx = CKADAPT[]
+    fT > 0 || ((zs, T) = adv(collect(Float64, x0[sl]), T0, dt, 0); return (xT(vcat(zs, log(T)))[1], T))
+    xe(xs, T) = (x = xT(vcat(xs, log(T)))[1]; max(fullvec(x, cc)[cc.ie], 1e-30))
+    xs = collect(Float64, x0[sl]); T = Float64(T0); t = 0.0; h = dt; e0 = xe(xs, T); nsub = 0
+    while t < dt
+        h = min(h, dt - t); nsub += 1
+        nsub > CKMAXSUB && error("ChemNet.step_ck: more than $CKMAXSUB adaptive sub-steps (nH = $nH, T0 = $T0, dt = $dt)")
+        u_save = ucur[]
+        xs1, T1 = adv(xs, T, h, h < dt ? 1 : 0)
+        e1 = xe(xs1, T1)
+        if h > dt * 1e-12 && (max(T1 / T, T / T1) > fT || max(e1 / e0, e0 / e1) > fx)
+            ucur[] = u_save; h /= 2; continue
+        end
+        t += h; xs = xs1; T = T1; e0 = e1; h *= 2
+        cooling === nothing || (ucur[] = Float64(eos(ρ, T, xT(vcat(xs, log(T)))[1], net)[1]))
+    end
+    (xT(vcat(xs, log(T)))[1], T)
+end
+
+"""
+    step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, Tfix = nothing) -> (x, T)
 
 Chemistry and temperature together over dt at fixed ρ and u (u − dt Λ/ρ with `cooling(ρ, T, d)`, d the full composition).
+`extra(x)`: added to dx/dt, a function of the new abundances (a photon-conserving ray, IonRay). `Tfix`: hold T at this value instead of solving for it (tests).
+`accepted(x, h)`: called after each accepted sub-step, so that a ray can count the photons used through the halvings.
 """
-function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, tol = 1e-10, maxit = 60)
+function step(x0, ρ, u, T0, dt, net; env, photos = Photo[], cooling = nothing, extra = nothing, Tfix = nothing, accepted = nothing, tol = 1e-10, maxit = 60)
     nH = ρ / μH(); nf = length(net.free)
+    CHEMSTATS && Threads.atomic_add!(NSTEP, 1)
+    SUBCYC[] > 0 && accepted === nothing && Tfix === nothing && return step_sub(x0, ρ, u, T0, dt, net; env, photos, cooling, extra)
+    CK[] && Tfix === nothing && !isempty(ckinfo(net).fast) && return step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, tol, maxit)
     phT = Ref(NaN); phc = Ref{Any}(nothing)
+    ucur = Ref(Float64(u))                           # u at the start of the current sub-step: what cooling took in the earlier halves stays gone
     function resid(z, x0, h)
         x = z[1:nf]; T = exp(z[nf+1])
         Tv = ForwardDiff.value(T)                    # photo-rates lagged in T (Float), cached per T value
         Tv == phT[] || (phc[] = [(p, photorates_t(p, Tv, env)...) for p in photos]; phT[] = Tv)
         ph = phc[]
         f = dxdt(x, nH, T, net, env, ph)
+        extra === nothing || (f = f .+ extra(x))
         r = x .- x0 .- h .* f
-        ue = eos(ρ, T, x, net)[1] - u + (cooling === nothing ? zero(T) : h * cooling(ρ, T, full(x, net)) / ρ)
+        Tfix === nothing || return vcat(r, z[nf+1] - log(Tfix))
+        ue = eos(ρ, T, x, net)[1] - ucur[] + (cooling === nothing ? zero(T) : h * cooling(ρ, T, full(x, net)) / ρ)
         vcat(r, ue / (kB * T / μH()))
     end
-    function attempt(x0, T0, h)
-        z = vcat(collect(Float64, x0), log(T0))
+    function attempt(x0, T0, h; clip = false, trace = false)
+        z = vcat(collect(Float64, x0), log(T0)); rel = Inf; dT = Inf; λ = 0.0
+        trace = trace || TRACEALL[]; lim = :none
+        TRACEALL[] && println("  attempt h ", h, " T0 ", T0, " clip ", clip)
         for it in 1:maxit
             R = resid(z, x0, h)
+            trace && !TRACEALL[] && println("  trace it ", it, " T ", exp(z[nf+1]), " x ", z[1:nf], " R ", R)
+            CHEMSTATS && Threads.atomic_add!(NJAC, 1)
             Jm = ForwardDiff.jacobian(zz -> resid(zz, x0, h), z)
-            δ = -(Jm \ R); all(isfinite, δ) || return (z, false)
-            λ = 1.0
-            # keep every abundance ≥ 0, incl. the eliminated H, Li, e (linear in x)
-            for i in 1:nf; z[i] + λ * δ[i] < 0 && (λ = min(λ, 0.9 * z[i] / -δ[i])); end
-            d0 = full(z[1:nf], net); d1 = full(z[1:nf] .+ δ[1:nf], net)
-            for s in (:H, :Li, :e)
-                haskey(d0, s) || continue
-                dv = d1[s] - d0[s]; d0[s] + λ * dv < 0 && (λ = min(λ, 0.9 * d0[s] / -dv))
+            # a non-finite Jacobian is a failed attempt like a non-finite δ (halve h): `\` would throw an ArgumentError past the retry
+            if ROBUST[] && !(all(isfinite, Jm) && all(isfinite, R))
+                NANDBG[] > 0 && (NANDBG[] -= 1; println("ChemNet nonfinite: h ", h, " T ", exp(z[nf+1]), " x ", z[1:nf], " R ", R, " bad J cols ", [j for j in axes(Jm, 2) if !all(isfinite, Jm[:, j])], " bad J rows ", [i for i in axes(Jm, 1) if !all(isfinite, Jm[i, :])]))
+                return (z, false)
             end
-            abs(δ[nf+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[nf+1]))
+            δ = -(Jm \ R); all(isfinite, δ) || return (z, false)
+            λ = 1.0; lim = :none
+            clip && for i in 1:nf; z[i] + δ[i] < 0 && (δ[i] = -0.9 * z[i]); end
+            TRCLIP[] > 0 && for i in 1:nf; z[i] < TRCLIP[] && z[i] + δ[i] < 0 && (δ[i] = -0.9 * z[i]); end
+            # keep every abundance ≥ 0, incl. the eliminated H, Li, e (linear in x)
+            for i in 1:nf; z[i] + λ * δ[i] < 0 && 0.9 * z[i] / -δ[i] < λ && (λ = 0.9 * z[i] / -δ[i]; lim = net.free[i]); end
+            d0 = full(z[1:nf], net); d1 = full(z[1:nf] .+ δ[1:nf], net)
+            for s in (:H, :Li, :e, :He)
+                haskey(d0, s) || continue
+                dv = d1[s] - d0[s]
+                if ((ROBUST[] && clip) || TRCLIP[] > 0) && s === :Li && d0[s] + dv < 0
+                    # Li is a trace element: clip only its own species (Li fully ionized by star light, Li → 0 froze every unknown)
+                    cc = compiled(net); f = 0.9 * d0[s] / -dv
+                    for i in 1:nf; cc.elLi[i] != 0 && (δ[i] *= f); end
+                    continue
+                end
+                d0[s] + λ * dv < 0 && 0.9 * d0[s] / -dv < λ && (λ = 0.9 * d0[s] / -dv; lim = s)
+            end
+            abs(δ[nf+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[nf+1]); lim = :T)
             z .+= λ .* δ
-            λ == 1.0 && maximum(abs.(δ[1:nf]) ./ max.(abs.(z[1:nf]), 1e-20)) < tol && abs(δ[nf+1]) < tol && return (z, true)   # 1e-20: abundance floor
+            rel = maximum(abs.(δ[1:nf]) ./ max.(abs.(z[1:nf]), 1e-20)); dT = abs(δ[nf+1])                                # 1e-20: abundance floor
+            TRACEALL[] && (ir = argmax(abs.(δ[1:nf]) ./ max.(abs.(z[1:nf]), 1e-20));
+                           println("    it ", it, " λ ", round(λ, sigdigits = 3), " lim ", lim, " δlnT ", round(δ[nf+1], sigdigits = 3), " T ", round(exp(z[nf+1]), digits = 1),
+                                   " rel ", round(rel, sigdigits = 3), " (", net.free[ir], ") |R| ", round(maximum(abs, R), sigdigits = 3), " x_e ", round(full(z[1:nf], net)[:e], sigdigits = 4)))
+            λ == 1.0 && rel < tol && dT < tol && return (z, true)
+            CHEMSTAG > 0 && it >= CHEMSTAG && λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (z, true)
+            CHEMGIVEUP > 0 && it == CHEMGIVEUP && !(λ == 1.0 && rel < 1e-3) && return (z, false)
         end
+        # Stagnated at round-off: a trace species in fast equilibrium (H⁺ ≈ 4e-12 at n = 6.5e16, T = 2850 K) flips in its 10th digit
+        # from one iteration to the next while T and all other abundances are converged to the last digit; the test above (1e-10 per
+        # species) is then never met for any h, and the halving ended in "Newton failed" at depth 12. Accepted only after maxit
+        # full Newton steps, so steps that converged before are unchanged bit for bit.
+        λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (z, true)
         (z, false)
     end
+    function attempt_log(x0, T0, h)
+        w = vcat(log.(max.(collect(Float64, x0), 1e-60)), log(T0)); rel = Inf; dT = Inf; λ = 0.0
+        rw(ww) = resid(vcat(exp.(ww[1:nf]), ww[nf+1:nf+1]), x0, h)
+        cc = compiled(net)
+        TRACEALL[] && println("  log attempt h ", h, " T0 ", T0)
+        xof(ww) = exp.(ww[1:nf])
+        for it in 1:maxit
+            R = rw(w)
+            CHEMSTATS && Threads.atomic_add!(NJAC, 1)
+            Jm = ForwardDiff.jacobian(rw, w)
+            (all(isfinite, Jm) && all(isfinite, R)) || return (vcat(xof(w), w[nf+1]), false)
+            δ = -(Jm \ R); all(isfinite, δ) || return (vcat(xof(w), w[nf+1]), false)
+            λ = 1.0; lim = :none
+            d0 = full(xof(w), net)
+            if haskey(d0, :Li)
+                for _ in 1:60
+                    full(exp.(w[1:nf] .+ δ[1:nf]), net)[:Li] >= 0.1 * d0[:Li] && break
+                    for i in 1:nf; cc.elLi[i] != 0 && (δ[i] *= 0.5); end
+                end
+            end
+            for _ in 1:60
+                d1 = full(exp.(w[1:nf] .+ λ .* δ[1:nf]), net)
+                bad = false
+                for s in (:H, :e, :He)
+                    haskey(d1, s) && d1[s] < 0.1 * d0[s] && d0[s] > 0 && (bad = true; lim = s)
+                end
+                bad || break
+                λ *= 0.5
+            end
+            abs(δ[nf+1]) * λ > 0.5 && (λ = 0.5 / abs(δ[nf+1]); lim = :T)
+            w .+= λ .* δ
+            for i in 1:nf; w[i] = max(w[i], log(1e-60)); end
+            act = [i for i in 1:nf if w[i] > log(1e-25)]
+            rel = isempty(act) ? 0.0 : maximum(abs(δ[i]) for i in act); dT = abs(δ[nf+1])
+            TRACEALL[] && println("    lit ", it, " λ ", round(λ, sigdigits = 3), " lim ", lim, " δlnT ", round(δ[nf+1], sigdigits = 3), " T ", round(exp(w[nf+1]), digits = 1),
+                                  " max|δlnx| ", round(rel, sigdigits = 3), " |R| ", round(maximum(abs, R), sigdigits = 3), " x_e ", round(full(xof(w), net)[:e], sigdigits = 4))
+            λ == 1.0 && rel < tol && dT < tol && return (vcat(xof(w), w[nf+1]), true)
+            CHEMSTAG > 0 && it >= CHEMSTAG && λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (vcat(xof(w), w[nf+1]), true)
+            CHEMGIVEUP > 0 && it == CHEMGIVEUP && !(λ == 1.0 && rel < 1e-3) && return (vcat(xof(w), w[nf+1]), false)
+        end
+        λ == 1.0 && rel < 1e-6 && dT < 1e-8 && return (vcat(xof(w), w[nf+1]), true)
+        (vcat(xof(w), w[nf+1]), false)
+    end
     function adv(x0, T0, h, depth)
-        z, ok = attempt(x0, T0, h)
-        ok && return (z[1:nf], exp(z[nf+1]))
-        depth >= 12 && error("ChemNet.step: Newton failed (nH = $nH, T0 = $T0, dt = $dt)")
+        CHEMSTATS && Threads.atomic_add!(NADV, 1)
+        z, ok = LOGX[] ? attempt_log(x0, T0, h) : attempt(x0, T0, h)
+        ok && (accepted === nothing || accepted(z[1:nf], h); return (z[1:nf], exp(z[nf+1])))
+        if depth >= CLIPDEPTH                        # (see the note at CLIPDEPTH)
+            z, ok = attempt(x0, T0, h; clip = true)
+            ok && (accepted === nothing || accepted(z[1:nf], h); return (z[1:nf], exp(z[nf+1])))
+        end
+        depth >= 12 && TRACEDBG[] > 0 && (TRACEDBG[] -= 1; println("ChemNet trace: h ", h, " T0 ", T0, " x0 ", x0, " ρ ", ρ, " u ", ucur[], " u(T0,x0) ", eos(ρ, T0, x0, net)[1]); println("  free ", net.free); attempt(x0, T0, h; trace = true); println("  clip:"); attempt(x0, T0, h; clip = true, trace = true))
+        depth >= 12 && error("ChemNet.step: Newton failed (nH = $nH, T0 = $T0, dt = $dt, u = $u)")
         x1, T1 = adv(x0, T0, h / 2, depth + 1)
+        cooling === nothing || Tfix !== nothing || (ucur[] = Float64(eos(ρ, T1, x1, net)[1]))
         adv(x1, T1, h / 2, depth + 1)
     end
     adv(x0, T0, dt, 0)

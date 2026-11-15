@@ -112,6 +112,9 @@ Fermi energy (above). Accuracy ≲ 1e-13 relative (tested against an independent
 function fd(η::Number, θ::Number)
     T = promote_type(typeof(η), typeof(θ), Float64)
     ηv = Z0.pval(η)
+    if !(isfinite(ηv) && isfinite(Z0.pval(θ)))         # NaN η or θ: the panel loop below (hi = min(1, 1/√NaN)) never ends
+        nn = T(NaN); return (nn, nn, nn, nn, nn, nn)
+    end
     if ηv < ETAC
         xmax = max(ηv, 0.0) + 46.0
         np = 1
@@ -235,6 +238,7 @@ end
 
 "Solve n_net(η, θ) = target (Float64), safeguarded Newton on ln n."
 function solve_eta(target::Float64, θ::Float64, pairs::Bool)
+    (isfinite(target) && target > 0 && isfinite(θ) && θ > 0) || return NaN
     r = target / (A0 * θ^1.5 * 0.5 * sqrt(π))               # n/n_Q (nonrelativistic scale)
     ηd = (1.5 * target / (A0 * θ^1.5))^(2 / 3)
     η = r < 0.3 ? log(r) + r / (2 * sqrt(2.0)) : (r > 3.0 ? ηd : 0.5 * (ηd + log1p(r)))

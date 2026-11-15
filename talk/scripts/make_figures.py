@@ -279,7 +279,7 @@ def fig_anatomy():
 
 def fig_growth():
     d = pd.read_csv(os.path.join(DATA, "accretion.csv")); fig, axs = plt.subplots(1, 2, figsize=(14.5, 5.9))
-    for run, c, lab in [("c1", MUTED, "No convection"), ("c2", BLUE, "Convection, restarted at day 1,000"), ("c3", ORANGE, "Convection from the start, finer mesh")]:
+    for run, c, lab in [("c1", MUTED, "No convection"), ("c2", BLUE, "Convection, restarted at day 1,000"), ("c3", ORANGE, "Convection from the start, finer mesh\n(stopped after 0.2 years)")]:
         x = d[d.run == run]
         axs[0].plot(x.t_yr, x.M, color=c, label=lab, lw=2.6 if run != "c1" else 2); axs[1].plot(x.M, x.R.rolling(5, center=True, min_periods=1).median(), color=c, label=lab, lw=2.6 if run != "c1" else 2)
     x = d[(d.run == "c1") & (d.M > 0.7)]; b = x.M.values[0]

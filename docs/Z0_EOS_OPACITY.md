@@ -38,9 +38,28 @@ in_table(tab, ρ, T)                # false ⇒ arguments were clamped (κ held 
   Interpolation is Catmull–Rom bicubic in log κ, which is C¹. The frequency quadrature includes every
   bound-free edge as a breakpoint; without that, κ_P had about 1 % noise.
 
-## Physics limitations (unchanged)
-* No bound–bound lines: κ_R is a lower bound near 10⁴–10⁵ K, where OPAL-type tables are higher by a factor of a few.
+## Opacity physics (rewritten 2026-11; the tables before that were wrong, see below)
+`z0/opacity.jl`, data and profiles in `z0/atomic.jl`:
+* **Populations.** Saha carries the ground-state weight only, so its neutral density is the ground-state density; excited levels follow from
+  Boltzmann with Hummer & Mihalas 1988 occupation probabilities, and `opacity_state` makes the ionization balance consistent with the resulting
+  partition functions (opacities only; the EOS keeps plain Saha).
+* **Bug fixed.** `level_pops` used to normalise that ground-state density over 12 (8) levels, which removed most of the ground-state opacity when
+  the partition sum was large: κ_R was too low by up to ~8× around log T 4.5–5.5, and κ_P by 2–4× in the same region. The earlier statement that "lines"
+  explain the difference from OPAL was wrong for most of that range.
+* **Free-free:** van Hoof et al. 2014 merged relativistic Gaunt factors (`gauntff_merged_Z0{1,2}.dat`, their licence header kept; data.nublado.org/gauntff).
+* **Bound-free:** n = 1 exact (Stobbe), n ≥ 2 Seaton 1960; He I ground Verner et al. 1996, excited levels hydrogenic in n*; dissolved-level pseudo-continua
+  (Hubeny, Hummer & Lanz 1994).
+* **Lines:** H I and He II with exact n-averaged f (Gordon 1929; TRK sum to 5e-4), exact linear Stark patterns for n ≤ 8, n' ≤ 16 (a model beyond), Holtsmark ions
+  (no Debye screening, no ion dynamics), electrons as impact core and quasi-static wing, Doppler, radiative damping, far-red (ν/ν₀)⁴. He I: NIST ASD multiplets
+  (`hei_multiplets.tsv`), Doppler + radiative + impact, no ion Stark.
+* **Calibrated:** the electron-impact width carries one factor, `IMPACT_CAL = 0.2`, set against the Gigosos et al. 2003 Hα/Hβ FWHM fits (Hβ to 3 %, Hα to 20 %, n_e = 1e16–1e18). Those fit coefficients
+  were taken from memory; the paper was found, the numbers were not checked against its text.
+* **Table.** κ_P and the continuum κ_R on every node; the line correction to κ_R on a coarse grid (Δlog T 0.05, Δlog R 0.25, log T 3.4–5.8), interpolated.
+
+Against OPAL (recomputed κ_R with lines, X = 0.76, `stellaropacity_test.jl: z0_vs_OPAL`): ≲ 17 % at log R ≤ −2; ×1.3–1.7 low at log R = −1, log T 4.5–5; ×1.6–6 low at log R = 0–1, log T 4.25–4.75
+(dense, strongly coupled gas). OPAL remains the κ_R of the stellar runs. Line κ_P is the LTE definition; with optically thick lines it overstates grey gas–radiation coupling.
+
+## Physics limitations
 * No molecules: H₂ matters only below ~3000 K at these densities.
-* Gaunt factors are set to 1.
 * LTE level populations. The Planck mean is meant for the gas–radiation energy coupling and is not an NLTE quantity.
 * No degeneracy or pressure ionization, so the EOS should not be used above ρ ~ 10⁻² g cm⁻³.

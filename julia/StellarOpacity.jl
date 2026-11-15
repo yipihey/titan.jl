@@ -18,7 +18,7 @@ Rosseland mean, by log T:
 - 4.1–8.7   OPAL (Iglesias & Rogers 1996, GN93hz, Z = 0), where it exists; beyond its edges (log R > 1, R < −8,
             the hot high-R corner, T > 8.7) OPAL extended by the analytic high-T model, anchored to OPAL's last node;
 - all T ≥ 1e4: harmonic combination with the degenerate-electron conduction (Cassisi et al. 2007).
-Planck mean: own means below, continuum Planck mean of H/He (Saha, Gaunt factors 1, no lines) above (see S3 notes).
+Planck mean: own means below, Planck mean of H/He with lines and Gaunt factors (Z0Physics: Saha + Boltzmann levels, occupation probabilities, van Hoof g_ff) above (docs/Z0_EOS_OPACITY.md).
 
 The analytic high-T model (`kappa_high`) lives here: it is also used standalone.
 """

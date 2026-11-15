@@ -25,10 +25,15 @@ fmsg(code, xs = 0.0) = ccall(fptr(:port_msg_), Cvoid, (Ref{Int32}, Ref{Float64})
 "Where Julia-backend messages go (TITAN writes them to the terminal and the .out file)."
 const MSGIO = Ref{IO}(stdout)
 "step.f messages; Fortran port_msg on the COMMON backend, Julia text (and errors instead of STOP) on the Julia backend."
+# counts of Newton divergences (msg 1) and repeated steps (msg 5) on the Julia backend, for cost accounting (RUNREC)
+const NDIV = Ref(0); const NREP = Ref(0)
 function msg(code, xs = 0.0)
     TF.BACKEND[] === :common && return fmsg(code, xs)
     io = MSGIO[]
+    code == 1 && (NDIV[] += 1); code == 5 && (NREP[] += 1)
     code == 1 && println(io, "  divergence. jtry = ", g(:jtry))
+    code == 1 && io !== devnull && (n = Int(g(:neqn)); println(io, "    last Newton corrections per equation (zone, value): ",
+                                   join(("($(TF.var(:kx)[i]), $(round(TF.var(:dx)[i], sigdigits = 3)))" for i in 1:n), " ")))
     code == 2 && error("TITAN step01: failure to converge after $(g(:ntry)) attempts (jstep $(g(:jstep)), t = $(g(:timen)))")
     code == 3 && println(io, "  changes over timestep ", xs, " times larger than limit")
     code == 4 && error("TITAN step02: total changes still too large after $(g(:nback)) attempts")
@@ -78,6 +83,61 @@ function 1e9 times J, so the formal solution returns garbage (f clamped to 0 or 
 true (set by `TitanMaterials.use!` for non-built-in materials): S = (κ_P ρ B + σ_T n_e J)/(κ_P ρ + σ_T n_e).
 """
 const EDD_MATERIAL_SOURCE = Ref(false)
+"""
+`FLUXTIE[] = (τ1, τ2)` (S6, ENV FLUXTIE="τ1,τ2", default (0, 0) = off, TITAN): in optically thin zones the radiation momentum
+row becomes the flux-factor closure F = h c E, h = H/J from the same formal solution that gives f = K/J (TitanCore.eddfac!,
+spherical rays only), upwinded: r_k²F_k/c = r_c²(k−1) max(h, 0)_(k−1) E_(k−1) + r_c²(k) min(h, 0)_k E_k with zone-centre radii r_c
+(a centred average leaves an undamped odd–even E mode). With f → 1 the two moment
+equations decouple and r²E is pinned only by the outer boundary: F/cE reached 1.2 in quiet phases and 6–25 (E_r → 1e-7 at
+step 87450) after the 107.5 M_sun shell fell back, with a near-null Newton direction (residual 2e-7, E_r correction ×1.5 per
+iteration). The row is (1 − w) × moment equation + w × tie, w = 1 where the flux-mean optical depth from the outer boundary
+τ ≤ τ1, 0 where τ ≥ τ2, smooth in log τ between. h and w are frozen with f for the step. The gas still feels χρF/c.
+"""
+const FLUXTIE = Ref((0.0, 0.0))
+"""
+G4 consistent variable-Eddington-factor (VEF) closure (S6, ENV `VEFIMP`, default off = TITAN's lagged closure, bit-identical):
+
+* `VEF_ITER[]` (VEFIMP=1 or `it`): the Eddington factors f = K/J and the outer boundary factor g = H/J (and h, if FLUXTIE is
+  set) come from the formal solution of the **Newton iterate** (TitanCore.eddfac! in every update!, as TITAN's ltran = 0),
+  so at convergence of every stage the moment equations are closed with the factors of their own solution: no lag over the
+  step, nor between the TR and BDF stages (which until now took f from the predictor of y_n and of y_γ respectively). This is
+  the variable-Eddington-factor iteration of Auer & Mihalas (1970, MNRAS 149, 65; 1970MNRAS.149...65A), which TITAN uses with
+  f lagged (Gehmeyr & Mihalas 1994, Physica D 77, 320; 1994PhyD...77..320G), done inside Newton: f is frozen in the Jacobian of an iteration and
+  refreshed at the next iterate (the derivative ∂f/∂x is dense and small, docs/PORTING_NOTES.md "Dropped term 1").
+* `VEF_SPH[]` (VEFIMP=1 or `sph`): the static part of the radiation momentum equation, ∂(fE)/∂r + (3f − 1)E/r, is
+  differenced in Auer's (1971, JQSRT 11, 573; 1971JQSRT..11..573A) sphericality-factor form: with ∂ ln(r² q)/∂r = (3f − 1)/(f r),
+  ∂(fE)/∂r + (3f − 1)E/r = (r² q)⁻¹ ∂(r² q f E)/∂r (as quoted in Higgins & Meiksin 2012, MNRAS 426, 2380, eqs. 26–29; for μ = 0
+  the factor is 1): across interface k between the zone centres r_c,k−1 and r_c,k
+  (r_c = (r_k + r_k+1)/2, where the formal solution samples f),
+      r_k² [ e^{s/2} f_k E_k − e^{−s/2} f_k−1 E_k−1 ],  s = (μ/4) (3 − 1/f_k−1 + 3 − 1/f_k) ln(r_c,k / r_c,k−1),
+  instead of r_k² (f_k E_k − f_k−1 E_k−1) + (μ/4r_k) Σ (3f − 1) E ΔV. Both are the same to second order where the zones are
+  thin in ln r; Auer's form is exact for χ = 0 for any f profile (f = 1: r_c² E constant), TITAN's is not: on the coarse log
+  mesh (Δ ln r ≈ 0.25) its trapezoid of the geometric term leaves an error per zone that the transparent envelope (where the
+  momentum row integrates E inward from the boundary) accumulates to factors of 3 (F/cE = 3; ERTAUCONV, EDDREAL, FLUXTIE).
+  The outer boundary row is TITAN's F = c g E_s − π(2g + 1) I_in (g = H⁺/J⁺ of the outgoing rays, I_in = the isotropic CMB,
+  ximr; from H = g J⁺ − I_in/4 and J = J⁺ + I_in/2), which then takes the energy
+  density at the boundary radius, E_s, from the zone centre value by the same sphericality factor over the half zone
+  (including its χρF/c), not E_N itself (in free streaming E_N/E_s = (r_N+1/r_c,N)² ≈ 1.3 at Δ ln r = 0.25).
+With either part on, FLUXTIE (and ETASWTIE, which needs it) is disabled by popiii_m2c.
+"""
+const VEF_ITER = Ref(false)
+const VEF_SPH = Ref(false)
+"""
+`VEF_BG[]` (VEFIMP=1; G4): the incoming isotropic background I_b (the CMB, ximr) enters the formal solution only analytically.
+The transfer equation is linear in I for a given source, and I_b is its solution for S = I_b, so the rays carry the excess
+I_x = I − I_b (source S − I_b, nothing incoming, no positivity clamps; TitanCore.eddfac!) and the moments are completed with the
+background's exact ones: f = (K_x + I_b/3)/(J_x + I_b), g = (H_x⁺ + I_b/4)/(J_x⁺ + I_b/2) (f_x = K_x/J_x in `FXEDD`, g_x in `GXEDD`, for
+diagnostics). With the CMB integrated numerically along the rays the quadrature error of f and g (~1e-3) sits on the full E_b,
+and where E_r ≈ E_b (the CMB-dominated envelope, excess/E_b ~ 1e-5 at the edge) it is larger than the starlight itself: through the
+boundary row F = c g E − π(2g + 1)I_b (a difference of two numbers ~1e5 F) it set the luminosity at the edge (×8 in t_g4_prod1).
+The rows keep the total field (a momentum row for the excess with f_x = K_x/J_x fails where the excess changes sign along the rays:
+there K_x/J_x is meaningless, t_g4_te1x collapsed E at zone 55).
+"""
+const VEF_BG = Ref(false)
+const FXEDD = Float64[]
+const GXEDD = Ref(0.5)
+const HEDD = Float64[]          # h = H/J at zone centres (eddfac!, spherical)
+const TIEW = Float64[]          # weight of the tie at interface k
 bitwise!(on::Bool = true) = (FIX_CLOCK[] = !on; FIX_ENERGY[] = !on; nothing)
 get(ENV, "TITAN_BITWISE", "0") == "1" && bitwise!(true)
 

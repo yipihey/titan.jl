@@ -9,6 +9,7 @@ raw Float64 (`z0/kaptable_Z0.bin.gz`), independent of the Julia version; `build_
 module Z0Physics
 include(joinpath(@__DIR__, "z0", "constants.jl"))
 include(joinpath(@__DIR__, "z0", "eos.jl"))
+include(joinpath(@__DIR__, "z0", "atomic.jl"))
 include(joinpath(@__DIR__, "z0", "opacity.jl"))
 
 # Default table: log T 3.3–8.0, log R −12–1 (the steady model's). `Z0_TABLE=ext` selects the extended table

@@ -198,6 +198,15 @@ end
 "Refresh ghost zones, EOS, opacity, E_r + e_g sums after the state arrays were changed by burn!/mix!."
 refresh!() = TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
 
+# ----------------------------------------------------------------------------------------------- hooks for a composite material
+"""
+S6: `StarGas` as the abundance holder of another installed material (PopIIIMaterial.NetGas, hot branch). `TSOLVE[] = (ρ, e, T0, comp) -> (T, err)`
+replaces `T_of_e` (the other material's e(ρ, T)); `ZONEOK[] = k -> Bool` restricts burn!/predict_cap to the zones the stellar physics applies to.
+`nothing` (default): S5 unchanged.
+"""
+const TSOLVE = Ref{Any}(nothing); const ZONEOK = Ref{Any}(nothing)
+@inline zok(k) = ZONEOK[] === nothing || ZONEOK[](k)
+@inline t_solve(m, ρ, e, T0, comp) = TSOLVE[] === nothing ? T_of_e(ρ, e, T0, comp; pairs = m.pairs, coulomb = m.coulomb) : TSOLVE[](ρ, e, T0, comp)
 # ----------------------------------------------------------------------------------------------- T from e
 "T such that e_gas(ρ, T; comp) = e (Newton in ln T with c_V, safeguarded). Returns (T, relative error of e)."
 function T_of_e(ρ, e, T0, comp; pairs = true, coulomb = true)
@@ -265,6 +274,7 @@ Network integration of zone k over the step along the T/ρ history booked by the
 function burn_zone(m::StarGas, k, dt, tr::Bool, legacy::Bool)
     dn, tn, to, do_ = TM.v(:dn), TM.v(:tn), TM.v(:to), TM.v(:do)
     acc = m.acc; ρ = dn[k]; Y0 = m.Y[:, k]
+    dt > 0 || return Y0, 0.0                    # Δt below the resolution of t (ulp(t) = 0.125 s at 7e14 s): timen − timeo = 0, nothing burns
     if m.burnT === :end || legacy
         res = NN.burn(Y0, ρ, tn[k], dt; screen = m.screen); return res.Y, res.ε * dt
     end
@@ -278,6 +288,10 @@ function burn_zone(m::StarGas, k, dt, tr::Bool, legacy::Bool)
         Tj = exp(pathval(sj, l0, lg, l1, tr)); ρj = exp(pathval(sj, r0, rg, r1, tr))
         res = NN.burn(Yk, ρj, Tj, dt / ns; screen = m.screen)
         eb += res.ε * dt / ns; Yk = res.Y
+    end
+    if !(isfinite(eb) && all(isfinite, Yk))     # report the knots, keep the zone's composition, book no release
+        println("burn_zone: non-finite release in zone $k (tr $tr, ns $ns, dt $dt): T_o $(to[k]) T_g $(tr ? acc.Tg[k] : NaN) T_n $(tn[k]) ρ_o $(do_[k]) ρ_g $(tr ? acc.dg[k] : NaN) ρ_n $ρ Y0 finite $(all(isfinite, Y0)) eb $eb"); flush(stdout)
+        return Y0, 0.0
     end
     Yk, eb
 end
@@ -310,6 +324,7 @@ function burn!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd 
     Einj = 0.0; Ebur = 0.0; Eabs = 0.0; dcorr = 0.0; resid = 0.0; dXH = 0.0; dEfrac = 0.0; dEsp = 0.0
     fnew = ones(length(m.fscale)); slope_new = zeros(length(m.fscale))
     for k in a:b
+        zok(k) || continue
         ρ = dn[k]; mk = 4π * dn[k] * dvoln[k]
         Y0 = m.Y[:, k]
         Yk, eb = burn_zone(m, k, dt, tr, legacy)
@@ -323,7 +338,7 @@ function burn!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd 
         et = egn[k] + (eb * mk - ei) / mk
         m.Y[:, k] .= Yk
         comp = zonecomp(m, k)
-        Tn, er = T_of_e(ρ, et, tn[k], comp; pairs = m.pairs, coulomb = m.coulomb)
+        Tn, er = t_solve(m, ρ, et, tn[k], comp)
         resid = max(resid, er); tn[k] = Tn
         dXH = max(dXH, abs(NN.AA[IH] * (Yk[IH] - Y0[IH]) + NN.AA[ID] * (Yk[ID] - Y0[ID])))
         for i in 1:NS
@@ -438,6 +453,7 @@ function predict_cap(m::StarGas; verbose = false)
     cap = Inf
     fHs = zeros(b - a + 1); wts = [dn[k] * TM.v(:dvoln)[k] for k in a:b]
     for k in a:b
+        zok(k) || continue
         Yk = view(m.Y, :, k)
         kr = NN.rates_k(tn[k], dn[k], NN.Plasma(dn[k], Yk), NN.ye_of(Yk); screen = m.screen)
         f = NN.ydot(Yk, kr)
@@ -522,7 +538,12 @@ end
 Convective mixing over the step just taken (see the module docstring). `tmax` (S5): partial mixing, at most the fraction of the composition change that shifts T of any zone by ≤ tmax in the fixed-e re-solve (the rest follows next step). `bridge = nb` (S5): convective regions are contiguous: gaps of ≤ nb interfaces (∇ ≤ ∇_ad at a single noisy interface) are filled with D = min of the neighbours, and a core is extended to the centre; without it the intermittently unmixed core drifted in composition and the next mixing re-solved T at fixed e (ΔT/T up to 24 % in the central zone). `capmix = false` (S5): mixing does not limit dt. The net (burn + mixing) change of X_H per zone limited dt to dXmax per step, but a redistribution of composition conserves the mass of every species: when the convective core switched off and on between steps (its flux is zero for ∇ ≤ ∇_ad), the step that mixed a core burnt unmixed for one step moved X_H by 0.1 in a zone and cut dt to 1e-6 yr, which kept the core unmixed: a death spiral (15 and 100 M☉ runs). Returns (cons = max_i |Δ(Σ dm Y_i)|/Σ dm Y_i,
 nconv = number of interfaces with D > 0, Dmax, t_turn = min over convective interfaces of ℓ/v, dEmax = max zone energy change).
 """
-function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd = TX.step_diag(dt), D = nothing, capmix = true, bridge = 0, tmax = Inf)
+function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd = nothing, D = nothing, capmix = true, bridge = 0, tmax = Inf)
+    # A step of zero duration mixes nothing. It happens when the retry loop has halved Δt below the spacing of Float64 at the
+    # current time (0.125 s at t = 7e14 s), so that timen == timeo; dm/dt in mix_species! is then infinite and the compositions
+    # of the convective zones come back NaN (same case as the dt > 0 guard of burn_zone).
+    (isfinite(dt) && dt > 0) || (println("mix!: step of zero duration (dt = $dt), no mixing"); return (; cons = 0.0, nconv = 0, Dmax = 0.0, t_turn = Inf, dEmax = 0.0))
+    sd === nothing && (sd = TX.step_diag(dt))
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     dn, tn, egn, rn, dvoln = TM.v(:dn), TM.v(:tn), TM.v(:egn), TM.v(:rn), TM.v(:dvoln)
     n = b - a + 1
@@ -565,7 +586,11 @@ function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd =
                 any(ΔY[:, j] .!= 0) || continue
                 k = a + j - 1; Ys[:, k] .= Y0[:, j] .+ λ .* ΔY[:, j]
                 comp = (t = xyz(view(Ys, :, k)); SE.composition(t[1], t[2], t[3], m.zmix))
-                Tn, _ = T_of_e(dn[k], egn[k], tn[k], comp; pairs = m.pairs, coulomb = m.coulomb)
+                if !(isfinite(dn[k]) && isfinite(egn[k]) && isfinite(tn[k]) && all(isfinite, view(Ys, :, k)))
+                    println("mix!: non-finite state in zone $k (λ $λ): ρ $(dn[k]) e $(egn[k]) T $(tn[k]) Y $(Ys[:, k]) ΔY $(ΔY[:, j])"); flush(stdout)
+                    return Inf
+                end
+                Tn, _ = t_solve(m, dn[k], egn[k], tn[k], comp)
                 mx = max(mx, abs(log(Tn / tn[k])))
             end
             mx
@@ -583,7 +608,7 @@ function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd =
         k = a + j - 1
         any(Y[:, j] .!= m.Y[:, k]) || continue
         m.Y[:, k] .= Y[:, j]
-        Tn, _ = T_of_e(dn[k], egn[k], tn[k], zonecomp(m, k); pairs = m.pairs, coulomb = m.coulomb)
+        Tn, _ = t_solve(m, dn[k], egn[k], tn[k], zonecomp(m, k))
         dEmax = max(dEmax, abs(Tn / tn[k] - 1)); tn[k] = Tn
     end
     ghosts!(m)

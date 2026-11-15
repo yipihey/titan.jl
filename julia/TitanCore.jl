@@ -64,17 +64,47 @@ const RESET_PAIRS2 = ((:dsn, :dso), (:usn, :uso), (:pgn, :pgo), (:asn, :aso), (:
                       (:ersn, :erso), (:egrn, :egro), (:egrsn, :egrso), (:egtn, :egto), (:egtsn, :egtso),
                       (:egrtn, :egrto), (:egrtsn, :egrtso), (:frsn, :frso), (:chifn, :chifo), (:xken, :xkeo),
                       (:xkpn, :xkpo), (:xnen, :xneo), (:plfn, :plfo), (:cpn, :cpo), (:betan, :betao), (:delsn, :delso))
+"""
+COUPLED species (TitanResidFast.COUPLED, set by popiii_m2c): `CPLH[] = (; newstep, reset, update, dmax)` — called by peq! (old := new),
+reset!, update! (x ← x e^δ) and maxdel! (clamp, convergence measure). `nothing` (default): TITAN's seven variables only.
+"""
+const CPLH = Ref{Any}(nothing)
 function reset!()
     a, b = gi(:ngrs), gi(:ngre)
+    # A failed iterate that went non-finite: restore the state first, then rebuild the coupled species from it (the species reset
+    # evaluates the local chemistry, which must not see NaN T/ρ: InexactError in the photo-rate table, z100e step 32122, 14 Nov).
+    # A finite failed iterate keeps the original order (bit-identical for every run that never produces a NaN).
+    bad = CPLH[] !== nothing && !all(nm -> all(isfinite, view(vf(nm[1]), a-1:b+2)), RESET_PAIRS1)
+    CPLH[] === nothing || bad || CPLH[].reset()
     s!(:timen, gf(:timeo))
     for (n, o) in ((:tes, :teso), (:tew, :tewo), (:tel, :telo), (:teq, :teqo)); s!(n, gf(o)); end
     for (n, o) in RESET_PAIRS1; copyto!(view(vf(n), a-1:b+2), view(vf(o), a-1:b+2)); end
     for (n, o) in RESET_PAIRS2; copyto!(view(vf(n), a-1:b+1), view(vf(o), a-1:b+1)); end
     copyto!(view(vf(:avchin), a:b+1), view(vf(:avchio), a:b+1))
+    bad && CPLH[].reset()
     nothing
 end
 
 # ------------------------------------------------------------------ maxdel (maxdel.f)
+"""
+S6: causality floor for zones with Rosseland optical depth from the surface below `ER_TAUCONV[]` (default 0 = off, TITAN). Where E_r after
+the Newton correction would fall below max(F, 0)/c (outward flux only) or 0.1 E, it is set to that value and that correction neither enters dmax nor is damped. In the thin
+envelope E and F are nearly uncoupled: E follows from integrating the Eddington factor inward from the boundary, the discretisation error
+over the transition from the core's beam to the isotropic CMB leaves E far too low (F/cE up to 440 seen), the discrete solution wants E < 0,
+the relative correction does not shrink with Δt, and through dmax it stopped the whole grid (Δt → 1e-245 s).
+"""
+const ER_TAUCONV = Ref(0.0)
+"""
+EDD_SCATTER[]: in the formal solution all of chi above kappa_P is scattering: S = (kappa_P B + (chi - kappa_P) J) / chi. Otherwise only electrons scatter, so where chi >> kappa_P + sigma_e (cool thin gas) chi emits at S ~ B:
+50-1000 times the energy rows' emission, and that isotropic light lowers f and makes E < F/c when the F row integrates E inward.
+"""
+const EDD_SCATTER = Ref(false)
+"""
+EDDG_MU0[]: the outer g integrates down to mu = 0, as f does. TITAN stops at the last ray: on a log mesh that is mu = sqrt(2 dlnr) ~ 0.33 at dlnr = 0.06, so an isotropic field gives g = 0.65 for 0.5 and,
+through the boundary condition E / aT^4 = (2g + 1) / 4g, E 12 % below the CMB. The F row carries that deficit inward with E ~ r^-2 where f ~ 1, as F/cE > 1.
+"""
+const EDDG_MU0 = Ref(false)
+const ESRC_FLOORS = Ref(0)      # number of floor activations (diagnostic)
 function maxdel!()
     a, b = gi(:ngrs), gi(:ngre); meqn = TF.PARAMS[:meqn]
     lhydr, lrad, ltur = gi(:lhydr), gi(:lrad), gi(:ltur)
@@ -85,6 +115,24 @@ function maxdel!()
     ltur == 0 || error("maxdel: ltur ≥ 1 not supported")
     flat = vec(rhs); base(i) = (a - 1) * meqn + i          # rhs(i, ngrs) in column-major
     pick!(i, n) = (kx[i] = isamax(n, flat, base(i), meqn); dx[i] = rhs[i, a + kx[i] - 1])
+    # S6: causality floor of E_r in the thin envelope (see ER_TAUCONV)
+    thin = Int[]; δthin = Float64[]
+    if lrad == 1 && ER_TAUCONV[] > 0
+        chifn, dn, ern, frn = vf(:chifn), vf(:dn), vf(:ern), vf(:frn); τ = 0.0
+        ie_ = gi(:ie); cl = 2.99792458e10
+        @inbounds for k in b:-1:a
+            τ += chifn[k] * dn[k] * (rn[k+1] - rn[k])
+            τ >= ER_TAUCONV[] && break
+            # Outward flux only: |F| would make E follow an inward flux that E itself drives (energy from nothing, step 22462). Otherwise
+            # only keep E positive.
+            Ef = max(frn[k], frn[k+1], 0.0) / cl
+            Emin = max(Ef, 0.1 * ern[k])
+            if ern[k] * (1 + rhs[ie_, k]) < Emin
+                ESRC_FLOORS[] += 1
+                push!(thin, k); push!(δthin, Emin / ern[k] - 1); rhs[ie_, k] = 0.0
+            end
+        end
+    end
     if lhydr == 1 && lrad == 1
         pick!(ir, ni); pick!(im, ni); pick!(id, nc); pick!(iu, ni); pick!(it, nc); pick!(ie, nc); pick!(iff, ni)
         dmax = max(abs(dx[ir]), abs(dx[im]), abs(dx[id]), abs(dx[it]), abs(dx[ie])) + 1.0e-30
@@ -99,7 +147,7 @@ function maxdel!()
     end
     s!(:dmax, dmax)
     cmax = 1.0e-30
-    if gi(:lgrid) == 1
+    if gi(:lgrid) == 1 || GRIDMOVE[]
         @inbounds for k in a:b
             cx[k] = (rhs[ir, k+1] * rn[k+1] - rhs[ir, k] * rn[k]) / (rn[k+1] - rn[k])
         end
@@ -107,20 +155,25 @@ function maxdel!()
         cmax = abs(cx[a + kcx - 1]) + 1.0e-30
     end
     s!(:cmax, cmax)
+    CPLH[] === nothing || s!(:dmax, max(dmax, CPLH[].dmax(rhs, a, b)))     # species: clamped (also in the boost pass), convergence measure
     lboos = gi(:lboos)
-    lboos == 1 && return nothing
+    restore!() = (@inbounds for (j, k) in enumerate(thin); rhs[ie, k] = δthin[j]; end)
+    lboos == 1 && (restore!(); return nothing)
     lboos > 1 && error("maxdel01")
     sc = min(min(1.0, gf(:dtol) / dmax), min(1.0, gf(:ctol) / cmax))
     if sc < 1.0
         neqn = gi(:neqn)
         @inbounds for k in a:b+1, i in 1:neqn; rhs[i, k] *= sc; end
     end
+    restore!()
     nothing
 end
 
 # ------------------------------------------------------------------ timstp (timstp.f)
 "S4: when the velocity extrapolation of peq would make the grid non-monotonic, start Newton from the old grid instead of halving dtime (default false: TITAN)."
 const STATIC_FALLBACK = Ref(false)
+"Moving interfaces on lgrid = 2 (TitanResidFast.GRIDWIN window or GRIDVEL): maxdel limits the relative zone-width change per Newton iteration to ctol, TR-BDF2 combines the radii."
+const GRIDMOVE = Ref(false)
 "S4: functions `() -> dt_max` consulted at the end of timstp! (e.g. the composition criterion of StarMaterial). Empty = TITAN's rule."
 const DT_HOOKS = Function[]
 """
@@ -137,7 +190,22 @@ interface is limited to EXTRAP_FRAC × (its smaller adjacent zone width) / |dr/d
 less than a fraction of a zone per step. Replaces the all-or-nothing STATIC_FALLBACK.
 """
 const EXTRAP_FRAC = Ref(Inf)
+"Zones of Rosseland optical thickness above `ER_THICK[]` are left out of the E_r criterion of timstp! (0 = TITAN's rule)."
+const ER_THICK = Ref(0.0)
+"S6: zones with Rosseland optical depth from the surface below `ER_TAUMIN[]` are left out of the E_r criterion of timstp! (0 = TITAN's rule)."
+const ER_TAUMIN = Ref(0.0)
+"tfac and dtime as the last timstp! call found them (STOLCHEM in popiii_m2c.jl evaluates the rule again after the chemistry step)."
+const TSTP_IN = Ref((0.0, 0.0))
+"TSTPDBG=n (diagnostic, default 0): print T new/old, ρ new/old of zone n (from the inner boundary) at every peq! and timstp! call."
+const TSTPDBG = Ref(parse(Int, get(ENV, "TSTPDBG", "0")))
+function tstpdbg(where)
+    TSTPDBG[] > 0 || return nothing
+    k = gi(:ngrs) + TSTPDBG[] - 1; tn, to, dn, do_ = vf(:tn), vf(:to), vf(:dn), vf(:do)
+    println("TSTPDBG $where jstep $(gi(:jstep)) dtime $(gf(:dtime)) zone $(TSTPDBG[]): tn $(tn[k]) to $(to[k]) rel $((tn[k] - to[k]) / to[k]) dn $(dn[k]) do $(do_[k])")
+end
 function timstp!()
+    tstpdbg("timstp")
+    TSTP_IN[] = (gf(:tfac), gf(:dtime))
     a, b = gi(:ngrs), gi(:ngre); neqn = gi(:neqn)
     lhydr, lrad, ltur = gi(:lhydr), gi(:lrad), gi(:ltur)
     ltur == 0 || error("timstp: ltur ≥ 1 not supported")
@@ -159,6 +227,19 @@ function timstp!()
             if lrad == 1
                 sx[k, ie] = (ern[k] - ero[k]) / ero[k]
                 sx[k, iff] = (frn[k] - fro[k]) / frnom[k]
+            end
+        end
+        if lrad == 1 && ER_TAUMIN[] > 0         # S6: E_r of zones optically thin from the surface does not limit Δt
+            chifn = vf(:chifn); τ = 0.0
+            @inbounds for k in b:-1:a
+                τ += chifn[k] * dn[k] * (rn[k+1] - rn[k])
+                τ < ER_TAUMIN[] && (sx[k, ie] = 0.0)
+            end
+        end
+        if lrad == 1 && ER_THICK[] > 0         # E_r = aT⁴ in an opaque zone, so ΔE/E = 4 ΔT/T repeats the criterion on T four times tighter
+            chifn = vf(:chifn)
+            @inbounds for k in a:b
+                chifn[k] * dn[k] * (rn[k+1] - rn[k]) > ER_THICK[] && (sx[k, ie] = 0.0)
             end
         end
         pick!(ir, ni); pick!(im, ni); pick!(id, nc); pick!(iu, ni); pick!(it, nc)
@@ -231,6 +312,8 @@ function update!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
         tn[k] = (1.0 + rhs[it, k]) * tn[k]
         lrad && (ern[k] = (1.0 + rhs[ie, k]) * ern[k])
     end
+    CPLH[] === nothing || CPLH[].update(rhs, a, b)
+    TSTPDBG[] > 0 && (k_ = a + TSTPDBG[] - 1; println("TSTPDBG update iter $(gi(:iter)) lboos $(gi(:lboos)) thet $(gf(:thet)) dtime $(gf(:dtime)): rhs_T $(rhs[it, k_]) tn $(tn[k_]) to $(vf(:to)[k_]) dmax $(gf(:dmax))"))
     _ghost_and_derived!(:update, eos!, opac!)
 end
 
@@ -314,7 +397,7 @@ function _ghost_and_derived!(mode::Symbol, eos!, opac!)
             dplf[k] = 4.0 * plfn[k]
         end
         @inbounds for k in a:b+1; avchin[k] = 2.0 / (1.0 / chifn[k-1] + 1.0 / chifn[k]); end
-        (mode === :peq || gi(:ltran) == 0) && EDDFAC[]()
+        (mode === :peq || gi(:ltran) == 0 || TD.VEF_ITER[]) && EDDFAC[]()     # (VEF_ITER: f, g of the Newton iterate, TitanDriver.VEF_ITER)
     end
     # ---- time-centred quantities
     θ = gf(:thet); dt = gf(:dtime)
@@ -407,6 +490,8 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     lrad && for (o, n) in ((:ero, :ern), (:fro, :frn)); copyto!(view(vf(o), a-1:b+2), view(vf(n), a-1:b+2)); end
     for (o, n) in (lrad ? PEQ_OLD2_RH : PEQ_OLD2_H); copyto!(view(vf(o), a-1:b+1), view(vf(n), a-1:b+1)); end
     lrad && copyto!(view(vf(:avchio), a:b+1), view(vf(:avchin), a:b+1))
+    CPLH[] === nothing || CPLH[].newstep()
+    tstpdbg("peq")
     PEQ_HOOK[] === nothing || PEQ_HOOK[]()
     predict!(; eos!, opac!)
 end
@@ -525,6 +610,15 @@ edpos() = EDD_POSITIVE[] === :auto ? TD.EDD_MATERIAL_SOURCE[] : EDD_POSITIVE[]::
     xmom0[k] = s0; xmom2[k] = s2
     nothing
 end
+"First moment of xi over ang[1:n] (the s1 of _eddg)."
+@inline function _mom1(n, ang, xi)
+    s1 = 0.0
+    @inbounds for i in 1:n-1
+        a, b = ang[i], ang[i+1]; x, y = xi[i], xi[i+1]
+        s1 += (x * b - y * a) * (a + b) / 2.0 + (y - x) * (a^2 + a * b + b^2) / 3.0
+    end
+    s1
+end
 "eddg.f: first moment / zeroth moment of xi over ang[1:n]."
 @inline function _eddg(n, ang, xi)
     s0 = 0.0; s1 = 0.0
@@ -553,7 +647,9 @@ function eddfac!()
     nang = gi(:nang); lribc, lrobc = gi(:lribc), gi(:lrobc)
     xkpn = vf(:xkpn); matsrc = TD.EDD_MATERIAL_SOURCE[]
     source!(k) = (sf[k] = matsrc ?
-                      (xkpn[k] * dn[k] * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) / (xkpn[k] * dn[k] + csige * xnen[k]) :
+                      (EDD_SCATTER[] && chifn[k] * dn[k] > xkpn[k] * dn[k] + csige * xnen[k] ?
+                       (xkpn[k] * plfn[k] + (chifn[k] - xkpn[k]) * ern[k] * cc / (4.0 * cpi)) / chifn[k] :
+                       (xkpn[k] * dn[k] * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) / (xkpn[k] * dn[k] + csige * xnen[k])) :
                       ((chifn[k] * dn[k] - csige * xnen[k]) * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) /
                           (chifn[k] * dn[k]);
                   dtau[k] = chifn[k] * dn[k] * (rn[k+1] - rn[k]))
@@ -631,22 +727,29 @@ function eddfac!()
     rp, sl, sr, p, xang = vf(:rp), vf(:sl), vf(:sr), vf(:p), vf(:xang)
     ncor = gi(:ncor)
     for k in b:-1:a; source!(k); end
+    # VEF_BG (TitanDriver.VEF_BG): the formal solution of the excess I − I_b over the isotropic background I_b = ximr: source S − I_b,
+    # nothing incoming; the positivity clamps act on the total, I_x ≥ −I_b
+    bg = TD.VEF_BG[] && lrobc == 1; Ib = bg ? gf(:ximr) : 0.0; ep = edpos(); lo = bg ? -Ib : 0.0
+    bg && (@inbounds for k in a:b; sf[k] -= Ib; end)
     slopes!(false)
     @inbounds for k in a:b
         l = 2 * (k - a) + 1
         rp[l] = rn[k]; rp[l+1] = 0.5 * (rn[k] + rn[k+1])
         sl[l] = sf[k] + 0.5 * dtau[k] * bsf[k]; sr[l] = sf[k]
         sl[l+1] = sf[k]; sr[l+1] = sf[k] - 0.5 * dtau[k] * bsf[k]
-        if edpos()     # a source function reconstructed linearly in τ must not go negative
-            sl[l] = max(sl[l], 0.0); sr[l+1] = max(sr[l+1], 0.0)
+        if ep     # a source function reconstructed linearly in τ must not go negative
+            sl[l] = max(sl[l], lo); sr[l+1] = max(sr[l+1], lo)
         end
     end
     lmax = 2 * (b - a + 1) + 1
     rp[lmax] = rn[b+1]
+    tie = TD.FLUXTIE[][2] > 0; HE = TD.HEDD
+    tie && (length(HE) < length(fedd) && resize!(HE, length(fedd)); fill!(HE, 0.0))
     for j in 1:ncor; p[j] = Float64(j - 1) * rp[1] / Float64(ncor); end
     nray = (ncor + 1) + 2 * (b + 1 - a)
     for j in ncor+1:nray; p[j] = rp[j - ncor]; end
-    lrobc == 1 && (xim[1:nray] .= gf(:ximr))
+    lrobc == 1 && (xim[1:nray] .= bg ? 0.0 : gf(:ximr))
+    FX = TD.FXEDD; bg && length(FX) < length(fedd) && resize!(FX, length(fedd))
     # inward sweep along tangent rays
     for l in lmax-1:-1:1
         k = a + (l - 1) ÷ 2; nj = ncor + l
@@ -654,7 +757,7 @@ function eddfac!()
             xjl = sqrt(rp[l]^2 - p[j]^2); xjlp1 = sqrt(rp[l+1]^2 - p[j]^2)
             dtjl = dn[k] * chifn[k] * (xjlp1 - xjl); ex = exp(-dtjl)
             xip[j] = (1.0 - ex) * sl[l] + (1.0 - (1.0 + dtjl) * ex) * (sr[l] - sl[l]) / dtjl + ex * xim[j]
-            edpos() && (xip[j] = max(xip[j], 0.0))
+            ep && (xip[j] = max(xip[j], lo))
             xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
         end
         for j in 1:nj; xim[j] = xip[j]; end
@@ -662,16 +765,17 @@ function eddfac!()
             k = a + (l - 1) ÷ 2
             xmom0[k] = 0.0; xmom2[k] = 0.0
             _eddf!(nj, xang, xip, xmom0, xmom2, k)
+            tie && (HE[k] = -_mom1(nj, xang, xip))          # inward-moving rays: −∫ I |μ| dμ
         end
         l == 1 && s!(:geddl, _eddg(nj, xang, xip))
     end
     if lribc == 1
-        for j in 1:ncor+1; xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2); xim[j] = gf(:xipl); end
+        for j in 1:ncor+1; xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2); xim[j] = gf(:xipl) - Ib; end
     end
     if lribc == 3                                    # (uses the planar quadrature ang(j), as in TITAN 1.2)
         for j in 1:ncor+1
             xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2)
-            xim[j] = (cc * ern[a] + 1.5 * frn[a] * dtau[a]) / (4.0 * cpi) + 3.0 * ang[j] * frn[a] / (4.0 * cpi)
+            xim[j] = (cc * ern[a] + 1.5 * frn[a] * dtau[a]) / (4.0 * cpi) + 3.0 * ang[j] * frn[a] / (4.0 * cpi) - Ib
         end
     end
     # outward sweep
@@ -681,7 +785,7 @@ function eddfac!()
             xjl = sqrt(rp[l]^2 - p[j]^2); xjlm1 = sqrt(rp[l-1]^2 - p[j]^2)
             dtjl = dn[k] * chifn[k] * (xjl - xjlm1); ex = exp(-dtjl)
             xip[j] = (1.0 - ex) * sr[l-1] + (1.0 - (1.0 + dtjl) * ex) * (sl[l-1] - sr[l-1]) / dtjl + ex * xim[j]
-            edpos() && (xip[j] = max(xip[j], 0.0))
+            ep && (xip[j] = max(xip[j], lo))
             xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
         end
         for j in 1:nj; xim[j] = xip[j]; end
@@ -689,11 +793,48 @@ function eddfac!()
             k = a + (l - 1) ÷ 2
             xang[nj+1] = 0.0
             _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
+            tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
+            if bg      # excess moments; xmom0, xmom2 are −2J_x, −2K_x (μ decreases along the ray index), the background's −2I_b, −2I_b/3
+                FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : 1.0 / 3.0
+                fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+            else
             fedd[k] = edpos() && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 :
                       max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+            end
         end
-        l == lmax && s!(:geddr, _eddg(nj, xang, xip))
+        if l == lmax
+            EDDG_MU0[] && (xang[nj+1] = 0.0; xip[nj+1] = xip[nj])
+            if bg      # outgoing excess only: g_x = H_x+/J_x+ (TD.GXEDD); TITAN's g of the total field for the rest of the code
+                n_ = EDDG_MU0[] ? nj + 1 : nj; s0 = 0.0
+                @inbounds for i in 1:n_-1; s0 += 0.5 * (xip[i] + xip[i+1]) * (xang[i+1] - xang[i]); end
+                s1 = _mom1(n_, xang, xip)
+                # (μ = xang decreases along the ray index, so ∫_0^1 I dμ = −s0 and ∫_0^1 I μ dμ = −s1; the background gives I_b, I_b/2)
+                TD.GXEDD[] = abs(s0) > 1e-10 * Ib && isfinite(s1 / s0) ? clamp(s1 / s0, 0.0, 1.0) : 0.5
+                s!(:geddr, (-s1 + 0.5 * Ib) / (-s0 + Ib))
+            else
+            s!(:geddr, _eddg(EDDG_MU0[] ? nj + 1 : nj, xang, xip))
+            end
+        end
         s!(:geddr, max(0.5, min(gf(:geddr), 1.0)))
+    end
+    tie && tiew!(a, b, dtau)
+    if tie && haskey(ENV, "FLUXTIEDIAG") && TIEDIAG_N[] < 3
+        TIEDIAG_N[] += 1; zr = parse.(Int, split(ENV["FLUXTIEDIAG"], ","))
+        println("eddfac FLUXTIE (call $(TIEDIAG_N[])) zone: h / F/cE / f / w / dtau: ", join((string(k, ":", round(HE[k], digits = 3), "/",
+            round(0.5(frn[k] + frn[k+1]) / (cc * ern[k]), digits = 3), "/", round(fedd[k], digits = 3), "/", round(TD.TIEW[k], digits = 2), "/",
+            round(dtau[k], sigdigits = 2)) for k in zr[1]:zr[2]:min(b, zr[3])), " "))
+    end
+    nothing
+end
+const TIEDIAG_N = Ref(0)
+"FLUXTIE weights per interface from the flux-mean optical depth measured from the outer boundary (TD.FLUXTIE)."
+function tiew!(a, b, dtau)
+    τ1, τ2 = TD.FLUXTIE[]; W = TD.TIEW
+    length(W) < length(dtau) && resize!(W, length(dtau)); fill!(W, 0.0)
+    τ = 0.0
+    @inbounds for k in b:-1:a+1
+        τ += dtau[k]
+        W[k] = τ <= τ1 ? 1.0 : τ >= τ2 ? 0.0 : (q = log(τ2 / τ) / log(τ2 / τ1); q * q * (3 - 2q))
     end
     nothing
 end
