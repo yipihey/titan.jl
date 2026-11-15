@@ -316,7 +316,8 @@ function ifsi_ufix(m::NetGas, k, z, t)
     NHe = exp(_fv(z[6])) + exp(_fv(z[7]))
     NHe * dt < 1e-12 * CNn.yHe * dn[k] / CNn.μH() * V && return (x0[1], x0[3], x0[4])
     zf = [_fv(q) for q in z]
-    F(w) = (u = exp.(w); d = ifsi_core(m, k, zf, t, u)[3]; un = ifsi_u(d); [log(max(un[i], 1e-300)) - w[i] for i in 1:3])
+    # (fractions floored at 1e-40 as the start: an absorber below it is absent; x_H < 0 from an iterate x_H+ > 1 is 0)
+    F(w) = (u = exp.(w); d = ifsi_core(m, k, zf, t, u)[3]; un = ifsi_u(d); [log(max(un[i], 1e-40)) - w[i] for i in 1:3])
     J = zeros(3, 3)
     # Newton with backtracking on |F| (the photon-limited He zone's map is nearly singular: full steps overshoot and cycle); returns
     # (converged, w, |F|) of the best iterate
@@ -329,7 +330,7 @@ function ifsi_ufix(m::NetGas, k, z, t)
             n0 = maximum(abs, r); n0 < bn && (bn = n0; bw .= w)
             n0 < 1e-12 && return (true, w, n0)
             δ = try -(J \ r) catch; fill(NaN, 3) end; all(isfinite, δ) || return (false, bw, bn)
-            δ .= clamp.(δ, -5.0, 5.0)
+            δ .= clamp.(δ, -20.0, 20.0)
             maximum(abs, δ) < 1e-11 && (w .+= δ; return (true, w, n0))
             λ = 1.0; wn = w .+ δ
             for _ in 1:12
@@ -362,7 +363,7 @@ function ifsi_ufix(m::NetGas, k, z, t)
     all(z_ -> z_ isa Float64, z) && return Tuple(exp.(w))
     # implicit function: w(z) = w* − J⁻¹ F(w*; z)
     d = ifsi_core(m, k, z, t, Tuple(exp.(w)))[3]; un = ifsi_u(d)
-    Fz = [log(max(un[i], 1e-300 + zero(un[i]))) - w[i] for i in 1:3]
+    Fz = [log(max(un[i], 1e-40 + zero(un[i]))) - w[i] for i in 1:3]
     Ji = try inv(J) catch; zeros(3, 3) end; all(isfinite, Ji) || (Ji = zeros(3, 3))
     wz = [w[i] - sum(Ji[i, j] * Fz[j] for j in 1:3) for i in 1:3]
     Tuple(exp.(wz))
