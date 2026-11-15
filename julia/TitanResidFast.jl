@@ -281,6 +281,12 @@ handed back to the split chemistry for the rest of the step (CPLZ false; with EC
 the shock whose x_H⁺ had fallen to 1e-9 asked for δ ln x = −1e76 in every retry, the step never converged and Δt collapsed (t_cpl4, step 123110).
 """
 const CPL_BAD = Set{Int}(); const CPL_BADDELTA = Ref(parse(Float64, get(ENV, "CPLBADDELTA", "100"))); const CPL_NDECOUPLED = Ref(0)
+"""
+CPLTRACEX=x (default 0 = off): in a coupled zone, a species row whose iterate and old abundance are both below x gets no Newton correction
+(held for the step) and does not count for CPLBADDELTA. In the thermalised zones that leave the table (He II layer, 2–3e4 K) trace H₂
+(x ~ 1e-24) asked for δ ln x of −600…+550 and decoupled zones 70–72 (t_nolte, jstep 2217816).
+"""
+const CPL_TRACEX = Ref(parse(Float64, get(ENV, "CPLTRACEX", "0")))
 function cpl_reset!()
     for i in 1:2; copyto!(XSN[][i], XSO[][i]); end
     if !isempty(CPL_BAD)
@@ -314,6 +320,8 @@ function cpl_dmax!(rhs, a, b)
             CPLDBG[] > 0 && abs(rhs[i, k]) > 20 && (CPLDBG[] -= 1;
                 println("CPLDBG iter $(gi(:iter)) zone $(k - a + 1) row $i: δ $(rhs[i, k]) x $(q[k]) x_old $(XSO[][i - 7][k]) x(H+,H2) $(XSN[][1][k]), $(XSN[][2][k]) T $(TF.var(:tn)[k]) T_old $(TF.var(:to)[k]) ρ $(TF.var(:dn)[k]) neighbours x_H+ $(XSN[][1][k-1]) $(XSN[][1][k+1]) cplz $(cplz(k-1)) $(cplz(k+1))"))
             isfinite(rhs[i, k]) || (rhs[i, k] = 0.0; d = Inf)                        # a non-finite correction: no change, not converged
+            # CPLTRACEX: a trace species (x and x_old below it) is held for the step and does not decouple the zone
+            CPL_TRACEX[] > 0 && max(q[k], XSO[][i - 7][k]) < CPL_TRACEX[] && (rhs[i, k] = 0.0)
             abs(rhs[i, k]) > CPL_BADDELTA[] && push!(CPL_BAD, k)
             rhs[i, k] = clamp(rhs[i, k], -cl, cl)
             # weight by the larger of the iterate and the old abundance: a species the iterate drove to the floor (x_H⁺ 1e-40 next to the
@@ -1286,8 +1294,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         # ------------------------------------------------------------ RADIATION MOMENTUM
         qF = W.qF
         tie = TD.FLUXTIE[][2] > 0 && length(TD.TIEW) >= ngre + 1 && length(TD.HEDD) >= ngre + 1
+        sph = TD.VEF_SPH[]                   # Auer's sphericality-factor form of the static terms (TitanDriver.VEF_SPH)
         @inbounds for k in ngrs+1:ngre
             qFo = c.fro[k] * 2 / (c.do_[k] + c.do_[k-1])
+            if !sph
             R[iF, kb(k)] =
                 (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
                  qFo * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
@@ -1296,6 +1306,16 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 0.5 * rmu[k] * (fr[k] / cc^2) * (u[k+1] - u[k-1]) +
                 (0.25xmu / r[k]) * ((3fedd[k-1] - 1) * er[k-1] * dvol[k-1] + (3fedd[k] - 1) * er[k] * dvol[k]) +
                 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
+            else                                     # VEF_SPH: static terms in the sphericality-factor form (TitanDriver.VEF_SPH)
+                qs = vefq(fedd, r, xmu, k)
+                R[iF, kb(k)] =
+                    (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
+                     qFo * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
+                    ((dmdt[k] + dmdt[k+1]) * frb[k] - (dmdt[k-1] + dmdt[k]) * frb[k-1]) / (2cc^2) +
+                    rmu[k] * (qs * fedd[k] * er[k] - fedd[k-1] * er[k-1] / qs) +
+                    0.5 * rmu[k] * (fr[k] / cc^2) * (u[k+1] - u[k-1]) +
+                    0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
+            end
             wt = tie ? TD.TIEW[k] : 0.0
             if wt > 0                                # FLUXTIE: F = h c E (TitanDriver.FLUXTIE)
                 rcm = (0.5 * (r[k-1] + r[k]))^mu; rcp = (0.5 * (r[k] + r[k+1]))^mu
@@ -1307,7 +1327,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)
-        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * ern[ngre]
+        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
         R[iF, 1] = X(iF, k0)
         k = ngrs - 1
         R[iF, kb(k)] = P.lribc == 2 ? frn[k+2] + frn[k] : rn[k+1]^mu * frn[k+1] - rn[k]^mu * frn[k]
@@ -1316,6 +1336,31 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     nothing
 end
 
+"""
+VEF_SPH: e^{s/2} at interface k, s = (μ/4)(3 − 1/f_k−1 + 3 − 1/f_k) ln(r_c,k/r_c,k−1), r_c the zone midpoints (TitanDriver.VEF_SPH).
+The momentum row's static terms are r_k² [e^{s/2} f_k E_k − e^{−s/2} f_k−1 E_k−1]: the ratio of Auer's sphericality factor at the
+zone centres to its value at the interface, so that q f E is differenced across the interface. f ≥ 0.01 only guards 1/f.
+"""
+@inline function vefq(fedd, r, xmu, k)
+    gq(f) = 3 - 1 / max(f, 0.01)
+    rcm = 0.5 * (r[k-1] + r[k]); rcp = 0.5 * (r[k] + r[k+1])
+    exp(0.125xmu * (gq(fedd[k-1]) + gq(fedd[k])) * log(rcp / rcm))
+end
+"""
+VEF_SPH: energy density at the outer boundary radius r_N+1 from the outer zone's centre value (new time level, as TITAN's boundary
+row). The incoming background (the CMB, intensity I_in = ximr, E_b = 4π I_in/c) is isotropic, K_b = E_b/3, and carried unchanged
+to r_N+1; only the excess E_x = E_N − E_b is carried by the static momentum equation d(q f_x E_x)/dr = −q χρ F/c over the half zone
+r_c,N → r_N+1 with its own Eddington factor f_x = (f_N E_N − E_b/3)/E_x (K = K_x + K_b), held over the half zone and clamped to
+[1/3, 1] (where E_x ≪ E_b, f_x is the difference of two nearly equal numbers; the clamp bounds the correction to the dilution of a
+beam, e^{−2Δ}, so that the quadrature error of f, ~1e-3, is not multiplied by E_b/E_x ~ 1e5 in the boundary flux):
+E_s = E_b + e^{−s} E_x − e^{−s/2} χ_N ρ_N F_N+1 (r_N+1 − r_c,N)/(c f_x), s = (μ/2)(3 − 1/f_x) ln(r_N+1/r_c,N).
+"""
+@inline function vef_esurf(W, fedd, N, xmu, cc, Eb)
+    rn = W.rn; rc = 0.5 * (rn[N] + rn[N+1]); Ex = W.ern[N] - Eb
+    fx = ForwardDiff.value(Ex) != 0 ? clamp(ForwardDiff.value((fedd[N] * W.ern[N] - Eb / 3) / Ex), 1 / 3, 1.0) : 1 / 3
+    s = 0.5xmu * (3 - 1 / fx) * log(rn[N+1] / rc)
+    Eb + exp(-s) * Ex - exp(-0.5s) * W.chifn[N] * W.dn[N] * W.frn[N+1] * (rn[N+1] - rc) / (cc * fx)
+end
 # ------------------------------------------------------------------ total energy (item 2)
 "Total pressure (gas + radiation fE) of zone k at the θ-level."
 @inline ptot(k, c, W) = c.lrad ? W.pg[k] + c.fedd[k] * W.er[k] : W.pg[k]
@@ -1518,7 +1563,7 @@ COUPLED test (popiii_m2c CPLJCHECK=n1,n2,…: zone numbers from the inner bounda
 AD Jacobian blocks of the energy and species rows of zones k−2…k+2 with respect to T, x_H⁺, x_H₂ of zone k, against central finite
 differences of the Float residual (step h in the logarithmic variables). Prints the worst relative difference per column.
 """
-function cpl_jcheck(kz; h = 1e-6)
+function cpl_jcheck(kz; h = parse(Float64, get(ENV, "CPLJCHH", "1e-6")))
     c = context(); assemble!(c)
     E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); neqn = c.neqn; nb = c.nb; k0 = c.k0; it = c.ix[5]
     ws = getws(Float64, c.mgr); R1 = zeros(neqn, nb); R2 = zeros(neqn, nb); xz = zeros(neqn * nb)
