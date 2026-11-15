@@ -1409,7 +1409,8 @@ function chem_core!(m::NetGas)
                 end
             end
             if IONFS && (st_ = IFS[]) !== nothing && st_.k0 > 0 && k <= length(st_.on) && st_.on[k]       # IonFS: the ray's terms
-                exs, cools, envk, phk = (IFSIMP && CPLPREP[]) ? ifsi_terms(m, k, exs, cools, envk, phk) : ifs_terms(m, k, exs, cools, envk, phk)
+                exs, cools, envk, phk = IFSIMP ? (CPLPREP[] ? ifsi_terms(m, k, exs, cools, envk, phk) : ifsi_terms_split(m, k, exs, cools, envk, phk)) :
+                                        ifs_terms(m, k, exs, cools, envk, phk)
             elseif IFSIMP && ifsi_ljzone(k)           # IONFSIMP: LOCALJ's diluted blackbody only below 13.598 eV, case B, in every zone outside the photosphere
                 envk = ifsi_env(envk)
             end

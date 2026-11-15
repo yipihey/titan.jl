@@ -56,9 +56,30 @@ mutable struct IFIState
     fhi::Vector{Float64}; sob::Vector{Float64}
     kLW::Vector{Float64}; kLWsl::Vector{Float64}; D::Vector{Float64}; Dsl::Vector{Float64}
     kend::Int; emit::Vector{Float64}; absb::Vector{Float64}; esc::Vector{Float64}; rowerr::Float64; niter::Int
+    phz::Vector{Any}; lrec::Vector{Float64}
 end
 const IFSI = Ref{Any}(nothing)
-ifsi_alloc(mgr) = IFIState(zeros(4), 0.0, 0.0, 0.0, ones(mgr), fill(Inf, mgr), zeros(mgr), zeros(mgr), zeros(mgr), zeros(mgr), 0, zeros(4), zeros(4), zeros(4), 0.0, 0)
+ifsi_alloc(mgr) = IFIState(zeros(4), 0.0, 0.0, 0.0, ones(mgr), fill(Inf, mgr), zeros(mgr), zeros(mgr), zeros(mgr), zeros(mgr), 0, zeros(4), zeros(4), zeros(4), 0.0, 0,
+                           Any[nothing for _ in 1:mgr], zeros(mgr))
+"""
+He radiative-recombination cooling of a ray zone [erg cm⁻³ s⁻¹] at (ρ, T, full composition d), from the network's own recombination rates:
+the Milne inverses α of its He I and He II photo-processes (`ph`: tuples (process, R, α), case B in the ray's env), × (χ + 0.75 kT) per
+recombination. ChemNet keeps the binding energies in u: a recombination gives χ back to the gas, so without this term a photoionization–
+recombination cycle heated the gas by the whole hν of the absorbed photon instead of hν − χ − ⟨E_kin⟩ (T → 9e4 K at the He I front,
+t_ifs9). The kinetic-energy loss per recombination is the three-level atom's 0.75 kT (tl3_heat). The emitted energy enters the grey field (RAYQ).
+"""
+function ifsi_herec(ρ, T, d, ph)
+    nH = ρ / CNn.μH(); ne = nH * max(d[:e], zero(d[:e])); q = zero(ne) + zero(T)
+    for (p, _, α) in ph
+        p isa CNn.Photo || continue
+        if p.R === :He
+            q += α * ne * nH * max(d[:Hep], zero(d[:Hep])) * (CNn.χHe1 + 0.75CNn.kB * T)
+        elseif p.R === :Hep
+            q += α * ne * nH * max(d[:Hepp], zero(d[:Hepp])) * (CNn.χHe2 + 0.75CNn.kB * T)
+        end
+    end
+    q
+end
 "Ray zone k (on, within k₀…k_end) of the current step."
 ifsi_on(k) = (st = IFS[]; st !== nothing && st.k0 > 0 && k <= length(st.on) && st.on[k])
 
@@ -169,7 +190,7 @@ function ifsi_setup!(st, m, a, b, k0, tauz, slrates, dt)
     k0 = st.k0
     # H I column (Lyman-line shielding of LW, start of step, to the zone centre from k₀) and the Sobolev length factor (SLSHIELD=sobolev)
     s1 = 0.0; sob = STARLIGHT[].shield === :sobolev
-    fill!(I.fhi, 1.0); fill!(I.sob, Inf)
+    fill!(I.fhi, 1.0); fill!(I.sob, Inf); fill!(I.phz, nothing)
     for k in k0:b
         nH = dn[k] / CNn.μH(); dr = rn[k+1] - rn[k]; xH = st.xabs0[k][1]
         STARLIGHT[].shield === :none || (I.fhi[k] = fsh_hi(s1 + 0.5 * nH * xH * dr))
@@ -223,7 +244,15 @@ ifsi_ljzone(k) = (st = IFS[]; st !== nothing && (IFSI_LJ == "all" || (st.k0 > 0 
 "Ray zone of the prepare pass: the zone's own terms with the ray's env (case B, ljcut, He backward Euler); no ray rates (they are the Newton's)."
 function ifsi_terms(m, k, exs, cools, envk, phk)
     _, _, env2, _ = ifs_terms(m, k, exs, cools, envk, phk)
+    I = IFSI[]; I.phz[k] = Tv -> Any[(p, CNn.photorates_t(p, Tv, env2)...) for p in phk if p isa CNn.Photo]
     exs, cools, env2, phk
+end
+"A split ray zone after the Newton (post pass): IonFS's Float ray terms, with the He recombination cooling (ifsi_herec)."
+function ifsi_terms_split(m, k, exs, cools, envk, phk)
+    ex2, c2, env2, ph2 = ifs_terms(m, k, exs, cools, envk, phk)
+    I = IFSI[]; phz = Tv -> Any[(p, CNn.photorates_t(p, Tv, env2)...) for p in phk if p isa CNn.Photo]; I.phz[k] = phz
+    c3 = (ρ, T, d) -> c2(ρ, T, d) + ifsi_herec(ρ, T, d, phz(_fv(T)))
+    ex2, c3, env2, ph2
 end
 
 # ---------------------------------------------------------------- the coupled zone with the ray
@@ -317,7 +346,7 @@ function ifsi_g(m::NetGas, k, z, t; wantx = false)
     τf = ifsi_tauion(st, xc, nH, dr)
     heat = zero(uE)
     for g in 1:3; heat += N[g] * (-expm1(-τf[g])) * st.G.Ec[g]; end
-    Λ = (t.cooling === nothing ? zero(uE) : t.cooling(ρ, T, d)) - heat / V
+    Λ = (t.cooling === nothing ? zero(uE) : t.cooling(ρ, T, d)) - heat / V + ifsi_herec(ρ, T, d, t.phc(_fv(T)))
     p3_ = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
     cq, yq = p3_ === nothing ? (zero(uE), zero(uE)) : tl3_heat(ρ, T, d, merge(p3_, (; ne = ρ / CNn.μH() * max(d[TL3NEK], zero(d[TL3NEK])))))
     τL, _ = ifsi_lw(I, k, z[8], T, xc[2], nH, dr)

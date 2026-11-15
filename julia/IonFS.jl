@@ -420,6 +420,8 @@ function ifs_after!(m, a, b, dt)
         end
         if TX.cplz(k) || !IFSGASQ                       # coupled: the gas took hν in the Newton; the grey field gives it up (RAYQ)
             isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += E / V)
+            # (IONFSIMP: the He recombination radiation the gas lost, ifsi_herec, goes to the grey field)
+            IFSIMP && (I_ = IFSI[]) !== nothing && I_.phz[k] !== nothing && !isempty(TX.RAYQ[]) && (TX.RAYQ[][k] -= ifsi_herec(dn[k], tn[k], d, I_.phz[k](tn[k])))
         else                                            # split: χ in the chemistry (RAYQ), hν − χ to the gas in the next hydro step (GASQ: from E_r)
             hc = ifs_hchi(st, k, d, dn[k], rn[k], rn[k+1])
             isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += hc)
