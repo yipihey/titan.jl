@@ -869,6 +869,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
     rates
 end
 include(joinpath(@__DIR__, "LyaTransfer.jl"))
+include(joinpath(@__DIR__, "IonFS.jl"))
 "dx/dt of the star-light reactions (rates lagged) for ChemNet.step's `extra`. No heat here: the LW energy goes to TitanResidFast.GASQ (see `lwheat`)."
 function starlight_terms(m::NetGas, ρ, kHm, kH, kLW)
     fr_ = m.net.free; iHp = findfirst(==(:Hp), fr_); iHm = findfirst(==(:Hm), fr_); iH2 = findfirst(==(:H2), fr_)
@@ -1021,6 +1022,9 @@ function chem_core!(m::NetGas)
         for k in b:-1:a; tt += chi_[k] * dn[k] * (rn[k+1] - rn[k]); tauz[k] = tt; end
     end
     slrates = STARLIGHT[] === nothing ? nothing : starlight_setup(m, a, b, tauz)
+    if IONFS                                  # the formal-solution-sourced ray (IonFS.jl): start of the step, or the COUPLED post pass
+        (CPLPREP[] || !TX.COUPLED[]) ? ifs_setup!(m, a, b, tauz, slrates, TF.getscalar(:dtime)) : CPLPOST[] && ifs_post!(m, a, b)
+    end
     # the star-light terms of zone k for ChemNet.step: (extra, cooling) composed with the ray's / the zone's own
     function slterms(k, extra0, cool0)
         slrates === nothing && return extra0, cool0
@@ -1104,6 +1108,7 @@ function chem_core!(m::NetGas)
         end
         tab = ptab || (ag === nothing ? ((PSWSTAY[] && m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])) : ag)
         CPLPREP[] && (tab = false)
+        IONFS && tab && !CPLPREP[] && !(h !== nothing && tn[k] > h.T1) && ifs_force!(k, dt) && (tab = false)    # (IonFS: the ray reaches a table zone)
         PSWRAMP > 0 && !CPLPREP[] && m.eqzone[k] && k <= RAMPK0[] - (Int(TF.getscalar(:jstep)) - RAMPJ0[]) ÷ PSWRAMP && (tab = true)
         if tab && !m.eqzone[k] && PSWRAD[] !== nothing && pgn[k] < PSWRAD[][2] * m.pswitch       # entry only with T_gas = T_rad (see PSWRAD)
             Tr = (max(TM.v(:ern)[k], 0.0) / 7.565723e-15)^0.25
@@ -1138,6 +1143,9 @@ function chem_core!(m::NetGas)
                     cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3, (; ne = nHs * max(d[TL3NEK], zero(d[TL3NEK])))))[1]
                 end
             end
+            if IONFS && (st_ = IFS[]) !== nothing && st_.k0 > 0 && k <= length(st_.on) && st_.on[k]       # IonFS: the ray's terms
+                exs, cools, envk, phk = ifs_terms(m, k, exs, cools, envk, phk)
+            end
             if !isempty(TX.CHEMB[])                  # BALSPLIT: the hydro step already gave the zone c̄ (TitanResidFast.CHEMB)
                 cb = eqprev ? 0.0 : TX.CHEMB[][k]; TX.CHEMBON[][k] = !eqprev
                 if cb != 0
@@ -1154,7 +1162,11 @@ function chem_core!(m::NetGas)
             end
             if CPLPREP[]                             # COUPLED prepare: the zone's terms for the hydro solve
                 envc = envk; phc_ = phk; cache = Ref((NaN, Any[]))
-                phc = Tv -> (Tv == cache[][1] || (cache[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, envc)...) for p_ in phc_])); cache[][2])
+                phf_ = Any[]
+                IONFS && (phf_ = Any[p_ for p_ in phk if p_ isa CNn.FixedPhoto]; phc_ = Any[p_ for p_ in phk if !(p_ isa CNn.FixedPhoto)])
+                phc0 = Tv -> (Tv == cache[][1] || (cache[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, envc)...) for p_ in phc_])); cache[][2])
+                # (IonFS: the ray's He rates change between Newton iterations at the same T, so they are read outside the cache)
+                phc = isempty(phf_) ? phc0 : (Tv -> vcat(phc0(Tv), Any[(p_, p_.rate[], 0.0) for p_ in phf_]))
                 CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs)
                 return nothing
             end
@@ -1262,6 +1274,7 @@ function chem_core!(m::NetGas)
         end
         fill!(zt, 0.0)
     end
+    IONFS && !CPLPREP[] && ifs_after!(m, a, b, dt)
     for k in a-2:a-1; k >= 1 && (m.x[k] = m.x[a]; m.eqzone[k] = m.eqzone[a]); end
     for k in b+1:b+2; m.x[k] = m.x[b]; m.eqzone[k] = m.eqzone[b]; end
     tn[a-1] = tn[a]; tn[b+1] = tn[b]; tn[b+2] = tn[b]
@@ -1417,6 +1430,7 @@ function cpl_g(m::NetGas, k, z)
     x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
     u, p = CNn.eos(ρ, T, x, m.net)
     dfull = CNn.full(x, m.net)
+    IONFS && ifs_record!(k, dfull)
     Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, dfull)
     # three-level heats of the iterate (chemistry heat cq, cycle heat yq; n_e self-consistent as in the cooling closure): the hydro solve
     # takes them from the gray field implicitly (TitanResidFast cpQ, cpY) instead of the lagged RAYQ/GASQ bookkeeping

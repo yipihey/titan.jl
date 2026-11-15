@@ -316,7 +316,64 @@ end
     p1 + 0.5w * (p2 - p0 + w * (2p0 - 5p1 + 4p2 - p3 + w * (3(p1 - p2) + p3 - p0)))
 end
 @inline _ljidx(x, g) = (i = clamp(Int(floor((_ljv(x) - g[1]) / g[2])) + 1, 2, g[3] - 2); (i, (x - (g[1] + g[2] * (i - 1))) / g[2]))
+"""
+IONFS (PopIIIMaterial, the formal-solution-sourced ray): a photo-process whose rate per absorber [s⁻¹] is set from outside (the ray's
+photon-conserving absorption in the zone), with no inverse (the recombination is the Milne inverse of the level `Photo` of the same
+species, case B). `rate` is read at every evaluation.
+"""
+struct FixedPhoto
+    name::String
+    R::Symbol; P::Vector{Symbol}
+    rate::Base.RefValue{Float64}
+end
+photorates(p::FixedPhoto, T, env; n = 200) = (p.rate[], 0.0)
+photorate(p::FixedPhoto, T, env; n = 200) = p.rate[]
+photorates_t(p::FixedPhoto, T, env) = (p.rate[], 0.0)
+"""
+LOCALJ tables with the ray (IONFS): `env.ljcut` [erg] drops the levels with threshold ≥ ljcut from R (their photons are the ray's), and with
+`env.caseB` the ground-level recombination of a multi-level atom is taken out of α (on the spot, as `photorates`' caseB): α_B = α_A − α_1,
+α_1 the ground level's Milne coefficient without J (its stimulated part, W × a small ratio, is left in). Only with `ljcut` in the env.
+"""
+const LJG = IdDict{Any,Any}()
+function lj_ground(p::Photo)
+    t = get(LJG, p, nothing); t === nothing || return t
+    lock(LJLOCK) do
+        get!(LJG, p) do
+            z0 = (Trad = 0.0, J = ν -> 0.0); p1 = Photo(p.name, p.R, p.P, p.levels[1:1], p.Z, p.milne)
+            lt = [LJ_T[1] + LJ_T[2] * (i - 1) for i in 1:LJ_T[3]]; v = zeros(length(lt))
+            Threads.@threads for i in eachindex(lt); v[i] = log(max(photorates(p1, 10^lt[i], z0; n = LJTABN)[2], 1e-300)); end
+            v
+        end
+    end
+end
+function photorates_ljcut(p::Photo, T, env)
+    Tc = Float64(env.Trad); W = Float64(env.ljW); lT = log10(T); lc = log10(Tc); lTv = _ljv(lT)
+    ok = LJ_T[1] + 2LJ_T[2] <= lTv <= LJ_T[1] + LJ_T[2] * (LJ_T[3] - 3) && LJ_C[1] + 2LJ_C[2] <= lc <= LJ_C[1] + LJ_C[2] * (LJ_C[3] - 3) &&
+         LJ_2C[1] + 2LJ_2C[2] <= lc <= LJ_2C[1] + LJ_2C[2] * (LJ_2C[3] - 3) && LJ_2T[1] + 2LJ_2T[2] <= lTv <= LJ_2T[1] + LJ_2T[2] * (LJ_2T[3] - 3)
+    if !ok                                                          # direct: J cut at ljcut, case B by photorates' own rule
+        cut = env.ljcut; e2 = (Trad = Tc, J = ν -> hP * ν >= cut ? 0.0 : W * _bnu_lj(ν, Tc), caseB = hasproperty(env, :caseB) && env.caseB)
+        return photorates(p, T, e2)
+    end
+    tb = lj_tables(p)
+    ic, wc = _ljidx(lc, LJ_C); Z = p.Z(T); R = zero(T)
+    for (l, (Ex, g, Eth, σf)) in enumerate(p.levels)
+        Eth >= env.ljcut && continue
+        Rl = exp(_cr4(tb.lR[l, ic-1], tb.lR[l, ic], tb.lR[l, ic+1], tb.lR[l, ic+2], wc))
+        R += g / Z * exp(-Ex / (kB * T)) * Rl
+    end
+    it, wt = _ljidx(lT, LJ_T); a0 = exp(_cr4(tb.lA0[it-1], tb.lA0[it], tb.lA0[it+1], tb.lA0[it+2], wt))
+    jt, vt = _ljidx(lT, LJ_2T); jc, vc = _ljidx(lc, LJ_2C)
+    row(j) = _cr4(tb.lr[jt-1, j], tb.lr[jt, j], tb.lr[jt+1, j], tb.lr[jt+2, j], vt)
+    r = exp(_cr4(row(jc - 1), row(jc), row(jc + 1), row(jc + 2), vc))
+    A = a0 * (1 + W * r)
+    if hasproperty(env, :caseB) && env.caseB && length(p.levels) > 1 && p.levels[1][1] == 0
+        g1 = lj_ground(p); A = max(A - exp(_cr4(g1[it-1], g1[it], g1[it+1], g1[it+2], wt)), 0.0 * A)
+    end
+    R = W * R
+    (R < 1e-290 ? zero(R) : R), A
+end
 function photorates_lj(p::Photo, T, env)
+    hasproperty(env, :ljcut) && return photorates_ljcut(p, T, env)
     Tc = Float64(env.Trad); W = Float64(env.ljW); lT = log10(T); lc = log10(Tc); lTv = _ljv(lT)
     ok = !(hasproperty(env, :caseB) && env.caseB) && LJ_T[1] + 2LJ_T[2] <= lTv <= LJ_T[1] + LJ_T[2] * (LJ_T[3] - 3) &&
          LJ_C[1] + 2LJ_C[2] <= lc <= LJ_C[1] + LJ_C[2] * (LJ_C[3] - 3) && LJ_2C[1] + 2LJ_2C[2] <= lc <= LJ_2C[1] + LJ_2C[2] * (LJ_2C[3] - 3) &&
