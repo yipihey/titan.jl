@@ -2139,3 +2139,20 @@ are cheap. The error controller is held by E_r in the zones of the stellar surfa
 Every factor of about 2–3 in the surface zone width costs about a factor 5–10 in Δt in the swelling phases; the error controller
 (DTERR) is held by E_r in the resolved surface/photosphere zones (`t_gse7`: 223 of the last 300 steps, zones 16–20). With the
 photosphere resolved the mesh is no longer the limiter: the radiation closure there is (the target of G4).
+
+**Results and conclusion (14 Nov night).**
+
+- `t_gse3` (GRIDEQ, gmax 100, κ 30, no feature tracking; abn02z19 2e4 M☉, 100 zones, from the IC) went through the collapse, core
+  formation, the swelling (R★ 180 R☉ at 11 M☉) and the contraction to **54.4 M☉** (R★ 3.0 R☉; `z100ic3`: 4.4 R☉ at 51.6 M☉, stall
+  at 53) in 71 900 steps and 5.9 h, then failed (Δt → 6e-8 s, E_r zone 40) next to the 1900 km/s accretion shock at 4.6 R☉ — with
+  the shock across 5 zones and the photosphere across 22 interfaces at that point.
+- Resolution: the collapse is as accurate as the fixed mesh (mean |ln(T_c/T_Lagr)| 0.08–0.11 over log n_c 8–22 for 1e4–3e4 M☉);
+  with gmax 300, w_τ 3 and feature tracking (`t_gse7`) the photosphere stays at 8–11 interfaces and the shock at 5 zones through the
+  swelling, where gmax 100 lost the photosphere (0–3 interfaces).
+- Cost: a factor 5–10 in Δt per factor 2–3 refinement of the surface zones (table above). With the photosphere resolved, the error
+  controller is held by a TR-BDF2 stage orbit in the zone of the surface temperature cliff (`t_gse7d`: 99/99 limiting-zone records
+  with z2 of opposite sign to z1 ≈ z3, zone 24 at 45 R☉, T 9.4e3 → 3.5e3 → 2.4e3 K across zones 23–25). It is not the lagged
+  closure (`VEFIMP=1`, g4-iceul 87c6910: 94/100, Δt 1.0e3 against 1.2e3 s), not the solver (G6 `GNEWTON`/`DTERRP2`: the orbit persists
+  down to Δt ≈ 200 s, t_g6gse) and not the table/network switch (`PSWTAU=0 TL3DEEP=1 CPLTRACEX=1e-12`, `t_gse7m`: 63/66 records
+  still orbit, the limiting zone moves 24 → 27, Δt unchanged at 1.7e3–2.3e4 s). It is the discretised physics of the resolved
+  surface cliff and shock.
