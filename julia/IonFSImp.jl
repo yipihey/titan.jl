@@ -287,7 +287,7 @@ function ifsi_ufix(m::NetGas, k, z, t)
         Threads.atomic_add!(IFSI_NNEWT, 1)
         res = ForwardDiff.DiffResults.JacobianResult(zeros(3), w); ForwardDiff.jacobian!(res, F, w)
         r = ForwardDiff.DiffResults.value(res); J .= ForwardDiff.DiffResults.jacobian(res)
-        δ = -(J \ r); all(isfinite, δ) || break
+        δ = try -(J \ r) catch; fill(NaN, 3) end; all(isfinite, δ) || break
         δ .= clamp.(δ, -5.0, 5.0); w .+= δ
         maximum(abs, δ) < 1e-11 && (ok = true; break)
     end
@@ -296,7 +296,8 @@ function ifsi_ufix(m::NetGas, k, z, t)
     # implicit function: w(z) = w* − J⁻¹ F(w*; z)
     d = ifsi_core(m, k, z, t, Tuple(exp.(w)))[3]; un = ifsi_u(d)
     Fz = [log(max(un[i], 1e-300 + zero(un[i]))) - w[i] for i in 1:3]
-    Ji = inv(J); wz = [w[i] - sum(Ji[i, j] * Fz[j] for j in 1:3) for i in 1:3]
+    Ji = try inv(J) catch; zeros(3, 3) end; all(isfinite, Ji) || (Ji = zeros(3, 3))
+    wz = [w[i] - sum(Ji[i, j] * Fz[j] for j in 1:3) for i in 1:3]
     Tuple(exp.(wz))
 end
 """
