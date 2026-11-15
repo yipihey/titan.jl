@@ -1093,6 +1093,7 @@ const ENVEUL = haskey(ENV, "ENVEUL") ? parse.(Float64, split(ENV["ENVEUL"], ",")
 const Rsun = 6.957e10
 const ENVCENTRE = ENVEUL !== nothing && ENVEUL[1] == 0     # r_in = 0: the mesh runs to a regular centre (ENVCORE=rmin,dlnr,rcb: first interface [R☉], Δln r below rcb); no point mass, wall or sink
 const ENVCORE = parse.(Float64, split(get(ENV, "ENVCORE", "0.1,0.08,10"), ","))
+const ENVLIN = parse(Int, get(ENV, "ENVLIN", "1"))   # with a regular centre (ENVEUL=0,...): ENVLIN zones of equal Δr from r = 0 to ENVCORE's first interface (default 1: one central zone)
 const ENVCONS = get(ENV, "ENVCONS", "0") == "1"       # the ENVEUL remap takes the zone densities from the source's enclosed mass (mass-conserving); default: log-interpolated at the zone centres
 const ENVSINKTAU = parse(Float64, get(ENV, "ENVSINKTAU", "1e6"))
 include(joinpath(@__DIR__, "GridMap.jl"))
@@ -1338,7 +1339,7 @@ function envlr(rout)
         r_ > rb ? (dl = min(dl2, gout_ * dl)) : r_ > rcb && (dl = max(dl1, gin_ * dl))
         push!(lr, lr[end] + dl)
     end
-    (length(lr) + (ENVCENTRE ? 1 : 0)) % 2 == 0 && pop!(lr)                    # (an even zone count: an odd number of interfaces)
+    (length(lr) + (ENVCENTRE ? ENVLIN : 0)) % 2 == 0 && pop!(lr)                    # (an even zone count: an odd number of interfaces)
     lr[1] .+ (lr .- lr[1]) .* (log(rout) - lr[1]) / (lr[end] - lr[1])
 end
 function envbuild!()
@@ -1354,7 +1355,7 @@ function envbuild!()
         lr = log.(P_.r); GMLAST[] = (0.0, 0, Mst / 4π, P_.lam, P_.nfloor, 0.0, 0.0, Inf)
         pr("GRIDMAP: starting mesh of %d zones from the enclosed mass of the source, M* %.5f Msun, scale %.3f, %d zones at the floor\n", Nz, Mst / Msun, P_.lam, P_.nfloor)
     end
-    rI = exp.(lr); rI[end] = r0[end]; ENVCENTRE && pushfirst!(rI, 0.0); n = length(rI) - 1
+    rI = exp.(lr); rI[end] = r0[end]; ENVCENTRE && (rI = vcat([rI[1] * i / ENVLIN for i in 0:ENVLIN-1], rI)); n = length(rI) - 1
     rc = [0.5 * (r0[j] + r0[j+1]) for j in 1:nsh]; lc = log.(rc); lf = log.(max.(r0, 1.0))
     function interp(xs, ys, x)                                                 # linear in the first argument, flat beyond the ends
         x <= xs[1] && return ys[1]; x >= xs[end] && return ys[end]
@@ -1461,7 +1462,7 @@ function iceulbuild!()
     radsettings!()
     rout = TF.var(:rn)[b+1]; Mtot = M                                          # the IC's outer radius and cloud mass
     ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
-    rI_ = exp.(envlr(rout)); rI_[end] = rout; pushfirst!(rI_, 0.0); n = length(rI_) - 1
+    rI_ = exp.(envlr(rout)); rI_[end] = rout; rI_ = vcat([rI_[1] * i / ENVLIN for i in 0:ENVLIN-1], rI_); n = length(rI_) - 1
     rg3 = rg .^ 3
     Mof(r) = (r <= 0 && return 0.0; r >= rg[end] && return Mg[end]; j = clamp(searchsortedlast(rg, r), 1, length(rg) - 1);
               Mg[j] + (r^3 - rg3[j]) / (rg3[j+1] - rg3[j]) * (Mg[j+1] - Mg[j]))
