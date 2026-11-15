@@ -4,11 +4,12 @@ IONFS=1 (default off; nothing below runs, and no code path changes, when it is o
 
 The hydrogen- and helium-ionizing continuum (hν ≥ 13.598 eV) as a radial, multi-group, photon-conserving ray (Abel, Norman & Madau
 1999, ApJ 523, 66; Mellema et al. 2006, NewA 11, 374), case B, through the network zones. The source is not a T_eff blackbody but
-the continuum leaving the run's table (LTE) region. The source is set as follows.
+the continuum that leaves the run's grey photosphere. The source is set as follows.
 
-1. Source (`ifs_source!`, every IONFSN steps, or when the first network zone k0 moves). The static spherical transfer equation
-   (Spectrum.monochromatic: tangent rays, Feautrier, ALI with coherent Thomson scattering, thermal inner boundary) is solved on the
-   zones between the innermost zone deeper than grey τ = 300 and k0, ending at r_b = r(k0). Opacity (`IFOpac`): SnapSpec's
+1. Source (`ifs_source!`, every IONFSN steps, or when k0 moves). k0 is the first zone outside the grey photosphere (τ = 2/3 from the
+   outer boundary, STARLIGHT's kph) and at least the first network zone (IONFSR0=ph, default; =net: the first network zone).
+   The static spherical transfer equation (Spectrum.monochromatic: tangent rays, Feautrier, ALI with coherent Thomson scattering,
+   thermal inner boundary) is solved on the zones between the innermost zone deeper than grey τ = 300 and k0, ending at r_b = r(k0). Opacity (`IFOpac`): SnapSpec's
    continuum (ContinuumOpacity.alpha: CIA, H⁻ ff, Rayleigh, Thomson; H⁻ bound–free with attachment emission; H bound–free n ≤ 30
    with Milne emission of the zone's own n_e n_p, excited levels min(Saha, Boltzmann)). On top come H⁺, He⁺, He²⁺ free–free (Gaunt 1)
    and He I 1¹S and He II 1s bound–free with Milne emission of the zone's own n_e n_He⁺ and n_e n_He²⁺. The cross sections of
@@ -24,6 +25,9 @@ the continuum leaving the run's table (LTE) region. The source is set as follows
    H and H₂: IonRay.source's `extra` (H → H⁺ + e, H₂ → H₂⁺ + e), implicit in the zone's own x. He I, He II: per-atom rates
    R = Σ_g Nin_g ((1 − e^{−Δτ_g})/Δτ_g) σ_g Δr / V (ChemNet.FixedPhoto), because the CK network holds He in ionization equilibrium,
    which `extra` does not reach. They are photon-conserving at the fixed point (R x_He n_H V = the He share of the absorption).
+   In ray zones the He stages are not in instantaneous equilibrium: they take the backward-Euler step of their three-state rate
+   equations from the start of the step (ChemNet.ck_expand `heold`). The equilibrium would ionize a He front zone in any Δt, faster
+   than its photons arrive; with the energy paid from u, T crashed when the step was cut short.
 3. Energy: heat = Σ_g Nin_g (1 − e^{−Δτ_g(x)}) E_g / V, implicit in the zone's chemistry–temperature step (the COUPLED energy row,
    or ChemNet.step). ChemNet pays χ from u through the species' E0, so the gas keeps hν − χ. The photon energy leaves the grey field
    through RAYQ (as IonRay, and as the three-level heat).
@@ -42,7 +46,10 @@ the continuum leaving the run's table (LTE) region. The source is set as follows
    Newton update (TitanCore CPLH.update) the ray is swept again from the iterate's abundances (recorded where the residual evaluates
    each zone, `ifs_record!`), and the zones whose Nin, He rates or κ₂ changed lose their cached Jacobian. The converged step is then
    self-consistent: the Jacobian lacks only the inter-zone coupling (a quasi-Newton). Split (not coupled) zones use the sweep of the
-   start of the step (lagged by one step). After the step the sweep is repeated from the final state. ε = Σ_k |A_k(final) − A_k(used)|
+   start of the step. After the step the ray's zones are taken in order outward (`ifs_advance!`). Each gets the photons that the
+   zones inside it left after their chemistry, so the split zones' transport is exact. Coupled zones the ray changes by more than
+   IONFSCPL of their H in one step (the front: H₂ and H⁺ change by e^{±30…90}, beyond the Newton's clamped log-species corrections)
+   take the split chemistry for that step (`ifs_decouple!`). ε = Σ_k |A_k(final) − A_k(used)|
    / Q_src (A the photons absorbed per zone) is the convergence check. With ε > IONFSTOL the next Δt is halved (DT hook).
 Table zones beyond k0 that the ray would change (Nin Δt/(n_H V) > IONFSXMIN) go to the network, as in IonRay.
 
