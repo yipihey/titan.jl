@@ -347,7 +347,13 @@ function ifs_terms(m, k, exs, cools, envk, phk)
     iHp = findfirst(==(:Hp), m.net.free)
     exr = x -> (f = src.extra(x); d = CNn.full(x, m.net); xp = max(d[:Hp], zero(d[:Hp])); f[iHp] -= st.κ2[k] * xp * (1 - xp); f)
     ex2 = exs === nothing ? exr : (x -> exs(x) .+ exr(x))
-    c2 = (ρ, T, d) -> (cools === nothing ? zero(T) : cools(ρ, T, d)) - src.heat(d)
+    # coupled zone (prepared for the Newton): the whole photon energy, implicit with the grey exchange in the energy row. Split zone (its
+    # chemistry after the hydro step, without the gas's radiative cooling): only the ionization energy χ of the absorbed photons, so that
+    # its chemistry is energy-neutral per photo-ionization; the excess hν − χ goes to the gas in the next hydro step (GASQ, ifs_after!),
+    # where the grey cooling that balances it is implicit (the whole hν in the split chemistry heated a front zone by ~1e12 erg/g/s with
+    # nothing to balance it within the step: Δt cycled 0.1–10 s, t_ion1 B4)
+    hχ = CPLPREP[] ? src.heat : (d -> ifs_hchi(st, k, d, dn[k], rn[k], rn[k+1]))
+    c2 = (ρ, T, d) -> (cools === nothing ? zero(T) : cools(ρ, T, d)) - hχ(d)
     IFS_ENVB[] === nothing && (IFS_ENVB[] = merge(m.env, (; caseB = true)))
     env2 = !IFSENV ? envk : hasproperty(envk, :ljW) ? merge(envk, (; caseB = true, ljcut = IFS_CUT)) :
            (hasproperty(envk, :static) && envk.static) ? merge(envk, (; caseB = true, tabkey = IFS_ENVB[])) :
@@ -359,17 +365,38 @@ function ifs_terms(m, k, exs, cools, envk, phk)
     ex2, c2, env2, ph2
 end
 "After the zones' chemistry: the ray's energy leaves the grey field (RAYQ), diagnostics (ionfs.csv)."
+const IFS_CHI = (13.598 * EVERG, 15.42 * EVERG, 24.587 * EVERG, 54.418 * EVERG)
+"Ionization-energy part of the ray's absorption in zone k [erg cm⁻³ s⁻¹] at composition d (generic in the number type)."
+function ifs_hchi(st, k, d, ρ, r1, r2)
+    G = st.G; Nin = st.nin[k]; nH = ρ / CNn.μH(); dr = r2 - r1; V = 4π / 3 * (r2^3 - r1^3)
+    xs = (max(d[:H], zero(d[:H])), max(d[:H2], zero(d[:H2])), max(d[:He], zero(d[:He])), max(d[:Hep], zero(d[:Hep])))
+    q = zero(xs[1])
+    for gg in eachindex(Nin)
+        Nin[gg] > 0 || continue
+        τ = zero(q); w = zero(q)
+        for j in 1:4; t_ = xs[j] * nH * G.σ[gg, j] * dr; τ += t_; w += t_ * IFS_CHI[j]; end
+        τ > 0 || continue
+        q += Nin[gg] * (-expm1(-τ)) / τ * w
+    end
+    q / V
+end
 function ifs_after!(m, a, b, dt)
     st = IFS[]; (st === nothing || st.k0 == 0) && return nothing
     dn, rn, tn = TM.v(:dn), TM.v(:rn), TM.v(:tn); G = st.G
     for k in a:b
         st.on[k] || continue
-        x = ifs_x(CNn.full(m.x[k], m.net)); nH = dn[k] / CNn.μH(); dr = rn[k+1] - rn[k]; V = 4π / 3 * (rn[k+1]^3 - rn[k]^3); E = 0.0
+        d = CNn.full(m.x[k], m.net); x = ifs_x(d); nH = dn[k] / CNn.μH(); dr = rn[k+1] - rn[k]; V = 4π / 3 * (rn[k+1]^3 - rn[k]^3); E = 0.0
         for gg in eachindex(st.nin[k])
             τ = 0.0; for j in 1:4; τ += x[j] * nH * G.σ[gg, j] * dr; end
             E += st.nin[k][gg] * (-expm1(-τ)) * G.Ec[gg]
         end
-        isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += E / V)
+        if TX.cplz(k)                                   # coupled: the gas took hν in the Newton; the grey field gives it up (RAYQ)
+            isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += E / V)
+        else                                            # split: χ in the chemistry (RAYQ), hν − χ to the gas in the next hydro step (GASQ: from E_r)
+            hc = ifs_hchi(st, k, d, dn[k], rn[k], rn[k+1])
+            isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += hc)
+            isempty(TX.GASQ[]) || (TX.GASQ[][k] += max(E / V - hc, 0.0))
+        end
     end
     nothing
 end
