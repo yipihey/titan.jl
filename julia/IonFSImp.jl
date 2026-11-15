@@ -323,6 +323,22 @@ function ifsi_g(m::NetGas, k, z, t; wantx = false)
     out = [p, uE, fs[1], fs[2], Λ, cq, yq, min(τf[1], IFSI_TMAX), min(τf[2], IFSI_TMAX), min(τf[3], IFSI_TMAX), min(τL, IFSI_TMAX)]
     wantx ? (out, x) : out
 end
+"(diagnostic, with CPLJCHECK) ray zone k's local 8-wide Jacobian against central differences; the He Newton's statistics."
+function ifsi_gcheck(m::NetGas, k)
+    t = CPLTERMS[][k]; a = Int(TF.getscalar(:ngrs))
+    z0 = [TM.v(:dn)[k], TM.v(:tn)[k], TX.XSN[][1][k], TX.XSN[][2][k], (TX.YRN[][g][k] for g in 1:4)...]
+    n0, f0 = IFSI_NNEWT[], IFSI_NFAIL[]
+    J = ForwardDiff.jacobian(z -> ifsi_g(m, k, z, t), z0)
+    @printf("IFSIGCHECK zone %d: He Newton iterations %d, unconverged %d; u = %s\n", k - a + 1, IFSI_NNEWT[] - n0, IFSI_NFAIL[] - f0, string(ifsi_ufix(m, k, z0, t)))
+    names = ("p", "e", "S1", "S2", "Λ", "cq", "yq", "τ1", "τ2", "τ3", "τLW"); vn = ("ρ", "T", "x1", "x2", "y1", "y2", "y3", "y4")
+    for j in 1:8
+        h = j <= 4 ? 1e-6 * abs(z0[j]) : 1e-6; zp = copy(z0); zm = copy(z0); zp[j] += h; zm[j] -= h
+        fd = (ifsi_g(m, k, zp, t) .- ifsi_g(m, k, zm, t)) ./ 2h
+        bad = [(names[i], J[i, j], fd[i]) for i in 1:11 if abs(J[i, j] - fd[i]) > 1e-3 * max(abs(J[i, j]), abs(fd[i])) && max(abs(J[i, j]), abs(fd[i])) > 0]
+        @printf("IFSIGCHECK zone %d d/d%s: %s\n", k - a + 1, vn[j], isempty(bad) ? "all 11 agree to 1e-3" : join((@sprintf("%s AD %.5e FD %.5e", b_...) for b_ in bad), " | "))
+    end
+    nothing
+end
 "Δτ of the four groups in a split (not coupled) zone of the ray: start-of-step absorbers and T; LW in the carrier y₄."
 function ifsi_tau(k, y1, y2, y3, y4)
     st = IFS[]; I = IFSI[]; dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn)
