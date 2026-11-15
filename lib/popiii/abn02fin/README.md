@@ -101,4 +101,6 @@ The best match is the composition-dependent μ: 2.26 in the core, 1.63 at 1 M☉
 0.03–0.06 dex of panel B everywhere except the steep innermost point, where M ~ 1e-2 M☉ and panel B is poorly resolved.
 A constant μ = 1.22 underestimates the core mass by a factor of 1.9–2.6. For that reason **IC=abn02fin takes M(r)
 from panel B directly**, so no μ is assumed. Inside panel B's first point, r = 4.8e-6 pc and M = 1e-3 M☉, the density
-is uniform. That density is ρ/m_H = 10^13.88, which is μ_c ≈ 2.3 times panel A's n_c, consistent with the molecular μ.
+is uniform. That density is ρ/m_H = 8.9e13 = 10^13.95, which is μ_c = 2.71 times panel A's n_c. A fully molecular
+core would give 2.26. The 0.08 dex excess is the innermost-point uncertainty of panel B, whose curve rises 2 dex per
+0.5 dex in r there.

@@ -165,7 +165,7 @@ if ic in ("abn02", "abn02hs", "abn02z19", "abn02fin")
         for x in (-5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0)
             jA = searchsortedfirst(rgA, pc * 10^x); jB = searchsortedfirst(rg, pc * 10^x)
             println("abn02fin: log r = $x pc  log M panel B ", round(log10(Mg[jB] / Msun), digits = 3), "  n(r) 1.22 m_H integral ",
-                    jA <= length(rgA) ? round(log10(MgA[jA] / Msun), digits = 3) : NaN)
+                    1 < jA <= length(rgA) ? round(log10(MgA[jA] / Msun), digits = 3) : NaN)
         end
         println("abn02fin: inner uniform core n = ", round(ρin_fin / PC.mH, sigdigits = 4), " m_H cm^-3 (panel A n_c = 10^", ln_tab[1],
                 ", i.e. mu_c = ", round(ρin_fin / (PC.mH * 10^ln_tab[1]), digits = 3), ")")
