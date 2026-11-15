@@ -1908,6 +1908,22 @@ if haskey(ENV, "FLUXTIE")
     end
 end
 TC.EDDG_MU0[] = get(ENV, "EDDGMU0", "0") == "1"
+# VEFIMP=1 (G4, default off): consistent variable-Eddington-factor closure, f and g of the formal solution at every Newton iterate
+# (TitanDriver.VEF_ITER) and the momentum row and outer boundary in Auer's sphericality-factor form (TitanDriver.VEF_SPH);
+# VEFIMP=it / sph: one part only (tests). It replaces the flux tie, so FLUXTIE and ETASWTIE are switched off with it.
+if get(ENV, "VEFIMP", "0") != "0"
+    let v = ENV["VEFIMP"]
+        v in ("1", "it", "sph") || error("VEFIMP must be 1, it or sph")
+        TD.VEF_ITER[] = v in ("1", "it"); TD.VEF_SPH[] = v in ("1", "sph")
+        if TD.FLUXTIE[][2] > 0 || TX.ETASW_TIE[] > 0
+            pr("VEFIMP: FLUXTIE (%g,%g) and ETASWTIE %g switched off\n", TD.FLUXTIE[]..., TX.ETASW_TIE[])
+            TD.FLUXTIE[] = (0.0, 0.0); TX.ETASW_TIE[] = 0.0
+        end
+        pr("VEFIMP=%s: Eddington factors f, g %s; radiation momentum row and outer boundary %s\n", v,
+           TD.VEF_ITER[] ? "of the formal solution at every Newton iterate (not lagged)" : "lagged (formal solution of the predictor)",
+           TD.VEF_SPH[] ? "in Auer's sphericality-factor form (exact for chi = 0)" : "as TITAN")
+    end
+end
 # EDDCHI=1: extinction of the formal solution at most kappa_P + electron scattering. It takes S from kappa_P and scattering; with chi >> kappa_P (thin network zones: chi uses LTE tables, 50-1000 x kappa_P) it would emit
 # chi B where the energy rows emit kappa_P B, and that isotropic light lowers f (0.8 at 1000-25000 R_sun), so E comes out below F/c when the F row integrates it inward.
 if get(ENV, "EDDCHI", "0") == "1"

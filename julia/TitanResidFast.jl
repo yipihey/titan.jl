@@ -1261,8 +1261,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         # ------------------------------------------------------------ RADIATION MOMENTUM
         qF = W.qF
         tie = TD.FLUXTIE[][2] > 0 && length(TD.TIEW) >= ngre + 1 && length(TD.HEDD) >= ngre + 1
+        sph = TD.VEF_SPH[]                   # Auer's sphericality-factor form of the static terms (TitanDriver.VEF_SPH)
         @inbounds for k in ngrs+1:ngre
             qFo = c.fro[k] * 2 / (c.do_[k] + c.do_[k-1])
+            if !sph
             R[iF, kb(k)] =
                 (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
                  qFo * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
@@ -1271,6 +1273,16 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 0.5 * rmu[k] * (fr[k] / cc^2) * (u[k+1] - u[k-1]) +
                 (0.25xmu / r[k]) * ((3fedd[k-1] - 1) * er[k-1] * dvol[k-1] + (3fedd[k] - 1) * er[k] * dvol[k]) +
                 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
+            else                                     # VEF_SPH: static terms in the sphericality-factor form (TitanDriver.VEF_SPH)
+                qs = vefq(fedd, r, xmu, k)
+                R[iF, kb(k)] =
+                    (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
+                     qFo * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
+                    ((dmdt[k] + dmdt[k+1]) * frb[k] - (dmdt[k-1] + dmdt[k]) * frb[k-1]) / (2cc^2) +
+                    rmu[k] * (qs * fedd[k] * er[k] - fedd[k-1] * er[k-1] / qs) +
+                    0.5 * rmu[k] * (fr[k] / cc^2) * (u[k+1] - u[k-1]) +
+                    0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
+            end
             wt = tie ? TD.TIEW[k] : 0.0
             if wt > 0                                # FLUXTIE: F = h c E (TitanDriver.FLUXTIE)
                 rcm = (0.5 * (r[k-1] + r[k]))^mu; rcp = (0.5 * (r[k] + r[k+1]))^mu
@@ -1282,7 +1294,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)
-        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * ern[ngre]
+        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc) : ern[ngre])
         R[iF, 1] = X(iF, k0)
         k = ngrs - 1
         R[iF, kb(k)] = P.lribc == 2 ? frn[k+2] + frn[k] : rn[k+1]^mu * frn[k+1] - rn[k]^mu * frn[k]
@@ -1291,6 +1303,26 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     nothing
 end
 
+"""
+VEF_SPH: e^{s/2} at interface k, s = (μ/4)(3 − 1/f_k−1 + 3 − 1/f_k) ln(r_c,k/r_c,k−1), r_c the zone midpoints (TitanDriver.VEF_SPH).
+The momentum row's static terms are r_k² [e^{s/2} f_k E_k − e^{−s/2} f_k−1 E_k−1]: the ratio of Auer's sphericality factor at the
+zone centres to its value at the interface, so that q f E is differenced across the interface. f ≥ 0.01 only guards 1/f.
+"""
+@inline function vefq(fedd, r, xmu, k)
+    gq(f) = 3 - 1 / max(f, 0.01)
+    rcm = 0.5 * (r[k-1] + r[k]); rcp = 0.5 * (r[k] + r[k+1])
+    exp(0.125xmu * (gq(fedd[k-1]) + gq(fedd[k])) * log(rcp / rcm))
+end
+"""
+VEF_SPH: energy density at the outer boundary radius r_N+1 from the outer zone's centre value (new time level, as TITAN's boundary
+row), integrating the static momentum equation d(q f E)/dr = −q χρ F/c over the half zone r_c,N → r_N+1 with f = f_N:
+E_s = e^{−s} E_N − e^{−s/2} χ_N ρ_N F_N+1 (r_N+1 − r_c,N)/(c f_N), s = (μ/2)(3 − 1/f_N) ln(r_N+1/r_c,N).
+"""
+@inline function vef_esurf(W, fedd, N, xmu, cc)
+    rn = W.rn; fN = max(fedd[N], 0.01); rc = 0.5 * (rn[N] + rn[N+1])
+    s = 0.5xmu * (3 - 1 / fN) * log(rn[N+1] / rc)
+    exp(-s) * W.ern[N] - exp(-0.5s) * W.chifn[N] * W.dn[N] * W.frn[N+1] * (rn[N+1] - rc) / (cc * fN)
+end
 # ------------------------------------------------------------------ total energy (item 2)
 "Total pressure (gas + radiation fE) of zone k at the θ-level."
 @inline ptot(k, c, W) = c.lrad ? W.pg[k] + c.fedd[k] * W.er[k] : W.pg[k]

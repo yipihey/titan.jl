@@ -397,7 +397,7 @@ function _ghost_and_derived!(mode::Symbol, eos!, opac!)
             dplf[k] = 4.0 * plfn[k]
         end
         @inbounds for k in a:b+1; avchin[k] = 2.0 / (1.0 / chifn[k-1] + 1.0 / chifn[k]); end
-        (mode === :peq || gi(:ltran) == 0) && EDDFAC[]()
+        (mode === :peq || gi(:ltran) == 0 || TD.VEF_ITER[]) && EDDFAC[]()     # (VEF_ITER: f, g of the Newton iterate, TitanDriver.VEF_ITER)
     end
     # ---- time-centred quantities
     θ = gf(:thet); dt = gf(:dtime)
