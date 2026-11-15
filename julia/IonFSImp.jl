@@ -51,6 +51,7 @@ const IFSI_LWON = get(ENV, "IONFSLW", "1") == "1"
 const IFSI_K27 = 1.1e8                                                    # AAZN97 k27 (as STARLIGHT's kLW)
 const IFSI_E12 = 12.87                                                    # eV (STARLIGHT's νLW)
 const IFSI_TMAX = 700.0                                                   # Δτ of a ray row is capped (N e^{−700} = 0): bounded ln N
+const IFSI_HECE = get(ENV, "IONFSHECE", "1") == "1"                      # He⁺ collisional-excitation cooling in the ray zones (ifsi_herec)
 mutable struct IFIState
     ysrc::Vector{Float64}; Phi::Float64; σd::Float64; ELW::Float64
     fhi::Vector{Float64}; sob::Vector{Float64}
@@ -70,6 +71,11 @@ t_ifs9). The kinetic-energy loss per recombination is the three-level atom's 0.7
 """
 function ifsi_herec(ρ, T, d, ph)
     nH = ρ / CNn.μH(); ne = nH * max(d[:e], zero(d[:e])); q = zero(ne) + zero(T)
+    # He⁺ collisional excitation (n = 1 → 2, 40.8 eV; IONFSHECE=1, default): ceHeII of Cen (1992) as coded in EmissionKernels.jl
+    # (cooling_atomic.jl, the AAZN97 network's coefficient): 5.54e-17 e^{−473638/T} T^−0.397 / (1 + (T/1e5)^½) erg cm³ s⁻¹ × n_e n_He⁺.
+    # The network has no He line cooling (ChemRates: "He⁺ two-photon and line cooling — these come with the model atom"); without it the
+    # ray's photo-heated zones went to 0.5–1e5 K (t_ifs10, t_ifs14). H's collisional excitation is the three-level atom's (LYABB).
+    IFSI_HECE && (q += 5.54e-17 * exp(-min(69.07755278982137, 473638.0 / T)) * T^(-0.397) / (1 + sqrt(T / 1e5)) * ne * nH * max(d[:Hep], zero(d[:Hep])))
     for (p, _, α) in ph
         p isa CNn.Photo || continue
         if p.R === :He
@@ -312,13 +318,20 @@ function ifsi_ufix(m::NetGas, k, z, t)
     F(w) = (u = exp.(w); d = ifsi_core(m, k, zf, t, u)[3]; un = ifsi_u(d); [log(max(un[i], 1e-300)) - w[i] for i in 1:3])
     xr = st.xabs[k]; w = [log(max(xr[1], 1e-40)), log(max(xr[3], 1e-40)), log(max(xr[4], 1e-40))]
     J = zeros(3, 3); ok = false
-    for it in 1:40
+    for it in 1:60
         Threads.atomic_add!(IFSI_NNEWT, 1)
         res = ForwardDiff.DiffResults.JacobianResult(zeros(3), w); ForwardDiff.jacobian!(res, F, w)
-        r = ForwardDiff.DiffResults.value(res); J .= ForwardDiff.DiffResults.jacobian(res)
+        r = copy(ForwardDiff.DiffResults.value(res)); J .= ForwardDiff.DiffResults.jacobian(res)
         δ = try -(J \ r) catch; fill(NaN, 3) end; all(isfinite, δ) || break
-        δ .= clamp.(δ, -5.0, 5.0); w .+= δ
-        maximum(abs, δ) < 1e-11 && (ok = true; break)
+        δ .= clamp.(δ, -5.0, 5.0)
+        maximum(abs, δ) < 1e-11 && (w .+= δ; ok = true; break)
+        # backtracking on |F| (the photon-limited He zone's map is nearly singular: full steps overshoot and cycle)
+        n0 = maximum(abs, r); λ = 1.0; wn = w .+ δ
+        for _ in 1:10
+            maximum(abs, F(wn)) < (1 - 1e-4λ) * n0 && break
+            λ /= 2; wn = w .+ λ .* δ
+        end
+        w .= wn
     end
     ok || Threads.atomic_add!(IFSI_NFAIL, 1)
     all(z_ -> z_ isa Float64, z) && return Tuple(exp.(w))
