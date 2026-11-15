@@ -175,7 +175,9 @@ if ic in ("abn02", "abn02hs", "abn02z19", "abn02fin")
             f2 = 10^fH2fin_(log10(m)); f1 = 10^fHIfin_(log10(m))
             (xe0, 0.0, 0.5 * f2 / (f2 + f1), 0.0)
         end
-        rM1fin = (m1 = 10^lMv_fin[1] * Msun; j = clamp(searchsortedfirst(Mg, m1), 2, length(Mg)); rg[j-1] + (m1 - Mg[j-1]) / (Mg[j] - Mg[j-1]) * (rg[j] - rg[j-1]))
+        rM1fin = let m1 = 10^lMv_fin[1] * Msun, j = clamp(searchsortedfirst(Mg, m1), 2, length(Mg))
+            rg[j-1] + (m1 - Mg[j-1]) / (Mg[j] - Mg[j-1]) * (rg[j] - rg[j-1])
+        end
         vfin(m, r) = m >= 10^lMv_fin[1] ? 1e5 * vfin_(log10(m)) : 1e5 * v_fin[1] * r / rM1fin   # [cm/s]; m [M☉], r [cm]
     end
     M = parse(Float64, get(ENV, "MCLOUD", z19 ? "1e4" : fin ? "2e4" : "1000")) * Msun
