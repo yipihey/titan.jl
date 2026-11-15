@@ -1262,8 +1262,6 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         qF = W.qF
         tie = TD.FLUXTIE[][2] > 0 && length(TD.TIEW) >= ngre + 1 && length(TD.HEDD) >= ngre + 1
         sph = TD.VEF_SPH[]                   # Auer's sphericality-factor form of the static terms (TitanDriver.VEF_SPH)
-        bgx = sph && TD.VEF_BG[] && length(TD.FXEDD) >= ngre   # … for the excess over the background (TitanDriver.VEF_BG)
-        Eb = bgx ? 4P.cpi * P.ximr / cc : 0.0; fx = bgx ? TD.FXEDD : fedd
         @inbounds for k in ngrs+1:ngre
             qFo = c.fro[k] * 2 / (c.do_[k] + c.do_[k-1])
             if !sph
@@ -1276,12 +1274,12 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 (0.25xmu / r[k]) * ((3fedd[k-1] - 1) * er[k-1] * dvol[k-1] + (3fedd[k] - 1) * er[k] * dvol[k]) +
                 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
             else                                     # VEF_SPH: static terms in the sphericality-factor form (TitanDriver.VEF_SPH)
-                qs = vefq(fx, r, xmu, k)
+                qs = vefq(fedd, r, xmu, k)
                 R[iF, kb(k)] =
                     (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
                      qFo * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
                     ((dmdt[k] + dmdt[k+1]) * frb[k] - (dmdt[k-1] + dmdt[k]) * frb[k-1]) / (2cc^2) +
-                    rmu[k] * (qs * fx[k] * (er[k] - Eb) - fx[k-1] * (er[k-1] - Eb) / qs) +
+                    rmu[k] * (qs * fedd[k] * er[k] - fedd[k-1] * er[k-1] / qs) +
                     0.5 * rmu[k] * (fr[k] / cc^2) * (u[k+1] - u[k-1]) +
                     0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
             end
@@ -1296,8 +1294,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)
-        R[iF, kb(ngre+1)] = bgx ? frn[ngre+1] - cc * TD.GXEDD[] * vef_exsurf(W, fx, ngre, xmu, cc, Eb) :
-            P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
+        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
         R[iF, 1] = X(iF, k0)
         k = ngrs - 1
         R[iF, kb(k)] = P.lribc == 2 ? frn[k+2] + frn[k] : rn[k+1]^mu * frn[k+1] - rn[k]^mu * frn[k]
@@ -1330,15 +1327,6 @@ E_s = E_b + e^{−s} E_x − e^{−s/2} χ_N ρ_N F_N+1 (r_N+1 − r_c,N)/(c f_x
     fx = ForwardDiff.value(Ex) != 0 ? clamp(ForwardDiff.value((fedd[N] * W.ern[N] - Eb / 3) / Ex), 1 / 3, 1.0) : 1 / 3
     s = 0.5xmu * (3 - 1 / fx) * log(rn[N+1] / rc)
     Eb + exp(-s) * Ex - exp(-0.5s) * W.chifn[N] * W.dn[N] * W.frn[N+1] * (rn[N+1] - rc) / (cc * fx)
-end
-"""
-VEF_BG: excess energy density E_s − E_b at the outer boundary radius, carried from the outer zone's centre with the excess's own
-Eddington factor f_x (TitanDriver.VEF_BG), as vef_esurf: e^{−s}(E_N − E_b) − e^{−s/2} χ_N ρ_N F_N+1 (r_N+1 − r_c,N)/(c f_x).
-"""
-@inline function vef_exsurf(W, fx, N, xmu, cc, Eb)
-    rn = W.rn; f = max(fx[N], 0.01); rc = 0.5 * (rn[N] + rn[N+1])
-    s = 0.5xmu * (3 - 1 / f) * log(rn[N+1] / rc)
-    exp(-s) * (W.ern[N] - Eb) - exp(-0.5s) * W.chifn[N] * W.dn[N] * W.frn[N+1] * (rn[N+1] - rc) / (cc * f)
 end
 # ------------------------------------------------------------------ total energy (item 2)
 "Total pressure (gas + radiation fE) of zone k at the θ-level."

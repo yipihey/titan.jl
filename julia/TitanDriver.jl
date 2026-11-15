@@ -123,16 +123,15 @@ With either part on, FLUXTIE (and ETASWTIE, which needs it) is disabled by popii
 const VEF_ITER = Ref(false)
 const VEF_SPH = Ref(false)
 """
-`VEF_BG[]` (VEFIMP=1, with VEF_SPH; G4): the incoming isotropic background I_b (the CMB, ximr) is an exact solution of the moment
-equations with f = 1/3, F = 0 (∂(E_b/3)/∂r = 0, (3f − 1)E_b = 0), and the transfer equation is linear in I for a given source, so
-the field is split I = I_b + I_x: the formal solution is done for the excess (source S − I_b, nothing incoming; TitanCore.eddfac!),
-giving f_x = K_x/J_x per zone (`FXEDD`) and g_x = H_x⁺/J_x⁺ at the boundary (`GXEDD`), and the radiation momentum row is
-differenced for E_x = E − E_b with f_x (same equation, since f E = f_x E_x + E_b/3), the outer boundary row becoming
-F = c g_x (E_s − E_b) (nothing comes in on top of the background). Where E_x ≪ E_b (the CMB-dominated envelope, E_x/E_b ~ 1e-5 at
-the edge) the total f = 1/3 + O(E_x/E_b) carries the excess only in its last digits: the quadrature error of f (~1e-3) times E_b then
-dominates the excess, and through the boundary row (F = c g E − π(2g + 1)I_in, a difference of two numbers ~1e5 F) and the gas-
-radiation exchange of the transparent zones it set the luminosity at the edge (×8). fedd (the total f, for the other rows) and
-geddr are formed from the same solution: f = (K_x + I_b/3)/(J_x + I_b), g = (H_x⁺ + I_b/4)/(J_x⁺ + I_b/2).
+`VEF_BG[]` (VEFIMP=1; G4): the incoming isotropic background I_b (the CMB, ximr) enters the formal solution only analytically.
+The transfer equation is linear in I for a given source, and I_b is its solution for S = I_b, so the rays carry the excess
+I_x = I − I_b (source S − I_b, nothing incoming, no positivity clamps; TitanCore.eddfac!) and the moments are completed with the
+background's exact ones: f = (K_x + I_b/3)/(J_x + I_b), g = (H_x⁺ + I_b/4)/(J_x⁺ + I_b/2) (f_x = K_x/J_x in `FXEDD`, g_x in `GXEDD`, for
+diagnostics). With the CMB integrated numerically along the rays the quadrature error of f and g (~1e-3) sits on the full E_b,
+and where E_r ≈ E_b (the CMB-dominated envelope, excess/E_b ~ 1e-5 at the edge) it is larger than the starlight itself: through the
+boundary row F = c g E − π(2g + 1)I_b (a difference of two numbers ~1e5 F) it set the luminosity at the edge (×8 in t_g4_prod1).
+The rows keep the total field (a momentum row for the excess with f_x = K_x/J_x fails where the excess changes sign along the rays:
+there K_x/J_x is meaningless, t_g4_te1x collapsed E at zone 55).
 """
 const VEF_BG = Ref(false)
 const FXEDD = Float64[]
