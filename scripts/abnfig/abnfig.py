@@ -359,7 +359,7 @@ def decade_ticks(ax, which, lo, hi, maxmaj=6):
 
         def g(v, _pos):
             fr = (math.log10(v) - lo10) / span
-            if fr < 0.035 or fr > 0.965:
+            if fr < 0.06 or fr > 0.94:
                 return ""
             e = math.floor(math.log10(v) + 1e-9)
             m = round(v / 10.0 ** e)
@@ -390,7 +390,7 @@ def decade_ticks(ax, which, lo, hi, maxmaj=6):
             return ""
         # suppress labels too close to the axis ends (stacked panels share edges)
         fr = (e - lo10) / span if span > 0 else 0.5
-        if (which == "y" and (fr < 0.035 or fr > 0.965)) or (which == "x" and (fr < 0.015 or fr > 0.985)):
+        if (which == "y" and (fr < 0.06 or fr > 0.94)) or (which == "x" and (fr < 0.015 or fr > 0.985)):
             return ""
         e = int(round(e))
         return rf"$10^{{{e}}}$"
@@ -403,7 +403,7 @@ def lin_ticks_trim(ax):
 
     def f(v, _pos):
         fr = (v - lo) / (hi - lo)
-        if fr < 0.035 or fr > 0.965:
+        if fr < 0.06 or fr > 0.94:
             return ""
         return f"{v:g}".replace("-", "−")
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(f))
@@ -424,6 +424,9 @@ def narrow_log_ticks(ax):
 
     def f(v, _p):
         if v <= 0:
+            return ""
+        fr = (math.log10(v) - math.log10(lo)) / (math.log10(hi) - math.log10(lo))
+        if fr < 0.06 or fr > 0.94:              # stacked panels share edges: keep labels off them
             return ""
         if -2 <= e <= 4:
             dd = max(0, -math.floor(math.log10(step) + 1e-9))
