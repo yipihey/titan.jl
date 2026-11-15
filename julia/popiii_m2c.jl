@@ -1911,21 +1911,38 @@ if haskey(ENV, "FLUXTIE")
     end
 end
 TC.EDDG_MU0[] = get(ENV, "EDDGMU0", "0") == "1"
-# VEFIMP=1 (G4, default off): consistent variable-Eddington-factor closure, f and g of the formal solution at every Newton iterate
-# (TitanDriver.VEF_ITER) and the momentum row and outer boundary in Auer's sphericality-factor form (TitanDriver.VEF_SPH);
-# VEFIMP=it / sph: one part only (tests). It replaces the flux tie, so FLUXTIE and ETASWTIE are switched off with it.
+# VEFIMP=1 (G4, default off): consistent closure of the gray moments. The formal solution's f, g and h (h with FLUXTIE) at every Newton
+# iterate (TitanDriver.VEF_ITER), the momentum row and outer boundary in Auer's sphericality-factor form (VEF_SPH), the CMB only as the
+# isotropic background, added to the moments analytically (VEF_BG); FLUXTIE, if set, then ties F = h c E with the h of the iterate.
+# VEFIMP=notie: the same with FLUXTIE (and ETASWTIE) off, the moment equations everywhere; nobg: notie without VEF_BG; it / sph: one part (tests).
 if get(ENV, "VEFIMP", "0") != "0"
     let v = ENV["VEFIMP"]
-        v in ("1", "it", "sph", "nobg") || error("VEFIMP must be 1, it, sph or nobg")
-        TD.VEF_ITER[] = v in ("1", "it", "nobg"); TD.VEF_SPH[] = v in ("1", "sph", "nobg"); TD.VEF_BG[] = v == "1"   # (nobg: without the background split)
-        if TD.FLUXTIE[][2] > 0 || TX.ETASW_TIE[] > 0
+        v in ("1", "notie", "nobg", "it", "sph") || error("VEFIMP must be 1, notie, nobg, it or sph")
+        TD.VEF_ITER[] = v != "sph"; TD.VEF_SPH[] = v != "it"; TD.VEF_BG[] = v in ("1", "notie")
+        if v != "1" && (TD.FLUXTIE[][2] > 0 || TX.ETASW_TIE[] > 0)
             pr("VEFIMP: FLUXTIE (%g,%g) and ETASWTIE %g switched off\n", TD.FLUXTIE[]..., TX.ETASW_TIE[])
             TD.FLUXTIE[] = (0.0, 0.0); TX.ETASW_TIE[] = 0.0
         end
-        pr("VEFIMP=%s: Eddington factors f, g %s; radiation momentum row and outer boundary %s\n", v,
+        pr("VEFIMP=%s: Eddington factors f, g%s %s; radiation momentum row and outer boundary %s%s\n", v, TD.FLUXTIE[][2] > 0 ? " and the flux tie's h" : "",
            TD.VEF_ITER[] ? "of the formal solution at every Newton iterate (not lagged)" : "lagged (formal solution of the predictor)",
-           TD.VEF_SPH[] ? "in Auer's sphericality-factor form (exact for chi = 0)" : "as TITAN")
-        TD.VEF_BG[] && pr("VEFIMP: the CMB (I_b = %.4e) only as the isotropic background: formal solution and momentum row for the excess E - E_b, boundary F = c g_x (E_s - E_b)\n", TF.getscalar(:ximr))
+           TD.VEF_SPH[] ? "in Auer's sphericality-factor form (exact for chi = 0)" : "as TITAN",
+           TD.VEF_BG[] ? "; the CMB only as the isotropic background, added to the formal solution's moments analytically" : "")
+    end
+end
+# VEFBGCHK=n (diagnostic, default 0): at the first n formal solutions compare f, g (and h) of the background split (VEF_BG) with
+# those of the formal solution that carries the CMB along the rays; the two agree to the quadrature error where nothing is clamped
+if parse(Int, get(ENV, "VEFBGCHK", "0")) > 0 && TD.VEF_BG[]
+    let ef0 = TC.EDDFAC[], nchk = Ref(parse(Int, ENV["VEFBGCHK"]))
+        TC.EDDFAC[] = function ()
+            nchk[] <= 0 && return ef0()
+            nchk[] -= 1
+            a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); fe = TF.var(:fedd)
+            TD.VEF_BG[] = false; ef0(); f0 = fe[a_:b_]; g0 = TF.getscalar(:geddr); h0 = length(TD.HEDD) >= b_ ? TD.HEDD[a_:b_] : Float64[]
+            TD.VEF_BG[] = true; ef0(); f1 = fe[a_:b_]; g1 = TF.getscalar(:geddr); h1 = length(TD.HEDD) >= b_ ? TD.HEDD[a_:b_] : Float64[]
+            d = abs.(f1 .- f0); j = argmax(d)
+            pr("VEFBGCHK: g %.8f / %.8f; max |df| %.3e at zone %d (f %.6f / %.6f, f_x %.4f); |df| > 1e-3 in zones %s%s\n", g0, g1, d[j], j, f0[j], f1[j],
+               TD.FXEDD[a_+j-1], join(findall(>(1e-3), d), ","), isempty(h0) ? "" : @sprintf("; max |dh| %.3e", maximum(abs.(h1 .- h0))))
+        end
     end
 end
 # EDDCHI=1: extinction of the formal solution at most kappa_P + electron scattering. It takes S from kappa_P and scattering; with chi >> kappa_P (thin network zones: chi uses LTE tables, 50-1000 x kappa_P) it would emit
