@@ -18,10 +18,12 @@ photosphere) becomes part of the hydro Newton:
   energy row, LW dissociation, He I/He II photo-rates, and Δτ_g for the ray rows, all as functions of y_g(k) and of the zone's own CK
   composition. The material EOS of a ray zone is taken at the iterate's ray too (`TX.CPLWY`).
 - **He photo-rates** per atom are N_g fτ(Δτ_g) σ_g,s Δr/V (fτ = (1 − e^{−τ})/τ) with Δτ_g from the zone's own He stages. That is a fixed
-  point u = expansion(rates(u)) in u = (x_H, x_He, x_He⁺). It is solved by Newton in ln u on the Float values (to 1e-11, so the residual is a
-  function of its arguments and not of the last call) and differentiated by one implicit-function step w = w* − J⁻¹F(w*; z) with the
-  residual's dual numbers (`ifsi_ufix`). A plain fixed-point iteration was tried first: in a photon-limited He zone its slope is
-  (x₀ − x_He)/x₀ → 1, it did not converge, and the residual then depended on the previous call (CPLJCHECK ratios 0.5–1 from noise).
+  point u = expansion(rates(u)) in u = (x_H, x_He, x_He⁺). It is solved by Newton in ln u (backtracking on |F|) on the Float values, and
+  differentiated by one implicit-function step w = w* − J⁻¹F(w*; z) with the residual's dual numbers (`ifsi_ufix`). Converged means
+  |F| < 1e-6 in ln u: x_H = 1 − x_H⁺ − … carries round-off ~1e-16/x_H, and where He²⁺ dominates the CK expansion's fixed sweeps leave
+  ~1e-7 in He⁺; Newton stalls there with a well-conditioned J. Zones whose He photons are negligible (N_He Δt < 1e-12 of their He) take
+  the start-of-step fractions. A plain fixed-point iteration was tried first: in a photon-limited He zone its slope is (x₀ − x_He)/x₀ → 1,
+  it did not converge, and the residual then depended on the previous call (CPLJCHECK ratios 0.5–1 from that noise).
 - **Split zones** inside the ray (coupled zones decoupled by `CPLBADDELTA`, table zones): Δτ from the start-of-step absorbers
   (`CPL_RAYTAU`, LW with the carrier unknown); after the Newton their chemistry uses IonFS's Float terms with the converged photons
   (`ifsi_terms_split`) and IonFS's zone-by-zone transport (`ifs_advance!`).
@@ -76,15 +78,23 @@ levels below 13.598 eV (`ljcut`), with case-B He recombination (`caseB`): the ra
 not reach. Inside k₀ (τ_grey > 2/3, T_c → T_r, W → 1) the field is near-thermal and LOCALJ is kept (its purpose: He in thermalised network
 zones). Hydrogen 1s recombination is on the spot through the three-level atom (C α_B), as before.
 
-## He recombination cooling (a missing term, also in IonFS)
+## He recombination and He⁺ line cooling (missing terms, also in IonFS)
 
 ChemNet keeps binding energies in u: a photoionization takes χ from the gas, a recombination gives χ back. IonFS gives the gas the whole hν
 of an absorbed photon, so a photoionization–recombination cycle heated the gas by hν per absorbed photon instead of hν − χ − ⟨E_kin⟩: there
 is no He recombination radiation in the network (H has it in the three-level chemq, −C α_B(χ_H + 0.75 kT)). At the He I front a single
 zone went to 9e4 K (t_ifs9, 29 kK and 92 kK in zones 86–87). `ifsi_herec` adds, in the ray zones, the network's own case-B radiative
-recombinations (the Milne inverses α of its He I and He II photo-processes in the ray's env) × (χ + 0.75 kT) to the cooling (implicit, in the
-energy row), and that energy to the grey field (RAYQ). The 0.75 kT is the three-level atom's (tl3_heat). This probably contributed to
-t_ion1's hot, Δt-limiting zones as well.
+recombinations (the Milne inverses α of its He I and He II photo-processes in the ray's env) × (χ + 0.75 kT) to the cooling (implicit, in
+the energy row); 0.75 kT is the three-level atom's (tl3_heat).
+
+With that, zones heated by the ray's H I-band photons still went to 5–7e4 K (t_ifs10: photoionization equilibrium of H with only its
+recombination cooling, ⟨hν⟩ − χ_H ≈ 3.4 eV = 0.75 kT at 5e4 K) and produced transient He²⁺ out to 1e5 R☉. The network has no He line
+cooling (ChemRates: "He⁺ two-photon and line cooling — these come with the model atom"). `ifsi_herec` therefore also adds He⁺ collisional
+excitation (n = 1 → 2), ceHeII = 5.54e-17 e^{−473638/T} T^−0.397/(1 + (T/1e5)^½) erg cm³ s⁻¹ × n_e n_He⁺ (Cen 1992, 1992ApJS...78..341C,
+as coded in EmissionKernels.jl cooling_atomic.jl for the AAZN97 network; `IONFSHECE=0` drops it). After it the hottest ray zone is the
+first one (2.3e4 K) except for the first step and one of 42 snapshots (4.9e4 K at the He I front; t_ifs15). H's collisional excitation
+is the three-level atom's (LYABB). The energy of
+both terms goes to the grey field (RAYQ). This probably contributed to t_ion1's hot, Δt-limiting zones as well.
 
 ## Tests
 

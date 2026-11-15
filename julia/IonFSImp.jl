@@ -328,9 +328,10 @@ function ifsi_ufix(m::NetGas, k, z, t)
             res = ForwardDiff.DiffResults.JacobianResult(zeros(3), w); ForwardDiff.jacobian!(res, F, w)
             r = copy(ForwardDiff.DiffResults.value(res)); J .= ForwardDiff.DiffResults.jacobian(res)
             n0 = maximum(abs, r); n0 < bn && (bn = n0; bw .= w)
-            # (|F| in ln u: x_H = 1 − x_H⁺ − … carries round-off ~1e-16/x_H, and the CK expansion's fixed sweeps leave ~1e-7…1e-6 in He⁺
-            # where He²⁺ dominates; Newton stalls there with a well-conditioned J, so 1e-6 counts as converged)
-            n0 < 1e-6 && return (true, w, n0)
+            # (tight: a looser |F| < 1e-6 left that noise in the residual, and the hydro Newton's median Δt fell from 1.6e3 s to 13 s,
+            # t_ifs24 against t_ifs15; where Newton stalls above it — x_H = 1 − x_H⁺ − … at x_H ~ 1e-8, He⁺ under dominant He²⁺ — the
+            # best iterate is taken)
+            n0 < 1e-11 && return (true, w, n0)
             δ = try -(J \ r) catch; fill(NaN, 3) end; all(isfinite, δ) || return (false, bw, bn)
             δ .= clamp.(δ, -20.0, 20.0)
             maximum(abs, δ) < 1e-11 && (w .+= δ; return (true, w, n0))
@@ -344,17 +345,8 @@ function ifsi_ufix(m::NetGas, k, z, t)
         (false, bw, bn)
     end
     xr = st.xabs[k]
-    ok, w, nrm = solve([log(max(xr[1], 1e-40)), log(max(xr[3], 1e-40)), log(max(xr[4], 1e-40))], 30)
-    nrm < 1e-4 && (ok = true)
-    if !ok          # (deterministic restart from the start-of-step fractions; its best iterate if it does not converge either)
-        nrm = Inf
-        for w0 in ([log(max(x0[1], 1e-40)), log(max(x0[3], 1e-40)), log(max(x0[4], 1e-40))],)
-            ok2, w2, n2 = solve(w0, 40)
-            (ok2 || n2 < nrm) && (ok = ok2; w = w2; nrm = n2)
-            ok && break
-        end
-        ok || (J .= ForwardDiff.jacobian(F, w))
-    end
+    ok, w, nrm = solve([log(max(xr[1], 1e-40)), log(max(xr[3], 1e-40)), log(max(xr[4], 1e-40))], 60)
+    ok || (J .= ForwardDiff.jacobian(F, w))
     if !ok
         Threads.atomic_add!(IFSI_NFAIL, 1)
         if IFSI_HEDBG[] > 0
