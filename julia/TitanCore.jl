@@ -793,10 +793,10 @@ function eddfac!()
             k = a + (l - 1) ÷ 2
             xang[nj+1] = 0.0
             _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
-            tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] + 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
-            if bg      # excess moments (2J_x, 2K_x); background 2I_b, 2I_b/3
+            tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
+            if bg      # excess moments; xmom0, xmom2 are −2J_x, −2K_x (μ decreases along the ray index), the background's −2I_b, −2I_b/3
                 FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : 1.0 / 3.0
-                fedd[k] = max(0.0, min((xmom2[k] + 2Ib / 3) / (xmom0[k] + 2Ib), 1.0))
+                fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
             else
             fedd[k] = edpos() && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 :
                       max(0.0, min(xmom2[k] / xmom0[k], 1.0))
