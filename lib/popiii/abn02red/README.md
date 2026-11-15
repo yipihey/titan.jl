@@ -82,3 +82,32 @@ Each entry is hand minus vector.
 - **log T(M):** within 0.02 dex, except +0.095 at 10^3.4 M☉ in the steep rise.
 - **log f_H2:** −0.02 to −0.22 dex. The hand values are systematically low.
 - **v_r:** −0.38 to +0.34 km/s, with the largest differences in the 10^2.5–10^3.7 M☉ wiggles.
+
+## Smoke test (runs/abnred*, 15 Nov 2026)
+
+Settings: the z300acc stack (run.env and phaseB.env) with `IC=abn02red MCLOUD=7137`, the `PSWTMIN=0 PSWITCH=1` line
+dropped, NZ=128, 8 threads. The mesh is ENVLIN=10 linear zones from 0 to 0.1 R☉ plus log zones out to 1e9 R☉
+(22.54 pc), 300 zones in all.
+
+- **abnred5 (DM point mass, before DMCORE).** Zone 1 reached −6.6 km/s and 2400 K within two steps of about 400 s;
+  step 5 then failed 60 times.
+- **abnred6 (DMLINE=final, DMCORE).** The core collapses on the DM free-fall time: n_c went from 10^5.81 to 10^6.57
+  and T_c from 254 to 505 K by t = 1.4e4 yr. Stopped at step 16.
+- **abnred7 and abnred8 (defaults: DMLINE=z19, DMCORE; abnred8 adds PRINTEVERY=10).** 40 steps to t = 8.7e4 yr,
+  which is 1.8 central t_ff0. There were 2 Newton failures (steps 12 and 40), each retried at dt/4, and no decoupled
+  zones. dt grew from 1.5e9 s to 3.9e11 s. Each step took 62–76 s, of which GC was 11–15 s, and allocated
+  150–230 GB. z300acc took 7.3 s per step with 8 GB.
+
+  Profiles compared with the IC (log ρ, log T):
+
+  | t | core (r < r_p) | r_p … 0.1 pc | beyond 0.1 pc |
+  |---|---|---|---|
+  | 7.2 kyr | +0.09, +0.06 | | ≤ 0.04 |
+  | 13 kyr | −0.08, −0.06 | +0.11 at the plateau edge | ≤ 0.04 |
+  | 31 kyr | −0.02, −0.04 | +0.14 | ≤ 0.05 |
+  | 87 kyr | +0.38, +0.09 (n_c 2.2e6, T_c 315 K) | +0.32 | mean −0.02 (max 0.16 for 0.1–1 pc) |
+
+  The first two rows are a ±0.09 dex adiabatic "breathing" of the uniform core on its sound-crossing time,
+  r_p/c_s ≈ 7 kyr. The density step at r_p starts it: the core is panel B's mean density, about 15 % above the
+  envelope just outside. After that the collapse continues; ABN02's next output, 0.3 Myr later, has n_c = 10^7.7.
+  There is no strong initial transient.
