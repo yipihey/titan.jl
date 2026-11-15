@@ -342,11 +342,11 @@ function ifsi_ufix(m::NetGas, k, z, t)
         (false, bw, bn)
     end
     xr = st.xabs[k]
-    ok, w, nrm = solve([log(max(xr[1], 1e-40)), log(max(xr[3], 1e-40)), log(max(xr[4], 1e-40))], 60)
-    if !ok          # (deterministic restarts: from the start-of-step fractions, then from fully ionized He; the best iterate if none converges)
+    ok, w, nrm = solve([log(max(xr[1], 1e-40)), log(max(xr[3], 1e-40)), log(max(xr[4], 1e-40))], 30)
+    if !ok          # (deterministic restart from the start-of-step fractions; its best iterate if it does not converge either)
         nrm = Inf
-        for w0 in ([log(max(x0[1], 1e-40)), log(max(x0[3], 1e-40)), log(max(x0[4], 1e-40))], [log(max(x0[1], 1e-40)), log(1e-12), log(CNn.yHe)])
-            ok2, w2, n2 = solve(w0, 100)
+        for w0 in ([log(max(x0[1], 1e-40)), log(max(x0[3], 1e-40)), log(max(x0[4], 1e-40))],)
+            ok2, w2, n2 = solve(w0, 40)
             (ok2 || n2 < nrm) && (ok = ok2; w = w2; nrm = n2)
             ok && break
         end
