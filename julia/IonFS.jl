@@ -60,6 +60,14 @@ const IFSTOL = parse(Float64, get(ENV, "IONFSTOL", "0.1"))
 # its H) takes the split chemistry for the step (CPLZ false, as outside CPLBAND): at the front the H₂/H⁺ rows change by e^{±30…90} in one
 # step (H₂ destroyed by charge exchange as H ionizes), which the Newton's clamped log-species corrections cannot follow (t_ion1 B4)
 const IFSCPL = parse(Float64, get(ENV, "IONFSCPL", "1e-2")); const IFSNDEC = Ref(0)
+# IONFSGASQ=1 (default 0): split ray zones take only χ in their chemistry and hν − χ through GASQ in the next hydro step. Off: the whole hν in
+# the zone's chemistry (with its three-level cooling). With GASQ the explicit source in the energy row diverged at the front (t_ion1/2, 3rd step).
+const IFSGASQ = get(ENV, "IONFSGASQ", "0") == "1"
+# IONFSR0=ph (default): the ray starts outside the grey photosphere (τ = 2/3 from the outer boundary, STARLIGHT's kph), the formal solution
+# covers everything inside it; =net: at the first network zone. Inside the photosphere the radiation is near-thermal (J ≈ B(T_r), τ_R ≳ 1)
+# and the grey diffusion carries it; a ray through those zones heated the τ_R ≈ 2–5 network zones at 30–60 R☉ by ~1e12 erg/g/s on top of
+# their grey exchange (He⁺ absorption of the 4e5 K boundary's light), and Δt fell to 0.1–10 s (t_ion1, IONFSR0=net)
+const IFSR0 = get(ENV, "IONFSR0", "ph")
 const IFSITER = get(ENV, "IONFSITER", "1") == "1"; const IFSENV = get(ENV, "IONFSENV", "1") == "1"; const IFSDBG = Ref(parse(Int, get(ENV, "IONFSDBG", "0")))
 const IFS_EDGES = [13.598, 15.0, 17.0, 20.0, 24.587, 30.0, 40.0, 54.418, 70.0, 100.0, 150.0, 300.0]
 const IFS_SP = [:H, :H2, :He, :Hep]
@@ -231,6 +239,10 @@ function ifs_setup!(m, a, b, tauz, slrates, dt)
     fill!(st.on, false); fill!(st.κ2, 0.0); for k in 1:mgr; st.fpHe[k].rate[] = 0.0; st.fpHep[k].rate[] = 0.0; end
     k0 = 0
     for k in a:b; (!m.eqzone[k] && !(h !== nothing && tn[k] > h.T1)) && (k0 = k; break); end
+    if IFSR0 == "ph" && k0 > 0
+        kph_ = a; for k in b:-1:a; tauz[k] >= 2 / 3 && (kph_ = k; break); end
+        k0 = max(k0, kph_ + 1)
+    end
     (k0 <= a + 2) && (st.k0 = 0; return nothing)                     # no table region in front of the network: nothing to source
     js = Int(TF.getscalar(:jstep))
     (st.G === nothing || js - st.step >= IFSN || k0 != st.k0) && ifs_source!(st, m, a, b, k0, tauz)
@@ -352,7 +364,7 @@ function ifs_terms(m, k, exs, cools, envk, phk)
     # its chemistry is energy-neutral per photo-ionization; the excess hν − χ goes to the gas in the next hydro step (GASQ, ifs_after!),
     # where the grey cooling that balances it is implicit (the whole hν in the split chemistry heated a front zone by ~1e12 erg/g/s with
     # nothing to balance it within the step: Δt cycled 0.1–10 s, t_ion1 B4)
-    hχ = CPLPREP[] ? src.heat : (d -> ifs_hchi(st, k, d, dn[k], rn[k], rn[k+1]))
+    hχ = (CPLPREP[] || !IFSGASQ) ? src.heat : (d -> ifs_hchi(st, k, d, dn[k], rn[k], rn[k+1]))
     c2 = (ρ, T, d) -> (cools === nothing ? zero(T) : cools(ρ, T, d)) - hχ(d)
     IFS_ENVB[] === nothing && (IFS_ENVB[] = merge(m.env, (; caseB = true)))
     env2 = !IFSENV ? envk : hasproperty(envk, :ljW) ? merge(envk, (; caseB = true, ljcut = IFS_CUT)) :
@@ -390,7 +402,7 @@ function ifs_after!(m, a, b, dt)
             τ = 0.0; for j in 1:4; τ += x[j] * nH * G.σ[gg, j] * dr; end
             E += st.nin[k][gg] * (-expm1(-τ)) * G.Ec[gg]
         end
-        if TX.cplz(k)                                   # coupled: the gas took hν in the Newton; the grey field gives it up (RAYQ)
+        if TX.cplz(k) || !IFSGASQ                       # coupled: the gas took hν in the Newton; the grey field gives it up (RAYQ)
             isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += E / V)
         else                                            # split: χ in the chemistry (RAYQ), hν − χ to the gas in the next hydro step (GASQ: from E_r)
             hc = ifs_hchi(st, k, d, dn[k], rn[k], rn[k+1])
