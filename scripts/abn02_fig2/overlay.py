@@ -26,10 +26,12 @@ col = {'n_r': '#00c8ff', 'dm_r': '#ff8c00', 'M_r': '#00c8ff', 'fH2_M': '#00c8ff'
        'mcs_M': '#00e000', 'mcs_M_symbols': '#ff00ff'}
 for k, (kx, ky) in ax_of.items():
     r = np.array([[float(a[1]), float(a[2])] for a in rows if a[0] == k])
+    if len(r) == 0: continue                                     # (the red CSV has no DM / -c_s curves)
     px = inv(kx)(r[:, 0]) * s; py = inv(ky)(r[:, 1]) * s
     ax.plot(px, py, 'o', ms=2.2, mfc='none', mec=col[k], mew=0.7, label=k)
 ax.set_xlim(130 * s, 500 * s); ax.set_ylim(400 * s, 45 * s)
 ax.legend(loc='lower left', fontsize=7, framealpha=0.85)
-ax.set_title('ABN02 Fig. 2 final output: extracted points (open circles) mapped back through the tick calibration', fontsize=8)
+which = sys.argv[6] if len(sys.argv) > 6 else 'final output'           # optional 6th argument: which output (title only)
+ax.set_title('ABN02 Fig. 2 %s: extracted points (open circles) mapped back through the tick calibration' % which, fontsize=8)
 fig.savefig(out, dpi=100)
 print('wrote', out)
