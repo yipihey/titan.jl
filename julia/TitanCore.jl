@@ -728,8 +728,8 @@ function eddfac!()
     ncor = gi(:ncor)
     for k in b:-1:a; source!(k); end
     # VEF_BG (TitanDriver.VEF_BG): the formal solution of the excess I − I_b over the isotropic background I_b = ximr: source S − I_b,
-    # nothing incoming, no positivity clamps (the excess is negative where the gas is colder than the background)
-    bg = TD.VEF_BG[] && lrobc == 1; Ib = bg ? gf(:ximr) : 0.0; ep = edpos() && !bg
+    # nothing incoming; the positivity clamps act on the total, I_x ≥ −I_b
+    bg = TD.VEF_BG[] && lrobc == 1; Ib = bg ? gf(:ximr) : 0.0; ep = edpos(); lo = bg ? -Ib : 0.0
     bg && (@inbounds for k in a:b; sf[k] -= Ib; end)
     slopes!(false)
     @inbounds for k in a:b
@@ -738,7 +738,7 @@ function eddfac!()
         sl[l] = sf[k] + 0.5 * dtau[k] * bsf[k]; sr[l] = sf[k]
         sl[l+1] = sf[k]; sr[l+1] = sf[k] - 0.5 * dtau[k] * bsf[k]
         if ep     # a source function reconstructed linearly in τ must not go negative
-            sl[l] = max(sl[l], 0.0); sr[l+1] = max(sr[l+1], 0.0)
+            sl[l] = max(sl[l], lo); sr[l+1] = max(sr[l+1], lo)
         end
     end
     lmax = 2 * (b - a + 1) + 1
@@ -757,7 +757,7 @@ function eddfac!()
             xjl = sqrt(rp[l]^2 - p[j]^2); xjlp1 = sqrt(rp[l+1]^2 - p[j]^2)
             dtjl = dn[k] * chifn[k] * (xjlp1 - xjl); ex = exp(-dtjl)
             xip[j] = (1.0 - ex) * sl[l] + (1.0 - (1.0 + dtjl) * ex) * (sr[l] - sl[l]) / dtjl + ex * xim[j]
-            ep && (xip[j] = max(xip[j], 0.0))
+            ep && (xip[j] = max(xip[j], lo))
             xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
         end
         for j in 1:nj; xim[j] = xip[j]; end
@@ -785,7 +785,7 @@ function eddfac!()
             xjl = sqrt(rp[l]^2 - p[j]^2); xjlm1 = sqrt(rp[l-1]^2 - p[j]^2)
             dtjl = dn[k] * chifn[k] * (xjl - xjlm1); ex = exp(-dtjl)
             xip[j] = (1.0 - ex) * sr[l-1] + (1.0 - (1.0 + dtjl) * ex) * (sl[l-1] - sr[l-1]) / dtjl + ex * xim[j]
-            ep && (xip[j] = max(xip[j], 0.0))
+            ep && (xip[j] = max(xip[j], lo))
             xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
         end
         for j in 1:nj; xim[j] = xip[j]; end
