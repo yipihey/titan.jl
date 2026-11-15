@@ -243,12 +243,17 @@ composition), and the ±1 clamp needed dozens of iterations.
 """
 function cpl_local_all!(dt)
     CPL_LOCAL[] === nothing && return nothing
-    ngrs = gi(:ngrs); ngre = gi(:ngre); new = [Tuple{Int,Float64,Float64}[] for _ in 1:1]
-    for k in ngrs:ngre
-        cplz(k) || continue
-        y = CPL_LOCAL[](k, dt); y === nothing || push!(new[1], (k, y[1], y[2]))
+    ngrs = gi(:ngrs); ngre = gi(:ngre)
+    # (PERF512) the zones are independent (every one sees the old neighbours; the results are applied together): on MATTHREADS tasks
+    # (zone_sweep!), bit-identical; ~10 % of the hydro step of the 512-zone mesh when serial
+    res = Vector{Union{Nothing,Tuple{Float64,Float64}}}(nothing, ngre); z0 = ZONE0[]
+    try zone_sweep!(ngrs:ngre, cplz) do k
+        y = CPL_LOCAL[](k, dt); y === nothing || (res[k] = (Float64(y[1]), Float64(y[2])))
     end
-    for (k, a, b) in new[1]; XSN[][1][k] = a; XSN[][2][k] = b; end      # (applied together: every zone saw the same neighbours)
+    finally ZONE0[] = z0 end                                             # (the serial loop did not touch ZONE[])
+    for k in ngrs:ngre                                                   # (applied together: every zone saw the same neighbours)
+        y = res[k]; y === nothing || (XSN[][1][k] = y[1]; XSN[][2][k] = y[2])
+    end
     nothing
 end
 "Start of a step (TitanCore.peq!): old species := iterate, and their limiter slopes; then the initial guess (cpl_local_all!)."
@@ -445,10 +450,27 @@ function convcoef(ngrs, ngre, base)
     # the outer boundary on this iterate). Weight w(τ) per interface: a smooth step in ln τ from 0 at TAU_MLT/2 to 1
     # at 2·TAU_MLT (it was a sharp cut at TAU_MLT: a flux that jumps when τ crosses the cut makes Newton cycle).
     cvw = get!(() -> zeros(mgr), BUFS, :cvw)::Vector{Float64}; fill!(cvw, 0.0)
+    # (PERF512) for a material whose Float64 opacity has no side effects (`opac_pure(m)`), the zones' χ first on MATTHREADS tasks, then the
+    # serial sum. The serial loop calls material_opac without setting ZONE[] (a material that reads ZONE[] sees the zone left by the last
+    # sweep, for every k), so the tasks use that same ZONE[]; a zone whose evaluation throws is evaluated again in the loop, which then throws
+    # as before. Bit-identical.
+    χτ = get!(() -> zeros(mgr), BUFS, :cvchi)::Vector{Float64}; okτ = get!(() -> zeros(Bool, mgr), BUFS, :cvchiok)::Vector{Bool}; fill!(okτ, false)
+    if opac_pure(m)
+        z0 = ZONE0[]
+        try zone_sweep!(ngrs+1:ngre, k -> @inbounds(base[k, 3] > 0 && base[k, 5] > 0)) do k
+            ZONE[] = z0
+            try
+                y = @inbounds material_opac(m, base[k, 3], base[k, 5])[1]
+                y isa Float64 && (@inbounds χτ[k] = y; @inbounds okτ[k] = true)
+            catch
+            end
+        end
+        finally ZONE0[] = z0 end
+    end
     τ = 0.0
     @inbounds for k in ngre:-1:ngrs+1
         (base[k, 3] > 0 && base[k, 5] > 0) &&
-            (τ += material_opac(m, base[k, 3], base[k, 5])[1] * base[k, 3] * (base[k+1, 1] - base[k, 1]))
+            (τ += (okτ[k] ? χτ[k] : material_opac(m, base[k, 3], base[k, 5])[1]) * base[k, 3] * (base[k+1, 1] - base[k, 1]))
         x = clamp((log(max(τ, 1e-300)) - log(TAU_MLT[] / 2)) / log(4.0), 0.0, 1.0)
         cvw[k] = x * x * (3 - 2x)
         if MLT_NOINFALL[]          # no MLT flux in infalling gas: smooth step from inflow 10 km/s (MLT on) to 30 (off)
@@ -590,6 +612,8 @@ function compton_old!(ngrs, ngre)
     end
 end
 function material_opac end
+"(PERF512) true if `material_opac(m, ρ::Float64, T::Float64)` has no side effects (no per-zone caches), so it may run on several tasks with the same ZONE[]."
+opac_pure(m) = false
 """
 Nuclear (or other volumetric) energy source of a material, S4. `has_source(m)` (default false) switches it on;
 `material_source(m, ρ, T) -> ε` [erg g⁻¹ s⁻¹, net of neutrino losses; ρ, T may be Duals; composition of zone `ZONE[]`,
@@ -606,9 +630,9 @@ function source_old!(ngrs, ngre)
     m = MATERIAL[]; buf = get!(() -> zeros(TF.MGR), BUFS, :srco)::Vector{Float64}; fill!(buf, 0.0); SRCO[] = buf
     (m !== nothing && has_source(m)) || return
     dO, tO = v(:do), v(:to)
-    @inbounds for k in ngrs:ngre
-        (dO[k] > 0 && tO[k] > 0) || continue
-        ZONE[] = k; buf[k] = material_source(m, dO[k], tO[k])
+    # (PERF512) zones independent: on MATTHREADS tasks (zone_sweep!: the serial loop's ZONE[] and exception), bit-identical
+    zone_sweep!(ngrs:ngre, k -> @inbounds(dO[k] > 0 && tO[k] > 0)) do k
+        @inbounds buf[k] = material_source(m, dO[k], tO[k])
     end
 end
 "`material_thermo(m, ρ, T) -> (∇_ad, c_P, δ)` of gas + equilibrium radiation (Float64), for the MLT flux."
@@ -766,6 +790,53 @@ function _material_mt!(m, W, c, P, dn, tn, ern, k0, ngre, hassrc, nt)
     kl >= k0 && (ZONE0[] = kl)                # what the serial sweep leaves behind
     nothing
 end
+"""
+PERF512: `zone_sweep!(f, ks, ok)` calls `f(k)` for every zone `k in ks` with `ok(k)` true, on MATTHREADS tasks when MATTHREADS > 1
+(zones taken one at a time from a shared counter), serially otherwise or when already inside a threaded sweep. For the Float64
+EOS/opacity fills of the state arrays (`TitanMaterials.fill_eos!/fill_opac!` of a material whose zones are independent: each `f(k)` writes
+only entries k). Bit-identical to the serial loop: the same values, ZONE[] left at the last zone of the serial order, and an exception
+rethrown as the serial loop would have (the one of the lowest zone, after all tasks ended; the serial loop would not have evaluated the
+zones above it, whose entries are then written here — the callers' state is reset after a failed evaluation).
+"""
+function zone_sweep!(f::F, ks::UnitRange{Int}, ok::G) where {F,G}
+    nt = min(MAT_THREADS[], Threads.nthreads())
+    if !(nt > 1 && length(ks) >= 4nt && !ZTASK[])
+        for k in ks
+            ok(k) || continue
+            ZONE[] = k; f(k)
+        end
+        return nothing
+    end
+    next = Threads.Atomic{Int}(first(ks)); kend = last(ks)
+    kerr = fill(typemax(Int), nt); errs = Vector{Any}(nothing, nt)
+    ZTASK[] = true
+    try
+        @sync for it in 1:nt
+            Threads.@spawn begin
+                while true
+                    k = Threads.atomic_add!(next, 1)
+                    k > kend && break
+                    ok(k) || continue
+                    try
+                        ZONE[] = k; f(k)
+                    catch e
+                        k < kerr[it] && (kerr[it] = k; errs[it] = e)
+                    end
+                end
+            end
+        end
+    finally
+        ZTASK[] = false
+    end
+    kmin, imin = findmin(kerr)
+    if kmin < typemax(Int)
+        ZONE0[] = kmin
+        throw(errs[imin])
+    end
+    kl = kend; while kl >= first(ks) && !ok(kl); kl -= 1; end
+    kl >= first(ks) && (ZONE0[] = kl)
+    nothing
+end
 
 # ------------------------------------------------------------------ residual
 "Grid-equation rows of the adaptive window (see GRIDWIN) for the interfaces k1+1 … k2−1."
@@ -820,13 +891,18 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         finally
             CPLW[] = nothing
         end
-        @inbounds for k in ngrs:ngre
-            if cplz(k)
-                y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]); W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
-                W.cpQ[k] = y[6]; W.cpY[k] = y[7]
-            else
-                W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
+        # (PERF512) the coupled zones' rates in the Jacobian's Dual numbers on MATTHREADS tasks (zones independent; the material sweep above
+        # left their values and local Jacobians in the zones' cache entries); bit-identical. ZONE[] is not used here and is kept.
+        let z0 = ZONE0[]
+            try zone_sweep!(ngrs:ngre, k -> true) do k
+                @inbounds if cplz(k)
+                    y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]); W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
+                    W.cpQ[k] = y[6]; W.cpY[k] = y[7]
+                else
+                    W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
+                end
             end
+            finally ZONE0[] = z0 end
         end
     else
         MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)

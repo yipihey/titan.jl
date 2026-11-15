@@ -129,6 +129,40 @@ function lnKeq(R, P, T)
     for r in R; s = SPECIES[r]; lnK -= log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
     lnK
 end
+"""
+PERF512: Float64 T: the species terms ln(Z_tr Z_int) − E0/kT (partition functions summed over up to 61 levels each) are kept per thread for the
+last T, so that the reverse rates of all reactions of a zone evaluated at one T compute each species' term once. The same term, added in
+the same order: bit-identical to the generic method. (No yield point lies between reading the thread's memo and using it, so a task cannot
+change threads in between.)
+"""
+mutable struct LnKMemo
+    T::Float64
+    v::Dict{Symbol,Float64}
+end
+const LNKMEMO = [LnKMemo(NaN, Dict{Symbol,Float64}()) for _ in 1:Threads.maxthreadid()]
+@inline _spterm(s::Species, T) = log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T)
+function _spterm_memo(m::LnKMemo, p::Symbol, T::Float64)
+    t = get(m.v, p, NaN)
+    isnan(t) || return t
+    t = _spterm(SPECIES[p], T)::Float64; m.v[p] = t
+    t
+end
+function lnKeq(R, P, T::Float64)
+    tid = Threads.threadid()
+    tid <= length(LNKMEMO) || return _lnKeq_direct(R, P, T)
+    m = LNKMEMO[tid]
+    m.T === T || (m.T = T; empty!(m.v))
+    lnK = 0.0
+    for p in P; lnK += _spterm_memo(m, p, T); end
+    for r in R; lnK -= _spterm_memo(m, r, T); end
+    lnK
+end
+function _lnKeq_direct(R, P, T::Float64)
+    lnK = zero(T)
+    for p in P; s = SPECIES[p]; lnK += log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
+    for r in R; s = SPECIES[r]; lnK -= log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
+    lnK
+end
 
 # ------------------------------------------------------------------ reactions
 struct Reaction

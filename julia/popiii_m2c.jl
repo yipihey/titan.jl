@@ -2196,15 +2196,20 @@ if CPLPROF
     end
 end
 const PROFSAMPLE = haskey(ENV, "CPLPROFILE") ? parse(Int, ENV["CPLPROFILE"]) : -1     # step at which a 200-step Profile sample starts
+const PROFSAMPLEN = parse(Int, get(ENV, "CPLPROFILEN", "200"))                       # (PERF512) its length in steps
 PROFSAMPLE >= 0 && @eval using Profile
 function prof_sample(js)
     if js == PROFSAMPLE
         Base.invokelatest(() -> (Profile.init(n = 10^7, delay = 0.01); Profile.clear(); Profile.start_timer()))
-    elseif js == PROFSAMPLE + 200
+    elseif js == PROFSAMPLE + PROFSAMPLEN
         Base.invokelatest() do
             Profile.stop_timer()
             open(joinpath(get(ENV, "POPIII_OUT", "."), "cplprofile_$(js).txt"), "w") do io
                 Profile.print(IOContext(io, :displaysize => (100000, 250)); format = :flat, sortedby = :count, mincount = 50)
+            end
+            # (PERF512) also the call tree, all threads merged, with the module-qualified frames of the repository code
+            open(joinpath(get(ENV, "POPIII_OUT", "."), "cplprofile_tree_$(js).txt"), "w") do io
+                Profile.print(IOContext(io, :displaysize => (100000, 400)); format = :tree, mincount = 100, maxdepth = 60, noisefloor = 2.0, C = false, combine = true)
             end
         end
     end
