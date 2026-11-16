@@ -635,7 +635,7 @@ function nlo_it(m::NetGas, k, ρ, T, s)
     end
     RE, RP, RR = c.R
     nebase = c.ne
-    if SLIMP && cz && TX.CPLQ[] !== nothing      # SLIMP: the ratio at the iterate's star-light factors (value exact, slopes in ln q, ln t by differences)
+    if SLIMP && cz && TX.CPLQ[] !== nothing && sl_on(k)      # SLIMP: the ratio at the iterate's star-light factors (value exact, slopes in ln q, ln t by differences)
         qd = TX.CPLQ[][1][k]; td = TX.CPLQ[][2][k]; qv = Float64(ForwardDiff.value(qd)); tv = Float64(ForwardDiff.value(td))
         length(NLOQC[]) < k && (NLOQC[] = vcat(NLOQC[], Any[nothing for _ in length(NLOQC[])+1:k]))
         e_ = NLOQC[][k]; key = (v..., qv, tv)
@@ -1122,6 +1122,8 @@ const SLW0 = Ref(Any[])
 SLBLEND: T_c = T_src^(1−wq) T_r^wq (T_r = (max(E, E_cmb)/a)^¼ local, T_src and wq held), W = 1 (wq ≥ 1) or min(c u/(4σT_c⁴), 1);
 beyond the photosphere without SLBLEND: T_c = T_eff (held), W = c u/(4σT_eff⁴); else T_c = T_r, W = 1. With SLIMP=1 t ≡ 1 (W only).
 """
+"(SLIMP) true if zone k's star light follows its E_r, F_r (a prepare-pass record exists); otherwise the zone takes the SLIMP=0 path."
+sl_on(k) = k <= length(SLW0[]) && SLW0[][k] !== nothing
 function sl_qt(k, E, Fk, Fk1)
     o = one(E) + zero(Fk) + zero(Fk1)
     (k <= length(SLW0[]) && (r = SLW0[][k]) !== nothing) || return (o, o)
@@ -1219,8 +1221,10 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         if SLIMP && CPLPREP[]                            # SLIMP: how this zone's star light follows its E_r, F_r (sl_qt)
             length(SLW0[]) < nz && (SLW0[] = Any[nothing for _ in 1:nz])
             md = (SLBLEND[] && Te > 0) ? :blend : (k > kph && Te > 0) ? :te : :local
-            SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
-                         ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off)
+            # no star yet (T_eff = 0): the zone's "star light" is its own field at T_r with W = 1 — no record, q = t = 1 exactly and the
+            # zone takes the SLIMP=0 path (the ICEUL start failed with NaN: Dual zeros in β, P12 at T_c ~ T_CMB, see cpl_tq)
+            (md === :local && !(Te > 0)) || (SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
+                         ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off))
         end
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
             d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH(); n1 = nH * max(d[:H], 1e-30)
@@ -1826,7 +1830,9 @@ function cpl_tq(t, q, tc = 1.0; phc = t.phc, phc0 = t.slq.phc0)
             extrab = starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
         end
     end
-    p3q = merge(p3b, (; β = q * p3b.β, P12 = q * p3b.P12))
+    # (a rate that is exactly 0 stays a Float 0: q·0 is a Dual zero, and tl3_heat's E21 P12/(Q12 + P12 + 1e-300) then has 0/0 partials
+    #  where Q12 underflows (cold gas, T_c ~ T_CMB); the derivative of q·0 is 0 anyway)
+    p3q = merge(p3b, (; β = iszero(p3b.β) ? p3b.β : q * p3b.β, P12 = iszero(p3b.P12) ? p3b.P12 : q * p3b.P12))
     env = merge(envb, (; tl3 = p3q))
     phq = (s_.lj && phc0 !== nothing) ? (Tv -> [(a_[1], q * a_[2], b_[3] + q * (a_[3] - b_[3])) for (a_, b_) in zip(phc(Tv), phc0(Tv))]) : phc
     ex = extrab === nothing ? nothing : (x -> q .* extrab(x))
@@ -1997,7 +2003,7 @@ function cpl_finish!(m::NetGas)
     for k in a:b
         TX.cplz(k) || continue
         t = CPLTERMS[][k]
-        if SLIMP && hasproperty(t, :slq)               # SLIMP: the fast species at the star light of the solved E_r, F_r
+        if SLIMP && hasproperty(t, :slq) && sl_on(k)   # SLIMP: the fast species at the star light of the solved E_r, F_r
             er_, fr_ = TM.v(:ern), TM.v(:frn); qt_ = sl_qt(k, er_[k], fr_[k], fr_[k+1]); t = cpl_tq(t, qt_[1], qt_[2])
         end
         x, _ = CNn.ck_eval([TX.XSN[][1][k], TX.XSN[][2][k]], dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)
