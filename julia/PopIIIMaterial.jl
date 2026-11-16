@@ -1052,7 +1052,9 @@ first `starlight_setup` call of the process for the rest of the run, i.e. the ph
 the last step. Used to test whether the one-step lag of W(E_r, F_r) in the photo-rates of the coupled chemistry and the NLOIT
 opacity drives the period-2 orbit of the irradiated zone outside a photosphere (docs/POPIII_SUBZONE_FRONT.md).
 """
-const SLFREEZE = get(ENV, "SLFREEZE", "0") == "1"; const SLFRZ = Ref(Tuple{Float64,Float64}[])
+const SLFREEZE = get(ENV, "SLFREEZE", "0") == "1"
+"(SLFREEZE) per zone the held (W, T_c)."
+const SLFRZ = Ref(Tuple{Float64,Float64}[])
 function starlight_setup(m::NetGas, a, b, tauz_)
     sl = STARLIGHT[]; dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); er, fr, un = TM.v(:ern), TM.v(:frn), TM.v(:un)
     kph = a; for k in b:-1:a; tauz_[k] >= 2 / 3 && (kph = k; break); end
