@@ -247,6 +247,14 @@ DTERRMAX=<s> (test only, default none): an upper bound on Δt, to separate step-
 DTERRTRACE=n (default 20): a line every n steps (Δt, err, the limiting variable and zone, the heuristic Δt), and every rejection.
 """
 const ERRCTL = Ref(haskey(ENV, "DTERR"))
+"""
+DT_BOUNDS: hard bounds on the next step that the error control respects (functions () -> Δt_max [s], evaluated after an accepted
+step, with the step's Δt in `dtime` and its old/new state in the arrays): the next Δt is min(error-controlled Δt, bounds). Not an
+accuracy criterion but a validity limit of a discretisation, e.g. GRIDEQ's mesh motion (no interface moves more than fmove × its
+smaller neighbouring zone per step, popiii_m2c). TITAN's DT_HOOKS stay diagnostic under DTERR; ESTATS[:bound] counts the steps a
+bound set.
+"""
+const DT_BOUNDS = Function[]
 const EOPT = let v = haskey(ENV, "DTERR") ? parse.(Float64, split(ENV["DTERR"], ",")) : Float64[], c = parse.(Float64, split(get(ENV, "DTERRCTL", "0.9,0.2,5"), ","))
     (rtol = isempty(v) ? 1e-2 : v[1], xfl = length(v) >= 2 ? v[2] : 1e-6, ffl = length(v) >= 3 ? v[3] : 1.0, efl = length(v) >= 4 ? v[4] : 0.0,
      safety = c[1], facmin = c[2], facmax = c[3], pi = get(ENV, "DTERRPI", "1") == "1", fail = parse(Float64, get(ENV, "DTERRFAIL", "0.25")),
@@ -523,6 +531,9 @@ function step_err!()
     end
     LASTERR[] = (err, info[1], info[2])
     hn = min(hn, o.hmax)                  # (DTERRMAX, a test bound only: default none)
+    for f_ in DT_BOUNDS                   # hard bounds (mesh motion): see DT_BOUNDS
+        hb = f_(); hb < hn && (hn = hb; ESTATS[:bound] = get(ESTATS, :bound, 0) + 1)
+    end
     HNEXT[] = hn
     STATS[:steps] += 1; ESTATS[:steps] += 1
     r(:totnrg)

@@ -1171,13 +1171,15 @@ if GRIDEQP !== nothing
     else
         grideq_step!()
         let fmv = GEQC[5]
-            push!(TC.DT_HOOKS, function ()
+            fmcap = function ()        # no interface moves more than fmove × its smaller neighbouring zone per step
                 rn_ = TF.var(:rn); ro_ = TF.var(:ro); f = 0.0
                 for k in a+2:b
                     wd = min(ro_[k] - ro_[k-1], ro_[k+1] - ro_[k]); f = max(f, abs(rn_[k] - ro_[k]) / wd)
                 end
                 f > 0 ? fmv / f * TF.getscalar(:dtime) : Inf
-            end)
+            end
+            push!(TC.DT_HOOKS, fmcap)      # (TITAN's rule: diagnostic under DTERR)
+            push!(Trbdf2.DT_BOUNDS, fmcap) # DTERR respects the mesh-motion bound
         end
     end
     pr("GRIDEQ: mode %d (%s), %d zones, weights rho,P,T,E,m,tau %s, gmax %.3g, alph %.3g, kappa %.3g, fv %.3g, fmove %.3g, tau %.3g..%.3g, ctol %.3g, kappa_f %.3g\n",
