@@ -635,7 +635,7 @@ function nlo_it(m::NetGas, k, ρ, T, s)
     end
     RE, RP, RR = c.R
     nebase = c.ne
-    if SLIMP && cz && TX.CPLQ[] !== nothing      # SLIMP: the ratio at the iterate's star-light factors (value exact, slopes in ln q, ln t by differences)
+    if SLIMP && cz && TX.CPLQ[] !== nothing && sl_on(k)      # SLIMP: the ratio at the iterate's star-light factors (value exact, slopes in ln q, ln t by differences)
         qd = TX.CPLQ[][1][k]; td = TX.CPLQ[][2][k]; qv = Float64(ForwardDiff.value(qd)); tv = Float64(ForwardDiff.value(td))
         length(NLOQC[]) < k && (NLOQC[] = vcat(NLOQC[], Any[nothing for _ in length(NLOQC[])+1:k]))
         e_ = NLOQC[][k]; key = (v..., qv, tv)
@@ -1071,6 +1071,13 @@ and of the post-step species (`cpl_finish!`). T_c (T_eff at the τ = 2/3 zone, T
 const SLIMPN = parse(Int, get(ENV, "SLIMP", "0")); const SLIMP = SLIMPN > 0
 "(SLIMP) per zone the star-light record of the prepare pass (W0, T_c0, wq, T_src, mode, E_cmb, ρ, T, fsh, LW on); nothing: no star light."
 const SLW0 = Ref(Any[])
+"(SLIMP) a star exists at the last prepare pass (a zone at τ ≥ 2/3 and T_eff > 0)."
+const SLSTAR = Ref(false)
+"""
+(SLIMP) true if the coupled zones take the SLIMP path (`cpl_zone_q`, NLOIT and post-step species at the iterate's star light): whenever a
+star exists (zones without a record then have q = t = 1); before there is one, every zone takes the SLIMP=0 path (bit-identical to it).
+"""
+sl_on(k) = SLSTAR[]
 """
 (SLIMP) (q, t) = (W(iterate)/W_start, T_c(iterate)/T_c,start) of zone k from its E_r and interface fluxes (generic in the number type).
 SLBLEND: T_c = T_src^(1−wq) T_r^wq (T_r = (max(E, E_cmb)/a)^¼ local, T_src and wq held), W = 1 (wq ≥ 1) or min(c u/(4σT_c⁴), 1);
@@ -1106,6 +1113,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
     sl = STARLIGHT[]; dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); er, fr, un = TM.v(:ern), TM.v(:frn), TM.v(:un)
     kph = a; for k in b:-1:a; tauz_[k] >= 2 / 3 && (kph = k; break); end
     L = 4π * rn[kph+1]^2 * fr[kph+1]; Te = L > 0 ? (L / (4π * rn[kph+1]^2 * 5.670374419e-5))^0.25 : 0.0
+    SLIMP && CPLPREP[] && (SLSTAR[] = tauz_[kph] >= 2 / 3 && Te > 0)
     arad = 7.565723e-15; Ecmb = arad * sl.tcmb^4
     nz = length(dn); NH2 = zeros(nz); NHI = zeros(nz)
     s2 = 0.0; s1 = 0.0
@@ -1171,10 +1179,13 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         end
         diag.kHm[k] = kHm; diag.kH[k] = kH; diag.kLW[k] = kLW; diag.fsh[k] = f
         if SLIMP && CPLPREP[]                            # SLIMP: how this zone's star light follows its E_r, F_r (sl_qt)
-            length(SLW0[]) < nz && (SLW0[] = Any[nothing for _ in 1:nz])
             md = (SLBLEND[] && Te > 0) ? :blend : (k > kph && Te > 0) ? :te : :local
-            SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
-                         ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off)
+            # no star yet — no zone at τ ≥ 2/3 (the cloud before the first core: kph defaults to the centre zone and T_eff is that of the
+            # centre's flux, ~T_CMB) or T_eff = 0: no record, q = t = 1 exactly and the zone takes the SLIMP=0 path (the ICEUL start failed
+            # with NaN: Dual zeros in β, P12 at T_c ~ T_CMB, see cpl_tq)
+            # (SLW0 is sized by cpl_prepare! before the chemistry: the zones run on CHEMTHREADS tasks, a resize here raced and lost records)
+            (SLSTAR[] && k <= length(SLW0[])) && (SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
+                         ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off))
         end
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
             d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH(); n1 = nH * max(d[:H], 1e-30)
@@ -1669,7 +1680,9 @@ function cpl_tq(t, q, tc = 1.0; phc = t.phc, phc0 = t.slq.phc0)
             extrab = starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
         end
     end
-    p3q = merge(p3b, (; β = q * p3b.β, P12 = q * p3b.P12))
+    # (a rate that is exactly 0 stays a Float 0: q·0 is a Dual zero, and tl3_heat's E21 P12/(Q12 + P12 + 1e-300) then has 0/0 partials
+    #  where Q12 underflows (cold gas, T_c ~ T_CMB); the derivative of q·0 is 0 anyway)
+    p3q = merge(p3b, (; β = iszero(p3b.β) ? p3b.β : q * p3b.β, P12 = iszero(p3b.P12) ? p3b.P12 : q * p3b.P12))
     env = merge(envb, (; tl3 = p3q))
     phq = (s_.lj && phc0 !== nothing) ? (Tv -> [(a_[1], q * a_[2], b_[3] + q * (a_[3] - b_[3])) for (a_, b_) in zip(phc(Tv), phc0(Tv))]) : phc
     ex = extrab === nothing ? nothing : (x -> q .* extrab(x))
@@ -1764,6 +1777,10 @@ function cpl_vjq(m, k, v)
         yp = cpl_g(m, k, zp); ym = cpl_g(m, k, zm)
         for i in 1:7; J[i, 6] = (yp[i] - ym[i]) / (v[6] * 2log1p(ε)); end
     end
+    if TX.SLIMPDBG[] > 0 && !all(isfinite, J)
+        TX.SLIMPDBG[] -= 1; bad = [(i, j) for i in 1:7, j in 1:size(J, 2) if !isfinite(J[i, j])]
+        println("SLIMPDBG cpl_vjq zone $k v $v: non-finite J at $bad; y $y; rec ", CPLTERMS[][k].slq.rec)
+    end
     y, J
 end
 function cpl_liftq(y, J, xs...)
@@ -1796,10 +1813,13 @@ function cpl_prepare!(m::NetGas)
     HDCHEM[] && (HDX[] = [length(x) > nf ? max(x[nf+2], 0.0) : 0.0 for x in m.x])
     length(CPLTERMS[]) == mgr || (CPLTERMS[] = Any[nothing for _ in 1:mgr]); fill!(CPLTERMS[], nothing)
     length(CPLCACHE[]) == mgr || (CPLCACHE[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHE[], nothing)
-    SLIMP && (length(CPLCACHEQ[]) == mgr || (CPLCACHEQ[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHEQ[], nothing); fill!(SLW0[], nothing))
+    SLIMP && (length(CPLCACHEQ[]) == mgr || (CPLCACHEQ[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHEQ[], nothing);
+             length(SLW0[]) == mgr || (SLW0[] = Any[nothing for _ in 1:mgr]); fill!(SLW0[], nothing))
     fill!(TX.CPLZ[], false)                       # chem_core!'s closing fill_eos! uses m.x
     CPLPREP[] = true; sd0 = SLDIAG[]               # (the prepare pass's star-light setup must not replace the last chemistry's diagnostics)
     try chem_core!(m) finally CPLPREP[] = false; SLDIAG[] = sd0 end
+    SLIMP && TX.SLIMPDBG[] > 0 && println("SLIMPDBG prepare jstep $(Int(TF.getscalar(:jstep))): $(count(!isnothing, SLW0[])) zones with a star-light record",
+                                          isempty(SLW0[]) || all(isnothing, SLW0[]) ? "" : ", e.g. " * string(SLW0[][findfirst(!isnothing, SLW0[])]))
     sl = CNn.ckinfo(m.net).slow
     for k in 1:mgr
         x = m.x[min(k, length(m.x))]
@@ -1836,7 +1856,7 @@ function cpl_finish!(m::NetGas)
     for k in a:b
         TX.cplz(k) || continue
         t = CPLTERMS[][k]
-        if SLIMP && hasproperty(t, :slq)               # SLIMP: the fast species at the star light of the solved E_r, F_r
+        if SLIMP && hasproperty(t, :slq) && sl_on(k)   # SLIMP: the fast species at the star light of the solved E_r, F_r
             er_, fr_ = TM.v(:ern), TM.v(:frn); qt_ = sl_qt(k, er_[k], fr_[k], fr_[k+1]); t = cpl_tq(t, qt_[1], qt_[2])
         end
         x, _ = CNn.ck_eval([TX.XSN[][1][k], TX.XSN[][2][k]], dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)
