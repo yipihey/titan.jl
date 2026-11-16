@@ -311,7 +311,7 @@ const NIMP = Ref(0)                                                  # (kept in 
 const CHEM = get(ENV, "CHEM", "netmodernli")     # net / netmodern / netmodernli: NetGas (G5); the RHFC02 PrimordialGas material is gone
 CHEM in ("net", "netmodern", "netmodernli") || error("CHEM=$CHEM: the network material net, netmodern or netmodernli")
 begin
-    # G5: ChemNet network; equilibrium table where the ideal-gas pressure ≥ PSWITCH (EOS validity, RHFC02's 1e4 dyn cm⁻²)
+    # G5: ChemNet network; the equilibrium table only where the gas is non-ideal (PopIIIMaterial G2BLEND)
     netw, phot = CHEM == "net" ? (ChemRates.rhfc02(; k5 = k5f), ChemNet.Photo[]) : ChemRates.modern(; li = CHEM == "netmodernli")
     # SL3=1 (with STARLIGHT=1): three-level H atom in the lit network zones (PM.tl3_reactions; rates are zero elsewhere)
     get(ENV, "SL3", "0") == "1" && (netw = PM.tl3_network(netw))
@@ -322,7 +322,7 @@ begin
     ytup(d) = (d[:Hp], d[:Hm], d[:H2], d[:H2p])
     coolnet = (ρ, T, d) -> cf(ρ, T, d === nothing ? PopIIIEqEOS.composition(ρ, T) : ytup(d))
     xinit(y) = [s === :Hp ? y[1] : s === :Hm ? y[2] : s === :H2 ? y[3] : s === :H2p ? y[4] : s === :Lip ? 0.0 : 0.0 for s in netw.free]
-    global mat = PM.NetGas([xinit(y) for y in ystore], netw, phot, coolnet; env = envn, pswitch = parse(Float64, get(ENV, "PSWITCH", "1e4")))
+    global mat = PM.NetGas([xinit(y) for y in ystore], netw, phot, coolnet; env = envn, pswitch = Inf)
 end
 "Composition of zone k as the PrimordialChem tuple (x_H⁺, x_H⁻, x_H₂, x_H₂⁺), for either material."
 ycomp(k) = mat isa PM.NetGas ? (d = ChemNet.full(mat.x[k], mat.net); (d[:Hp], d[:Hm], d[:H2], d[:H2p])) : mat.y[k]
@@ -489,8 +489,6 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
     PM.SLEB[] = PM.SLBLEND[] && get(ENV, "SLEB", "0") == "1"
     PM.SLEB[] && pr("SLEB: star-light colour temperature T_r at tau + 2/3 (Eddington-Barbier), not the photosphere's T_eff\n")
     PM.SLBLEND[] && pr("SLBLEND: star-light colour temperature T_eff (tau <= 0.3) to T_r (tau >= 3), smooth in log tau\n")
-    PM.PSWSTAY[] = !(PM.STARLIGHT[].tl3 && get(ENV, "PSWSTAY", "1") == "0")
-    PM.PSWSTAY[] || pr("PSWSTAY=0: below the pressure switch a table zone stays on the table only by the tau rule\n")
     PM.NLOPAC[] && pr("NLOPAC: non-LTE opacity in the three-level network zones (no H bound-free in kappa_P; n=2 of the three-level atom in kappa_R)\n")
     PM.NLOPAC[] && PM.NLOIT && pr("NLOIT: network-zone opacities from the Newton iterate's own populations (table x continuum-code ratio at the iterate; NLOIMPT, NLODAMP, CPLNLOX, NLOFIX, NLOTMAX inactive there)\n")
     !PM.NLOPAC[] && PM.NLOIT && error("NLOIT=1 needs NLOPAC=1 (STARLIGHT=1 SL3=1)")
@@ -723,7 +721,7 @@ function checkpoint(name, k)
         trb = (; STATS = copy(Trbdf2.STATS), BE_LEFT = Trbdf2.BE_LEFT[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV)))
 end
 # settings that must agree between a run and its restart (the set-up and the physics); the rest may change
-const CKENV = ("IC", "TCMB", "AVZONE", "AVQL1", "AVCQ2", "CHEM", "NLTE", "NALI", "NBIN", "K5", "MCLOUD", "LRJOIN", "DLNJOIN", "DM", "PSWITCH",
+const CKENV = ("IC", "TCMB", "AVZONE", "AVQL1", "AVCQ2", "CHEM", "NLTE", "NALI", "NBIN", "K5", "MCLOUD", "LRJOIN", "DLNJOIN", "DM",
                "INTEGRATOR", "THETA", "XE0", "RAD")   # (not CDYN: the accretion phase relaxes the dynamical Δt limit at a restart)
 function restart!(name; allow = ())
     aux = deserialize(joinpath(CKDIR, "m2c_$(name).aux"))
@@ -905,9 +903,6 @@ function rebuild!(rI, ρz, Tz, uI, Er, Fr, matz)
     TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
     empty!(ALIFAC[])                                  # per-zone NLTE factors: recomputed at the next line-transfer call
 end
-PM.PSWHYS[] = parse(Float64, get(ENV, "PSWHYS", "1"))
-PM.PSWTMIN[] = parse(Float64, get(ENV, "PSWTMIN", "0"))
-PM.PSWTEX[] = parse(Float64, get(ENV, "PSWTEX", "0")); PM.PSWTAU[] = parse(Float64, get(ENV, "PSWTAU", "0"))
 """
 S6 validation: continue an S5 star (s5_run.jl checkpoint `STARFROM`, directory S5DIR) on the NetGas hot path: same profile, abundances, solver
 controls and time; then T_c, L, X_c(t) can be compared with S5's own continuation.
@@ -1145,7 +1140,7 @@ end
 if haskey(ENV, "STARFROM")
     starfrom!(ENV["STARFROM"])
 elseif haskey(ENV, "RESTART")
-    restart!(ENV["RESTART"]; allow = ENVEUL === nothing ? () : ("PSWITCH",))
+    restart!(ENV["RESTART"])
     Int(TF.getscalar(:lrad)) == 1 || error("checkpoint $(ENV["RESTART"]) has no radiation field (a stage-chain checkpoint): not supported")
     RAD && (radsettings!(); TD.EOS[](); TD.OPAC[]())
     if ENVEUL !== nothing

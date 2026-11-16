@@ -17,8 +17,7 @@ const POPIII_STACK = [
     # material
     "CHEM" => "netmodernli", "HOT" => "1", "COLDMLT" => "1e4", "ALPHAMLT" => "1.5",
     "SCVHXE" => "1", "HM88" => "1", "G2OPAC" => "2", "NLOHBFDEEP" => "1", "TL3DEEP" => "1",
-    "PSWITCH" => "1e30", "PSWTAU" => "0", "PSWSTAY" => "0", "PSWTEX" => "5000", "PSWNH" => "1e19", "PSWHYS" => "0.3",
-    "PSWTMIN" => "4500", "PSWRAMP" => "10",
+    "H2PF" => "1", "PSWRAMP" => "10",          # (the table only where non-ideal: PopIIIMaterial G2BLEND, always on)
     "NLOPAC" => "1", "NLOPACJ" => "1",
     "LOCALJ" => "1", "LOCALJWMIN" => "1e-3",
     # chemistry

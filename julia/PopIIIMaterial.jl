@@ -402,10 +402,10 @@ chemistry heat. For network zones deep in the thick layers (G2: the network thro
 const NLOHBFDEEP = get(ENV, "NLOHBFDEEP", "0") == "1"
 hbf_deep(p) = NLOHBFDEEP && p !== nothing && hasproperty(p, :deep) && p.deep
 """
-`G2BLEND=Γ0,D0,P0` (or `G2BLEND=1` for 0.3,0.1,0.01; default off, off = bit-identical): the network material everywhere outside the stellar
-interior, the table only where the gas is non-ideal, by a smooth weight of the state at the Newton iterate instead of the switch rules
-(PSWITCH, PSWNH, PSWTAU, PSWTEX, PSWSTAY are overridden: a zone is a table zone exactly where w ≥ 0.999, staying until w < 0.99, where the
-two materials are the same function). Non-ideality s = ((Γ_e/Γ0)⁴ + (D/D0)⁴ + (P/P0)⁴)^{1/4} of the LTE (table) composition at (ρ, T):
+G2BLEND (the material since the clean-up; `G2BLEND=Γ0,D0,P0[,s0]` changes the thresholds, default 0.3,0.1,0.01,1/3): the network
+material everywhere outside the stellar interior, the table only where the gas is non-ideal, by a smooth weight of the state at the
+Newton iterate (it replaced the switch rules PSWITCH, PSWNH, PSWHYS, PSWTMIN, PSWTAU, PSWTEX, PSWSTAY: a zone is a table zone exactly
+where w ≥ 0.999, staying until w < 0.99, where the two materials are the same function). Non-ideality s = ((Γ_e/Γ0)⁴ + (D/D0)⁴ + (P/P0)⁴)^{1/4} of the LTE (table) composition at (ρ, T):
   Γ_e = e²/(a_e kT), a_e = (3/(4π n_e))^{1/3}   electron Coulomb coupling;
   D = n_e λ_e³/2, λ_e = h/√(2π m_e kT)           electron degeneracy (≪ 1: Boltzmann electrons);
   P = (4π/3) n_neutral (2a₀)³                     neutral packing: the hard-sphere exponent of HM88's ground-state occupation probability
@@ -417,7 +417,7 @@ factor 3 in s and is complete where a parameter reaches its threshold (with s₀
 Thresholds from the network-vs-SCVH95 comparison (docs/POPIII_G2_MATERIAL.md §7): for s < 1 the network (HM88, H2PF) and the table
 agree to |Δ ln p| ≤ 0.045, |Δ ln Γ1| ≤ 0.064, |Δu| ≤ 0.2 kT per particle (95 %); beyond s ≈ 3 they differ by up to ×10 in p.
 """
-const G2B = let v = get(ENV, "G2BLEND", "0"); v == "0" ? nothing : v == "1" ? (0.3, 0.1, 0.01, 1 / 3) : (t = parse.(Float64, split(v, ",")); length(t) == 3 ? (t..., 1 / 3) : Tuple(t)) end
+const G2B = let v = get(ENV, "G2BLEND", "1"); v == "1" ? (0.3, 0.1, 0.01, 1 / 3) : (t = parse.(Float64, split(v, ",")); length(t) == 3 ? (t..., 1 / 3) : Tuple(t)) end
 const QE_ = 4.80320471e-10; const A0_ = 5.29177211e-9
 "(G2BLEND) non-ideality s at (ρ, T) (generic: the table composition through its bicubic interpolant)."
 function g2_s(ρ, T)
@@ -437,7 +437,7 @@ end
 g2_w(ρ, T) = (s = g2_s(ρ, T); x = clamp(log10(s / G2B[4]) / log10(3.0), 0.0, 1.0); x * x * (3 - 2x))
 "(G2BLEND) the EOS mix of ChemNet.EOSMIX."
 g2_eosmix(ρ, T, u, p) = (w = g2_w(ρ, T); ForwardDiff.value(w) == 0 ? (u, p) : (ue = EQ.eos(ρ, T); (u + w * (ue[1] - u), p + w * (ue[2] - p))))
-G2B !== nothing && (CNn.EOSMIX[] = g2_eosmix)
+CNn.EOSMIX[] = g2_eosmix
 "Lagged non-LTE opacity factors of zone k at T0 (see NLOPAC)."
 function nlopc(ρ, T0, d, p)
     OPAC[] === nothing && return nothing     # no opacity table yet (the cold collapse, before RAD's opacity is set): LTE tables later
@@ -690,7 +690,6 @@ TX.opac_pure(::NetGas) = false
     if NLOIT && NLOPAC[]
         k = TX.ZONE[]
         if k <= length(m.eqzone) && !m.eqzone[k]
-            G2B === nothing && return nlo_it(m, k, ρ, T, k <= length(NLOST[]) ? NLOST[][k] : nothing)
             χn, κEn, κPn = nlo_it(m, k, ρ, T, k <= length(NLOST[]) ? NLOST[][k] : nothing)
             w = g2_w(ρ, T); ForwardDiff.value(w) == 0 && return χn, κEn, κPn
             κRt, κPt = OPAC[](ρ, T)                  # G2BLEND: geometric blend with the table opacity at the iterate
@@ -750,42 +749,11 @@ function x_from_table(m::NetGas, ρ, T)
 end
 
 """
-S6: hysteresis of the EOS switch: a zone in the table regime stays there until p < PSWHYS × pswitch (1 = the sharp switch of G5). Warm gas
-of the accretion layer sitting on pswitch otherwise flips every step between table and network, which differ by ~10 % in T at fixed e.
-"""
-const PSWHYS = Ref(1.0)
-const PSWTMIN = Ref(0.0)
-"""
-Table to network, falling pressure: PSWTEX[] > 0 keeps a table zone on the table until T < PSWTEX[], whatever its pressure. The network has no photoionization by the local radiation field, so
-at 8500 K it holds x(H+) well below Saha at fixed e, and the recombination energy went into heat: T 8509 -> 13938 K in one step at the surface of a 28 M_sun protostar, then Newton failed at every dt.
-E_ion/E_th at rho = 1e-11..1e-10 is <= 4 % at 5000 K, 15-48 % at 6000 K. Zones the ray reaches go to the network before this test.
-"""
-const PSWTEX = Ref(0.0)
-"""
-PSWSTAY[] = false drops the PSWTEX "stay" rule above, so a table zone below the pressure switch stays on the table only by the τ rule (PSWTAU).
-With the three-level network (SL3) the network carries the star-light ionization the rule was written to stand in for; the rule otherwise holds table
-zones out to τ ≈ 0.4 while T ≥ PSWTEX, so the boundary becomes a temperature switch in the zones where table and network disagree most.
-"""
-const PSWSTAY = Ref(true)
-"""
-PSWTAU[] > 0: a zone with T >= PSWTEX[] and Rosseland depth from the surface >= PSWTAU[] (half that to stay) uses the table whatever its pressure. Where radiation is thermalised, J = B holds H at Saha.
-The network has no radiation field: at the outer edge of an opaque layer (p ~ 6, T ~ 1e4 K, 39 M_sun) it sits at coronal x(H+) ~ 0.05 against 0.99, Newton heats the zone by a factor of 2 at frozen
-composition and chem! brings it back each step, until Newton fails. On the table the ionization heat capacity is inside Newton. The switch at fixed e lowers T once; radiation reheats the zone.
-"""
-const PSWTAU = Ref(0.0)
-"""
 PSWRAMP=n (default 0 = off): a gradual hand-over from the table to the network. From the step the run (re)starts, a zone still on the table
 stays there, except the outermost (j − j0) ÷ n of them, which follow the switch rules (counted from the outermost table zone below the hot branch at the start; with the table rules off, PSWITCH=1e30
 PSWTAU=0 PSWSTAY=0: they leave the table, one zone every n steps from the outside in). Network zones are never put back on the table by it.
 """
 const PSWRAMP = parse(Int, get(ENV, "PSWRAMP", "0")); const RAMPJ0 = Ref(-1); const RAMPK0 = Ref(0)
-"""
-PSWNH=n (default 0 = off; cm⁻³): the table also where n_H ≥ n and T ≥ PSWTMIN (hysteresis as the pressure switch: stay while n_H ≥ PSWHYS n,
-T ≥ 0.95 PSWTMIN), for the non-ideal regime. The network's EOS is ideal (H partition sum to n = 15, no occupation probabilities, no
-pressure ionization); against the table's SCVH it departs in partly ionized gas from n_H ~ 1e17 (x_e 0.82 vs 0.71, u −59 % at 1e18, 2e4 K)
-and everywhere at n_H ≳ 1e20 (10 M☉ centre: x_e 0.85 vs 0.04, p −39 %). With PSWITCH=1e30 PSWTAU=0 PSWSTAY=0 this is the minimal table.
-"""
-const PSWNH = parse(Float64, get(ENV, "PSWNH", "0"))
 "SLBLEND[]: star-light colour temperature and dilution blended smoothly in τ (see starlight_setup); false: switch at the τ = 2/3 zone."
 const SLBLEND = Ref(false)
 """
@@ -814,14 +782,6 @@ function T_at_u(ρ, u, x, net, T0)
 end
 "After a converged hydro step: network step per zone in the ideal regime, equilibrium-table step where p ≥ pswitch."
 const CHEMFALLBACK = Ref(false); const NCHEMFB = Ref(0)
-"""
-CHEMFBDENSE=1 (default): a failed network step of a zone whose pressure is above the table switch (p ≥ pswitch; only its T < PSWTMIN keeps
-it on the network) takes the table-equilibrium fallback too, in every phase, counted in NCHEMFB. Such gas is in chemical equilibrium to a
-good approximation (n ≳ 1e15 cm⁻³), and it is where the backward-Euler Newton has failed in the collapse runs: the H₂ dissociation layer
-just below PSWTMIN at Δt of hundreds of seconds (full3, core growth stage, step 11935: n_H 4.5e18, T 4346 K, Δt 515 s, twelve halvings
-without convergence), which without the fallback ends the run. 0: the fallback only where CHEMFALLBACK is set (the accretion phase).
-"""
-const CHEMFBDENSE = Ref(get(ENV, "CHEMFBDENSE", "1") == "1")
 """
 M3: the star's ionizing light (IonRay), `nothing` = off. `RAY[] = (; start, source, env, Ec, Q, xmin)`: `start(a, b)` -> (photosphere zone, photons per group) or `nothing`; `source` as IonRay.source;
 `env`: ChemNet environment for lit zones (case B); `Q`: energy taken per zone, shared with TitanResidFast.RAYQ. Zones are done outward from the photosphere, each with the photons the last one left. A zone
@@ -1208,7 +1168,7 @@ function chem_core!(m::NetGas)
     end
     rn = TM.v(:rn)
     tauz = zeros(length(dn))
-    if PSWTAU[] > 0 || STARLIGHT[] !== nothing
+    if STARLIGHT[] !== nothing
         chi_ = TM.v(:chifn); tt = 0.0
         for k in b:-1:a; tt += chi_[k] * dn[k] * (rn[k+1] - rn[k]); tauz[k] = tt; end
     end
@@ -1272,12 +1232,7 @@ function chem_core!(m::NetGas)
             end
             Nin = nothing                                # the rest of the light cannot change any zone further out
         end
-        # PSWTMIN[] > 0: also require T above it (5 % hysteresis). Below ~5000 K ionization holds negligible energy, so the network and the table agree there
-        # to ~1 % in T at fixed e; at 7000-9500 K the network's H ionization lags the table's Saha by ×5, and switching there drops T by up to 16 %.
-        ptab = (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[])
-        PSWNH > 0 && !ptab && (ptab = dn[k] / CNn.μH() >= (m.eqzone[k] ? PSWHYS[] : 1.0) * PSWNH && tn[k] >= (m.eqzone[k] ? 0.95 : 1.0) * PSWTMIN[])
-        tab = ptab || (PSWSTAY[] && m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])
-        G2B !== nothing && (tab = g2_w(dn[k], tn[k]) >= (m.eqzone[k] ? 0.99 : 0.999))     # G2BLEND: the table only where the blend is complete
+        tab = g2_w(dn[k], tn[k]) >= (m.eqzone[k] ? 0.99 : 0.999)     # G2BLEND: the table only where the blend is complete
         CPLPREP[] && (tab = false)
         PSWRAMP > 0 && !CPLPREP[] && m.eqzone[k] && k <= RAMPK0[] - (Int(TF.getscalar(:jstep)) - RAMPJ0[]) ÷ PSWRAMP && (tab = true)
         if tab
@@ -1380,7 +1335,7 @@ function chem_core!(m::NetGas)
             catch e
                 # Fixed mesh: e and x are advected by different schemes, and e may then have no solution for the zone's x. Hot dense gas: table equilibrium, same e.
                 STARLIGHT[] !== nothing && !(e isa ErrorException) && println("starlight zone failed: k ", k, " x ", m.x[k], " ρ ", dn[k], " u ", egn[k], " T ", tn[k], " dt ", dt, " rates ", slrates(k), " eq ", m.eqzone[k], " E_r ", TM.v(:ern)[k])
-                ((CHEMFALLBACK[] || (CHEMFBDENSE[] && pgn[k] >= m.pswitch)) && (e isa ErrorException || (p3 !== nothing && e isa ArgumentError))) || rethrow()
+                (CHEMFALLBACK[] && (e isa ErrorException || (p3 !== nothing && e isa ArgumentError))) || rethrow()
                 lock(() -> (NCHEMFB[] += 1), CHEMLOCK); fb = true
                 TL3DBG[] > 0 && @printf("tl3fb k %d r %.3e T %.0f tauz %.2e eqprev %s xe %.2e u %.4e u(10K,x) %.4e u(T,x) %.4e: %s\n", k, rn[k] / 6.957e10, tn[k], tauz[k], eqprev, CNn.full(m.x[k], m.net)[:e], egn[k], CNn.eos(dn[k], 10.0, m.x[k], m.net)[1], CNn.eos(dn[k], tn[k], m.x[k], m.net)[1], first(sprint(showerror, e), 60))
                 if CHEMFBNET > 0 && dn[k] < EQ.rho_min()
