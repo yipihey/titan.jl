@@ -54,12 +54,45 @@ its automatic derivative is NaN below 17.3 K (eˣ·(eˣ − 1)·∂x exceeds 1.8
 bit for bit; for x ≥ 100 the term is below 1e-39 of the 5/2.
 """
 function u_H2(T)
+    H2PF && return u_H2_g2(T)
+    u_H2_rhfc02(T)
+end
+function u_H2_rhfc02(T)
     x = 6100 / T
     ForwardDiff.value(x) < 100 && return 5 / 2 + x^2 * exp(x) / expm1(x)^2
     em = exp(-x)
     5 / 2 + x^2 * em / (1 - em)^2
 end
 const χH = 13.598eV; const EA_H = 0.754eV; const D0_H2 = 4.478eV; const D0_H2p = 2.65eV
+"""
+`H2PF=1` (default off; off = bit-identical): the internal partition function of H₂ as the sum over all 301 bound rovibrational levels of
+the ground electronic state, ExoMol RACPPK (Roueff et al. 2019, A&A 630, A58; `POPIII_LIT/H2lines/1H2__RACPPK.states`: energies and
+g_tot with nuclear-spin weights 1 (para) / 3 (ortho), the convention of Zrot_H2), instead of the rigid rotor × harmonic oscillator
+Zrot_H2 Zvib; and the H₂ thermal energy consistently from it, u_H2 = 3/2 + ⟨E_int⟩/kT (instead of RHFC02 A9). Enters every equilibrium
+constant with H₂ (dissociation) and the EOS. G2 audit (docs/POPIII_G2_MATERIAL.md §7): the rigid-rotor/harmonic form keeps H₂ bound
+too long at 3000–5000 K (SCVH95, whose H₂ partition function is a level sum, dissociates earlier; network vs table 0.6–0.8 kT per particle
+in u, 4 % in p at log ρ −5.5, log T 3.58). Applied above 1500 K only, blended in from 800 K (`h2pf_w`): below, the cold gas keeps RHFC02.
+"""
+const H2PF = get(ENV, "H2PF", "0") == "1"
+const H2LEV = H2PF ? let f = joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "H2lines", "1H2__RACPPK.states")
+    rows = [split(l) for l in readlines(f) if !isempty(strip(l))]
+    (E = [parse(Float64, r[2]) * hP * c for r in rows], g = [parse(Float64, r[3]) for r in rows])
+end : (E = Float64[], g = Float64[])
+"(H2PF) weight of the level sum: 0 below 800 K (cold gas unchanged: the ortho/para ratio there is not in equilibrium, and the run's
+convention 5/2 kT stays), 1 above 1500 K, C¹ smoothstep in ln T between."
+h2pf_w(T) = (x = clamp((log(T) - log(800.0)) / (log(1500.0) - log(800.0)), zero(T), one(T)); x * x * (3 - 2x))
+"(H2PF) Z_int of H₂: rigid rotor × harmonic oscillator below 800 K, the RACPPK level sum above 1500 K, geometric blend between."
+Zint_H2_g2(T) = (w = h2pf_w(T); w == 0 ? Zrot_H2(T) * Zvib(T, θvib_H2) : exp((1 - w) * log(Zrot_H2(T) * Zvib(T, θvib_H2)) + w * log(Zint_H2_pf(T))))
+"(H2PF) thermal energy of H₂ per molecule / kT: RHFC02 A9 below 800 K, the level sum above 1500 K, blended between."
+u_H2_g2(T) = (w = h2pf_w(T); w == 0 ? u_H2_rhfc02(T) : (1 - w) * u_H2_rhfc02(T) + w * u_H2_pf(T))
+"H₂ internal partition function from the RACPPK levels (H2PF)."
+Zint_H2_pf(T) = (z = zero(T); for i in eachindex(H2LEV.E); z += H2LEV.g[i] * exp(-H2LEV.E[i] / (kB * T)); end; z)
+"H₂ thermal energy per molecule in units of kT from the RACPPK levels: 3/2 + ⟨E_int⟩/kT (H2PF)."
+function u_H2_pf(T)
+    z = zero(T); e = zero(T)
+    for i in eachindex(H2LEV.E); t = H2LEV.g[i] * exp(-H2LEV.E[i] / (kB * T)); z += t; e += t * H2LEV.E[i]; end
+    3 / 2 + e / (z * kB * T)
+end
 const χLi = 5.3917eV
 "Levels of atomic H kept in its partition function and photo-ionisation (n ≤ NH_LEVELS; the sum diverges without a
 cut-off — at the densities where excited levels matter they are pressure-dissolved and SCVH95 takes over)."
@@ -110,7 +143,7 @@ const SPECIES = Dict{Symbol,Species}(
     :H   => Species(:H, mH, 0, (1, 0, 0), -χH, T -> 2 * ZH_el(T), T -> 1.5),     # × nuclear spin 2
     :Hp  => Species(:Hp, mp, 1, (1, 0, 0), 0.0, T -> 2 + zero(T), T -> 1.5),
     :Hm  => Species(:Hm, mH + me, -1, (1, 0, 0), -(χH + EA_H), T -> 2 + zero(T), T -> 1.5),
-    :H2  => Species(:H2, 2mH, 0, (2, 0, 0), -(2χH + D0_H2), T -> Zrot_H2(T) * Zvib(T, θvib_H2), T -> NaN),   # c_v via u_H2
+    :H2  => Species(:H2, 2mH, 0, (2, 0, 0), -(2χH + D0_H2), T -> H2PF ? Zint_H2_g2(T) : Zrot_H2(T) * Zvib(T, θvib_H2), T -> NaN),   # c_v via u_H2
     :H2p => Species(:H2p, 2mH - me, 1, (2, 0, 0), -(χH + D0_H2p), Zint_H2p, T -> 2.5),
     :e   => Species(:e, me, -1, (0, 0, 0), 0.0, T -> 2 + zero(T), T -> 1.5),
     :He  => Species(:He, 4.0026 * 1.66053907e-24, 0, (0, 1, 0), 0.0, HECHEM ? ZHe_el : (T -> 1 + zero(T)), T -> 1.5),
