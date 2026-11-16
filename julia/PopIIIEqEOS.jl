@@ -10,7 +10,8 @@ are smooth and ForwardDiff Duals pass through (TITAN's Newton sees the softening
 Stored: log p, log(u + u_off) with u_off = (χ_H + χ_H₂/2)/μ_H (u + u_off = energy relative to cold H₂ and neutral He,
 SCVH's zero; positive), f_H₂ (fraction of H nuclei in H₂), x_H⁺.
 
-SCVH composition columns read as number fractions of H₂, H among the hydrogen particles (H₂, H, H⁺) [interp, checked
+SCVH composition columns read (SCVHXE=0, the default) as number fractions of H₂, H among the hydrogen particles (H₂, H, H⁺) — wrong
+for x_H⁺, see SCVHXE, which uses SCVH95's definition (fractions of all particles incl. electrons) [interp, checked
 against Saha where both apply: X_H₂ = 0.604 vs Saha's 0.579 at 3000 K, log P = 5]: f_H₂ = 2X_H₂/(1 + X_H₂),
 x_H⁺ = (1 − X_H₂ − X_H)/(1 + X_H₂).
 """
@@ -40,11 +41,12 @@ unchanged; the stored He fractions there are Saha's. The table is cached under a
 """
 const HEEOS = get(ENV, "HECHEM", "0") == "1"
 """
-`SCVHXE=1` (default off; off = bit-identical, the cached table of before): the SCVH95 composition columns read as number
-concentrations among all particles including the electrons, X_H₂ + X_H + X_H⁺ + X_e = 1, X_H⁺ = X_e, so per H nucleus
-x_H⁺ = X_H⁺/(2X_H₂ + X_H + X_H⁺) and f_H₂ = 2X_H₂/(2X_H₂ + X_H + X_H⁺). The reading of before (X_H₂ + X_H + X_H⁺ = 1) doubles x_H⁺
-wherever H is weakly ionised: on the tables' own isotherms at log ρ −8 … −2 it gives 1.85–1.94 × Saha's x_H⁺ at x_H⁺ 1e-3 … 0.1, this one
-0.97–1.05 × (G2 audit, docs/POPIII_G2_MATERIAL.md; to be checked against SCVH95's table.doc, not obtained). p and u (SCVH's own columns)
+`SCVHXE=1` (default off; off = bit-identical, the cached table of before): the SCVH95 composition columns as SCVH95 define them
+(§5, p. 724, eqs. 33, 34, 36): X_i = N_i/N with N the total number of particles *including electrons*; for hydrogen
+X_e = X_H⁺ = ½(1 − X_H₂ − X_H) and n_i = (2ρ/m_H) X_i/(1 + 3X_H₂ + X_H). Per H nucleus x_H⁺ = 2X_H⁺/(1 + 3X_H₂ + X_H) and
+f_H₂ = 4X_H₂/(1 + 3X_H₂ + X_H). The reading of before (X_H₂ + X_H + X_H⁺ = 1, i.e. x_H⁺ = (1 − X_H₂ − X_H)/(1 + X_H₂)) doubles x_H⁺
+wherever H is weakly ionised: on the tables' own isotherms at log ρ −8 … −2 it gives 1.85–1.94 × Saha's x_H⁺ at x_H⁺ 1e-3 … 0.1, the
+definition 0.97–1.05 × (G2 audit, docs/POPIII_G2_MATERIAL.md); f_H₂ is the same in both readings where X_H⁺ = 0. p and u (SCVH's own columns)
 are unchanged; only the stored composition (f_H₂, x_H⁺: `composition`, and through it x_from_table, the zones' electrons for the
 scattering term, the equilibrium cooling and the NLOIT base) changes, where the SCVH weight is > 0. Cached under its own name
 (`EQEOS_CACHE=path` overrides the cache file).
@@ -102,7 +104,7 @@ function node(lρ, lT)
         if w > 0
             X2, X1 = s.xH2, s.xH
             if SCVHXE                                # X_H₂, X_H per particle incl. electrons: X_H⁺ = X_e = (1 − X_H₂ − X_H)/2 (see SCVHXE)
-                Xp = max(1 - X2 - X1, 0.0) / 2; f2 = 2X2 / (2X2 + X1 + Xp); xp2 = Xp / (2X2 + X1 + Xp)
+                Xp = max(1 - X2 - X1, 0.0) / 2; f2 = 4X2 / (1 + 3X2 + X1); xp2 = 2Xp / (1 + 3X2 + X1)     # SCVH95 eq. 36
             else
                 f2 = 2X2 / (1 + X2); xp2 = max(1 - X2 - X1, 0.0) / (1 + X2)
             end
