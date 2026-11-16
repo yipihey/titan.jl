@@ -1413,6 +1413,11 @@ function chem_core!(m::NetGas)
                     cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3, (; ne = nHs * max(d[TL3NEK], zero(d[TL3NEK])))))[1]
                 end
             end
+            if CNn.HM88                              # HM88: perturber densities of the zone (composition at the start of the step) for φ
+                dh_ = CNn.full(m.x[k], m.net); nh_ = dn[k] / CNn.μH()
+                hm_ = (nh_ * (max(dh_[:H], 0.0) + max(dh_[:He], 0.0) + max(dh_[:H2], 0.0)), nh_ * max(dh_[:e], 0.0))
+                envk = merge(envk, (; hm = hm_, tabkey = hasproperty(envk, :tabkey) ? envk.tabkey : envk))
+            end
             if !isempty(TX.CHEMB[])                  # BALSPLIT: the hydro step already gave the zone c̄ (TitanResidFast.CHEMB)
                 cb = eqprev ? 0.0 : TX.CHEMB[][k]; TX.CHEMBON[][k] = !eqprev
                 if cb != 0
