@@ -120,7 +120,9 @@ ifs_record!(k, d) = (st = IFS[]; (st !== nothing && k <= length(st.xabs)) && (st
 struct IFOpac
     T::Vector{Float64}; nH0::Vector{Float64}; nHp::Vector{Float64}; ne::Vector{Float64}; nHm::Vector{Float64}; nH2::Vector{Float64}
     nHe0::Vector{Float64}; nHe1::Vector{Float64}; nHe2::Vector{Float64}
+    sc::Vector{Float64}           # factor on absorption and scattering per point (IONFSIMP's sub-zone photosphere; 1 otherwise)
 end
+IFOpac(T, nH0, nHp, ne, nHm, nH2, nHe0, nHe1, nHe2) = IFOpac(T, nH0, nHp, ne, nHm, nH2, nHe0, nHe1, nHe2, ones(length(T)))
 const IF_E0HM = 0.754 * EVERG; const IF_χH = 13.598 * EVERG; const IF_σ0 = 7.906e-18
 const IF_χHe1 = 24.587387 * EVERG; const IF_χHe2 = 54.417763 * EVERG
 "(absorption, scattering, thermal source) at point k: SnapSpec's continuum point by point, plus He I/He II ground bound–free and He ff."
@@ -149,7 +151,7 @@ function ifs_coeffs3(o::IFOpac, k, ν)
         ab += σ * max(n0 - nst, 0.0); em += σ * nst * c2 * ν^3
     end
     ab = max(ab, 1e-300)
-    (ab, s, em / ab)
+    (ab * o.sc[k], s * o.sc[k], em / ab)
 end
 "Group sub-frequencies (3 per group, log mid-points) and their widths; below 13.598 eV 24 for the luminosity normalisation."
 function ifs_freqs()

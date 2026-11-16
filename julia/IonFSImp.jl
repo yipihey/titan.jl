@@ -41,6 +41,9 @@ Diagnostics: <RUNREC>/ionfsi.csv per step (photon bookkeeping per group, LW diss
 """
 const IFSI_EDGES = [13.598, 24.587, 54.418, 300.0]
 const IFSI_LW = (11.2, 13.598)
+const IFSI_SUB = get(ENV, "IONFSSUB", "1") == "1"                     # sub-zone photosphere in the formal solution (ifsi_source!)
+const IFSI_TAUC = parse(Float64, get(ENV, "IONFSTAUC", "3e3"))       # the formal solution starts in the innermost zone with grey τ above it
+const IFSI_NZMIN = parse(Int, get(ENV, "IONFSNZMIN", "6"))           # … and at least this many zones inside r_b
 const IFSI_PD = parse(Float64, get(ENV, "IONFSPD", "0.15"))          # ⟨p_diss⟩, Draine & Bertoldi (1996) §4
 >>>
 
@@ -150,7 +153,7 @@ struct IFGrey; χ::Vector{Float64}; κ::Vector{Float64}; T::Vector{Float64}; end
 function ifsi_ldiag(atm, op, R, νs, dν, grp, L, Lfs, Lrun, zone, k0, tauz)
     SP_ = IFSP(); chi = TM.v(:chifn); kp = TM.v(:xkpn); dn = TM.v(:dn)
     @eval Main.Spectrum.coeffs3(o::$IFGrey, k, ν) = (o.κ[k], max(o.χ[k] - o.κ[k], 0.0), $(IFCO()).Bν(ν, o.T[k]))
-    gop = IFGrey([chi[z] * dn[z] for z in zone], [min(kp[z], chi[z]) * dn[z] for z in zone], [TM.v(:tn)[z] for z in zone])
+    gop = IFGrey([chi[z] * dn[z] for z in zone], [min(kp[z], chi[z]) * dn[z] for z in zone], copy(atm.T))
     Lg = zeros(length(νs))
     Threads.@threads for i in eachindex(νs)
         grp[i] >= 0 && (Lg[i] = max(Base.invokelatest(SP_.monochromatic, atm, gop, R, νs[i]; maxit = 60, maxit_direct = true)[1], 0.0))
@@ -177,16 +180,45 @@ end
 function ifsi_source!(st, m, a, b, k0, tauz)
     t0 = time(); dn, tn, rn, fr = TM.v(:dn), TM.v(:tn), TM.v(:rn), TM.v(:frn)
     I = IFSI[]
-    kc = a; for k in a:k0-1; tauz[k] > 300 && (kc = k); end
-    kc = max(a, min(kc, k0 - 3))
+    kc = a; for k in a:k0-1; tauz[k] > IFSI_TAUC && (kc = k); end
+    kc = max(a, min(kc, k0 - IFSI_NZMIN))
     SP_ = IFSP(); atm0 = SP_.atmosphere((r = rn[kc:k0], d = dn[kc:k0-1], T = tn[kc:k0-1]); split = 3.0)
-    zone = vcat(atm0.zone .+ (kc - 1), k0 - 1); r = vcat(atm0.r, rn[k0] * (1 - 1e-9)); jump = vcat(atm0.jump, false)
+    zone = copy(atm0.zone .+ (kc - 1)); r = copy(atm0.r); jump = copy(atm0.jump); Tp = copy(atm0.T)
+    kf = k0 - 1; rb = rn[k0]; Lrun0 = 4π * rb^2 * fr[k0]; nsub = 0
+    χf = TM.v(:chifn)[kf] * dn[kf]; τz = χf * (rb - r[end])           # grey optical depth from the front zone's centre to r_b
+    if IFSI_SUB && Lrun0 > 0 && τz > 1
+        # IONFSSUB (default with IONFSIMP): the photosphere inside zone k₀−1 (an unresolved transparency front, SUBZONE) as sub-points:
+        # grey Eddington T⁴ = ¾ T_eff⁴ (τ + 2/3), T_eff from L_run at r_b, capped at the zone's T, on the zone's grey τ scale from r_b.
+        # Without it the last stretch to r_b had the zone-centre T (z300mm: 7302 K against T_eff 6000 K): L_fs = 2.2 L_run, and the
+        # Wien tail (LW, Lyman continuum) e^{hν/k (1/T_eff − 1/T)} ~ 100× too bright.
+        Te_ = (Lrun0 / (4π * rb^2 * 5.670374419e-5))^0.25; rcf = r[end]
+        for τ in (300.0, 100.0, 30.0, 10.0, 3.0, 1.0, 0.3, 0.1, 0.03, 0.01, 0.001, 0.0)
+            τ < 0.9τz || continue
+            push!(r, τ == 0 ? rb * (1 - 1e-9) : rb - (rb - rcf) * τ / τz); push!(zone, kf); push!(jump, false)
+            push!(Tp, min(tn[kf], Te_ * (0.75 * (τ + 2 / 3))^0.25)); nsub += 1
+        end
+    else
+        push!(zone, kf); push!(r, rb * (1 - 1e-9)); push!(jump, false); push!(Tp, tn[kf])
+    end
     nH = dn[zone] ./ CNn.μH(); ds = [CNn.full(m.x[k], m.net) for k in zone]
     g(s) = [max(Float64(ForwardDiff.value(d[s])), 0.0) for d in ds] .* nH
-    op = IFOpac(tn[zone], g(:H), g(:Hp), g(:e), g(:Hm), g(:H2), g(:He), g(:Hep), g(:Hepp))
-    atm = (r = r, ρ = dn[zone], T = tn[zone], zone = zone, jump = jump)
+    op = IFOpac(Tp, g(:H), g(:Hp), g(:e), g(:Hm), g(:H2), g(:He), g(:Hep), g(:Hepp))
+    atm = (r = r, ρ = dn[zone], T = Tp, zone = zone, jump = jump)
+    νs, dν, grp = IFSI_FREQ
+    if nsub > 0       # the sub-points' source opacity scaled to the zone's grey opacity per length (their Rosseland mean = χ ρ of zone k₀−1)
+        for j in length(r)-nsub+1:length(r)
+            T = Tp[j]; sR = 0.0; wR = 0.0
+            for i in eachindex(νs)
+                grp[i] >= 0 || continue
+                ab, sc, _ = ifs_coeffs3(op, j, νs[i]); x = CNn.hP * νs[i] / (CNn.kB * T)
+                dB = x > 600 ? 0.0 : IFCO().Bν(νs[i], T) * x * exp(x) / expm1(x) / T
+                sR += dB * dν[i] / (ab + sc); wR += dB * dν[i]
+            end
+            sR > 0 && (op.sc[j] = χf / (wR / sR))
+        end
+    end
     _, R = SP_.rays(atm.r; ncore = 8); R = SP_.weights!(atm, R)
-    νs, dν, grp = IFSI_FREQ; L = zeros(length(νs))
+    L = zeros(length(νs))
     IFCO().tables()
     Threads.@threads for i in eachindex(νs)
         L[i] = max(SP_.monochromatic(atm, op, R, νs[i]; maxit = 60, maxit_direct = true)[1], 0.0)
