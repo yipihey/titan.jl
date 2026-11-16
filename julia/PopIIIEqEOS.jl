@@ -39,6 +39,17 @@ thermal energy 3/2 kT per particle, no excitation energy (as ChemNet). Partition
 unchanged; the stored He fractions there are Saha's. The table is cached under a separate name.
 """
 const HEEOS = get(ENV, "HECHEM", "0") == "1"
+"""
+`SCVHXE=1` (default off; off = bit-identical, the cached table of before): the SCVH95 composition columns read as number
+concentrations among all particles including the electrons, X_H₂ + X_H + X_H⁺ + X_e = 1, X_H⁺ = X_e, so per H nucleus
+x_H⁺ = X_H⁺/(2X_H₂ + X_H + X_H⁺) and f_H₂ = 2X_H₂/(2X_H₂ + X_H + X_H⁺). The reading of before (X_H₂ + X_H + X_H⁺ = 1) doubles x_H⁺
+wherever H is weakly ionised: on the tables' own isotherms at log ρ −8 … −2 it gives 1.85–1.94 × Saha's x_H⁺ at x_H⁺ 1e-3 … 0.1, this one
+0.97–1.05 × (G2 audit, docs/POPIII_G2_MATERIAL.md; to be checked against SCVH95's table.doc, not obtained). p and u (SCVH's own columns)
+are unchanged; only the stored composition (f_H₂, x_H⁺: `composition`, and through it x_from_table, the zones' electrons for the
+scattering term, the equilibrium cooling and the NLOIT base) changes, where the SCVH weight is > 0. Cached under its own name
+(`EQEOS_CACHE=path` overrides the cache file).
+"""
+const SCVHXE = get(ENV, "SCVHXE", "0") == "1"
 const eVe = 1.602176634e-12; const χHe1 = 24.587387eVe; const χHe2 = 54.417763eVe
 const HEI_LV = let Ry = 13.605693eVe
     lv = [(0.0, 1.0), (19.8196eVe, 3.0), (20.6158eVe, 1.0), (20.9641eVe, 9.0), (21.2180eVe, 3.0)]
@@ -89,7 +100,12 @@ function node(lρ, lT)
         s = try SCVH.state(ρ, T) catch; nothing end
         s === nothing && (w = 0.0)
         if w > 0
-            X2, X1 = s.xH2, s.xH; f2 = 2X2 / (1 + X2); xp2 = max(1 - X2 - X1, 0.0) / (1 + X2)
+            X2, X1 = s.xH2, s.xH
+            if SCVHXE                                # X_H₂, X_H per particle incl. electrons: X_H⁺ = X_e = (1 − X_H₂ − X_H)/2 (see SCVHXE)
+                Xp = max(1 - X2 - X1, 0.0) / 2; f2 = 2X2 / (2X2 + X1 + Xp); xp2 = Xp / (2X2 + X1 + Xp)
+            else
+                f2 = 2X2 / (1 + X2); xp2 = max(1 - X2 - X1, 0.0) / (1 + X2)
+            end
             p = (1 - w) * p1 + w * s.p; us = (1 - w) * (u1 + UOFF) + w * s.u
             return (log10(p), log10(us), (1 - w) * f1 + w * f2, (1 - w) * xp1 + w * xp2, w)
         end
@@ -118,7 +134,8 @@ function build_he(t::EqTable)
     (z1, z2)
 end
 
-const CACHE = joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "SCVH95", HEEOS ? "eqeos_table_lr20_he.jls" : "eqeos_table_lr20.jls")   # from log rho = -20: below the old edge at -12 the cubic extrapolated p by factors of thousands
+const CACHE = get(ENV, "EQEOS_CACHE", joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "SCVH95",
+                  (HEEOS ? "eqeos_table_lr20_he" : "eqeos_table_lr20") * (SCVHXE ? "_xe" : "") * ".jls"))   # from log rho = -20: below the old edge at -12 the cubic extrapolated p by factors of thousands
 const TAB = Ref{Any}(nothing)
 "The table (built once and cached outside the repository; SCVH95 tables are not redistributable from here)."
 function table()

@@ -320,8 +320,8 @@ a hot opaque and a cool transparent state every 20–40 steps through that one-s
 """
 const NLODAMP = parse(Float64, get(ENV, "NLODAMP", "1"))
 const NLOPREV = Ref{Vector{Any}}(Any[])
-import ..ContinuumOpacity
-const COp = ContinuumOpacity
+import ..ContinuumOpacity, ..G2Opacity
+const COp = ContinuumOpacity; const G2O = G2Opacity
 const NLGRID = Ref{Vector{Float64}}(Float64[])
 """
 Frequency-only quantities of the nlte_means grid (midpoint ν, dν, σ = ν/c, λ in μm, ν³, σ_H⁻bf(λ), Rayleigh σ of H₂ and H), computed once:
@@ -361,7 +361,8 @@ end
 hbf_levels(T, n2) = ntuple(i -> (n = i + 1; n2 * (n^2 / 4) * exp(-13.598 * EVERG * (0.25 - 1 / n^2) / (CNn.kB * T))), 29)
 """Planck means of absorption (κ_E, H⁻ bf from nHm) and emission (κ_P, H⁻ bf from nHmS), H bound–free in both or neither (`hbfP`), and
 Rosseland mean of the extinction (H⁻ from nHm, H bound–free always) [cm² g⁻¹]; number densities in cm⁻³."""
-function nlte_means(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T)
+function nlte_means(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T, nHep = 0.0, nHepp = 0.0)
+    G2O.ON && return G2O.means(ρ, T; n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS, hbfP, Tw)     # G2OPAC=1 (G2Opacity)
     F = nlfreq(); t = COp.tables(); sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0; wJ = Tw != T
     cia = nH2 > 1e-3 * n1; acia = 0.0; nnl = hbf_levels(T, n2)
     @inbounds for i in eachindex(F.ν)
@@ -394,6 +395,7 @@ function nlte_kappas(ρ, T, d, p)
             z1, z2 = EQ.composition_he(ρ, T); ne = nH * (xp + z1 + 2z2); nHe = nH * max(PC.yHe - z1 - z2, 0.0)
         end
         n2 = 4n1 * exp(-E21 / (CNn.kB * T)); nHm = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
+        G2O.ON && CNn.HECHEM && return nlte_means(ρ, T; n1, n2, nH2 = nH * xh2, nHe, nHp = nH * xp, ne, nHm, nHmS = nHm, hbfP = true, nHep = nH * z1, nHepp = nH * z2)
         return nlte_means(ρ, T; n1, n2, nH2 = nH * xh2, nHe, nHp = ne, ne, nHm, nHmS = nHm, hbfP = true)
     end
     n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
@@ -401,6 +403,8 @@ function nlte_kappas(ρ, T, d, p)
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
+    G2O.ON && return nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw,
+                                nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0))
     nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw)
 end
 "Lagged non-LTE opacity factors of zone k at T0 (see NLOPAC)."
@@ -494,7 +498,8 @@ function ciatab()
     CIATAB[] = (; Tn, K)
 end
 "nlte_means with the CIA kernels from `ciatab` (NLOIT); otherwise the same arithmetic."
-nlte_means_fast(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T) = _nlmf(nlfreq(), ciatab(), Float64(ρ), Float64(T), Float64(n1), Float64(n2), Float64(nH2),
+nlte_means_fast(ρ, T; n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw = T, nHep = 0.0, nHepp = 0.0) = G2O.ON ?
+    G2O.means(ρ, T; n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS, hbfP, Tw) : _nlmf(nlfreq(), ciatab(), Float64(ρ), Float64(T), Float64(n1), Float64(n2), Float64(nH2),
     Float64(nHe), Float64(nHp), Float64(ne), Float64(nHm), Float64(nHmS), hbfP, Float64(Tw))
 function _nlmf(F, ct, ρ, T, n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw)       # (function barrier: F, ct concrete)
     sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0; wJ = Tw != T
@@ -542,7 +547,9 @@ function nlo_ratio(ρ, T, d, p)
         z1, z2 = EQ.composition_he(ρ, min(T, 1e6)); nee = nH * (xp + z1 + 2z2); nHee = nH * max(PC.yHe - z1 - z2, 0.0)
     end
     n2e = 4n1e * exp(-E21 / (CNn.kB * T)); nHme = n1e * nee / CNn.Keq([:Hm], [:H, :e], T)
-    _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = n2e, nH2 = nH * xh2, nHe = nHee, nHp = nee, ne = nee, nHm = nHme, nHmS = nHme, hbfP = true)
+    _, Pq, Rq = G2O.ON && CNn.HECHEM ? (z1g, z2g = EQ.composition_he(ρ, min(T, 1e6)); nlte_means_fast(ρ, T; n1 = n1e, n2 = n2e, nH2 = nH * xh2, nHe = nHee, nHp = nH * xp, ne = nee,
+                                          nHm = nHme, nHmS = nHme, hbfP = true, nHep = nH * z1g, nHepp = nH * z2g)) :
+                nlte_means_fast(ρ, T; n1 = n1e, n2 = n2e, nH2 = nH * xh2, nHe = nHee, nHp = nee, ne = nee, nHm = nHme, nHmS = nHme, hbfP = true)
     end
     # the base the network's means are measured against: the table itself (w = 0, κ = κ^nl(d)) below NLOITW[1], the continuum code in
     # equilibrium (w = 1, κ = table × κ^nl(d)/κ^nl(eq): the table's calibration) above NLOITW[2], geometric blend in between
@@ -552,7 +559,9 @@ function nlo_ratio(ρ, T, d, p)
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
-    E, P, R = nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw)
+    E, P, R = G2O.ON ? nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw,
+                                       nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0)) :
+                nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = false, Tw)
     Threads.atomic_add!(NLOITN, 1); Threads.atomic_add!(NLOITNS, Int(time_ns() - t0_))
     (E / bP, P / bP, R / bR), ne
 end
