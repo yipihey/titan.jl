@@ -12,6 +12,10 @@ Added against nlte_means (sources: docs/Z0_EOS_OPACITY.md and julia/z0/; each is
 populations instead of Saha's):
 - frequency grid to 25 kT/hc at 3e5 K (nlte_means' grid stops at 1e5 cm⁻¹ = 12.4 eV: above ~3e4 K the Rosseland and Planck weights
   lie beyond it and its means were the low-frequency free–free alone, too high by up to 10³);
+- level bookkeeping: `n1` is the zone's neutral H (all levels, ChemNet's x_H), n ≥ 2 follow from `n2`, the ground state is the rest,
+  n1 − Σ_{n≥2} p_n (nlte_means took all neutral H as ground state and added the excited levels on top: above ~3e4 K, where the
+  partition function is ≫ 2, that overstated the bound–free opacity by the partition function, ×250 at 1e5 K); H⁻ free–free and
+  Rayleigh on the ground state; `n2_lte` gives the LTE n = 2 for an equilibrium composition;
 - H bound–free with Gaunt factors (n = 1 Stobbe exact, n ≥ 2 Seaton fit: Z0Physics.gaunt_bf) instead of Kramers g = 1, levels
   n = 2 … 16 from the zone's n = 2 by Boltzmann × Hummer & Mihalas (1988) occupation probabilities (Z0Physics.occupation), and the
   dissolved-level pseudo-continua below each edge (Hubeny, Hummer & Lanz 1994), as Z0Physics.kappa_nu;
@@ -56,7 +60,9 @@ function means(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, n
     χH = Z0.χH; χ2 = Z0.χHe2; KR = Z0.KRAMERS
     # level populations: H n ≥ 2 from n2 (Boltzmann relative to n = 2, occupation probabilities w_n/w_2); He II from He⁺ in LTE
     wH = ntuple(n -> Z0.occupation(n, 1, Nion, Nneu), NLEV); wHe = ntuple(n -> Z0.occupation(n, 2, Nion, Nneu), NLEV)
-    pH = ntuple(n -> n == 1 ? n1 : n2 * (n^2 / 4) * exp(-χH * (0.25 - 1 / n^2) / kT) * wH[n] / max(wH[2], 1e-300), NLEV)
+    pH0 = ntuple(n -> n == 1 ? 0.0 : n2 * (n^2 / 4) * exp(-χH * (0.25 - 1 / n^2) / kT) * wH[n] / max(wH[2], 1e-300), NLEV)
+    ng = max(n1 - sum(pH0), 0.0)                                  # ground state
+    pH = ntuple(n -> n == 1 ? ng : pH0[n], NLEV)
     UHe = sum(n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n] for n in 1:NLEV)
     pHe = ntuple(n -> nHep * n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n] / max(UHe, 1e-300), NLEV)
     cia = nH2 > 1e-3 * n1; acia = 0.0
@@ -66,7 +72,7 @@ function means(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, n
         stim = -expm1(-COp.h * ν / kT)
         cia && i % 8 == 1 && (acia = COp.k_h2h2(t, σ, T) * nH2^2 + COp.kcia(t.H2He, σ, T) * nH2 * nHe + COp.kcia(t.H2H, σ, T) * nH2 * n1)
         # free–free: H⁻ (John 1988), H⁺ + He⁺ (Z = 1) and He²⁺ (Z = 2) with van Hoof Gaunt factors
-        aff = COp.k_Hm_ff(λμ, T) * n1 * ne * kT
+        aff = COp.k_Hm_ff(λμ, T) * ng * ne * kT
         aff += 3.692e8 * ne / (sqrt(T) * ν3) * stim * ((nHp + nHep) * Z0.gaunt_ff(1, T, ν) + (nHepp > 0 ? 4nHepp * Z0.gaunt_ff(2, T, ν) : 0.0))
         # H bound–free (Gaunt factors, occupation probabilities, dissolved levels)
         ab = 0.0
@@ -95,13 +101,24 @@ function means(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, n
         ahe *= stim
         a0 = acia + aff + ahe
         σhm = F.σhm[i] * stim
-        sca = F.ray2[i] * nH2 + F.ray1[i] * n1 + COp.σT * ne
+        sca = F.ray2[i] * nH2 + F.ray1[i] * ng + COp.σT * ne
         B = COp.Bν(ν, T); D = COp.dBdT(ν, T); h = hbfP ? ab : 0.0
         BJ = wJ ? COp.Bν(ν, Tw) : B
         sE += (a0 + σhm * nHm + h) * BJ * dν; sW += BJ * dν; sP += (a0 + σhm * nHmS + h) * B * dν; sB += B * dν
         sR += D / max(a0 + σhm * nHm + ab + sca, 1e-300) * dν; sD += D * dν
     end
     (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
+end
+
+"""
+LTE population of H n = 2 [cm⁻³] for `nH0` neutral H atoms (all levels): Boltzmann with occupation probabilities over n ≤ $(NLEV)
+(Nion, Nneu as in `means`).
+"""
+function n2_lte(T, nH0, Nion, Nneu)
+    kT = COp.kB * Float64(T); χH = Z0.χH
+    w = ntuple(n -> Z0.occupation(n, 1, Nion, Nneu), NLEV)
+    U = sum(n^2 * exp(-χH * (1 - 1 / n^2) / kT) * w[n] / w[1] for n in 1:NLEV)
+    nH0 * 4 * exp(-χH * 0.75 / kT) * w[2] / w[1] / U
 end
 
 end # module
