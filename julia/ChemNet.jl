@@ -309,7 +309,9 @@ photorates through a table in log T (1–1e6 K, 0.005 dex, Catmull–Rom in ln R
 every zone (`env.static == true`, e.g. the CMB or none); otherwise direct. Table vs direct ≤ 3e-3 at 20 K–9e5 K (H, H⁻, Li; J = B(54 K)); the larger differences, H⁻ α above 7e4 K, are the direct quadrature's own (n = 200 vs 800: 3 %).
 """
 const PHTAB = CowCache{Any}(); const PHLOCK = PHTAB.lk
-function photorates_t(p::Photo, T, env)
+"(HM88) the Milne inverse of H photoionization × φ (see HM88); otherwise `_photorates_t`."
+photorates_t(p::Photo, T, env) = (HM88 && p.R === :H && hasproperty(env, :hm)) ? (r = _photorates_t(p, T, env); (r[1], r[2] * hm_phi(T, env))) : _photorates_t(p, T, env)
+function _photorates_t(p::Photo, T, env)
     hasproperty(env, :ljW) && return photorates_lj(p, T, env)
     (hasproperty(env, :static) && env.static) || return photorates(p, T, env)
     # env.tabkey: a per-zone env (extra fields for reactions) that shares the static J of `tabkey`, and so its table
@@ -467,7 +469,66 @@ function eos(ρ, T, x, net)
         u += v[j] * ((c.isH2[j] ? u_H2(T) : c.cv[j](T)) * kB * T + c.E0[j])
         N += v[j]
     end
+    if HM88 && c.iH > 0                    # HM88: excitation energy and occupation-probability pressure of H I (see HM88)
+        Nneu, Nion = hm_perturbers(v, c, nH)
+        eex, pex = hm_exc(T, Nneu, Nion)
+        return ((u + v[c.iH] * eex) / μH(), (N + v[c.iH] * pex) * nH * kB * T)
+    end
     (u / μH(), N * nH * kB * T)
+end
+
+# ------------------------------------------------------------------ HM88: occupation probabilities (G2, docs/POPIII_G2_MATERIAL.md)
+"""
+`HM88=1` (default off; off = bit-identical): atomic H with the occupation-probability formalism of Hummer & Mihalas (1988, ApJ 331, 794;
+w_n of their eq. 4.71 with Z_p = 1, as Z0Physics.occupation): partition function Z_w = Σ_{n ≤ $(80)} 2n² (w_n/w_1) e^{−E_n/kT} instead of
+ZH_el's hard cut at n = 15 without w (which overpopulates neutral H by Z_H/2 ≈ 10–500 above 3e4 K and has no excitation energy).
+- EOS (`eos`, exact in ρ, T, x): u += x_H Σ_n P_n E_n (excitation energy, P_n = level fractions of Z_w), p += n_H x_H kT Σ_n P_n (−ln(w_n/w_1))
+  (−∂F_int/∂V at fixed particle numbers, F_int = −kT N_H ln Z_w; the cross terms through the perturbers' chemical potentials are omitted).
+- Chemistry: the equilibrium constant of H ⇌ H⁺ + e becomes K Z_el/Z_w; every H recombination channel (reactions H⁺ + e (+ …) → H (+ …),
+  incl. the detailed-balance reverses and the three-level C α_B, and the Milne inverse of H photoionization) is multiplied by
+  φ = Z_w/Z_el ≤ 1, so detailed balance and J = B give the HM88 Saha equilibrium; ionization rates are unchanged (ionization from dissolved
+  levels is lumped into the recombination deficit). φ takes the perturber densities from `env.hm = (N_neu, N_ion)` [cm⁻³], set per zone and
+  step by the material from the composition at the start of the step (lagged within the step; exact in T); without `env.hm`, φ = 1.
+Networks: wrap with `hm88_network(net)`.
+"""
+const HM88 = get(ENV, "HM88", "0") == "1"
+const NHM = 80
+const A0CM = 5.29177211e-9; const ECGS = 4.80320471e-10; const RYDINF = 13.605693eV
+"HM88 occupation probability of level n of a hydrogenic ion of charge Z in neutral/ion perturbers (cm⁻³), eq. 4.71 (Z_p = 1)."
+@inline function w_hm(n, Z, Nneu, Nion)
+    χn = Z^2 * RYDINF / n^2; K = n <= 3 ? 1.0 : (16 / 3) * n / (n + 1)^2
+    q = sqrt(Float64(Z)) * ECGS^2 / (sqrt(K) * χn); rn = n^2 * A0CM / Z
+    exp(-(4π / 3) * (16 * Nion * q^3 + Nneu * (rn + A0CM)^3))
+end
+"Z_w/2 of H I (ground weight 1, w_n/w_1)."
+function ZH_hm(T, Nneu, Nion)
+    w1 = w_hm(1, 1, Nneu, Nion); z = zero(T) + zero(Nneu) + zero(Nion)
+    for n in 1:NHM; z += n^2 * (w_hm(n, 1, Nneu, Nion) / w1) * exp(-χH * (1 - 1 / n^2) / (kB * T)); end
+    z
+end
+"(⟨E_exc⟩, Σ P_n (−ln(w_n/w_1))) per H atom [erg, dimensionless] of the HM88 level distribution."
+function hm_exc(T, Nneu, Nion)
+    w1 = w_hm(1, 1, Nneu, Nion); z = zero(T) + zero(Nneu) + zero(Nion); e = z; q = z
+    for n in 1:NHM
+        wr = w_hm(n, 1, Nneu, Nion) / w1; En = χH * (1 - 1 / n^2); t = n^2 * wr * exp(-En / (kB * T))
+        z += t; e += t * En; q -= t * log(max(wr, 1e-300))
+    end
+    e / z, q / z
+end
+"Perturber densities of composition v (fullvec) at n_H: neutrals H, He, H₂ (and Li); ions as the electrons."
+function hm_perturbers(v, c, nH)
+    Nneu = v[c.iH] + v[c.iHe]
+    for j in eachindex(v); c.isH2[j] && (Nneu += v[j]); end
+    Nion = c.ie > 0 ? max(v[c.ie], zero(v[c.ie])) : zero(Nneu)
+    nH * Nneu, nH * Nion
+end
+"φ = Z_w/Z_el of the zone's env (1 without env.hm or with HM88 off)."
+hm_phi(T, env) = (HM88 && hasproperty(env, :hm)) ? 2ZH_hm(T, env.hm[1], env.hm[2]) / ZH_el(T) : one(T)
+"The network with every H recombination channel × φ (HM88)."
+function hm88_network(net)
+    isrec(r) = (:Hp in r.R) && (:e in r.R) && (:H in r.P) && !(:H in r.R)
+    rx = [isrec(r) ? Reaction(r.name * " [HM88 φ]", r.R, r.P, let k = r.k; (T, env) -> k(T, env) * hm_phi(T, env); end) : r for r in net.reactions]
+    Network(net.species, net.free, rx)
 end
 
 "dx/dt for the free species at H-nucleus density nH."

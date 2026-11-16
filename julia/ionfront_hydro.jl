@@ -8,7 +8,7 @@ include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "Bl
 include(joinpath(@__DIR__, "TitanCore.jl")); include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "TitanMaterials.jl"))
 include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "PrimordialChem.jl"))
 include(joinpath(@__DIR__, "SCVH.jl")); include(joinpath(@__DIR__, "PopIIIEqEOS.jl"))
-include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl"))
+include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "G2Opacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl"))
 include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "IonRay.jl"))
 using ForwardDiff
 include(joinpath(@__DIR__, "Trbdf2.jl"))

@@ -223,6 +223,15 @@ const XSN = Ref([Float64[], Float64[]]); const XSO = Ref([Float64[], Float64[]])
 const XSRCO = Ref([Float64[], Float64[]]); const XLAMO = Ref(Float64[]); const CPLZ = Ref(Bool[])
 const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's iterate while the material is evaluated
 const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
+"""
+SLIMP (popiii_m2c `SLIMP=1`, with COUPLED; default off, off = bit-identical): the star-light dilution of a coupled zone at the Newton
+iterate. `SLQ_FN[](k, E_k, F_k, F_k+1)` gives (q_k, t_k) = (W_k, T_c,k at the iterate)/(their start-of-step values) (local: zone k's E_r and its
+two interface fluxes), `CPL_ZONEQ[](k, ρ, T, x1, x2, q, t)` the zone's terms at that star light (PopIIIMaterial.cpl_zone_q), and `CPLQ[]`
+carries (q, t) (Duals) to the NLOIT opacity during the material sweep. SLIMP=1: W only (t ≡ 1); SLIMP=2: also the local part of T_c.
+"""
+const SLIMP = Ref(false); const SLQ_FN = Ref{Any}(nothing); const CPL_ZONEQ = Ref{Any}(nothing); const CPLQ = Ref{Any}(nothing)
+const CPLQT = Ref{Any}(nothing)   # (SLIMP) t = T_c/T_c,start of the last residual's material sweep, for the coupled-zone sweep that follows
+const SLQBUF = Dict{Any,Any}()
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
 "Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
 # COUPLED: the three-level heats cq, yq of the iterate in the rows (CPLIMPQ=1, experimental: with CPLNLOX its Δt → 0 limit was ~300 K below
@@ -526,6 +535,56 @@ EXCAP[] > 0: factor on the gas-radiation exchange of the two energy rows, so tha
 1e20 and the rows carry it as round-off; E = aT⁴ there holds to about 1/EXCAP anyway. The same factor in both rows keeps energy conserved. A constant of the iteration (no derivative).
 """
 const EXCAP = Ref(0.0)
+"""
+SUBZONE (popiii_m2c `SUBZONE=1[,τ_f]`, default off; off = bit-identical): optical depth of an interface across which an unresolved
+front (photosphere / recombination front) lies, from a two-layer sub-zone picture instead of the harmonic mean of the two zones' χ.
+
+TITAN's interface coefficient avchi = 2/(1/χ₋ + 1/χ₊) gives the interface optical depth Δτ_T = (M₋ + M₊) avchi (M± the half-zone
+columns ½ ρ dV / r^μ). With a = χ₋M₋, b = χ₊M₊ the two half-zone optical depths (equal M: Δτ_T = 4ab/(a + b)), Δτ_T → 2b(1 + M₋/M₊)
+for a ≫ b: across a front the opaque half-zone is given the transparent zone's opacity. The interface flux is then ∝ 1/χ of the
+transparent zone, the zone that (outside a photosphere) is irradiated, steeply T dependent (χ ∝ T^q, q ~ 10–20) and lagged by the
+operator-split chemistry, so the emergent flux of the hot surface follows the cold neighbour's opacity one to one.
+
+Sub-zone picture (a front between the zone centres, thinner than any zone): the light leaving the opaque side originates within
+an optical depth of order unity of its surface (Eddington–Barbier: τ = 2/3, e.g. Mihalas 1978, Stellar Atmospheres,
+1978stat.book.....M), so the opaque half-zone contributes its own depth only up to τ_f, τ_f a/(a + τ_f), and the transparent
+half-zone its own b. τ_f (default 2, `SUBZONE=1,τ_f`) is the depth of the opaque zone's centre below its unresolved surface, a
+closure constant of order unity; it also sets the width of the front window s(x) below. On zdiagB's front τ_f = 2/3 does not
+remove the orbit, τ_f = 1 and 2 do (docs/POPIII_SUBZONE_FRONT.md):
+    D₋₊ = τ_f a/(a + τ_f) + b   (opaque side −),   D₊₋ = τ_f b/(b + τ_f) + a   (opaque side +).
+Away from a front the two half-zones are in series (a + b), the form that keeps the thick diffusion limit (Larsen, Morel & Miller
+1987, 1987JCoPh..69..283L); TITAN's harmonic mean is kept there unchanged. The front weight
+    s(x) = x⁴/(x⁴ + τ_f⁴),  ω₋₊ = s(a)(1 − s(b)),  ω₊₋ = s(b)(1 − s(a))  (ω₋₊ + ω₊₋ ≤ 1)
+is ≈ 1 only where one half-zone is opaque (≳ τ_f) and the other transparent (≲ τ_f), so
+    Δτ = (1 − ω₋₊ − ω₊₋) Δτ_T + ω₋₊ D₋₊ + ω₊₋ D₊₋,   avchi_SZ = Δτ/(M₋ + M₊).
+Δτ is a rational (C∞) function of χ±, ρ±, r: the Newton's Duals carry it, and the interface still couples only its two zones (the
+block structure is unchanged). As the front moves into the transparent zone (b grows through τ_f), ω falls smoothly to 0 and the
+next interface takes over. In thick–thick interiors the change is ≲ (τ_f/min(a,b))⁴, in thin–thin envelopes ≲ (max(a,b)/τ_f)⁴.
+The same avchi enters the flux row and the radiation-force work of the energy rows (energy stays conserved).
+"""
+const SUBZONE = Ref(false); const SZTAUF = Ref(2.0)
+"(SUBZONE diagnostic) per interface: front weight ω₋₊ + ω₊₋ and Δτ_SZ/Δτ_T (values) of the last residual evaluation."
+const SZOMEGA = Float64[]; const SZRATIO = Float64[]
+@inline function sz_tau(a, b, ΔτT, τf)
+    τ4 = τf^4; a4 = a^4; b4 = b^4
+    sa = a4 / (a4 + τ4); sb = b4 / (b4 + τ4)
+    ωab = sa * (1 - sb); ωba = sb * (1 - sa)
+    Dab = τf * a / (a + τf) + b; Dba = τf * b / (b + τf) + a
+    return (1 - ωab - ωba) * ΔτT + ωab * Dab + ωba * Dba, ωab + ωba
+end
+"SUBZONE: replace avchi of the interior interfaces ngrs+1..ngre by the sub-zone front form (see SUBZONE); θ-level χ, ρ, dV, r^μ."
+function sz_avchi!(avchi, chif, d, dvol, rmu, ngrs, ngre)
+    τf = SZTAUF[]
+    length(SZOMEGA) < ngre + 1 && (resize!(SZOMEGA, ngre + 1); resize!(SZRATIO, ngre + 1)); fill!(SZOMEGA, 0.0); fill!(SZRATIO, 1.0)
+    @inbounds for k in ngrs+1:ngre
+        Mm = 0.5 * d[k-1] * dvol[k-1] / rmu[k]; Mp = 0.5 * d[k] * dvol[k] / rmu[k]
+        ΔτT = (Mm + Mp) * avchi[k]
+        Δτ, ω = sz_tau(chif[k-1] * Mm, chif[k] * Mp, ΔτT, τf)
+        avchi[k] = Δτ / (Mm + Mp)
+        SZOMEGA[k] = val(ω); SZRATIO[k] = val(Δτ) / val(ΔτT)
+    end
+    nothing
+end
 @inline function excap(cc, κ, ρ, dt)
     EXCAP[] > 0 || return 1.0
     return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
@@ -929,17 +988,26 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             k = k0 + bb - 1; xs1[k] = xn1[k] * exp(x[(bb-1)*neqn+8]); xs2[k] = xn2[k] * exp(x[(bb-1)*neqn+9])
         end
         CPLW[] = (xs1, xs2)
+        slq = nothing
+        if SLIMP[]                                   # SLIMP: q_k of the iterate (new-level E_r, F_r)
+            slq = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 1))::Vector{T}
+            slt = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 2))::Vector{T}
+            @inbounds for k in eachindex(slq); slq[k] = one(T); slt[k] = one(T); end
+            @inbounds for k in ngrs:ngre; cplz(k) && ((slq[k], slt[k]) = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
+            CPLQ[] = (slq, slt)
+        end
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
         finally
-            CPLW[] = nothing
+            CPLW[] = nothing; slq === nothing || (CPLQT[] = CPLQ[][2]); CPLQ[] = nothing
         end
         # (PERF512) the coupled zones' rates in the Jacobian's Dual numbers on MATTHREADS tasks (zones independent; the material sweep above
         # left their values and local Jacobians in the zones' cache entries); bit-identical. ZONE[] is not used here and is kept.
         let z0 = ZONE0[]
             try zone_sweep!(ngrs:ngre, k -> true) do k
                 @inbounds if cplz(k)
-                    y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]); W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
+                    y = slq === nothing ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) : CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slq[k], CPLQT[][k])
+                    W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
                     W.cpQ[k] = y[6]; W.cpY[k] = y[7]
                 else
                     W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
@@ -992,6 +1060,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     end
     avchi = W.avchi
     c.lrad && @inbounds for k in ngrs:ngre+1; avchi[k] = 2 / (1 / chif[k-1] + 1 / chif[k]); end
+    c.lrad && SUBZONE[] && sz_avchi!(avchi, chif, d, dvol, rmu, ngrs, ngre)
     # viscosity
     qf, dudr = W.qf, W.dudr; xmu4 = 0.25xmu
     @inbounds for k in ngrs:ngre
@@ -1670,6 +1739,36 @@ function cpl_jcheck(kz; h = parse(Float64, get(ENV, "CPLJCHH", "1e-6")))
             rel > worst && (worst = rel; wl = "row $i zone $kr: AD $(round(ad, sigdigits = 6)) FD $(round(fd, sigdigits = 6))")
         end
         println("CPLJCHECK zone $kz column $j (cplz $(cplz(kz))): worst relative difference $(round(worst, sigdigits = 3))  ($wl)")
+    end
+    nothing
+end
+
+"""
+SZJCHECK test (popiii_m2c SZJCHECK=n1,n2,…, at the first Newton iteration of the first step): the AD Jacobian of the gas-energy,
+radiation-energy and radiation-flux rows of zones k−2…k+2 with respect to ρ, T, E_r, F_r (and x_H⁺, x_H₂ if COUPLED) of zone k,
+against central finite differences of the value residual (step h in the scaled variables). Prints the worst relative difference
+per column (relative to max(|AD|, |FD|, 1e-6 × the row's largest entry)). Written for SUBZONE, whose avchi enters the flux row.
+"""
+function rad_jcheck(kz; h = parse(Float64, get(ENV, "SZJCHH", "1e-6")))
+    c = context(); assemble!(c)
+    E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); neqn = c.neqn; nb = c.nb; k0 = c.k0
+    ir, im, id, iu, it, ie, iF = c.ix
+    ws = getws(Float64, c.mgr); R1 = zeros(neqn, nb); R2 = zeros(neqn, nb); xz = zeros(neqn * nb)
+    kbz = kz - k0 + 1
+    cols = neqn >= 9 ? (id, it, ie, iF, 8, 9) : (id, it, ie, iF)
+    for j in cols
+        idx = (kbz - 1) * neqn + j
+        xz[idx] = h; residual!(R1, ws, c, xz); xz[idx] = -h; residual!(R2, ws, c, xz); xz[idx] = 0.0
+        worst = 0.0; wl = ""
+        for kr in kz-2:kz+2, i in (neqn >= 9 ? (it, ie, iF, 8, 9) : (it, ie, iF))
+            kbr = kr - k0 + 1; (1 <= kbr <= nb) || continue
+            fd = (R1[i, kbr] - R2[i, kbr]) / 2h; ad = E[kz - kr + 3][i, j, kr]
+            rowmax = maximum(abs(E[o][i, jj, kr]) for o in 1:5 for jj in 1:neqn)
+            sc = max(abs(fd), abs(ad), 1e-6 * rowmax); sc == 0 && continue
+            rel = abs(fd - ad) / sc
+            rel > worst && (worst = rel; wl = "row $i zone $kr: AD $(round(ad, sigdigits = 6)) FD $(round(fd, sigdigits = 6))")
+        end
+        println("SZJCHECK zone $kz column $j (SUBZONE $(SUBZONE[]), SLIMP $(SLIMP[])): worst relative difference $(round(worst, sigdigits = 3))  ($wl)")
     end
     nothing
 end

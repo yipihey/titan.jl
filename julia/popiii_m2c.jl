@@ -12,7 +12,7 @@ include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "Bl
 include(joinpath(@__DIR__, "TitanCore.jl")); include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "TitanMaterials.jl"))
 include(joinpath(@__DIR__, "ProblemSetup.jl")); include(joinpath(@__DIR__, "PrimordialChem.jl"))
 include(joinpath(@__DIR__, "SCVH.jl")); include(joinpath(@__DIR__, "PopIIIEqEOS.jl"))
-include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl"))
+include(joinpath(@__DIR__, "ContinuumOpacity.jl")); include(joinpath(@__DIR__, "G2Opacity.jl")); include(joinpath(@__DIR__, "ChemNet.jl")); include(joinpath(@__DIR__, "ChemRates.jl"))
 include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2Lines.jl"))
 # LINEGPU=cuda|metal|cpu: formal solution of the thick H2 lines through KernelAbstractions (H2LinesKA.jl); needs an
 # environment with KernelAbstractions and CUDA or Metal. Off unless set.
@@ -356,6 +356,7 @@ else
     netw, phot = CHEM == "net" ? (ChemRates.rhfc02(; k5 = k5f), ChemNet.Photo[]) : ChemRates.modern(; li = CHEM == "netmodernli")
     # SL3=1 (with STARLIGHT=1): three-level H atom in the lit network zones (PM.tl3_reactions; rates are zero elsewhere)
     get(ENV, "SL3", "0") == "1" && (netw = PM.tl3_network(netw))
+    ChemNet.HM88 && (netw = ChemNet.hm88_network(netw))      # HM88=1: H recombination × Z_w/Z_el (ChemNet.HM88)
     tcmb = parse(Float64, get(ENV, "TCMB", "0"))
     Bν_(ν, T) = 2ChemNet.hP * ν^3 / ChemNet.c^2 / expm1(ChemNet.hP * ν / (ChemNet.kB * T))
     envn = (Trad = tcmb, J = tcmb > 0 ? (ν -> Bν_(ν, tcmb)) : (ν -> 0.0), static = true)   # same J in every zone: tabulated photo-rates
@@ -1965,6 +1966,15 @@ haskey(ENV, "ETASWTIE") && (TX.ETASW_TIE[] = parse(Float64, ENV["ETASWTIE"]))   
 get(ENV, "ETOTGRAVGRID", "0") == "1" && (TX.ETOT_GRAV_GRID[] = true)     # gravity work on Lagrangian zones in the total-energy row (off: as before)
 get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW_EOFF[] = PC.UOFF_TH; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
+const OLDOPAC = get(ENV, "OLDOPAC", "0") == "1"
+OLDOPAC && pr("OLDOPAC: start-of-step opacities re-evaluated with the Newton's material after the COUPLED prepare pass (consistent theta-scheme old level)\n")
+# SUBZONE=1[,τ_f] (default off): interface optical depth across an unresolved front from the two-layer sub-zone form (TX.SUBZONE)
+if get(ENV, "SUBZONE", "0") != "0"
+    let w_ = parse.(Float64, split(ENV["SUBZONE"], ","))
+        TX.SUBZONE[] = w_[1] != 0; length(w_) > 1 && (TX.SZTAUF[] = w_[2])
+        TX.SUBZONE[] && pr("SUBZONE: interface optical depth across unresolved fronts from the sub-zone form (opaque half-zone to tau_f = %.3g, transparent half-zone in series; front weight s(a)(1-s(b)), s = x^4/(x^4+tau_f^4))\n", TX.SZTAUF[])
+    end
+end
 const LINEFRAC = parse(Float64, get(ENV, "LINEFRAC", "0")); const LINELAST = [-Inf, 0.0]; const LINECAPV = Ref(NaN)
 # NEWTKX=1: the largest Newton correction of each equation at every iteration from the third on, with the zone it is in (debugging)
 if get(ENV, "NEWTKX", "0") == "1"
@@ -2409,6 +2419,11 @@ try
         TF.PARAMS[:meqn] >= 9 || error("COUPLED=1: meqn = $(TF.PARAMS[:meqn]) < 9")
         ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
         TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
+        if PM.SLIMP                                # SLIMP=1: the star-light dilution of the coupled zones at the Newton iterate (PM.sl_q, cpl_zone_q)
+            TX.SLIMP[] = true; TX.SLQ_FN[] = PM.sl_qt; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t)
+            pr("SLIMP=%d: star light of the coupled zones at the Newton iterate: dilution W%s (local variables of the zone's chemistry and NLOIT opacity)\n",
+               PM.SLIMPN, PM.SLIMPN >= 2 ? " and the local part of T_c (T_r^wq)" : " (T_c held)")
+        end
         get(ENV, "CPLLOCAL", "1") == "1" && (TX.CPL_LOCAL[] = (k, dt) -> PM.cpl_local!(mat, k, dt))
         TC.CPLH[] = (; newstep = TX.cpl_newstep!, reset = TX.cpl_reset!, update = TX.cpl_update!, dmax = TX.cpl_dmax!)
         push!(TC.DT_HOOKS, cpl_dtcap)
@@ -2416,8 +2431,16 @@ try
             zs = parse.(Int, split(ENV["CPLJCHECK"], ",")); once = Ref(true); g0 = TD.ROUTINES[:matgen]
             TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.cpl_jcheck(a_ + z - 1); TX.cplz(a_ + z - 1) && PM.cpl_gcheck(mat, a_ + z - 1); end); g0())
         end
+        if haskey(ENV, "SZJCHECK")                 # Jacobian test of the radiation and energy rows (TitanResidFast.rad_jcheck), once
+            zs = parse.(Int, split(ENV["SZJCHECK"], ",")); once = Ref(true); g0 = TD.ROUTINES[:matgen]
+            TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.rad_jcheck(a_ + z - 1); end); g0())
+        end
         let f0 = TD.STEPFN[]
-            TD.STEPFN[] = () -> (PM.cpl_prepare!(mat); f0(); nothing)
+            # OLDOPAC=1 (default off): after the prepare pass, the opacities of the start-of-step state are re-evaluated with the material the
+            # Newton will use (NLOIT: this step's prepared terms and species), so the θ-scheme's old level (chifo, xkeo, xkpo := new at peq)
+            # and the residual's new level are one function of the state. Without it the old level is the post-chemistry fill of the last
+            # step (or, after a restart, the table: NLOST is not yet rebuilt), and the TR stage averages two different opacity laws.
+            TD.STEPFN[] = OLDOPAC ? (() -> (PM.cpl_prepare!(mat); TD.OPAC[](); f0(); nothing)) : (() -> (PM.cpl_prepare!(mat); f0(); nothing))
         end
         @printf("COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn %d), CPLXSTOL %.3g\n", TF.PARAMS[:meqn], CPLXSTOL)
     elseif Int(TF.getscalar(:neqn)) == 9
@@ -2620,6 +2643,10 @@ try
         if ENVEUL !== nothing
             envsink!()
             if k % PRINTEVERY == 0
+                if TX.SUBZONE[] && !isempty(TX.SZOMEGA)    # SUBZONE: the interfaces with a front weight > 0.05 (zone numbers from the inner boundary)
+                    jf = [j for j in a+1:min(b, length(TX.SZOMEGA)) if TX.SZOMEGA[j] > 0.05]
+                    pr("        SUBZONE: %d front interface(s)%s\n", length(jf), join((@sprintf(" | %d: w %.3f dtau/dtau_T %.3f", j - a + 1, TX.SZOMEGA[j], TX.SZRATIO[j]) for j in jf), ""))
+                end
                 j_ = envsurface(); uu = TF.var(:un)[a:b+1]; ku = argmin(uu); rr = TF.var(:rn)[a:b+1]; mm = 4π .* envmenc() ./ Msun
                 pr("        env: chem fallbacks %d, t %.6e yr, Mc+grid(<surf) %.4f Msun, sink %.2e Msun/yr, surface r %.1f R_sun, u_min %.1f km/s at r %.1f (v_esc %.1f), dt %.2e s\n", PM.NCHEMFB[], TF.getscalar(:timen) / 3.156e7, mm[j_],
                    4π * ENVMDOT[] / Msun * 3.156e7, rr[j_] / Rsun, uu[ku] / 1e5, rr[ku] / Rsun, sqrt(2Z0.G * mm[ku] * Msun / rr[ku]) / 1e5, TF.getscalar(:dtime))
