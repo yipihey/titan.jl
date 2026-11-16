@@ -462,6 +462,7 @@ function recsnap!(k)
             nchemfb = PM.NCHEMFB[], kph = sd === nothing ? 0 : sd.kph, Teff = sd === nothing ? NaN : Float64(sd.Te))
     mat isa PM.NetGas && PM.HDCHEM[] && (snap = merge(snap, (; hd = PM.hd_snap(mat, a, b))))     # HDCHEM=1: x_D+, x_HD, HD cooling
     PM.IONFS && (pf = PM.ifs_profile(mat, a, b); pf === nothing || (snap = merge(snap, (; ionfs = pf))))     # IONFS: Q(r), the front
+    PM.IFSIMP && PM.ifsi_snaplog(mat, a, b, k)                                                                # IONFSIMP: ionfs_snap.csv
     serialize(REC.io[], snap); flush(REC.io[])
 end
 "One perf.csv row (called at the TIMING report, before the accumulators are reset)."

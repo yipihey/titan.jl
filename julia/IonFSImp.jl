@@ -58,10 +58,11 @@ mutable struct IFIState
     kLW::Vector{Float64}; kLWsl::Vector{Float64}; D::Vector{Float64}; Dsl::Vector{Float64}
     kend::Int; emit::Vector{Float64}; absb::Vector{Float64}; esc::Vector{Float64}; rowerr::Float64; niter::Int
     phz::Vector{Any}; lrec::Vector{Float64}
+    yint::Matrix{Float64}; qion::Vector{Float64}          # (post) ln N_g at every interface k0…b+1 (NaN inside k0), ionizing heat per zone
 end
 const IFSI = Ref{Any}(nothing)
 ifsi_alloc(mgr) = IFIState(zeros(4), 0.0, 0.0, 0.0, ones(mgr), fill(Inf, mgr), zeros(mgr), zeros(mgr), zeros(mgr), zeros(mgr), 0, zeros(4), zeros(4), zeros(4), 0.0, 0,
-                           Any[nothing for _ in 1:mgr], zeros(mgr))
+                           Any[nothing for _ in 1:mgr], zeros(mgr), fill(NaN, 4, mgr + 1), zeros(mgr))
 """
 He radiative-recombination cooling of a ray zone [erg cm⁻³ s⁻¹] at (ρ, T, full composition d), from the network's own recombination rates:
 the Milne inverses α of its He I and He II photo-processes (`ph`: tuples (process, R, α), case B in the ray's env), × (χ + 0.75 kT) per
@@ -139,6 +140,39 @@ function ifsi_freqs()
     νs, dν, grp
 end
 const IFSI_FREQ = ifsi_freqs()
+"""
+IONFSLDIAG=n (diagnostic, default 0): at the first n source solves, why L_fs ≠ L_run. (1) the same formal solution with the run's grey
+opacity (χ = chifn ρ, absorption κ_P ρ, LTE B(T) source): if that gives L_run, the method is right and the difference is the opacity;
+(2) the Rosseland and Planck means of the source opacity against the run's χ and κ_P at the points of the solved region.
+"""
+const IFSI_LDIAG = Ref(parse(Int, get(ENV, "IONFSLDIAG", "0")))
+struct IFGrey; χ::Vector{Float64}; κ::Vector{Float64}; T::Vector{Float64}; end
+function ifsi_ldiag(atm, op, R, νs, dν, grp, L, Lfs, Lrun, zone, k0, tauz)
+    SP_ = IFSP(); chi = TM.v(:chifn); kp = TM.v(:xkpn); dn = TM.v(:dn)
+    @eval Main.Spectrum.coeffs3(o::$IFGrey, k, ν) = (o.κ[k], max(o.χ[k] - o.κ[k], 0.0), $(IFCO()).Bν(ν, o.T[k]))
+    gop = IFGrey([chi[z] * dn[z] for z in zone], [min(kp[z], chi[z]) * dn[z] for z in zone], [TM.v(:tn)[z] for z in zone])
+    Lg = zeros(length(νs))
+    Threads.@threads for i in eachindex(νs)
+        grp[i] >= 0 && (Lg[i] = max(Base.invokelatest(SP_.monochromatic, atm, gop, R, νs[i]; maxit = 60, maxit_direct = true)[1], 0.0))
+    end
+    Lgrey = sum(Lg[i] * dν[i] for i in eachindex(νs) if grp[i] >= 0)
+    @printf("IONFSLDIAG step %d: L_run %.4e  L_fs %.4e (ratio %.3f)  L_fs with the run's grey opacity %.4e (ratio to L_run %.3f)  [r_b %.4g R_sun, zones %d..%d]\n",
+            Int(TF.getscalar(:jstep)), Lrun / 3.83e33, Lfs / 3.83e33, Lrun / Lfs, Lgrey / 3.83e33, Lgrey / Lrun, TM.v(:rn)[k0] / 6.957e10, zone[1], zone[end])
+    # means of the source opacity at every solved point, against the run's
+    for j in unique([1, length(zone) ÷ 4, length(zone) ÷ 2, (3 * length(zone)) ÷ 4, length(zone) - 2, length(zone)])
+        (1 <= j <= length(zone)) || continue
+        z = zone[j]; T = atm.T[j]; sR = 0.0; wR = 0.0; sP = 0.0; wP = 0.0
+        for i in eachindex(νs)
+            grp[i] >= 0 || continue
+            ab, sc, _ = ifs_coeffs3(op, j, νs[i]); x = CNn.hP * νs[i] / (CNn.kB * T)
+            B = IFCO().Bν(νs[i], T); dB = x > 600 ? 0.0 : B * x * exp(x) / expm1(x) / T
+            sR += dB * dν[i] / (ab + sc); wR += dB * dν[i]; sP += ab * B * dν[i]; wP += B * dν[i]
+        end
+        @printf("IONFSLDIAG   point %d zone %d T %.0f rho %.3e tau_grey %.3g: Rosseland(FS) %.3e Planck(FS) %.3e per cm | run chi %.3e kappa_P %.3e per cm\n",
+                j, z, T, atm.ρ[j], tauz[z], wR / sR, sP / wP, chi[z] * dn[z], kp[z] * dn[z])
+    end
+    nothing
+end
 "IonFS's source (ifs_source!) for the implicit ray: three ionizing groups in st (N, G), the LW band in IFSI (Φ, σ_d, mean energy)."
 function ifsi_source!(st, m, a, b, k0, tauz)
     t0 = time(); dn, tn, rn, fr = TM.v(:dn), TM.v(:tn), TM.v(:rn), TM.v(:frn)
@@ -174,6 +208,7 @@ function ifsi_source!(st, m, a, b, k0, tauz)
     end
     L12 = L[end]
     Lrun = 4π * rn[k0]^2 * fr[k0]
+    IFSI_LDIAG[] > 0 && (IFSI_LDIAG[] -= 1; ifsi_ldiag(atm, op, R, νs, dν, grp, L, Lfs, Lrun, zone, k0, tauz))
     f = (IFSNORM && Lfs > 0 && Lrun > 0) ? Lrun / Lfs : 1.0
     st.N = f .* N[1:3]; dE = [diff(IFSI_EDGES)...] .* EVERG
     st.G = Main.IonRay.Groups(Ec[1:3], dE, IFS_SP, σ); st.k0 = k0; st.rb = rn[k0]; st.step = Int(TF.getscalar(:jstep))
@@ -456,9 +491,11 @@ function ifsi_post!(m, a, b)
     dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); k0, ke = TX.RAYK[]
     for k in a:b; fill!(st.nin[k], 0.0); end
     fill!(I.absb, 0.0); I.emit .= exp.(I.ysrc); rowe = 0.0
+    fill!(I.yint, NaN); fill!(I.qion, 0.0)
     y = copy(I.ysrc)
     for k in k0:b
         k <= ke && (for g in 1:4; y[g] = TX.YRN[][g][k]; end)
+        for g in 1:4; I.yint[g, k] = y[g]; end
         nH = dn[k] / CNn.μH(); dr = rn[k+1] - rn[k]; V = 4π / 3 * (rn[k+1]^3 - rn[k]^3)
         TX.cplz(k) && (st.xabs[k] = ifs_x(CNn.full(m.x[k], m.net)))
         xa = TX.cplz(k) ? st.xabs[k] : st.xabs0[k]
@@ -467,6 +504,7 @@ function ifsi_post!(m, a, b)
         I.D[k] = D; I.kLW[k] = xa[2] > 0 ? D / (xa[2] * nH * V) : 0.0
         τs = (τi..., τL)
         for g in 1:4; I.absb[g] += exp(y[g]) * (-expm1(-τs[g])); end
+        for g in 1:3; I.qion[k] += exp(y[g]) * (-expm1(-τs[g])) * st.G.Ec[g] / V; end
         yn = [y[g] - min(τs[g], IFSI_TMAX) for g in 1:4]
         if k + 1 <= ke
             for g in 1:4; rowe = max(rowe, abs(exp(TX.YRN[][g][k+1]) - exp(yn[g])) / I.emit[g]); end
@@ -474,6 +512,7 @@ function ifsi_post!(m, a, b)
         y = yn
     end
     I.esc .= exp.(y); I.rowerr = rowe
+    for g in 1:4; I.yint[g, b+1] = y[g]; end
     for k in k0:ke
         st.on[k] && ifs_rates!(st, k, TX.cplz(k) ? st.xabs[k] : st.xabs0[k], tn[k])
     end
@@ -507,6 +546,69 @@ function ifsi_log(m, a, b, js)
                 js, TF.getscalar(:timen) / 3.156e7, TF.getscalar(:timen) - TF.getscalar(:timeo), st.k0 - a + 1, I.kend - a + 1, st.rb / 6.957e10,
                 I.emit..., I.absb..., I.esc..., eb(1), eb(2), eb(3), eb(4), I.rowerr, Dr, Ds, I.σd, h2n, h2a, st.fnorm, st.Lfs / 3.83e33, st.Lrun / 3.83e33, nc,
                 IFSI_NNEWT[], IFSI_NFAIL[], Tm, kTm - a + 1, kh2 - a + 1)
+    end
+    nothing
+end
+
+# ---------------------------------------------------------------- per-snapshot diagnostics (ionfs_snap.csv)
+const IFSI_RADII = (1e2, 1e3, 1e4, 1e5)                                   # R☉
+"""
+<RUNREC>/ionfs_snap.csv, one line per snapshot (IONFSIMP): does the light get ahead of the photosphere, and what does it do there.
+Columns (radii in R☉, rates in s⁻¹, heating per mass in erg g⁻¹ s⁻¹; "ph" = the ray's start r_b, the first interface outside the
+grey photosphere, τ_grey = 2/3 from outside):
+- step, t_yr, dt_s, r_ph_Rsun, T_eff (STARLIGHT's), T_ph (gas T of the zone just inside r_ph), L_run_Lsun, L_fs_Lsun, fnorm
+- Qem_LW, Qem_H, Qem_HeI, Qem_HeII: photons per s of the four groups leaving r_ph (the formal solution's emergent spectrum, × fnorm)
+- Qesc_*: the same through the outer boundary
+- rIF_H, rIF_HeI, rIF_HeII: first interface outside r_ph beyond which x_H⁺ < 0.5, (x_He⁺ + x_He²⁺)/y_He < 0.5, x_He²⁺/y_He < 0.5
+  (= r_ph: no ionized region ahead of the photosphere); rH2_01, rH2_05: first zone centre outside r_ph with f_H₂ = 2x_H₂ ≥ 0.1, 0.5
+  (NaN: none)
+- Dray, Dsl: H₂ dissociations per s outside r_ph, from the ray and from STARLIGHT's SLSHIELD rate at the same composition
+- Qion_heat, LW_heat: power of the ray's ionizing photo-heating and of the LW heat (4.88 eV per dissociation) outside r_ph [erg/s]
+- per radius R (zone containing R / interface at or above R): Q{LW,H,HeI,HeII}_R (photons crossing it), T_R, u_R (km/s), xe_R, fH2_R,
+  kLWray_R, kLWsl_R (per molecule), qray_R (ionizing + LW heat per mass), tflow_theat_R = (R/|u|)/(e/qray): ≳ 1 means the light heats
+  the infall noticeably before it arrives
+"""
+function ifsi_snaplog(m, a, b, js)
+    st = IFS[]; I = IFSI[]; (st === nothing || st.k0 == 0 || I === nothing) && return nothing
+    dn, tn, rn, un, egn = TM.v(:dn), TM.v(:tn), TM.v(:rn), TM.v(:un), TM.v(:egn); k0 = st.k0; RS = 6.957e10
+    fl(k) = CNn.full(m.x[k], m.net)
+    xv(d, s) = max(Float64(ForwardDiff.value(d[s])), 0.0)
+    front(f) = (for k in k0:b; f(fl(k)) || return rn[k] / RS; end; rn[b+1] / RS)
+    rIH = front(d -> xv(d, :Hp) >= 0.5)
+    rIHe1 = front(d -> (xv(d, :Hep) + xv(d, :Hepp)) / CNn.yHe >= 0.5)
+    rIHe2 = front(d -> xv(d, :Hepp) / CNn.yHe >= 0.5)
+    h2f(th) = (for k in k0:b; 2xv(fl(k), :H2) >= th && return 0.5 * (rn[k] + rn[k+1]) / RS; end; NaN)
+    Dr = 0.0; Ds = 0.0; Pion = 0.0; Plw = 0.0
+    for k in k0:b
+        nH = dn[k] / CNn.μH(); V = 4π / 3 * (rn[k+1]^3 - rn[k]^3); xH2 = xv(fl(k), :H2)
+        Dr += I.kLW[k] * xH2 * nH * V; Ds += I.kLWsl[k] * xH2 * nH * V; Pion += I.qion[k] * V
+        Plw += I.kLW[k] * xH2 * nH * V * (4.48 + 0.4) * EVERG
+    end
+    sd = SLDIAG[]; Te = sd === nothing ? NaN : Float64(sd.Te)
+    Q(g, k) = (y = I.yint[g, k]; isnan(y) ? 0.0 : exp(y))
+    cols = Any[js, TF.getscalar(:timen) / 3.156e7, TF.getscalar(:dtime), rn[k0] / RS, Te, tn[k0-1], st.Lrun / 3.83e33, st.Lfs / 3.83e33, st.fnorm,
+               (exp(I.ysrc[g]) for g in (4, 1, 2, 3))..., (Q(g, b + 1) for g in (4, 1, 2, 3))..., rIH, rIHe1, rIHe2, h2f(0.1), h2f(0.5),
+               Dr, Ds, Pion, Plw]
+    for R in IFSI_RADII
+        ki = findfirst(r -> r >= R * RS, rn[k0:b+1]); ki = ki === nothing ? b + 1 : ki + k0 - 1      # interface at or above R
+        kz = clamp(ki - 1, k0, b); d = fl(kz); nH = dn[kz] / CNn.μH(); xH2 = xv(d, :H2)
+        q = I.qion[kz] / dn[kz] + I.kLW[kz] * xH2 * nH * (4.48 + 0.4) * EVERG / dn[kz]
+        uR = 0.5 * (un[kz] + un[kz+1]); tfl = 0.5 * (rn[kz] + rn[kz+1]) / max(abs(uR), 1e-30); the = egn[kz] / max(q, 1e-300)
+        append!(cols, [(Q(g, ki) for g in (4, 1, 2, 3))..., tn[kz], uR / 1e5, xv(d, :e), 2xH2, I.kLW[kz], I.kLWsl[kz], q, tfl / the])
+    end
+    dir = get(ENV, "RUNREC", get(ENV, "POPIII_OUT", ".")); f = joinpath(dir, "ionfs_snap.csv"); new = !isfile(f)
+    open(f, "a") do io
+        if new
+            h = ["step", "t_yr", "dt_s", "r_ph_Rsun", "T_eff", "T_ph", "L_run_Lsun", "L_fs_Lsun", "fnorm",
+                 "Qem_LW", "Qem_H", "Qem_HeI", "Qem_HeII", "Qesc_LW", "Qesc_H", "Qesc_HeI", "Qesc_HeII",
+                 "rIF_H_Rsun", "rIF_HeI_Rsun", "rIF_HeII_Rsun", "rH2_01_Rsun", "rH2_05_Rsun", "Dray", "Dsl", "Qion_heat", "LW_heat"]
+            for R in IFSI_RADII
+                t = string(Int(R)); append!(h, ["QLW_$t", "QH_$t", "QHeI_$t", "QHeII_$t", "T_$t", "u_kms_$t", "xe_$t", "fH2_$t",
+                                                "kLWray_$t", "kLWsl_$t", "qray_$t", "tflow_theat_$t"])
+            end
+            println(io, join(h, ","))
+        end
+        println(io, join((c isa Integer ? string(c) : @sprintf("%.6e", c) for c in cols), ","))
     end
     nothing
 end
