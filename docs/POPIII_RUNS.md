@@ -2105,3 +2105,95 @@ Approved by Tom on 14 Nov (docs/POPIII_SWITCH_INVENTORY.md §15–17, group G4).
   1140 steps, stopped by hand) reaches the same t as the lagged baseline (`t_g4_icbase`, 1440 steps) with Δt 1.8e4 s at err 0.06,
   where the baseline sits at Δt 2e4 s, err 0.35, limited by E_r of zone 28 (the flip-flop) for 400 steps.
 - Bit identity of the final code when off: `t_g4_bitoff2` (ce50412), 3 snapshots identical to t_c128c B8.
+
+## `GRIDEQ`: one global, scale-free moving mesh (14 Nov, Tom's direction)
+
+Tom (14 Nov): capture the star, shock and photosphere with a moving grid, but only with a method general enough for any infall
+profile: no case-specific markers, thresholds or zone budgets (that rules out `GRIDSEG`). Code: `julia/GridEq.jl` (the rule),
+`julia/grideq_driver.jl`, `TitanResidFast.grideq_rows!`; default off; built on iceul 61920a0 (the z100ic3 configuration).
+
+**Rule.** Every zone between the first interface above the regular centre and the outer edge (both fixed) covers the same
+∫ M d ln r, M = √(1 + G²), G² = Σ_q w_q (∂ln q/∂ln r)² over q = ρ, P, T, E_r, the interior mass m and τ (clamped to [0.1, 1e4]),
+G² capped smoothly at gmax², Dorfi–Drury smoothing α (neighbours within (1+α)/α). All terms are logarithmic derivatives: no
+scale, no threshold; a power-law envelope gives a constant M and a logarithmic mesh that stays put.
+
+- `GRIDEQ=1` (preferred): TITAN's implicit grid equation over the whole mesh (the `GRIDWIN` rows generalised: ρ, P, T, E_r, m in
+  the residual, ln τ frozen per step), time-smoothed per zone with γ_j = κ t_cross,j/Δt, t_cross = r/(|u| + c_s) the zone's own
+  signal-crossing time (not seconds); Δt limited so that no interface moves more than fmove of a zone per step.
+- `GRIDEQ=0` (fallback): the explicit target of the same rule, each interface relaxing in max(3Δt, κ t_cross), |ṙ| ≤ fv (|u| + c_s),
+  at most fmove of the zone it moves into, no zone shrinking below half its narrower neighbour.
+- With `ICEUL=1` the IC is built on the rule's mesh of the IC (`GEQN` zones); `IC=p100` added to ICEUL (M(r), T(m) of the
+  Lagrangian IC shells).
+- One parameter set: `GEQW=1,1,1,1,1,1`, `GEQC=100,1.5,30,0.5,0.5,0.1,1e4,0.3` (gmax, α, κ, fv, fmove, τlo, τhi, ctol). gmax 10
+  (`t_gse1`) left the photosphere inside one zone (τ 10 → 0.1 across 0 interfaces): a power-law envelope already has G ≈ 3.7, so
+  the cap must be far above it.
+
+**Bit-identical when off**: 300 steps from the IC with z100ic3's settings, 61920a0 (`t_gs_bi5`, run from a `git archive` copy)
+against 237a835 (`t_gs_bi6`): final state md5 053301bd…, aux 62ff4e1d…, all 6 snapshots (180 fields) and every non-timing
+`perf.csv` column identical.
+
+**First tests from the IC (14 Nov, 100 zones, mode 1, final parameter set except where noted).**
+
+| run | IC | result so far | T_c(n_c) vs Lagrangian (mean dev.) | shock zones | photosphere interfaces | dt near 0.15 M☉ |
+|---|---|---|---|---|---|---|
+| `z100ic3` (fixed 100, reference) | abn02z19 2e4 | 51.6 M☉, stall at 53 | 0.103 | — | — | 2e4–3e5 s |
+| `t_gse1` (gmax 10, κ 3) | abn02z19 2e4 | stopped at 0.27 M☉ | 0.120 | 3 | 0 at 118 R☉ | — |
+| `t_gse2` (κ 3) | abn02z19 2e4 | stopped at 0.17 M☉ | — | 4 (min 3) | 8 (min 1) | 4e3–1e4 s |
+| `t_gse3` | abn02z19 2e4 | 0.22 M☉ at step 4200, running | 0.084 | 4 (min 3) | 0 (photosphere left the fine zones) | 2e3–3e4 s |
+| `t_gse_m1e4` | abn02z19 1e4 | 0.16 M☉ at step 2000, running | 0.111 | 4 (min 3) | 6 (min 1) | 1e4–1.5e5 s |
+| `t_gse_m3e4` | abn02z19 3e4 | through core formation, running | 0.107 | — | — | — |
+| `t_gse_abn02` | abn02 1e3 | stuck at log n_c 12, Δt 2 s (central zones 4–5, T/F stalls) | — | — | — | — |
+| `t_gs_fixabn02` (fixed mesh) | abn02 1e3 | DomainError at step 50 (zone 3) | — | — | — | — |
+| `t_gse_p100` (κ 3) | p100 | fails at the outer wall: the unconfined polytrope edge expands, 0.008 K | — | — | — | — |
+
+MCLOUD = 5e4 cannot be built by the abn02z19 set-up (the hydrostatic extension stops at 3 kpc short of the mass). No run has
+reached the accretion phase of z100ic3's stall yet. Open: the photosphere drifts out of the fine zones when the time smoothing
+is slow (κ 30: grid speed 0.03 (|u| + c_s)) and Δt is 5–10 times z100ic3's where the zones are fine (κ 3).
+
+**Feature tracking, speed floor and a shock term (14 Nov evening).**
+
+- *Feature tracking* (`GEQC` entry 9, κ_f): M's features move with the pattern speed v = −(∂M/∂t)(∂M/∂ln r)/((∂M/∂ln r)² + (2M)²)
+  (estimated from M of this step and the last; damped where M is flat; scale-free); a zone relaxes in min(κ t_cross, κ_f Δln r/|v|),
+  so the mesh follows a moving photosphere without being fast everywhere.
+- *Speed floor* (mode 1): t_relax ≥ Δln r t_cross/fv. Without it feature tracking moved the grid at 1.5–2.9 (|u| + c_s)
+  (`t_gse4`, `t_gse5`, stopped).
+- *Shock term* (`GEQW` entry 7, w_u): w_u ((r ∂u/∂r)/(|u| + c_s))², the velocity jump in units of the signal speed, frozen per step.
+
+**Cost of resolution** (median Δt and wall time per M☉ by M★ bin; `t_gse3`, old set, against `z100ic3`): 0.2–0.5 M☉ 4.2e3 s
+against 2.6e4 s (1.28 h against 0.20 h); 2–5 M☉ 3.9e4 s against 7.6e4 s (0.75 h against 0.07 h, 14× the steps); above 5 M☉ both
+are cheap. The error controller is held by E_r in the zones of the stellar surface and photosphere (`t_gse3` zones 29–36 at
+170–220 R☉, Δln r 0.026–0.06). `t_gse3` reached 11.2 M☉ (R★ 178 R☉) after 54 000 steps; `t_gse_m1e4` stalled at 10.5 M☉
+(Δt ~1e3 s, 1700 failed solves) and was stopped.
+
+**Δt against resolution** (median Δt by M★ bin, wall hours in parentheses; abn02z19 2e4 M☉, 100 zones, from the IC):
+
+| M★ [M☉] | `z100ic3` fixed Δln r 0.25 | `t_gse3` GRIDEQ gmax 100 (surface Δln r ≈ 0.03, photosphere 0–3 interfaces) | `t_gse7` gmax 300, w_τ 3, κ_f 0.3 (Δln r 0.016, photosphere 8–11) |
+|---|---|---|---|
+| 0.05–0.2 | 9.1e4 s (0.04 h) | 2.4e4 s (0.13 h) | 2.8e3 s (0.29 h) |
+| 0.2–0.5 | 2.6e4 s (0.20 h) | 4.2e3 s (1.28 h) | — |
+| 0.5–1 | 2.6e5 s (0.09 h) | 3.4e4 s (0.30 h) | — |
+| 1–2 | 1.4e6 s (0.06 h) | 2.7e4 s (0.40 h) | — |
+| 2–5 | 7.6e4 s (0.07 h) | 3.9e4 s (0.75 h) | — |
+| 5–10 | 4.9e7 s (0.02 h) | 9.9e6 s (0.16 h) | — |
+| 10–20 | 2.7e7 s (0.04 h) | 3.3e5 s (0.58 h) | — |
+
+Every factor of about 2–3 in the surface zone width costs about a factor 5–10 in Δt in the swelling phases; the error controller
+(DTERR) is held by E_r in the resolved surface/photosphere zones (`t_gse7`: 223 of the last 300 steps, zones 16–20). With the
+photosphere resolved the mesh is no longer the limiter: the radiation closure there is (the target of G4).
+
+**Results and conclusion (14 Nov night).**
+
+- `t_gse3` (GRIDEQ, gmax 100, κ 30, no feature tracking; abn02z19 2e4 M☉, 100 zones, from the IC) went through the collapse, core
+  formation, the swelling (R★ 180 R☉ at 11 M☉) and the contraction to **54.4 M☉** (R★ 3.0 R☉; `z100ic3`: 4.4 R☉ at 51.6 M☉, stall
+  at 53) in 71 900 steps and 5.9 h, then failed (Δt → 6e-8 s, E_r zone 40) next to the 1900 km/s accretion shock at 4.6 R☉ — with
+  the shock across 5 zones and the photosphere across 22 interfaces at that point.
+- Resolution: the collapse is as accurate as the fixed mesh (mean |ln(T_c/T_Lagr)| 0.08–0.11 over log n_c 8–22 for 1e4–3e4 M☉);
+  with gmax 300, w_τ 3 and feature tracking (`t_gse7`) the photosphere stays at 8–11 interfaces and the shock at 5 zones through the
+  swelling, where gmax 100 lost the photosphere (0–3 interfaces).
+- Cost: a factor 5–10 in Δt per factor 2–3 refinement of the surface zones (table above). With the photosphere resolved, the error
+  controller is held by a TR-BDF2 stage orbit in the zone of the surface temperature cliff (`t_gse7d`: 99/99 limiting-zone records
+  with z2 of opposite sign to z1 ≈ z3, zone 24 at 45 R☉, T 9.4e3 → 3.5e3 → 2.4e3 K across zones 23–25). It is not the lagged
+  closure (`VEFIMP=1`, g4-iceul 87c6910: 94/100, Δt 1.0e3 against 1.2e3 s), not the solver (G6 `GNEWTON`/`DTERRP2`: the orbit persists
+  down to Δt ≈ 200 s, t_g6gse) and not the table/network switch (`PSWTAU=0 TL3DEEP=1 CPLTRACEX=1e-12`, `t_gse7m`: 63/66 records
+  still orbit, the limiting zone moves 24 → 27, Δt unchanged at 1.7e3–2.3e4 s). It is the discretised physics of the resolved
+  surface cliff and shock.
