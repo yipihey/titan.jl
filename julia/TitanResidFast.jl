@@ -229,7 +229,9 @@ iterate. `SLQ_FN[](k, E_k, F_k, F_k+1)` gives (q_k, t_k) = (W_k, T_c,k at the it
 two interface fluxes), `CPL_ZONEQ[](k, ρ, T, x1, x2, q, t)` the zone's terms at that star light (PopIIIMaterial.cpl_zone_q), and `CPLQ[]`
 carries (q, t) (Duals) to the NLOIT opacity during the material sweep. SLIMP=1: W only (t ≡ 1); SLIMP=2: also the local part of T_c.
 """
+const SLON_FN = Ref{Any}(k -> true)   # (SLIMP) zone k's star light follows the iterate (else the SLIMP=0 path)
 const SLIMP = Ref(false); const SLQ_FN = Ref{Any}(nothing); const CPL_ZONEQ = Ref{Any}(nothing); const CPLQ = Ref{Any}(nothing)
+const SLIMPDBG = Ref(parse(Int, get(ENV, "SLIMPDBG", "0")))   # (diagnostic) report the first n non-finite SLIMP values in the residual
 const CPLQT = Ref{Any}(nothing)   # (SLIMP) t = T_c/T_c,start of the last residual's material sweep, for the coupled-zone sweep that follows
 const SLQBUF = Dict{Any,Any}()
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
@@ -1001,7 +1003,14 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             slq = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 1))::Vector{T}
             slt = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 2))::Vector{T}
             @inbounds for k in eachindex(slq); slq[k] = one(T); slt[k] = one(T); end
-            @inbounds for k in ngrs:ngre; cplz(k) && ((slq[k], slt[k]) = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
+            @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
+            if SLIMPDBG[] > 0
+                fin(v) = isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v)))
+                for k in ngrs:ngre
+                    (fin(slq[k]) && fin(slt[k])) && continue
+                    SLIMPDBG[] -= 1; println("SLIMPDBG q/t non-finite zone $(k - ngrs + 1): q $(slq[k]) t $(slt[k]) E $(ern[k]) F $(frn[k]) $(frn[k+1])"); break
+                end
+            end
             CPLQ[] = (slq, slt)
         end
         try
@@ -1014,8 +1023,12 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         let z0 = ZONE0[]
             try zone_sweep!(ngrs:ngre, k -> true) do k
                 @inbounds if cplz(k)
-                    y = slq === nothing ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) : CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slq[k], CPLQT[][k])
+                    y = (slq === nothing || !SLON_FN[](k)) ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) :
+                        CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slq[k], CPLQT[][k])
                     W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
+                    if SLIMPDBG[] > 0 && !all(v -> isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v))), y)
+                        SLIMPDBG[] -= 1; println("SLIMPDBG cpl zone $(k - ngrs + 1) non-finite: y ", y, " q ", slq === nothing ? 1 : slq[k], " t ", slq === nothing ? 1 : CPLQT[][k])
+                    end
                     W.cpQ[k] = y[6]; W.cpY[k] = y[7]
                 else
                     W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
