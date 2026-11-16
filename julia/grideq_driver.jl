@@ -41,7 +41,7 @@ const GEQRAMP = haskey(ENV, "GEQRAMP") ? parse.(Float64, split(ENV["GEQRAMP"], "
 const GEQJ0 = Ref(-1)                  # jstep at the first grideq_step! of this process (GEQRAMP; -2: no ramp, the mesh is close to the rule)
 "max_j(M_j Δln r_j) / median over the zones above the centre: how far the mesh is from equidistribution (GEQRAMP, GEQREMAP)."
 function geq_quality(s)
-    D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.X, wx = GEQX[1])
+    D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0)
     q = [D.M[i] * log(s.r[i+2] / s.r[i+1]) for i in eachindex(D.M)]; qs = sort(q)
     (; ratio = maximum(q) / qs[(length(qs) + 1) ÷ 2], k = argmax(q) + 1)
 end
@@ -59,7 +59,14 @@ const GEQLAST = Ref{Any}(nothing)
 function geq_state()
     r = TF.var(:rn)[a:b+1]; u = TF.var(:un)[a:b+1]; m = envmenc()
     (; r, u, m, ρ = TF.var(:dn)[a:b], P = TF.var(:pgn)[a:b], T = TF.var(:tn)[a:b], E = TF.var(:ern)[a:b], cs = TF.var(:asn)[a:b], τ = gm_tau(a),
-       X = GEQX[1] > 0 ? geq_lx() : nothing)
+       X = GEQX[1] > 0 ? geq_lx() : nothing) |> geq_xd
+end
+"The extra logarithmic fields of the explicit rule (target, quality, feature speed): √wx ln(x + xfl) rows (GEQX) and √wχ ln(χρ) (GEQW entry 8)."
+function geq_xd(s)
+    rows = Vector{Vector{Float64}}()
+    s.X === nothing || append!(rows, [sqrt(GEQX[1]) .* s.X[q, :] for q in axes(s.X, 1)])
+    GEQW[8] > 0 && push!(rows, sqrt(GEQW[8]) .* log.(TF.var(:chifn)[a:b] .* s.ρ))
+    merge(s, (; Xd = isempty(rows) ? nothing : permutedims(reduce(hcat, rows))))
 end
 "GEQX: ln(x_s + xfl) of every network species (rows) in the zones a…b (columns)."
 function geq_lx()
@@ -68,7 +75,7 @@ function geq_lx()
     Float64[log(max(Float64(ForwardDiff.value(d[j][q])), 0.0) + GEQX[2]) for q in sp, j in eachindex(d)]
 end
 geq_target(s; N = nsh - 1) = GridEq.target(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ, N; w = Tuple(GEQW), gmax = GEQC[1], alph = GEQC[2], τlo = GEQC[6], τhi = GEQC[7],
-                                            X = s.X, wx = GEQX[1])
+                                            X = s.Xd, wx = 1.0)
 "GEQREMAP: rebuild a restarted fixed-mesh state on the rule's mesh (see GEQREMAP)."
 function geq_remap!()
     ENVCENTRE || error("GEQREMAP needs a regular centre (ENVEUL=0,...)")
@@ -122,7 +129,7 @@ function grideq_step!()
     (GEQRAMP === nothing || GEQJ0[] < 0) || (κ = GEQRAMP[1] * (κ / GEQRAMP[1])^clamp((js_ - GEQJ0[]) / GEQRAMP[2], 0.0, 1.0))
     tfe = fill(Inf, n); nfast = 0                                 # feature-crossing time of each zone (feature tracking)
     if κf > 0
-        D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.X, wx = GEQX[1])
+        D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0)
         t = TF.getscalar(:timen); pv = GEQPREV[]
         if pv !== nothing && t > pv[1]
             Mp = [GridEq.lin(pv[2], pv[3], x) for x in D.x]; nd = length(D.x); v = zeros(nd)
