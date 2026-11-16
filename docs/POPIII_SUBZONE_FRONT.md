@@ -6,7 +6,25 @@ each from a `git archive` tree under /zpool/nvme/data/tabel_scratch/titan_popiii
 (launcher: scratchpad `sz/szrun.sh`, one segment as `iceulrun.sh` runs it). Zone numbers below are TITAN indices k (snapshot
 index = k − 4; the brief's "zones 62→63" are k = 67 → 68).
 
-__RESULTS__
+## Summary
+
+* **What breaks.** Restarting zdiagB's S5 checkpoint (step 3000) with the unmodified code reproduces segment S6 exactly: Newton
+  failures from the first step on, Δt 149 → 0.58 s → 1e-2 s, DTSTOP at step 3032 (t_sz4: 26 Newton failures in 32 steps).
+  The front sits between zone 67 (9045 K, χ 21.7 cm²/g, Δτ 4.7e5, table zone) and zone 68 (3187 K, χ 3e-5–5e-4, Δτ ≈ 1,
+  irradiated network zone). The flux crossing interface 68 is ∝ 1/χ₆₈ (harmonic mean, §1), and χ₆₈ is steep and lagged:
+  in one step at fixed T its x_H⁺ rose ×3.7 and χ ×16 (NLOITDIAG, t_sz16), the flux into zone 68 was choked, E₆₈ fell ×10 in the
+  next Newton (t_sz9) and the step failed.
+* **SUBZONE** (interface optical depth across an unresolved front, §2) with τ_f = 2 (default) or 1 removes the collapse: Δt
+  rises without failures from 2.3 s to 1e4 s within 25 steps after the restart (t_sz18, t_sz23), past step 3032; τ_f = 2/3
+  (the bare Eddington–Barbier depth) does not (t_sz17: as the baseline).
+* **What remains** with SUBZONE alone: a relaxation cycle of ~20–25 steps (Δt climbs to 1e4–3.6e4 s, then a Newton failure
+  drops it to ~20–200 s). In the cycle the irradiated zone's quasi-steady state depends on Δt (T_rad 4840 → 4400 K, χ ×1.4, L
+  into zone 69 147 → 95 L☉ at large Δt; back within seconds of model time at small Δt): the signature of an input that is
+  held at the start-of-step state. **Freezing the star light** (`SLFREEZE`, diagnostic) **removes the cycle**: SUBZONE + SLFREEZE
+  runs from Δt 2.3 s to 2.6e5 s and then holds 4e4–9e4 s (t_sz27, 80 steps, 4 Newton failures all in the first step, 2 error
+  rejections). The star-light dilution W and colour temperature T_c of the photo-rates (three-level pumping, H⁻ detachment, LW,
+  LOCALJ) are evaluated once per step from the start-of-step E_r, F_r (PopIIIMaterial.starlight_setup via cpl_prepare!) — the
+  lagged input that matters. The general fix (W at the iterate with exact derivatives, §5) is specified but **not implemented**.
 
 ## 1. How the interface optical depth and the exchange are formed now
 
@@ -67,3 +85,84 @@ Switches (all default off; off is bit-identical):
 * `OLDOPAC=1` — after the COUPLED prepare pass the start-of-step opacities are re-evaluated with the material the Newton uses, so
   the θ-scheme's old level (chifo, xkeo, xkpo) and the new level are one opacity law (see §4).
 * `SLFREEZE=1` — diagnostic only (not physics): every zone keeps its first star-light W, T_c.
+
+## 3. Diagnosis (step by step, baseline code restarted from S5)
+
+| run | what | result |
+|---|---|---|
+| t_sz4 | baseline restart, 60 steps | = S6: DTSTOP at step 3032, 26 Newton failures / 32 steps, all E_r-limited |
+| t_sz2, t_sz9 | NEWTDBG/NEWTKX of steps 3001, 3002 | step 3001 (Δt 149) converges (TR 18 + BDF 8 iterations), E₆₈ 5.7 → 13.1; step 3002: zone 68 starts at χ 4.9e-4 (was 3.1e-5), Newton drives E₆₈ 13 → 1.3, diverges; final contraction of the converging TR stage ≈ 0.11 per iteration (linear, not quadratic) |
+| t_sz16 | NLOITDIAG, CMP of zones 67–69 | x_H⁺(68) 8.4e-9 → 3.1e-8, χ_NLOIT(68) 4.9e-4, κ_P 1.1e-3 after step 3001 at unchanged T |
+| t_sz25 | ZDIAG zones 66–70 | zone 68 per gram over a 149 s step: exchange 1.06e9, RAYQ 1.2e6, line cooling Λ_ext 5.5e5, GASQ 80 erg/g: the lagged RAYQ/GASQ/line sources are ≤ 0.1 % |
+| t_sz3 | LOCALJ=0 | same collapse |
+| t_sz5 | NLOIT=0 | collapse to Δt ~ 1–3 s (instead of 1e-2) |
+| t_sz19 | OLDOPAC=1 | same collapse |
+| t_sz14 | SLFREEZE=1 (alone) | same collapse |
+| t_sz7, t_sz17 | SUBZONE=1, τ_f = 2/3 | same collapse |
+| t_sz20 | SUBZONE=1,1 | no collapse; Δt cycles 2–1.4e3 s (12 Newton failures / 60 steps) |
+| t_sz18, t_sz23 | SUBZONE=1,2 | no collapse; Δt cycles 20 s – 3.6e4 s (13 / 60 steps) |
+| t_sz27 | SUBZONE=1,2 + SLFREEZE=1 | Δt 2.3 s → 2.6e5 s, then 4e4–9e4 s; 4 Newton failures (first step) + 2 error rejections / 80 steps |
+
+### Lagged inputs of the front zones' residual (PI question, 16 Nov)
+
+Held over the whole step (start-of-step state, constant in the Newton):
+1. **Star-light photo-rates** of the coupled chemistry and of the NLOIT opacity composition — W (from c(E_r − E_cmb), F_r: SLWFLUX),
+   T_c (SLBLEND/SLEB: T_eff at the τ = 2/3 zone blended with T_r at τ + 2/3), kHm, kH, kLW, the three-level parameters β, P12, RL
+   (Lyα/two-photon pumping ∝ W), LOCALJ's J = W B(T_c): `starlight_setup` → `chem_core!` prepare pass → `CPLTERMS[k]` (env, phc,
+   extra), PopIIIMaterial `cpl_prepare!` (called by popiii_m2c's STEPFN before every step). **Matters** (t_sz27 vs t_sz23).
+2. NLOPACJ: κ_E weighted with B_ν(T_c) of the same lagged T_c (PopIIIMaterial nlte_means `Tw`). Part of 1.
+3. GASQ (LW heat), RAYQ (three-level photon energy of non-coupled zones), CHEMB: last chemistry (PopIIIMaterial chem!), energy rows
+   TitanResidFast lines `isempty(GASQ[])`/`RAYQ[]`. ≤ 0.1 % of zone 68's exchange: **does not matter here**.
+4. LINEIMP: H₂ line cooling of the iterate's populations with the radiative (escape/ALI) rates of the last transfer call (popiii_m2c
+   `li_store!`, EP/ALI). Λ_ext ≤ 5e-4 of the exchange in zone 68: **does not matter here**.
+5. The dual-energy row choice (TitanResidFast `dualswitch`, old state; ETASWTIE uses TIEW). Discrete, not a source; not tested.
+6. The θ-scheme old level (chifo, xkeo, xkpo, plfo, Compton old) — by construction. After a restart the old opacities are the
+   table's (NLOST not yet rebuilt); OLDOPAC re-evaluates them with the Newton's material: **no effect** (t_sz19).
+
+Evaluated at every iterate but without derivatives (the Newton sees them as constants):
+7. VEFIMP Eddington factors f, g and the flux tie's h and weights (TitanCore.eddfac!, TD.HEDD, TD.TIEW): f₆₈ moves 0.48 → 0.39
+   between iterates/steps. The TR stage converges linearly (×0.11 per iteration) — consistent with this. An exact ∂f/∂E is a
+   dense (formal-solution) dependence that the banded Newton cannot hold; not tested.
+8. EXCAP factor (`excap`, value only) — the one Jacobian mismatch SZJCHECK finds (zone 67, ρ column, row E: 0.7 % of the
+   1e-6-floored row scale), identical with SUBZONE off.
+9. NLOIT's T, x, ρ slopes (finite-difference ratios refreshed when the iterate moves by more than NLOITJ) and CPLJLAG's reused local
+   Jacobians: approximate derivatives, exact values.
+
+## 4. Tests
+
+1. **Bit-identity, switches off** (SUBZONE, OLDOPAC, SLFREEZE, SZJCHECK unset), against `popiii-s6` 0781136 (`sz_trees/base`):
+   * restart of z19zdiagBS5, 32 steps to the DTSTOP at 3032, 4 threads: t_sz24 (96c895e) vs t_sz4 — **all 591 state arrays and
+     the .aux identical** (also t_sz8, 6bb247e);
+   * ICEUL start (abn02red, 128 IC shells), 6 steps: t_sz15 (09b7414) vs t_sz11 — **all 591 arrays and the .aux identical**
+     (code after 09b7414 changes only default-off paths and the τ_f default).
+2. **Jacobian vs finite differences.** `julia/subzone_test.jl` (TITAN_NOLIB=1): ∂ln avchi/∂ln(χ, ρ) of a 4-zone strip by AD vs
+   central FD, worst absolute difference 6e-10 – 1.2e-9 for front / hand-over / thick interior / thin envelope; limits away from
+   fronts |Δτ_SZ/Δτ_T − 1| ≤ 4e-7. In the run (`SZJCHECK=62,63,64,65`, t_sz21, SUBZONE=1,2 at S5): rows E, F, gas energy of zones
+   64–71 w.r.t. ρ, T, E, F, x_H⁺, x_H₂ of zones 66–69: worst 1.1e-5 (F row vs ρ: FD truncation), except the EXCAP entry above (same
+   with SUBZONE off, t_sz22).
+3. **From S5 with the switch on** (t_sz23, iceulrun.sh, 4 threads, still running at hand-back): past step 3032 without collapse;
+   steps 3000–3213: Δt median 1.8e3 s, 63 of 213 steps at Δt ≥ 1e4 s (maxima 1.2e4–4.3e4 s in each ~20–25-step cycle, minima
+   ~20–200 s); Newton failures (TR stage) 19 in steps 3000–3100 and 7 in 3100–3200 (baseline S5 segment 11/100 at Δt ~150 s;
+   baseline restart 26 in 32 steps before DTSTOP); 7.8–8.8 s/step at 4 threads (perf.csv). M★ 0.0611 → 0.0634 M☉ by step 3185 (t 2.38933476e5 → 2.38933505e5 yr), R★ 11.003 R☉ (the zone edge, as
+   before), L_ph 40–115 L☉ and T_eff 2600–3270 K over the cycle against 57–94 L☉ and 2520–3100 K in the baseline steps 2700–3000;
+   the steps both runs cover (3000–3032) the baseline spends at Δt < 1e2 s, so only the state at 3000 is common.
+   Front weight in the run: two interfaces with ω > 0.05 (68: ω 0.82–0.86, Δτ/Δτ_T 0.61 at τ_f = 1; 69: ω ≈ 0.1).
+4. **No front, no effect.** ICEUL start with SUBZONE=1 (t_sz28) vs off (t_sz11), 6 steps: no interface with ω > 0.05; all
+   physical state arrays identical, only the Jacobian work array e00 differs (3.9e-16 relative). Unit test: thick interiors
+   |Δτ_SZ/Δτ_T − 1| ≤ 1e-11, thin envelopes ≤ 4e-7 (τ_f = 2).
+
+## 5. Open issues
+
+* **Star light at the iterate** (the lag that drives the remaining cycle). W_k depends only on zone k's E_r and its two interface
+  fluxes (local: the block structure holds); every star-light rate is linear in W at fixed T_c (photo-rates ∫σJ/hν with J = W B_ν(T_c),
+  kLW ∝ W, β ∝ W, P12 ∝ W/(e^{E21/kT_c} − 1)). Implementation: carry q_k = W_k(E, F of the iterate)/W_k(start of step) as a fifth
+  local variable of `cpl_g` (z = ρ, T, x_H⁺, x_H₂, q; 7×5 local Jacobian, `cpl_lift` with the partials of q), scale the prepared
+  photo-rates (`phc`), the star-light `extra` and the three-level parameters of `tl3env`/`tl3_heat` by q, and pass the same q to
+  `nlo_comp` for the NLOIT opacity. T_c is non-local (T_eff at the τ = 2/3 zone, T_r at τ + 2/3) and would stay lagged; whether
+  that suffices must be measured (SLFREEZE freezes both).
+* τ_f is a closure constant (depth of the opaque zone's centre below its unresolved surface): 2/3 fails here, 1 and 2 work; a
+  self-consistent τ_f (from T_h/T_eff of the grey T(τ) relation) was not tried. It also sets the front window; separating the
+  two roles may allow the physical 2/3.
+* The interface treatment does not address the exchange of the irradiated zone (its κ_E, κ_P remain zone-centred) nor the
+  VEF formal solution's piecewise-constant dtau.
+* The 556 M☉ warm front of the production run (zones ~98–106) was not tested.
