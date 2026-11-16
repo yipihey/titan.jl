@@ -194,3 +194,69 @@ zdiagB's env, which names PSWDEEP/NLOPACJTAU/FLUXTIECORE/CONV: this is why those
    front locked into one zone). This is complementary to the sub-zone front work on the fixed mesh.
 3. Accuracy later at low cost: double the zone count (no budgets in the rule) and/or raise gmax; expect Δt to drop with the
    cliff zone width as long as the switch is a step.
+
+## 9. Second round (16 Nov, on popiii-s6 ae589ab: SUBZONE + SLIMP=2 + g2-material, network carries the photosphere)
+
+`mm-evolved` merged popiii-s6 ae589ab cleanly (9d09fbe). Bit identity with GRIDEQ off: 30 steps from `t_g2e5/ck/m2c_g2e5`
+(step 3300) with z300g2's env, ae589ab (`t_mm26`) against mm-evolved f49c878 (`t_mm27`): final state md5 2ff42784585537fb and
+aux 7a27a1c69f224d26 in both (591 arrays). New since round 1: `GEQRAMP` entry 4 (fvr, cap of the ramped speed floor, used 20),
+`GEQDBG=1|2` (diagnostics: first non-finite grid row / residual or Jacobian entry).
+
+All runs: copy of m2c_g2e5 (step 3300), z300g2's run.env + phaseB.env (+ settings below, MATTHREADS=4, EQEOS_CACHE copied
+into the run dir), 4 threads on 96–99 / 100–103. Monitor everywhere the iterate-only one: `GEQW=1,1,1,1,1,0,0,3` (ln ρ, P, T,
+E_r, m and ln χρ of the Newton iterate; no frozen τ or composition term), `GEQC=100,1.5,30,0.5,0.5,0.1,1e4,0.3,0.3`.
+
+| run | settings | result (status at report time, 16 Nov ~11:45) |
+|---|---|---|
+| `t_mm24` | + `GEQRAMP=1e-3,300,10,20`, SUBZONE=1,2 (as z300g2) | ramp phase 3300–3600: Δt 0.5–10 s (held by the fmove motion cap, error 0.01), 50 failed solves in 500 steps; after it Δt 1.5e3–1.6e5 s (perf.csv 4.4e4 at 3700, 4.5e4 at 4000), 3–6 failed solves per 100 steps, 4.4–6 s/step; segment S2 did not ramp again (quality 2.25). At step ~4050, running. |
+| `t_mm31` | no ramp (κ 30 from the start), SUBZONE=1,2 | the mesh adapts over ~200 steps at Δt 30–1e3 s (fmove), 20 failed solves per 100 steps; then Δt 3e4–8e4 s; at ~3700, running. |
+| `t_mm25`, `t_mm28`, `t_mm29`, `t_mm30` | as t_mm24 with **SUBZONE=0** (28: GEQDBG=1, 29: NANSCAN=1, 30: GEQDBG=2) | **fails at step 3319** (19 steps after the restart, deterministic): NaN in every Newton correction at the first iterate down to Δt 1e-36. The state after the hydro and chemistry is finite (NANSCAN silent) and no grid row is non-finite (GEQDBG=1 silent); the first non-finite Jacobian entries (row 5, block 227 in the cloud) are there from step 3300 on, so they are not the trigger. Not pinned down further; with SUBZONE on the same steps pass. |
+
+**Does the front stay resolved? No.** Per snapshot (t_mm24, 15 snapshots 3350–4000; t_mm31 7 snapshots): after a short
+spell at the end of the first ramp steps (t_mm24 step 3400: 6 interfaces with 3 < τ < 1e5, Δln T 0.34 per interface) the
+cliff is across **one interface** in every later snapshot: Δln T 0.78–0.94, Δln τ 6.3–9.1, Δln(x_H⁺+1e-3) 2.5–4.1,
+Δln(x_H₂+1e-3) 2.9–5.2 per interface, at Δln r 0.0076–0.0092 — ten times finer than the fixed mesh (0.08), where the same
+jump is Δln T 0.95 (Δlog T 0.41). Both zones are network zones now (no switch behind it). **The jump does not shrink with
+the zone width**, i.e. the front is thinner than any zone the mesh can afford.
+
+**What drives it (diagnosis).** The opaque side of the cliff is optically very thick per zone even on the refined mesh:
+t_mm24 step 3500, zone 66: Δτ_zone 4.4e5 (T 11 400 K), zone 67: 1.6e4 (8 740 K), zone 68: 1.5 (3 510 K, T_rad 4 170 K),
+zone 69: 0.035. Zone 67 is 1.6e4 photon mean free paths thick over Δr = 8.6e9 cm, i.e. ℓ ≈ 5e5 cm = 4e-7 in ln r. The H⁻ /
+H bound-free opacity rises steeply with T (and x_e through Saha), so the gas cools until it becomes transparent and the
+transition from opaque to transparent happens within about one mean free path of the opaque side: a radiative
+transparency (cooling) front, a discontinuity on every affordable mesh. A gradient monitor then always saturates at its
+cap (gmax 100 → Δln r 0.0075 here; gmax 300 → 0.0023 in round 1, still 1–2 interfaces): resolving the τ 1e5 → 1 transition
+needs Δln r ~ 1e-6, and at the front's speed (it moves 20 → 17 → 22 R☉, ~10 km/s at times) the motion cap (fmove) would
+then hold Δt at seconds. So the sub-zone closure is the physics, not a crutch: **SUBZONE stays necessary** (and its
+switch-off fails, above).
+
+**Physics vs z300g2 over the overlap** (z300g2 is the fixed mesh; t at the same physical time; z300g2's R★ moves in steps of
+the zone width 0.08 in ln r): t = 238 933.94–.96 yr: M★ 0.0999 (z300g2) / 0.1004 (t_mm24), R★ 17.75 / 17.06 R☉; t = .12 yr:
+M★ ≈ 0.112 / 0.1130, R★ 19.2 / 19.37 R☉. Ṁ at 1e4 R☉ 0.0229 / 0.0229–0.0230 M☉/yr; at the surface 0.075–0.094 / 0.079–0.091.
+T_eff 3850–4940 K / 3230–5900 K (noisy in both; it rises with time in both). The moving mesh gives a continuous R★; otherwise
+the same evolution.
+
+**Conservation.** Mass |ΔM/M| ≤ 6e-14. TITAN's energy ledger tetot (erg sr⁻¹): t_mm24 3300 → 3999 +1.39e43 in 1.0e7 s
+(1.39e36 per s, ramp included); z300g2 3300 → 4399 +2.59e43 in 2.3e7 s (1.13e36 per s): the moving mesh drifts about as much
+as the fixed mesh.
+
+**Cost.** After the start-up the moving mesh is not cheaper: z300g2 (8 threads) runs 2.3–3.7 s/step with 0–1 failed solves
+per 100 steps and Δt 1e4–4e4 s; t_mm24 (4 threads) 4.4–6 s/step, 3–6 failures per 100, Δt 1.5e3–1.6e5 s (limited by x_H₂ /
+x_H⁺ of the zones next to the cliff and by the motion cap when the front jumps).
+
+**Monitor: what is general.** Chosen: ln ρ, ln P, ln T, ln E_r, ln m and ln χρ of the Newton iterate (`GEQW=1,1,1,1,1,0,0,3`),
+smooth cap gmax 100, Dorfi–Drury α 1.5, κ 30 crossing times + κ_f 0.3 feature speed; no markers, no budgets, no scales (all
+log-derivatives; a power law gives a uniform log mesh), nothing lagged in the residual. It moves zones to whatever structure
+appears (accretion shock, photosphere, ionization fronts, the cloud's own gradients) at any accretion rate, and with ~300
+zones it puts ~15 % of them near the stellar surface. Composition is left out (operator-split: it would be a lagged input);
+its fronts coincide with the χρ and T fronts here. τ is left out (non-local). What it cannot do is resolve a discontinuity:
+then gmax is the resolution and the cost knob, and the sub-zone closure must carry the unresolved structure. A natural
+general refinement (not implemented): stop refining a zone once its own optical depth on both sides of the front is below
+~τ_f (nothing is gained below the mean free path of the transparent side), which bounds the cost where gradients are
+unbounded.
+
+**Recommendation (round 2).** The moving mesh works on the new physics (production Δt after a 300-step start-up, smooth R★,
+conservation as good as the fixed mesh) but does not resolve the front, and the fixed mesh + SUBZONE (z300g2) is cheaper and
+more robust. Keep z300g2 as the main run. GRIDEQ is worth it where the mesh must follow the star over decades in radius (the
+swelling to ~100–200 R☉ and the contraction later, where a fixed log mesh of 0.08 puts few zones in the star) — there it
+replaces re-meshing; use the iterate-only monitor, GEQRAMP only for restarts from a fixed mesh, SUBZONE on.
