@@ -230,3 +230,39 @@ See the docstring of `ifsi_snaplog` (IonFSImp.jl): emitted (at r_ph) and escapin
 He II ionization fronts and the H₂ fronts (f_H₂ = 0.1, 0.5) relative to r_ph; dissociations per s of the ray and of the SLSHIELD rate; the
 ray's ionizing and LW heating powers; and at 1e2, 1e3, 1e4, 1e5 R☉ the photon rates crossing, T, u, x_e, f_H₂, both LW rates, the ray's
 heating per mass and t_flow/t_heat. `ionfsi.csv` (every step) keeps the photon bookkeeping per group.
+
+## z300mm: does the light get ahead of the photosphere? (t_ifm7, cad6ca4)
+
+From z300mm's z19z300mmS1_auto0 (step 5000, M★ ≈ 0.135 M☉, r_ph ≈ 27–29 R☉, T_eff 5500–6450 K), its full settings + `IONFS=1
+IONFSIMP=1`, 8 threads on cores 96–103, 2040 steps (5001–7041, 0.076 yr). Snapshot rows in `t_ifm7/ionfs_snap.csv`, every step in
+`t_ifm7/ionfsi.csv`; comparison with z300mm at matched times (`scratchpad/ifs/infallcmp.jl`).
+
+- **Ionizing photons: no.** Q_H leaving r_ph 3e40–4.6e41 s⁻¹ (after fnorm 0.2–0.4), Q_HeI ~1e33, Q_HeII ≤ 1e3. All are absorbed
+  in the first zone outside r_ph: Q_H = 0 at 100 R☉ in every snapshot, rIF_H = rIF_HeI = rIF_HeII = r_ph, photo-heating power ≤ 1e31 erg/s
+  (L★ ~ 3e36 erg/s).
+- **LW photons: they get ahead, but cannot dissociate.** Q_LW 1.5e41–3.8e42 s⁻¹ leaves r_ph, 56–68 % of it leaves the mesh (1e5 R☉ and
+  beyond). The dissociations are confined to the first ~0.1–1 R☉: the H₂ front (f_H₂ ≥ 0.1/0.5) sits 0.11–0.37 / 0.37–1.07 R☉ outside
+  r_ph. Beyond, the equivalent H₂ column of the photons already used exceeds the WGHB fit's range and the H I Lyman-line shielding of
+  the atomic precursor (N_HI ≫ 1e24) is complete: k_LW = 0 at 100–1e5 R☉, in the ray and in STARLIGHT's SLSHIELD path alike. The ray's
+  dissociations (1e14–2e19 s⁻¹) exceed SLSHIELD's (1e11–1e14 s⁻¹) by 10³–10⁶, all in those first zones. That gas is warm and H₂-poor
+  anyway, so the front moves by < 0.5 R☉.
+- **The infall: unchanged.** At 1e2, 1e3, 1e4, 1e5 R☉, T agrees with z300mm to ≤ 1 % (2120/2125 K at 100 R☉), u_r to ≤ 3 %
+  (−21 km/s at 100 R☉), f_H₂ to 3 digits (0.87, 0.97, 0.70, 0.011). x_e at 100–1e3 R☉ is 1.3–2× z300mm's (2e-8 against 1e-8). r_ph and
+  the H₂ front differ by ≤ 0.5 R☉, within the matched-time spacing of z300mm's snapshots. Ray heating at those radii is 0 (t_flow/t_heat 0).
+- **Photon bookkeeping:** emitted = absorbed + escaped to ≤ 8e-9 (LW). All ionizing groups are absorbed in the ray's first zone.
+- **dt and failures:** mean Δt 1.18e3 s (median 1.1e3 s) against z300mm's ≈ 1.1e4 s over the same evolution (steps 5018–5298:
+  0.1 yr in 280 steps). The run had 114 Newton failures in 2040 steps (0.056/step; z300mm 0.13/step) and no error rejections. Δt is set by
+  DTERR's error estimate on x_H₂ and x_H⁺ in zones 75–76: the ray zones next to the photosphere, where the ray's LW and Lyman-continuum
+  rates make the chemistry stiffer. Wall time ≈ 1.7 s/step (z300mm ≈ 3.5 s/step at its larger Δt).
+
+So for this protostar, the precursor sees neither ionizing radiation nor LW dissociation beyond ~1 R☉ of the photosphere. The LW photons
+that escape do so through the gaps between the saturated H₂ and H I lines. The SLSHIELD treatment already reproduces this. The infall's
+thermodynamics does not change.
+
+Open:
+- the continuum-only source (L_fs ≈ 3 L_run) is scaled by fnorm. If the UV excess is real, Q_LW would be ×3–5 higher; that does not
+  matter while the H₂/H I shielding is complete.
+- the WGHB fits are extrapolated far beyond N ~ 1e21 / 1e24.
+- the He I front treatment (two-phase term or x_He⁺ unknown) is untested here: at T_eff ~ 6000 K there is no He front (Q_HeI ~ 1e33 s⁻¹,
+  absorbed in one zone).
+- the Δt cost above.
