@@ -516,6 +516,53 @@ EXCAP[] > 0: factor on the gas-radiation exchange of the two energy rows, so tha
 1e20 and the rows carry it as round-off; E = aT⁴ there holds to about 1/EXCAP anyway. The same factor in both rows keeps energy conserved. A constant of the iteration (no derivative).
 """
 const EXCAP = Ref(0.0)
+"""
+SUBZONE (popiii_m2c `SUBZONE=1[,τ_f]`, default off; off = bit-identical): optical depth of an interface across which an unresolved
+front (photosphere / recombination front) lies, from a two-layer sub-zone picture instead of the harmonic mean of the two zones' χ.
+
+TITAN's interface coefficient avchi = 2/(1/χ₋ + 1/χ₊) gives the interface optical depth Δτ_T = (M₋ + M₊) avchi (M± the half-zone
+columns ½ ρ dV / r^μ). With a = χ₋M₋, b = χ₊M₊ the two half-zone optical depths (equal M: Δτ_T = 4ab/(a + b)), Δτ_T → 2b(1 + M₋/M₊)
+for a ≫ b: across a front the opaque half-zone is given the transparent zone's opacity. The interface flux is then ∝ 1/χ of the
+transparent zone, the zone that (outside a photosphere) is irradiated, steeply T dependent (χ ∝ T^q, q ~ 10–20) and lagged by the
+operator-split chemistry, so the emergent flux of the hot surface follows the cold neighbour's opacity one to one.
+
+Sub-zone picture (a front between the zone centres, thinner than any zone): the light leaving the opaque side originates within
+an optical depth τ_f ≈ 2/3 of its surface (Eddington–Barbier, e.g. Mihalas 1978, Stellar Atmospheres, 1978stat.book.....M), so
+the opaque half-zone contributes its own depth only up to τ_f, τ_f a/(a + τ_f), and the transparent half-zone its own b:
+    D₋₊ = τ_f a/(a + τ_f) + b   (opaque side −),   D₊₋ = τ_f b/(b + τ_f) + a   (opaque side +).
+Away from a front the two half-zones are in series (a + b), the form that keeps the thick diffusion limit (Larsen, Morel & Miller
+1987, 1987JCoPh..69..283L); TITAN's harmonic mean is kept there unchanged. The front weight
+    s(x) = x⁴/(x⁴ + τ_f⁴),  ω₋₊ = s(a)(1 − s(b)),  ω₊₋ = s(b)(1 − s(a))  (ω₋₊ + ω₊₋ ≤ 1)
+is ≈ 1 only where one half-zone is opaque (≳ τ_f) and the other transparent (≲ τ_f), so
+    Δτ = (1 − ω₋₊ − ω₊₋) Δτ_T + ω₋₊ D₋₊ + ω₊₋ D₊₋,   avchi_SZ = Δτ/(M₋ + M₊).
+Δτ is a rational (C∞) function of χ±, ρ±, r: the Newton's Duals carry it, and the interface still couples only its two zones (the
+block structure is unchanged). As the front moves into the transparent zone (b grows through τ_f), ω falls smoothly to 0 and the
+next interface takes over. In thick–thick interiors the change is ≲ (τ_f/min(a,b))⁴, in thin–thin envelopes ≲ (max(a,b)/τ_f)⁴.
+The same avchi enters the flux row and the radiation-force work of the energy rows (energy stays conserved).
+"""
+const SUBZONE = Ref(false); const SZTAUF = Ref(2 / 3)
+"(SUBZONE diagnostic) per interface: front weight ω₋₊ + ω₊₋ and Δτ_SZ/Δτ_T (values) of the last residual evaluation."
+const SZOMEGA = Float64[]; const SZRATIO = Float64[]
+@inline function sz_tau(a, b, ΔτT, τf)
+    τ4 = τf^4; a4 = a^4; b4 = b^4
+    sa = a4 / (a4 + τ4); sb = b4 / (b4 + τ4)
+    ωab = sa * (1 - sb); ωba = sb * (1 - sa)
+    Dab = τf * a / (a + τf) + b; Dba = τf * b / (b + τf) + a
+    return (1 - ωab - ωba) * ΔτT + ωab * Dab + ωba * Dba, ωab + ωba
+end
+"SUBZONE: replace avchi of the interior interfaces ngrs+1..ngre by the sub-zone front form (see SUBZONE); θ-level χ, ρ, dV, r^μ."
+function sz_avchi!(avchi, chif, d, dvol, rmu, ngrs, ngre)
+    τf = SZTAUF[]
+    length(SZOMEGA) < ngre + 1 && (resize!(SZOMEGA, ngre + 1); resize!(SZRATIO, ngre + 1)); fill!(SZOMEGA, 0.0); fill!(SZRATIO, 1.0)
+    @inbounds for k in ngrs+1:ngre
+        Mm = 0.5 * d[k-1] * dvol[k-1] / rmu[k]; Mp = 0.5 * d[k] * dvol[k] / rmu[k]
+        ΔτT = (Mm + Mp) * avchi[k]
+        Δτ, ω = sz_tau(chif[k-1] * Mm, chif[k] * Mp, ΔτT, τf)
+        avchi[k] = Δτ / (Mm + Mp)
+        SZOMEGA[k] = val(ω); SZRATIO[k] = val(Δτ) / val(ΔτT)
+    end
+    nothing
+end
 @inline function excap(cc, κ, ρ, dt)
     EXCAP[] > 0 || return 1.0
     return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
@@ -958,6 +1005,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     end
     avchi = W.avchi
     c.lrad && @inbounds for k in ngrs:ngre+1; avchi[k] = 2 / (1 / chif[k-1] + 1 / chif[k]); end
+    c.lrad && SUBZONE[] && sz_avchi!(avchi, chif, d, dvol, rmu, ngrs, ngre)
     # viscosity
     qf, dudr = W.qf, W.dudr; xmu4 = 0.25xmu
     @inbounds for k in ngrs:ngre

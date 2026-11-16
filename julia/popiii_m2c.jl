@@ -1934,6 +1934,13 @@ haskey(ENV, "ETASWTIE") && (TX.ETASW_TIE[] = parse(Float64, ENV["ETASWTIE"]))   
 get(ENV, "ETOTGRAVGRID", "0") == "1" && (TX.ETOT_GRAV_GRID[] = true)     # gravity work on Lagrangian zones in the total-energy row (off: as before)
 get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW_EOFF[] = PC.UOFF_TH; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
+# SUBZONE=1[,τ_f] (default off): interface optical depth across an unresolved front from the two-layer sub-zone form (TX.SUBZONE)
+if get(ENV, "SUBZONE", "0") != "0"
+    let w_ = parse.(Float64, split(ENV["SUBZONE"], ","))
+        TX.SUBZONE[] = w_[1] != 0; length(w_) > 1 && (TX.SZTAUF[] = w_[2])
+        TX.SUBZONE[] && pr("SUBZONE: interface optical depth across unresolved fronts from the sub-zone form (opaque half-zone to tau_f = %.3g, transparent half-zone in series; front weight s(a)(1-s(b)), s = x^4/(x^4+tau_f^4))\n", TX.SZTAUF[])
+    end
+end
 const LINEFRAC = parse(Float64, get(ENV, "LINEFRAC", "0")); const LINELAST = [-Inf, 0.0]; const LINECAPV = Ref(NaN)
 # NEWTKX=1: the largest Newton correction of each equation at every iteration from the third on, with the zone it is in (debugging)
 if get(ENV, "NEWTKX", "0") == "1"
@@ -2588,6 +2595,10 @@ try
         if ENVEUL !== nothing
             envsink!()
             if k % PRINTEVERY == 0
+                if TX.SUBZONE[] && !isempty(TX.SZOMEGA)    # SUBZONE: the interfaces with a front weight > 0.05 (zone numbers from the inner boundary)
+                    jf = [j for j in a+1:min(b, length(TX.SZOMEGA)) if TX.SZOMEGA[j] > 0.05]
+                    pr("        SUBZONE: %d front interface(s)%s\n", length(jf), join((@sprintf(" | %d: w %.3f dtau/dtau_T %.3f", j - a + 1, TX.SZOMEGA[j], TX.SZRATIO[j]) for j in jf), ""))
+                end
                 j_ = envsurface(); uu = TF.var(:un)[a:b+1]; ku = argmin(uu); rr = TF.var(:rn)[a:b+1]; mm = 4π .* envmenc() ./ Msun
                 pr("        env: chem fallbacks %d, t %.6e yr, Mc+grid(<surf) %.4f Msun, sink %.2e Msun/yr, surface r %.1f R_sun, u_min %.1f km/s at r %.1f (v_esc %.1f), dt %.2e s\n", PM.NCHEMFB[], TF.getscalar(:timen) / 3.156e7, mm[j_],
                    4π * ENVMDOT[] / Msun * 3.156e7, rr[j_] / Rsun, uu[ku] / 1e5, rr[ku] / Rsun, sqrt(2Z0.G * mm[ku] * Msun / rr[ku]) / 1e5, TF.getscalar(:dtime))
