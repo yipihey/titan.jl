@@ -425,12 +425,14 @@ two materials are the same function). Non-ideality s = ((Γ_e/Γ0)⁴ + (D/D0)�
   D = n_e λ_e³/2, λ_e = h/√(2π m_e kT)           electron degeneracy (≪ 1: Boltzmann electrons);
   P = (4π/3) n_neutral (2a₀)³                     neutral packing: the hard-sphere exponent of HM88's ground-state occupation probability
                                                   (Hummer & Mihalas 1988, eq. 4.71), the onset of pressure dissociation/ionisation.
-w = smoothstep(log₁₀ s / log₁₀ 3): 0 for s ≤ 1, 1 for s ≥ 3. EOS (ChemNet.EOSMIX, so chemistry and hydro agree):
+w = smoothstep(log₁₀(s/s₀)/log₁₀ 3), s₀ = G2BLEND's 4th number (default 1/3): network for s ≤ 1/3, table for s ≥ 1 — the blend spans a
+factor 3 in s and is complete where a parameter reaches its threshold (with s₀ = 1 the network's coupled chemistry ran into zones at
+Γ_e ≈ 0.3–0.9 and failed to converge there, t_g2h, docs/POPIII_G2_MATERIAL.md §7.4). EOS (ChemNet.EOSMIX, so chemistry and hydro agree):
 (u, p) = (1 − w) network + w table; opacity (NLOIT network zones): ln κ = (1 − w) ln κ_network + w ln κ_table.
 Thresholds from the network-vs-SCVH95 comparison (docs/POPIII_G2_MATERIAL.md §7): for s < 1 the network (HM88, H2PF) and the table
 agree to |Δ ln p| ≤ 0.045, |Δ ln Γ1| ≤ 0.064, |Δu| ≤ 0.2 kT per particle (95 %); beyond s ≈ 3 they differ by up to ×10 in p.
 """
-const G2B = let v = get(ENV, "G2BLEND", "0"); v == "0" ? nothing : v == "1" ? (0.3, 0.1, 0.01) : Tuple(parse.(Float64, split(v, ","))) end
+const G2B = let v = get(ENV, "G2BLEND", "0"); v == "0" ? nothing : v == "1" ? (0.3, 0.1, 0.01, 1 / 3) : (t = parse.(Float64, split(v, ",")); length(t) == 3 ? (t..., 1 / 3) : Tuple(t)) end
 const QE_ = 4.80320471e-10; const A0_ = 5.29177211e-9
 "(G2BLEND) non-ideality s at (ρ, T) (generic: the table composition through its bicubic interpolant)."
 function g2_s(ρ, T)
@@ -447,7 +449,7 @@ function g2_s(ρ, T)
     ((Γ / G2B[1])^4 + (D / G2B[2])^4 + (P / G2B[3])^4)^0.25
 end
 "(G2BLEND) blend weight of the table at (ρ, T)."
-g2_w(ρ, T) = (s = g2_s(ρ, T); x = clamp(log10(s) / log10(3.0), 0.0, 1.0); x * x * (3 - 2x))
+g2_w(ρ, T) = (s = g2_s(ρ, T); x = clamp(log10(s / G2B[4]) / log10(3.0), 0.0, 1.0); x * x * (3 - 2x))
 "(G2BLEND) the EOS mix of ChemNet.EOSMIX."
 g2_eosmix(ρ, T, u, p) = (w = g2_w(ρ, T); ForwardDiff.value(w) == 0 ? (u, p) : (ue = EQ.eos(ρ, T); (u + w * (ue[1] - u), p + w * (ue[2] - p))))
 G2B !== nothing && (CNn.EOSMIX[] = g2_eosmix)
