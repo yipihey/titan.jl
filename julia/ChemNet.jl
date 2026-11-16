@@ -119,6 +119,29 @@ const SPECIES = Dict{Symbol,Species}(
     :Li  => Species(:Li, 7.016 * 1.66053907e-24, 0, (0, 0, 1), -χLi, T -> 4 * ZLi_el(T), T -> 1.5),     # × nuclear spin 4
     :Lip => Species(:Lip, 7.016 * 1.66053907e-24 - me, 1, (0, 0, 1), 0.0, T -> 4 + zero(T), T -> 1.5),
 )
+
+"""
+(FIX-RACE) Lazily filled caches read from threaded zone loops (MATTHREADS sweeps, chemistry threads): copy-on-write. Readers look up
+the current dictionary, which is never mutated after it is published; a miss builds the value under the lock, inserts it into a copy and
+publishes the copy. (A plain IdDict read while another task inserts — rehashes — can see undefined slots: UndefRefError, z100s50b.)
+The values are the ones the plain dictionaries held: results unchanged.
+"""
+mutable struct CowCache{V}
+    @atomic d::IdDict{Any,V}
+    lk::ReentrantLock
+end
+CowCache{V}() where {V} = CowCache{V}(IdDict{Any,V}(), ReentrantLock())
+@inline cowget(c::CowCache, key, default) = get((@atomic :acquire c.d), key, default)
+function cowget!(f, c::CowCache{V}, key) where {V}
+    v = get((@atomic :acquire c.d), key, nothing); v === nothing || return v
+    lock(c.lk) do
+        d0 = @atomic :acquire c.d
+        v2 = get(d0, key, nothing); v2 === nothing || return v2
+        val = f(); d1 = copy(d0); d1[key] = val
+        @atomic :release c.d = d1
+        val
+    end
+end
 Ztr(s::Species, T) = (2π * s.m * kB * T / hP^2)^1.5
 "Equilibrium constant Π_P n / Π_R n [cm^{-3 Δν}] of R → P (vectors of species names, repeats allowed)."
 Keq(R, P, T) = exp(lnKeq(R, P, T))
@@ -139,6 +162,7 @@ mutable struct LnKMemo
     T::Float64
     v::Dict{Symbol,Float64}
 end
+const LNKMEMOON = get(ENV, "LNKMEMO", "1") != "0"     # (FIX-RACE) LNKMEMO=0: the direct sum (bit-identical)
 const LNKMEMO = [LnKMemo(NaN, Dict{Symbol,Float64}()) for _ in 1:Threads.maxthreadid()]
 @inline _spterm(s::Species, T) = log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T)
 function _spterm_memo(m::LnKMemo, p::Symbol, T::Float64)
@@ -149,7 +173,7 @@ function _spterm_memo(m::LnKMemo, p::Symbol, T::Float64)
 end
 function lnKeq(R, P, T::Float64)
     tid = Threads.threadid()
-    tid <= length(LNKMEMO) || return _lnKeq_direct(R, P, T)
+    (LNKMEMOON && tid <= length(LNKMEMO)) || return _lnKeq_direct(R, P, T)
     m = LNKMEMO[tid]
     m.T === T || (m.T = T; empty!(m.v))
     lnK = 0.0
@@ -284,18 +308,18 @@ end
 photorates through a table in log T (1–1e6 K, 0.005 dex, Catmull–Rom in ln R and ln α) when the radiation field is the same in
 every zone (`env.static == true`, e.g. the CMB or none); otherwise direct. Table vs direct ≤ 3e-3 at 20 K–9e5 K (H, H⁻, Li; J = B(54 K)); the larger differences, H⁻ α above 7e4 K, are the direct quadrature's own (n = 200 vs 800: 3 %).
 """
-const PHTAB = IdDict{Any,Any}(); const PHLOCK = ReentrantLock()
+const PHTAB = CowCache{Any}(); const PHLOCK = PHTAB.lk
 function photorates_t(p::Photo, T, env)
     hasproperty(env, :ljW) && return photorates_lj(p, T, env)
     (hasproperty(env, :static) && env.static) || return photorates(p, T, env)
     # env.tabkey: a per-zone env (extra fields for reactions) that shares the static J of `tabkey`, and so its table
     key = (p, hasproperty(env, :tabkey) ? env.tabkey : env)
-    tab = get(PHTAB, key, nothing)
+    tab = cowget(PHTAB, key, nothing)
     if tab === nothing
         # built once, under a lock: the chemistry threads all arrive here in the first step (they used to build the table 16
         # times over, 5 s each, and to insert into the IdDict concurrently)
-        tab = lock(PHLOCK) do
-            get!(PHTAB, key) do
+        tab = begin
+            cowget!(PHTAB, key) do
                 lT = collect(0.0:0.005:6.0)
                 v = [photorates(p, 10^x, env) for x in lT]
                 (lT, [log(max(a[1], 1e-300)) for a in v], [log(max(a[2], 1e-300)) for a in v])
@@ -320,7 +344,7 @@ Photo-rates in a diluted blackbody J = W B(T_c) from tables (PopIIIMaterial LOCA
   are integrated on the gas-T grid with n = 1000, R_l on `photorates`' T_c grid with n = 1000 (both more accurate than the direct path).
 Catmull–Rom in each direction (as the static tables). Outside the ranges, or with `caseB`, the direct integrals.
 """
-const LJTAB = IdDict{Any,Any}(); const LJLOCK = ReentrantLock()
+const LJTAB = CowCache{Any}(); const LJLOCK = LJTAB.lk
 # quadrature points of the table integrals (LJTABN, default 1000). Against n = 4000 integrals at n = 1000: Li ≤ 4e-4, H⁻ ≤ 5e-3 (flow 1e-5),
 # He I ≤ 2e-3 (thick) / 1e-2 (flow α), He II ≤ 1e-2 / 5e-2; the direct path (n = 200) 5–30× larger. Build time ∝ n.
 const LJTABN = parse(Int, get(ENV, "LJTABN", "1000"))
@@ -328,9 +352,9 @@ const LJ_T = (0.5, 0.005, 1201); const LJ_C = (3.0, 0.005, 701); const LJ_2T = (
 _ljv(x::ForwardDiff.Dual) = _ljv(ForwardDiff.value(x)); _ljv(x::Real) = Float64(x)
 _bnu_lj(ν, T) = (x = hP * ν / (kB * T); x > 700 ? 0.0 : 2hP * ν^3 / c^2 / expm1(x))
 function lj_tables(p::Photo)
-    t = get(LJTAB, p, nothing); t === nothing || return t
-    lock(LJLOCK) do
-        get!(LJTAB, p) do
+    t = cowget(LJTAB, p, nothing); t === nothing || return t
+    begin
+        cowget!(LJTAB, p) do
             n = 200; z0 = (Trad = 0.0, J = ν -> 0.0)
             lc = [LJ_C[1] + LJ_C[2] * (i - 1) for i in 1:LJ_C[3]]
             # R_l with n = 1000 on the T_c grid (n = 200, as `photorates`, is under-resolved by up to 7 % (He I) and 30 % (He II levels))
@@ -409,8 +433,8 @@ struct Compiled
     elHe::Vector{Float64}; hasHe::Bool                                     # He nuclei per free species; He eliminated (HECHEM)
     cv::Vector{Function}; E0::Vector{Float64}; isH2::Vector{Bool}
 end
-const COMPILED = IdDict{Any,Compiled}()
-compiled(net) = get!(COMPILED, net) do
+const COMPILED = CowCache{Compiled}()
+compiled(net) = cowget!(COMPILED, net) do
     sp = unique(vcat(net.species, [:He])); idx = Dict(s => i for (i, s) in enumerate(sp))
     fr = [idx[s] for s in net.free]
     Compiled(sp, idx, fr, [[idx[s] for s in r.R] for r in net.reactions], [[idx[s] for s in r.P] for r in net.reactions],
@@ -678,8 +702,8 @@ struct CKInfo
     single::Vector{Tuple{Int,Int}}                       # H⁻, H₂⁺: (position in net.free, index in compiled sp)
     chains::Vector{Vector{Tuple{Int,Int}}}               # element ionisation stages from the neutral up: (free position or 0, sp index)
 end
-const CKINFO = IdDict{Any,CKInfo}()
-ckinfo(net) = get!(CKINFO, net) do
+const CKINFO = CowCache{CKInfo}()
+ckinfo(net) = cowget!(CKINFO, net) do
     c = compiled(net); fp(s) = (i = findfirst(==(s), net.free); i === nothing ? 0 : i)
     fast = [fp(s) for s in CKFAST if fp(s) > 0]; slow = [i for i in eachindex(net.free) if !(i in fast)]
     single = [(fp(s), c.idx[s]) for s in (:Hm, :H2p) if fp(s) > 0]

@@ -798,8 +798,11 @@ only entries k). Bit-identical to the serial loop: the same values, ZONE[] left 
 rethrown as the serial loop would have (the one of the lowest zone, after all tasks ended; the serial loop would not have evaluated the
 zones above it, whose entries are then written here — the callers' state is reset after a failed evaluation).
 """
+# (FIX-RACE) ZONESWEEP=0: every zone_sweep! serial (the PERF512 threaded loops off; MATTHREADS keeps the residual's material sweep
+# threaded as before PERF512). Bit-identical either way.
+const ZONESWEEP = Ref(get(ENV, "ZONESWEEP", "1") != "0")
 function zone_sweep!(f::F, ks::UnitRange{Int}, ok::G) where {F,G}
-    nt = min(MAT_THREADS[], Threads.nthreads())
+    nt = ZONESWEEP[] ? min(MAT_THREADS[], Threads.nthreads()) : 1
     if !(nt > 1 && length(ks) >= 4nt && !ZTASK[])
         for k in ks
             ok(k) || continue
@@ -807,7 +810,13 @@ function zone_sweep!(f::F, ks::UnitRange{Int}, ok::G) where {F,G}
         end
         return nothing
     end
-    next = Threads.Atomic{Int}(first(ks)); kend = last(ks)
+    # (FIX-RACE) the first zone serially, before any task starts: lazily built shared tables (photo-rate tables, compiled networks, ...)
+    # that every zone needs are then built by one task, not raced for (the restart z100s50b crashed with UndefRefError in the first step,
+    # where cpl_prepare!'s first photo-rate evaluations of the process ran on the threads). Same order of values: bit-identical.
+    k1 = first(ks); while k1 <= last(ks) && !ok(k1); k1 += 1; end
+    k1 > last(ks) && return nothing
+    ZONE[] = k1; f(k1)
+    next = Threads.Atomic{Int}(k1 + 1); kend = last(ks)
     kerr = fill(typemax(Int), nt); errs = Vector{Any}(nothing, nt)
     ZTASK[] = true
     try
