@@ -162,6 +162,7 @@ mutable struct LnKMemo
     T::Float64
     v::Dict{Symbol,Float64}
 end
+const LNKMEMOON = get(ENV, "LNKMEMO", "1") != "0"     # (FIX-RACE) LNKMEMO=0: the direct sum (bit-identical)
 const LNKMEMO = [LnKMemo(NaN, Dict{Symbol,Float64}()) for _ in 1:Threads.maxthreadid()]
 @inline _spterm(s::Species, T) = log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T)
 function _spterm_memo(m::LnKMemo, p::Symbol, T::Float64)
@@ -172,7 +173,7 @@ function _spterm_memo(m::LnKMemo, p::Symbol, T::Float64)
 end
 function lnKeq(R, P, T::Float64)
     tid = Threads.threadid()
-    tid <= length(LNKMEMO) || return _lnKeq_direct(R, P, T)
+    (LNKMEMOON && tid <= length(LNKMEMO)) || return _lnKeq_direct(R, P, T)
     m = LNKMEMO[tid]
     m.T === T || (m.T = T; empty!(m.v))
     lnK = 0.0
