@@ -875,7 +875,7 @@ function gridwin_rows!(R, ir, k0, rn, ro, dn, tn, dt, gw)
 end
 
 "Grid-equation rows of GRIDEQ (see there) for the interfaces k1+1 … k2−1."
-function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge)
+function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, chi = nothing)
     k1, k2 = ge.k1, ge.k2; zl, zh = k1, k2 - 1                  # zones between the fixed interfaces
     α = ge.alph * (1 + ge.alph); wρ, wP, wT, wE, wm = ge.w
     zc(j) = clamp(j, zl, zh)
@@ -886,6 +886,8 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge)
         jm, jp = zc(j - 1), zc(j + 1); h = jp - jm == 2 ? 0.5 : 1.0
         S = wρ * (h * log(dn[jp] / dn[jm]))^2 + wP * (h * log(pg[jp] / pg[jm]))^2 + wT * (h * log(tn[jp] / tn[jm]))^2 +
             wE * (h * log(er[jp] / er[jm]))^2 + wm * (h * (lm(jp) - lm(jm)))^2 + ge.sx[j]
+        # (GEQW entry 8, wχ > 0: the extinction coefficient χρ of the Newton iterate, ln(χ_jp ρ_jp/χ_jm ρ_jm): the opacity cliff, local, not lagged)
+        (hasproperty(ge, :wχ) && ge.wχ > 0 && chi !== nothing) && (S += ge.wχ * (h * log((chi[jp] * dn[jp]) / (chi[jm] * dn[jm])))^2)
         G2 = ν(j)^2 * S; G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
         γ = ge.tauv[j] / dt
         ((1 + γ) * xnt - γ * xnto) / sqrt(1 + G2)
@@ -1107,7 +1109,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k] - gv[k] * dt; end
         end
         GRIDWIN[] === nothing || gridwin_rows!(R, ir, k0, rn, c.ro, dn, tn, dt, GRIDWIN[])
-        GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[])
+        GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[], W.chifn)
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
     end
