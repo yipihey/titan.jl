@@ -1045,7 +1045,6 @@ sum vanishes (detailed balance; without the term, LTE gas lost E21 β n2s 4 n_e 
 with the rest of chemq, implicit in T in the chemistry. Left out: H–H (Drawin) collisions.
 """
 const LYABB = Ref(get(ENV, "LYABB", "0") == "1")
-"Per-step star-light setup: photosphere, T_eff, and the LW columns; returns a function k -> (kHm, kH, kLW, fsh) for a network zone k."
 """
 `SLFREEZE=1` (diagnostic, default off; not physics): every zone keeps the star-light dilution W and colour temperature T_c of the
 first `starlight_setup` call of the process for the rest of the run, i.e. the photo-rates no longer follow the radiation field of
@@ -1055,6 +1054,7 @@ opacity drives the period-2 orbit of the irradiated zone outside a photosphere (
 const SLFREEZE = get(ENV, "SLFREEZE", "0") == "1"
 "(SLFREEZE) per zone the held (W, T_c)."
 const SLFRZ = Ref(Tuple{Float64,Float64}[])
+"Per-step star-light setup: photosphere, T_eff, and the LW columns; returns a function k -> (kHm, kH, kLW, fsh) for a network zone k."
 function starlight_setup(m::NetGas, a, b, tauz_)
     sl = STARLIGHT[]; dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); er, fr, un = TM.v(:ern), TM.v(:frn), TM.v(:un)
     kph = a; for k in b:-1:a; tauz_[k] >= 2 / 3 && (kph = k; break); end
