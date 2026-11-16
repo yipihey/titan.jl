@@ -253,7 +253,7 @@ IONFSIMP=1`, 8 threads on cores 96–103, 2040 steps (5001–7041, 0.076 yr). Sn
 - **dt and failures:** mean Δt 1.18e3 s (median 1.1e3 s) against z300mm's ≈ 1.1e4 s over the same evolution (steps 5018–5298:
   0.1 yr in 280 steps). The run had 114 Newton failures in 2040 steps (0.056/step; z300mm 0.13/step) and no error rejections. Δt is set by
   DTERR's error estimate on x_H₂ and x_H⁺ in zones 75–76: the ray zones next to the photosphere, where the ray's LW and Lyman-continuum
-  rates make the chemistry stiffer. Wall time ≈ 1.7 s/step (z300mm ≈ 3.5 s/step at its larger Δt).
+  rates make the chemistry stiffer. Wall time ≈ 4.4 s/step (z300mm ≈ 3.5 s/step).
 
 So for this protostar, the precursor sees neither ionizing radiation nor LW dissociation beyond ~1 R☉ of the photosphere. The LW photons
 that escape do so through the gaps between the saturated H₂ and H I lines. The SLSHIELD treatment already reproduces this. The infall's
