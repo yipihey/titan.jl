@@ -306,6 +306,15 @@ function ifsi_klw(k, kLW)
     I.kLWsl[k] = kLW
     I.kLW[k]
 end
+"""
+(SLIMP) the LW rate SLIMP's star-light rebuild (cpl_tq) gives zone k: 0 in a ray zone (the Newton's ray dissociates there), the ray's
+lagged rate in the other zones k ≥ k₀, nothing (STARLIGHT's own) inside k₀ or without the ray.
+"""
+function ifsi_lwrec(k)
+    st = IFS[]; I = IFSI[]
+    (IFSI_LWON && st !== nothing && I !== nothing && st.k0 > 0 && st.k0 <= k <= length(I.kLW)) || return nothing
+    ifsi_on(k) ? 0.0 : I.kLW[k]
+end
 "LOCALJ env of a zone k ≥ k₀ that is not a ray zone: rates below 13.598 eV only, case-B He recombination (as ifs_terms)."
 function ifsi_env(envk)
     hasproperty(envk, :ljW) && return merge(envk, (; caseB = true, ljcut = IFS_CUT))
@@ -437,6 +446,10 @@ end
 function ifsi_g(m::NetGas, k, z, t; wantx = false)
     st = IFS[]; I = IFSI[]; rn = TM.v(:rn)
     length(z) >= 8 || (z = vcat(z[1:4], [TX.YRN[][g][k] + zero(z[1]) for g in 1:4]))
+    if SLIMP && hasproperty(t, :slq)          # SLIMP: the star light (W, T_c) at the iterate's E_r, F_r (Float: lagged in the local Jacobian)
+        er_, fr_ = TM.v(:ern), TM.v(:frn); q_, tc_ = sl_qt(k, er_[k], fr_[k], fr_[k+1])
+        t = cpl_tq(t, Float64(q_), Float64(tc_))
+    end
     ρ = z[1]; T = z[2]; nH = ρ / CNn.μH(); dr = rn[k+1] - rn[k]; V = 4π / 3 * (rn[k+1]^3 - rn[k]^3)
     u = ifsi_ufix(m, k, z, t)
     x, fs, d = ifsi_core(m, k, z, t, u)

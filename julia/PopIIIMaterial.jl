@@ -592,6 +592,10 @@ nlo_w(T) = (x = clamp((log(T) - log(NLOITW[1])) / (log(NLOITW[2]) - log(NLOITW[1
 function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0)
     t = (TX.cplz(k) && k <= length(CPLTERMS[])) ? CPLTERMS[][k] : nothing
     t === nothing && return s.d, s.p
+    if IFSIMP && hasproperty(t, :ray)          # (IONFSIMP ray zone: the composition with the iterate's ray, and its star light at the iterate)
+        x_ = ifsi_g(m, k, [ρ, T, x1, x2], t; wantx = true)[2]
+        return CNn.full(x_, m.net), (hasproperty(t.env, :tl3) ? t.env.tl3 : s.p)
+    end
     t0_ = time_ns()
     # (not t.phc: its one-entry cache is shared with the residual's dual evaluation, which would then take this call's Float rates
     # at the same T and lose ∂(photo-rates)/∂T from the coupled zone's Jacobian)
@@ -1230,6 +1234,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             md = (SLBLEND[] && Te > 0) ? :blend : (k > kph && Te > 0) ? :te : :local
             SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
                          ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off)
+            IFSIMP && (SLW0[][k] = merge(SLW0[][k], (; lwray = ifsi_lwrec(k))))    # (IONFSIMP: cpl_tq's LW rate is the ray's)
         end
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
             d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH(); n1 = nH * max(d[:H], 1e-30)
@@ -1855,7 +1860,7 @@ function cpl_tq(t, q, tc = 1.0; phc = t.phc, phc0 = t.slq.phc0)
             e1 = (Trad = Tc, J = ν -> W0 * _bnu(ν, Tc))
             kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, r.T, e1)
             kH = sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, r.T, e1)
-            kLW = r.lw ? 1.1e8 * 4π * W0 * _bnu(12.87 * EVERG / CNn.hP, Tc) * r.fsh : 0.0
+            kLW = !r.lw ? 0.0 : (hasproperty(r, :lwray) && r.lwray !== nothing) ? r.lwray : 1.1e8 * 4π * W0 * _bnu(12.87 * EVERG / CNn.hP, Tc) * r.fsh
             extrab = starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
         end
     end
