@@ -505,10 +505,17 @@ function eos(ρ, T, x, net)
     if HM88 && c.iH > 0                    # HM88: excitation energy and occupation-probability pressure of H I (see HM88)
         Nneu, Nion = hm_perturbers(v, c, nH)
         eex, pex = hm_exc(T, Nneu, Nion)
-        return ((u + v[c.iH] * eex) / μH(), (N + v[c.iH] * pex) * nH * kB * T)
+        EOSMIX[] === nothing && return ((u + v[c.iH] * eex) / μH(), (N + v[c.iH] * pex) * nH * kB * T)
+        return EOSMIX[](ρ, T, (u + v[c.iH] * eex) / μH(), (N + v[c.iH] * pex) * nH * kB * T)
     end
-    (u / μH(), N * nH * kB * T)
+    EOSMIX[] === nothing && return (u / μH(), N * nH * kB * T)
+    EOSMIX[](ρ, T, u / μH(), N * nH * kB * T)
 end
+"""
+EOSMIX[] = f (default nothing = off): `eos` returns f(ρ, T, u, p) of its own (u, p) — set by the material (PopIIIMaterial G2BLEND: the smooth
+network/table blend in the non-ideal regime), so that the chemistry's T(u) and the hydro's EOS are the same function.
+"""
+const EOSMIX = Ref{Any}(nothing)
 
 # ------------------------------------------------------------------ HM88: occupation probabilities (G2, docs/POPIII_G2_MATERIAL.md)
 """
