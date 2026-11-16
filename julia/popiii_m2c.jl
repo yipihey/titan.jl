@@ -1934,6 +1934,8 @@ haskey(ENV, "ETASWTIE") && (TX.ETASW_TIE[] = parse(Float64, ENV["ETASWTIE"]))   
 get(ENV, "ETOTGRAVGRID", "0") == "1" && (TX.ETOT_GRAV_GRID[] = true)     # gravity work on Lagrangian zones in the total-energy row (off: as before)
 get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW_EOFF[] = PC.UOFF_TH; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
+const OLDOPAC = get(ENV, "OLDOPAC", "0") == "1"
+OLDOPAC && pr("OLDOPAC: start-of-step opacities re-evaluated with the Newton's material after the COUPLED prepare pass (consistent theta-scheme old level)\n")
 # SUBZONE=1[,τ_f] (default off): interface optical depth across an unresolved front from the two-layer sub-zone form (TX.SUBZONE)
 if get(ENV, "SUBZONE", "0") != "0"
     let w_ = parse.(Float64, split(ENV["SUBZONE"], ","))
@@ -2397,7 +2399,11 @@ try
             TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.rad_jcheck(a_ + z - 1); end); g0())
         end
         let f0 = TD.STEPFN[]
-            TD.STEPFN[] = () -> (PM.cpl_prepare!(mat); f0(); nothing)
+            # OLDOPAC=1 (default off): after the prepare pass, the opacities of the start-of-step state are re-evaluated with the material the
+            # Newton will use (NLOIT: this step's prepared terms and species), so the θ-scheme's old level (chifo, xkeo, xkpo := new at peq)
+            # and the residual's new level are one function of the state. Without it the old level is the post-chemistry fill of the last
+            # step (or, after a restart, the table: NLOST is not yet rebuilt), and the TR stage averages two different opacity laws.
+            TD.STEPFN[] = OLDOPAC ? (() -> (PM.cpl_prepare!(mat); TD.OPAC[](); f0(); nothing)) : (() -> (PM.cpl_prepare!(mat); f0(); nothing))
         end
         @printf("COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn %d), CPLXSTOL %.3g\n", TF.PARAMS[:meqn], CPLXSTOL)
     elseif Int(TF.getscalar(:neqn)) == 9
