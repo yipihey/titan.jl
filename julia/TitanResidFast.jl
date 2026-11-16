@@ -810,7 +810,13 @@ function zone_sweep!(f::F, ks::UnitRange{Int}, ok::G) where {F,G}
         end
         return nothing
     end
-    next = Threads.Atomic{Int}(first(ks)); kend = last(ks)
+    # (FIX-RACE) the first zone serially, before any task starts: lazily built shared tables (photo-rate tables, compiled networks, ...)
+    # that every zone needs are then built by one task, not raced for (the restart z100s50b crashed with UndefRefError in the first step,
+    # where cpl_prepare!'s first photo-rate evaluations of the process ran on the threads). Same order of values: bit-identical.
+    k1 = first(ks); while k1 <= last(ks) && !ok(k1); k1 += 1; end
+    k1 > last(ks) && return nothing
+    ZONE[] = k1; f(k1)
+    next = Threads.Atomic{Int}(k1 + 1); kend = last(ks)
     kerr = fill(typemax(Int), nt); errs = Vector{Any}(nothing, nt)
     ZTASK[] = true
     try
