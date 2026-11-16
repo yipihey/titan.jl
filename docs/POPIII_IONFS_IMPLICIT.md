@@ -266,3 +266,29 @@ Open:
 - the He I front treatment (two-phase term or x_He⁺ unknown) is untested here: at T_eff ~ 6000 K there is no He front (Q_HeI ~ 1e33 s⁻¹,
   absorbed in one zone).
 - the Δt cost above.
+
+# Post-process: julia/ionfs_post.jl (17 Nov)
+
+    julia -t 4 --project=<env> julia/ionfs_post.jl <run dir> [snaps_*.jls ...]     # default: every snaps_*.jls in the run dir
+
+The in-run ionfs_snap.csv diagnostics from the snapshots alone, without the coupled ray: the formal solution (IONFSSUB, deep start),
+the photon-conserving sweep, the LW self-shielding against the SLSHIELD rate (recomputed from the snapshot with STARLIGHT's SLBLEND/SLEB/
+SLWFLUX; T_CMB from ENV TCMB, default 54.5 K), and the fronts. It appends to `<run dir>/ionfs_post.csv` and skips steps already there.
+The columns are documented in the script's header; they include M★ and the break-out alarm:
+- r_a = max(r_ph + 10 R☉, 2 r_ph);
+- `alarm_H` = Q_H(r_a) > ALARMQH (default 1e42 s⁻¹) or the H front beyond r_a;
+- `alarm_LW` = k_LW,ray(r_a) t_flow(r_a) > ALARMLW (default 0.1);
+- `alarm` = either.
+Cost: ~25 s to load, then ~0.02 s per snapshot (4 threads). The snapshots already contain everything it needs (r, ρ, T, u, e, E_r,
+F_r, χ, composition Y, table flags, m).
+
+Check against the in-run diagnostics (t_ifm7, 47 snapshots): Q_em, Q_esc, L_fs, the H₂ fronts and the SLSHIELD dissociations agree.
+Where they differ by up to ×1.5, the cause is the in-run source update every 20 steps. The ray dissociations in the front zone differ
+by up to 10², because there they depend on the Newton composition.
+
+Over all snapshots so far (z300mm 78, z300g2 150, z100mm 19; M★ up to 0.51 M☉, T_eff 3500–6500 K) **no alarm**:
+- the Lyman continuum (≤ 6.5e41 s⁻¹ at r_ph) never reaches r_a;
+- LW (up to 5e42 s⁻¹) leaves the mesh at 50–60 %, but k_LW t_flow(r_a) ≈ 0 (fully self-shielded);
+- the H₂ front sits 0.3–0.5 R☉ (z300mm), 1–12 R☉ (z300g2) and 1.3–9 R☉ (z100mm) outside r_ph.
+Caveat: in z300g2 after step ~5600 the grey τ = 2/3 surface lies in cool gas: T_eff 400–760 K, L_run(r_ph) < 1 L☉ (except step 7850),
+fnorm ≈ 0. Those rows do not describe a stellar photosphere and need a look at that run's τ structure.
