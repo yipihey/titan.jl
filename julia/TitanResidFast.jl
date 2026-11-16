@@ -1687,4 +1687,34 @@ function cpl_jcheck(kz; h = parse(Float64, get(ENV, "CPLJCHH", "1e-6")))
     nothing
 end
 
+"""
+SZJCHECK test (popiii_m2c SZJCHECK=n1,n2,…, at the first Newton iteration of the first step): the AD Jacobian of the gas-energy,
+radiation-energy and radiation-flux rows of zones k−2…k+2 with respect to ρ, T, E_r, F_r (and x_H⁺, x_H₂ if COUPLED) of zone k,
+against central finite differences of the value residual (step h in the scaled variables). Prints the worst relative difference
+per column (relative to max(|AD|, |FD|, 1e-6 × the row's largest entry)). Written for SUBZONE, whose avchi enters the flux row.
+"""
+function rad_jcheck(kz; h = parse(Float64, get(ENV, "SZJCHH", "1e-6")))
+    c = context(); assemble!(c)
+    E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); neqn = c.neqn; nb = c.nb; k0 = c.k0
+    ir, im, id, iu, it, ie, iF = c.ix
+    ws = getws(Float64, c.mgr); R1 = zeros(neqn, nb); R2 = zeros(neqn, nb); xz = zeros(neqn * nb)
+    kbz = kz - k0 + 1
+    cols = neqn >= 9 ? (id, it, ie, iF, 8, 9) : (id, it, ie, iF)
+    for j in cols
+        idx = (kbz - 1) * neqn + j
+        xz[idx] = h; residual!(R1, ws, c, xz); xz[idx] = -h; residual!(R2, ws, c, xz); xz[idx] = 0.0
+        worst = 0.0; wl = ""
+        for kr in kz-2:kz+2, i in (it, ie, iF)
+            kbr = kr - k0 + 1; (1 <= kbr <= nb) || continue
+            fd = (R1[i, kbr] - R2[i, kbr]) / 2h; ad = E[kz - kr + 3][i, j, kr]
+            rowmax = maximum(abs(E[o][i, jj, kr]) for o in 1:5 for jj in 1:neqn)
+            sc = max(abs(fd), abs(ad), 1e-6 * rowmax); sc == 0 && continue
+            rel = abs(fd - ad) / sc
+            rel > worst && (worst = rel; wl = "row $i zone $kr: AD $(round(ad, sigdigits = 6)) FD $(round(fd, sigdigits = 6))")
+        end
+        println("SZJCHECK zone $kz column $j (SUBZONE $(SUBZONE[])): worst relative difference $(round(worst, sigdigits = 3))  ($wl)")
+    end
+    nothing
+end
+
 end # module

@@ -1046,6 +1046,13 @@ with the rest of chemq, implicit in T in the chemistry. Left out: H–H (Drawin)
 """
 const LYABB = Ref(get(ENV, "LYABB", "0") == "1")
 "Per-step star-light setup: photosphere, T_eff, and the LW columns; returns a function k -> (kHm, kH, kLW, fsh) for a network zone k."
+"""
+`SLFREEZE=1` (diagnostic, default off; not physics): every zone keeps the star-light dilution W and colour temperature T_c of the
+first `starlight_setup` call of the process for the rest of the run, i.e. the photo-rates no longer follow the radiation field of
+the last step. Used to test whether the one-step lag of W(E_r, F_r) in the photo-rates of the coupled chemistry and the NLOIT
+opacity drives the period-2 orbit of the irradiated zone outside a photosphere (docs/POPIII_SUBZONE_FRONT.md).
+"""
+const SLFREEZE = get(ENV, "SLFREEZE", "0") == "1"; const SLFRZ = Ref(Tuple{Float64,Float64}[])
 function starlight_setup(m::NetGas, a, b, tauz_)
     sl = STARLIGHT[]; dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); er, fr, un = TM.v(:ern), TM.v(:frn), TM.v(:un)
     kph = a; for k in b:-1:a; tauz_[k] >= 2 / 3 && (kph = k; break); end
@@ -1099,6 +1106,10 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             Tc = Te; W = max(slcu(k), 0.0) / (4 * 5.670374419e-5 * Te^4)
         else
             Tc = (max(er[k], Ecmb) / arad)^0.25; W = 1.0
+        end
+        if SLFREEZE                                      # (diagnostic) the star light of the first call, held
+            length(SLFRZ[]) < nz && (SLFRZ[] = fill((NaN, NaN), nz))
+            isnan(SLFRZ[][k][1]) ? (SLFRZ[][k] = (W, Tc)) : ((W, Tc) = SLFRZ[][k])
         end
         (W > 0 && Tc > 0) || return (0.0, 0.0, 0.0, 1.0)
         env = (Trad = Tc, J = ν -> W * _bnu(ν, Tc))
