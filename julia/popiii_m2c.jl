@@ -2387,6 +2387,10 @@ try
         TF.PARAMS[:meqn] >= 9 || error("COUPLED=1: meqn = $(TF.PARAMS[:meqn]) < 9")
         ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
         TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
+        if PM.SLIMP                                # SLIMP=1: the star-light dilution of the coupled zones at the Newton iterate (PM.sl_q, cpl_zone_q)
+            TX.SLIMP[] = true; TX.SLQ_FN[] = PM.sl_q; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q)
+            pr("SLIMP: star-light dilution W of the coupled zones at the Newton iterate (W(E_r, F_r)/W_start a local variable; T_c held)\n")
+        end
         get(ENV, "CPLLOCAL", "1") == "1" && (TX.CPL_LOCAL[] = (k, dt) -> PM.cpl_local!(mat, k, dt))
         TC.CPLH[] = (; newstep = TX.cpl_newstep!, reset = TX.cpl_reset!, update = TX.cpl_update!, dmax = TX.cpl_dmax!)
         push!(TC.DT_HOOKS, cpl_dtcap)

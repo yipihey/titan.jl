@@ -213,6 +213,14 @@ const XSN = Ref([Float64[], Float64[]]); const XSO = Ref([Float64[], Float64[]])
 const XSRCO = Ref([Float64[], Float64[]]); const XLAMO = Ref(Float64[]); const CPLZ = Ref(Bool[])
 const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's iterate while the material is evaluated
 const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
+"""
+SLIMP (popiii_m2c `SLIMP=1`, with COUPLED; default off, off = bit-identical): the star-light dilution of a coupled zone at the Newton
+iterate. `SLQ_FN[](k, E_k, F_k, F_k+1)` gives q_k = W_k(iterate)/W_k(start of step) (local: zone k's E_r and its two interface fluxes),
+`CPL_ZONEQ[](k, ρ, T, x1, x2, q)` the zone's terms with every star-light rate scaled by q (PopIIIMaterial.cpl_zone_q), and `CPLQ[]` carries
+q (Duals) to the NLOIT opacity during the material sweep. T_c stays at its start-of-step value.
+"""
+const SLIMP = Ref(false); const SLQ_FN = Ref{Any}(nothing); const CPL_ZONEQ = Ref{Any}(nothing); const CPLQ = Ref{Any}(nothing)
+const SLQBUF = Dict{Any,Any}()
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
 "Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
 # COUPLED: the three-level heats cq, yq of the iterate in the rows (CPLIMPQ=1, experimental: with CPLNLOX its Δt → 0 limit was ~300 K below
@@ -945,17 +953,25 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             k = k0 + bb - 1; xs1[k] = xn1[k] * exp(x[(bb-1)*neqn+8]); xs2[k] = xn2[k] * exp(x[(bb-1)*neqn+9])
         end
         CPLW[] = (xs1, xs2)
+        slq = nothing
+        if SLIMP[]                                   # SLIMP: q_k of the iterate (new-level E_r, F_r)
+            slq = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1)))::Vector{T}
+            @inbounds for k in eachindex(slq); slq[k] = one(T); end
+            @inbounds for k in ngrs:ngre; cplz(k) && (slq[k] = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
+            CPLQ[] = slq
+        end
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
         finally
-            CPLW[] = nothing
+            CPLW[] = nothing; CPLQ[] = nothing
         end
         # (PERF512) the coupled zones' rates in the Jacobian's Dual numbers on MATTHREADS tasks (zones independent; the material sweep above
         # left their values and local Jacobians in the zones' cache entries); bit-identical. ZONE[] is not used here and is kept.
         let z0 = ZONE0[]
             try zone_sweep!(ngrs:ngre, k -> true) do k
                 @inbounds if cplz(k)
-                    y = CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]); W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
+                    y = slq === nothing ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) : CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slq[k])
+                    W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
                     W.cpQ[k] = y[6]; W.cpY[k] = y[7]
                 else
                     W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
@@ -1707,7 +1723,7 @@ function rad_jcheck(kz; h = parse(Float64, get(ENV, "SZJCHH", "1e-6")))
         idx = (kbz - 1) * neqn + j
         xz[idx] = h; residual!(R1, ws, c, xz); xz[idx] = -h; residual!(R2, ws, c, xz); xz[idx] = 0.0
         worst = 0.0; wl = ""
-        for kr in kz-2:kz+2, i in (it, ie, iF)
+        for kr in kz-2:kz+2, i in (neqn >= 9 ? (it, ie, iF, 8, 9) : (it, ie, iF))
             kbr = kr - k0 + 1; (1 <= kbr <= nb) || continue
             fd = (R1[i, kbr] - R2[i, kbr]) / 2h; ad = E[kz - kr + 3][i, j, kr]
             rowmax = maximum(abs(E[o][i, jj, kr]) for o in 1:5 for jj in 1:neqn)
@@ -1715,7 +1731,7 @@ function rad_jcheck(kz; h = parse(Float64, get(ENV, "SZJCHH", "1e-6")))
             rel = abs(fd - ad) / sc
             rel > worst && (worst = rel; wl = "row $i zone $kr: AD $(round(ad, sigdigits = 6)) FD $(round(fd, sigdigits = 6))")
         end
-        println("SZJCHECK zone $kz column $j (SUBZONE $(SUBZONE[])): worst relative difference $(round(worst, sigdigits = 3))  ($wl)")
+        println("SZJCHECK zone $kz column $j (SUBZONE $(SUBZONE[]), SLIMP $(SLIMP[])): worst relative difference $(round(worst, sigdigits = 3))  ($wl)")
     end
     nothing
 end
