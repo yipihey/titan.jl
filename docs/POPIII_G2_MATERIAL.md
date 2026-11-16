@@ -10,6 +10,8 @@ Plots: `docs/g2/g2_gap_maps_g2opac.png`, `docs/g2/g2_gap_maps_hm88.png`.
 
 ## 0. Summary
 
+**Update (§6):** SCVH95 definition verified; HM88 and the fast G2 continuum implemented; with the network through the photosphere front (table only at n_H ≥ 1e19) the cliff leaves the material interface and the run matches t_sz31 for 300 steps — SUBZONE and SLIMP both remain necessary.
+
 1. **At the cliff the two materials agree in LTE where the network is used.** For the network-side zones (T ≤ 6000 K,
    ρ ≤ 1e-6, zdiagB zones 62–160) network-in-LTE vs table: p within 1 %, c_P within 4 %, κ_R within 6 %, κ_P within 5 %.
    The cliff itself is physical: across zones 61 → 62 T falls 9600 → 3350 K and κ_R falls 44 → 5e-5 cm² g⁻¹ (×10⁶);
@@ -261,6 +263,61 @@ CIA band region, log T 3.2, where `means` itself holds the CIA kernel over 8 of 
 
 ### 6.3 Bit identity (all switches off)
 `t_g2c` (280ba90) vs `t_g2a` (0781136), 8 steps from zdiagB S5: 591 state arrays and .aux byte-identical.
+
+### 6.4 The extended-network experiment (zdiagB S5, step 3000)
+Restarts of zdiagB's checkpoint S5 with zdiagB's S6 settings (procedure.log), 8 threads on cores 96–103, RUNREC every 5 steps
+(`scripts/g2audit/exprun.sh`, `g2track.jl`, `cmptrack.py`; runs /zpool/nvme/data/tabel_scratch/titan_popiii/runs/t_g2e1 … t_g2e8). G2
+switches in all of them: `SCVHXE=1 HM88=1 G2OPAC=2`. **Switch thresholds (general, by density):** `PSWITCH=1e30 PSWTAU=0 PSWSTAY=0
+PSWNH=1e19` with the existing `PSWTMIN=4500 PSWHYS=0.3` — the table only where n_H ≥ 1e19 cm⁻³ (ρ ≳ 2e-5 g cm⁻³) and T ≥ 4500 K;
+everything else, the whole photosphere front included (front at n_H ≈ 1e17), on the network. `PSWRAMP=10`: zones handed from the table
+to the network one every 10 steps after the restart (converting the five zones 59–63 at once failed within 13 steps, E2).
+
+| run | settings beyond G2 + thresholds | result |
+|---|---|---|
+| E1 t_g2e1 | (no ramp) | stopped 3069 (Δt < DTSTOP); E_r of zone 66, just outside the front — the same failure as zdiagB at 3032 |
+| E2 t_g2e2 | SUBZONE=1,2 SLIMP=2, no ramp | stopped 3013: zone 60, converted at once, diverges in E_r, F_r, x |
+| E3 t_g2e3 | PSWRAMP=10 | stopped 3032 (as zdiagB: E_r zone 66) |
+| E4 t_g2e4 | PSWRAMP=10 SUBZONE SLIMP | stopped 3046: the converted zones 60–62 (τ ≈ 1e5–1e7, 1–2.5e4 K) diverge in E_r, T |
+| **E5 t_g2e5** | PSWRAMP=10 SUBZONE=1,2 SLIMP=2 **TL3DEEP=1 NLOHBFDEEP=1** | **300 steps to 3300** (below) |
+| E6 t_g2e6 | as E5 without SUBZONE and SLIMP | stopped 3026 (E_r zone 62, the front) |
+| E7 t_g2e7 | as E5 without SLIMP | stopped 3026 |
+| E8 t_g2e8 | as E5 without SUBZONE | stopped 3043 |
+
+E4 → E5: network zones deep in the thick layers need the n = 2 bound–free exchange in the grey coupling. NLOPAC's κ_P/κ_E leave out H
+bound–free (the three-level atom carries it as a lagged chemistry heat): right in the thin lit layers, wrong at τ ≫ 1, where the converted
+zones could not exchange energy with E_r inside the Newton and ran away (T 2.5e4 K next to 7.7e3 K at step 3030 of E4). `NLOHBFDEEP=1`
+(new, PopIIIMaterial, default off): with `TL3DEEP=1` (no three-level heats at τ ≥ 3) deep network zones take H bound–free in κ_E and κ_P
+(hbfP = true), so the exchange is c κ_E E − 4π κ_P B, implicit.
+
+**E5 vs t_sz31** (t_sz31 = SUBZONE=1,2 SLIMP=2 with the table up to the front; same checkpoint; snapshots 3005–3300):
+
+| | E5 (G2 network through the front) | t_sz31 (reference) |
+|---|---|---|
+| cliff on a table\|network interface | 2 of 60 snapshots (the first two, before the ramp) | 55 of 60 |
+| table\|network interface | zone 58 (n_H = 1e19), 5–9 zones inside the cliff | at the cliff |
+| Δt from step 3040: median / min / fraction ≥ 1e4 s | 3.4e4 / 1.5e4 s / 100 % | 3.3e4 / 1.3e4 s / 100 % |
+| Newton divergences per 100 steps | 2 (6 in 300; DTERR rejections 11) | 2 (6 in 300) |
+| wall per step | 3.3 s (8 threads) | 9.7 s (4 threads, t_sz31's own) |
+| ⟨log L_ph⟩, σ (3040–3300) | 2.055, 0.256 | 2.031, 0.277 |
+| ⟨T_eff,L⟩, σ | 3754 K, 642 K | 3763 K, 674 K |
+| M*, R* at step 3300 | 0.0893 M☉, 16.39 R☉ | 0.0916 M☉, 16.39 R☉ (3e-2 yr later in t) |
+| cliff ⟨Δ log T⟩ between two zones | 0.41 | 0.42 |
+
+With the network through the front the cliff no longer sits on a material interface; Δt, failures and L, T_eff, R*, M* are those of the
+reference. The cliff itself (Δ log T ≈ 0.4 across one zone: the H ionisation front, κ_R ×10⁶) is unchanged: physical and unresolved,
+not a product of the switch. Plot: `docs/g2/g2_extended_network_runs.png`. The NLOIT opacity cost per step fell with G2OPAC=2
+(E5: 21.4 M ratio evaluations in 1107 thread-s over 300 steps ≈ 52 µs each, vs 460 µs with nlte_means_fast in t_g2a).
+
+### 6.5 Recommendation
+- **SUBZONE and SLIMP: both still needed.** Without both every configuration stops within 26–69 steps at the front (E1, E3, E6), with
+  the network through the front as with the table up to it; the failure (E_r of the zone just outside the front) is not caused by the
+  material interface. Each alone fails (E7 SUBZONE only: 3026; E8 SLIMP only: 3043).
+- **G2 material:** SCVHXE + HM88 + G2OPAC=2 + TL3DEEP + NLOHBFDEEP with a density threshold (PSWNH = 1e19; PSWITCH, PSWTAU off) carries
+  the photosphere and the front on the network with nothing worse than t_sz31 over 300 steps; it removes the T/τ switch rules (PSWTAU,
+  PSWTEX, PSWSTAY, PSWAGREE, PSWRAD) from the front. The remaining density switch sits 2 dex inside the photosphere, where table and
+  network (with HM88) agree to 3–8 % in x_e and p. Next: run longer, lower PSWNH (needs the non-ideal terms, P4, for the deep zones).
+- SCVHXE is a correctness fix of the table's composition (SCVH95 eqs. 33–36); make it the default after a production comparison.
+- Bit identity at 1b4d7db (all switches off): `t_g2f` vs `t_g2a`, 591 arrays + .aux identical.
 
 ## 5. Sources (checked on SciX, all refereed journals)
 Saumon, Chabrier & Van Horn 1995, ApJS 99, 713 (1995ApJS...99..713S); Hummer & Mihalas 1988, ApJ 331, 794 (1988ApJ...331..794H);
