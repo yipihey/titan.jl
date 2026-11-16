@@ -7,6 +7,7 @@
 # 3e-7 M☉ (RHFC02 §3.1). Regular centre, Lagrangian, self-gravity, free surface at the edge pressure.
 # Log: lib/popiii/m2c_<cooling>_n<nshell>.log (central track every 0.25 dex of n_c, ON98 Fig. 3a for comparison).
 using Printf
+include(joinpath(@__DIR__, "popiii_stack.jl"))     # the one supported configuration: defaults for every unset stack key
 include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "JuliaPhysics.jl"))
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
 include(joinpath(@__DIR__, "TitanCore.jl")); include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "TitanMaterials.jl"))
@@ -339,15 +340,7 @@ if yz !== nothing
     for j in 1:nsh; ystore[a0+j-1] = yz[j]; end
     for k in 1:a0-1; ystore[k] = yz[1]; end; for k in a0+nsh:length(ystore); ystore[k] = yz[end]; end
 end
-const IMPCOOL = get(ENV, "IMPCOOL", "1") in ("1", "2")               # G7: transfer cooling implicit in T (linearised in ln T)
-const DTCOOL = parse(Float64, get(ENV, "DTCOOL", "1.0"))
-const IMPALWAYS = get(ENV, "IMPCOOL", "1") == "2" || get(ENV, "IMPALWAYS", "0") == "1"   # IMPCOOL=2 (or IMPALWAYS=1, which a restart may change): slope every step
-# TCOOLTH=1: the line-cooling time of the Δt rules below from the thermal energy (3/2 p/ρ) instead of e + UOFF_TH. The latter
-# is the energy above cold H₂, which in atomic gas is ~12× the thermal energy (the H₂ binding energy, 2.24 eV per H), so
-# while the gas turns molecular the explicit Λ was used up to Δt ≈ 1.2 thermal cooling times: beyond ~0.4 of it (2/(d ln Λ/
-# d ln T)) T overshoots from step to step and the core rings. Default off (the accretion production runs are unchanged).
-const TCOOLTH = get(ENV, "TCOOLTH", "0") == "1"
-const NIMP = Ref(0)                                                  # steps with implicit line cooling
+const NIMP = Ref(0)                                                  # (kept in the checkpoint; the IMPCOOL slope it counted is gone)
 const CHEM = get(ENV, "CHEM", "rhfc02")     # rhfc02: PrimordialGas (RHFC02 network, ρ_eq switch); net / netmodern / netmodernli: NetGas (G5)
 if CHEM == "rhfc02"
     global mat = PM.PrimordialGas(ystore, PC.rates_rhfc02(; k5 = k5f), cf, parse(Float64, get(ENV, "RHOEQ", "5e-11")), get(ENV, "EQEOS", "scvh") == "scvh")
@@ -374,14 +367,10 @@ eqflag(k) = mat isa PM.NetGas ? mat.eqzone[k] : TF.var(:dn)[k] >= mat.ρeq
 av = (ql0 = 0.0, ql1 = parse(Float64, get(ENV, "AVQL1", "0.15")), cq1 = 0.0, cq2 = parse(Float64, get(ENV, "AVCQ2", "1.0")))
 PS.build!(; rI, rho, T = Tz, u = uI, geom = 2, lgrid = 3, inner = :wall, outer = :free, pext = 0.0,
           selfgrav = true, material = mat, av)
-# SHOCKRAD=1: sub-grid radiative shock (TitanResidFast.SHOCK_RAD); SHOCKDU="du1,du2" in km/s
-TX.SHOCK_RAD[] = get(ENV, "SHOCKRAD", "0") == "1"
 TX.AV_TENSION[] = get(ENV, "AVTENSION", "1") == "1"       # 1 (TITAN) | 0 | f in (0,1) | radial | radial,f  (TX.AV_TFRAC)
 let p = split(get(ENV, "AVTENSION", "1"), ","), f = tryparse(Float64, p[end])
     TX.AV_TRAD[] = p[1] == "radial"; TX.AV_TFRAC[] = f !== nothing && 0 < f < 1 ? f : 0.0
 end
-TX.AV_CAP[] = parse(Float64, get(ENV, "AVCAP", "0"))
-haskey(ENV, "SHOCKDU") && (TX.SHOCK_DU[] = Tuple(1e5 .* parse.(Float64, split(ENV["SHOCKDU"], ","))))
 TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))    # G1: viscous length = AVZONE × zone width (0 = ql1 r̄ above)
 TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
 PS.install_julia!(BlockSolver); TD.MSGIO[] = get(ENV, "MSG", "0") == "1" ? stdout : devnull   # (Newton messages also before RAD switches on)
@@ -568,14 +557,14 @@ function lineinc()
     (LINEINC == "cmb" || sd === nothing || !(sd.Te > 0)) && return (Tbg = Tb, Tstar = 0.0, Rph = 0.0)
     (Tbg = Tb, Tstar = Float64(sd.Te), Rph = Float64(TF.var(:rn)[sd.kph+1]))
 end
-# LINEIMP=1 (default off; off = bit-identical): the line cooling of each zone is a function of the zone's state in the chemistry and in
+# LINEIMP (always on since the clean-up; the switch is gone): the line cooling of each zone is a function of the zone's state in the chemistry and in
 # the hydro Newton (PopIIIMaterial.LINEIMP: populations re-solved at the iterate's T with the radiative rates β, J̄ of the last transfer
 # call), not Λ held from the last call. Retires as devices: the IMPCOOL slope (second transfer call) and its [−10, 30] clamp, the
 # Δt ≤ 0.1 (or DTCOOL) t_cool cap, TCOOLTH (only the cap used it). LINEFRAC still skips transfer calls (the model is then kept).
 # Hybrid NLTE: on an ALI step the zone takes the ALI rates (β = 1 − Λ*, J̄ = J̄_fs − Λ* S); in between the EP rates of the step × the
 # last ALI/EP factor, bounded to [1/LIFMAX, LIFMAX] (default 10); where LINECOLL holds the ALI collisional rate (ALIFIX: EP and ALI differ
 # in sign), the zone holds the last ALI call's RATES instead, so its cooling still follows its T. Needs NLTE = ep | ali | hyb.
-const LINEIMP = get(ENV, "LINEIMP", "0") == "1"; const LIFMAX = parse(Float64, get(ENV, "LIFMAX", "10"))
+const LINEIMP = true; const LIFMAX = parse(Float64, get(ENV, "LIFMAX", "10"))
 LINEIMP && !(NLTE in ("ep", "ali", "hyb")) && error("LINEIMP=1 needs NLTE=ep, ali or hyb")
 LINEIMP && (PM.LINEIMP[] = true; pr("LINEIMP: H2 line cooling of each zone from its own state (populations at the iterate's T, radiative rates of the last transfer call); no t_cool cap, no IMPCOOL slope\n"))
 const LIALI = Ref{Vector{Any}}(Any[]); const LISTAT = zeros(Int, 4)    # (zones with EP, ALI, held-ALI rates; f clamped)
@@ -769,11 +758,11 @@ function checkpoint(name, k)
 end
 # settings that must agree between a run and its restart (the set-up and the physics); the rest may change
 const CKENV = ("IC", "TCMB", "AVZONE", "AVQL1", "AVCQ2", "CHEM", "NLTE", "NALI", "NBIN", "K5", "MCLOUD", "LRJOIN", "DLNJOIN", "DM", "PSWITCH",
-               "IMPCOOL", "DTCOOL", "INTEGRATOR", "THETA", "XE0", "RAD")   # (not CDYN: the accretion phase relaxes the dynamical Δt limit at a restart)
+               "INTEGRATOR", "THETA", "XE0", "RAD")   # (not CDYN: the accretion phase relaxes the dynamical Δt limit at a restart)
 function restart!(name; allow = ())
     aux = deserialize(joinpath(CKDIR, "m2c_$(name).aux"))
     for (k_, v_) in aux.env
-        k_ in allow && continue
+        (k_ in allow || !(k_ in CKENV)) && continue        # (a key whose switch was removed in the clean-up: its value is the method now)
         get(ENV, k_, nothing) == v_ || error("restart: ENV $k_ = $(repr(get(ENV, k_, nothing))) differs from the checkpoint's $(repr(v_))")
     end
     for k_ in CKENV; k_ in allow && continue; haskey(ENV, k_) && !haskey(aux.env, k_) && error("restart: ENV $k_ is set but was not in the checkpoint's run"); end
@@ -893,7 +882,7 @@ end
 S6-B: settings of a radiating run (after a RAD rebuild and after restarting a RAD checkpoint): StellarOpacity continuum for
 NetGas, CMB intensity at the outer boundary, Eddington-factor mode, thin-envelope E_r out of the Δt rule, Δt cap.
 """
-const DTRHOOK = Ref(false); const XMEXT = Ref{Any}(nothing)
+const XMEXT = Ref{Any}(nothing)
 function radsettings!()
     X = 1 / (1 + 4PC.yHe)
     # OPACSENS="fcond,fext" (sensitivity test, default 1,1): κ_cond × fcond, and κ_rad × fext beyond OPAL's log R = 1 (over one dex in log R)
@@ -906,16 +895,11 @@ function radsettings!()
     Tb = parse(Float64, get(ENV, "TCMB", "0"))
     TF.setscalar!(:ximr, Z0.σSB * Tb^4 / π)
     TF.setscalar!(:ltran, parse(Int, get(ENV, "LTRAN", "1")))      # 1: formal solution for f, g; 2: Eddington approximation f = 1/3, g = 1/2
-    TC.ER_TAUCONV[] = parse(Float64, get(ENV, "ERTAUCONV", "1.0"))   # causality floor of E_r outside the photosphere
     TC.ER_TAUMIN[] = parse(Float64, get(ENV, "ERTAUMIN", "1.0"))   # E_r of the optically thin envelope does not limit Δt
-    # Δt cap: steps much longer than the light-crossing time of the nearly free-streaming layers outside the photosphere
-    # (r ~ 1e14 cm: r/c ~ 3e3 s) fail in Newton (Eddington factors lagged over the step); default 1500 s
     if HOTON                                          # convection (hot branch only: PM.material_thermo), as the S5 stars
         TX.CONVECTION[] = true; TX.ALPHA_MLT[] = parse(Float64, get(ENV, "ALPHAMLT", "1.5")); TX.MLT_HSDISC[] = true; TX.MLT_RCAP[] = true
         PM.COLDMLT[] = parse(Float64, get(ENV, "COLDMLT", "0")); PM.COLDMLT[] > 0 && (TX.MLT_NOINFALL[] = true)
     end
-    dtr = parse(Float64, get(ENV, "DTRADMAX", "1500"))
-    dtr > 0 && !DTRHOOK[] && (push!(TC.DT_HOOKS, () -> dtr); DTRHOOK[] = true)
     TD.MSGIO[] = get(ENV, "MSG", "0") == "1" ? stdout : devnull
 end
 """
@@ -1190,64 +1174,11 @@ function xadv2_correct!(xnew, X, F, M, n)
     nothing
 end
 """
-ECHEMSPLIT=1 (default off): thermal/chemical energy split for the transport. Just before each hydro step e and the old-time e of every zone are
-lowered by the zone's chemical energy Σ x_i E0_i/μ_H at its frozen composition (PM.ECHEMOFF, constant through the step; the EOS returns the same
-offset energy, PM.ECHEMON), so TITAN advects ẽ = e − Σ x E0 — for a network zone its thermal energy; for a table zone a constant offset, its
-latent heat kept in the Newton — and the chemical energy crosses each interface only with the species (`advect_species!`, conservative); table zones take it in their energy row
-(TX.ECHEMF). After the species are advected, e = ẽ + Σ x_new E0 (table zones: ẽ + their own offset): consistent with the advected composition by construction, total energy conserved. Outside the
-hydro step e keeps its usual meaning (chemistry, diagnostics, checkpoints).
+COUPLED (the method; the switch is gone): x_H⁺ and x_H₂ of every network zone are unknowns of the hydro Newton (TitanResidFast.COUPLED,
+PopIIIMaterial cpl_*; implies CHEMCK). The chemistry after the step keeps only what the hydro solve does not carry (HD, the three-level
+bookkeeping, the table switch); table and hot zones keep the split step.
 """
-const ECHEMSPLIT = get(ENV, "ECHEMSPLIT", "0") == "1"; const ECHEMPEND = Ref(false); const ECHEMN = Ref(0)
-"""
-COUPLED=1 (default off): x_H⁺ and x_H₂ of the network zones are unknowns of the hydro Newton (TitanResidFast.COUPLED, PopIIIMaterial
-cpl_*; implies CHEMCK, excludes ECHEMSPLIT). The chemistry after the step keeps only what the hydro solve does not carry (HD, the
-three-level bookkeeping, the table switch). `CPLXSTOL` (default log 3): the next Δt is capped so that ln x_H⁺ of a coupled zone with
-x_H⁺ > 1e-4 changes by at most this per step (the guard against the hot, fully ionized root of an implicit step in the avalanche zones).
-"""
-const COUPLED = get(ENV, "COUPLED", "0") == "1"
-const CPLXSTOL = parse(Float64, get(ENV, "CPLXSTOL", string(log(3.0))))
-function cpl_dtcap()
-    a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); w = 0.0
-    xn, xo = TX.XSN[][1], TX.XSO[][1]
-    kw = 0
-    for k in a:b
-        TX.cplz(k) || continue
-        max(xn[k], xo[k]) > 1e-4 && abs(log(xn[k] / xo[k])) > w && (w = abs(log(xn[k] / xo[k])); kw = k)
-    end
-    cap = w > 0 ? TF.getscalar(:dtime) * CPLXSTOL / w : Inf
-    cap < TF.getscalar(:dtime) && !Trbdf2.ERRCTL[] && @printf("cpl dt cap: zone %d x_H+ %.3e -> %.3e T %.0f, dt %.3e -> cap %.3e\n", kw - a + 1, xo[kw], xn[kw], TF.var(:tn)[kw], TF.getscalar(:dtime), cap)
-    cap
-end
-function echem_pre!()
-    eg = TF.var(:egn); eo = TF.var(:ego); egr = TF.var(:egrn); ero_ = TF.var(:egro); off = zeros(length(eg))
-    dn = TF.var(:dn); tn = TF.var(:tn)
-    for k in a:b
-        # table zones: the equilibrium composition (their advected x is stale: it keeps the neutral infall); any constant offset conserves
-        off[k] = mat.eqzone[k] ? ChemNet.echem(PM.x_from_table(mat, dn[k], min(tn[k], 1e6)), mat.net) : ChemNet.echem(mat.x[k], mat.net)
-        eg[k] -= off[k]; eo[k] -= off[k]; egr[k] -= off[k]; ero_[k] -= off[k]      # (gas + radiation: peqr copies egrn to egro)
-    end
-    PM.ECHEMOFF[] = off; PM.ECHEMON[] = true
-    tab = falses(length(eg)); for k in a:b; tab[k] = mat.eqzone[k] || TX.cplz(k); end     # (COUPLED zones: as table zones, latent heat in the Newton)
-    TX.ECHEMF[] = (off, tab)
-    nothing
-end
-function echem_hydro_done!()
-    PM.ECHEMON[] = false; TX.ECHEMF[] = nothing; eo = TF.var(:ego); ero_ = TF.var(:egro); off = PM.ECHEMOFF[]
-    for k in a:b; eo[k] += off[k]; ero_[k] += off[k]; end
-    ECHEMPEND[] = true
-    nothing
-end
-function echem_post!()
-    ECHEMPEND[] || return nothing
-    eg = TF.var(:egn); egr = TF.var(:egrn); off = PM.ECHEMOFF[]; dmax = 0.0; kw = 0
-    for k in a:b
-        en = (mat.eqzone[k] || TX.cplz(k)) ? off[k] : ChemNet.echem(mat.x[k], mat.net); eg[k] += en; egr[k] += en      # (table and COUPLED zones: their row took the crossing chemical energy)
-        abs(en - off[k]) > dmax && (dmax = abs(en - off[k]); kw = k)
-    end
-    ECHEMPEND[] = false; ECHEMN[] += 1
-    (ECHEMN[] <= 3 || ECHEMN[] % 500 == 0) && @printf("ECHEMSPLIT step %d: largest change of the chemical energy by the advection %.3e erg/g at zone %d\n", TF.getscalar(:jstep), dmax, kw)
-    nothing
-end
+const COUPLED = true
 """
 Implicit upwind transport of mat.x with the mass that crossed each interface in the converged step (change of the exterior mass m_e), so
 that it is the discrete continuity equation applied to the mass fractions: a uniform composition stays uniform and elements are conserved.
@@ -1302,7 +1233,7 @@ function envlr(rout)
     (length(lr) + (ENVCENTRE ? ENVLIN : 0)) % 2 == 0 && pop!(lr)                    # (an even zone count: an odd number of interfaces)
     lr[1] .+ (lr .- lr[1]) .* (log(rout) - lr[1]) / (lr[end] - lr[1])
 end
-function envbuild!(; rIset = nothing)     # rIset (GEQREMAP): the interfaces (centre 0 … outer edge) of the new mesh, from a fixed-mesh (lgrid = 2) source
+function envbuild!(; rIset = nothing)     # rIset: the interfaces (centre 0 … outer edge) of the new mesh, from a fixed-mesh (lgrid = 2) source
     r0 =TF.var(:rn)[a:b+1]; u0 = TF.var(:un)[a:b+1]; d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]; F0 = TF.var(:frn)[a:b+1]
     m0 = rIset === nothing ? 4π .* TX.XMINT[][a:b+1] : 4π .* envmenc(); x0 = [copy(mat.x[a+j-1]) for j in 1:nsh]; eq0 = [mat.eqzone[a+j-1] for j in 1:nsh]
     t0 = TF.getscalar(:timen); js = TF.getscalar(:jstep)
@@ -1478,7 +1409,6 @@ elseif haskey(ENV, "RESTART")
     RAD && (radsettings!(); TD.EOS[](); TD.OPAC[]())
     if ENVEUL !== nothing
         Int(TF.getscalar(:lgrid)) == 3 ? envbuild!() : (envflags!(); ENVMS0[] = (ENVCENTRE && !haskey(ENV, "ENVMS0") ? 0.0 : parse(Float64, ENV["ENVMS0"])) * Msun / 4π)   # (regular centre: no sink, ENVMS0 unused)
-        GRIDEQP !== nothing && GEQREMAP > 0 && Int(TF.getscalar(:lgrid)) == 2 && geq_remap!()     # GEQREMAP (default off)
     end
 elseif ICEUL
     iceulbuild!()
@@ -1675,23 +1605,6 @@ function envmerge!(r1, r2, kmax)
     pr("ENVMERGE: zones %d -> %d (old zones %d..%d with centres in %.4g..%.4g R_sun in groups of %d), M %.9e -> %.9e Msun, E_rad %.9e -> %.9e erg, E_gas %.9e -> %.9e erg (last T correction %.1e, max |T/T_massweighted - 1| %.2e), xmtot %.9e -> %.9e\n",
        n0, n, j1, j2, rc[j1] / Rsun, rc[j2] / Rsun, kmax, Mold / Msun, Mnew / Msun, Eold, Enew, Egold, Egnew, emax, dTmax, xmt0, TF.getscalar(:xmtot))
 end
-"""
-DTENV=r1,r2,C (R☉): cap Δt at C × min over the interfaces with r1 ≤ r ≤ r2 of the dynamical time (r³/Gm)^½ (m interior mass). TITAN's
-DT_DYN (CDYN) takes the minimum over the whole mesh, so the stellar core sets it and the accretion runs relax it (CDYN = 1e5); this one
-follows only the envelope (its edge collapses and re-expands on its dynamical time). Reported on the DTDIAG line.
-"""
-const DTENV = haskey(ENV, "DTENV") ? parse.(Float64, split(ENV["DTENV"], ",")) : nothing; const DTENVLAST = Ref((Inf, 0))
-if DTENV !== nothing
-    push!(TC.DT_HOOKS, function ()
-        rn = TF.var(:rn); xmn = TF.var(:xmn); G4π = TF.getscalar(:cgrav) * 4π; td = Inf; kd = 0
-        for k in a:b+1
-            (DTENV[1] * Rsun <= rn[k] <= DTENV[2] * Rsun && xmn[k] > 0) || continue
-            t_ = sqrt(rn[k]^3 / (G4π * xmn[k])); t_ < td && (td = t_; kd = k)
-        end
-        DTENVLAST[] = (DTENV[3] * td, kd); DTENV[3] * td
-    end)
-    pr("DTENV: dt <= %g x dynamical time over %g..%g R_sun\n", DTENV[3], DTENV[1], DTENV[2])
-end
 haskey(ENV, "ENVSPLIT") && ENVEUL !== nothing && haskey(ENV, "RESTART") && Int(TF.getscalar(:lgrid)) == 2 && envsplit!(parse.(Float64, split(ENV["ENVSPLIT"], ","))...)
 haskey(ENV, "ENVMERGE") && ENVEUL !== nothing && haskey(ENV, "RESTART") && Int(TF.getscalar(:lgrid)) == 2 && for w_ in split(ENV["ENVMERGE"], ";"); envmerge!(parse.(Float64, split(w_, ","))...); end
 """
@@ -1754,10 +1667,6 @@ const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = pa
 # Newton controls, applied after any restart: NITER (iterations per attempt), FAILTFAC (Δt factor after a failed attempt)
 haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
 haskey(ENV, "STOL") && TF.setscalar!(:stol, parse(Float64, ENV["STOL"]))
-# STOLCHEM=1: the step-size rule (stol on the relative change of r, m, rho, T, E_r, and the caps in DT_HOOKS) is evaluated again after
-# the chemistry step, so that it acts on the change over the whole step (transport + chemistry) and not on the state between the two
-# halves of the operator split, where the transport step has moved T at the old composition. Default off.
-const STOLCHEM = get(ENV, "STOLCHEM", "0") == "1"
 haskey(ENV, "NTRY") && TF.setscalar!(:ntry, parse(Float64, ENV["NTRY"]))
 if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Trbdf2.TFAC[] = TD.FAIL_TFAC[]; end
 haskey(ENV, "ERTHICK") && (TC.ER_THICK[] = parse(Float64, ENV["ERTHICK"]))
@@ -1767,8 +1676,6 @@ haskey(ENV, "ETASWTIE") && (TX.ETASW_TIE[] = parse(Float64, ENV["ETASWTIE"]))   
 get(ENV, "ETOTGRAVGRID", "0") == "1" && (TX.ETOT_GRAV_GRID[] = true)     # gravity work on Lagrangian zones in the total-energy row (off: as before)
 get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW_EOFF[] = PC.UOFF_TH; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
-const OLDOPAC = get(ENV, "OLDOPAC", "0") == "1"
-OLDOPAC && pr("OLDOPAC: start-of-step opacities re-evaluated with the Newton's material after the COUPLED prepare pass (consistent theta-scheme old level)\n")
 # SUBZONE=1[,τ_f] (default off): interface optical depth across an unresolved front from the two-layer sub-zone form (TX.SUBZONE)
 if get(ENV, "SUBZONE", "0") != "0"
     let w_ = parse.(Float64, split(ENV["SUBZONE"], ","))
@@ -1776,7 +1683,7 @@ if get(ENV, "SUBZONE", "0") != "0"
         TX.SUBZONE[] && pr("SUBZONE: interface optical depth across unresolved fronts from the sub-zone form (opaque half-zone to tau_f = %.3g, transparent half-zone in series; front weight s(a)(1-s(b)), s = x^4/(x^4+tau_f^4))\n", TX.SZTAUF[])
     end
 end
-const LINEFRAC = parse(Float64, get(ENV, "LINEFRAC", "0")); const LINELAST = [-Inf, 0.0]; const LINECAPV = Ref(NaN)
+const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)
 # JACCHK="k,z,iter": at step k, Newton iteration iter, finite differences of the residual against the assembled Jacobian for the variables of absolute zone z (debugging)
 if haskey(ENV, "JACCHK")
@@ -2002,13 +1909,6 @@ function prof_report()
     nothing
 end
 try
-    if ECHEMSPLIT
-        mat isa PM.NetGas || error("ECHEMSPLIT=1 needs the network gas (CHEM=net...)")
-        let f0 = TD.STEPFN[]
-            TD.STEPFN[] = () -> (echem_pre!(); try f0() finally echem_hydro_done!() end; nothing)
-        end
-        println("ECHEMSPLIT: the hydro step advects e − Σ x E0; the chemical energy moves with the species")
-    end
     if haskey(ENV, "TABAUDIT") && mat isa PM.NetGas  # (diagnostic, then exit) the table zones below the hot branch: table vs the network's LTE state
         tabaudit(); exit(0)
     end
@@ -2018,7 +1918,6 @@ try
     end
     if COUPLED
         mat isa PM.NetGas || error("COUPLED=1 needs the network gas (CHEM=net...)")
-        ECHEMSPLIT && PM.CPLBAND[] === nothing && error("COUPLED=1 with ECHEMSPLIT=1 needs CPLBAND (the split zones then advect e − Σ x E0; coupled zones are treated as table zones)")
         TF.PARAMS[:meqn] >= 9 || error("COUPLED=1: meqn = $(TF.PARAMS[:meqn]) < 9")
         ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
         TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
@@ -2029,7 +1928,6 @@ try
         end
         get(ENV, "CPLLOCAL", "1") == "1" && (TX.CPL_LOCAL[] = (k, dt) -> PM.cpl_local!(mat, k, dt))
         TC.CPLH[] = (; newstep = TX.cpl_newstep!, reset = TX.cpl_reset!, update = TX.cpl_update!, dmax = TX.cpl_dmax!)
-        push!(TC.DT_HOOKS, cpl_dtcap)
         if haskey(ENV, "CPLJCHECK")                # Jacobian test of the coupled rows (TitanResidFast.cpl_jcheck), once
             zs = parse.(Int, split(ENV["CPLJCHECK"], ",")); once = Ref(true); g0 = TD.ROUTINES[:matgen]
             TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.cpl_jcheck(a_ + z - 1); TX.cplz(a_ + z - 1) && PM.cpl_gcheck(mat, a_ + z - 1); end); g0())
@@ -2039,16 +1937,13 @@ try
             TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.rad_jcheck(a_ + z - 1); end); g0())
         end
         let f0 = TD.STEPFN[]
-            # OLDOPAC=1 (default off): after the prepare pass, the opacities of the start-of-step state are re-evaluated with the material the
-            # Newton will use (NLOIT: this step's prepared terms and species), so the θ-scheme's old level (chifo, xkeo, xkpo := new at peq)
-            # and the residual's new level are one function of the state. Without it the old level is the post-chemistry fill of the last
-            # step (or, after a restart, the table: NLOST is not yet rebuilt), and the TR stage averages two different opacity laws.
-            TD.STEPFN[] = OLDOPAC ? (() -> (PM.cpl_prepare!(mat); TD.OPAC[](); f0(); nothing)) : (() -> (PM.cpl_prepare!(mat); f0(); nothing))
+            TD.STEPFN[] = () -> (PM.cpl_prepare!(mat); f0(); nothing)
         end
-        @printf("COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn %d), CPLXSTOL %.3g\n", TF.PARAMS[:meqn], CPLXSTOL)
+        @printf("COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn %d)\n", TF.PARAMS[:meqn])
     elseif Int(TF.getscalar(:neqn)) == 9
         TF.setscalar!(:neqn, 7)                    # (restart from a COUPLED checkpoint)
     end
+    Trbdf2.ERRCTL[] || error("DTERR must be set (the step control of the stack; TITAN's heuristic is diagnostic only)")
     if Trbdf2.ERRCTL[]                             # DTERR: coverage of the COUPLED zones and the line cap the heuristic would apply, on the trace lines
         Trbdf2.TRACE_EXTRA[] = function ()
             nnet = count(k -> !mat.eqzone[k], a:b); ncpl = count(k -> TX.cplz(k), a:b)
@@ -2080,18 +1975,15 @@ try
                 end
             end
         end
-        tc0 = time(); Tb4 = CHEMDIAG ? copy(TF.var(:tn)) : nothing; ub4 = CHEMDIAG ? copy(TF.var(:egn)) : nothing; ENVEUL !== nothing && advect_species!(); ECHEMSPLIT && echem_post!()
+        tc0 = time(); Tb4 = CHEMDIAG ? copy(TF.var(:tn)) : nothing; ub4 = CHEMDIAG ? copy(TF.var(:egn)) : nothing; ENVEUL !== nothing && advect_species!()
         EB = isempty(TX.CHEMB[]) ? nothing : copy(TF.var(:egn))
         SLZ_ = haskey(ENV, "SLZ") ? parse.(Int, split(ENV["SLZ"], ",")) : nothing
         if SLZ_ !== nothing; xb_ = [copy(mat.x[z]) for z in SLZ_[1]:SLZ_[2]]; Tb_ = TF.var(:tn)[SLZ_[1]:SLZ_[2]]; end
         FLUSHOUT && flush(stdout)                    # (FLUSHOUT=1: the step's diagnostics reach the output file now)
         NANSCAN && nanscan("after the hydro step", k)
-        dT = COUPLED ? PM.cpl_chem!(mat) : PM.chem!(mat)
+        dT = PM.cpl_chem!(mat)
         NANSCAN && nanscan("after the chemistry", k)
         prof_report()
-        if STOLCHEM && !Trbdf2.ERRCTL[]               # (DTERR: the error estimate is the only step-size control)
-            TF.setscalar!(:tfac, TC.TSTP_IN[][1]); TF.setscalar!(:dtime, TC.TSTP_IN[][2]); TD.r(:timstp)
-        end
         GRIDEQP === nothing || grideq_step!()
         if SLZ_ !== nothing && PM.SLDIAG[] !== nothing      # S6: starlight and chemistry of zones z1..z2 over this step's chem! (molecular-edge onset)
             sd = PM.SLDIAG[]; dtq = TF.getscalar(:timen) - TF.getscalar(:timeo)
@@ -2145,26 +2037,12 @@ try
             # H₂ line transfer on the new state (RHFC02 A2.4); Λ held fixed over the next step; Δt ≤ 0.1 u ρ/|Λ| (A2.2)
             rr = TF.var(:rn)[a:b+1]; uu = TF.var(:un)[a:b+1]; dd = TF.var(:dn)[a:b]; tt = TF.var(:tn)[a:b]
             nh2 = [dd[j] / PC.μH * ycomp(a + j - 1)[3] for j in 1:nsh]
-            # LINEFRAC > 0: keep the last Λ until LINEFRAC × (shortest t_cool) has elapsed; transfer is most of a step's cost
-            if LINEFRAC > 0 && TF.getscalar(:timen) - LINELAST[1] < LINEFRAC * LINELAST[2]
-                (LINEIMP || Trbdf2.ERRCTL[]) || TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * LINELAST[2]))
-            else
             tl0 = time(); Λl, Lr, _ = linecool(rr, uu, dd, tt, nh2, k); TLINE[] += time() - tl0
             tcmin = Inf
             for j in 1:nsh
                 mat.Λext[a+j-1] = Λl[j]; mat.Tref[a+j-1] = tt[j]; mat.slope[a+j-1] = 0.0
-                ue = TCOOLTH ? 1.5 * TF.var(:pgn)[a+j-1] / dd[j] : TF.var(:egn)[a+j-1] + PC.UOFF_TH     # energy scale of the cooling time
+                ue = 1.5 * TF.var(:pgn)[a+j-1] / dd[j]          # thermal energy scale of the cooling time (diagnostic: the line cap of DTDIAG and DTERR's trace)
                 Λl[j] != 0 && abs(ue * dd[j] / Λl[j]) < tcmin && (tcmin = abs(ue * dd[j] / Λl[j]); JCMIN[] = j)
-            end
-            # G7 (IMPCOOL=1, default): where the explicit cap Δt ≤ 0.1 t_cool would bind, the slope d ln Λ/d ln T from a
-            # second transfer call with all T × (1 + ε) makes Λ_j (T/T_j)^s implicit in the chemistry step, and the cap
-            # relaxes to Δt ≤ DTCOOL t_cool (default 1); otherwise Λ is held fixed (explicit, accurate there)
-            if !LINEIMP && IMPCOOL && (IMPALWAYS || 0.1tcmin < TF.getscalar(:dtime))     # (LINEIMP: the cooling follows T itself, no slope)
-                ε = 0.02; tl0 = time(); Λp, _, _ = linecool(rr, uu, dd, tt .* (1 + ε), nh2, -1); TLINE[] += time() - tl0
-                for j in 1:nsh
-                    Λl[j] != 0 && Λp[j] / Λl[j] > 0 && (mat.slope[a+j-1] = clamp(log(Λp[j] / Λl[j]) / log(1 + ε), -10.0, 30.0))
-                end
-                NIMP[] += 1
             end
             LLINE[] = Lr[end]
             if get(ENV, "DTDIAG", "0") == "1"
@@ -2172,9 +2050,7 @@ try
                                 TF.var(:egn)[a+j_-1] + PC.UOFF_TH, Λl[j_], TF.getscalar(:dtime), TF.getscalar(:smax))
                 LINEIMP && pr("        LINEIMP: zone line models from EP %d, ALI %d, held ALI rates %d (ALI/EP factor clamped in %d); no t_cool cap\n", LISTAT...)
             end
-            Trbdf2.ERRCTL[] ? (LINECAPV[] = (IMPCOOL ? DTCOOL : 0.1) * tcmin) : (LINEIMP || TF.setscalar!(:dtime, min(TF.getscalar(:dtime), (IMPCOOL ? DTCOOL : 0.1) * tcmin)))
-            LINELAST[1] = TF.getscalar(:timen); LINELAST[2] = tcmin
-            end
+            LINECAPV[] = tcmin                       # (diagnostic only: DTERR sets Δt; LINEIMP has no t_cool cap)
         end
         if get(ENV, "STEPKX", "0") == "1"             # which equation and zone set the step's relative change (timstp!)
             pr("STEP %d dt %.3e smax %.3e: %s\n", k, TF.getscalar(:dtime), TF.getscalar(:smax),
@@ -2221,8 +2097,7 @@ try
                 j = argmax(abs.(dx[[1, 2, 3, 5, 6][1:ne_-1]])); j = (1, 2, 3, 5, 6)[j]; xs = TF.getscalar(:stol) / TF.getscalar(:smax)
                 REC.dtlim[] = string(names[j], "@", kx[j])
                 pr("        dt limit: %s in zone %d (rel. change %.2e, stol/smax = %.2f)%s\n", names[j], kx[j], dx[j], xs,
-                   (RAD ? @sprintf("; E_r: zone %d %.2e, rho: zone %d %.2e", kx[6], dx[6], kx[3], dx[3]) : "") *
-                   (DTENV === nothing ? "" : @sprintf("; DTENV cap %.2e s at interface %d", DTENVLAST[]...)))
+                   (RAD ? @sprintf("; E_r: zone %d %.2e, rho: zone %d %.2e", kx[6], dx[6], kx[3], dx[3]) : ""))
             end
         end
         if ENVEUL !== nothing
@@ -2301,7 +2176,6 @@ if haskey(ENV, "SAVE")      # never overwrite a checkpoint with a non-finite sta
         pr("checkpoint %s NOT written: the state at step %d is not finite (restart from the last _auto checkpoint)\n", ENV["SAVE"], KLAST[])
     end
 end
-IMPCOOL && pr("implicit line cooling on %d steps\n", NIMP[])
 PM.NLOIT && pr("NLOIT: %d opacity-ratio evaluations (%.1f s), %d slope refreshes; CK expansions %.1f s\n", PM.NLOITN[], PM.NLOITNS[] * 1e-9, PM.NLOITJN[], PM.NLOCNS[] * 1e-9)
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))

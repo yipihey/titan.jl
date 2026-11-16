@@ -198,15 +198,8 @@ const HOT = Ref{Any}(nothing)
     x = log(T / T1) / log(T2 / T1)
     x * x * x * (x * (6x - 15) + 10)
 end
-"""
-ECHEMSPLIT (popiii_m2c): while `ECHEMON[]`, the gas energy of every zone is returned less the constant `ECHEMOFF[][k]` (the chemical energy
-Σ x E0 of the zone's frozen composition), so that the hydro step advects ẽ = e − Σ x E0 and the chemical energy moves with the species.
-"""
-const ECHEMON = Ref(false); const ECHEMOFF = Ref(Float64[])
 @inline function TX.material_gas(m::NetGas, ρ, T)
-    p, u, a = material_gas0(m, ρ, T)
-    ECHEMON[] && (u -= ECHEMOFF[][TX.ZONE[]])
-    return p, u, a
+    return material_gas0(m, ρ, T)
 end
 @inline function material_gas0(m::NetGas, ρ, T)
     k = TX.ZONE[]
@@ -312,14 +305,6 @@ photoionization where the gray LTE term (T > T_r) cooled.
 """
 const NLOPAC = Ref(false)
 const NLOPC = Ref{Vector{Any}}(Any[])          # per zone: (; T0, RE, qE, RP, qP, RR, qR) or nothing
-"""
-NLODAMP=w (0 < w < 1; default 1 = off): under-relaxation in time of the lagged non-LTE opacity factors of the network zones (NLOPAC),
-ln R ← (1 − w) ln R_prev + w ln R_new for RE, RP, RR, where the zone had factors in the previous step too. The factors are frozen inside
-Newton and set by the chemistry after it; at 6.5 M_sun the pre-shock gas (T 4000–6000 K, x_e ≈ Saha, d ln x_e/d ln T ≈ 16) flips between
-a hot opaque and a cool transparent state every 20–40 steps through that one-step lag. Test switch.
-"""
-const NLODAMP = parse(Float64, get(ENV, "NLODAMP", "1"))
-const NLOPREV = Ref{Vector{Any}}(Any[])
 import ..ContinuumOpacity, ..G2Opacity
 const COp = ContinuumOpacity; const G2O = G2Opacity
 const NLGRID = Ref{Vector{Float64}}(Float64[])
@@ -460,38 +445,11 @@ function nlopc(ρ, T0, d, p)
     E0, P0, R0 = nlte_kappas(ρ, T0, d, p); E1, P1, R1 = nlte_kappas(ρ, T0 * f, d, p)
     if T0 < 6000
         Rt, Pt = OPAC[](ρ, T0); Pe, Re = Pt, Rt
-        if NLOIMPT
-            Rt1, Pt1 = OPAC[](ρ, T0 * f); Pe1, Re1 = Pt1, Rt1
-        end
     else
         _, Pe, Re = nlte_kappas(ρ, T0, nothing, p)
-        if NLOIMPT
-            _, Pe1, Re1 = nlte_kappas(ρ, T0 * f, nothing, p)
-        end
     end
     lf = log(f)
-    o = (; T0, RE = E0 / Pe, qE = log(E1 / E0) / lf, RP = P0 / Pe, qP = log(P1 / P0) / lf, RR = R0 / Re, qR = log(R1 / R0) / lf)
-    NLOIMPT ? merge(o, (; qPref = log(Pe1 / Pe) / lf, qRref = log(Re1 / Re) / lf)) : o
-end
-"""
-NLOIMPT=1 (default off): the non-LTE opacity of a network zone (NLOPAC) as OPAC(ρ, T) of the iterate × the lagged non-LTE ratio
-extrapolated in T, R (T/T0)^(q − q_ref) (q_ref the T exponent of the ratio's reference at T0), instead of OPAC(ρ, T0) (T/T0)^q. The base
-table's own T dependence is then in the Newton: across 6200–7000 K OPAC's κ_P rises ×7 (line onset in Z0Physics' Planck mean) while the
-continuum exponent q sees none of it, so a zone heating through 6000–6500 K met the line opacity only at the next step, cooled back and
-locked (t_stall, zones 81/82 at 312.9 M☉, Δt pinned at ~2e3 s). The values at T = T0 are unchanged.
-"""
-const NLOIMPT = get(ENV, "NLOIMPT", "0") == "1"
-"""
-COUPLED: d ln κ/d ln x_H⁺ of the non-LTE opacities at fixed T (x_e, n_p and H⁻ ∝ n_e scaled with x_H⁺, H reduced to keep the H nuclei), so
-that the opacity of a coupled zone follows the Newton iterate's ionization (see TX.material_opac). The lagged factors alone drove a
-two-step limit cycle (±30 % in T of the pre-shock zone every step, Δt held at ~2e3 s; LTE opacities or this: none).
-"""
-function nlopc_x(ρ, T0, d, p, o)
-    o === nothing && return nothing
-    f = 1.05; xp = max(Float64(d[:Hp]), 1e-30); dx = (f - 1) * xp
-    d2 = copy(d); d2[:Hp] = xp * f; d2[:e] = d[:e] + dx; d2[:H] = max(d[:H] - dx, 0.0); haskey(d2, :Hm) && (d2[:Hm] = d[:Hm] * (d2[:e] / max(d[:e], 1e-300)))
-    E0, P0, R0 = nlte_kappas(ρ, T0, d, p); E1, P1, R1 = nlte_kappas(ρ, T0, d2, p); lf = log(f)
-    merge(o, (; x0 = xp, xE = log(E1 / E0) / lf, xP = log(P1 / P0) / lf, xR = log(R1 / R0) / lf))
+    (; T0, RE = E0 / Pe, qE = log(E1 / E0) / lf, RP = P0 / Pe, qP = log(P1 / P0) / lf, RR = R0 / Re, qR = log(R1 / R0) / lf)
 end
 """
 Diagnostic switch, off by default: `CHICAP=κ[,Tmax]` caps the flux-mean opacity χ at κ [cm²/g] where T < Tmax (default 5e4 K). The energy
@@ -519,7 +477,7 @@ differences of R (ln, relative steps 1e-3 and 1e-2), reused while T stays within
 default 0, 0: new slopes at every new iterate; reusing them, e.g. NLOITJ=3e-3,0.1, made Newton stall at ~1e-4 corrections in the warm coupled zones of the production state, and the inexact Jacobian also enters DTERR's filtered estimate); ρ within NLOITJ[1].
 Retires NLOIMPT, NLODAMP, CPLNLOX, NLOFIX, NLOTMAX in network zones (they have no effect with NLOIT).
 """
-const NLOIT = get(ENV, "NLOIT", "0") == "1"
+const NLOIT = true      # (the method since the clean-up; the lagged-factor path NLOIT=0 and its patches are gone)
 const NLOITW = let s_ = split(get(ENV, "NLOITW", "5000,6000"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
 const NLOITJ = let s_ = split(get(ENV, "NLOITJ", "0,0"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
 const NLOST = Ref{Vector{Any}}(Any[])        # per zone: (; d, p) at the end of the last chemistry, or nothing
@@ -722,16 +680,12 @@ function nloit_diag(m, k, ρ, T, new)
     o = nlopc(ρ, T, s.d, s.p); o === nothing && return nothing
     κR0, κP0 = OPAC[](ρ, T)
     old = (κR0 * o.RR, κP0 * o.RE, κP0 * o.RP)
-    if NLOTMAX < Inf && T >= NLOTMAX
-        cc = CNn.compiled(m.net); ne = max(CNn.fullvec(m.x[k], cc)[cc.ie], 0.0) * ρ / CNn.μH()
-        old = (max(κR0, COp.σT * ne / ρ), κP0, κP0)
-    end
     @printf("NLOITDIAG step %d zone %d T %.1f rho %.3e x_e %.3e | chi new %.4e old %.4e (table %.4e) | kE new %.4e old %.4e | kP new %.4e old %.4e (table %.4e)\n",
             TF.getscalar(:jstep), k - Int(TF.getscalar(:ngrs)) + 1, T, ρ, s.d[:e], new[1], old[1], κR0, new[2], old[2], new[3], old[3], κP0); flush(stdout)
     nothing
 end
 # (PERF512) the Float64 opacity of NetGas writes no caches unless NLOIT (nlo_it keeps per-zone caches)
-TX.opac_pure(::NetGas) = !NLOIT
+TX.opac_pure(::NetGas) = false
 @inline function TX.material_opac(m::NetGas, ρ, T)
     if NLOIT && NLOPAC[]
         k = TX.ZONE[]
@@ -745,25 +699,8 @@ TX.opac_pure(::NetGas) = !NLOIT
         κR, κP = OPAC[](ρ, T)
         return chicap(κR, T), κP, κP
     end
-    if NLOPAC[]
-        k = TX.ZONE[]; c = NLOPC[]
-        if k <= length(c) && !m.eqzone[k] && (o = c[k]) !== nothing && (NLOTMAX == Inf || o.T0 < NLOTMAX)
-            s = T / o.T0
-            if NLOIMPT && hasproperty(o, :qPref)      # NLOIMPT: the base table at the iterate's T, the ratio extrapolated
-                κR0, κP0 = OPAC[](ρ, T); qR = o.qR - o.qRref; qE = o.qE - o.qPref; qP = o.qP - o.qPref
-            else
-                κR0, κP0 = OPAC[](ρ, o.T0); qR = o.qR; qE = o.qE; qP = o.qP
-            end
-            if TX.cplz(k) && hasproperty(o, :x0)     # COUPLED: the ionization of the iterate (nlopc_x)
-                w = TX.CPLW[]; xi = w === nothing ? TX.XSN[][1][k] : w[1][k]; r = xi / o.x0
-                return chicap(κR0 * o.RR * s^qR * r^o.xR, T), κP0 * o.RE * s^qE * r^o.xE, κP0 * o.RP * s^qP * r^o.xP
-            end
-            return chicap(κR0 * o.RR * s^qR, T), κP0 * o.RE * s^qE, κP0 * o.RP * s^qP
-        end
-    end
     κR, κP = OPAC[](ρ, T)
-    if NLOFIX
-        # a network zone without the non-LTE factors (no star-light rates, so no three-level parameters) took the LTE table, whose
+    begin        # (NLOPAC off: before the radiation set-up) a network zone without the non-LTE factors (no star-light rates, so no three-level parameters) took the LTE table, whose
         # equilibrium electrons vanish at ~1000 K: χ 3e-9 cm²/g at 21 pc in c128 (13 Nov) against electron scattering on the zone's own
         # x_e ≈ 9e-5 (3e-5 cm²/g) in its corrected neighbours. Floor χ at σ_T n_e/ρ of the zone's composition.
         k = TX.ZONE[]
@@ -774,18 +711,6 @@ TX.opac_pure(::NetGas) = !NLOIT
     end
     return chicap(κR, T), κP, κP
 end
-"""
-`NLOFIX=1` (default off): floor the Rosseland/flux-mean χ of network zones that use the plain LTE table at electron scattering on the
-zone's own electrons (σ_T x_e / μ_H). See TX.material_opac.
-"""
-const NLOFIX = get(ENV, "NLOFIX", "0") == "1"
-"""
-`NLOTMAX=T` (K, default Inf = off): network zones above T take the plain table opacity (with the NLOFIX floor), not the non-LTE ratio
-nlte_kappas(x)/nlte_kappas(eq). In fully ionized gas (1e4–3e5 K) the ratio of the continuum code's means is set by the neutral fraction
-(1e-6 vs 1e-8) and came out 0.01–0.03, i.e. κ_R far below electron scattering (TABAUDIT on t_c128c, 14 Nov); the continuum code has no
-lines and no He opacity there, OPAL does.
-"""
-const NLOTMAX = parse(Float64, get(ENV, "NLOTMAX", "Inf"))
 "`SLWFLUX=1` (default off): star-light dilution W from max(c(E_r − E_cmb), F_r) instead of c(E_r − E_cmb) alone (see starlight_setup)."
 const SLWFLUX = get(ENV, "SLWFLUX", "0") == "1"
 function TM.fill_opac!(m::NetGas)
@@ -999,20 +924,7 @@ function tl3_network(net)
     end
     CNn.Network(net.species, net.free, vcat(rx, tl3_reactions()))
 end
-"""
-TL3RECKT=1 (default off): the kinetic energy a recombination of the n = 2 cycle takes from the gas is ⟨hν⟩(T) − χ_2 (balmer_mean at the
-gas T: by detailed balance, for σ ∝ ν⁻³ the recombination photons' excess over χ_2 has the photoionization excess's mean in J = B(T)),
-not 0.75 kT. With 0.75 kT the cycle heat does not vanish in LTE (W = 1, T_c = T): +0.16 kT per cycle at 5000 K, +0.12 kT at 8000 K
-(balmer_mean − χ_2 = 0.91…0.87 kT). The cycle heat becomes (1 − C) α_B n_e n_p (⟨hν⟩(T_c) − ⟨hν⟩(T)).
-"""
-const TL3RECKT = get(ENV, "TL3RECKT", "0") == "1"
 _fv(x::ForwardDiff.Dual) = _fv(ForwardDiff.value(x)); _fv(x::Real) = Float64(x)
-function tl3_recke(T)
-    t0 = _fv(T); e0 = balmer_mean(t0) - CHI2
-    T isa Float64 && return e0
-    de = (balmer_mean(1.001t0) - balmer_mean(0.999t0)) / (0.002t0)
-    e0 + de * (T - t0)
-end
 """
 LOCALJ=1 (default off): in the zones with three-level parameters, the photo-processes of the network (He I, He II, H⁻, Li, from the levels with
 their Milne inverses) see the diluted blackbody of the star-light rates, J = W B(T_c) (T_c from T_eff in thin gas to the local T_r at τ ≥ 3,
@@ -1065,9 +977,6 @@ cycle heat leaves (⟨hν⟩(T_c) − χ_2 − 0.75 kT) ≈ a few % of kT per cy
 zone that left the table by ~2000 K per step (zone 73, 2.6e4 K, cycle heat −2.65e-3 erg cm⁻³ s⁻¹ lagged over 1.3e8 s against ρe ≈ 6 erg cm⁻³).
 """
 const TL3DEEP = get(ENV, "TL3DEEP", "0") == "1"
-# TL3NEFULL=1 (ChemNet.TL3NEFULL): the three-level n_e of the split, CKHSS and coupled paths from the zone's electrons (d[:e], charge
-# conservation, He⁺, He²⁺ and Li⁺ included) instead of d[:Hp]; the star-light setup and CHEMSUB already used d[:e]
-const TL3NEK = CNn.TL3NEFULL ? :e : :Hp
 "Energy terms of the three-level atom per volume: (chemistry heat, cycle heat for GASQ) at (ρ, T, full composition d)."
 function tl3_heat(ρ, T, d, p)
     TL3DEEP && hasproperty(p, :deep) && p.deep && return (zero(T), zero(T))
@@ -1075,7 +984,7 @@ function tl3_heat(ρ, T, d, p)
     Q12 = nH * xe * q12_H(T); I = (1 - C) * xH * (Q12 + p.P12); rec = alphaB_recfast(T) * nH * xe * xp
     Ein = p.hν + E21 * p.P12 / (Q12 + p.P12 + 1e-300)
     chemq = nH * (I * Ein - C * rec * (CNn.χH + 0.75CNn.kB * T))
-    cycq = nH * (1 - C) * rec * (p.hν - CHI2 - (TL3RECKT ? tl3_recke(T) : 0.75CNn.kB * T))
+    cycq = nH * (1 - C) * rec * (p.hν - CHI2 - 0.75CNn.kB * T)
     LYABB[] && (chemq += lya_bb(ρ, T, d, p))
     chemq, cycq
 end
@@ -1140,15 +1049,6 @@ function sl_qt(k, E, Fk, Fk1)
     end
     (max(W / r.W0, 1e-6 + zero(W)), Tc / r.Tc0)
 end
-"""
-`SLFREEZE=1` (diagnostic, default off; not physics): every zone keeps the star-light dilution W and colour temperature T_c of the
-first `starlight_setup` call of the process for the rest of the run, i.e. the photo-rates no longer follow the radiation field of
-the last step. Used to test whether the one-step lag of W(E_r, F_r) in the photo-rates of the coupled chemistry and the NLOIT
-opacity drives the period-2 orbit of the irradiated zone outside a photosphere (docs/POPIII_SUBZONE_FRONT.md).
-"""
-const SLFREEZE = get(ENV, "SLFREEZE", "0") == "1"
-"(SLFREEZE) per zone the held (W, T_c)."
-const SLFRZ = Ref(Tuple{Float64,Float64}[])
 "Per-step star-light setup: photosphere, T_eff, and the LW columns; returns a function k -> (kHm, kH, kLW, fsh) for a network zone k."
 function starlight_setup(m::NetGas, a, b, tauz_)
     sl = STARLIGHT[]; dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); er, fr, un = TM.v(:ern), TM.v(:frn), TM.v(:un)
@@ -1205,10 +1105,6 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             Tc = Te; W = max(slcu(k), 0.0) / (4 * 5.670374419e-5 * Te^4)
         else
             Tc = (max(er[k], Ecmb) / arad)^0.25; W = 1.0
-        end
-        if SLFREEZE                                      # (diagnostic) the star light of the first call, held
-            length(SLFRZ[]) < nz && (SLFRZ[] = fill((NaN, NaN), nz))
-            isnan(SLFRZ[][k][1]) ? (SLFRZ[][k] = (W, Tc)) : ((W, Tc) = SLFRZ[][k])
         end
         (W > 0 && Tc > 0) || return (0.0, 0.0, 0.0, 1.0)
         env = (Trad = Tc, J = ν -> W * _bnu(ν, Tc))
@@ -1340,7 +1236,6 @@ function chem_core!(m::NetGas)
     ph3 = filter(p -> p.R !== :H, m.photos)                                 # three-level zones: no Boltzmann-level H photo pair
     if NLOPAC[] && !CPLPREP[]                 # (COUPLED prepare pass: keep the non-LTE opacities of the last chemistry for the hydro step)
         length(NLOPC[]) == length(dn) || (NLOPC[] = Any[nothing for _ in dn])
-        NLODAMP < 1 && (NLOPREV[] = copy(NLOPC[]))
         fill!(NLOPC[], nothing)
         if NLOIT                              # NLOIT: the zones' compositions and three-level parameters of this chemistry instead
             length(NLOST[]) == length(dn) || (NLOST[] = Any[nothing for _ in dn])
@@ -1409,7 +1304,7 @@ function chem_core!(m::NetGas)
                 # CHEMCKHSS: n_e of the three-level heat from the current composition, as in ChemNet.step_ck's C
                 if (CNn.CK[] && CNn.CKHSS[] > 0) || TX.COUPLED[]
                     nHs = dn[k] / CNn.μH()
-                    cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3, (; ne = nHs * max(d[TL3NEK], zero(d[TL3NEK])))))[1]
+                    cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3, (; ne = nHs * max(d[:Hp], zero(d[:Hp])))))[1]
                 end
             end
             if CNn.HM88                              # HM88: perturber densities of the zone (composition at the start of the step) for φ
@@ -1449,7 +1344,7 @@ function chem_core!(m::NetGas)
                 return nothing
             end
             if CPLPOST[] && TX.cplz(k) && p3 !== nothing
-                p3e = merge(p3, (; ne = dn[k] / CNn.μH() * max(CNn.full(m.x[k], m.net)[TL3NEK], 0.0)))
+                p3e = merge(p3, (; ne = dn[k] / CNn.μH() * max(CNn.full(m.x[k], m.net)[:Hp], 0.0)))
             end
             x1, T1 = (CPLPOST[] && TX.cplz(k)) ? (m.x[k], tn[k]) : try
                 # u below the zone's own composition at 10 K (x and e advected by different schemes; with x_e ~ 0.1-0.5 from the three-level
@@ -1457,7 +1352,7 @@ function chem_core!(m::NetGas)
                 p3 !== nothing && egn[k] < CNn.eos(dn[k], 10.0, m.x[k], m.net)[1] && error("tl3: u below u(10 K, x) in zone $k")
                 xs1, Ts1 = CNn.step(m.x[k], dn[k], egn[k], tn[k], dt, m.net; env = envk, photos = phk, cooling = cools, extra = exs)
                 ckhss = CNn.CK[] && CNn.CKHSS[] > 0
-                ckhss && p3 !== nothing && (p3e = merge(p3, (; ne = dn[k] / CNn.μH() * max(CNn.full(xs1, m.net)[TL3NEK], 0.0))))
+                ckhss && p3 !== nothing && (p3e = merge(p3, (; ne = dn[k] / CNn.μH() * max(CNn.full(xs1, m.net)[:Hp], 0.0))))
                 if p3 !== nothing && CHEMSUB[] !== nothing && isempty(TX.CHEMB[]) && !ckhss
                     fT, fx = CHEMSUB[]; nHk = dn[k] / CNn.μH(); xel(x) = max(CNn.full(x, m.net)[:e], 0.0)
                     bad(xa, Ta, xb, Tb) = (ea = xel(xa); eb = xel(xb); !(isfinite(Tb) && all(isfinite, xb)) || abs(log(Tb / Ta)) > log(fT) ||
@@ -1503,16 +1398,10 @@ function chem_core!(m::NetGas)
             if p3 !== nothing && !m.eqzone[k] && !fb
                 cq, yq = tl3_heat(dn[k], T1, CNn.full(x1, m.net), p3e)
                 # (COUPLED zones: the hydro solve takes cq and yq of its own iterate, TitanResidFast cpQ/cpY; not booked here)
-                (CPLPOST[] && TX.cplq(k)) || isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
-                (CPLPOST[] && TX.cplq(k)) || isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
+                isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
+                isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
                 SLDIAG[].tl3[k] = merge(p3e, (; chemq = cq, cycq = yq, qbb = lya_bb(dn[k], T1, CNn.full(x1, m.net), p3e)))
                 NLOPAC[] && NLOIT && (NLOST[][k] = (; d = CNn.full(x1, m.net), p = p3e))
-                NLOPAC[] && !NLOIT && (NLOPC[][k] = nlopc(dn[k], T1, CNn.full(x1, m.net), p3e))
-                NLOPAC[] && !NLOIT && CPLPOST[] && TX.cplz(k) && CPLNLOX[] && (NLOPC[][k] = nlopc_x(dn[k], T1, CNn.full(x1, m.net), p3e, NLOPC[][k]))
-                if NLODAMP < 1 && NLOPAC[] && k <= length(NLOPREV[]) && (o0 = NLOPREV[][k]) !== nothing && (o1 = NLOPC[][k]) !== nothing
-                    w_ = NLODAMP; bl(a0, a1) = exp((1 - w_) * log(a0) + w_ * log(a1))
-                    NLOPC[][k] = merge(o1, (; RE = bl(o0.RE, o1.RE), RP = bl(o0.RP, o1.RP), RR = bl(o0.RR, o1.RR)))
-                end
                 if TL3DBG[] > 0 && TF.getscalar(:jstep) % TL3DBG[] == 0 && k % 6 == 0
                     d0 = CNn.full(m.x[k], m.net); d1 = CNn.full(x1, m.net)
                     @printf("tl3dbg k %d r %.3e tauz %.2e T %.0f -> %.0f  xe %.2e -> %.2e  C %.2e β %.2e RL %.2e  chemq %.2e cycq %.2e  u %.3e  u(T0,x0) %.3e  eqprev %s\n", k, rn[k] / 6.957e10, tauz[k], tn[k], T1, d0[:e], d1[:e], tl3_C(T1, p3), p3.β, p3.RL, cq, yq, egn[k], CNn.eos(dn[k], tn[k], m.x[k], m.net)[1], eqprev)
@@ -1691,14 +1580,8 @@ solution, their cooling was in the energy row), the rest is unchanged (HD step, 
 table switch — with no second cooling for a zone that leaves the network —, table and hot zones as before).
 Not coupled: the IonRay path (a ray zone is not prepared), CHEMB (BALSPLIT) — both off in the runs this was built for.
 """
-const CPLPREP = Ref(false); const CPLPOST = Ref(false); const CPLNLOX = Ref(get(ENV, "CPLNLOX", "1") == "1")
+const CPLPREP = Ref(false); const CPLPOST = Ref(false)
 const CPLDBGZ = Ref(parse(Int, get(ENV, "CPLDBGZ", "0"))); const CPLDBGN = Ref(parse(Int, get(ENV, "CPLDBGN", "20")))
-"""
-CPLBAND (ENV, default all network zones): which network zones are coupled; the others keep the split chemistry (CHEMCK, CHEMCKHSS, with
-ECHEMSPLIT if set). `hss=f`: zones whose H⁺ relaxes fast at the start of the step, |∂S_H⁺/∂x_H⁺| Δt > f (the CHEMCKHSS criterion: the
-pre-shock avalanche band); `r=r1,r2`: zones with centres between r1 and r2 R☉; `z=k1,k2`: zone numbers k1…k2 from the inner boundary.
-"""
-const CPLBAND = Ref{Any}(let v = get(ENV, "CPLBAND", ""); isempty(v) ? nothing : (s_ = split(v, "="); (Symbol(s_[1]), parse.(Float64, split(s_[2], ",")))) end)
 const CPLTERMS = Ref(Any[]); const CPLCACHE = Ref(Any[])
 """
 (SLIMP) the prepared terms of a zone with every star-light rate scaled by q = W/W_start (exact: all are linear in W at fixed T_c): the
@@ -1729,7 +1612,7 @@ function cpl_tq(t, q, tc = 1.0; phc = t.phc, phc0 = t.slq.phc0)
     phq = (s_.lj && phc0 !== nothing) ? (Tv -> [(a_[1], q * a_[2], b_[3] + q * (a_[3] - b_[3])) for (a_, b_) in zip(phc(Tv), phc0(Tv))]) : phc
     ex = extrab === nothing ? nothing : (x -> q .* extrab(x))
     c0 = s_.c0; nHs = s_.nHs
-    cooling = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3q, (; ne = nHs * max(d[TL3NEK], zero(d[TL3NEK])))))[1]
+    cooling = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3q, (; ne = nHs * max(d[:Hp], zero(d[:Hp])))))[1]
     (; env, phc = phq, cooling, extra = ex)
 end
 function cpl_g(m::NetGas, k, z)
@@ -1742,10 +1625,10 @@ function cpl_g(m::NetGas, k, z)
     # three-level heats of the iterate (chemistry heat cq, cycle heat yq; n_e self-consistent as in the cooling closure): the hydro solve
     # takes them from the gray field implicitly (TitanResidFast cpQ, cpY) instead of the lagged RAYQ/GASQ bookkeeping
     p3_ = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
-    cq, yq = p3_ === nothing ? (zero(u), zero(u)) : tl3_heat(ρ, T, dfull, merge(p3_, (; ne = ρ / CNn.μH() * max(dfull[TL3NEK], zero(dfull[TL3NEK])))))
+    cq, yq = p3_ === nothing ? (zero(u), zero(u)) : tl3_heat(ρ, T, dfull, merge(p3_, (; ne = ρ / CNn.μH() * max(dfull[:Hp], zero(dfull[:Hp])))))
     if CPLDBGZ[] > 0 && z isa Vector{Float64} && k - Int(TF.getscalar(:ngrs)) + 1 == CPLDBGZ[] && CPLDBGN[] > 0
         CPLDBGN[] -= 1; d = CNn.full(x, m.net); p3 = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
-        nHs = ρ / CNn.μH(); p3s = p3 === nothing ? nothing : merge(p3, (; ne = nHs * max(d[TL3NEK], 0.0)))
+        nHs = ρ / CNn.μH(); p3s = p3 === nothing ? nothing : merge(p3, (; ne = nHs * max(d[:Hp], 0.0)))
         @printf("CPLDBGZ cpl_g zone %d T %.1f ρ %.3e x(H+,H2) %.3e %.3e x_e %.3e x_H- %.3e: Λ %.4e  tl3(lagged ne) %.4e  tl3(self) %.4e  lya_bb(self) %.4e  S %.3e %.3e  u %.6e\n",
                 CPLDBGZ[], T, ρ, z[3], z[4], d[:e], d[:Hm], Λ, p3 === nothing ? 0.0 : tl3_heat(ρ, T, d, p3)[1], p3s === nothing ? 0.0 : tl3_heat(ρ, T, d, p3s)[1],
                 p3s === nothing ? 0.0 : lya_bb(ρ, T, d, p3s), fs[1], fs[2], u)
@@ -1869,7 +1752,6 @@ function cpl_prepare!(m::NetGas)
     end
     for k in a:b; TX.CPLZ[][k] = CPLTERMS[][k] !== nothing; end
     NLOIT && nloc_reset!(mgr)                     # (NLOIT: coupled zones' opacity from the terms just prepared)
-    bd = CPLBAND[]; dt = TF.getscalar(:dtime); rn = TM.v(:rn)
     # (PERF512) the zones' values first, on MATTHREADS tasks (independent; each fills its own CPLCACHE entry): the loop below then reads
     # them from the cache, the same numbers as computing them there
     let z0 = TX.ZONE0[]
@@ -1883,12 +1765,6 @@ function cpl_prepare!(m::NetGas)
         TX.cplz(k) || continue
         y = cpl_zone(m, k, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k])
         TX.XSRCO[][1][k] = y[3]; TX.XSRCO[][2][k] = y[4]; TX.XLAMO[][k] = y[5]
-        bd === nothing && continue
-        keep = bd[1] === :hss ? (CPLCACHE[][k][4] === nothing && (yv = cpl_vj(m, k, CPLCACHE[][k][1]); CPLCACHE[][k] = (CPLCACHE[][k][1], yv[1], CPLCACHE[][k][1], yv[2]));
-                                 abs(CPLCACHE[][k][4][3, 3]) * dt > bd[2][1]) :
-               bd[1] === :r ? bd[2][1] <= 0.5 * (rn[k] + rn[k+1]) / 6.957e10 <= bd[2][2] :
-               bd[1] === :z ? bd[2][1] <= k - a + 1 <= bd[2][2] : error("CPLBAND: unknown kind $(bd[1])")
-        keep || (TX.CPLZ[][k] = false)
     end
     nothing
 end

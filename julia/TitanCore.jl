@@ -87,14 +87,6 @@ end
 
 # ------------------------------------------------------------------ maxdel (maxdel.f)
 """
-S6: causality floor for zones with Rosseland optical depth from the surface below `ER_TAUCONV[]` (default 0 = off, TITAN). Where E_r after
-the Newton correction would fall below max(F, 0)/c (outward flux only) or 0.1 E, it is set to that value and that correction neither enters dmax nor is damped. In the thin
-envelope E and F are nearly uncoupled: E follows from integrating the Eddington factor inward from the boundary, the discretisation error
-over the transition from the core's beam to the isotropic CMB leaves E far too low (F/cE up to 440 seen), the discrete solution wants E < 0,
-the relative correction does not shrink with Δt, and through dmax it stopped the whole grid (Δt → 1e-245 s).
-"""
-const ER_TAUCONV = Ref(0.0)
-"""
 EDD_SCATTER[]: in the formal solution all of chi above kappa_P is scattering: S = (kappa_P B + (chi - kappa_P) J) / chi. Otherwise only electrons scatter, so where chi >> kappa_P + sigma_e (cool thin gas) chi emits at S ~ B:
 50-1000 times the energy rows' emission, and that isotropic light lowers f and makes E < F/c when the F row integrates E inward.
 """
@@ -104,7 +96,6 @@ EDDG_MU0[]: the outer g integrates down to mu = 0, as f does. TITAN stops at the
 through the boundary condition E / aT^4 = (2g + 1) / 4g, E 12 % below the CMB. The F row carries that deficit inward with E ~ r^-2 where f ~ 1, as F/cE > 1.
 """
 const EDDG_MU0 = Ref(false)
-const ESRC_FLOORS = Ref(0)      # number of floor activations (diagnostic)
 function maxdel!()
     a, b = gi(:ngrs), gi(:ngre); meqn = TF.PARAMS[:meqn]
     lhydr, lrad, ltur = gi(:lhydr), gi(:lrad), gi(:ltur)
@@ -115,24 +106,7 @@ function maxdel!()
     ltur == 0 || error("maxdel: ltur ≥ 1 not supported")
     flat = vec(rhs); base(i) = (a - 1) * meqn + i          # rhs(i, ngrs) in column-major
     pick!(i, n) = (kx[i] = isamax(n, flat, base(i), meqn); dx[i] = rhs[i, a + kx[i] - 1])
-    # S6: causality floor of E_r in the thin envelope (see ER_TAUCONV)
-    thin = Int[]; δthin = Float64[]
-    if lrad == 1 && ER_TAUCONV[] > 0
-        chifn, dn, ern, frn = vf(:chifn), vf(:dn), vf(:ern), vf(:frn); τ = 0.0
-        ie_ = gi(:ie); cl = 2.99792458e10
-        @inbounds for k in b:-1:a
-            τ += chifn[k] * dn[k] * (rn[k+1] - rn[k])
-            τ >= ER_TAUCONV[] && break
-            # Outward flux only: |F| would make E follow an inward flux that E itself drives (energy from nothing, step 22462). Otherwise
-            # only keep E positive.
-            Ef = max(frn[k], frn[k+1], 0.0) / cl
-            Emin = max(Ef, 0.1 * ern[k])
-            if ern[k] * (1 + rhs[ie_, k]) < Emin
-                ESRC_FLOORS[] += 1
-                push!(thin, k); push!(δthin, Emin / ern[k] - 1); rhs[ie_, k] = 0.0
-            end
-        end
-    end
+    thin = Int[]; δthin = Float64[]          # (corrections held out of dmax: none since the E_r floor went)
     if lhydr == 1 && lrad == 1
         pick!(ir, ni); pick!(im, ni); pick!(id, nc); pick!(iu, ni); pick!(it, nc); pick!(ie, nc); pick!(iff, ni)
         dmax = max(abs(dx[ir]), abs(dx[im]), abs(dx[id]), abs(dx[it]), abs(dx[ie])) + 1.0e-30
