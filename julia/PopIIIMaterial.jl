@@ -820,22 +820,6 @@ pressure ionization); against the table's SCVH it departs in partly ionized gas 
 and everywhere at n_H ≳ 1e20 (10 M☉ centre: x_e 0.85 vs 0.04, p −39 %). With PSWITCH=1e30 PSWTAU=0 PSWSTAY=0 this is the minimal table.
 """
 const PSWNH = parse(Float64, get(ENV, "PSWNH", "0"))
-"""
-PSWAGREE[] = ε > 0 (three-level runs): below the pressure switch the table is used only where it agrees with the network. The τ rule (PSWTAU)
-flipped bands of zones in the extended photosphere of the non-LTE opacity (τ 1 → 0.4 over nine zones): a zone left the table at τ < 0.5, the
-three-level atom ionized it in one step (x_e 3e-3 → 4.5e-2: the diluted 6000 K star light is hotter than the gas), its κ took τ back over 1,
-the table reset x_e to Saha, T jumped, and Δt fell to ~1e5 s. Now, at T ≥ PSWTEX[] and with three-level parameters for the zone:
-- a network zone goes to the table only if the table's T at its u is within ε of the network T, *and* relaxing the table composition to the
-  three-level steady state (x_ss, H only, `xss_tl3`) at fixed u would move T by less than ε (it would not leave again at once);
-- a table zone stays while x_ss moves T by less than 2ε (hysteresis); leaving is seamless (the network starts from the table composition);
-- at τ ≥ PSWTAUDEEP[] the table always (thermalised radiation, see there).
-The switch then happens only where both models give the same state to ε in T. The pressure rule (EOS validity) is unchanged.
-"""
-const PSWAGREE = Ref(0.0)
-# At τ ≥ PSWTAUDEEP[] (3, where SLBLEND reaches T_c = T_r, W = 1) the table always: there a network zone, whose n = 2 bound–free coupling to
-# the radiation is in the explicit three-level terms (κ_P without H bound–free), fell 1800 K below T_r at τ ≈ 20, so x_ss ≠ Saha(T) kept it off the
-# table and the disagreement ran inward (`_nlo4`, first try).
-const PSWTAUDEEP = Ref(3.0)
 "SLBLEND[]: star-light colour temperature and dilution blended smoothly in τ (see starlight_setup); false: switch at the τ = 2/3 zone."
 const SLBLEND = Ref(false)
 """
@@ -852,34 +836,6 @@ where B(4800 K) has more of its energy than B(6000 K).
 """
 const NLOPACJ = Ref(false)
 const NSWIN = Ref(0); const NSWOUT = Ref(0)
-"""
-PSWRAD=ε[,phard] (default off): a network zone ENTERS the table only if its gas and radiation temperatures agree, |T_rad/T − 1| ≤ ε with
-T_rad = (E_r/a)^¼, unless its pressure is at least phard × pswitch (default 1: only the entries below the pressure switch, i.e. by the τ rule
-or PSWAGREE, are held to the test). Staying on the table and leaving it are unchanged.
-Why: the table is LTE, composition and κ_P at Saha of T_gas, which is the state of the gas only where the radiation is thermalised at T_gas.
-The τ rule assumes that from τ ≥ PSWTAU alone. In a dense shell piled up at the photosphere a zone is optically thick by itself while shock
-or compression heat still holds T_gas above T_rad: production zone 144 at 101.3 M☉ entered the table at T 7600 K with T_rad 5416 K; the LTE
-κ_P of 9 cm²/g then equilibrates gas and radiation in 0.5 s, the step had no solution near the old state for any Δt above that, and the run
-stopped on the retry limit (docs/POPIII_RUNS.md). Held on the network the zone couples through the opacity of its actual composition
-(NLOPAC), n_e and κ_P rising together, and joins the table once the two temperatures have met, where the three-level steady state (W = 1,
-T_c = T_r at τ ≥ 3) is Saha.
-"""
-const PSWRAD = Ref{Union{Nothing,NTuple{2,Float64}}}(let s = get(ENV, "PSWRAD", "0"); s == "0" ? nothing : (v = parse.(Float64, split(s, ",")); (v[1], length(v) > 1 ? v[2] : 1.0)) end)
-const NSWRAD = Ref(0)
-"H⁺ fraction of the three-level atom in steady state at (ρ, T) for the lagged radiation p (H only, n_e = n_H⁺)."
-function xss_tl3(ρ, T, p)
-    nH = ρ / CNn.μH(); q = q12_H(T); a = alphaB_recfast(T)
-    f(y) = (ne = nH * y; C = tl3_C(T, (; RL = p.RL, ne, β = p.β)); (1 - C) * (1 - y) * (ne * q + p.P12) - C * a * ne * y)
-    lo, hi = 1e-14, 1 - 1e-12
-    for _ in 1:200; mid = sqrt(lo * hi); f(mid) > 0 ? (lo = mid) : (hi = mid); hi / lo - 1 < 1e-6 && break; end
-    sqrt(lo * hi)
-end
-"""T at fixed (ρ, u) of the three-level atom in steady state: u(ρ, T, x(T)) = u with x(T) the table composition and H⁺ = x_ss(T)
-(the three-level model's own equilibrium, ionization heat capacity included; bisection in ln T), NaN without a bracket."""
-function T_ss_at_u(m::NetGas, ρ, u, p, T0, iHp)
-    xT(T) = (x = x_from_table(m, ρ, T); x[iHp] = xss_tl3(ρ, T, p); x)
-    T_at_u(ρ, u, T -> xT(T), m.net, T0)
-end
 "T at fixed (ρ, u) for network composition x (a vector, or a function of T), bisection in ln T, NaN without a bracket."
 function T_at_u(ρ, u, x, net, T0)
     F(T) = CNn.eos(ρ, T, x isa Function ? x(T) : x, net)[1] - u
@@ -955,8 +911,6 @@ cost (10.2 eV per ionization, ≫ kT) limits the rate implicitly in T. The recom
 n ≥ 3 except through α_B, and the Lyα cooling of excitations that do not ionize (in the gray κ_P's lines).
 """
 const TL3DBG = Ref(parse(Int, get(ENV, "TL3DBG", "0")))
-"Print the chemistry/table step of this zone every step (ENV ZONEDBG; diagnostics)."
-const ZONEDBG = Ref(parse(Int, get(ENV, "ZONEDBG", "0")))
 const LYA_LAM = 1.215668e-5; const LAM2S = 8.2245809; const A21LYA = 6.2648e8
 const E21 = 10.19881 * EVERG; const CHI2 = CNn.χH - E21; const CR_REC = 1.799920e10      # 2π m_e k/h² [cm⁻² K⁻¹]
 alphaB_recfast(T) = (t = T / 1e4; 4.309e-13 * t^-0.6166 / (1 + 0.6703 * t^0.53))          # cm³ s⁻¹ (= CK recfast_alpha × 1e6)
@@ -1276,86 +1230,6 @@ in the accretion shock; the radiation spike that followed stopped the run). With
 const CHEMSUB = Ref{Union{Nothing,NTuple{2,Float64}}}(let s = get(ENV, "CHEMSUB", "0"); s == "0" ? nothing : (v = parse.(Float64, split(s, ",")); (v[1], length(v) > 1 ? v[2] : 3.0)) end)
 const CHEMSUBMAX = Ref(parse(Int, get(ENV, "CHEMSUBMAX", "16"))); const NCHEMSUB = Ref(0)
 """
-CHEMREPLAY=n (diagnostic, default 0): the first n zone steps whose CHEMSUB sub-stepping reaches CHEMSUBMAX are solved again in place
-under solver variants (reference rule; T criterion only; depth caps; n_e iterated to self-consistency in the three-level C and P),
-printing per variant the ChemNet.step calls, the wall time and the end state (T, x_e). The zone's result is the production one.
-"""
-const CHEMREPLAY = Ref(parse(Int, get(ENV, "CHEMREPLAY", "0"))); const NREPLAY = Ref(0)
-function chemreplay(k, m, ρ, u0, T0, x0, dt, phk, exs, c0, p3; xref, Tref)
-    nHk = ρ / CNn.μH(); xel(x) = max(CNn.full(x, m.net)[:e], 0.0)
-    ncall = Ref(0)
-    function st(xa, Ta, ua, hh, pa; npic = 0)
-        pc = pa; xb = xa; Tb = Ta
-        for it in 0:npic
-            ca = (ρ_, T, d) -> (c0 === nothing ? zero(T) : c0(ρ_, T, d)) - tl3_heat(ρ_, T, d, pc)[1]
-            ncall[] += 1
-            xb, Tb = CNn.step(xa, ρ, ua, Ta, hh, m.net; env = tl3env(m, pc), photos = phk, cooling = ca, extra = exs)
-            pn = merge(pc, (; ne = nHk * xel(xb)))
-            it < npic && abs(pn.ne / pc.ne - 1) < 1e-3 && (pc = pn; break)
-            pc = pn
-        end
-        xb, Tb, pc
-    end
-    function run(fT, fx, dmaxc; npic = 0, trc = 0.0, lgx = false, sc = 0.0)
-        tr0 = CNn.TRCLIP[]; CNn.TRCLIP[] = trc; lg0 = CNn.LOGX[]; CNn.LOGX[] = lgx; sc0 = CNn.SUBCYC[]; CNn.SUBCYC[] = sc; ns0 = CNn.NSUBCYC[]
-        try
-            return run0(fT, fx, dmaxc; npic)
-        finally
-            CNn.TRCLIP[] = tr0; CNn.LOGX[] = lg0; CNn.SUBCYC[] = sc0
-            sc > 0 && @printf("      (sub-cycles %d)\n", CNn.NSUBCYC[] - ns0)
-        end
-    end
-    function run0(fT, fx, dmaxc; npic = 0)
-        bad(xa, Ta, xb, Tb) = (ea = xel(xa); eb = xel(xb); !(isfinite(Tb) && all(isfinite, xb)) || abs(log(Tb / Ta)) > log(fT) ||
-                               (max(ea, eb) > 1e-4 && max(ea, eb) > fx * min(ea, eb)))
-        function sub(xa, Ta, ua, hh, depth, pa)
-            xb, Tb, pb = st(xa, Ta, ua, hh, pa; npic)
-            (depth >= dmaxc || !bad(xa, Ta, xb, Tb)) && return (xb, Tb, pb)
-            xc, Tc_, pc = sub(xa, Ta, ua, hh / 2, depth + 1, pa)
-            sub(xc, Tc_, Float64(CNn.eos(ρ, Tc_, xc, m.net)[1]), hh / 2, depth + 1, pc)
-        end
-        ncall[] = 0; t0 = time(); j0 = CNn.NJAC[]; a0 = CNn.NADV[]
-        r = try
-            xb, Tb, pb = st(x0, T0, u0, dt, p3; npic)
-            if dmaxc > 0 && bad(x0, T0, xb, Tb)
-                xm, Tm, pm = sub(x0, T0, u0, dt / 2, 1, p3)
-                xb, Tb, pb = sub(xm, Tm, Float64(CNn.eos(ρ, Tm, xm, m.net)[1]), dt / 2, 1, pm)
-            end
-            (Tb, xel(xb))
-        catch e
-            println("      error: ", first(sprint(showerror, e), 220))
-            (NaN, NaN)
-        end
-        (ncall[], time() - t0, r..., CNn.NJAC[] - j0, CNn.NADV[] - a0)
-    end
-    CNn.SUBMAX[] = 20000                             # (replays only; production keeps CHEMSUBMAX_SC)
-    @printf("chemreplay k %d step %d n %.2e dt %.2e T0 %.1f xe0 %.2e | production: T %.1f xe %.3e\n", k, TF.getscalar(:jstep), nHk, dt, T0, xel(x0), Tref, xel(xref))
-    for (lab, fT, fx, dm, np, trc, lgx, sc) in (("subcyc 0.1", 1.3, 3.0, 0, 0, 0.0, false, 0.1), ("subcyc 0.03", 1.3, 3.0, 0, 0, 0.0, false, 0.03),
-                                  ("subcyc 0.01", 1.3, 3.0, 0, 0, 0.0, false, 0.01), ("subcyc 0.003", 1.3, 3.0, 0, 0, 0.0, false, 0.003),
-                                  ("subcyc 0.1 + CHEMSUB", 1.3, 3.0, 16, 0, 0.0, false, 0.1),
-                                  ("ref 1.3,3 d16", 1.3, 3.0, 16, 0, 0.0, false, 0.0), ("1.3,3 d4", 1.3, 3.0, 4, 0, 0.0, false, 0.0),
-                                  ("single step", 1.3, 3.0, 0, 0, 0.0, false, 0.0))
-        trs = sc == 0.1 && dm == 0 && NREPLAY[] <= 2; trs && (CNn.TRACEALL[] = true; CNn.SUBMAX[] = 20000; println("    sub-cycle trace:"))
-        nc, w, T, xe, nj, na = run(fT, fx, dm; npic = np, trc, lgx, sc)
-        trs && (CNn.TRACEALL[] = false); CNn.SUBMAX[] = 20000
-        @printf("    %-22s calls %6d  wall %8.3f s  T %8.1f  xe %.3e  Newton its %7d  attempts %6d  (%.2f ms/its)\n", lab, nc, w, T, xe, nj, na, 1e3w / max(nj, 1))
-    end
-    # CHEMREPLAYTRACE=1 (with MATTHREADS=1): every Newton iteration of the single full step, for the first replays
-    if get(ENV, "CHEMREPLAYTRACE", "0") == "1" && NREPLAY[] <= 2
-        println("    trace of the single full step (CHEMLOGX):"); CNn.TRACEALL[] = true; CNn.LOGX[] = true
-        try st(x0, T0, u0, dt, p3) catch e; println("    (failed: ", first(sprint(showerror, e), 80), ")") end
-        CNn.TRACEALL[] = false; CNn.LOGX[] = false
-    end
-    # cost of the residual's pieces at the start state (Float64 and with 9-wide dual numbers, as in the ForwardDiff Jacobian)
-    d0 = CNn.full(x0, m.net); nr = 200
-    ca = (ρ_, T, d) -> (c0 === nothing ? zero(T) : c0(ρ_, T, d))
-    Td = ForwardDiff.Dual(T0, ntuple(_ -> 1.0, 9)...)
-    tim(f) = (f(); t = time(); for _ in 1:nr; f(); end; 1e6 * (time() - t) / nr)
-    @printf("    pieces [us/eval, Float64 / dual]: cooling %.1f / %.1f  tl3_heat %.1f / %.1f  eos %.1f / %.1f\n",
-            tim(() -> ca(ρ, T0, d0)), tim(() -> ca(ρ, Td, d0)), tim(() -> tl3_heat(ρ, T0, d0, p3)), tim(() -> tl3_heat(ρ, Td, d0, p3)),
-            tim(() -> CNn.eos(ρ, T0, x0, m.net)), tim(() -> CNn.eos(ρ, Td, x0, m.net)))
-end
-"""
 `CHEMTMIN=T` (K, default 0 = off): a chemistry step (single or sub-stepped) that returns T below this floor is treated as failed
 and the zone takes the table fallback for that step (CHEMFALLBACK). Added 12 Nov after f128 stopped at 46.6 M☉: zone 69 (795 R☉,
 n 8.8e11) went 1516 K -> 0.3 K in the sub-stepped chemistry (single step 57 K) and the next hydro solve was NaN. Below the CMB
@@ -1412,7 +1286,6 @@ function chem_core!(m::NetGas)
     CPLPREP[] || ray !== nothing || isempty(TX.RAYQ[]) || fill!(TX.RAYQ[], 0.0)            # (RAYQ also carries the three-level H's photon energy)
     CPLPREP[] || isempty(TX.CHEMB[]) || fill!(TX.CHEMBON[], false)
     ph3 = filter(p -> p.R !== :H, m.photos)                                 # three-level zones: no Boltzmann-level H photo pair
-    tl3sw = slrates !== nothing && hasproperty(STARLIGHT[], :tl3) && STARLIGHT[].tl3; iHpf = findfirst(==(:Hp), m.net.free)
     if NLOPAC[] && !CPLPREP[]                 # (COUPLED prepare pass: keep the non-LTE opacities of the last chemistry for the hydro step)
         length(NLOPC[]) == length(dn) || (NLOPC[] = Any[nothing for _ in dn])
         NLODAMP < 1 && (NLOPREV[] = copy(NLOPC[]))
@@ -1456,36 +1329,9 @@ function chem_core!(m::NetGas)
         # to ~1 % in T at fixed e; at 7000-9500 K the network's H ionization lags the table's Saha by ×5, and switching there drops T by up to 16 %.
         ptab = (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[])
         PSWNH > 0 && !ptab && (ptab = dn[k] / CNn.μH() >= (m.eqzone[k] ? PSWHYS[] : 1.0) * PSWNH && tn[k] >= (m.eqzone[k] ? 0.95 : 1.0) * PSWTMIN[])
-        ag = nothing                                  # PSWAGREE: table only where it agrees with the network (see PSWAGREE)
-        if !ptab && PSWAGREE[] > 0 && tl3sw && tn[k] >= PSWTEX[]
-            slrates(k); p = SLDIAG[].tl3[k]
-            if tauz[k] >= PSWTAUDEEP[]
-                ag = true                     # thermalised (J = B): the table's implicit LTE coupling; the three-level n = 2 exchange is explicit
-            elseif p !== nothing
-                # the two equilibrium models at the zone's u: table (Saha) and three-level steady state, both with their ionization heat
-                # capacity; u from the network EOS at the table composition (offset to the table EOS ≤ 0.3 % in T)
-                ε = PSWAGREE[]; _, Ttab = EQ.step(dn[k], egn[k], tn[k], dt)
-                u0 = CNn.eos(dn[k], Ttab, x_from_table(m, dn[k], Ttab), m.net)[1]
-                Tq = T_ss_at_u(m, dn[k], u0, p, Ttab, iHpf)
-                if m.eqzone[k]
-                    ag = isfinite(Tq) && abs(Tq / Ttab - 1) < 2ε
-                    ag || lock(() -> (NSWOUT[] += 1), CHEMLOCK)
-                else
-                    ag = abs(Ttab / tn[k] - 1) < ε && isfinite(Tq) && abs(Tq / Ttab - 1) < ε
-                    ag && lock(() -> (NSWIN[] += 1), CHEMLOCK)
-                end
-            end
-        end
-        tab = ptab || (ag === nothing ? ((PSWSTAY[] && m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])) : ag)
+        tab = ptab || (PSWSTAY[] && m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])
         CPLPREP[] && (tab = false)
         PSWRAMP > 0 && !CPLPREP[] && m.eqzone[k] && k <= RAMPK0[] - (Int(TF.getscalar(:jstep)) - RAMPJ0[]) ÷ PSWRAMP && (tab = true)
-        if tab && !m.eqzone[k] && PSWRAD[] !== nothing && pgn[k] < PSWRAD[][2] * m.pswitch       # entry only with T_gas = T_rad (see PSWRAD)
-            Tr = (max(TM.v(:ern)[k], 0.0) / 7.565723e-15)^0.25
-            if abs(Tr / tn[k] - 1) > PSWRAD[][1]
-                tab = false; nsw = lock(() -> (NSWRAD[] += 1), CHEMLOCK)
-                (nsw <= 40 || nsw % 500 == 0 || TL3DBG[] > 0) && @printf("pswrad k %d step %d (%d): stays on the network, T %.1f T_rad %.1f tau %.2f p/pswitch %.3g\n", k, TF.getscalar(:jstep), nsw, tn[k], Tr, tauz[k], pgn[k] / m.pswitch)
-            end
-        end
         if tab
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
             (CPLPOST[] && TX.cplz(k)) && (coolt = nothing)      # COUPLED: the zone's cooling over this step was in the hydro solve
@@ -1577,8 +1423,6 @@ function chem_core!(m::NetGas)
                         xm, Tm, pm = sub(m.x[k], tn[k], Float64(egn[k]), dt / 2, 1, p3)
                         xs1, Ts1, p3e = sub(xm, Tm, Float64(CNn.eos(dn[k], Tm, xm, m.net)[1]), dt / 2, 1, pm)
                         lock(() -> (NCHEMSUB[] += 1), CHEMLOCK)
-                        dmax[] >= CHEMSUBMAX[] && CHEMREPLAY[] > 0 && lock(() -> (NREPLAY[] += 1) <= CHEMREPLAY[], CHEMLOCK) &&
-                            lock(() -> chemreplay(k, m, dn[k], Float64(egn[k]), tn[k], m.x[k], dt, phk, exs, c0, p3; xref = xs1, Tref = Ts1), CHEMLOCK)
                         (dmax[] >= 4 || TL3DBG[] > 0) && @printf("chemsub k %d step %d r %.3e R_sun n %.2e dt %.2e depth %d: T %.1f -> %.1f (one step: %.1f), x_e %.2e -> %.2e (one step: %.2e)\n", k, TF.getscalar(:jstep), rn[k] / 6.957e10, nHk, dt, dmax[], tn[k], Ts1, Ts0, xel(m.x[k]), xel(xs1), xel(xs0))
                     end
                 end
@@ -1623,7 +1467,6 @@ function chem_core!(m::NetGas)
             end
             m.x[k] = x1
         end
-        k == ZONEDBG[] && @printf("zonedbg step %d k %d p %.4e T %.1f -> %.1f eq %s tauz %.3e u %.5e dt %.3e\n", TF.getscalar(:jstep), k, pgn[k], tn[k], T1, m.eqzone[k], tauz[k], egn[k], dt)
         dTz[k] = abs(T1 / tn[k] - 1); tn[k] = T1
         nothing
     end
