@@ -30,9 +30,10 @@ free–free, H₂ lines, pressure effects on H⁻.
 module G2Opacity
 
 import ..Z0Physics, ..ContinuumOpacity
+import ForwardDiff
 const Z0 = Z0Physics; const COp = ContinuumOpacity
 
-const ON = get(ENV, "G2OPAC", "0") == "1"
+const ON = get(ENV, "G2OPAC", "0") in ("1", "2")     # 2: the fast form (`means_fast`)
 const NLEV = 16
 const TTOP = 3e5            # the grid reaches 25 kT/hc at this T (the HOT branch's T1)
 
@@ -120,5 +121,109 @@ function n2_lte(T, nH0, Nion, Nneu)
     U = sum(n^2 * exp(-χH * (1 - 1 / n^2) / kT) * w[n] / w[1] for n in 1:NLEV)
     nH0 * 4 * exp(-χH * 0.75 / kT) * w[2] / w[1] / U
 end
+
+# ------------------------------------------------------------------ fast form (G2OPAC=2): ~280 frequency nodes, T tables
+"""
+`G2OPAC=2`: `means_fast` instead of `means` — the same physics on ~280 frequency nodes (log-uniform 10 cm⁻¹ … 25 kT/hc at 3e5 K,
+plus node pairs at every H, He II (n ≤ 6), He I and H⁻ threshold), with the T-dependent kernels (van Hoof g_ff for Z = 1, 2, H⁻ ff,
+the three CIA pairs) tabulated on log T 1.0 … 6.5 (Δ 0.01) and interpolated linearly in log T, and the T-independent cross sections
+(H and He II bound–free with Gaunt factors, He I, H⁻ bf, Rayleigh) precomputed per node. Generic in the number type of T and of the
+populations (ForwardDiff Duals pass: exact derivatives of the means as computed). Trapezoid rule on the nodes.
+"""
+const FAST = Ref{Any}(nothing)
+const FLT0 = 1.0; const FDLT = 0.01; const FNT = 551
+function fastgrid()
+    FAST[] === nothing || return FAST[]
+    c = COp.c; h = COp.h
+    σmax = 25 * COp.kB * TTOP / (h * c)
+    σs = collect(10 .^ range(1.0, log10(σmax), length = 240))
+    edges = Float64[]
+    for n in 1:6; push!(edges, Z0.χH / n^2 / (h * c)); push!(edges, Z0.χHe2 / n^2 / (h * c)); end
+    push!(edges, Z0.χHe1 / (h * c)); push!(edges, 1e4 / 1.6419)
+    for e in edges, f in (1 - 3e-4, 1 + 3e-4, 1.003, 1.03, 0.997, 0.97); push!(σs, e * f); end
+    sort!(σs); filter!(x -> 10.0 <= x <= σmax, σs); unique!(σs)
+    ν = σs .* c; N = length(ν)
+    w = zeros(N)                                                       # trapezoid weights
+    for i in 1:N-1; d = ν[i+1] - ν[i]; w[i] += d / 2; w[i+1] += d / 2; end
+    λμ = 1e4 ./ σs; λc = max.(λμ, 0.13)
+    KR = Z0.KRAMERS
+    SH = zeros(NLEV, N); SHe = zeros(NLEV, N)
+    for i in 1:N, n in 1:NLEV
+        νn = Z0.χH / h / n^2; ν[i] >= νn && (SH[n, i] = KR / (n^5 * ν[i]^3) * Z0.gaunt_bf(n, ν[i] / νn))
+        νe = Z0.χHe2 / h / n^2; ν[i] >= νe && (SHe[n, i] = 16KR / (n^5 * ν[i]^3) * Z0.gaunt_bf(n, ν[i] / νe))
+    end
+    # dissolved-level windows below the H edges (Hubeny, Hummer & Lanz 1994, as in `means`)
+    DIS = Tuple{Int,Int,Float64,Float64}[]
+    for i in 1:N, n in 1:NLEV-1
+        νn = Z0.χH / h / n^2; ν[i] < νn || continue
+        q = 1 / n^2 - ν[i] / (Z0.χH / h); q <= 1 / 1600 && push!(DIS, (i, n, 1 / sqrt(max(q, 1e-12)), KR / (n^5 * ν[i]^3) * Z0.gaunt_bf(n, 1.0)))
+    end
+    t = COp.tables()
+    G1 = zeros(FNT, N); G2 = zeros(FNT, N); HF = zeros(FNT, N); C1 = zeros(FNT, N); C2 = zeros(FNT, N); C3 = zeros(FNT, N)
+    Threads.@threads for j in 1:FNT
+        T = 10^(FLT0 + (j - 1) * FDLT)
+        for i in 1:N
+            G1[j, i] = Z0.gaunt_ff(1, T, ν[i]); G2[j, i] = Z0.gaunt_ff(2, T, ν[i]); HF[j, i] = COp.k_Hm_ff(λμ[i], T)
+            C1[j, i] = COp.k_h2h2(t, σs[i], T); C2[j, i] = COp.kcia(t.H2He, σs[i], T); C3[j, i] = COp.kcia(t.H2H, σs[i], T)
+        end
+    end
+    FAST[] = (; ν, w, ν3 = ν .^ 3, σhm = COp.σ_Hm_bf.(λμ), ray2 = COp.σ_ray_H2.(λc .* 1e3), ray1 = COp.σ_ray_H.(λc .* 1e4),
+                σHeI = Z0.σHeI_ground.(ν), SH, SHe, DIS, G1, G2, HF, C1, C2, C3)
+end
+@inline function _tint(A, j, a, i)                                     # linear in log T between rows j, j+1
+    (1 - a) * A[j, i] + a * A[j+1, i]
+end
+"`means` on the fast grid (see FAST); same arguments and conventions, generic in the number type."
+function means_fast(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, nHmS, hbfP, Tw = T)
+    F = fastgrid(); kB = COp.kB; h = COp.h; kT = kB * T
+    Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
+    χH = Z0.χH; χ2 = Z0.χHe2
+    wH = ntuple(n -> Z0.occupation(n, 1, Nion, Nneu), NLEV); wHe = ntuple(n -> Z0.occupation(n, 2, Nion, Nneu), NLEV)
+    pH0 = ntuple(n -> n == 1 ? zero(n2 * T) : n2 * (n^2 / 4) * exp(-χH * (0.25 - 1 / n^2) / kT) * wH[n] / max(wH[2], 1e-300), NLEV)
+    ng = max(n1 - sum(pH0), zero(n1 - sum(pH0)))
+    pH = ntuple(n -> n == 1 ? ng + zero(pH0[1]) : pH0[n], NLEV)
+    UHe = sum(n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n] for n in 1:NLEV)
+    pHe = ntuple(n -> nHep * n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n] / UHe, NLEV)
+    lT = log10(ForwardDiff_value(T)); x = clamp((lT - FLT0) / FDLT, 0.0, FNT - 1 - 1e-9); j = floor(Int, x) + 1
+    a = clamp((log10(T) - FLT0) / FDLT - (j - 1), 0.0, 1.0)            # (generic weight; clamped at the table ends)
+    cia = nH2 > 1e-3 * n1; wJ = Tw != T
+    N = length(F.ν)
+    # dissolved-level contributions per node (sparse)
+    dis = zeros(typeof(zero(n1 * T)), N)
+    for (i, n, ns, σe) in F.DIS
+        d = 1 - Z0.occupation(ns, 1, Nion, Nneu) / max(wH[n], 1e-300)
+        d > 0 && (dis[i] += d * pH[n] * σe)
+    end
+    z = zero(n1 * T * ρ); sE = z; sP = z; sB = z; sR = z; sD = z; sW = z
+    @inbounds for i in 1:N
+        ν = F.ν[i]; dν = F.w[i]; u = h * ν / kT
+        em = exp(-u); stim = 1 - em
+        B = 2h * ν^3 / COp.c^2 * em / stim; D = B * u / (T * stim)
+        ab = dis[i]
+        for n in 1:NLEV; s_ = F.SH[n, i]; s_ > 0 && (ab += pH[n] * s_); end
+        ab *= stim
+        ahe = nHe * F.σHeI[i]
+        if nHep > 0
+            for n in 1:NLEV; s_ = F.SHe[n, i]; s_ > 0 && (ahe += pHe[n] * s_); end
+        end
+        ahe *= stim
+        aff = _tint(F.HF, j, a, i) * ng * ne * kT +
+              3.692e8 * ne / (sqrt(T) * F.ν3[i]) * stim * ((nHp + nHep) * _tint(F.G1, j, a, i) + 4nHepp * _tint(F.G2, j, a, i))
+        acia = cia ? (_tint(F.C1, j, a, i) * nH2^2 + _tint(F.C2, j, a, i) * nH2 * nHe + _tint(F.C3, j, a, i) * nH2 * n1) : zero(aff)
+        a0 = acia + aff + ahe
+        σhm = F.σhm[i] * stim
+        sca = F.ray2[i] * nH2 + F.ray1[i] * ng + COp.σT * ne
+        hb = hbfP ? ab : zero(ab)
+        BJ = wJ ? COp.Bν(ν, Tw) : B
+        sE += (a0 + σhm * nHm + hb) * BJ * dν; sW += BJ * dν; sP += (a0 + σhm * nHmS + hb) * B * dν; sB += B * dν
+        sR += D / max(a0 + σhm * nHm + ab + sca, 1e-300) * dν; sD += D * dν
+    end
+    (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
+end
+ForwardDiff_value(x::ForwardDiff.Dual) = ForwardDiff_value(ForwardDiff.value(x))
+ForwardDiff_value(x) = x
+const FASTON = get(ENV, "G2OPAC", "0") == "2"
+"`means_fast` with G2OPAC=2, else `means`."
+means_any(ρ, T; kw...) = FASTON ? means_fast(ρ, T; kw...) : means(ρ, T; kw...)
 
 end # module
