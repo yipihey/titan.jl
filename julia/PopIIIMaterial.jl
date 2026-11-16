@@ -1921,6 +1921,10 @@ function cpl_vjq(m, k, v)
         yp = cpl_g(m, k, zp); ym = cpl_g(m, k, zm)
         for i in 1:7; J[i, 6] = (yp[i] - ym[i]) / (v[6] * 2log1p(ε)); end
     end
+    if TX.SLIMPDBG[] > 0 && !all(isfinite, J)
+        TX.SLIMPDBG[] -= 1; bad = [(i, j) for i in 1:7, j in 1:size(J, 2) if !isfinite(J[i, j])]
+        println("SLIMPDBG cpl_vjq zone $k v $v: non-finite J at $bad; y $y; rec ", CPLTERMS[][k].slq.rec)
+    end
     y, J
 end
 function cpl_liftq(y, J, xs...)
