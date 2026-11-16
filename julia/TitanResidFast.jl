@@ -215,11 +215,12 @@ const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's i
 const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
 """
 SLIMP (popiii_m2c `SLIMP=1`, with COUPLED; default off, off = bit-identical): the star-light dilution of a coupled zone at the Newton
-iterate. `SLQ_FN[](k, E_k, F_k, F_k+1)` gives q_k = W_k(iterate)/W_k(start of step) (local: zone k's E_r and its two interface fluxes),
-`CPL_ZONEQ[](k, ρ, T, x1, x2, q)` the zone's terms with every star-light rate scaled by q (PopIIIMaterial.cpl_zone_q), and `CPLQ[]` carries
-q (Duals) to the NLOIT opacity during the material sweep. T_c stays at its start-of-step value.
+iterate. `SLQ_FN[](k, E_k, F_k, F_k+1)` gives (q_k, t_k) = (W_k, T_c,k at the iterate)/(their start-of-step values) (local: zone k's E_r and its
+two interface fluxes), `CPL_ZONEQ[](k, ρ, T, x1, x2, q, t)` the zone's terms at that star light (PopIIIMaterial.cpl_zone_q), and `CPLQ[]`
+carries (q, t) (Duals) to the NLOIT opacity during the material sweep. SLIMP=1: W only (t ≡ 1); SLIMP=2: also the local part of T_c.
 """
 const SLIMP = Ref(false); const SLQ_FN = Ref{Any}(nothing); const CPL_ZONEQ = Ref{Any}(nothing); const CPLQ = Ref{Any}(nothing)
+const CPLQT = Ref{Any}(nothing)   # (SLIMP) t = T_c/T_c,start of the last residual's material sweep, for the coupled-zone sweep that follows
 const SLQBUF = Dict{Any,Any}()
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
 "Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
@@ -955,22 +956,23 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         CPLW[] = (xs1, xs2)
         slq = nothing
         if SLIMP[]                                   # SLIMP: q_k of the iterate (new-level E_r, F_r)
-            slq = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1)))::Vector{T}
-            @inbounds for k in eachindex(slq); slq[k] = one(T); end
-            @inbounds for k in ngrs:ngre; cplz(k) && (slq[k] = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
-            CPLQ[] = slq
+            slq = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 1))::Vector{T}
+            slt = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 2))::Vector{T}
+            @inbounds for k in eachindex(slq); slq[k] = one(T); slt[k] = one(T); end
+            @inbounds for k in ngrs:ngre; cplz(k) && ((slq[k], slt[k]) = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
+            CPLQ[] = (slq, slt)
         end
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
         finally
-            CPLW[] = nothing; CPLQ[] = nothing
+            CPLW[] = nothing; slq === nothing || (CPLQT[] = CPLQ[][2]); CPLQ[] = nothing
         end
         # (PERF512) the coupled zones' rates in the Jacobian's Dual numbers on MATTHREADS tasks (zones independent; the material sweep above
         # left their values and local Jacobians in the zones' cache entries); bit-identical. ZONE[] is not used here and is kept.
         let z0 = ZONE0[]
             try zone_sweep!(ngrs:ngre, k -> true) do k
                 @inbounds if cplz(k)
-                    y = slq === nothing ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) : CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slq[k])
+                    y = slq === nothing ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) : CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slq[k], CPLQT[][k])
                     W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
                     W.cpQ[k] = y[6]; W.cpY[k] = y[7]
                 else
