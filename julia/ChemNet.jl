@@ -523,7 +523,7 @@ function hm_perturbers(v, c, nH)
     nH * Nneu, nH * Nion
 end
 "φ = Z_w/Z_el of the zone's env (1 without env.hm or with HM88 off)."
-hm_phi(T, env) = (HM88 && hasproperty(env, :hm)) ? ZH_hm(T, env.hm[1], env.hm[2]) / ZH_el(T) : one(T)
+hm_phi(T, env) = (HM88 && hasproperty(env, :hm)) ? 2ZH_hm(T, env.hm[1], env.hm[2]) / ZH_el(T) : one(T)
 "The network with every H recombination channel × φ (HM88)."
 function hm88_network(net)
     isrec(r) = (:Hp in r.R) && (:e in r.R) && (:H in r.P) && !(:H in r.R)
