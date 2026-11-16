@@ -461,6 +461,7 @@ function recsnap!(k)
             gasq = copy(TX.GASQ[]), hotY = HOTON ? SG[].Y[:, a:b] : nothing, Lnuc = LNUC[], Llines = LLINE[],
             nchemfb = PM.NCHEMFB[], kph = sd === nothing ? 0 : sd.kph, Teff = sd === nothing ? NaN : Float64(sd.Te))
     mat isa PM.NetGas && PM.HDCHEM[] && (snap = merge(snap, (; hd = PM.hd_snap(mat, a, b))))     # HDCHEM=1: x_D+, x_HD, HD cooling
+    PM.IONFS && (pf = PM.ifs_profile(mat, a, b); pf === nothing || (snap = merge(snap, (; ionfs = pf))))     # IONFS: Q(r), the front
     serialize(REC.io[], snap); flush(REC.io[])
 end
 "One perf.csv row (called at the TIMING report, before the accumulators are reset)."
@@ -542,6 +543,32 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
     PM.NLOPAC[] && PM.NLOIT && pr("NLOIT: network-zone opacities from the Newton iterate's own populations (table x continuum-code ratio at the iterate; NLOIMPT, NLODAMP, CPLNLOX, NLOFIX, NLOTMAX inactive there)\n")
     !PM.NLOPAC[] && PM.NLOIT && error("NLOIT=1 needs NLOPAC=1 (STARLIGHT=1 SL3=1)")
     pr("STARLIGHT: H- detachment%s, LW (shield %s) from the star's light in network zones\n", PM.STARLIGHT[].pH === nothing ? "" : ", H(n>=2) ionization", String(PM.STARLIGHT[].shield))
+end
+# IONFS=1 (PM IonFS.jl): the Lyman continuum as a photon-conserving ray (H I, He I, He II, case B), sourced by a formal solution of the table region.
+# IONFSIMP=1 (PM IonFSImp.jl, with COUPLED=1): that ray and the Lyman-Werner band as unknowns of the hydro Newton (docs/POPIII_IONFS_IMPLICIT.md)
+if PM.IONFS
+    mat isa PM.NetGas && PM.STARLIGHT[] !== nothing || error("IONFS=1 needs the network gas and STARLIGHT=1")
+    PM.IFSIMP && get(ENV, "COUPLED", "0") != "1" && error("IONFSIMP=1 needs COUPLED=1")
+    PM.RAY[] === nothing || error("IONFS=1 replaces RAY=1; set one")
+    isdefined(Main, :Spectrum) || include(joinpath(@__DIR__, "Spectrum.jl"))
+    PM.ifs_init!()
+    isempty(TX.RAYQ[]) && (TX.RAYQ[] = zeros(length(mat.x)))
+    pr("IONFS: Lyman-continuum ray from the formal solution at the table/network boundary (%d groups 13.6-300 eV, source every %d steps, norm %s, xmin %g, two-phase tau %g, tol %g)\n",
+       length(PM.ifs_edges()) - 1, PM.IFSN, PM.IFSNORM ? "L_run" : "none", PM.IFSXMIN, PM.IFSTP, PM.IFSTOL)
+end
+"IONFS: one line per step in <RUNREC>/ionfs.csv (the source, the front, the convergence check)."
+function ionfs_log(k)
+    pf = PM.ifs_profile(mat, a, b); pf === nothing && return nothing
+    dir = get(ENV, "RUNREC", get(ENV, "POPIII_OUT", ".")); f = joinpath(dir, "ionfs.csv"); new = !isfile(f)
+    rn_ = TF.var(:rn)
+    open(f, "a") do io
+        new && println(io, "step,t_yr,k0,r_b_Rsun,Q_H,Q_HeI,Q_HeII,fnorm,L_fs_Lsun,L_run_Lsun,kfront,r_front_Rsun,Q_H_edge,Q_H_1e3Rs,Q_H_1e4Rs,Q_H_1e5Rs,eps,epsit,niter,nsrc,tsrc_s")
+        qat(R) = (i = findfirst(r -> r >= R * 6.957e10, rn_[a:b+1]); i === nothing ? NaN : pf.Q[i])
+        @printf(io, "%d,%.8e,%d,%.5g,%.5e,%.5e,%.5e,%.5g,%.5e,%.5e,%d,%.5g,%.5e,%.5e,%.5e,%.5e,%.4e,%.4e,%d,%d,%.2f\n", k, TF.getscalar(:timen) / 3.156e7,
+                pf.k0 - a + 1, pf.rb / 6.957e10, pf.Qsrc..., pf.fnorm, pf.Lfs / 3.83e33, pf.Lrun / 3.83e33, pf.kf == 0 ? 0 : pf.kf - a + 1, pf.rf / 6.957e10,
+                pf.Q[end], qat(1e3), qat(1e4), qat(1e5), pf.eps, pf.epsit, PM.IFS[].niter, PM.IFS[].nsrc, PM.IFS[].tsrc)
+    end
+    nothing
 end
 const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
 const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(ENV, "SNAPEVERY", "0"))
@@ -2425,11 +2452,18 @@ try
                PM.SLIMPN, PM.SLIMPN >= 2 ? " and the local part of T_c (T_r^wq)" : " (T_c held)")
         end
         get(ENV, "CPLLOCAL", "1") == "1" && (TX.CPL_LOCAL[] = (k, dt) -> PM.cpl_local!(mat, k, dt))
-        TC.CPLH[] = (; newstep = TX.cpl_newstep!, reset = TX.cpl_reset!, update = TX.cpl_update!, dmax = TX.cpl_dmax!)
+        TC.CPLH[] = PM.IFSIMP ? (; newstep = TX.cpl_newstep!, reset = () -> (PM.ifs_reset!(); TX.ray_reset!(); TX.cpl_reset!()),
+                                    update = (r_, a_, b_) -> (TX.cpl_update!(r_, a_, b_); TX.ray_update!(r_, a_, b_)),
+                                    dmax = (r_, a_, b_) -> max(TX.cpl_dmax!(r_, a_, b_), TX.ray_dmax!(r_, a_, b_))) :
+                    PM.IONFS ? (; newstep = TX.cpl_newstep!, reset = () -> (PM.ifs_reset!(); TX.cpl_reset!()),
+                                  update = (r_, a_, b_) -> (TX.cpl_update!(r_, a_, b_); PM.ifs_iter!(mat)), dmax = TX.cpl_dmax!) :
+                    (; newstep = TX.cpl_newstep!, reset = TX.cpl_reset!, update = TX.cpl_update!, dmax = TX.cpl_dmax!)
+        # IONFS: a step whose final ray differs from the one the Newton used by more than IONFSTOL (photons absorbed, per source photon) halves the next Δt
+        PM.IONFS && push!(TC.DT_HOOKS, () -> (s_ = PM.IFS[]; (s_ === nothing || s_.eps <= PM.IFSTOL) ? Inf : 0.5 * TF.getscalar(:dtime)))
         push!(TC.DT_HOOKS, cpl_dtcap)
         if haskey(ENV, "CPLJCHECK")                # Jacobian test of the coupled rows (TitanResidFast.cpl_jcheck), once
             zs = parse.(Int, split(ENV["CPLJCHECK"], ",")); once = Ref(true); g0 = TD.ROUTINES[:matgen]
-            TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.cpl_jcheck(a_ + z - 1); TX.cplz(a_ + z - 1) && PM.cpl_gcheck(mat, a_ + z - 1); end); g0())
+            TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.cpl_jcheck(a_ + z - 1); TX.cplz(a_ + z - 1) && (TX.rayz(a_ + z - 1) ? PM.ifsi_gcheck(mat, a_ + z - 1) : PM.cpl_gcheck(mat, a_ + z - 1)); end); g0())
         end
         if haskey(ENV, "SZJCHECK")                 # Jacobian test of the radiation and energy rows (TitanResidFast.rad_jcheck), once
             zs = parse.(Int, split(ENV["SZJCHECK"], ",")); once = Ref(true); g0 = TD.ROUTINES[:matgen]
@@ -2443,7 +2477,15 @@ try
             TD.STEPFN[] = OLDOPAC ? (() -> (PM.cpl_prepare!(mat); TD.OPAC[](); f0(); nothing)) : (() -> (PM.cpl_prepare!(mat); f0(); nothing))
         end
         @printf("COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn %d), CPLXSTOL %.3g\n", TF.PARAMS[:meqn], CPLXSTOL)
-    elseif Int(TF.getscalar(:neqn)) == 9
+        if PM.IFSIMP                               # IONFSIMP: the ray's ln N_g as unknowns 10-13 (TitanResidFast.RAYIMP, PopIIIMaterial IonFSImp.jl)
+            TF.PARAMS[:meqn] >= 13 || error("IONFSIMP=1: meqn = $(TF.PARAMS[:meqn]) < 13")
+            TX.RAYIMP[] = true; TF.setscalar!(:neqn, 13)
+            TX.CPL_RAY[] = (k, ρ, T, a_, b_, y1, y2, y3, y4) -> PM.cpl_rayzone(mat, k, ρ, T, a_, b_, y1, y2, y3, y4)
+            TX.CPL_RAYTAU[] = (k, y1, y2, y3, y4) -> PM.ifsi_tau(k, y1, y2, y3, y4)
+            @printf("IONFSIMP: ln N of the ray's groups (H I, He I, He II, LW %s) are unknowns 10-13 of the hydro Newton (neqn 13), p_diss %.3g, ljcut %s\n",
+                    PM.IFSI_LWON ? "on" : "off", PM.IFSI_PD, PM.IFSI_LJ)
+        end
+    elseif Int(TF.getscalar(:neqn)) == 9 || Int(TF.getscalar(:neqn)) == 13
         TF.setscalar!(:neqn, 7)                    # (restart from a COUPLED checkpoint)
     end
     if haskey(ENV, "CPLSCAN") && COUPLED            # (diagnostic, then exit) local thermal balance of coupled zone(s) vs T at fixed ρ, E_r
@@ -2488,6 +2530,8 @@ try
         NANSCAN && nanscan("after the hydro step", k)
         dT = COUPLED ? PM.cpl_chem!(mat) : PM.chem!(mat)
         NANSCAN && nanscan("after the chemistry", k)
+        PM.IONFS && ionfs_log(k)
+        PM.IFSIMP && PM.ifsi_log(mat, a, b, k)
         prof_report()
         if haskey(ENV, "IFDBG") && IFDBGN[] > 0          # (diagnostic) the zones of a table/network interface after the chemistry
             IFDBGN[] -= 1; z12 = parse.(Int, split(ENV["IFDBG"], ","))
