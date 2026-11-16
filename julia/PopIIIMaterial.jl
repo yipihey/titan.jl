@@ -416,6 +416,43 @@ chemistry heat. For network zones deep in the thick layers (G2: the network thro
 """
 const NLOHBFDEEP = get(ENV, "NLOHBFDEEP", "0") == "1"
 hbf_deep(p) = NLOHBFDEEP && p !== nothing && hasproperty(p, :deep) && p.deep
+"""
+`G2BLEND=Γ0,D0,P0` (or `G2BLEND=1` for 0.3,0.1,0.01; default off, off = bit-identical): the network material everywhere outside the stellar
+interior, the table only where the gas is non-ideal, by a smooth weight of the state at the Newton iterate instead of the switch rules
+(PSWITCH, PSWNH, PSWTAU, PSWTEX, PSWSTAY are overridden: a zone is a table zone exactly where w ≥ 0.999, staying until w < 0.99, where the
+two materials are the same function). Non-ideality s = ((Γ_e/Γ0)⁴ + (D/D0)⁴ + (P/P0)⁴)^{1/4} of the LTE (table) composition at (ρ, T):
+  Γ_e = e²/(a_e kT), a_e = (3/(4π n_e))^{1/3}   electron Coulomb coupling;
+  D = n_e λ_e³/2, λ_e = h/√(2π m_e kT)           electron degeneracy (≪ 1: Boltzmann electrons);
+  P = (4π/3) n_neutral (2a₀)³                     neutral packing: the hard-sphere exponent of HM88's ground-state occupation probability
+                                                  (Hummer & Mihalas 1988, eq. 4.71), the onset of pressure dissociation/ionisation.
+w = smoothstep(log₁₀(s/s₀)/log₁₀ 3), s₀ = G2BLEND's 4th number (default 1/3): network for s ≤ 1/3, table for s ≥ 1 — the blend spans a
+factor 3 in s and is complete where a parameter reaches its threshold (with s₀ = 1 the network's coupled chemistry ran into zones at
+Γ_e ≈ 0.3–0.9 and failed to converge there, t_g2h, docs/POPIII_G2_MATERIAL.md §7.4). EOS (ChemNet.EOSMIX, so chemistry and hydro agree):
+(u, p) = (1 − w) network + w table; opacity (NLOIT network zones): ln κ = (1 − w) ln κ_network + w ln κ_table.
+Thresholds from the network-vs-SCVH95 comparison (docs/POPIII_G2_MATERIAL.md §7): for s < 1 the network (HM88, H2PF) and the table
+agree to |Δ ln p| ≤ 0.045, |Δ ln Γ1| ≤ 0.064, |Δu| ≤ 0.2 kT per particle (95 %); beyond s ≈ 3 they differ by up to ×10 in p.
+"""
+const G2B = let v = get(ENV, "G2BLEND", "0"); v == "0" ? nothing : v == "1" ? (0.3, 0.1, 0.01, 1 / 3) : (t = parse.(Float64, split(v, ",")); length(t) == 3 ? (t..., 1 / 3) : Tuple(t)) end
+const QE_ = 4.80320471e-10; const A0_ = 5.29177211e-9
+"(G2BLEND) non-ideality s at (ρ, T) (generic: the table composition through its bicubic interpolant)."
+function g2_s(ρ, T)
+    t = EQ.table(); x = EQ.gx(t, log10(ρ)); y = EQ.gy(t, log10(min(T, 1e6) + zero(T)))
+    xp = clamp(EQ.bicubic(t.xHp, x, y), 0.0, 1.0); f2 = clamp(EQ.bicubic(t.fH2, x, y), 0.0, 1.0)
+    z1 = zero(xp); z2 = zero(xp)
+    if CNn.HECHEM && EQ.HETAB[] !== nothing
+        Z1, Z2 = EQ.HETAB[]; z1 = clamp(EQ.bicubic(Z1, x, y), 0.0, PC.yHe); z2 = clamp(EQ.bicubic(Z2, x, y), 0.0, PC.yHe)
+    end
+    nH = ρ / CNn.μH(); ne = nH * (xp + z1 + 2z2) + 1e-300
+    nneu = nH * (max(1 - xp - f2, zero(xp)) + f2 / 2 + max(PC.yHe - z1 - z2, zero(xp)))
+    kT = CNn.kB * T
+    Γ = QE_^2 / (kT * cbrt(3 / (4π * ne))); D = ne * (CNn.hP / sqrt(2π * CNn.me * kT))^3 / 2; P = (4π / 3) * nneu * (2A0_)^3
+    ((Γ / G2B[1])^4 + (D / G2B[2])^4 + (P / G2B[3])^4)^0.25
+end
+"(G2BLEND) blend weight of the table at (ρ, T)."
+g2_w(ρ, T) = (s = g2_s(ρ, T); x = clamp(log10(s / G2B[4]) / log10(3.0), 0.0, 1.0); x * x * (3 - 2x))
+"(G2BLEND) the EOS mix of ChemNet.EOSMIX."
+g2_eosmix(ρ, T, u, p) = (w = g2_w(ρ, T); ForwardDiff.value(w) == 0 ? (u, p) : (ue = EQ.eos(ρ, T); (u + w * (ue[1] - u), p + w * (ue[2] - p))))
+G2B !== nothing && (CNn.EOSMIX[] = g2_eosmix)
 "Lagged non-LTE opacity factors of zone k at T0 (see NLOPAC)."
 function nlopc(ρ, T0, d, p)
     OPAC[] === nothing && return nothing     # no opacity table yet (the cold collapse, before RAD's opacity is set): LTE tables later
@@ -699,7 +736,11 @@ TX.opac_pure(::NetGas) = !NLOIT
     if NLOIT && NLOPAC[]
         k = TX.ZONE[]
         if k <= length(m.eqzone) && !m.eqzone[k]
-            return nlo_it(m, k, ρ, T, k <= length(NLOST[]) ? NLOST[][k] : nothing)
+            G2B === nothing && return nlo_it(m, k, ρ, T, k <= length(NLOST[]) ? NLOST[][k] : nothing)
+            χn, κEn, κPn = nlo_it(m, k, ρ, T, k <= length(NLOST[]) ? NLOST[][k] : nothing)
+            w = g2_w(ρ, T); ForwardDiff.value(w) == 0 && return χn, κEn, κPn
+            κRt, κPt = OPAC[](ρ, T)                  # G2BLEND: geometric blend with the table opacity at the iterate
+            return exp((1 - w) * log(χn) + w * log(chicap(κRt, T))), exp((1 - w) * log(κEn) + w * log(κPt)), exp((1 - w) * log(κPn) + w * log(κPt))
         end
         κR, κP = OPAC[](ρ, T)
         return chicap(κR, T), κP, κP
@@ -1341,6 +1382,7 @@ function chem_core!(m::NetGas)
         ptab = (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[])
         PSWNH > 0 && !ptab && (ptab = dn[k] / CNn.μH() >= (m.eqzone[k] ? PSWHYS[] : 1.0) * PSWNH && tn[k] >= (m.eqzone[k] ? 0.95 : 1.0) * PSWTMIN[])
         tab = ptab || (PSWSTAY[] && m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])
+        G2B !== nothing && (tab = g2_w(dn[k], tn[k]) >= (m.eqzone[k] ? 0.99 : 0.999))     # G2BLEND: the table only where the blend is complete
         CPLPREP[] && (tab = false)
         PSWRAMP > 0 && !CPLPREP[] && m.eqzone[k] && k <= RAMPK0[] - (Int(TF.getscalar(:jstep)) - RAMPJ0[]) ÷ PSWRAMP && (tab = true)
         if tab

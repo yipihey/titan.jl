@@ -319,6 +319,102 @@ not a product of the switch. Plot: `docs/g2/g2_extended_network_runs.png`. The N
 - SCVHXE is a correctness fix of the table's composition (SCVH95 eqs. 33–36); make it the default after a production comparison.
 - Bit identity at 1b4d7db (all switches off): `t_g2f` vs `t_g2a`, 591 arrays + .aux identical.
 
+## 7. The network's validity domain and a smooth table blend (branch g2-domain, 16 Nov)
+
+Goal (Tom): the network material correct by construction everywhere a Pop III protostar simulation reaches at low density, the table only
+in the stellar interior, wherever that lies in a given run.
+
+### 7.1 Criterion
+Three standard non-ideality measures, evaluated with the LTE (table) composition at (ρ, T):
+- Γ_e = e²/(a_e kT), a_e = (3/(4π n_e))^{1/3} — electron Coulomb coupling (Debye–Hückel/plasma non-ideality);
+- D = n_e λ_e³/2, λ_e = h/√(2π m_e kT) — electron degeneracy (Boltzmann electrons need D ≪ 1);
+- P = (4π/3) n_neutral (2a₀)³ — neutral packing: the hard-sphere exponent of the ground-state occupation probability of Hummer & Mihalas
+  (1988, ApJ 331, 794, eq. 4.71; the network already carries HM88 for the excited levels), i.e. the onset of pressure
+  dissociation/ionisation of H₂, H, He.
+s = ((Γ_e/0.3)⁴ + (D/0.1)⁴ + (P/0.01)⁴)^{1/4}; table weight w = smoothstep(log₁₀(3s)/log₁₀ 3): network for s ≤ 1/3, table for s ≥ 1
+(the thresholds are where each parameter's non-ideality becomes significant; the blend window below them).
+The thresholds come from the network (HM88 + H2PF, LTE) vs SCVH95 comparison on log ρ −14 … +1, log T 3 … 5.5 (`gridnd.jl`,
+`ndion.py`, `ndcrit.py`), binned by each parameter: in ionised gas |Δ ln p| ≤ 0.02 and |Δu| ≤ 0.03 kT up to Γ_e = 0.3, 0.76 at Γ_e 1–3;
+in neutral gas the error is 1 % for P < 0.01, 6 % at 0.01–0.03, 20 % at 0.03–0.1; degeneracy 2 % for D < 0.1, 5 % at 0.1–0.3. Result:
+
+| region | points | \|Δ ln p\| p50/p95/max | \|Δu\| [kT] p50/p95/max | \|Δ ln Γ1\| p95/max | \|Δ ln c_P\| p95 |
+|---|---|---|---|---|---|
+| s < 1/3 (network) | 12873 | 0.000/0.012/0.033 | 0.001/0.19/0.56 | 0.035/0.064 | 0.14 |
+| 1/3 ≤ s < 1 (blend) | 1580 | 0.016/0.035/0.045 | 0.032/0.20/0.46 | 0.034/0.064 | 0.19 |
+| 1 ≤ s < 3 (table) | 1140 | 0.016/0.080/0.13 | 0.087/0.59/0.66 | 0.089/0.12 | 0.27 |
+| s ≥ 3 (table) | 3433 | 0.24/2.8/5.4 | 0.23/0.76/0.94 | 0.58/7.9 | 0.54 |
+
+The residual Δu and Δ c_P where s < 1 are ideal-gas differences, not non-ideality: SCVH's H₂ (and the table's Saha part, RHFC02 A9)
+against the network's level-sum H₂ (H2PF, below) at 2500–5000 K, and the SCVH tables' isotherm interpolation (×1.3–3 stripes in x_e).
+
+**`G2BLEND=1`** (PopIIIMaterial, default off, bit-identical off): w at the Newton iterate (generic in the number type: the table
+composition through its bicubic interpolant); EOS (u, p) = (1 − w) network + w table through `ChemNet.EOSMIX`, so the chemistry's T(u) and
+the hydro's EOS are the same function; NLOIT opacities ln κ = (1 − w) ln κ_network + w ln κ_table; a zone is a table zone exactly
+where w ≥ 0.999 (stays to 0.99), where both materials are the same function. Overrides PSWITCH/PSWNH/PSWTAU/PSWTEX/PSWSTAY.
+
+### 7.2 Where it lands
+| state | table (w = 1) | blend (0 < w < 1) | network |
+|---|---|---|---|
+| early collapse f128c A1 (first core forming) | — | — | everything (s ≤ 1e-3) |
+| f128c A2 (first core) | log ρ ≥ −2.4 (core: Γ_e 0.6–1.7, D 0.005–0.5) | — (the core edge is a jump to log ρ −4.7) | log ρ ≤ −4.7 |
+| zdiagB S5 (0.061 M☉, R* 11 R☉; H front at 12.9 R☉) | r < 1.4 R☉ (log ρ ≥ −2.6, Γ_e ≥ 0.34) | 1.4–8 R☉ (log ρ −2.6 … −5, T 2–8e4 K, τ ≳ 1e8; w 0.99 → 0.6) | r ≳ 8 R☉: the photosphere and the H front (zone 61, Γ_e ≤ 0.1, w ≈ 0) and everything outside |
+| z300g2 step 3400 (0.095 M☉) | 35 zones, r < 1.4 R☉ | 33 zones, to ≈ 10 R☉ (w ≤ 0.58 beyond 7 R☉) | the front and outside |
+| t_nolte2 late (556 M☉, R* 14.8 R☉) | the star: all zones are HOT (T > 3e5 K, stellar EOS) | — | everything outside the star (ρ < 1e-10: s ≈ 1e-3) |
+
+So in the low-mass protostars the table is complete at Γ_e ≈ 0.3 (log ρ ≈ −2.5, 1e5 K) and fades out where Γ_e ≈ 0.1 — the ionised
+interior a few R☉ inside the H front (at τ ≳ 1e8); for the massive star the whole star is the HOT branch and the network has
+everything else; the photosphere and the front are on the network in every case (s ≈ 0.15 at zdiagB's front, 1e-3 outside t_nolte2).
+EOS along the profiles (network HM88 + H2PF in LTE vs table, `profverify.jl`): in the network domain max |Δ ln p| ≤ 0.015 everywhere;
+max |Δu| 0.27–0.28 kT at 2500–4400 K (H₂: network level sum vs table RHFC02 A9 — the network is the better one there; with H2PF off the
+two agree, at the cost of a wrong H₂); in the blend zones |Δ ln p| ≤ 0.043, |Δu| ≤ 0.09 kT, |Δ ln Γ1| ≤ 0.06.
+
+### 7.3 Gaps filled / quantified
+- **H₂ partition function (new, `H2PF=1`, ChemNet):** the rigid-rotor × harmonic-oscillator Z_int and RHFC02 A9 energy (which uses the
+  vibrational *heat capacity* x²eˣ/(eˣ−1)² as an energy) replaced above 1500 K (blended from 800 K; the cold gas keeps RHFC02) by the level sum
+  over all 301 bound levels of ExoMol RACPPK (Roueff et al. 2019, 2019A&A...630A..58R), u_H2 = 3/2 + ⟨E_int⟩/kT, consistent with K_H2.
+  Network vs SCVH at 3800 K, log ρ −5.6: Δu 0.77 → 0.56 kT, Δ ln p 0.039 → 0.028 (the rest is SCVH's H₂).
+- **HM88** (§6.1) is required: without it the network's x_e is 0.04–0.5 × SCVH at Γ_e 0.1–1.
+- **Lines (P3):** in the network domain (s < 1) the table/G2-continuum ratio (G2OPAC=2 on HM88 populations, `linefac.py`) is, in dex:
+  below 5000 K κ_R −0.11 … +0.05, κ_P −0.44 … +0.03 (no lines; the table's continuum lacks the Lyman continuum); 5000–6300 K κ_P −0.8 … 0
+  (same); 6300 K–5e4 K κ_R median +0.03, p95 +0.57, max +0.82 (×6.6) and κ_P median +1.3, p95 +2.4, max +3.3 (H/He lines);
+  5e4–3e5 K κ_R ≤ +0.45, κ_P median +0.4. These are carried by NLOIT's LTE calibration κ = κ_net(x) × κ_table/κ_net(LTE): exactly
+  P3's line factor, evaluated on the fly (two means_fast calls, ~70 µs) and continuous; a pre-tabulated factor would halve that cost
+  (not done). The κ_P line factor is an LTE line Planck mean; whether thick lines should couple grey gas and radiation that strongly is G4.
+- **ΔF (P4):** not needed: the blend completes (s = 3) before the network-table difference exceeds ~10 % in p.
+- **H₃⁺, H₂⁻ and He⁻ free–free, H₂ lines in the continuum: not quantified** (no data in hand; no formulas from memory). Mayer & Duschl
+  (2005, 2005MNRAS.358..614M) find H₃⁺ affects the Rosseland mean at intermediate densities (≈1e-12–1e-9 g cm⁻³, 800–3000 K, through the
+  electron budget) and H₂ lines dominate the Planck mean at low density; the table has none of these either, and the H₂ lines are in the
+  runs' line transfer (H2Lines), not in the grey κ. To do: H₃⁺ chemistry/partition function (Neale & Tennyson 1995) and the H₂⁻/He⁻ ff
+  fits (Bell 1980; John 1994) — to verify on SciX.
+
+### 7.4 Run test from z300g2 (G2BLEND replacing PSWNH=1e19)
+z300g2's run settings (procedure.log) + `G2BLEND=1 H2PF=1`, restarted from copies of its checkpoint `z19z300g2S1_auto0`, cores 104–111
+(`scripts/g2audit/exprun2.sh`; z300g2 itself untouched).
+- `t_g2h` (blend window s 1 … 3, the first version): from step 3400, stopped at 3621 (Δt < DTSTOP): zone 37 (log ρ ≈ −2.5, T ≈ 9e4 K, Γ_e ≈ 0.3,
+  s ≈ 1, w ≈ 0), just handed to the network by the restart ramp, diverged in T, E_r, x_H⁺, x_H₂ — the network's coupled chemistry does not
+  converge in zones that dense and hot.
+- `t_g2i` (window s 1/3 … 1, the default now: the table is complete where a parameter reaches its threshold): from step 3800 (the newest
+  checkpoint then), **400 steps to 4199**, table|network interface at zone 36 (Γ_e ≈ 0.3), the H front 36 zones further out on the network.
+
+| steps 3840–4200 | t_g2i (G2BLEND) | z300g2 (PSWNH = 1e19) |
+|---|---|---|
+| Δt median / min | 1.5e4 / 6.1e3 s (421 s at the restart) | 1.9e4 / 9.8e3 s (50-step snapshots) |
+| Newton divergences per 100 steps | 1 (4 in 400) | 0.5 (2 in 400) |
+| wall per step (8 threads) | 3.9 s | 2.9 s |
+| M*, R* at t = 1.356 yr after 238933 yr | 0.1301 M☉, 22.5 R☉ | ≈ 0.1295 M☉, 22.5 R☉ (interpolated) |
+| L_ph, T_eff | oscillating 1–1200 L☉ (as z300g2) | oscillating 0.6–1160 L☉ |
+| cliff on a table\|network interface | 0 of 80 | 0 of 21 |
+
+### 7.5 Remaining gaps
+- H₃⁺, H₂⁻/He⁻ free–free: not in either material, not quantified (§7.3).
+- The network's coupled chemistry fails to converge at Γ_e ≳ 0.3 (log ρ ≳ −2.5 at 1e5 K): the reason the table is kept from s = 1 on; with
+  a robust dense-gas chemistry (LTE limit of the kinetics) the window could move to s 1 … 3.
+- The EOS comparison in the network domain is limited by SCVH95's own H₂ (0.3–0.6 kT at 2500–5000 K vs the level sum) and its isotherm
+  interpolation; a direct check against an independent EOS (e.g. Chabrier et al. 2019 H/He tables) would settle which is right there.
+- Lines: carried by NLOIT's LTE calibration; the κ_P line factor (×20–2000 at 6300 K–5e4 K) is an LTE line Planck mean (G4 question).
+- G2BLEND was run once over 400 steps from one checkpoint; longer runs and another accretion history are still to do.
+- Bit identity at 668e3a9 (all switches off): `t_g2j` vs `t_g2a` (0781136), 8 steps from zdiagB S5: 591 arrays + .aux identical.
+
 ## 5. Sources (checked on SciX, all refereed journals)
 Saumon, Chabrier & Van Horn 1995, ApJS 99, 713 (1995ApJS...99..713S); Hummer & Mihalas 1988, ApJ 331, 794 (1988ApJ...331..794H);
 Mihalas, Hummer & Däppen 1988, ApJ 331, 815 (1988ApJ...331..815M); Hubeny, Hummer & Lanz 1994, A&A 282, 151 (1994A&A...282..151H);
