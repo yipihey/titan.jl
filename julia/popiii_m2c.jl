@@ -1,11 +1,7 @@
-# Population III project, M2c: 1D collapse of the (provisional) RHFC02 P100 cloud with the RHFC02 chemistry and local
-# cooling (RA04's simplified transfer: thick H₂ lines × min(1, (n/8e9)^−0.45) + CIE with escape factor) — the
-# configuration of RA04's own 1D test (RA04 §2.3.3, Figs. 4–5), here in TITAN.
-#   TITAN_NOLIB=1 julia --project=env popiii_m2c.jl [cooling] [nshell]     cooling ∈ ra04 | ra04lines | thin
-# Initial state (provisional, see POPIII_NOTES M2b): n = 1.5 polytrope shape, ρ_c/m_H = 2.6e6, cut at 1e-3 ρ_c, scaled
-# to 100 M☉; T = 270 K (ρ/ρ_c)^{2/3}; at rest; f_H2 = 5e-4, x_e = 1e-10. Geometric shell masses with the central shell
-# 3e-7 M☉ (RHFC02 §3.1). Regular centre, Lagrangian, self-gravity, free surface at the edge pressure.
-# Log: lib/popiii/m2c_<cooling>_n<nshell>.log (central track every 0.25 dex of n_c, ON98 Fig. 3a for comparison).
+# Population III protostar formation and accretion from the ABN02 cloud: 1D radiation hydrodynamics (TITAN, pure Julia) with the
+# coupled implicit primordial chemistry, H₂ line transfer, star light, the G2 network material and the GRIDEQ moving mesh — the one
+# supported configuration is julia/popiii_stack.jl (docs/POPIII_STACK.md); launch with scripts/popiii_run/iceulrun.sh.
+#   julia --project=<env> popiii_m2c.jl lines <IC shells>      (start from the IC; RESTART=<checkpoint> continues a run)
 using Printf
 include(joinpath(@__DIR__, "popiii_stack.jl"))     # the one supported configuration: defaults for every unset stack key
 include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "JuliaPhysics.jl"))
@@ -38,35 +34,24 @@ cf = cool == "thin" ? PC.cool_H2_thin : cool == "ra04lines" ? PC.cool_H2_ra04 :
      cool == "lines" ? PC.cool_CIE_ra04 :                     # H₂ lines by transfer (H2Lines), continuum: RA04 CIE
      (ρ, T, y) -> PC.cool_H2_ra04(ρ, T, y) + PC.cool_CIE_ra04(ρ, T, y)
 haskey(ENV, "TCMB") && (cf = PC.cool_floor(cf, parse(Float64, ENV["TCMB"])))
-# S6-B: RAD=1 (with RADFROM=checkpoint) continues a run with TITAN's radiation (E_r, F_r, Eddington factors) and the
-# StellarOpacity continuum; the RA04 CIE escape-factor term is then not used (the continuum is in the transfer), the
-# H₂ lines stay as Λext
+# RAD=1 (the stack; from the IC): TITAN's radiation (E_r, F_r, Eddington factors) and the StellarOpacity continuum; the RA04
+# CIE escape-factor term is then not used (the continuum is in the transfer), the H₂ lines stay as Λext
 const RAD = get(ENV, "RAD", "0") == "1"
 RAD && (cf = (ρ, T, y) -> zero(T))
 # POPIII_OUT: directory for the run log and the snapshot file (default lib/popiii); checkpoints follow CKDIR
 const OUTDIR = get(ENV, "POPIII_OUT", joinpath(TF.ROOT, "lib", "popiii")); mkpath(OUTDIR)
-io = open(joinpath(OUTDIR, "m2c_$(get(ENV, "IC", "p100") == "p100" ? "" : get(ENV, "IC", "") * "_")$(cool)_n$(nsh)$(get(ENV, "TAG", "")).log"), haskey(ENV, "RESTART") || haskey(ENV, "RADFROM") ? "a" : "w")   # (a continued run appends)
+io = open(joinpath(OUTDIR, "m2c_$(get(ENV, "IC", "p100") == "p100" ? "" : get(ENV, "IC", "") * "_")$(cool)_n$(nsh)$(get(ENV, "TAG", "")).log"), haskey(ENV, "RESTART") ? "a" : "w")   # (a continued run appends)
 pr(f, a...) = (s = Printf.format(Printf.Format(f), a...); print(s); print(io, s); flush(io))
 
-# ---- n = 1.5 Lane–Emden θ(ξ), integrated to θ^1.5 = 1e-3
-function lane_emden(n; cut = 1e-3)
-    f(ξ, y) = (y[2], -y[1]^n - 2y[2] / ξ)
-    ξ = 1e-4; y = (1 - ξ^2 / 6, -ξ / 3); h = 1e-4; out = [(0.0, 1.0, 0.0)]
-    while max(y[1], 0.0)^n > cut
-        k1 = f(ξ, y); k2 = f(ξ + h / 2, y .+ h / 2 .* k1); k3 = f(ξ + h / 2, y .+ h / 2 .* k2); k4 = f(ξ + h, y .+ h .* k3)
-        y = y .+ h / 6 .* (k1 .+ 2 .* k2 .+ 2 .* k3 .+ k4); ξ += h
-        push!(out, (ξ, y[1], -ξ^2 * y[2]))          # (ξ, θ, ξ²|θ'| ∝ m)
-    end
-    out
-end
-ic = get(ENV, "IC", "p100")
+ic = get(ENV, "IC", "abn02red")
 dm1 = 3e-7Msun
 q_of(M, n) = let lo = 1.0001, hi = 2.0
     f(q) = dm1 * (q^n - 1) / (q - 1) - M
     for _ in 1:200; m_ = (lo + hi) / 2; f(m_) > 0 ? (hi = m_) : (lo = m_); end
     (lo + hi) / 2
 end
-if ic in ("abn02", "abn02hs", "abn02z19", "abn02fin", "abn02red")
+ic in ("abn02red", "abn02fin", "abn02z19") || error("IC=$ic: the supported initial conditions are abn02red (main), abn02fin, abn02z19")
+begin
     # ABN02 (Abel, Bryan & Norman 2002, Science 295, 93; arXiv astro-ph/0112088) Fig. 2, profile "9 Myr later"
     # (red dotted with circles), read off the 400-dpi rendering [read-src, approximate ±0.05 dex]: particle number
     # density n(r) (panel A), T(M), H₂ mass fraction (panel C, lower curve), v_r(M) (panel E). ρ = n μ m_H, μ = 1.22.
@@ -239,7 +224,7 @@ if ic in ("abn02", "abn02hs", "abn02z19", "abn02fin", "abn02red")
         vfin(m, r) = m >= mv1_fin ? 1e5 * vfin_(log10(m)) : 1e5 * vv1_fin * r / rM1fin   # [cm/s]; m [M☉], r [cm]
     end
     M = parse(Float64, get(ENV, "MCLOUD", z19 ? "1e4" : fin ? "2e4" : "1000")) * Msun
-    if ic in ("abn02hs", "abn02z19")
+    if z19
         # hydrostatic version: ABN02's central density, T(M) and dark matter; dP/dr = −ρ G (M_gas + M_DM)/r² with
         # P = ρ c²(M), c² = k T(M)/(μ m_H): dρ/dr = −[ρ G M_tot/r² + ρ² 4π r² dc²/dM]/c². RK4 in ln r.
         Tfit = pchip(lM_tab, T_tab); c2(m) = PC.kB * Tfit(log10(max(m / Msun, 1e-2))) / (μ_abn * PC.mH)
@@ -308,28 +293,10 @@ if ic in ("abn02", "abn02hs", "abn02z19", "abn02fin", "abn02red")
     Tz = fin ? [Tfin(m) for m in mz] : [interp(log10(m), lM_tab, T_tab) for m in mz]
     fz = fin ? [10^fH2fin_(log10(m)) for m in mz] : [10^interp(log10(m), lM_tab, lf_tab) for m in mz]   # (fin: mass fraction, unused below)
     uI = fin ? [vfin(mI[j] / Msun, rI[j]) for j in 1:nsh+1] : ic == "abn02z19" ? [m < Mjoin ? 0.0 : 1e5 * interp(log10(m / Msun), lM_tab, v_tab) * min(1.0, (m - Mjoin) / Mjoin) for m in mI] :
-         ic == "abn02hs" ? zeros(nsh + 1) : [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI]; uI[1] = 0.0
+         [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI]; uI[1] = 0.0
     ρc = rho[1]; Tc0 = Tz[1]
     xe0 = parse(Float64, get(ENV, "XE0", z19 ? "1e-4" : fin ? "2e-4" : "1e-7"))   # x_e [assumed; ABN02 does not show it; fin: T. Abel, outer cloud]
     yz = fin ? [finy(m) for m in mz] : [(xe0, 0.0, f / 2, 0.0) for f in fz]
-else
-le = lane_emden(1.5); ξs, _, μs = le[end]
-le = lane_emden(1.5); ξs, _, μs = le[end]
-M = 100Msun; ρc = 2.6e6 * PC.mH; Tc0 = 270.0
-a_ = cbrt(M / (4π * ρc * μs))                      # radius unit: M = 4π ρc a³ ξ²|θ'| at the cut
-q = q_of(M, nsh)
-mI = [0.0; cumsum([dm1 * q^(j - 1) for j in 1:nsh])]; mI[end] = M
-# radius of each interface from m(ξ) (linear interpolation in the tabulated profile)
-mξ = [4π * ρc * a_^3 * e[3] for e in le]; ξt = [e[1] for e in le]
-function ξ_of_m(m)
-    m <= 0 && return 0.0
-    j = searchsortedfirst(mξ, m); j = clamp(j, 2, length(mξ))
-    ξt[j-1] + (m - mξ[j-1]) / (mξ[j] - mξ[j-1]) * (ξt[j] - ξt[j-1])
-end
-rI = [a_ * ξ_of_m(m) for m in mI]; rI[1] = 0.0
-rho = [(mI[j+1] - mI[j]) / (4π / 3 * (rI[j+1]^3 - rI[j]^3)) for j in 1:nsh]
-Tz = [Tc0 * (ρ / ρc)^(2 / 3) for ρ in rho]
-uI = zeros(nsh + 1); yz = nothing
 end
 y0 = (1e-10, 0.0, 2.5e-4, 0.0)
 k5s = get(ENV, "K5", "pss")
@@ -341,10 +308,9 @@ if yz !== nothing
     for k in 1:a0-1; ystore[k] = yz[1]; end; for k in a0+nsh:length(ystore); ystore[k] = yz[end]; end
 end
 const NIMP = Ref(0)                                                  # (kept in the checkpoint; the IMPCOOL slope it counted is gone)
-const CHEM = get(ENV, "CHEM", "rhfc02")     # rhfc02: PrimordialGas (RHFC02 network, ρ_eq switch); net / netmodern / netmodernli: NetGas (G5)
-if CHEM == "rhfc02"
-    global mat = PM.PrimordialGas(ystore, PC.rates_rhfc02(; k5 = k5f), cf, parse(Float64, get(ENV, "RHOEQ", "5e-11")), get(ENV, "EQEOS", "scvh") == "scvh")
-else
+const CHEM = get(ENV, "CHEM", "netmodernli")     # net / netmodern / netmodernli: NetGas (G5); the RHFC02 PrimordialGas material is gone
+CHEM in ("net", "netmodern", "netmodernli") || error("CHEM=$CHEM: the network material net, netmodern or netmodernli")
+begin
     # G5: ChemNet network; equilibrium table where the ideal-gas pressure ≥ PSWITCH (EOS validity, RHFC02's 1e4 dyn cm⁻²)
     netw, phot = CHEM == "net" ? (ChemRates.rhfc02(; k5 = k5f), ChemNet.Photo[]) : ChemRates.modern(; li = CHEM == "netmodernli")
     # SL3=1 (with STARLIGHT=1): three-level H atom in the lit network zones (PM.tl3_reactions; rates are zero elsewhere)
@@ -939,153 +905,9 @@ function rebuild!(rI, ρz, Tz, uI, Er, Fr, matz)
     TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
     empty!(ALIFAC[])                                  # per-zone NLTE factors: recomputed at the next line-transfer call
 end
-"""
-S6-B: continue a hydrodynamics-only checkpoint with TITAN's radiation. The checkpoint is restored (`restart!`), its profile
-(r, ρ, T, u) rebuilt as a radiating state (`rebuild!`: the SUBC template, neqn = 7). Initial radiation field:
-E_r = a [T_CMB⁴ + (T⁴ − T_CMB⁴)(1 − e^{−τ_R})] (τ_R from the surface), F_r the diffusion flux −c ΔE_r/(3χρ Δr)
-flux-limited (|F| ≤ c E_r), 0 at the centre; outside the photosphere the steady free-streaming field of the photospheric
-luminosity on top of the CMB.
-"""
-function radbuild!(name)
-    restart!(name; allow = ("RAD",))
-    radsettings!()
-    rI = TF.var(:rn)[a:b+1]; ρz = TF.var(:dn)[a:b]; Tz = TF.var(:tn)[a:b]; uI = TF.var(:un)[a:b+1]
-    old = matstate(); aold = a
-    n = length(ρz); Tb = parse(Float64, get(ENV, "TCMB", "0")); ar = Z0.arad
-    χ = [PM.OPAC[](ρz[j], Tz[j])[1] * ρz[j] for j in 1:n]
-    τ = zeros(n); for j in n-1:-1:1; τ[j] = τ[j+1] + 0.5 * (χ[j] * (rI[j+1] - rI[j]) + χ[j+1] * (rI[j+2] - rI[j+1])); end
-    Er = [ar * (Tb^4 + (Tz[j]^4 - Tb^4) * (-expm1(-τ[j]))) for j in 1:n]
-    rc = [0.5 * (rI[j] + rI[j+1]) for j in 1:n]
-    Fr = zeros(n + 1)
-    for j in 2:n
-        gE = (Er[j] - Er[j-1]) / (rc[j] - rc[j-1]); Em = 0.5 * (Er[j] + Er[j-1])
-        Fr[j] = -Z0.c * gE / (3 * 0.5 * (χ[j] + χ[j-1]) + abs(gE) / Em) * (-expm1(-τ[j]))   # flux-limited diffusion, switched off where thin (isotropic CMB: F = 0)
-    end
-    Fr[n+1] = Fr[n]
-    # outside the photosphere (τ_R < 1) the steady free-streaming field of the photospheric luminosity on top of the CMB
-    # (starting from the CMB alone, the core's light front sweeps the thin envelope and Newton fails for Δt ≫ r/c)
-    jph = findfirst(<(1.0), τ); Lph = 0.0
-    if jph !== nothing && jph > 1
-        Lph = 4π * rI[jph]^2 * max(Fr[jph], 0.0)
-        for j in jph:n; Er[j] = max(Er[j], ar * Tb^4 + Lph / (4π * rc[j]^2 * Z0.c)); end
-        for j in jph:n+1; Fr[j] = Lph / (4π * rI[j]^2); end
-    end
-    zr = aold:aold+n-1
-    rebuild!(rI, ρz, Tz, uI, Er, Fr, (; x = old.x[zr], eqzone = old.eqzone[zr], Λext = old.Λext[zr], Tref = old.Tref[zr], slope = old.slope[zr],
-                                         Y = HOTON ? [old.Y[:, k] for k in zr] : nothing))
-    pr("RAD: rebuilt with radiation from %s: ngrs %d -> %d, tau_R(centre) = %.3e, E_r/aT^4 at centre %.3f, photosphere at zone %s (r = %.3e cm), L_ph = %.3e erg/s, ximr = %.3e\n",
-       name, aold, a, τ[1], Er[1] / (ar * Tz[1]^4), string(jph), jph === nothing ? NaN : rI[jph], Lph, TF.getscalar(:ximr))
-end
-include(joinpath(@__DIR__, "Rezone.jl"))
-"Gas energy of zone k's material at (ρ, T) with composition (x, eq)."
-gasu(ρ, T, x, eq) = (PM.HOT[] !== nothing && T > PM.HOT[].T1) ? TX.material_gas(mat, ρ, T)[2] : eq ? EQ_eos(ρ, T)[1] : ChemNet.eos(ρ, T, x, mat.net)[1]
-EQ_eos(ρ, T) = PopIIIEqEOS.eos(ρ, T)
-"T with gasu(ρ, T) = e (bracketed Newton in ln T)."
-function T_of_e(ρ, e, T0, x, eq)
-    lo, hi = log(T0) - 3, log(T0) + 3; lT = log(T0)
-    for _ in 1:100
-        f = gasu(ρ, exp(lT), x, eq) - e
-        abs(f) <= 1e-12 * abs(e) && break
-        f > 0 ? (hi = lT) : (lo = lT)
-        h = 1e-6; d = (gasu(ρ, exp(lT + h), x, eq) - gasu(ρ, exp(lT), x, eq)) / h
-        lT1 = lT - f / d
-        lT = (d > 0 && lo < lT1 < hi) ? lT1 : 0.5 * (lo + hi)
-    end
-    exp(lT)
-end
-"Current zone profile for Rezone (E_r, F_r from the radiating state)."
-function profile_now()
-    rr = TF.var(:rn)[a:b+1]; rr[1] = 0.0
-    Rezone.Profile(rr, TF.var(:un)[a:b+1], TF.var(:frn)[a:b+1], TF.var(:dn)[a:b], TF.var(:egn)[a:b], TF.var(:tn)[a:b], TF.var(:ern)[a:b], TF.var(:asn)[a:b], TF.var(:pgn)[a:b])
-end
-const REZ = (on = get(ENV, "REZONE", "0") == "1", every = parse(Int, get(ENV, "REZEVERY", "20")),
-             jsplit = parse(Float64, get(ENV, "REZJSPLIT", "0.3")), jmerge = parse(Float64, get(ENV, "REZJMERGE", "0.05")),
-             dmmin = parse(Float64, get(ENV, "REZDMMIN", "1e-7")) * Msun, qmax = parse(Float64, get(ENV, "REZQMAX", "2.5")),
-             nmax = parse(Int, get(ENV, "REZNMAX", "260")), nhard = TF.MGR - 12, fmin = parse(Float64, get(ENV, "REZFRAC", "0.01")), keepcentre = parse(Int, get(ENV, "REZKEEPC", "5")))
 PM.PSWHYS[] = parse(Float64, get(ENV, "PSWHYS", "1"))
 PM.PSWTMIN[] = parse(Float64, get(ENV, "PSWTMIN", "0"))
 PM.PSWTEX[] = parse(Float64, get(ENV, "PSWTEX", "0")); PM.PSWTAU[] = parse(Float64, get(ENV, "PSWTAU", "0"))
-const REZW = haskey(ENV, "REZWIN") ? parse.(Float64, split(ENV["REZWIN"], ",")) : nothing; const NREZ = Ref(0); const REZNULL = get(ENV, "REZNULL", "0") == "1"
-"""
-S6-C2: rezone (Rezone.plan/apply) and rebuild. The material state of a split zone is copied; of a merged zone, mass-weighted
-(x), equilibrium flag if either was, Λext volume-weighted (it is per volume), Tref/slope of the heavier zone. Returns the
-numbers of splits and merges.
-"""
-const REZDR = parse(Float64, get(ENV, "REZDR", "0"))
-Rezone.SLOPE_LNR[] = get(ENV, "REZSLOPE", "") == "lnr"      # slopes of a split per unit of ln r (Rezone.SLOPE_LNR)
-function rezone!(k; force = nothing)
-    p = profile_now()
-    # moving window (REZWIN=flo,fhi,frac): zones with m_enc in [flo, fhi] × m★ (m★: inside the first interface falling faster than
-    # 2 km/s) and heavier than frac × m_enc are split while they are still smooth, ahead of the star
-    fl = nothing
-    if REZW !== nothing
-        dm_ = Rezone.dmass(p); me_ = cumsum(dm_); jc_ = findfirst(<(-2e5), p.u); mst = jc_ === nothing ? 0.0 : me_[max(jc_ - 1, 1)]
-        fl = [REZW[1] * mst <= me_[j] <= REZW[2] * mst && dm_[j] > REZW[3] * me_[j] for j in eachindex(dm_)]
-        # REZDR=x: inside the same outer mass limit, zones from the surface outwards are also split while Δr/r̄ > x, so that the
-        # infall is resolved in radius (a falling Lagrangian shell stretches, Δr/r ∝ dm r^(-3/2) in steady free fall)
-        if REZDR > 0 && jc_ !== nothing
-            for j in max(jc_ - 1, 1):length(dm_)
-                me_[j] <= REZW[2] * mst && 2 * (p.rI[j+1] - p.rI[j]) / (p.rI[j+1] + p.rI[j]) > REZDR && (fl[j] = true)
-            end
-        end
-    end
-    sp, mg = REZNULL ? (Int[], Int[]) : force === nothing ? Rezone.plan(p; REZ.jsplit, REZ.jmerge, REZ.dmmin, REZ.qmax, REZ.nmax, REZ.nhard, REZ.keepcentre, REZ.fmin, flag = fl) : force
-    (isempty(sp) && isempty(mg)) && !REZNULL && return (0, 0)    # REZNULL=1: rebuild from the unchanged profile (test of the rebuild alone)
-    if get(ENV, "REZDBG", "0") == "1"
-        J = Rezone.jumps(p); dm = Rezone.dmass(p); me = cumsum(dm)
-        pr("    splits (zone, m_enc, dm/m_enc, J): %s\n    merges: %s\n", join(("($i, $(round(me[i]/Msun, sigdigits=3)), $(round(dm[i]/me[i], sigdigits=2)), $(round(J[i], sigdigits=2)))" for i in sp), " "),
-           join(("($i, $(round(me[i]/Msun, sigdigits=3)))" for i in mg), " "))
-    end
-    old = matstate(); zx(i) = a + i - 1
-    Tofe(ρ, e, T0, srcj) = (TX.ZONE[] = zx(srcj[1][1]); eq = any(old.eqzone[zx(i)] for (i, _) in srcj);
-                           x = sum(w .* old.x[zx(i)] for (i, w) in srcj); T_of_e(ρ, e, T0, x, eq))
-    function eosT(ρ, T, srcj)                         # (e, P) of the material with the composition of srcj
-        TX.ZONE[] = zx(srcj[1][1]); eq = any(old.eqzone[zx(i)] for (i, _) in srcj); x = sum(w .* old.x[zx(i)] for (i, w) in srcj)
-        if PM.HOT[] !== nothing && T > PM.HOT[].T1; p_, u_ = TX.material_gas(mat, ρ, T); return (u_, p_); end
-        u_, p_ = eq ? PopIIIEqEOS.eos(ρ, T) : ChemNet.eos(ρ, T, x, mat.net); (u_, p_)
-    end
-    q, src = Rezone.apply(p, sp, mg; Tofe, eosT = get(ENV, "REZPSPLIT", "1") == "1" ? eosT : nothing)
-    # conservation over the range of zones that changed (whole-grid totals are dominated by the 1e4 M☉ envelope)
-    ch = [j for (j, s_) in enumerate(src) if length(s_) > 1 || s_[1][1] in sp]
-    isempty(ch) && (ch = [1, length(q.ρ)])
-    lo_n, hi_n = max(first(ch) - 1, 1), min(last(ch) + 1, length(q.ρ))
-    lo_o, hi_o = src[lo_n][1][1], src[hi_n][end][1]
-    t0 = Rezone.totals(p, lo_o, hi_o); t1 = Rezone.totals(q, lo_n, hi_n)
-    V(rI, j) = 4π / 3 * (rI[j+1]^3 - rI[j]^3)
-    matz = (; x = [sum(w .* old.x[zx(i)] for (i, w) in s) for s in src],
-              eqzone = [any(old.eqzone[zx(i)] for (i, _) in s) for s in src],
-              Λext = [sum(old.Λext[zx(i)] * V(p.rI, i) for (i, _) in s) / V(q.rI, j) for (j, s) in enumerate(src)],
-              Tref = [old.Tref[zx(s[argmax([w for (_, w) in s])][1])] for s in src],
-              slope = [old.slope[zx(s[argmax([w for (_, w) in s])][1])] for s in src],
-              Y = HOTON ? [sum(w .* old.Y[:, zx(i)] for (i, w) in s) for s in src] : nothing,
-              fscale = HOTON ? [old.star.fscale[zx(s[1][1])] for s in src] : nothing, fslope = HOTON ? [old.star.fslope[zx(s[1][1])] for s in src] : nothing,
-              Dmix = HOTON ? [old.star.Dmix[zx(s[1][1])] for s in src] : nothing)
-    nold = nsh
-    rebuild!(q.rI, q.ρ, q.T, q.u, q.Er, q.Fr, matz)
-    # the energies after the rebuild (e from the EOS at the new T): the T inversion's error is part of the check
-    pb = profile_now(); t2 = Rezone.totals(pb, lo_n, hi_n)
-    NREZ[] += 1
-    pr("  rezone at step %d: %d splits, %d merges, zones %d -> %d; zones %d-%d: dM/M %.1e, dE/(Eint+Ekin+Erad) %.1e (after rebuild %.1e), dP/P %.1e\n",
-       k, length(sp), length(mg), nold, nsh, lo_o, hi_o, (t1.M - t0.M) / t0.M,
-       (t1.Eint + t1.Ekin + t1.Erad - t0.Eint - t0.Ekin - t0.Erad) / (abs(t0.Eint) + t0.Ekin + t0.Erad),
-       (t2.Eint + t2.Ekin + t2.Erad - t0.Eint - t0.Ekin - t0.Erad) / (abs(t0.Eint) + t0.Ekin + t0.Erad), (t2.P - t0.P) / abs(t0.P))
-    (length(sp), length(mg))
-end
-"""
-S6-C2: static pre-refinement while the gas is still smooth (REFINE=mlo,mhi,frac [M☉, M☉, Δm/m_enc]): zones with enclosed mass in
-[mlo, mhi] heavier than frac × m_enc are split, repeatedly, with the REZQMAX grading at the edges. Refining an already formed core
-makes it ring (its discrete hydrostatic balance belongs to the coarse grid); a core formed on the fine grid does not need it.
-"""
-function prerefine!(k, mlo, mhi, frac)
-    for pass in 1:8
-        p = profile_now(); dm = Rezone.dmass(p); me = cumsum(dm)
-        fl = [mlo * Msun <= me[j] <= mhi * Msun && dm[j] > frac * me[j] for j in eachindex(dm)]
-        any(fl) || break
-        sp, mg = Rezone.plan(p; jsplit = Inf, REZ.qmax, nhard = REZ.nhard, flag = fl)
-        rezone!(k; force = (sp, mg))
-    end
-    pr("REFINE: zones %d after pre-refinement of %g-%g Msun to dm/m <= %g\n", nsh, mlo, mhi, frac)
-end
 """
 S6 validation: continue an S5 star (s5_run.jl checkpoint `STARFROM`, directory S5DIR) on the NetGas hot path: same profile, abundances, solver
 controls and time; then T_c, L, X_c(t) can be compared with S5's own continuation.
@@ -1233,89 +1055,13 @@ function envlr(rout)
     (length(lr) + (ENVCENTRE ? ENVLIN : 0)) % 2 == 0 && pop!(lr)                    # (an even zone count: an odd number of interfaces)
     lr[1] .+ (lr .- lr[1]) .* (log(rout) - lr[1]) / (lr[end] - lr[1])
 end
-function envbuild!(; rIset = nothing)     # rIset: the interfaces (centre 0 … outer edge) of the new mesh, from a fixed-mesh (lgrid = 2) source
-    r0 =TF.var(:rn)[a:b+1]; u0 = TF.var(:un)[a:b+1]; d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]; F0 = TF.var(:frn)[a:b+1]
-    m0 = rIset === nothing ? 4π .* TX.XMINT[][a:b+1] : 4π .* envmenc(); x0 = [copy(mat.x[a+j-1]) for j in 1:nsh]; eq0 = [mat.eqzone[a+j-1] for j in 1:nsh]
-    t0 = TF.getscalar(:timen); js = TF.getscalar(:jstep)
-    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
-    lr = envlr(r0[end])
-    rI = exp.(lr); rI[end] = r0[end]; ENVCENTRE && (rI = vcat([rI[1] * i / ENVLIN for i in 0:ENVLIN-1], rI)); rIset === nothing || (rI = copy(rIset)); n = length(rI) - 1
-    rc = [0.5 * (r0[j] + r0[j+1]) for j in 1:nsh]; lc = log.(rc); lf = log.(max.(r0, 1.0))
-    function interp(xs, ys, x)                                                 # linear in the first argument, flat beyond the ends
-        x <= xs[1] && return ys[1]; x >= xs[end] && return ys[end]
-        i = searchsortedlast(xs, x); w = (x - xs[i]) / (xs[i+1] - xs[i])
-        (1 - w) * ys[i] + w * ys[i+1]
-    end
-    rz = [0.5 * (rI[j] + rI[j+1]) for j in 1:n]; lz = log.(rz)
-    ρz = [exp(interp(lc, log.(d0), l)) for l in lz]; Tz = [exp(interp(lc, log.(T0), l)) for l in lz]
-    Er = [exp(interp(lc, log.(E0), l)) for l in lz]
-    lfi = log.(rI); mI = [interp(lf, m0, l) for l in lfi]
-    if ENVCONS      # zone means of a monotone cubic of ln m against ln r through the source's interfaces: the mass inside every source interface is kept
-        i1 = findfirst(j -> r0[j] > 0 && m0[j] > 0, eachindex(r0)); xs = log.(r0[i1:end]); ys = log.(m0[i1:end]); N = length(xs)
-        h = diff(xs); δ = diff(ys) ./ h; dd = zeros(N)
-        for i in 2:N-1; dd[i] = δ[i-1] > 0 && δ[i] > 0 ? 2 / (1 / δ[i-1] + 1 / δ[i]) : 0.0; end        # harmonic mean of the two slopes: monotone
-        dd[1] = min(3.0, 3δ[1]); dd[N] = δ[N-1]
-        function lnm(x)
-            x <= xs[1] && return ys[1] + 3 * (x - xs[1])                       # uniform density inside the first interface that encloses mass
-            x >= xs[N] && return ys[N]
-            i = searchsortedlast(xs, x); t = (x - xs[i]) / h[i]
-            (2t^3 - 3t^2 + 1) * ys[i] + (t^3 - 2t^2 + t) * h[i] * dd[i] + (3t^2 - 2t^3) * ys[i+1] + (t^3 - t^2) * h[i] * dd[i+1]
-        end
-        mI = [rI[j] > 0 ? exp(lnm(log(rI[j]))) : 0.0 for j in eachindex(rI)]; mI[end] = m0[end]
-        ρint = ρz; ρz = [(mI[j+1] - mI[j]) / (4π / 3 * (rI[j+1]^3 - rI[j]^3)) for j in 1:n]
-        all(>(0), ρz) || error("ENVCONS: a zone without mass")
-        jm = argmax(abs.(log.(ρz ./ ρint)))
-        pr("ENVCONS: densities from the enclosed mass; largest change against the interpolated value: factor %.3g in zone %d (r %.4g .. %.4g R_sun)\n",
-           ρz[jm] / ρint[jm], jm, rI[jm] / Rsun, rI[jm+1] / Rsun)
-    end
-    uI = [interp(lf, u0, l) for l in lfi]
-    ncap = 0
-    for j in eachindex(uI)                                                     # the state keeps shells past the escape speed: cap them
-        ve = sqrt(2Z0.G * mI[j] / rI[j]); uI[j] < -ve && (uI[j] = -ve; ncap += 1)
-    end
-    uI[1] = 0.0; uI[end] = 0.0
-    Ln = 4π .* r0 .^ 2 .* F0; Fr = [rI[j] > 0 ? interp(lf, Ln, lfi[j]) / (4π * rI[j]^2) : 0.0 for j in eachindex(rI)]
-    Lin = abs(4π * rI[1]^2 * Fr[1])
-    idx(l) = clamp(searchsortedlast(lc, l), 1, nsh - 1)
-    xz = [(i = idx(l); w = clamp((l - lc[i]) / (lc[i+1] - lc[i]), 0.0, 1.0); (1 - w) .* x0[i] .+ w .* x0[i+1]) for l in lz]
-    eqz = [eq0[clamp(searchsortedlast(lc, l), 1, nsh)] for l in lz]
-    Mc = ENVCENTRE ? 0.0 : ENVCONS ? mI[1] : interp(lf, m0, lfi[1]); Mnew = sum(4π / 3 * ρz[j] * (rI[j+1]^3 - rI[j]^3) for j in 1:n)
-    TX.GASROW[] = true
-    # per-zone material on the new indices before build! fills the EOS (as in the ENVMERGE rebuild: else a new zone far out inherits the
-    # table-EOS flag of the old zone with its index: "rho below the table" when the source has more zones in the star than the target
-    # has in all, e.g. a refined stage A3 onto 64 zones); set again below on the rebuilt grid
-    for k in eachindex(mat.x); j = clamp(k - a + 1, 1, n); mat.x[k] = copy(xz[j]); mat.eqzone[k] = eqz[j]; end
-    PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lum = ENVCENTRE ? nothing : Lin, lgrid = 2, inner = :wall, outer = :wall, Mc,
-              selfgrav = true, material = mat, av, xmext = (Mc + Mnew) / 4π)
-    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
-    for j in 1:nsh
-        k = a + j - 1; mat.x[k] = xz[j]; mat.eqzone[k] = eqz[j]; mat.Λext[k] = 0.0; mat.Tref[k] = Tz[j]; mat.slope[k] = 0.0
-    end
-    for k in 1:a-1; mat.x[k] = copy(mat.x[a]); mat.eqzone[k] = mat.eqzone[a]; end
-    for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end; LINEIMP && li_inval!()
-    TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
-    PS.install_julia!(BlockSolver)
-    for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
-    TF.setscalar!(:timen, t0); TF.setscalar!(:timeo, t0); TF.setscalar!(:dtime, parse(Float64, get(ENV, "ENVDT0", "100"))); TF.setscalar!(:jstep, js); TF.setscalar!(:tmax, 1e3tff)
-    radsettings!()
-    envflags!()
-    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
-    empty!(ALIFAC[]); SNAPS === nothing || empty!(SNAPS)
-    xme = TF.var(:xmen); ENVMS0[] = xme[a] - xme[a+envsurface()-1]
-    pr("ENVEUL: %d zones, r %.3g R_sun .. %.3g pc, Mc %.4f Msun, grid mass %.1f (was %.1f) Msun, L_in %.3e erg/s, %d velocities capped at v_esc, surface zone %d, M_shell0 %.3e Msun\n",
-       n, rI[1] / Rsun, rI[end] / 3.0857e18, Mc / Msun, Mnew / Msun, (m0[end] - Mc) / Msun, Lin, ncap, envsurface(), 4π * ENVMS0[] / Msun)
-end
-"""
-ICEUL=1 (with RAD=1, ENVEUL=0,… and ENVCORE; default off): start from the initial condition directly on the fixed mesh of the
-ENVEUL/ENVCORE remap (lgrid = 2, regular centre), at t = 0, instead of the Lagrangian mesh and the later remap. The mesh is the one
-`envbuild!` makes (`envlr`), from ENVCORE's first interface to the outer radius of the IC. Mass-conserving: the interior mass at
-every interface is that of the IC's tabulated M(r) (piecewise-uniform density between its nodes, so the zone masses add up to the
-cloud mass exactly); T and the H₂ fraction are the mass-weighted zone means of the IC's T(M), f_H2(M); u at the interfaces from the
-IC's v(M); x_e as the IC (XE0). Radiation as `radbuild!`: E_r = a [T_CMB⁴ + (T⁴ − T_CMB⁴)(1 − e^{−τ_R})], F_r flux-limited diffusion.
-All fixed-mesh settings as after `envbuild!` (GASROW, REGULAR_CENTRE, no INNER_SINK, xmen/xmtot interior mass, CHEMFALLBACK, empty
-ALI factors). Only the abn02* initial conditions (they carry the tabulated M(r)).
-"""
-const ICEUL = get(ENV, "ICEUL", "0") == "1"
+# The start (every run without RESTART/STARFROM; formerly ICEUL=1): the initial condition directly on the fixed log mesh of
+# ENVEUL/ENVCORE (lgrid = 2, regular centre), at t = 0. The mesh is `envlr`'s, from ENVCORE's first interface to the outer radius of the IC. Mass-conserving: the interior mass at
+# every interface is that of the IC's tabulated M(r) (piecewise-uniform density between its nodes, so the zone masses add up to the
+# cloud mass exactly); T and the H₂ fraction are the mass-weighted zone means of the IC's T(M), f_H2(M); u at the interfaces from the
+# IC's v(M); x_e as the IC (XE0). Radiation: E_r = a [T_CMB⁴ + (T⁴ − T_CMB⁴)(1 − e^{−τ_R})], F_r flux-limited diffusion.
+# All fixed-mesh settings (GASROW, REGULAR_CENTRE, no INNER_SINK, xmen/xmtot interior mass, CHEMFALLBACK, empty
+# ALI factors). Only the abn02* initial conditions (they carry the tabulated M(r)).
 """
 Zero point of the mass coordinate at the centre (fixed mesh with a regular centre; used by ICEUL, ICXMZ=0 turns it off). TITAN's
 mass unknown is the exterior mass x_m,e = xmtot − m (per steradian), with xmtot ≥ the grid mass (PS.build!: grid + xmext), and the
@@ -1340,8 +1086,7 @@ function xmzero!()
     nothing
 end
 function iceulbuild!(; rIset = nothing)     # rIset: the interfaces (centre 0 … outer edge) in place of envlr's mesh (GRIDEQ's starting mesh)
-    (RAD && ENVCENTRE) || error("ICEUL=1 needs RAD=1 and ENVEUL=0,... (regular centre, ENVCORE)")
-    ic in ("abn02", "abn02hs", "abn02z19", "abn02fin", "abn02red") || error("ICEUL=1: only the abn02* initial conditions")
+    (RAD && ENVCENTRE) || error("the start needs RAD=1 and ENVEUL=0,... (regular centre, ENVCORE)")
     radsettings!()
     rout = TF.var(:rn)[b+1]; Mtot = M                                          # the IC's outer radius and cloud mass
     ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
@@ -1358,10 +1103,10 @@ function iceulbuild!(; rIset = nothing)     # rIset: the interfaces (centre 0 �
     Tz = fin_ ? [zmean(Tfin, j) for j in 1:n] : [zmean(m -> interp(log10(m), lM_tab, T_tab), j) for j in 1:n]
     fz = fin_ ? [zmean(m -> finy(m)[3], j) for j in 1:n] : [zmean(m -> 10^interp(log10(m), lM_tab, lf_tab), j) for j in 1:n]   # (fin: x_H2 per H)
     uI_ = fin_ ? [vfin(mI_[j] / Msun, rI_[j]) for j in 1:n+1] : ic == "abn02z19" ? [m < Mjoin ? 0.0 : 1e5 * interp(log10(m / Msun), lM_tab, v_tab) * min(1.0, (m - Mjoin) / Mjoin) for m in mI_] :
-          ic == "abn02hs" ? zeros(n + 1) : [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI_]
+          [1e5 * interp(log10(max(m / Msun, 1e-2)), lM_tab, v_tab) for m in mI_]
     uI_[1] = 0.0; uI_[end] = 0.0                                               # regular centre; fixed outer wall (as the remap)
     xz = fin_ ? [xinit((zmean(m -> finy(m)[1], j), 0.0, fz[j], 0.0)) for j in 1:n] : [xinit((xe0, 0.0, f / 2, 0.0)) for f in fz]; eqz = falses(n)
-    # radiation field as radbuild!
+    # initial radiation field: diffusion inside, the CMB and the free-streaming photospheric light outside
     Tb = parse(Float64, get(ENV, "TCMB", "0")); ar = Z0.arad
     χ = [PM.OPAC[](ρz[j], Tz[j])[1] * ρz[j] for j in 1:n]
     τ = zeros(n); for j in n-1:-1:1; τ[j] = τ[j+1] + 0.5 * (χ[j] * (rI_[j+1] - rI_[j]) + χ[j+1] * (rI_[j+2] - rI_[j+1])); end
@@ -1399,18 +1144,15 @@ function iceulbuild!(; rIset = nothing)     # rIset: the interfaces (centre 0 �
 end
 if haskey(ENV, "STARFROM")
     starfrom!(ENV["STARFROM"])
-elseif haskey(ENV, "RADFROM")
-    RAD || error("RADFROM needs RAD=1")
-    radbuild!(ENV["RADFROM"])
-    haskey(ENV, "REFINE") && prerefine!(KOFF[], parse.(Float64, split(ENV["REFINE"], ","))...)
 elseif haskey(ENV, "RESTART")
     restart!(ENV["RESTART"]; allow = ENVEUL === nothing ? () : ("PSWITCH",))
-    RAD && Int(TF.getscalar(:lrad)) != 1 && error("RAD=1, but checkpoint $(ENV["RESTART"]) has no radiation field: build it with RAD=1 RADFROM=<checkpoint>")
+    Int(TF.getscalar(:lrad)) == 1 || error("checkpoint $(ENV["RESTART"]) has no radiation field (a stage-chain checkpoint): not supported")
     RAD && (radsettings!(); TD.EOS[](); TD.OPAC[]())
     if ENVEUL !== nothing
-        Int(TF.getscalar(:lgrid)) == 3 ? envbuild!() : (envflags!(); ENVMS0[] = (ENVCENTRE && !haskey(ENV, "ENVMS0") ? 0.0 : parse(Float64, ENV["ENVMS0"])) * Msun / 4π)   # (regular centre: no sink, ENVMS0 unused)
+        Int(TF.getscalar(:lgrid)) == 3 && error("checkpoint $(ENV["RESTART"]) is on the Lagrangian mesh (stage chain): not supported")
+        (envflags!(); ENVMS0[] = (ENVCENTRE && !haskey(ENV, "ENVMS0") ? 0.0 : parse(Float64, ENV["ENVMS0"])) * Msun / 4π)   # (regular centre: no sink, ENVMS0 unused)
     end
-elseif ICEUL
+else
     iceulbuild!()
     if GRIDEQP !== nothing           # GRIDEQ: build the IC again on the rule's mesh of the IC (planned on envlr's mesh), same first interface and edge
         Nq_ = parse(Int, get(ENV, "GEQN", string(nsh))); iseven(Nq_) || error("GEQN must be even")
@@ -1419,223 +1161,7 @@ elseif ICEUL
            minimum(diff(log.(rq_))), maximum(diff(log.(rq_))), log(TF.var(:rn)[a+2] / TF.var(:rn)[a+1]))
         iceulbuild!(; rIset = vcat(0.0, rq_))
     end
-elseif RAD
-    # RAD=1 switches the CIE continuum cooling off; without a rebuild there is no radiation field to take its place
-    error("RAD=1 from the initial condition: run with RAD=0 first, then RAD=1 RADFROM=<checkpoint> (scripts/popiii_run/fullrun.sh)")
 end
-"""
-ENVSPLIT=r1,r2,k (radii in R☉; with RESTART of a fixed-mesh run): split every zone whose centre lies in [r1, r2] into k zones of equal Δln r,
-and the zones beyond either end into k−1, k−2, … 2 (graded), keeping the zone count even. The rest of the mesh is unchanged. Conservative
-piecewise-constant remap: each sub-zone takes its parent's ρ, T, E_r, composition, nuclear abundances and per-zone material and driver state
-(mass, internal and radiation energy unchanged); u and the luminosity are linear in r inside the parent. Restart the split run's own
-checkpoints WITHOUT ENVSPLIT (it would split again).
-"""
-function envsplit!(r1, r2, kmax)
-    kmax = Int(kmax); r0 = TF.var(:rn)[a:b+1]; n0 = nsh; a0 = a; b0 = b
-    rc = [0.5 * (r0[j] + r0[j+1]) for j in 1:n0]
-    inw = [r1 * Rsun <= rc[j] <= r2 * Rsun for j in 1:n0]; any(inw) || error("ENVSPLIT: no zone centre in [$r1, $r2] R_sun")
-    j1 = findfirst(inw); j2 = findlast(inw)
-    f = [max(1, kmax - (j < j1 ? j1 - j : j > j2 ? j - j2 : 0)) for j in 1:n0]
-    if isodd(sum(f) - n0)                                                       # (an even zone count, as envbuild!)
-        jx = findfirst(j -> j > j2 && f[j] == 1, 1:n0); jx === nothing && error("ENVSPLIT: window too close to the outer edge")
-        f[jx] = 2
-    end
-    u0 = TF.var(:un)[a:b+1]; L0 = 4π .* r0 .^ 2 .* TF.var(:frn)[a:b+1]
-    d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]
-    rI = [r0[1]]; uI = [u0[1]]; LI = [L0[1]]; P = Int[]
-    for j in 1:n0
-        for i in 1:f[j]
-            w = i / f[j]; r_ = f[j] == 1 ? r0[j+1] : exp((1 - w) * log(r0[j]) + w * log(r0[j+1]))
-            i == f[j] && (r_ = r0[j+1]); wl = (r_ - r0[j]) / (r0[j+1] - r0[j])
-            push!(rI, r_); push!(uI, (1 - wl) * u0[j] + wl * u0[j+1]); push!(LI, (1 - wl) * L0[j] + wl * L0[j+1]); push!(P, j)
-        end
-    end
-    n = length(P); n + 2 <= TF.MGR || error("ENVSPLIT: $n zones exceed mgr = $(TF.MGR)")
-    Fr = [rI[j] > 0 ? LI[j] / (4π * rI[j]^2) : 0.0 for j in eachindex(rI)]
-    # per-zone state of the old mesh (TITAN index k = a + j − 1; ghosts beyond b keep their offset from b)
-    kmap(knew) = knew < a0 ? knew : knew <= a0 + n - 1 ? a0 + P[knew-a0+1] - 1 : b0 + (knew - (a0 + n - 1))
-    remap(v) = (o = copy(v); [o[clamp(kmap(k), 1, length(o))] for k in eachindex(o)])
-    mx = deepcopy(mat.x); meq = copy(mat.eqzone); mΛ = copy(mat.Λext); mTr = copy(mat.Tref); msl = copy(mat.slope)
-    lagF = Dict(:GASQ => TX.GASQ[], :RAYQ => TX.RAYQ[], :CHEMB => TX.CHEMB[], :CHEMBON => TX.CHEMBON[])
-    lagold = Dict(s_ => copy(v_) for (s_, v_) in lagF)
-    nlo = copy(PM.NLOPC[])
-    xmext = TF.getscalar(:xmext); xmt0 = TF.getscalar(:xmtot)
-    t0 = TF.getscalar(:timen); dt0 = TF.getscalar(:dtime); js = TF.getscalar(:jstep)
-    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
-    ρz = [d0[P[j]] for j in 1:n]; Tz = [T0[P[j]] for j in 1:n]; Er = [E0[P[j]] for j in 1:n]
-    Mold = sum(4π / 3 * d0[j] * (r0[j+1]^3 - r0[j]^3) for j in 1:n0); Mnew = sum(4π / 3 * ρz[j] * (rI[j+1]^3 - rI[j]^3) for j in 1:n)
-    Eold = sum(4π / 3 * E0[j] * (r0[j+1]^3 - r0[j]^3) for j in 1:n0); Enew = sum(4π / 3 * Er[j] * (rI[j+1]^3 - rI[j]^3) for j in 1:n)
-    TX.GASROW[] = true
-    PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lum = ENVCENTRE ? nothing : abs(LI[1]), lgrid = 2, inner = :wall, outer = :wall,
-              Mc = ENVCENTRE ? 0.0 : 4π * (xmt0 - TF.var(:xmen)[a0]) , selfgrav = true, material = mat, av, xmext)
-    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
-    a == a0 || error("ENVSPLIT: ngrs moved")
-    for k in eachindex(mat.x)
-        ko = clamp(kmap(k), 1, length(mx))
-        mat.x[k] = copy(mx[ko]); mat.eqzone[k] = meq[ko]; mat.Λext[k] = mΛ[ko]; mat.Tref[k] = mTr[ko]; mat.slope[k] = msl[ko]; LINEIMP && li_inval!()
-    end
-    for (s_, v_) in lagF                                                        # (in place: PM.RAY etc. hold these arrays)
-        o = lagold[s_]; isempty(o) && continue
-        for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end
-    end
-    length(nlo) == length(TF.var(:dn)) && (PM.NLOPC[] = Any[nlo[clamp(kmap(k), 1, length(nlo))] for k in eachindex(nlo)])
-    PM.NLOIT && (fill!(PM.NLOST[], nothing); PM.nloc_reset!(length(TF.var(:dn))))      # (NLOIT: remapped zones take the table for one step)
-    if HOTON
-        g_ = SG[]; Yo = copy(g_.Y); Ypo = copy(g_.Yprev)
-        for k in axes(g_.Y, 2); ko = clamp(kmap(k), 1, size(Yo, 2)); g_.Y[:, k] .= Yo[:, ko]; g_.Yprev[:, k] .= Ypo[:, ko]; end
-        for v_ in (g_.fscale, g_.fslope, g_.fcur); o = copy(v_); for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end; end
-        g_.Dmix = zeros(length(TF.var(:dn))); g_.acc.nstage = 0
-        SM.ghosts!(g_)
-    end
-    TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
-    PS.install_julia!(BlockSolver)
-    for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
-    TF.setscalar!(:timen, t0); TF.setscalar!(:timeo, t0); TF.setscalar!(:dtime, min(dt0, parse(Float64, get(ENV, "ENVDT0", "1e4")))); TF.setscalar!(:jstep, js); TF.setscalar!(:tmax, 1e3tff)
-    radsettings!()
-    envflags!()
-    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
-    empty!(ALIFAC[]); empty!(ALIFIX[])
-    pr("ENVSPLIT: zones %d -> %d (old zones %d..%d with centres in %.4g..%.4g R_sun into %d; graded %s), M %.6e -> %.6e Msun, E_rad %.6e -> %.6e erg, xmtot %.6e -> %.6e\n",
-       n0, n, j1, j2, rc[j1] / Rsun, rc[j2] / Rsun, kmax, string(f[max(1, j1 - kmax):min(n0, j2 + kmax)]), Mold / Msun, Mnew / Msun, Eold, Enew, xmt0, TF.getscalar(:xmtot))
-end
-"""
-ENVMERGE=r1,r2,k (radii in R☉; with RESTART of a fixed-mesh run): the inverse of ENVSPLIT. Consecutive zones whose centres lie in [r1, r2]
-are merged in groups of k (the last group may be smaller; one group gives a zone back if the zone count would be odd). The rest of the mesh is
-unchanged, so the zone width jumps by k at the two ends of the window. Conservative remap: a merged zone has the mass, the radiation energy
-and the gas internal energy of its parents (ρ = M/V, E_r volume-weighted, composition and nuclear abundances mass-weighted, T from the
-equation of state such that M e(ρ, T, x) = Σ m e); the per-zone material and driver state comes from the heaviest parent; u and the luminosity
-are kept at the interfaces that remain (kinetic energy is not conserved). Restart the merged run's own checkpoints WITHOUT ENVMERGE.
-"""
-function envmerge!(r1, r2, kmax)
-    kmax = Int(kmax); r0 = TF.var(:rn)[a:b+1]; n0 = nsh; a0 = a; b0 = b
-    rc = [0.5 * (r0[j] + r0[j+1]) for j in 1:n0]
-    inw = [r1 * Rsun <= rc[j] <= r2 * Rsun for j in 1:n0]; any(inw) || error("ENVMERGE: no zone centre in [$r1, $r2] R_sun")
-    j1 = findfirst(inw); j2 = findlast(inw)
-    G = UnitRange{Int}[]; j = 1
-    while j <= n0
-        e_ = j1 <= j <= j2 ? min(j + kmax - 1, j2) : j
-        push!(G, j:e_); j = e_ + 1
-    end
-    if isodd(length(G))                                                         # (an even zone count, as envbuild!)
-        i = findlast(g -> length(g) > 1, G); i === nothing && error("ENVMERGE: nothing to merge")
-        g = G[i]; splice!(G, i, [first(g):last(g)-1, last(g):last(g)])
-    end
-    n = length(G)
-    u0 = TF.var(:un)[a:b+1]; L0 = 4π .* r0 .^ 2 .* TF.var(:frn)[a:b+1]
-    d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]; e0 = TF.var(:egn)[a:b]
-    V0 = [(r0[j+1]^3 - r0[j]^3) / 3 for j in 1:n0]; m0 = d0 .* V0
-    rI = vcat([r0[first(g)] for g in G], r0[end]); uI = vcat([u0[first(g)] for g in G], u0[end]); LI = vcat([L0[first(g)] for g in G], L0[end])
-    Mg = [sum(m0[g]) for g in G]; Vg = [sum(V0[g]) for g in G]
-    ρz = Mg ./ Vg; Er = [sum(E0[g] .* V0[g]) for g in G] ./ Vg
-    Tz = [sum(T0[g] .* m0[g]) for g in G] ./ Mg; et = [sum(e0[g] .* m0[g]) for g in G] ./ Mg
-    P = [g[argmax(m0[g])] for g in G]                                          # heaviest parent: per-zone material and driver state
-    Fr = [rI[j] > 0 ? LI[j] / (4π * rI[j]^2) : 0.0 for j in eachindex(rI)]
-    kmap(knew) = knew < a0 ? knew : knew <= a0 + n - 1 ? a0 + P[knew-a0+1] - 1 : b0 + (knew - (a0 + n - 1))
-    mx = deepcopy(mat.x); meq = copy(mat.eqzone); mΛ = copy(mat.Λext); mTr = copy(mat.Tref); msl = copy(mat.slope)
-    lagF = Dict(:GASQ => TX.GASQ[], :RAYQ => TX.RAYQ[], :CHEMB => TX.CHEMB[], :CHEMBON => TX.CHEMBON[])
-    lagold = Dict(s_ => copy(v_) for (s_, v_) in lagF)
-    nlo = copy(PM.NLOPC[])
-    xmext = TF.getscalar(:xmext); xmt0 = TF.getscalar(:xmtot)
-    t0 = TF.getscalar(:timen); dt0 = TF.getscalar(:dtime); js = TF.getscalar(:jstep)
-    ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
-    Mold = 4π * sum(m0); Eold = 4π * sum(E0 .* V0); Egold = 4π * sum(e0 .* m0)
-    Mc = ENVCENTRE ? 0.0 : 4π * (xmt0 - TF.var(:xmen)[a0])
-    TX.GASROW[] = true
-    # per-zone material on the new indices before build! fills the EOS (else a zone far out can inherit the table-EOS flag of the
-    # old zone with its index: "rho below the table" with a 3-zone merge); set again below, with the merged compositions
-    for k in eachindex(mat.x); ko = clamp(kmap(k), 1, length(mx)); mat.x[k] = copy(mx[ko]); mat.eqzone[k] = meq[ko]; end
-    PS.build!(; rI, rho = ρz, T = Tz, u = uI, geom = 2, rad = true, Er, Fr, lum = ENVCENTRE ? nothing : abs(LI[1]), lgrid = 2, inner = :wall, outer = :wall,
-              Mc, selfgrav = true, material = mat, av, xmext)
-    global a = Int(TF.getscalar(:ngrs)); global b = Int(TF.getscalar(:ngre)); global nsh = b - a + 1
-    a == a0 || error("ENVMERGE: ngrs moved")
-    for k in eachindex(mat.x)
-        ko = clamp(kmap(k), 1, length(mx))
-        mat.x[k] = copy(mx[ko]); mat.eqzone[k] = meq[ko]; mat.Λext[k] = mΛ[ko]; mat.Tref[k] = mTr[ko]; mat.slope[k] = msl[ko]; LINEIMP && li_inval!()
-    end
-    for (j, g) in enumerate(G)                                                  # mass-weighted composition of the merged zones
-        length(g) > 1 || continue
-        mat.x[a+j-1] = sum(m0[i] .* mx[a0+i-1] for i in g) ./ Mg[j]
-    end
-    for (s_, v_) in lagF                                                        # (in place: PM.RAY etc. hold these arrays)
-        o = lagold[s_]; isempty(o) && continue
-        for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end
-    end
-    length(nlo) == length(TF.var(:dn)) && (PM.NLOPC[] = Any[nlo[clamp(kmap(k), 1, length(nlo))] for k in eachindex(nlo)])
-    PM.NLOIT && (fill!(PM.NLOST[], nothing); PM.nloc_reset!(length(TF.var(:dn))))      # (NLOIT: remapped zones take the table for one step)
-    if HOTON
-        g_ = SG[]; Yo = copy(g_.Y); Ypo = copy(g_.Yprev)
-        for k in axes(g_.Y, 2); ko = clamp(kmap(k), 1, size(Yo, 2)); g_.Y[:, k] .= Yo[:, ko]; g_.Yprev[:, k] .= Ypo[:, ko]; end
-        for (j, g) in enumerate(G)
-            length(g) > 1 || continue
-            g_.Y[:, a+j-1] .= sum(m0[i] .* Yo[:, a0+i-1] for i in g) ./ Mg[j]; g_.Yprev[:, a+j-1] .= sum(m0[i] .* Ypo[:, a0+i-1] for i in g) ./ Mg[j]
-        end
-        for v_ in (g_.fscale, g_.fslope, g_.fcur); o = copy(v_); for k in eachindex(v_); v_[k] = o[clamp(kmap(k), 1, length(o))]; end; end
-        g_.Dmix = zeros(length(TF.var(:dn))); g_.acc.nstage = 0
-        SM.ghosts!(g_)
-    end
-    TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
-    PS.install_julia!(BlockSolver)
-    for (s_, v_) in ctrl; TF.setscalar!(s_, v_); end
-    TF.setscalar!(:timen, t0); TF.setscalar!(:timeo, t0); TF.setscalar!(:dtime, min(dt0, parse(Float64, get(ENV, "ENVDT0", "1e4")))); TF.setscalar!(:jstep, js); TF.setscalar!(:tmax, 1e3tff)
-    radsettings!()
-    envflags!()
-    # T of the merged zones from the gas internal energy (secant in T; e can be negative, its zero is the neutral atomic gas at T = 0)
-    tn = TF.var(:tn); eg = TF.var(:egn); jm = [j for j in 1:n if length(G[j]) > 1]
-    TD.EOS[]()
-    Tp = [tn[a+j-1] for j in jm]; ep = [eg[a+j-1] for j in jm]; dTmax = 0.0; emax = 0.0
-    for (i, j) in enumerate(jm); tn[a+j-1] = Tp[i] * 1.001; end
-    for it in 1:40
-        TD.EOS[](); emax = 0.0
-        for (i, j) in enumerate(jm)
-            k = a + j - 1; T_ = tn[k]; e_ = eg[k]
-            T_ == Tp[i] && continue
-            cv = (e_ - ep[i]) / (T_ - Tp[i]); cv > 0 || (cv = abs(e_) / T_ + 1e7)
-            dT = (et[j] - e_) / cv; emax = max(emax, abs(dT) / T_)
-            abs(dT) < 1e-13 * T_ && continue
-            Tp[i] = T_; ep[i] = e_; tn[k] = clamp(T_ + dT, 0.7 * T_, 1.4 * T_)
-        end
-        emax < 1e-11 && break
-    end
-    for j in jm; dTmax = max(dTmax, abs(tn[a+j-1] / Tz[j] - 1)); end
-    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
-    empty!(ALIFAC[]); empty!(ALIFIX[])
-    dn = TF.var(:dn); rn = TF.var(:rn); ern = TF.var(:ern)
-    Vn = [(rn[a+j]^3 - rn[a+j-1]^3) / 3 for j in 1:n]
-    Mnew = 4π * sum(dn[a+j-1] * Vn[j] for j in 1:n); Enew = 4π * sum(ern[a+j-1] * Vn[j] for j in 1:n); Egnew = 4π * sum(eg[a+j-1] * dn[a+j-1] * Vn[j] for j in 1:n)
-    pr("ENVMERGE: zones %d -> %d (old zones %d..%d with centres in %.4g..%.4g R_sun in groups of %d), M %.9e -> %.9e Msun, E_rad %.9e -> %.9e erg, E_gas %.9e -> %.9e erg (last T correction %.1e, max |T/T_massweighted - 1| %.2e), xmtot %.9e -> %.9e\n",
-       n0, n, j1, j2, rc[j1] / Rsun, rc[j2] / Rsun, kmax, Mold / Msun, Mnew / Msun, Eold, Enew, Egold, Egnew, emax, dTmax, xmt0, TF.getscalar(:xmtot))
-end
-haskey(ENV, "ENVSPLIT") && ENVEUL !== nothing && haskey(ENV, "RESTART") && Int(TF.getscalar(:lgrid)) == 2 && envsplit!(parse.(Float64, split(ENV["ENVSPLIT"], ","))...)
-haskey(ENV, "ENVMERGE") && ENVEUL !== nothing && haskey(ENV, "RESTART") && Int(TF.getscalar(:lgrid)) == 2 && for w_ in split(ENV["ENVMERGE"], ";"); envmerge!(parse.(Float64, split(w_, ","))...); end
-"""
-TRESET=k:T[,k:T...] (with RESTART; k = zone number counted from the first envelope zone, as in the recorded snapshots; T in K): set the gas
-temperature of the listed zones once, right after the checkpoint is read. Density, velocity, radiation field and composition are untouched;
-the gas energy and pressure follow from the equation of state, and the zone's held line-cooling rate is cleared (the transfer refills it
-after the first step). This is a repair of zones whose temperature was changed by a discretization artefact (the total-energy row in the
-transparent outer envelope, see docs/POPIII_RUNS.md): it is not conservative, and the gas energy it adds is printed. Use it on one
-restart only; the checkpoints written afterwards are restarted WITHOUT it.
-"""
-function treset!(spec)
-    tn = TF.var(:tn); eg = TF.var(:egn); dn = TF.var(:dn); rn = TF.var(:rn)
-    TD.EOS[]()
-    L = Tuple{Int,Float64,Float64,Float64}[]
-    for it in split(spec, ",")
-        ks, Ts = split(it, ":"); k = a + parse(Int, ks) - 1; Tnew = parse(Float64, Ts)
-        a <= k <= b || error("TRESET: zone $ks is not on the mesh (1..$nsh)")
-        Tnew > 0 || error("TRESET: T must be positive")
-        push!(L, (k, tn[k], Tnew, eg[k])); tn[k] = Tnew
-        mat.Λext[k] = 0.0; mat.Tref[k] = Tnew; mat.slope[k] = 0.0; LINEIMP && li_inval!()
-    end
-    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
-    dE = 0.0
-    for (k, Told, Tnew, eold) in L
-        m_ = 4π * dn[k] * (rn[k+1]^3 - rn[k]^3) / 3; dE += m_ * (eg[k] - eold)
-        pr("TRESET: zone %d (r = %.4g..%.4g pc, %.4g Msun): T %.2f -> %.2f K, gas energy %+.3e erg\n", k - a + 1, rn[k] / 3.0857e18, rn[k+1] / 3.0857e18,
-           m_ / Msun, Told, Tnew, m_ * (eg[k] - eold))
-    end
-    pr("TRESET: %d zones, gas energy added %+.4e erg\n", length(L), dE)
-end
-haskey(ENV, "TRESET") && haskey(ENV, "RESTART") && treset!(ENV["TRESET"])
 if GRIDEQP !== nothing
     (ENVEUL !== nothing && ENVCENTRE && Int(TF.getscalar(:lgrid)) == 2) || error("GRIDEQ needs the fixed-mesh envelope with a regular centre (ENVEUL=0,..., lgrid = 2)")
     GRIDEQP in (0, 1) || error("GRIDEQ=0 (prescribed target) or 1 (implicit grid equation)")
@@ -1659,9 +1185,6 @@ if GRIDEQP !== nothing
 end
 const CHEMDIAG = get(ENV, "CHEMDIAG", "0") == "1"; const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
-# MSTOP [M☉]: stop when the mass inside the first interface falling faster than 2 km/s (the star, as REZWIN and the performance
-# record define it) exceeds this: the hand-over from the Lagrangian core-growth stage to the accretion mesh (scripts/popiii_run)
-const MSTOP = parse(Float64, get(ENV, "MSTOP", "0"))
 const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended run whose Δt has collapsed, before the checkpoints are overwritten
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 # Newton controls, applied after any restart: NITER (iterations per attempt), FAILTFAC (Δt factor after a failed attempt)
@@ -2148,11 +1671,6 @@ try
         end
         (Tc_ > Tstop || ρc_ / PC.mH > nstop) && (pr("stopped: T_c %.4e K (TSTOP %.2e), n_c %.4e (NSTOP %.2e) at step %d\n", Tc_, Tstop, ρc_ / PC.mH, nstop, k); TF.setscalar!(:tmax, TF.getscalar(:timen)))
         TF.getscalar(:dtime) < DTSTOP && (pr("stopped: dt = %.2e s below DTSTOP at step %d\n", TF.getscalar(:dtime), k); TF.setscalar!(:tmax, TF.getscalar(:timen)))
-        if MSTOP > 0
-            jm_ = findfirst(<(-2e5), TF.var(:un)[a:b+1]); mm_ = jm_ === nothing ? 0.0 : 4π * xmi(a + jm_ - 1) / Msun
-            mm_ > MSTOP && (pr("stopped: M_star %.4f Msun (MSTOP %.3f) at step %d\n", mm_, MSTOP, k); TF.setscalar!(:tmax, TF.getscalar(:timen)))
-        end
-        REZ.on && RAD && k % REZ.every == 0 && rezone!(k)
         if TIMING && k % PRINTEVERY == 0
             pr("        timing since last report: step (hydro+radiation) %.1f s, chemistry %.1f s, H2 lines %.1f s, other output %.1f s\n",
                TSTEP[], TCHEM[], TLINE[], time() - tnow - 0.0 + TOTH[] - TCHEM[] - TLINE[])
