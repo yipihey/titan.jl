@@ -1967,6 +1967,8 @@ function cpl_prepare!(m::NetGas)
     fill!(TX.CPLZ[], false)                       # chem_core!'s closing fill_eos! uses m.x
     CPLPREP[] = true; sd0 = SLDIAG[]               # (the prepare pass's star-light setup must not replace the last chemistry's diagnostics)
     try chem_core!(m) finally CPLPREP[] = false; SLDIAG[] = sd0 end
+    SLIMP && TX.SLIMPDBG[] > 0 && println("SLIMPDBG prepare jstep $(Int(TF.getscalar(:jstep))): $(count(!isnothing, SLW0[])) zones with a star-light record",
+                                          isempty(SLW0[]) || all(isnothing, SLW0[]) ? "" : ", e.g. " * string(SLW0[][findfirst(!isnothing, SLW0[])]))
     sl = CNn.ckinfo(m.net).slow
     for k in 1:mgr
         x = m.x[min(k, length(m.x))]
