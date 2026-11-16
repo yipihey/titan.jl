@@ -26,7 +26,7 @@ GEQX=wx[,xfl] (default 0: off): a composition term wx Σ_s (∂ ln(x_s + xfl)/�
 per H nucleus, ChemNet.full; xfl default 1e-3), frozen per step like the τ term (mode 1) and in the explicit target (mode 0). A
 species far below xfl contributes nothing, so only changes of composition that carry a share ≳ xfl of the nuclei (ionization and
 H2 dissociation fronts) are resolved; no list of species, no thresholds per front.
-GEQRAMP=κ0,n[,f] (default off): κ of the time smoothing (and with it the speed floor) rises geometrically from κ0 to GEQC's κ over
+GEQRAMP=κ0,n[,f[,fvr]] (default off; fvr: the ramped speed floor never allows more than fvr (|u| + c_s), default unlimited): κ of the time smoothing (and with it the speed floor) rises geometrically from κ0 to GEQC's κ over
 the first n steps after the start of the process, if the mesh is then far from the rule's, max_j(M_j Δln r_j) > f × median (default
 f 10; a fixed-mesh checkpoint with its front in one zone: 26.5 for zdiagB's S5; an equidistributed mesh: ~3.4). A restart from a
 fixed-mesh checkpoint needs it: κ 30 would take ~30 crossing times of the front to adapt the mesh, while Δt stays at the fixed
@@ -127,6 +127,7 @@ function grideq_step!()
                                   GEQJ0[] >= 0 ? @sprintf("kappa ramps from %.3g to %.3g over %d steps", GEQRAMP[1], κ, GEQRAMP[2]) : "no ramp")
     end
     (GEQRAMP === nothing || GEQJ0[] < 0) || (κ = GEQRAMP[1] * (κ / GEQRAMP[1])^clamp((js_ - GEQJ0[]) / GEQRAMP[2], 0.0, 1.0))
+    fvr = (GEQRAMP !== nothing && length(GEQRAMP) >= 4) ? GEQRAMP[4] : Inf      # GEQRAMP entry 4: cap of the ramped grid speed in units of |u| + c_s
     tfe = fill(Inf, n); nfast = 0                                 # feature-crossing time of each zone (feature tracking)
     if κf > 0
         D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0)
@@ -151,7 +152,7 @@ function grideq_step!()
             # (feature tracking; floor: a zone moving its own width in t_relax goes at most fv (|u| + c_s))
             dxj = j >= 2 ? log(s.r[j+1] / s.r[j]) : 1.0
             # (κf = 0: no feature tracking; 0 × Inf would be NaN and min() propagates it into every grid row)
-            tr_ = max(κf > 0 ? min(κ * tc[j], κf * tfe[j]) : κ * tc[j], dxj * tc[j] / GEQC[4] * κ / GEQC[3]); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_   # (GEQRAMP: floor ramped with κ)
+            tr_ = max(κf > 0 ? min(κ * tc[j], κf * tfe[j]) : κ * tc[j], dxj * tc[j] / min(GEQC[4] * GEQC[3] / κ, fvr)); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_   # (GEQRAMP: floor ramped with κ, grid speed ≤ fvr (|u| + c_s))
             jm, jp = max(j - 1, 2), min(j + 1, n); h = jp - jm == 2 ? 0.5 : 1.0
             sx[a+j-1] = GEQW[6] * (h * (lτc[jp] - lτc[jm]))^2
             # velocity jump in units of the signal speed, (r ∂u/∂r)/(|u| + c_s): resolves shocks (the zone's own Δu, per zone index)
