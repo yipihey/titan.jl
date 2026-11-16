@@ -131,12 +131,12 @@ the three CIA pairs) tabulated on log T 1.0 … 6.5 (Δ 0.01) and interpolated l
 populations (ForwardDiff Duals pass: exact derivatives of the means as computed). Trapezoid rule on the nodes.
 """
 const FAST = Ref{Any}(nothing)
-const FLT0 = 1.0; const FDLT = 0.01; const FNT = 551
+const FLT0 = 1.0; const FDLT = 0.01; const FNT = 551; const NFAST = parse(Int, get(ENV, "G2NFAST", "400"))
 function fastgrid()
     FAST[] === nothing || return FAST[]
     c = COp.c; h = COp.h
     σmax = 25 * COp.kB * TTOP / (h * c)
-    σs = collect(10 .^ range(1.0, log10(σmax), length = 240))
+    σs = collect(10 .^ range(1.0, log10(σmax), length = NFAST))
     edges = Float64[]
     for n in 1:6; push!(edges, Z0.χH / n^2 / (h * c)); push!(edges, Z0.χHe2 / n^2 / (h * c)); end
     push!(edges, Z0.χHe1 / (h * c)); push!(edges, 1e4 / 1.6419)
@@ -174,8 +174,10 @@ end
     (1 - a) * A[j, i] + a * A[j+1, i]
 end
 "`means` on the fast grid (see FAST); same arguments and conventions, generic in the number type."
-function means_fast(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, nHmS, hbfP, Tw = T)
-    F = fastgrid(); kB = COp.kB; h = COp.h; kT = kB * T
+means_fast(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, nHmS, hbfP, Tw = T) =
+    _means_fast(fastgrid(), ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS, hbfP, Tw)
+function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS, hbfP, Tw)     # (function barrier: F concrete)
+    kB = COp.kB; h = COp.h; kT = kB * T
     Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
     χH = Z0.χH; χ2 = Z0.χHe2
     wH = ntuple(n -> Z0.occupation(n, 1, Nion, Nneu), NLEV); wHe = ntuple(n -> Z0.occupation(n, 2, Nion, Nneu), NLEV)
