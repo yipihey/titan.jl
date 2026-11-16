@@ -26,9 +26,11 @@ GEQX=wx[,xfl] (default 0: off): a composition term wx Σ_s (∂ ln(x_s + xfl)/�
 per H nucleus, ChemNet.full; xfl default 1e-3), frozen per step like the τ term (mode 1) and in the explicit target (mode 0). A
 species far below xfl contributes nothing, so only changes of composition that carry a share ≳ xfl of the nuclei (ionization and
 H2 dissociation fronts) are resolved; no list of species, no thresholds per front.
-GEQRAMP=κ0,n (default off): κ of the time smoothing rises geometrically from κ0 to GEQC's κ over the first n steps after the start of
-the process (a restart from a fixed-mesh checkpoint, whose mesh is far from the rule's: κ 30 would take ~30 crossing times of the
-front to adapt it, during which Δt stays at the fixed mesh's).
+GEQRAMP=κ0,n[,f] (default off): κ of the time smoothing (and with it the speed floor) rises geometrically from κ0 to GEQC's κ over
+the first n steps after the start of the process, if the mesh is then far from the rule's, max_j(M_j Δln r_j) > f × median (default
+f 10; a fixed-mesh checkpoint with its front in one zone: 26.5 for zdiagB's S5; an equidistributed mesh: ~3.4). A restart from a
+fixed-mesh checkpoint needs it: κ 30 would take ~30 crossing times of the front to adapt the mesh, while Δt stays at the fixed
+mesh's and the fixed-mesh run fails within ~30 steps. The next segment of the same run (mesh already adapted) does not ramp again.
 """
 const GRIDEQP = haskey(ENV, "GRIDEQ") ? parse(Int, ENV["GRIDEQ"]) : nothing
 geqv(key, defs) = (v = haskey(ENV, key) ? parse.(Float64, split(ENV[key], ",")) : Float64[]; [i <= length(v) ? v[i] : defs[i] for i in eachindex(defs)])
@@ -36,7 +38,13 @@ const GEQW = geqv("GEQW", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0])
 const GEQC = geqv("GEQC", [100.0, 1.5, 30.0, 0.5, 0.5, 0.1, 1e4, 0.3, 0.0])
 const GEQX = geqv("GEQX", [0.0, 1e-3])
 const GEQRAMP = haskey(ENV, "GEQRAMP") ? parse.(Float64, split(ENV["GEQRAMP"], ",")) : nothing
-const GEQJ0 = Ref(-1)
+const GEQJ0 = Ref(-1)                  # jstep at the first grideq_step! of this process (GEQRAMP; -2: no ramp, the mesh is close to the rule)
+"max_j(M_j Δln r_j) / median over the zones above the centre: how far the mesh is from equidistribution (GEQRAMP, GEQREMAP)."
+function geq_quality(s)
+    D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.X, wx = GEQX[1])
+    q = [D.M[i] * log(s.r[i+2] / s.r[i+1]) for i in eachindex(D.M)]; qs = sort(q)
+    (; ratio = maximum(q) / qs[(length(qs) + 1) ÷ 2], k = argmax(q) + 1)
+end
 """
 GEQREMAP=f (with GRIDEQ and a restart from an lgrid = 2 checkpoint, regular centre; default 0 = off): if the checkpoint's mesh is far
 from the rule's, max_j(M_j Δln r_j) > f × median (a fixed-mesh checkpoint whose front sits in one zone), the state is rebuilt once on
@@ -44,7 +52,7 @@ GRIDEQ's explicit target mesh of the same zone count (envbuild!: enclosed mass k
 x interpolated in ln r between zone centres; u, L at the interfaces; lagged material state reset as at the hand-over), mass zero point
 and fixed-mesh flags set again as ICEUL. A mesh already close to the rule (the next segment of the same run) is not remapped.
 """
-const GEQREMAP = parse(Float64, get(ENV, "GEQREMAP", "0"))                  # jstep at the first grideq_step! of this process (GEQRAMP)
+const GEQREMAP = parse(Float64, get(ENV, "GEQREMAP", "0"))
 const GEQPREV = Ref{Any}(nothing)      # (t, x, M) of the last step: the monitor function's own motion (feature tracking)
 const GEQLAST = Ref{Any}(nothing)
 "State on the present mesh (interfaces centre first; m per steradian)."
@@ -64,10 +72,9 @@ geq_target(s; N = nsh - 1) = GridEq.target(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ, 
 "GEQREMAP: rebuild a restarted fixed-mesh state on the rule's mesh (see GEQREMAP)."
 function geq_remap!()
     ENVCENTRE || error("GEQREMAP needs a regular centre (ENVEUL=0,...)")
-    s = geq_state(); D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.X, wx = GEQX[1])
-    q = [D.M[i] * log(s.r[i+2] / s.r[i+1]) for i in eachindex(D.M)]; qs = sort(q); qmed = qs[(length(qs) + 1) ÷ 2]
-    pr("GEQREMAP: max M dln r / median %.3g (threshold %.3g) at zone %d (r %.4g R_sun)\n", maximum(q) / qmed, GEQREMAP, argmax(q) + 1, s.r[argmax(q)+1] / Rsun)
-    maximum(q) / qmed > GEQREMAP || return nothing
+    s = geq_state(); Q = geq_quality(s)
+    pr("GEQREMAP: max M dln r / median %.3g (threshold %.3g) at zone %d (r %.4g R_sun)\n", Q.ratio, GEQREMAP, Q.k, s.r[Q.k] / Rsun)
+    Q.ratio > GEQREMAP || return nothing
     E0 = geq_energy(); rq = geq_target(s)
     envbuild!(; rIset = vcat(0.0, rq))
     get(ENV, "ICXMZ", "1") == "1" && xmzero!()
@@ -105,8 +112,14 @@ function geq_diag(s)
 end
 function grideq_step!()
     s = geq_state(); n = nsh; dt = TF.getscalar(:dtime); tc = geq_tcross(s); κ = GEQC[3]; κf = GEQC[9]
-    js_ = Int(TF.getscalar(:jstep)); GEQJ0[] < 0 && (GEQJ0[] = js_)
-    GEQRAMP === nothing || (κ = GEQRAMP[1] * (κ / GEQRAMP[1])^clamp((js_ - GEQJ0[]) / GEQRAMP[2], 0.0, 1.0))
+    js_ = Int(TF.getscalar(:jstep))
+    if GEQJ0[] == -1                                              # first call of this process: ramp only a mesh far from the rule (GEQRAMP)
+        Q = geq_quality(s); f_ = GEQRAMP === nothing ? Inf : length(GEQRAMP) >= 3 ? GEQRAMP[3] : 10.0
+        GEQJ0[] = Q.ratio > f_ ? js_ : -2
+        GEQRAMP === nothing || pr("GEQRAMP: max M dln r / median %.3g (threshold %.3g) at zone %d: %s\n", Q.ratio, f_, Q.k,
+                                  GEQJ0[] >= 0 ? @sprintf("kappa ramps from %.3g to %.3g over %d steps", GEQRAMP[1], κ, GEQRAMP[2]) : "no ramp")
+    end
+    (GEQRAMP === nothing || GEQJ0[] < 0) || (κ = GEQRAMP[1] * (κ / GEQRAMP[1])^clamp((js_ - GEQJ0[]) / GEQRAMP[2], 0.0, 1.0))
     tfe = fill(Inf, n); nfast = 0                                 # feature-crossing time of each zone (feature tracking)
     if κf > 0
         D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.X, wx = GEQX[1])
