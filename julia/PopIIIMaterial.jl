@@ -1117,13 +1117,13 @@ and of the post-step species (`cpl_finish!`). T_c (T_eff at the τ = 2/3 zone, T
 const SLIMPN = parse(Int, get(ENV, "SLIMP", "0")); const SLIMP = SLIMPN > 0
 "(SLIMP) per zone the star-light record of the prepare pass (W0, T_c0, wq, T_src, mode, E_cmb, ρ, T, fsh, LW on); nothing: no star light."
 const SLW0 = Ref(Any[])
+"(SLIMP) true if zone k's star light follows its E_r, F_r (a prepare-pass record exists); otherwise the zone takes the SLIMP=0 path."
+sl_on(k) = k <= length(SLW0[]) && SLW0[][k] !== nothing
 """
 (SLIMP) (q, t) = (W(iterate)/W_start, T_c(iterate)/T_c,start) of zone k from its E_r and interface fluxes (generic in the number type).
 SLBLEND: T_c = T_src^(1−wq) T_r^wq (T_r = (max(E, E_cmb)/a)^¼ local, T_src and wq held), W = 1 (wq ≥ 1) or min(c u/(4σT_c⁴), 1);
 beyond the photosphere without SLBLEND: T_c = T_eff (held), W = c u/(4σT_eff⁴); else T_c = T_r, W = 1. With SLIMP=1 t ≡ 1 (W only).
 """
-"(SLIMP) true if zone k's star light follows its E_r, F_r (a prepare-pass record exists); otherwise the zone takes the SLIMP=0 path."
-sl_on(k) = k <= length(SLW0[]) && SLW0[][k] !== nothing
 function sl_qt(k, E, Fk, Fk1)
     o = one(E) + zero(Fk) + zero(Fk1)
     (k <= length(SLW0[]) && (r = SLW0[][k]) !== nothing) || return (o, o)
