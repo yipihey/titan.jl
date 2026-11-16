@@ -1225,12 +1225,12 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         end
         diag.kHm[k] = kHm; diag.kH[k] = kH; diag.kLW[k] = kLW; diag.fsh[k] = f
         if SLIMP && CPLPREP[]                            # SLIMP: how this zone's star light follows its E_r, F_r (sl_qt)
-            length(SLW0[]) < nz && (SLW0[] = Any[nothing for _ in 1:nz])
             md = (SLBLEND[] && Te > 0) ? :blend : (k > kph && Te > 0) ? :te : :local
             # no star yet — no zone at τ ≥ 2/3 (the cloud before the first core: kph defaults to the centre zone and T_eff is that of the
             # centre's flux, ~T_CMB) or T_eff = 0: no record, q = t = 1 exactly and the zone takes the SLIMP=0 path (the ICEUL start failed
             # with NaN: Dual zeros in β, P12 at T_c ~ T_CMB, see cpl_tq)
-            SLSTAR[] && (SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
+            # (SLW0 is sized by cpl_prepare! before the chemistry: the zones run on CHEMTHREADS tasks, a resize here raced and lost records)
+            (SLSTAR[] && k <= length(SLW0[])) && (SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
                          ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off))
         end
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
@@ -1970,7 +1970,8 @@ function cpl_prepare!(m::NetGas)
     HDCHEM[] && (HDX[] = [length(x) > nf ? max(x[nf+2], 0.0) : 0.0 for x in m.x])
     length(CPLTERMS[]) == mgr || (CPLTERMS[] = Any[nothing for _ in 1:mgr]); fill!(CPLTERMS[], nothing)
     length(CPLCACHE[]) == mgr || (CPLCACHE[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHE[], nothing)
-    SLIMP && (length(CPLCACHEQ[]) == mgr || (CPLCACHEQ[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHEQ[], nothing); fill!(SLW0[], nothing))
+    SLIMP && (length(CPLCACHEQ[]) == mgr || (CPLCACHEQ[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHEQ[], nothing);
+             length(SLW0[]) == mgr || (SLW0[] = Any[nothing for _ in 1:mgr]); fill!(SLW0[], nothing))
     fill!(TX.CPLZ[], false)                       # chem_core!'s closing fill_eos! uses m.x
     CPLPREP[] = true; sd0 = SLDIAG[]               # (the prepare pass's star-light setup must not replace the last chemistry's diagnostics)
     try chem_core!(m) finally CPLPREP[] = false; SLDIAG[] = sd0 end
