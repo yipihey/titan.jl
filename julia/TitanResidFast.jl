@@ -527,8 +527,11 @@ transparent zone, the zone that (outside a photosphere) is irradiated, steeply T
 operator-split chemistry, so the emergent flux of the hot surface follows the cold neighbour's opacity one to one.
 
 Sub-zone picture (a front between the zone centres, thinner than any zone): the light leaving the opaque side originates within
-an optical depth τ_f ≈ 2/3 of its surface (Eddington–Barbier, e.g. Mihalas 1978, Stellar Atmospheres, 1978stat.book.....M), so
-the opaque half-zone contributes its own depth only up to τ_f, τ_f a/(a + τ_f), and the transparent half-zone its own b:
+an optical depth of order unity of its surface (Eddington–Barbier: τ = 2/3, e.g. Mihalas 1978, Stellar Atmospheres,
+1978stat.book.....M), so the opaque half-zone contributes its own depth only up to τ_f, τ_f a/(a + τ_f), and the transparent
+half-zone its own b. τ_f (default 2, `SUBZONE=1,τ_f`) is the depth of the opaque zone's centre below its unresolved surface, a
+closure constant of order unity; it also sets the width of the front window s(x) below. On zdiagB's front τ_f = 2/3 does not
+remove the orbit, τ_f = 1 and 2 do (docs/POPIII_SUBZONE_FRONT.md):
     D₋₊ = τ_f a/(a + τ_f) + b   (opaque side −),   D₊₋ = τ_f b/(b + τ_f) + a   (opaque side +).
 Away from a front the two half-zones are in series (a + b), the form that keeps the thick diffusion limit (Larsen, Morel & Miller
 1987, 1987JCoPh..69..283L); TITAN's harmonic mean is kept there unchanged. The front weight
@@ -540,7 +543,7 @@ block structure is unchanged). As the front moves into the transparent zone (b g
 next interface takes over. In thick–thick interiors the change is ≲ (τ_f/min(a,b))⁴, in thin–thin envelopes ≲ (max(a,b)/τ_f)⁴.
 The same avchi enters the flux row and the radiation-force work of the energy rows (energy stays conserved).
 """
-const SUBZONE = Ref(false); const SZTAUF = Ref(2 / 3)
+const SUBZONE = Ref(false); const SZTAUF = Ref(2.0)
 "(SUBZONE diagnostic) per interface: front weight ω₋₊ + ω₊₋ and Δτ_SZ/Δτ_T (values) of the last residual evaluation."
 const SZOMEGA = Float64[]; const SZRATIO = Float64[]
 @inline function sz_tau(a, b, ΔτT, τf)
