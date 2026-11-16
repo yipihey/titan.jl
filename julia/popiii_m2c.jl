@@ -2448,7 +2448,7 @@ try
         ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
         TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
         if PM.SLIMP                                # SLIMP=1: the star-light dilution of the coupled zones at the Newton iterate (PM.sl_q, cpl_zone_q)
-            TX.SLIMP[] = true; TX.SLQ_FN[] = PM.sl_qt; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t)
+            TX.SLIMP[] = true; TX.SLQ_FN[] = PM.sl_qt; TX.SLON_FN[] = PM.sl_on; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t)
             pr("SLIMP=%d: star light of the coupled zones at the Newton iterate: dilution W%s (local variables of the zone's chemistry and NLOIT opacity)\n",
                PM.SLIMPN, PM.SLIMPN >= 2 ? " and the local part of T_c (T_r^wq)" : " (T_c held)")
         end

@@ -446,7 +446,7 @@ end
 function ifsi_g(m::NetGas, k, z, t; wantx = false)
     st = IFS[]; I = IFSI[]; rn = TM.v(:rn)
     length(z) >= 8 || (z = vcat(z[1:4], [TX.YRN[][g][k] + zero(z[1]) for g in 1:4]))
-    if SLIMP && hasproperty(t, :slq)          # SLIMP: the star light (W, T_c) at the iterate's E_r, F_r (Float: lagged in the local Jacobian)
+    if SLIMP && hasproperty(t, :slq) && sl_on(k)          # SLIMP: the star light (W, T_c) at the iterate's E_r, F_r (Float: lagged in the local Jacobian)
         er_, fr_ = TM.v(:ern), TM.v(:frn); q_, tc_ = sl_qt(k, er_[k], fr_[k], fr_[k+1])
         t = cpl_tq(t, Float64(q_), Float64(tc_))
     end
