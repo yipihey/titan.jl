@@ -953,9 +953,16 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
     end
     @inbounds for k in k1+1:k2-1
         R[ir, k - k0 + 1] = nhat(k) - nhat(k - 1)
+        if GEQDBG[] && !isfinite(ForwardDiff.value(R[ir, k - k0 + 1]))     # (GEQDBG=1: report the first non-finite grid row)
+            GEQDBG[] = false; j = k
+            println("GEQDBG: grid row $k non-finite: r ", ForwardDiff.value.(rn[j-2:j+2]), " rho ", ForwardDiff.value.(dn[j-2:j+1]), " T ", ForwardDiff.value.(tn[j-2:j+1]),
+                    " P ", ForwardDiff.value.(pg[j-2:j+1]), " E ", ForwardDiff.value.(er[j-2:j+1]), " chi ", chi === nothing ? nothing : ForwardDiff.value.(chi[j-2:j+1]),
+                    " sx ", ge.sx[j-1:j], " tauv ", ge.tauv[j-1:j], " dt ", dt)
+        end
     end
     nothing
 end
+const GEQDBG = Ref(get(ENV, "GEQDBG", "0") == "1")
 
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
     UPFREEZE[] > 0 && (UPHOLD[] = TF.getscalar(:iter) >= UPFREEZE[])
