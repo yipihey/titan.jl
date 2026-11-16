@@ -1117,8 +1117,13 @@ and of the post-step species (`cpl_finish!`). T_c (T_eff at the τ = 2/3 zone, T
 const SLIMPN = parse(Int, get(ENV, "SLIMP", "0")); const SLIMP = SLIMPN > 0
 "(SLIMP) per zone the star-light record of the prepare pass (W0, T_c0, wq, T_src, mode, E_cmb, ρ, T, fsh, LW on); nothing: no star light."
 const SLW0 = Ref(Any[])
-"(SLIMP) true if zone k's star light follows its E_r, F_r (a prepare-pass record exists); otherwise the zone takes the SLIMP=0 path."
-sl_on(k) = k <= length(SLW0[]) && SLW0[][k] !== nothing
+"(SLIMP) a star exists at the last prepare pass (a zone at τ ≥ 2/3 and T_eff > 0)."
+const SLSTAR = Ref(false)
+"""
+(SLIMP) true if the coupled zones take the SLIMP path (`cpl_zone_q`, NLOIT and post-step species at the iterate's star light): whenever a
+star exists (zones without a record then have q = t = 1); before there is one, every zone takes the SLIMP=0 path (bit-identical to it).
+"""
+sl_on(k) = SLSTAR[]
 """
 (SLIMP) (q, t) = (W(iterate)/W_start, T_c(iterate)/T_c,start) of zone k from its E_r and interface fluxes (generic in the number type).
 SLBLEND: T_c = T_src^(1−wq) T_r^wq (T_r = (max(E, E_cmb)/a)^¼ local, T_src and wq held), W = 1 (wq ≥ 1) or min(c u/(4σT_c⁴), 1);
@@ -1154,6 +1159,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
     sl = STARLIGHT[]; dn, tn, rn = TM.v(:dn), TM.v(:tn), TM.v(:rn); er, fr, un = TM.v(:ern), TM.v(:frn), TM.v(:un)
     kph = a; for k in b:-1:a; tauz_[k] >= 2 / 3 && (kph = k; break); end
     L = 4π * rn[kph+1]^2 * fr[kph+1]; Te = L > 0 ? (L / (4π * rn[kph+1]^2 * 5.670374419e-5))^0.25 : 0.0
+    SLIMP && CPLPREP[] && (SLSTAR[] = tauz_[kph] >= 2 / 3 && Te > 0)
     arad = 7.565723e-15; Ecmb = arad * sl.tcmb^4
     nz = length(dn); NH2 = zeros(nz); NHI = zeros(nz)
     s2 = 0.0; s1 = 0.0
@@ -1224,7 +1230,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             # no star yet — no zone at τ ≥ 2/3 (the cloud before the first core: kph defaults to the centre zone and T_eff is that of the
             # centre's flux, ~T_CMB) or T_eff = 0: no record, q = t = 1 exactly and the zone takes the SLIMP=0 path (the ICEUL start failed
             # with NaN: Dual zeros in β, P12 at T_c ~ T_CMB, see cpl_tq)
-            (!(tauz_[kph] >= 2 / 3) || (md === :local && !(Te > 0))) || (SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
+            SLSTAR[] && (SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
                          ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off))
         end
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
