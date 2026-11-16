@@ -1221,9 +1221,10 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         if SLIMP && CPLPREP[]                            # SLIMP: how this zone's star light follows its E_r, F_r (sl_qt)
             length(SLW0[]) < nz && (SLW0[] = Any[nothing for _ in 1:nz])
             md = (SLBLEND[] && Te > 0) ? :blend : (k > kph && Te > 0) ? :te : :local
-            # no star yet (T_eff = 0): the zone's "star light" is its own field at T_r with W = 1 — no record, q = t = 1 exactly and the
-            # zone takes the SLIMP=0 path (the ICEUL start failed with NaN: Dual zeros in β, P12 at T_c ~ T_CMB, see cpl_tq)
-            (md === :local && !(Te > 0)) || (SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
+            # no star yet — no zone at τ ≥ 2/3 (the cloud before the first core: kph defaults to the centre zone and T_eff is that of the
+            # centre's flux, ~T_CMB) or T_eff = 0: no record, q = t = 1 exactly and the zone takes the SLIMP=0 path (the ICEUL start failed
+            # with NaN: Dual zeros in β, P12 at T_c ~ T_CMB, see cpl_tq)
+            (!(tauz_[kph] >= 2 / 3) || (md === :local && !(Te > 0))) || (SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
                          ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off))
         end
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
