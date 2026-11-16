@@ -135,7 +135,8 @@ the neutral overpopulation raises bf opacity where OPAL's lines are missing. The
 - **ρ ≳ 0.1, T < 2e4 K** (pressure-ionisation corner, SCVH's interpolated region): p ×0.1–0.5 — off the current profile.
 - **SCVH95 composition misread** (`scripts/g2audit/scvhtest.jl`): on SCVH's own isotherms at log ρ −8 … −2 and x_H⁺ 1e-3 … 0.1,
   the table's x_H⁺ = (1 − X_H₂ − X_H)/(1 + X_H₂) is 1.85–1.94 × Saha; reading X as concentrations among all particles
-  including electrons (X_H⁺ = X_e = (1 − X_H₂ − X_H)/2) gives 0.97–1.05 ×. [interp; SCVH95's table.doc not obtained — to verify.]
+  including electrons (X_H⁺ = X_e = (1 − X_H₂ − X_H)/2) gives 0.97–1.05 ×. **Verified (§6.0)**: SCVH95 §5 p. 724 eqs. 33–36 define the
+  concentrations exactly so.
   Between the isotherms (Δ log T 0.08) the linear interpolation of X in log T leaves stripes of ×1.3–3 in x_e (both readings;
   visible in every x_e panel). p and u are unaffected (SCVH's own columns).
 
@@ -220,6 +221,46 @@ the network's chemistry keeps running in every zone (in the w → 1 zones relaxe
 is continuous in the iterate (no per-step discrete choice, no hysteresis, no `x_from_table` reset), energy-conserving through
 u(ρ, T, x), and differentiable. Its cost is the inconsistency of a blend inside the band (as the HOT branch blend, PopIIIMaterial
 `HOT`); with P1–P2 in place the band only has to bridge lines and non-ideal terms, both of which are ≤ 30 % at n_H ≈ 1e17.
+
+## 6. Follow-up: steps 0–2 of the plan and the extended-network experiment (16 Nov, PI go-ahead)
+
+### 6.0 SCVH95 column definition — verified
+Saumon, Chabrier & Van Horn 1995 (1995ApJS...99..713S), §5 "Calculation of the EOS tables", p. 724: "The concentrations are defined as
+X_i = N_i/N (33), where N is the total number of particles, including electrons. With this definition, and considering charge conservation,
+we have for pure hydrogen X_e = X_H⁺ = ½(1 − X_H₂ − X_H) (34) … n_i = (2ρ/m_H) X_i/(1 + 3X_H₂ + X_H) (36)" (and eq. 35, 37 for helium).
+So per H nucleus x_H⁺ = 2X_H⁺/(1 + 3X_H₂ + X_H), f_H₂ = 4X_H₂/(1 + 3X_H₂ + X_H): exactly `SCVHXE=1` (now written in that form, same
+values). The default reading doubles x_H⁺ where H is weakly ionised. (Source: the scanned paper via ADS; table.doc not needed.)
+
+### 6.1 `HM88=1` — occupation probabilities in ChemNet (exact AD)
+`ChemNet.HM88` (docstring there): H I partition function Z_w = Σ_{n ≤ 80} 2n² (w_n/w_1) e^{−E_n/kT} with Hummer & Mihalas (1988) eq. 4.71
+(as Z0Physics.occupation); network EOS u += x_H ⟨E_exc⟩, p += n_H x_H kT Σ P_n (−ln w_n/w_1) (cross terms through the perturbers' chemical
+potentials omitted), exact in ρ, T, x (ForwardDiff = finite differences to 1e-9). Chemistry: every H recombination channel (reactions
+H⁺ + e (+ …) → H (+ …) incl. detailed-balance reverses and the three-level C α_B; the Milne inverse of H photoionization) × φ = Z_w/Z_el, so
+the network's own equilibrium is the HM88 Saha; φ from the zone's perturbers at the start of the step (`env.hm`, set in `chem_core`), exact
+in T. Network LTE x_e with HM88 vs Z0Physics' HM88 Saha and SCVH(XE) (`hmtest.jl`):
+
+| log ρ, log T | network n≤15 | network HM88 | Z0 HM88 Saha | SCVH (SCVHXE) |
+|---|---|---|---|---|
+| −5.33, 4.26 | 0.460 | 0.493 | 0.493 | 0.488 |
+| −4.67, 4.38 | 0.486 | 0.657 | 0.657 | 0.608 |
+| −4.00, 4.40 | 0.287 | 0.458 | 0.458 | 0.478 |
+| −3.08, 4.78 | 0.249 | 0.884 | 0.939 | 0.761 |
+| −2.00, 4.90 | 0.099 | 0.703 | 0.790 | 0.678 |
+| −1.00, 5.00 | 0.041 | 0.443 | 0.951 | 0.628 |
+
+(differences to Z0 at ρ ≥ 1e-3: Z0 also has He occupation probabilities.) Off = bit-identical.
+
+### 6.2 `G2OPAC=2` — the fast continuum (`G2Opacity.means_fast`)
+Same physics as `means` on 484 frequency nodes (400 log nodes 10 cm⁻¹ … 25 kT/hc at 3e5 K + node pairs at the H, He II (n ≤ 6), He I and
+H⁻ thresholds), T-dependent kernels (g_ff Z = 1, 2; H⁻ ff; three CIA pairs) tabulated in log T (Δ 0.01, linear), per-node cross sections
+precomputed, trapezoid rule; generic in the number type (ForwardDiff through T and populations). Measured (`fasttest.jl`): **33–37 µs
+per call, 50–56 µs with a 2-partial Jacobian** (vs 22–33 ms for `means` and 0.46 ms for today's `nlte_means_fast`); vs `means` over
+log ρ −14 … −1, log T 3 … 5.45: κ_P median 0.3 %, 95 % within 4.4 %, max 6.8 %; κ_R median 0.2 %, 95 % within 10 %, max 31 % (in the
+CIA band region, log T 3.2, where `means` itself holds the CIA kernel over 8 of its points). AD vs central differences 1e-9 … 1e-2
+(the latter where the difference straddles a table node of the piecewise-linear T interpolation). `G2OPAC=1` keeps the 1500-point form.
+
+### 6.3 Bit identity (all switches off)
+`t_g2c` (280ba90) vs `t_g2a` (0781136), 8 steps from zdiagB S5: 591 state arrays and .aux byte-identical.
 
 ## 5. Sources (checked on SciX, all refereed journals)
 Saumon, Chabrier & Van Horn 1995, ApJS 99, 713 (1995ApJS...99..713S); Hummer & Mihalas 1988, ApJ 331, 794 (1988ApJ...331..794H);
