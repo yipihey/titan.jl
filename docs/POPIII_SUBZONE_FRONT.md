@@ -24,7 +24,13 @@ index = k − 4; the brief's "zones 62→63" are k = 67 → 68).
   runs from Δt 2.3 s to 2.6e5 s and then holds 4e4–9e4 s (t_sz27, 80 steps, 4 Newton failures all in the first step, 2 error
   rejections). The star-light dilution W and colour temperature T_c of the photo-rates (three-level pumping, H⁻ detachment, LW,
   LOCALJ) are evaluated once per step from the start-of-step E_r, F_r (PopIIIMaterial.starlight_setup via cpl_prepare!) — the
-  lagged input that matters. The general fix (W at the iterate with exact derivatives, §5) is specified but **not implemented**.
+  lagged input that matters. At the front zone itself (τ ≈ 3, SLBLEND weight wq = 1) W ≡ 1 and T_c = T_r(E_r) of the start of step, so the lag that matters
+  there is T_c.
+
+* **SLIMP** (§6): the star light of the coupled zones at the Newton iterate. `SLIMP=1` (W only) leaves the cycle unchanged
+  (t_sz30: collapse at step 3033 as t_sz23 at 3031). `SLIMP=2` (W and the local part of T_c) removes it: **SUBZONE=1,2 + SLIMP=2**
+  (t_sz31) runs Δt 0.58 s → 1e4 s in 30 steps and then 2.6e4–2.1e5 s, 6 Newton failures in steps 3000–3100, while the front
+  advances two zones (63|64 → 65|66) — the hand-over that cost SUBZONE alone its Δt is now a factor ≲ 4 dip.
 
 ## 1. How the interface optical depth and the exchange are formed now
 
@@ -153,16 +159,61 @@ Evaluated at every iterate but without derivatives (the Newton sees them as cons
 
 ## 5. Open issues
 
-* **Star light at the iterate** (the lag that drives the remaining cycle). W_k depends only on zone k's E_r and its two interface
-  fluxes (local: the block structure holds); every star-light rate is linear in W at fixed T_c (photo-rates ∫σJ/hν with J = W B_ν(T_c),
-  kLW ∝ W, β ∝ W, P12 ∝ W/(e^{E21/kT_c} − 1)). Implementation: carry q_k = W_k(E, F of the iterate)/W_k(start of step) as a fifth
-  local variable of `cpl_g` (z = ρ, T, x_H⁺, x_H₂, q; 7×5 local Jacobian, `cpl_lift` with the partials of q), scale the prepared
-  photo-rates (`phc`), the star-light `extra` and the three-level parameters of `tl3env`/`tl3_heat` by q, and pass the same q to
-  `nlo_comp` for the NLOIT opacity. T_c is non-local (T_eff at the τ = 2/3 zone, T_r at τ + 2/3) and would stay lagged; whether
-  that suffices must be measured (SLFREEZE freezes both).
+* Star light: done as SLIMP (§6). Still lagged: the non-local part of T_c (T_eff at the τ = 2/3 zone, T_r at τ + 2/3; enters
+  through T_src^(1−wq)), the LW shielding columns, and the GASQ/RAYQ bookkeeping of non-coupled zones.
 * τ_f is a closure constant (depth of the opaque zone's centre below its unresolved surface): 2/3 fails here, 1 and 2 work; a
   self-consistent τ_f (from T_h/T_eff of the grey T(τ) relation) was not tried. It also sets the front window; separating the
   two roles may allow the physical 2/3.
 * The interface treatment does not address the exchange of the irradiated zone (its κ_E, κ_P remain zone-centred) nor the
   VEF formal solution's piecewise-constant dtau.
 * The 556 M☉ warm front of the production run (zones ~98–106) was not tested.
+
+## 6. Star light at the Newton iterate (`SLIMP`, 16 Nov, PI request)
+
+`SLIMP=1|2` (with COUPLED; default off, off is bit-identical). Per coupled zone k, with the start-of-step star light recorded by the
+COUPLED prepare pass (`starlight_setup` → `SLW0`):
+
+* q_k = W_k(iterate)/W_k(start) and t_k = T_c,k(iterate)/T_c,k(start) from zone k's E_r and its two interface fluxes (`sl_qt`):
+  SLBLEND T_c = T_src^(1−wq) T_r^wq with T_r = (max(E_r, E_cmb)/a)^¼ (T_src, wq held), W = 1 (wq ≥ 1) or min(c u/(4σT_c⁴), 1),
+  c u = max(c(E_r − E_cmb), ½(F_k + F_k+1)) (SLWFLUX). Local (zone k and interface k+1): the block structure holds. At the start
+  state q = t = 1 exactly. `SLIMP=1`: t ≡ 1.
+* Every star-light rate is linear in W at fixed T_c, so q scales the prepared terms exactly (`cpl_tq`): three-level β, P12 (reactions,
+  Peebles C, heats, cooling closure), the network photo-rates of J = W B_ν(T_c) (R → qR, α → α₀ + q(α − α₀), α₀ at W = 0), the
+  star-light `extra` (kHm, kH, kLW). With t ≠ 1 the same terms are rebuilt at T_c = t T_c,start (β₂ₛ(T_c), n̄_α, ⟨hν⟩, photo-rates,
+  kHm, kH, kLW, NLOPACJ's weighting T_c).
+* q, t are local variables of the coupled zone (`cpl_zone_q`: z = ρ, T, x_H⁺, x_H₂, q, t; 7×6 local Jacobian, AD in q, central
+  differences in ln t), of the NLOIT opacity (value at (q, t) exact, slopes in ln q, ln t by differences as NLOIT's other slopes)
+  and of the post-step species (`cpl_finish!` at the solved E_r, F_r).
+
+Tests:
+* Bit-identity off (d5d63fb): restart of S5, 32 steps to DTSTOP (t_sz34 vs t_sz4) and ICEUL 6 steps (t_sz35 vs t_sz11): all 591
+  arrays and the .aux identical.
+* SZJCHECK (t_sz29 SLIMP=1, t_sz32 SLIMP=2, t_sz33 off; zones 67–69, rows gas energy, E_r, F_r, x_H⁺, x_H₂): the E_r and F_r columns
+  of the species rows agree to ≤ 9e-7 (SLIMP=1) and 6e-5 / 9e-5 (SLIMP=2, zone 68/69, the T_c column by differences). The
+  species-row entries of the ρ, T, x columns differ by 1e-4–2e-3 identically with SLIMP off (pre-existing: NLOIT slopes / CPLJLAG).
+* From S5 with SUBZONE=1,2:
+
+| run | steps | Δt | Newton failures | s/step (4 thr) |
+|---|---|---|---|---|
+| t_sz23, SLIMP off | 3000–3396 | median 3.1e2 s, 63 of 396 ≥ 1e4 s; cycles 20 s ↔ 1e4–6e4 s; after the front moved (3195) ≤ 3.6e3 s | 19, 7, 15 per 100 | 7.4–7.8 |
+| t_sz30, SLIMP=1 | 3000–3068 | same cycle (collapse at 3033, 3049) | – | – |
+| t_sz31, SLIMP=2 | 3000–3105+ | 1e4 s from step 3030, then 2.6e4–2.1e5 s | 6 in 3000–3100 | ~9.8 |
+| t_sz27, SLFREEZE (diagnostic) | 3000–3080 | 4e4–2.6e5 s | 4 + 2 rejections / 80 | ~6.8 |
+
+* Physics (runrec scalars): at equal model time the two runs agree — t ≈ 238933.54 yr: M★ 0.0667 (t_sz31, interpolated) vs 0.0669
+  (t_sz23), R★ 11.9 R☉ in both; T_eff 2900–3700 K and L_ph 60–140 L☉ in both. t_sz31 covers 0.17 yr in 105 steps (M★ 0.0611 →
+  0.0755, R★ 11.0 → 12.9 R☉), t_sz23 0.065 yr in 396 steps.
+
+Table/network boundary (moving-mesh agent's question). The front is the last equilibrium-table zone | first network zone in every
+snapshot of t_sz23 and t_sz31 (zdiagB: zone 67 table, 68 network). t_sz23: 1 switch in 396 steps (3195); the cycle runs without
+switches. t_sz31: 2 switches in 105 steps (3055, 3080), each followed within ~5 steps by the largest Δt dips of the run (1.7e5 →
+4.3e4, 1.0e5 → 2.6e4 s): with the star light at the iterate the remaining Δt limitation coincides with the per-step table↔network
+switch of the zone the front enters. (Sampling: snapshots every 5 steps.)
+
+VEF f, g, h derivatives (linear TR-stage contraction ×0.11). f_k, g, h_k come from the formal solution (TitanCore.eddfac!, short
+characteristics through every zone): ∂f_k/∂(T_j, E_j, ρ_j) is dense, which the block-pentadiagonal coloured-AD Jacobian (ncol 6)
+cannot hold. Feasible variants: (i) a truncated local derivative — coloured finite differences of eddfac (perturb every 6th zone's
+E_r and T together, 6 colours × 2–3 variables ≈ 12–18 extra formal solutions per Jacobian) entering only the k−2…k+2 blocks;
+cheap, approximate, most of the dependence in the thin zones where f ≠ 1/3 is local; (ii) exact: Jacobian-free Newton–Krylov
+(GMRES on the residual with f at the iterate, the present banded Jacobian as preconditioner), one formal solution per Krylov
+iteration — a solver change. Not attempted.
