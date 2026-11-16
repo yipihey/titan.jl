@@ -260,3 +260,25 @@ conservation as good as the fixed mesh) but does not resolve the front, and the 
 more robust. Keep z300g2 as the main run. GRIDEQ is worth it where the mesh must follow the star over decades in radius (the
 swelling to ~100–200 R☉ and the contraction later, where a fixed log mesh of 0.08 puts few zones in the star) — there it
 replaces re-meshing; use the iterate-only monitor, GEQRAMP only for restarts from a fixed mesh, SUBZONE on.
+
+## 10. z300mm failures and the fsz test (16 Nov evening)
+
+- z300mm's `ndiv` column in perf.csv is cumulative within a segment: per 100 steps the failed solves were 6–16 (bursts of 25 at
+  5100–5200 and 16 at 6200–6300), not rising to 92. The step-6498 collapse to Δt 3.5e-4 s recovered by itself (1.4e5 s at 6578).
+- Failures are at the front (E_r, F_r, coupled species of zones 73–79). The large corrections in zones 285–289 are F_r relative
+  to F ≈ 0 in the CMB bath (F is not in TITAN's convergence measure; the radius rows there move ~1e-8; z300g2 shows the same).
+  The cliff sits on one zone at the gmax floor (Δln r 0.0072–0.0083), flickers between neighbouring zones and creeps outward
+  through the fine zones (cliff zone 73 → 78 over steps 4400–6600). Mesh speed ≤ 3.7 (|u| + c_s).
+- `GEQW` entry 9 (fsz, a823afd): G² × (1 − fsz ω), ω SUBZONE's front weight of the zone's interfaces at the iterate (ω = 1.000
+  at the cliff interface only, offline on z300mm 6200/6450). Test from z300mm S3_auto0 (step 6598), a823afd tree, 4 threads each
+  on 40–43 / 44–47, 300 steps:
+
+| run | failures 6600–6700 / –6800 / –6900 | Δt at the prints | s/step | physical time in 300 steps | cliff zone Δln r, Δln T |
+|---|---|---|---|---|---|
+| `t_mm32` (as z300mm) | 7 / 8 / 5 | 5.3e3, 1.7e3, 9.7e3 s | 5.9, 4.5, 4.2 | 5.8e6 s | 0.0076–0.0077, 0.33–0.89 |
+| `t_mm33` (fsz = 1) | 9 / 7 / 6 | 1.0e3, 9.6e2, 2.4e3 s | 7.0, 5.7, 5.8 | ~3e5 s | 0.011–0.012, 0.58–0.72 |
+
+  Physics agrees with z300mm at equal times (t_mm32 at 238 935.259 yr: M★ 0.1892 M☉, R★ 30.38 R☉; z300mm at .248/.274 yr:
+  0.1886/0.1902, 30.30/30.49; t_mm33 at .086 yr: 0.1788, 29.51 vs z300mm .116 yr: 0.1804, 29.31). fsz = 1 widens the cliff zones
+  1.5× (the neighbour bound) but does not reduce the failures and makes Δt 3–10× smaller in its first 300 steps (the mesh
+  re-adapting around the front). Not recommended; z300mm should continue unchanged.
