@@ -47,9 +47,10 @@ end
     density(r, m, ρ, P, T, E, τ; w, gmax, τlo, τhi) -> (x, M)
 
 M at the zone centres x = ln r_c (zones 2…n: the central sphere is left out) of the state: interfaces r (r[1] = 0), m (interior
-mass), τ (optical depth from the outer edge); zones ρ, P, T, E. Derivatives centred in ln r between zone centres.
+mass), τ (optical depth from the outer edge); zones ρ, P, T, E. Derivatives centred in ln r between zone centres. X (optional, species ×
+zones 1…n): further logarithmic fields, e.g. ln(x + x_floor) of the composition, with the common weight wx.
 """
-function density(r, m, ρ, P, T, E, τ; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 100.0, τlo = 0.1, τhi = 1e4)
+function density(r, m, ρ, P, T, E, τ; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 100.0, τlo = 0.1, τhi = 1e4, X = nothing, wx = 0.0)
     n = length(ρ); x = [log(sqrt(r[j] * r[j+1])) for j in 2:n]
     lmc = [log(0.5 * (m[j] + m[j+1])) for j in 2:n]; ltc = [log(clamp(sqrt(max(τ[j], 1e-300) * max(τ[j+1], 1e-300)), τlo, τhi)) for j in 2:n]
     fs = (log.(ρ[2:n]), log.(P[2:n]), log.(T[2:n]), log.(max.(E[2:n], 1e-300)), lmc, ltc)
@@ -58,6 +59,7 @@ function density(r, m, ρ, P, T, E, τ; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax
         il, ih = max(i - 1, 1), min(i + 1, length(x)); dx = x[ih] - x[il]
         G2 = 0.0
         for (wq, f) in zip(w, fs); G2 += wq * ((f[ih] - f[il]) / dx)^2; end
+        (X === nothing || wx == 0) || (G2 += wx * sum(((X[q, ih+1] - X[q, il+1]) / dx)^2 for q in axes(X, 1)))   # (X: zones 1…n, x: zones 2…n)
         G2 = G2 * gmax^2 / (G2 + gmax^2); M[i] = sqrt(1 + G2)
     end
     (; x, M)
@@ -68,8 +70,8 @@ end
 The mesh of N zones between the fixed first interface and the outer edge that equidistributes ∫ M d ln r, with neighbour ratio
 ≤ (1 + α)/α.
 """
-function target(r, m, ρ, P, T, E, τ, N; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 100.0, alph = 1.5, τlo = 0.1, τhi = 1e4, nf = 6000)
-    D = density(r, m, ρ, P, T, E, τ; w, gmax, τlo, τhi)
+function target(r, m, ρ, P, T, E, τ, N; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 100.0, alph = 1.5, τlo = 0.1, τhi = 1e4, nf = 6000, X = nothing, wx = 0.0)
+    D = density(r, m, ρ, P, T, E, τ; w, gmax, τlo, τhi, X, wx)
     xa, xb = log(r[2]), log(r[end]); dx = (xb - xa) / nf; xe = [xa + (i - 1) * dx for i in 1:nf+1]
     f0 = [lin(D.x, D.M, 0.5 * (xe[i] + xe[i+1])) * dx for i in 1:nf]
     c = equi(f0, N; lg = log((1 + alph) / alph))

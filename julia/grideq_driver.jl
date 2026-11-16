@@ -21,19 +21,38 @@ one; each zone then relaxes in max(min(κ t_cross, κf Δln r/|v|), Δln r t_cro
 neighbours; the floor keeps the grid speed below about fv (|u| + c_s)), so that the mesh keeps up with a moving photosphere or
 shock without being fast everywhere.
 With ICEUL the IC is built on the rule's mesh of the IC. No state beyond the mesh: a checkpoint restarts with the same setting.
+
+GEQX=wx[,xfl] (default 0: off): a composition term wx Σ_s (∂ ln(x_s + xfl)/∂ ln r)² over every species of the network (abundances
+per H nucleus, ChemNet.full; xfl default 1e-3), frozen per step like the τ term (mode 1) and in the explicit target (mode 0). A
+species far below xfl contributes nothing, so only changes of composition that carry a share ≳ xfl of the nuclei (ionization and
+H2 dissociation fronts) are resolved; no list of species, no thresholds per front.
+GEQRAMP=κ0,n (default off): κ of the time smoothing rises geometrically from κ0 to GEQC's κ over the first n steps after the start of
+the process (a restart from a fixed-mesh checkpoint, whose mesh is far from the rule's: κ 30 would take ~30 crossing times of the
+front to adapt it, during which Δt stays at the fixed mesh's).
 """
 const GRIDEQP = haskey(ENV, "GRIDEQ") ? parse(Int, ENV["GRIDEQ"]) : nothing
 geqv(key, defs) = (v = haskey(ENV, key) ? parse.(Float64, split(ENV[key], ",")) : Float64[]; [i <= length(v) ? v[i] : defs[i] for i in eachindex(defs)])
 const GEQW = geqv("GEQW", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0])
 const GEQC = geqv("GEQC", [100.0, 1.5, 30.0, 0.5, 0.5, 0.1, 1e4, 0.3, 0.0])
+const GEQX = geqv("GEQX", [0.0, 1e-3])
+const GEQRAMP = haskey(ENV, "GEQRAMP") ? parse.(Float64, split(ENV["GEQRAMP"], ",")) : nothing
+const GEQJ0 = Ref(-1)                  # jstep at the first grideq_step! of this process (GEQRAMP)
 const GEQPREV = Ref{Any}(nothing)      # (t, x, M) of the last step: the monitor function's own motion (feature tracking)
 const GEQLAST = Ref{Any}(nothing)
 "State on the present mesh (interfaces centre first; m per steradian)."
 function geq_state()
     r = TF.var(:rn)[a:b+1]; u = TF.var(:un)[a:b+1]; m = envmenc()
-    (; r, u, m, ρ = TF.var(:dn)[a:b], P = TF.var(:pgn)[a:b], T = TF.var(:tn)[a:b], E = TF.var(:ern)[a:b], cs = TF.var(:asn)[a:b], τ = gm_tau(a))
+    (; r, u, m, ρ = TF.var(:dn)[a:b], P = TF.var(:pgn)[a:b], T = TF.var(:tn)[a:b], E = TF.var(:ern)[a:b], cs = TF.var(:asn)[a:b], τ = gm_tau(a),
+       X = GEQX[1] > 0 ? geq_lx() : nothing)
 end
-geq_target(s; N = nsh - 1) = GridEq.target(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ, N; w = Tuple(GEQW), gmax = GEQC[1], alph = GEQC[2], τlo = GEQC[6], τhi = GEQC[7])
+"GEQX: ln(x_s + xfl) of every network species (rows) in the zones a…b (columns)."
+function geq_lx()
+    mat isa PM.NetGas || return nothing
+    d = [ChemNet.full(mat.x[k], mat.net) for k in a:b]; sp = sort(collect(keys(d[1])))
+    Float64[log(max(Float64(ForwardDiff.value(d[j][q])), 0.0) + GEQX[2]) for q in sp, j in eachindex(d)]
+end
+geq_target(s; N = nsh - 1) = GridEq.target(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ, N; w = Tuple(GEQW), gmax = GEQC[1], alph = GEQC[2], τlo = GEQC[6], τhi = GEQC[7],
+                                            X = s.X, wx = GEQX[1])
 "Signal-crossing time of every zone, r_c/(|u| + c_s)."
 geq_tcross(s) = [0.5 * (s.r[j] + s.r[j+1]) / (0.5 * (abs(s.u[j]) + abs(s.u[j+1])) + s.cs[j]) for j in eachindex(s.ρ)]
 """
@@ -45,16 +64,19 @@ function geq_diag(s)
     if s.u[ku] < 0
         j = ku; while j > 1 && s.u[j-1] < 0.2 * s.u[ku]; j -= 1; end; nsk = ku - j
     end
-    nph = count(t -> 0.1 <= t <= 10, s.τ)
+    nph = count(t -> 0.1 <= t <= 10, s.τ); nph5 = count(t -> 1 <= t <= 1e5, s.τ)
+    dT = maximum(abs(log(s.T[j+1] / s.T[j])) for j in 2:length(s.T)-1)      # largest jump of ln T across one interface
     dl = [log(s.r[j+1] / s.r[j]) for j in 2:length(s.ρ)]
     rat = maximum(max(dl[j] / dl[j-1], dl[j-1] / dl[j]) for j in 2:length(dl))
-    (; nsk, rsk = s.r[ku], uk = s.u[ku], nph, dlmin = minimum(dl), rat)
+    (; nsk, rsk = s.r[ku], uk = s.u[ku], nph, nph5, dT, dlmin = minimum(dl), rat)
 end
 function grideq_step!()
     s = geq_state(); n = nsh; dt = TF.getscalar(:dtime); tc = geq_tcross(s); κ = GEQC[3]; κf = GEQC[9]
+    js_ = Int(TF.getscalar(:jstep)); GEQJ0[] < 0 && (GEQJ0[] = js_)
+    GEQRAMP === nothing || (κ = GEQRAMP[1] * (κ / GEQRAMP[1])^clamp((js_ - GEQJ0[]) / GEQRAMP[2], 0.0, 1.0))
     tfe = fill(Inf, n); nfast = 0                                 # feature-crossing time of each zone (feature tracking)
     if κf > 0
-        D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7])
+        D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.X, wx = GEQX[1])
         t = TF.getscalar(:timen); pv = GEQPREV[]
         if pv !== nothing && t > pv[1]
             Mp = [GridEq.lin(pv[2], pv[3], x) for x in D.x]; nd = length(D.x); v = zeros(nd)
@@ -80,6 +102,8 @@ function grideq_step!()
             sx[a+j-1] = GEQW[6] * (h * (lτc[jp] - lτc[jm]))^2
             # velocity jump in units of the signal speed, (r ∂u/∂r)/(|u| + c_s): resolves shocks (the zone's own Δu, per zone index)
             GEQW[7] > 0 && (sx[a+j-1] += GEQW[7] * ((s.u[j+1] - s.u[j]) / (0.5 * (abs(s.u[j]) + abs(s.u[j+1])) + s.cs[j]))^2)
+            # GEQX: composition, ln(x + xfl) of every species, centred zone differences as the τ term
+            s.X === nothing || (sx[a+j-1] += GEQX[1] * sum((h * (s.X[q, jp] - s.X[q, jm]))^2 for q in axes(s.X, 1)))
         end
         TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, sx)
     else
@@ -99,7 +123,7 @@ function grideq_step!()
             end
         end
     end
-    GEQLAST[] = merge(geq_diag(s), (; nfast))
+    GEQLAST[] = merge(geq_diag(s), (; nfast, κ))
     nothing
 end
 function grideq_line()
@@ -110,6 +134,6 @@ function grideq_line()
             v = abs(rn[k] - ro[k]) / dt / (abs(un[k]) + 0.5 * (cs[k-1] + cs[k])); vmax = max(vmax, v)
         end
     end
-    @sprintf("        grid eq: shock at %.4g R_sun (u %.1f km/s) across %d zones, photosphere (0.1 <= tau <= 10) across %d interfaces; dln r min %.3e, max neighbour ratio %.2f; grid speed max %.3f (|u| + c_s); %d zones relaxing at their feature speed\n",
-             d.rsk / Rsun, d.uk / 1e5, d.nsk, d.nph, d.dlmin, d.rat, vmax, d.nfast)
+    @sprintf("        grid eq: shock at %.4g R_sun (u %.1f km/s) across %d zones, photosphere (0.1 <= tau <= 10) across %d interfaces (1 <= tau <= 1e5: %d), largest |dln T| per interface %.3f; dln r min %.3e, max neighbour ratio %.2f; grid speed max %.3f (|u| + c_s); %d zones relaxing at their feature speed; kappa %.3g\n",
+             d.rsk / Rsun, d.uk / 1e5, d.nsk, d.nph, d.nph5, d.dT, d.dlmin, d.rat, vmax, d.nfast, d.κ)
 end
