@@ -193,3 +193,40 @@ right at r_b: the grey run's or the formal solution's) before front positions ar
    zones beyond the He I front.
 5. L_run/L_fs ≈ 2 (above). NLOIT's opacity iterate (`nlo_comp`) does not include the implicit ray's rates (NLOIT is off in production).
 6. H₂ photoionization and H⁻ in the LW band are left out (trace absorbers here).
+
+# ionfs-v2 (16 Nov): onto popiii-s6 1782928, the z300mm moving-mesh protostar
+
+Branch `ionfs-v2` = popiii-s6 1782928 + ionfs-implicit 4698bbe + the changes below; all behind `IONFS=1 IONFSIMP=1` (default off).
+
+## Merge
+- The coupled-zone rates now run in the threaded zone sweep (PERF512); ray zones call `CPL_RAY` there (per-zone caches, atomics only).
+- SLIMP=2: ray zones take the star light at the iterate (`sl_qt` → `cpl_tq`, Float, lagged in the local Jacobian); `cpl_tq`'s rebuilt LW
+  rate is the ray's (0 in a ray zone, the ray's lagged rate elsewhere outside r_ph; `ifsi_lwrec`), so SLIMP no longer re-adds STARLIGHT's
+  W B_ν(T_c) LW on top of the ray.
+- NLOIT: a ray zone's opacity composition is the ray's CK expansion (`nlo_comp`).
+- GRIDEQ: the ray's geometry (Δr, V) is the Newton iterate's (Float, lagged within an iteration).
+- **Bit-identical off:** 40 steps from z300mm's z19t_mm24S3_auto0 with z300mm's settings, 1782928 (`t_ifm1`) against 0640880 (`t_ifm2`)
+  and cad6ca4 (`t_ifm5`): identical uncompressed final state (md5 28ead850…) and .aux (ae6d4c19…).
+
+## L_run/L_fs: the cause
+IONFSLDIAG solves the same formal solution once more with the run's own grey opacity (χ = chifn ρ, κ_P ρ, B(T)). At z300mm (r_b 25 R☉):
+- before: L_fs = 2.4 L_run, and the grey formal solution 2.19 L_run. The photosphere is a transparency front inside one zone
+  (τ_grey 732 → < 2/3 across zone 77, SUBZONE); the formal solution had that zone's centre T (7302 K) out to r_b, against
+  T_eff = 6000 K from L_run: (7302/6000)⁴ = 2.19. The run itself carries the sub-zone front (SUBZONE), the formal solution did not.
+- fix (`IONFSSUB`, default on with IONFSIMP): the outer part of the front zone as sub-points on the zone's grey τ scale (τ = 300 … 0.001,
+  0 at r_b) with the grey Eddington T⁴ = ¾ T_eff⁴(τ + 2/3), capped at the zone's T, and the source opacity there scaled to the zone's grey
+  opacity per length. The grey check then gives 0.94–0.97 L_run: the method is consistent with the run.
+- what remains, L_fs ≈ 2.8–3.6 L_run with the frequency-dependent continuum opacity: the source opacity is continuum only (no lines).
+  At zone 75 (12 kK) its Rosseland mean is 0.6 of the run's χ and its Planck mean 1/60 of the run's κ_P; the windows let flux out from the
+  12–15 kK layers below. That is missing line blanketing in the optical/IR, not in the Lyman continuum (H bound–free dominates there).
+  IONFSNORM=1 still scales all groups by L_run/L_fs (0.27–0.6 at z300mm), so the UV numbers below are conservative by that factor;
+  `fnorm` is in every CSV row (unscaled = Q/fnorm).
+- The c128c ratio (0.5, the other sign) was not re-examined: that run is above 500 M☉.
+- The source now starts in the innermost zone with grey τ > 3e3 (`IONFSTAUC`), at least 6 zones inside r_b (`IONFSNZMIN`), so
+  everything that can leak through the front (the precursor and shock layers below τ ~ 3e3) is in the formal solution.
+
+## Diagnostics: <RUNREC>/ionfs_snap.csv (every snapshot)
+See the docstring of `ifsi_snaplog` (IonFSImp.jl): emitted (at r_ph) and escaping (outer boundary) Q_LW, Q_H, Q_HeI, Q_HeII; the H, He I,
+He II ionization fronts and the H₂ fronts (f_H₂ = 0.1, 0.5) relative to r_ph; dissociations per s of the ray and of the SLSHIELD rate; the
+ray's ionizing and LW heating powers; and at 1e2, 1e3, 1e4, 1e5 R☉ the photon rates crossing, T, u, x_e, f_H₂, both LW rates, the ray's
+heating per mass and t_flow/t_heat. `ionfsi.csv` (every step) keeps the photon bookkeeping per group.
