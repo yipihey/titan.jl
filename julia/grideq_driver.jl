@@ -36,7 +36,15 @@ const GEQW = geqv("GEQW", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0])
 const GEQC = geqv("GEQC", [100.0, 1.5, 30.0, 0.5, 0.5, 0.1, 1e4, 0.3, 0.0])
 const GEQX = geqv("GEQX", [0.0, 1e-3])
 const GEQRAMP = haskey(ENV, "GEQRAMP") ? parse.(Float64, split(ENV["GEQRAMP"], ",")) : nothing
-const GEQJ0 = Ref(-1)                  # jstep at the first grideq_step! of this process (GEQRAMP)
+const GEQJ0 = Ref(-1)
+"""
+GEQREMAP=f (with GRIDEQ and a restart from an lgrid = 2 checkpoint, regular centre; default 0 = off): if the checkpoint's mesh is far
+from the rule's, max_j(M_j Δln r_j) > f × median (a fixed-mesh checkpoint whose front sits in one zone), the state is rebuilt once on
+GRIDEQ's explicit target mesh of the same zone count (envbuild!: enclosed mass kept at every source interface with ENVCONS=1; T, E_r,
+x interpolated in ln r between zone centres; u, L at the interfaces; lagged material state reset as at the hand-over), mass zero point
+and fixed-mesh flags set again as ICEUL. A mesh already close to the rule (the next segment of the same run) is not remapped.
+"""
+const GEQREMAP = parse(Float64, get(ENV, "GEQREMAP", "0"))                  # jstep at the first grideq_step! of this process (GEQRAMP)
 const GEQPREV = Ref{Any}(nothing)      # (t, x, M) of the last step: the monitor function's own motion (feature tracking)
 const GEQLAST = Ref{Any}(nothing)
 "State on the present mesh (interfaces centre first; m per steradian)."
@@ -53,6 +61,31 @@ function geq_lx()
 end
 geq_target(s; N = nsh - 1) = GridEq.target(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ, N; w = Tuple(GEQW), gmax = GEQC[1], alph = GEQC[2], τlo = GEQC[6], τhi = GEQC[7],
                                             X = s.X, wx = GEQX[1])
+"GEQREMAP: rebuild a restarted fixed-mesh state on the rule's mesh (see GEQREMAP)."
+function geq_remap!()
+    ENVCENTRE || error("GEQREMAP needs a regular centre (ENVEUL=0,...)")
+    s = geq_state(); D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.X, wx = GEQX[1])
+    q = [D.M[i] * log(s.r[i+2] / s.r[i+1]) for i in eachindex(D.M)]; qs = sort(q); qmed = qs[(length(qs) + 1) ÷ 2]
+    pr("GEQREMAP: max M dln r / median %.3g (threshold %.3g) at zone %d (r %.4g R_sun)\n", maximum(q) / qmed, GEQREMAP, argmax(q) + 1, s.r[argmax(q)+1] / Rsun)
+    maximum(q) / qmed > GEQREMAP || return nothing
+    E0 = geq_energy(); rq = geq_target(s)
+    envbuild!(; rIset = vcat(0.0, rq))
+    get(ENV, "ICXMZ", "1") == "1" && xmzero!()
+    envflags!(); ENVMS0[] = 0.0
+    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
+    E1 = geq_energy()
+    pr("GEQREMAP: rebuilt on the rule's mesh (%d zones, dln r %.4f .. %.4f); mass %.10e -> %.10e Msun; E_int %.6e -> %.6e, E_kin %.4e -> %.4e, E_rad %.4e -> %.4e, E_grav %.6e -> %.6e erg (total change %.3e of |E_grav|)\n",
+       nsh, minimum(diff(log.(rq))), maximum(diff(log.(rq))), E0.M / Msun, E1.M / Msun, E0.ei, E1.ei, E0.ek, E1.ek, E0.er, E1.er, E0.eg, E1.eg,
+       ((E1.ei + E1.ek + E1.er + E1.eg) - (E0.ei + E0.ek + E0.er + E0.eg)) / abs(E0.eg))
+    nothing
+end
+"Grid totals (erg, g): internal (e incl. the chemical offsets), kinetic (zone-centred u), radiation, gravitational (−G m dm / r_c)."
+function geq_energy()
+    r = TF.var(:rn)[a:b+1]; u = TF.var(:un)[a:b+1]; m = 4π .* envmenc(); e = TF.var(:egn)[a:b]; E = TF.var(:ern)[a:b]; n = nsh
+    dm = diff(m); ei = sum(dm .* e); ek = sum(0.5 * dm[j] * (0.5 * (u[j] + u[j+1]))^2 for j in 1:n)
+    er = sum(4π / 3 * (r[j+1]^3 - r[j]^3) * E[j] for j in 1:n); eg = -sum(6.674e-8 * 0.5 * (m[j] + m[j+1]) * dm[j] / (0.5 * (r[j] + r[j+1])) for j in 1:n)
+    (; ei, ek, er, eg, M = m[end])
+end
 "Signal-crossing time of every zone, r_c/(|u| + c_s)."
 geq_tcross(s) = [0.5 * (s.r[j] + s.r[j+1]) / (0.5 * (abs(s.u[j]) + abs(s.u[j+1])) + s.cs[j]) for j in eachindex(s.ρ)]
 """
@@ -98,7 +131,7 @@ function grideq_step!()
             # (feature tracking; floor: a zone moving its own width in t_relax goes at most fv (|u| + c_s))
             dxj = j >= 2 ? log(s.r[j+1] / s.r[j]) : 1.0
             # (κf = 0: no feature tracking; 0 × Inf would be NaN and min() propagates it into every grid row)
-            tr_ = max(κf > 0 ? min(κ * tc[j], κf * tfe[j]) : κ * tc[j], dxj * tc[j] / GEQC[4]); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_
+            tr_ = max(κf > 0 ? min(κ * tc[j], κf * tfe[j]) : κ * tc[j], dxj * tc[j] / GEQC[4] * κ / GEQC[3]); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_   # (GEQRAMP: floor ramped with κ)
             jm, jp = max(j - 1, 2), min(j + 1, n); h = jp - jm == 2 ? 0.5 : 1.0
             sx[a+j-1] = GEQW[6] * (h * (lτc[jp] - lτc[jm]))^2
             # velocity jump in units of the signal speed, (r ∂u/∂r)/(|u| + c_s): resolves shocks (the zone's own Δu, per zone index)

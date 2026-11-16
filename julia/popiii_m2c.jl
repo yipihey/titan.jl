@@ -1383,20 +1383,20 @@ function envlr(rout)
     (length(lr) + (ENVCENTRE ? ENVLIN : 0)) % 2 == 0 && pop!(lr)                    # (an even zone count: an odd number of interfaces)
     lr[1] .+ (lr .- lr[1]) .* (log(rout) - lr[1]) / (lr[end] - lr[1])
 end
-function envbuild!()
+function envbuild!(; rIset = nothing)     # rIset (GEQREMAP): the interfaces (centre 0 … outer edge) of the new mesh, from a fixed-mesh (lgrid = 2) source
     r0 =TF.var(:rn)[a:b+1]; u0 = TF.var(:un)[a:b+1]; d0 = TF.var(:dn)[a:b]; T0 = TF.var(:tn)[a:b]; E0 = TF.var(:ern)[a:b]; F0 = TF.var(:frn)[a:b+1]
-    m0 = 4π .* TX.XMINT[][a:b+1]; x0 = [copy(mat.x[a+j-1]) for j in 1:nsh]; eq0 = [mat.eqzone[a+j-1] for j in 1:nsh]
+    m0 = rIset === nothing ? 4π .* TX.XMINT[][a:b+1] : 4π .* envmenc(); x0 = [copy(mat.x[a+j-1]) for j in 1:nsh]; eq0 = [mat.eqzone[a+j-1] for j in 1:nsh]
     t0 = TF.getscalar(:timen); js = TF.getscalar(:jstep)
     ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
     lr = envlr(r0[end])
-    if GRIDMAPP !== nothing      # the planned mesh (GridMap) from the source's enclosed mass in place of the ENVCORE/ENVEUL spacing; same first and last interface
+    if GRIDMAPP !== nothing && rIset === nothing      # the planned mesh (GridMap) from the source's enclosed mass in place of the ENVCORE/ENVEUL spacing; same first and last interface
         i1 = findfirst(j -> r0[j] > 0 && m0[j] > 0, eachindex(r0)); Nz = Int(GRIDMAPP[1]); (Nz + (ENVCENTRE ? 1 : 0)) % 2 == 0 || (Nz -= 1)
         Mst = GridMap.anchor(m0[i1:end], u0[i1:end])
         P_ = GridMap.target(r0[i1:end], m0[i1:end], Mst; N = Nz, rlo = exp(lr[1]), gridmap_kw()..., gmwin_kw(r0[i1:end], m0[i1:end], Mst)...)
         lr = log.(P_.r); GMLAST[] = (0.0, 0, Mst / 4π, P_.lam, P_.nfloor, 0.0, 0.0, Inf)
         pr("GRIDMAP: starting mesh of %d zones from the enclosed mass of the source, M* %.5f Msun, scale %.3f, %d zones at the floor\n", Nz, Mst / Msun, P_.lam, P_.nfloor)
     end
-    rI = exp.(lr); rI[end] = r0[end]; ENVCENTRE && (rI = vcat([rI[1] * i / ENVLIN for i in 0:ENVLIN-1], rI)); n = length(rI) - 1
+    rI = exp.(lr); rI[end] = r0[end]; ENVCENTRE && (rI = vcat([rI[1] * i / ENVLIN for i in 0:ENVLIN-1], rI)); rIset === nothing || (rI = copy(rIset)); n = length(rI) - 1
     rc = [0.5 * (r0[j] + r0[j+1]) for j in 1:nsh]; lc = log.(rc); lf = log.(max.(r0, 1.0))
     function interp(xs, ys, x)                                                 # linear in the first argument, flat beyond the ends
         x <= xs[1] && return ys[1]; x >= xs[end] && return ys[end]
@@ -1567,6 +1567,7 @@ elseif haskey(ENV, "RESTART")
     RAD && (radsettings!(); TD.EOS[](); TD.OPAC[]())
     if ENVEUL !== nothing
         Int(TF.getscalar(:lgrid)) == 3 ? envbuild!() : (envflags!(); ENVMS0[] = (ENVCENTRE && !haskey(ENV, "ENVMS0") ? 0.0 : parse(Float64, ENV["ENVMS0"])) * Msun / 4π)   # (regular centre: no sink, ENVMS0 unused)
+        GRIDEQP !== nothing && GEQREMAP > 0 && Int(TF.getscalar(:lgrid)) == 2 && geq_remap!()     # GEQREMAP (default off)
     end
 elseif ICEUL
     iceulbuild!()
