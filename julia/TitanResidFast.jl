@@ -947,7 +947,16 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
             wE * (h * log(er[jp] / er[jm]))^2 + wm * (h * (lm(jp) - lm(jm)))^2 + ge.sx[j]
         # (GEQW entry 8, wχ > 0: the extinction coefficient χρ of the Newton iterate, ln(χ_jp ρ_jp/χ_jm ρ_jm): the opacity cliff, local, not lagged)
         (hasproperty(ge, :wχ) && ge.wχ > 0 && chi !== nothing) && (S += ge.wχ * (h * log((chi[jp] * dn[jp]) / (chi[jm] * dn[jm])))^2)
-        G2 = ν(j)^2 * S; G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
+        G2 = ν(j)^2 * S
+        # (GEQW entry 9, fsz > 0: a front thinner than a photon mean free path of its opaque side cannot be resolved by any affordable
+        # zone; SUBZONE's front weight ω of the interfaces j and j+1 (one half-zone opaque, the other transparent, at the iterate)
+        # takes the monitor's demand away there: G² × (1 − fsz ω))
+        if hasproperty(ge, :fsz) && ge.fsz > 0 && chi !== nothing
+            hz(i) = (i = zc(i); 0.5 * chi[i] * dn[i] * (rn[i+1] - rn[i]))
+            ωi(i) = (i <= zl || i > zh) ? zero(G2) : sz_tau(hz(i - 1), hz(i), zero(G2), SZTAUF[])[2]
+            G2 = G2 * (1 - ge.fsz * max(ωi(j), ωi(j + 1)))
+        end
+        G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
         γ = ge.tauv[j] / dt
         ((1 + γ) * xnt - γ * xnto) / sqrt(1 + G2)
     end
