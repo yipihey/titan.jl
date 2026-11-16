@@ -180,18 +180,21 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS
     kB = COp.kB; h = COp.h; kT = kB * T
     Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
     χH = Z0.χH; χ2 = Z0.χHe2
-    wH = ntuple(n -> Z0.occupation(n, 1, Nion, Nneu), NLEV); wHe = ntuple(n -> Z0.occupation(n, 2, Nion, Nneu), NLEV)
-    pH0 = ntuple(n -> n == 1 ? zero(n2 * T) : n2 * (n^2 / 4) * exp(-χH * (0.25 - 1 / n^2) / kT) * wH[n] / max(wH[2], 1e-300), NLEV)
-    ng = max(n1 - sum(pH0), zero(n1 - sum(pH0)))
-    pH = ntuple(n -> n == 1 ? ng + zero(pH0[1]) : pH0[n], NLEV)
-    UHe = sum(n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n] for n in 1:NLEV)
-    pHe = ntuple(n -> nHep * n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n] / UHe, NLEV)
+    Tp = typeof(one(n1) * one(n2) * one(nHep) * one(Nion) * one(Nneu) * one(T))
+    wH = Vector{Tp}(undef, NLEV); wHe = Vector{Tp}(undef, NLEV); pH = Vector{Tp}(undef, NLEV); pHe = Vector{Tp}(undef, NLEV)
+    for n in 1:NLEV; wH[n] = Z0.occupation(n, 1, Nion, Nneu); wHe[n] = Z0.occupation(n, 2, Nion, Nneu); end
+    sx = zero(Tp)
+    for n in 2:NLEV; pH[n] = n2 * (n^2 / 4) * exp(-χH * (0.25 - 1 / n^2) / kT) * wH[n] / max(wH[2], 1e-300); sx += pH[n]; end
+    ng = max(n1 - sx, zero(Tp)); pH[1] = ng
+    UHe = zero(Tp)
+    for n in 1:NLEV; pHe[n] = n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n]; UHe += pHe[n]; end
+    for n in 1:NLEV; pHe[n] *= nHep / UHe; end
     lT = log10(ForwardDiff_value(T)); x = clamp((lT - FLT0) / FDLT, 0.0, FNT - 1 - 1e-9); j = floor(Int, x) + 1
     a = clamp((log10(T) - FLT0) / FDLT - (j - 1), 0.0, 1.0)            # (generic weight; clamped at the table ends)
     cia = nH2 > 1e-3 * n1; wJ = Tw != T
     N = length(F.ν)
     # dissolved-level contributions per node (sparse)
-    dis = zeros(typeof(zero(n1 * T)), N)
+    dis = zeros(Tp, N)
     for (i, n, ns, σe) in F.DIS
         d = 1 - Z0.occupation(ns, 1, Nion, Nneu) / max(wH[n], 1e-300)
         d > 0 && (dis[i] += d * pH[n] * σe)
