@@ -962,7 +962,8 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
     end
     nothing
 end
-const GEQDBG = Ref(get(ENV, "GEQDBG", "0") == "1")
+const GEQDBG = Ref(get(ENV, "GEQDBG", "0") in ("1", "2"))
+const GEQDBG2 = Ref(get(ENV, "GEQDBG", "0") == "2" ? 5 : 0)
 
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
     UPFREEZE[] > 0 && (UPHOLD[] = TF.getscalar(:iter) >= UPFREEZE[])
@@ -1678,6 +1679,18 @@ function _assemble!(c::Ctx, ::Val{PP}, ncol) where {PP}
     end
     ws = getws(D, c.mgr)
     residual!(Rd, ws, c, xd)
+    if GEQDBG2[] > 0                          # (GEQDBG=2: the first non-finite residual value or Jacobian entry, row and block, once per few calls)
+        fnd = false
+        @inbounds for kb in 1:nb, i in 1:neqn
+            fnd && break
+            vv = ForwardDiff.value(Rd[i, kb]); pp = ForwardDiff.partials(Rd[i, kb])
+            if !isfinite(vv) || !all(isfinite, pp)
+                GEQDBG2[] -= 1
+                println("GEQDBG2: row ", i, " block ", kb, " (k ", c.k0 + kb - 1, ") value ", vv, " non-finite partials ", count(!isfinite, pp), " of ", length(pp))
+                fnd = true
+            end
+        end
+    end
     E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); rhs = v(:rhs)
     _scatter!(E, rhs, Rd, neqn, nb, k0, ncol)
     store_side!(c, ws)
