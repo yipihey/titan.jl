@@ -97,7 +97,8 @@ function grideq_step!()
         for j in 1:n
             # (feature tracking; floor: a zone moving its own width in t_relax goes at most fv (|u| + c_s))
             dxj = j >= 2 ? log(s.r[j+1] / s.r[j]) : 1.0
-            tr_ = max(min(κ * tc[j], κf * tfe[j]), dxj * tc[j] / GEQC[4]); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_
+            # (κf = 0: no feature tracking; 0 × Inf would be NaN and min() propagates it into every grid row)
+            tr_ = max(κf > 0 ? min(κ * tc[j], κf * tfe[j]) : κ * tc[j], dxj * tc[j] / GEQC[4]); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_
             jm, jp = max(j - 1, 2), min(j + 1, n); h = jp - jm == 2 ? 0.5 : 1.0
             sx[a+j-1] = GEQW[6] * (h * (lτc[jp] - lτc[jm]))^2
             # velocity jump in units of the signal speed, (r ∂u/∂r)/(|u| + c_s): resolves shocks (the zone's own Δu, per zone index)
