@@ -670,6 +670,36 @@ interface j's weight is `gwt(k, j, …)`; the uniform-field term (1 − μ/2) P.
 const GFV = Ref(false)
 "Zone k's part of the mass that the gravity term of interface j's momentum row multiplies by g_j: ½ m_k, or with GFV ½ r_j^μ ρ_k (r_k+1 − r_k)."
 @inline gwt(k, j, d, dvol, r, rmu) = GFV[] ? 0.5 * rmu[j] * d[k] * (r[k+1] - r[k]) : 0.5 * d[k] * dvol[k]
+"""
+GVAR[] (provisional, ENV GVAR=1, default false; μ = 2 self-gravity): the gravity force of the gas momentum row as the gradient of the exact
+binding energy of the piecewise-constant density (docs/POPIII_ENERGY.md §19),
+    F_j = ∂W/∂r_j at fixed zone masses,   W = −4πG Σ_k ∫_zone k M(r) ρ_k r dr,   M(r) = M_j + ρ_k (r³ − r_j³)/3 on either side of interface j,
+which is ∫ρ g ξ_j dV with the displacement field ξ_j of interface j moving at uniform zone densities (r² ξ_j linear in r³ in both zones):
+    F_j = 4πG r_j² [ρ_j−1 ∫ M (r³ − r_j−1³)/(r² (r_j³ − r_j−1³)) dr + ρ_j ∫ M (r_j+1³ − r³)/(r² (r_j+1³ − r_j³)) dr]      (`gvar_in`, `gvar_out`).
+A state-only force with a binding energy when the interfaces move with the gas (the finite-volume weight GFV has none), and within a few
+per cent of the finite-volume weight where mass passes. The external mass (EXTMASS) and the uniform field P.g keep the node mass.
+Not applied to the PEXT free-surface row.
+"""
+const GVAR = Ref(false)
+"GVAR: r_b² ρ ∫_a^b M(r) (r³ − a³)/(r² (b³ − a³)) dr, M(r) = M − ρ (b³ − r³)/3: the zone below interface b (M the mass enclosed by b), per 4πG."
+@inline function gvar_in(a, b, ρ, M)
+    A = M - ρ * b^3 / 3
+    b^2 * ρ * (b - a) * (A * (b + 2a) / (2b) + ρ / 30 * (2b^3 + 4b^2 * a + 6b * a^2 + 3a^3)) / (b^2 + a * b + a^2)
+end
+"GVAR: r_a² ρ ∫_a^b M(r) (b³ − r³)/(r² (b³ − a³)) dr, M(r) = M + ρ (r³ − a³)/3: the zone above interface a (M the mass enclosed by a), per 4πG."
+@inline function gvar_out(a, b, ρ, M)
+    A = M - ρ * a^3 / 3
+    a^2 * ρ * (b - a) * (A * (2b + a) / (2a) + ρ / 30 * (3b^3 + 6b^2 * a + 4b * a^2 + 2a^3)) / (b^2 + a * b + a^2)
+end
+"""
+GFV/GVAR: zone k's part of the self-gravity force of interface j's momentum row (j = k: the zone above the interface, j = k + 1: below it);
+G4 = 4πG, xmj the enclosed mass of the row, xej its external part.
+"""
+@inline function gfz(k, j, d, dvol, r, rmu, G4, xmj, xej)
+    GVAR[] || return G4 * xmj / rmu[j] * gwt(k, j, d, dvol, r, rmu)
+    (j == k ? G4 * gvar_out(r[k], r[k+1], d[k], xmj - xej) : G4 * gvar_in(r[k], r[k+1], d[k], xmj - xej)) + G4 * xej / rmu[j] * 0.5 * d[k] * dvol[k]
+end
+@inline gxe(rj) = EXTMASS[] === nothing ? zero(rj) : EXTMASS[](rj)
 @inline function ecgrav(k, c, W, exact::Bool)
     P = c.p; xmu = Float64(c.mu); a, b = c.ngrs, c.ngre; r = W.r
     G4 = 2xmu * P.cpi * P.cgrav
@@ -678,9 +708,14 @@ const GFV = Ref(false)
     w = zero(W.u[k] * mh)
     if !exact
         uf(j) = gridmoves() ? W.u[j] : W.urel[j]
-        mg(j) = GFV[] ? gwt(k, j, W.d, W.dvol, r, W.rmu) : mh          # the momentum row's weight (GFV)
-        k > a && (w += g(k) * (W.rmu[k] * uf(k) * W.db[k] * Δr - W.u[k] * mg(k)))
-        k < b && (w += g(k + 1) * (W.rmu[k+1] * uf(k + 1) * W.db[k+1] * Δr - W.u[k+1] * mg(k + 1)))
+        if GFV[] || GVAR[]                                              # the momentum row's force with GFV/GVAR
+            fz(j) = gfz(k, j, W.d, W.dvol, r, W.rmu, G4, W.xm[j], gxe(r[j])) + (1 - 0.5xmu) * P.g * mh
+            k > a && (w += g(k) * W.rmu[k] * uf(k) * W.db[k] * Δr - W.u[k] * fz(k))
+            k < b && (w += g(k + 1) * W.rmu[k+1] * uf(k + 1) * W.db[k+1] * Δr - W.u[k+1] * fz(k + 1))
+        else
+            k > a && (w += g(k) * (W.rmu[k] * uf(k) * W.db[k] * Δr - W.u[k] * mh))
+            k < b && (w += g(k + 1) * (W.rmu[k+1] * uf(k + 1) * W.db[k+1] * Δr - W.u[k+1] * mh))
+        end
     else
         xmu == 2 || error("ECGRAV 3/4: spherical geometry only")
         xe(j) = EXTMASS[] === nothing ? zero(r[j]) : EXTMASS[](r[j])
@@ -1364,12 +1399,17 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         mk = 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])
         r1 = r[k]^(-0.5xmu)
         r3k = ((r[k] + r[k+1]) / 2)^(1.5xmu); r3m = ((r[k-1] + r[k]) / 2)^(1.5xmu)
+        fgk = if GFV[] || GVAR[]                # gravity force with the finite-volume weight / as the gradient of the binding energy
+            xek = gxe(r[k]); G4_ = 2xmu * P.cpi * P.cgrav
+            gfz(k - 1, k, d, dvol, r, rmu, G4_, xm[k], xek) + gfz(k, k, d, dvol, r, rmu, G4_, xm[k], xek) + (1 - 0.5xmu) * P.g * mk
+        else
+            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk
+        end
         w = (un[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
              c.uo[k] * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2dt) -
             0.5 * ((dmdt[k] + dmdt[k+1]) * ub[k] - (dmdt[k-1] + dmdt[k]) * ub[k-1]) +
             rmu[k] * (pg[k] - pg[k-1]) +
-            (GFV[] ? 2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] * (gwt(k - 1, k, d, dvol, r, rmu) + gwt(k, k, d, dvol, r, rmu)) + (1 - 0.5xmu) * P.g * mk :
-                     (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk) +
+            fgk +
             r1 * (r3k * qf[k] - r3m * qf[k-1])
         c.lrad && (w -= (Mg === nothing ? avchi[k] * fr[k] : Mg.frc[k]) / cc * mk)   # (MGROUPS: Σ_g χ̄_g F_g)
         R[iu, kb(k)] = w
@@ -1420,8 +1460,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             # discretisation of the pressure difference that balances the momentum equation.
             lp = log(Pp / Pm)
             if MLT_HS[]
-                lph = MLT_HSDISC[] ? (GFV[] ? -gk * (gwt(k - 1, k, d, dvol, r, rmu) + gwt(k, k, d, dvol, r, rmu)) / (rmu[k] * Pi) :
-                                              -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (rn[k+1] - rn[k-1]) / HP
+                lph = MLT_HSDISC[] ? ((GFV[] || GVAR[]) ? -(gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
+                                                           gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
+                                                           (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
+                                      -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (rn[k+1] - rn[k-1]) / HP
                 q = clamp((ForwardDiff.value(lp / lph) - 0.25) / 0.5, 0.0, 1.0); sw = q * q * (3 - 2q)
                 sw < 1 && (lp = sw * lp + (1 - sw) * lph)
             end
@@ -1891,7 +1933,7 @@ function zone_diag(dt)
         ine = 0.5 * (un[j] * mn(k) - uo[j] * mo(k)) / dt
         ad = lo ? -Φ(k) + dm[j] * u[j] : Φ(k) - dm[j] * u[j]
         pt = 0.5 * (pg[j-1] + pg[j]); pr_ = lo ? rmu[j] * (pg[k] - pt) : rmu[j] * (pt - pg[k])
-        gr = GFV[] ? g_(j) * gwt(k, j, d, dvol, r, rmu) : g_(j) * 0.5 * m(k)
+        gr = (GFV[] || GVAR[]) ? gfz(k, j, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, W.xm[j], gxe(r[j])) + (1 - 0.5xmu) * P.g * 0.5 * m(k) : g_(j) * 0.5 * m(k)
         sj =0.5 * (r3_(j - 1) * qf[j-1] + r3_(j) * qf[j]); vi = lo ? r1(j) * (r3_(k) * qf[k] - sj) : r1(j) * (sj - r3_(k) * qf[k])
         ra = lrad ? -avchi[j] * fr[j] / cc * 0.5 * m(k) : 0.0
         (ine, ad, pr_, gr, vi, ra)

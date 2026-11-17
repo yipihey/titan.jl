@@ -1263,6 +1263,13 @@ if get(ENV, "GFV", "0") == "1"
     TX.GFV[] = true
     pr("GFV: gas momentum row with the finite-volume gravity weight 4 pi G M_j (rho_j-1 dr_j-1 + rho_j dr_j)/2\n")
 end
+# GVAR=1 (provisional, default off): gravity force of the gas momentum row = gradient of the exact binding energy of the piecewise-constant density (TX.GVAR, docs/POPIII_ENERGY.md §19)
+if get(ENV, "GVAR", "0") == "1"
+    TX.GFV[] && error("GVAR=1 and GFV=1 are alternatives")
+    TX.GVAR[] = true
+    pr("GVAR: gas momentum row with the gravity force dW/dr_j of the piecewise-constant density\n")
+end
+(TX.GFV[] || TX.GVAR[]) && TX.ECGRAV[] >= 3 && error("GFV/GVAR: ECGRAV 3 and 4 are written for the node-mass weight")
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)
 # JACCHK="k,z,iter": at step k, Newton iteration iter, finite differences of the residual against the assembled Jacobian for the variables of absolute zone z (debugging)
