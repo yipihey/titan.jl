@@ -369,19 +369,17 @@ end
 Initial group fields from the grey field (a restart from a grey checkpoint, or the IC): the CMB part partitioned at T_cmb, the excess at the
 shape temperature Ts[k] (the driver passes T_r inside the photosphere and the star's T_eff outside), F_g = F_r b_g(Ts at the interface).
 """
-function mg_init_from_grey!(Ts, us = nothing)
-    # us[k] (optional): the part of the excess that has the shape Ts[k] (the star's light up to its free-streaming energy density); the rest
-    # of the excess is given the CMB's shape
+function mg_init_from_grey!(Ts)
     a = gi(:ngrs); b = gi(:ngre); er = v(:ern); fr = v(:frn)
     arad = 4gf(:csigr) / gf(:cc); Ec = MGTCMB[] > 0 ? arad * MGTCMB[]^4 : 0.0
     for g in 1:MGN[]
         E = MGEN[][g]; F = MGFN[][g]; fill!(E, 0.0); fill!(F, 0.0)
         for k in a-2:b+2
             kk = clamp(k, a, b)
-            Ex = max(er[k] - Ec, 0.0); Es = us === nothing ? Ex : min(Ex, us[kk])
-            E[k] = max(MGBCMB_[g] * (min(er[k], Ec) + Ex - Es) + mg_bfrac(g, Ts[kk]) * Es, MGBFLOOR * er[k])
+            Ex = max(er[k] - Ec, 0.0)
+            E[k] = max(MGBCMB_[g] * min(er[k], Ec) + mg_bfrac(g, Ts[kk]) * Ex, MGBFLOOR * er[k])
         end
-        for k in a+1:b+1; kk = min(k, b); F[k] = fr[k] * E[kk] / max(er[kk], 1e-300); end
+        for k in a+1:b+1; F[k] = fr[k] * mg_bfrac(g, Ts[min(k, b)]); end
         mg_ghosts!(E, F, a, b)
     end
     # exact sums (the rows E_r = Σ E_g, F_r = Σ F_g): renormalise
