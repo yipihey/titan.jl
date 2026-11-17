@@ -88,7 +88,7 @@ construction, whatever the group opacities are. The one term that needs the grou
 the force is internal between gas and radiation momentum). With a group-dependent f_g (stage 2) the work terms become Σ_g f_g E_g.
 
 Left out per group (as the RADGROUPS trial): the Doppler terms that move photons across group edges in compressing or expanding flow,
-O(u/c) ≤ 1e-4 here (u ≲ 30 km/s); Vaytet et al. (2011) keep them. They matter only for narrow groups next to a strong edge in a fast flow.
+O(u/c) ≲ 3e-4 here (u ≲ 100 km/s, free fall onto the star); Vaytet et al. (2011) keep them. They matter only for narrow groups next to a strong edge in a fast flow.
 
 ## 4. Group opacities and emission from the network populations
 
@@ -133,8 +133,9 @@ E_g → b_g(T) aT⁴ and F_g → −(c/3χρ)∂E_g/∂r = b'_g F_r in the diffu
 
 * **Interface opacity:** χ̄_g = SLABFLUX's χ_n(χ_g,k−1, χ_g,k) (`sf_mean`, n = ∞ default; SUBZONE on top if set), else the harmonic mean
   — the slab argument of POPIII_SLABFLUX.md §2 holds per group (F_g constant across the dual cell, the exchange in the zone rows).
-  The grey cliff then splits into G fronts at different interfaces: the IR group (κ ∝ H⁻ ff) leaves from shallower layers than the
-  H⁻ band, which is the multigroup cure of the cliff. **Stage 1: implemented** (`mg_theta!`).
+  The grey cliff can then split into G fronts at different interfaces (each group's χ_g ratio differs by up to 1e5 across the photosphere
+  zone, e.g. χ_LW/χ = 0.14 below and 90–7e5 above it in t_mg14): the multigroup cure of the cliff; whether the group photospheres resolve
+  it needs the per-group closure of stage 2a. **Stage 1: implemented** (`mg_theta!`).
 * **Flux tie:** F_g = h_g c E_g with SLABTIE's donor h at the group's slab depth, `st_hdonor(h_FS, f, χ_g,k−1, χ_g,k, M₋, M₊)`.
   **Stage 1:** the grey formal solution's h and f with the group's χ_g in SLABTIE (the donor depth is per group).
 * **Eddington factors f_g, g_g, h_g from a per-group formal solution** (TitanCore.eddfac! with the group's χ_g, κ_P,g, source
@@ -212,7 +213,8 @@ absorbed. The band-mean H₂ absorption opacity that reproduces the fit's attenu
 with N_loc the zone's own Sobolev column (the line saturation inside the zone; the attenuation over the flow then comes from the transport).
 The dissociation rate per H₂ is then k = p_d c σ_eff E_LW / ⟨hν⟩_LW from the group field at the iterate, and f_sh is not applied a second
 time. p_d follows from the thin limit: k(N → 0) must equal the code's unshielded k₀ = 1.1e8 · 4π J_ν(12.87 eV), which fixes p_d σ_eff(0) per
-unit band energy density (p_d itself, ≈ 0.15 in the literature, only sets how much energy is fluorescence vs dissociation). The gas heat
+unit band energy density (p_d itself — 0.15 in the code's IonFS post-process, ionfs_post.jl `PD`, after Draine & Bertoldi 1996 — only sets
+how much energy is fluorescence vs dissociation). The gas heat
 per dissociation stays the code's 4.48 + 0.4 eV (lwheat!), now taken from the LW group (stage 1: from the optical group, with GASQ).
 This is photon-conserving by construction and needs no column integration in the chemistry (the columns become local).
 
@@ -276,7 +278,7 @@ F_g = F_r b_g(T_s), renormalised to the exact sums.
 * E_g updated in the logarithm (clamp ±3, floor 1e-150 E_r), convergence weight E_g/(E_g + 1e-3 E_r), TR-BDF2 y*/save/restore/error norm
   for the groups; the pivoted banded LAPACK solver (JuliaSolver) for the 17-wide blocks; group fields in the checkpoint (.aux, MG only);
   restart from a grey checkpoint partitions the grey field (§8). Records `mg_rec.jls` every SNAPEVERY steps (MG only).
-* Diagnostics: `EDIAG=1` (total-energy rows of every converged stage → ediag.csv), and `TIESMOOTH=ε` (§5 fix 1, not yet tested in a run).
+* Diagnostics: `EDIAG=1` (total-energy rows of every converged stage → ediag.csv), and `TIESMOOTH=ε` (§5 fix 1; test 9).
 
 **Tests** (100 zones; restarts of copies of z100mm's checkpoint `z19z100mmS5_auto0`, step 14400, t = 237841.0 yr, M★ = 0.849 M☉,
 photosphere at zone 26, r_ph = 116 R☉, T_eff ≈ 4390 K; z100mm's own phaseB.env + run.env (SLABFLUX=1 SLABTIE=1 SUBZONE=0); 8 threads,
@@ -329,7 +331,13 @@ cores 24–31 / 32–39):
    (block pentadiagonal, static 9×9) 0.6 s; MG matgen 84.7 s (1588 iterations, 53.3 ms each: ×1.25 per iteration from the 102- instead of
    54-partial Duals, ×1.05 more iterations) and ~16–18 s of banded LAPACK LU (n = 1768, bandwidth 50; not timed by CPLPROF since the
    solver is replaced after the timers are installed: from the difference of the totals). The ×1.48 per step splits into ×1.31 Jacobian
-   assembly and ~0.17 for the wider linear solve; both have the remedies of §7/§11.
+   assembly and ~0.17 for the wider linear solve; both have the remedies of §7/§11. The run's static block-pentadiagonal solver
+   (BlockSolver.Penta, pivoting only inside a block) is not usable for neqn = 17: `t_mg23` (MGSOLVER=penta) diverged in its first step
+   (corrections 1e10–1e13, all coupled zones decoupled, Δt → 1e-5 s); the pivoted banded LU is required as it stands.
+8. **Final tree** a0cf74b (log update with the 1e-150 floor): `t_mg21`, 200 steps — 22 failures/100, 2.39 s/step, L_em(1.5 r_ph) median 6289
+   L☉ (rms 0.8 %), T_eff 4337 K: the same as t_mg14 within its scatter (not bit-identical to it: the floor acts in the cold outer zones).
+9. **TIESMOOTH=1e-3 on the grey stack** (`t_mg22`, 400 steps): failures 18, 19, 18 per 100 steps against 18, 19, 19 (t_mg13), s/step and
+   Δt the same: SLABTIE's max(h, 0) does not bind at this checkpoint (h stays far from 0), so fix 1 is not what limits the Newton here.
 
 ## 11. Plan of the remaining stages
 
@@ -342,9 +350,9 @@ cores 24–31 / 32–39):
    LOCALJ with the piecewise J_ν (direct integrals or per-group tables) so that 6–8 groups are exact; **photon-conserving LW** (§6:
    σ_eff = −d ln f_sh/dN in the LW group's κ_E, the dissociation rate from E_LW at the iterate, the LW heat from the LW group); He I/He II
    photoionisation from the He groups (6–8-group sets). This retires STARLIGHT's W, SLWFLUX, SLIMP and SLSHIELD for these processes.
-4. **Stage 3 — cost and Newton:** (a) the static block-pentadiagonal solver for neqn = 17 (or a block solver with plain 17×17 LU) instead
-   of banded LAPACK (−0.17 of the ×1.48); (b) two-pass colouring or an analytic Jacobian of the group rows so that the material sweep stays
-   at 54 partials (target ≤ ×1.2 over grey for 4 groups); (c) the two Newton fixes of §5: TIESMOOTH (built, run test pending on the grey
-   stack: failures/100 against 18–19) and JFNK with the banded Jacobian as preconditioner for exact f, g, h derivatives (grey first).
+4. **Stage 3 — cost and Newton:** (a) a block solver with pivoting across neighbouring blocks (e.g. BlockSolver's zone-pair tridiagonal form
+   with partial pivoting inside the 34×34 pair blocks) instead of banded LAPACK (−0.17 of the ×1.48; the unpivoted Penta fails, test 7); (b) two-pass colouring or an analytic Jacobian of the group rows so that the material sweep stays
+   at 54 partials (target ≤ ×1.2 over grey for 4 groups); (c) the two Newton fixes of §5: TIESMOOTH (built; no effect at this checkpoint, test 9 — to be
+   repeated where the photosphere is in the dark/bright switching of POPIII_SLABFLUX.md) and JFNK with the banded Jacobian as preconditioner for exact f, g, h derivatives (grey first).
 5. **Stage 4 — validation and production tests:** 6- and 8-group runs; L_em steadiness over ≥ 1e4 steps; a from-IC 100-zone start through
    protostar formation (IC=abn02red on the z100mm mesh) with MGROUPS from the first step; the IonFS comparison at the break-out phase.
