@@ -107,8 +107,12 @@ and the grey totals of `group_fast` equal `means_fast` bit for bit. The group me
 the point: in 5000 K photosphere gas κ_P,g/κ_P = 0.008 (IR) | 1.16 (optical) | 4e-9 (LW) | 1e-4 (ionising, without H(1s)), and the
 H(1s) absorption of the ionising group is 2.5e6 cm² g⁻¹ against a grey κ_E of 0.11.
 
-The in-group weight temperatures are floored at MGTMIN = 3000 K (`group_fast` Ts, Tws): below it B_ν of the high groups underflows and
-their means would be undefined; there the group's Planck fraction is negligible anyway (b_ion(1500 K) ~ 1e-40).
+The in-group weights are those of the grey means at the gas T (emission, extinction) and T_w (absorption), so the identities hold at
+every T; a group whose weight underflows (the ionising groups below ~300 K) is taken as grey (its Planck fraction is at the floor anyway).
+Only the H(1s) absorption of the ionising groups uses the shape B_ν(max(T_w, 3000 K)) (MGTMIN), the star's light. (Stage 1 first floored
+all in-group shapes at 3000 K: that broke Σ_g b_g κ_P,g = κ_P below 3000 K, and the 200–1100 K gas of the outer cloud over-emitted into
+the optical group — 4.5 L☉ through the outer boundary after 400 steps with the grey f, 5e8 L☉ within 50 steps with per-group f (t_mg27).
+Fixed in G2Opacity.group_fast; the stage-1 numbers of §10 are from before this fix, with the outer optical flux still ≤ 4.5 L☉.)
 
 **Design: exact group opacities at the iterate.** κ_X,g(ρ, T, x) directly from the per-node kernels with Duals (G2OPAC=2 already does
 this for the grey means at ~50 µs per call with a 2-partial Jacobian; a group reduction adds G accumulators to the same node loop).

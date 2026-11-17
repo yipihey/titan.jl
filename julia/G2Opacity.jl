@@ -227,14 +227,16 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS
 end
 """
 MGROUPS (docs/POPIII_MULTIGROUP.md): per-group means of `means_fast`'s physics on the same nodes and with the same populations, plus the
-grey means of the same call (Float64 only). `gidx[i]` is the group of node i. In-group shape temperatures: emission B_ν(Ts), absorption
-B_ν(Tws), extinction ∂B_ν/∂T(Ts) (Ts = max(T, Tmin), Tws = max(Tw, Tmin), so that every group mean is defined where B underflows); the
-grey normalisation uses T and Tw as `means_fast`. Returns (κE_g, κP_g, χ_g, κ1s_g, κE, κP, χ): κ1s_g the H(1s) bound–free part of the
-absorption (B_ν(Tws)-weighted, per mass), whether or not hbfP puts H bound–free into κE_g.
+grey means of the same call (Float64 only). `gidx[i]` is the group of node i. In-group weights: emission B_ν(T), absorption B_ν(Tw),
+extinction ∂B_ν/∂T(T) — the weights of the grey means, so that Σ_g b_g(T) κP_g = κP and Σ_g b_g(Tw) κE_g = κE hold at every T (a group whose
+weight underflows returns 0 and is taken as grey by the caller; its Planck fraction is negligible there). (A floor of the in-group shape
+temperature broke the emission identity below it: 1000 K cloud gas then over-emitted into the optical group by orders of magnitude, t_mg27.)
+Returns (κE_g, κP_g, χ_g, κ1s_g, κE, κP, χ): κ1s_g the H(1s) bound–free absorption per mass with the in-group shape B_ν(max(Tw, Tmin)) (the
+star's light, also in unlit cold gas where B_ν(Tw) of the ionising groups underflows), whether or not hbfP puts H bound–free into κE_g.
 """
 function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, nHmS, hbfP, Tw = T, Tmin = 3000.0)
     F = fastgrid(); kB = COp.kB; h = COp.h; ρ = Float64(ρ); T = Float64(T); Tw = Float64(Tw); kT = kB * T
-    Ts = max(T, Tmin); Tws = max(Tw, Tmin)
+    Ts = T; Tws = Tw; T1s = max(Tw, Tmin)
     Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
     χH = Z0.χH; χ2 = Z0.χHe2
     wH = [Z0.occupation(n, 1, Nion, Nneu) for n in 1:NLEV]; wHe = [Z0.occupation(n, 2, Nion, Nneu) for n in 1:NLEV]
@@ -251,7 +253,7 @@ function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, n
         d = 1 - Z0.occupation(ns, 1, Nion, Nneu) / max(wH[n], 1e-300)
         d > 0 && (dis[i] += d * pH[n] * σe)
     end
-    gE = zeros(G); gW = zeros(G); gP = zeros(G); gB = zeros(G); gR = zeros(G); gD = zeros(G); g1 = zeros(G)
+    gE = zeros(G); gW = zeros(G); gP = zeros(G); gB = zeros(G); gR = zeros(G); gD = zeros(G); g1 = zeros(G); g1W = zeros(G)
     sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0
     Bf(ν, t) = (u = h * ν / (kB * t); u > 700 ? 0.0 : 2h * ν^3 / COp.c^2 / expm1(u))
     Df(ν, t) = (u = h * ν / (kB * t); u > 700 ? 0.0 : 2h * ν^3 / COp.c^2 * u * exp(-u) / (t * (-expm1(-u))^2))
@@ -278,13 +280,14 @@ function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, n
         sE += aE * BJ * dν; sW += BJ * dν; sP += aP * B * dν; sB += B * dν
         sR += D / max(ext, 1e-300) * dν; sD += D * dν
         g = gidx[i]; Bs = Bf(ν, Ts); Bw = Bf(ν, Tws); Ds = Df(ν, Ts)
-        gE[g] += aE * Bw * dν; gW[g] += Bw * dν; g1[g] += a1 * Bw * dν
+        B1 = Bf(ν, T1s)
+        gE[g] += aE * Bw * dν; gW[g] += Bw * dν; g1[g] += a1 * B1 * dν; g1W[g] += B1 * dν
         gP[g] += aP * Bs * dν; gB[g] += Bs * dν
         gR[g] += Ds / max(ext, 1e-300) * dν; gD[g] += Ds * dν
     end
     q(a_, b_) = b_ > 0 ? a_ / b_ / ρ : 0.0
     ([q(gE[g], gW[g]) for g in 1:G], [q(gP[g], gB[g]) for g in 1:G], [gR[g] > 0 ? gD[g] / gR[g] / ρ : 0.0 for g in 1:G],
-     [q(g1[g], gW[g]) for g in 1:G], sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
+     [q(g1[g], g1W[g]) for g in 1:G], sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
 end
 "Group index of every fast node for interior edges `edges` [Hz] (ascending)."
 group_index(edges) = (F = fastgrid(); [searchsortedlast(edges, ν) + 1 for ν in F.ν])
