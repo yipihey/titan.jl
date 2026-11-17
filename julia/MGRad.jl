@@ -46,6 +46,23 @@ const MGRE = Ref(Vector{Vector{Float64}}()); const MGRP = Ref(Vector{Vector{Floa
 const MGK1 = Ref(Vector{Vector{Float64}}())     # absolute H(1s) absorption [cm² g⁻¹] per group (ionizing groups of lit network zones)
 const MGK1E = Ref(Vector{Vector{Float64}}())    # its Kirchhoff–Milne emission coefficient: MGK1 × n_1s*/n_1s (n_1s* = Saha with the zone's n_e n_p)
 """
+Raman scattering of H(1s) in a group gL between Lyα and the Lyman limit (docs §16; cross sections: HScatter, Kokubo 2024): H(1s) + γ(ν) ↔
+H(2s) + γ(ν − ν_Lyα) destroys the LW photon (the atom returns by two-photon decay) and its inverse creates one from an optical photon and
+an H(2s). `MGRAMP`: pairs (gL, g′, e1, e2) — the photons of gL between e1 and e2 [eV] have their Stokes partner in group g′. Per mass
+and per pair the transfer into gL is c κ_Ram (C E_g′ − ω E_gL) and the same out of g′ (energy moves between the two groups only),
+  ω = b(e1, e2; T_w)/b_gL(T_w)  (the pair's share of gL),   C = (n_2s/n_1s) e^{E_21/kT_w} b(e1, e2; T_w)/b_g′(T_w),
+T_w the colour temperature of the light in the zone (NLOPACJ): by detailed balance of the Kramers–Heisenberg rates the inverse-Raman
+source function is S_ν = (2hν³/c²)(n_2s/n_1s) n̄(ν − ν_Lyα) (g_1s = g_2s), in the Wien limit (n_2s/n_1s) e^{E_21/kT_w} W_g′ B_ν(T_w) for a
+partner field W_g′ B_ν′(T_w). In LTE (n_2s/n_1s = e^{−E_21/kT}, E_g = (4π/c) B_g(T)) every pair is in balance exactly.
+`MGKRAM[g][k]`: κ_Ram [cm² g⁻¹] (G2Opacity.group_fast); `MGRAMC[p][k]`, `MGRAMW[p][k]`: C and ω.
+"""
+const MGRAMP = Ref(Tuple{Int,Int,Float64,Float64}[])
+const MGKRAM = Ref(Vector{Vector{Float64}}()); const MGRAMC = Ref(Vector{Vector{Float64}}()); const MGRAMW = Ref(Vector{Vector{Float64}}())
+"Set the Raman pairs (PopIIIMaterial.mg_roles!) and size their arrays."
+function mg_rampairs!(pairs, mgr)
+    MGRAMP[] = pairs; MGRAMC[] = vvec(length(pairs), mgr); MGRAMW[] = vvec(length(pairs), mgr); nothing
+end
+"""
 MGVEF (stage 2a, popiii_m2c `MGVEF=1`, the default with MGROUPS): every group's own Eddington factors from a formal solution with the group's
 χ_g, κ_E,g, emission and background (popiii_m2c `mg_eddfac!`, run after the grey one wherever TITAN calls it: every Newton update with VEFIMP):
 f_g per zone (MGFEDD), the tie's h_g (MGHEDD) and weights (MGTIEW, from the group's own optical depth), the outer g_g (MGGEDDR). The grey
@@ -62,7 +79,7 @@ mgiE(g) = MGI0[] + 2g - 1; mgiF(g) = MGI0[] + 2g
 "Allocate the group arrays for mgr zones (values kept where present)."
 function mg_alloc!(mgr)
     G = MGN[]
-    for R_ in (MGEN, MGFN, MGEO, MGFO, MGESO, MGFSO, MGFNOM, MGK1, MGK1E)
+    for R_ in (MGEN, MGFN, MGEO, MGFO, MGESO, MGFSO, MGFNOM, MGK1, MGK1E, MGKRAM)
         (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = vvec(G, mgr))
     end
     for R_ in (MGRE, MGRP, MGRR)
@@ -110,6 +127,11 @@ of two tails (no cancellation); else of two lower integrals.
         val(xl) >= 1 ? mg_phigh(xl) * (15 / π^4) - mg_phigh(xh) * (15 / π^4) : mg_below(xh) - mg_below(xl)
     end
     val(b) < MGBFLOOR ? MGBFLOOR + zero(b) : b
+end
+"Fraction of σT⁴/π between the photon energies e1 < e2 [eV] (no floor)."
+@inline function mg_band(e1, e2, T)
+    s = MGEVK[] / T; xl = e1 * s; xh = e2 * s
+    val(xl) >= 1 ? (mg_phigh(xl) - mg_phigh(xh)) * (15 / π^4) : mg_below(xh) - mg_below(xl)
 end
 
 # ---------------------------------------------------------------- Newton hooks (chained with the COUPLED ones by popiii_m2c)
@@ -188,11 +210,12 @@ struct MGWS{T}
     frb::Vector{Vector{T}}; frsn::Vector{Vector{T}}; qF::Vector{Vector{T}}; qFo::Vector{Vector{T}}
     frc::Vector{T}                                  # Σ_g χ̄_g F_g at interfaces (radiation force)
     xch::Vector{T}                                  # Σ_g x_cap,g (c κ_E,g E_g − 4π κ_P,g B_g) per zone (the GASROW gas row's exchange, per mass)
+    xfer::Vector{Vector{T}}                         # energy gained from other groups per mass and time (Raman pairs; Σ_g = 0)
 end
 const MGWSC = Dict{DataType,Any}()
 mgws(::Type{T}, mgr) where {T} = get!(MGWSC, T) do
     G = MGN[]; z() = [zeros(T, mgr) for _ in 1:G]
-    MGWS{T}(z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), zeros(T, mgr), zeros(T, mgr))
+    MGWS{T}(z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), zeros(T, mgr), zeros(T, mgr), z())
 end::MGWS{T}
 
 "The group unknowns of the iterate (blocks k0 … ngre+2) into the workspace."
@@ -215,7 +238,7 @@ end
 function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
     P = c.p; tn = W.tn; to = v(:to); dn = W.dn; dO = c.do_
     @inbounds for g in 1:MGN[]
-        RE = MGRE[][g]; RP = MGRP[][g]; RR = MGRR[][g]; K1 = MGK1[][g]; K1E = MGK1E[][g]
+        RE = MGRE[][g]; RP = MGRP[][g]; RR = MGRR[][g]; K1 = MGK1[][g]; K1E = MGK1E[][g]; KR = MGKRAM[][g]
         eg, fg, en, fn = M.eg[g], M.fg[g], M.egn[g], M.fgn[g]; EO = MGEO[][g]; FO = MGFO[][g]
         for k in ngrs-1:ngre+2
             eg[k] = θ * en[k] + (1 - θ) * EO[k]; fg[k] = θ * fn[k] + (1 - θ) * FO[k]
@@ -224,7 +247,7 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
         for k in ngrs-1:ngre+1
             ke[k] = W.xke[k] * RE[k] + K1[k]
             # extinction at least the absorption (χ_g is a harmonic-type mean, κ_E,g a Planck-type one: for the H(1s) group κ_E,g > χ_g otherwise)
-            chi[k] = max(W.chif[k] * RR[k], ke[k]); chn[k] = max(W.chifn[k] * RR[k], W.xken[k] * RE[k] + K1[k])
+            chi[k] = max(W.chif[k] * RR[k], ke[k] + KR[k]); chn[k] = max(W.chifn[k] * RR[k], W.xken[k] * RE[k] + K1[k] + KR[k])
             # emission per unit mass: 4π κ_P,g B_g, B_g = b_g(T) σT⁴/π at each level, θ-weighted (κ_P at the θ level as the grey row)
             bn = mg_bfrac(g, tn[k]); bo = θ < 1 ? mg_bfrac(g, to[k]) : 0.0
             em[k] = 4P.cpi * (W.xkp[k] * RP[k] + K1E[k]) * (θ * W.plfn[k] * bn + (1 - θ) * c.plfo[k] * bo)
@@ -252,6 +275,15 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
         s = zero(T)
         for g in 1:MGN[]; ke = M.xke[g][k]; s += excap(cc, ke, W.d[k], dt) * (cc * ke * M.eg[g][k] - M.emit[g][k]); end
         xc[k] = s
+    end
+    for g in 1:MGN[]; fill!(M.xfer[g], zero(T)); end
+    @inbounds for (p, pr_) in enumerate(MGRAMP[])                    # Raman pairs: group-to-group transfer (see MGRAMP)
+        gL, gp = pr_[1], pr_[2]; KR = MGKRAM[][gL]; C = MGRAMC[][p]; Wp = MGRAMW[][p]
+        xl = M.xfer[gL]; xp = M.xfer[gp]; eL = M.eg[gL]; ep = M.eg[gp]
+        for k in ngrs:ngre
+            KR[k] > 0 || continue
+            t = cc * KR[k] * (C[k] * ep[k] - Wp[k] * eL[k]); xl[k] += t; xp[k] -= t
+        end
     end
     nothing
 end
@@ -297,7 +329,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
             w = (en[k] * dvoln[k] - EO[k] * c.dvolo[k]) / dt + rmu[k+1] * fg[k+1] - rmu[k] * fg[k] +
                 fedd[k] * eg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * eg[k] * aur * dvol[k] +
-                excap(cc, ke[k], d[k], dt) * (cc * ke[k] * eg[k] - em[k]) * d[k] * dvol[k]
+                excap(cc, ke[k], d[k], dt) * (cc * ke[k] * eg[k] - em[k]) * d[k] * dvol[k] - M.xfer[g][k] * d[k] * dvol[k]
             if qg
                 isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
                 isempty(GASQ[]) || (w += GASQ[][k] * dvol[k])

@@ -24,6 +24,17 @@ const MGROLE = Ref{Any}(nothing)
 function mg_roles!()
     t = mg_thresholds()
     MGROLE[] = (; Hm = mg_gof(t.Hm * 1.0001), Ba = mg_gof(t.Ba * 1.0001), Lya = mg_gof(E21 / EVERG), LW = mg_gof(12.87), H = mg_gof(t.H * 1.0001))
+    # Raman pairs (TX.MGRAMP): every group between Lyα and the Lyman limit (G2O.lwband) with the groups of its Stokes partners hν − E_21
+    e = TX.MGEDGE[]; G = length(e) + 1; e21 = E21 / EVERG; hz = EVERG / CNn.hP; pairs = Tuple{Int,Int,Float64,Float64}[]
+    for gL in 2:G-1
+        G2O.lwband(e[gL-1] * hz, e[gL] * hz) || continue
+        for gp in 1:G
+            e1 = max(e[gL-1], (gp == 1 ? 0.0 : e[gp-1]) + e21); e2 = min(e[gL], (gp == G ? Inf : e[gp]) + e21)
+            e2 > e1 && push!(pairs, (gL, gp, e1, e2))
+        end
+    end
+    TX.mg_rampairs!(pairs, length(TM.v(:dn)))
+    MGROLE[]
 end
 const MGGIDX = Ref{Vector{Int}}(Int[])
 const MGTMIN = parse(Float64, get(ENV, "MGTMIN", "3000"))     # in-group shape temperature floor of the group means [K]
@@ -41,7 +52,8 @@ function mg_ratios!(m::NetGas)
     MGROLE[] === nothing && mg_roles!()
     gH = MGROLE[].H
     length(MGWREC[]) == length(dn) || (MGWREC[] = Any[nothing for _ in dn])
-    for g in 1:G; fill!(TX.MGRE[][g], 1.0); fill!(TX.MGRP[][g], 1.0); fill!(TX.MGRR[][g], 1.0); fill!(TX.MGK1[][g], 0.0); fill!(TX.MGK1E[][g], 0.0); end
+    for g in 1:G; fill!(TX.MGRE[][g], 1.0); fill!(TX.MGRP[][g], 1.0); fill!(TX.MGRR[][g], 1.0); fill!(TX.MGK1[][g], 0.0); fill!(TX.MGK1E[][g], 0.0); fill!(TX.MGKRAM[][g], 0.0); end
+    for p_ in eachindex(TX.MGRAMP[]); fill!(TX.MGRAMC[][p_], 0.0); fill!(TX.MGRAMW[][p_], 0.0); end; ehz = TX.MGEDGE[] .* (EVERG / CNn.hP)
     length(MGA1[]) == length(dn) || (MGA1[] = zeros(length(dn))); fill!(MGA1[], 0.0)
     length(MGN2[]) == length(dn) || (MGN2[] = zeros(length(dn))); fill!(MGN2[], 0.0)
     st = NLOST[]
@@ -55,13 +67,14 @@ function mg_ratios!(m::NetGas)
         Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T; hbf = hbf_deep(p)
         y = try
             G2O.group_fast(ρ, T, MGGIDX[], G; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS,
-                           hbfP = hbf, Tw, nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0), Tmin = MGTMIN)
+                           hbfP = hbf, Tw, nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0), Tmin = MGTMIN, edges = ehz)
         catch
             nothing
         end
         y === nothing && continue
-        κE, κP, χ, k1, gE, gP, gχ, k2 = y
+        κE, κP, χ, k1, gE, gP, gχ, k2, kram = y
         n2z = n2_tl3(T, n1, ne, np, p); k <= length(MGN2[]) && (MGN2[][k] = n2z)
+        mg_raman!(k, kram, n2z, n1, Tw)
         for g in 1:G
             rE = gE > 0 ? κE[g] / gE : 1.0; rP = gP > 0 ? κP[g] / gP : 1.0; rR = gχ > 0 && χ[g] > 0 ? χ[g] / gχ : 1.0
             TX.MGRE[][g][k] = isfinite(rE) && rE > 0 ? rE : 1.0
@@ -77,6 +90,21 @@ function mg_ratios!(m::NetGas)
     nothing
 end
 
+"The Raman coefficients of zone k (TX.MGRAMP): κ_Ram per group, and per pair ω and C with n_2s = n_2/4 of the three-level atom."
+function mg_raman!(k, kram, n2, n1, Tw)
+    for g in eachindex(kram); TX.MGKRAM[][g][k] = isfinite(kram[g]) ? kram[g] : 0.0; end
+    b2 = n1 > 0 ? n2 / (4n1) * exp(min(E21 / (CNn.kB * Tw), 600.0)) : 0.0; isfinite(b2) || (b2 = 0.0)
+    P = TX.MGRAMP[]
+    for gL in unique(first.(P))
+        ps = [i for i in eachindex(P) if P[i][1] == gL]; bs = [TX.mg_band(P[i][3], P[i][4], Tw) for i in ps]; tot = sum(bs)
+        for (j, i) in enumerate(ps)
+            # (the shares where the band's Planck weight underflows, T_w ≲ 250 K: by width; no light there)
+            TX.MGRAMW[][i][k] = tot > 1e-250 ? bs[j] / tot : (P[i][4] - P[i][3]) / (TX.MGEDGE[][gL] - TX.MGEDGE[][gL-1])
+            TX.MGRAMC[][i][k] = bs[j] > 1e-150 ? b2 * bs[j] / TX.mg_bfrac(P[i][2], Tw) : 0.0
+        end
+    end
+    nothing
+end
 "(diagnostic) per zone of the last chemistry: (grey W, group W_g, T_c) of the star light (MGROUPS only; not in the checkpoint)."
 const MGWREC = Ref(Any[])
 # (sized by mg_ratios!, serially before the step: the chemistry's zones may run on CHEMTHREADS tasks)

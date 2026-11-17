@@ -1483,13 +1483,21 @@ function mg_eddfac!(f0)
     hsv = copy(TD.HEDD); wsv = copy(TD.TIEW); fxsv = copy(TD.FXEDD); gxsv = TD.GXEDD[]
     gr0, gl0, xi0 = TF.getscalar(:geddr), TF.getscalar(:geddl), TF.getscalar(:ximr)
     chi, kp, pl, er, fr = (TF.var(s_) for s_ in (:chifn, :xkpn, :plfn, :ern, :frn)); xke = TF.var(:xken); tn = TF.var(:tn)
+    c4pi = TF.getscalar(:cc) / (4π)
     try
         for g in 1:G
             RE, RP, RR, K1 = TX.MGRE[][g], TX.MGRP[][g], TX.MGRR[][g], TX.MGK1[][g]
             for k in a_-1:b_+1
                 kE = max(xke[k] * RE[k] + K1[k], 1e-300)
-                kP = sv[:xkpn][k] * RP[k] + TX.MGK1E[][g][k]; B = sv[:plfn][k] * TX.mg_bfrac(g, tn[k])
-                chi[k] = max(sv[:chifn][k] * RR[k], kE); kp[k] = kE; pl[k] = kP * B / kE
+                kP = sv[:xkpn][k] * RP[k] + TX.MGK1E[][g][k]; em = kP * sv[:plfn][k] * TX.mg_bfrac(g, tn[k])
+                KR = TX.MGKRAM[][g][k]; chi[k] = max(sv[:chifn][k] * RR[k], kE + KR)
+                # Raman pairs (TX.MGRAMP): absorption and source of the group's share of the transfer
+                for (p_, pr_) in enumerate(TX.MGRAMP[])
+                    kr = TX.MGKRAM[][pr_[1]][k]; kr > 0 || continue
+                    pr_[1] == g && (kE += kr * TX.MGRAMW[][p_][k]; em += kr * TX.MGRAMC[][p_][k] * c4pi * TX.MGEN[][pr_[2]][k])
+                    pr_[2] == g && (kE += kr * TX.MGRAMC[][p_][k]; em += kr * TX.MGRAMW[][p_][k] * c4pi * TX.MGEN[][pr_[1]][k])
+                end
+                kp[k] = kE; pl[k] = em / kE
             end
             copyto!(er, TX.MGEN[][g]); copyto!(fr, TX.MGFN[][g]); TF.setscalar!(:ximr, xi0 * TX.MGBCMB_[g])
             TC.HPON[] = true
@@ -1522,6 +1530,8 @@ function mg_record(k)
            Eg = [TX.MGEN[][g][rg] for g in 1:TX.MGN[]], Fg = [TX.MGFN[][g][rg] for g in 1:TX.MGN[]],
            rE = [TX.MGRE[][g][rg] for g in 1:TX.MGN[]], rP = [TX.MGRP[][g][rg] for g in 1:TX.MGN[]], rR = [TX.MGRR[][g][rg] for g in 1:TX.MGN[]],
            k1 = [TX.MGK1[][g][rg] for g in 1:TX.MGN[]], edges = copy(TX.MGEDGE[]),
+           kram = [TX.MGKRAM[][g][rg] for g in 1:TX.MGN[]], rampairs = copy(TX.MGRAMP[]), ramC = [a[rg] for a in TX.MGRAMC[]], ramW = [a[rg] for a in TX.MGRAMW[]],
+           tl3 = sd === nothing ? nothing : [sd.tl3[z] === nothing ? nothing : (; β = sd.tl3[z].β, RL = sd.tl3[z].RL, ne = sd.tl3[z].ne, P12 = sd.tl3[z].P12) for z in rg],
            fg = TX.MGVEFOK[] ? [TX.MGFEDD[][g][rg] for g in 1:TX.MGN[]] : nothing, gr = copy(TX.MGGEDDR[]),
            hplus = TX.MGVEFOK[] ? [TX.MGHPLUS[][g][rg] for g in 1:TX.MGN[]] : nothing,
            n2 = length(PM.MGN2[]) >= b_ + 2 ? PM.MGN2[][rg] : nothing,
