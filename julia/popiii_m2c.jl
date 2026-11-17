@@ -1238,6 +1238,13 @@ if get(ENV, "TIEFRAME", "0") == "1"
     TX.TIEFRAME[] = true
     pr("TIEFRAME: FLUXTIE closes the lab-frame flux, F_0 = [h c - (1 + f - 2 h^2) u] E_0 for the comoving unknowns; outer boundary row likewise\n")
 end
+# ECOMPAT=1 (provisional, default off): compatible energy rows in every zone, no row switching (TX.ECOMPAT, docs/POPIII_ENERGY.md §4); implies TIEFRAME
+if get(ENV, "ECOMPAT", "0") == "1"
+    TX.GASROW[] || error("ECOMPAT=1 needs the gas-alone row (GASROW)")
+    TX.ECOMPAT[] = true
+    TX.TIEFRAME[] || (TX.TIEFRAME[] = true; pr("ECOMPAT: TIEFRAME switched on\n"))
+    pr("ECOMPAT: first-law gas row adjoint to the momentum row in every zone (ETOTAL/ETASW* row switching unused), lab-frame radiation energy row\n")
+end
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)
 # JACCHK="k,z,iter": at step k, Newton iteration iter, finite differences of the residual against the assembled Jacobian for the variables of absolute zone z (debugging)
