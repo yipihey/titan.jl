@@ -601,6 +601,9 @@ end
     EXCAP[] > 0 || return 1.0
     return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
 end
+include(joinpath(@__DIR__, "MGRad.jl"))                 # MGROUPS (default off)
+"(MGROUPS with SLIMP) (q, t) of zone k at the iterate from the grey E_r and group MGSLG's E_g, F_g, F_g+1 (PopIIIMaterial.sl_qt_mg)."
+const MGSLQ = Ref{Any}(nothing); const MGSLG = Ref(2)
 
 "van Leer interpolation (advectc: centred=true, advecti: centred=false)."
 @inline function advect!(qb, qsn, qn, qo, qso, flow, θ, cadv, eps, ngrs, ngre, centred::Bool, id::Int = 0)
@@ -963,6 +966,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             for bb in 1:nb; k = k0 + bb - 1; a[k] = c.base[k, cde] * exp(x[(bb-1)*neqn+j]); end
         end
     end
+    Mg = MG[] ? mgws(T, c.mgr) : nothing          # MGROUPS: the group unknowns of the iterate
+    MG[] && mg_iterate!(Mg, x, neqn, nb, k0, ngre)
     # EOS / opacity (TITAN built-in physics unless a material is installed, see TitanMaterials)
     Rg = P.ck / (P.cm0 * P.gmu); γ = P.gam
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
@@ -978,7 +983,12 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             slq = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 1))::Vector{T}
             slt = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 2))::Vector{T}
             @inbounds for k in eachindex(slq); slq[k] = one(T); slt[k] = one(T); end
-            @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
+            if Mg === nothing
+                @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
+            else                                     # MGROUPS: the star-light dilution from group MGSLG (optical) at the iterate
+                gq = MGSLG[]
+                @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = MGSLQ[](k, ern[k], Mg.egn[gq][k], Mg.fgn[gq][k], Mg.fgn[gq][k+1])); end
+            end
             if SLIMPDBG[] > 0
                 fin(v) = isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v)))
                 for k in ngrs:ngre
@@ -1095,6 +1105,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         advect!(egb, egsn, egn, c.ego, c.egso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 6)
     end
     erb, frb = W.erb, W.frb
+    MG[] && mg_theta!(Mg, c, W, θ, ngrs, ngre, fle, flu)     # MGROUPS: θ-level group opacities, emission, χ̄_g, face values
     if COUPLED[]
         advect!(W.xb1, W.xsn1, W.xs1, XSO[][1], XSSO[][1], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 7)
         advect!(W.xb2, W.xsn2, W.xs2, XSO[][2], XSSO[][2], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 8)
@@ -1233,7 +1244,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             rmu[k] * (pg[k] - pg[k-1]) +
             (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk +
             r1 * (r3k * qf[k] - r3m * qf[k-1])
-        c.lrad && (w -= avchi[k] * fr[k] / cc * mk)
+        c.lrad && (w -= (Mg === nothing ? avchi[k] * fr[k] : Mg.frc[k]) / cc * mk)   # (MGROUPS: Σ_g χ̄_g F_g)
         R[iu, kb(k)] = w
     end
     R[iu, kb(ngrs)] = X(iu, ngrs); R[iu, kb(ngre+1)] = X(iu, ngre + 1); R[iu, 1] = X(iu, k0)
@@ -1469,6 +1480,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         k = ngrs - 1
         R[iF, kb(k)] = P.lribc == 2 ? frn[k+2] + frn[k] : rn[k+1]^mu * frn[k+1] - rn[k]^mu * frn[k]
         R[iF, kb(ngre+2)] = -frn[ngre+1] + frn[ngre+2]
+        Mg === nothing || mg_rows!(R, Mg, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie)   # MGROUPS: sum rows and the group rows
     end
     nothing
 end

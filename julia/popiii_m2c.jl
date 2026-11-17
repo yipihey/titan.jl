@@ -15,6 +15,8 @@ include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2
 # environment with KernelAbstractions and CUDA or Metal. Off unless set.
 haskey(ENV, "LINEGPU") && include(joinpath(@__DIR__, "h2lines_gpu.jl"))
 include(joinpath(@__DIR__, "StellarOpacity.jl")); include(joinpath(@__DIR__, "IonRay.jl"))
+# MGROUPS (docs/POPIII_MULTIGROUP.md; default off): the pivoted banded solver for the wider block system
+haskey(ENV, "MGROUPS") && ENV["MGROUPS"] != "0" && include(joinpath(@__DIR__, "JuliaSolver.jl"))
 # S6-C1: HOT=1: stellar EOS, nuclear network and convective mixing in the hot core (T > HOTT1), see PopIIIMaterial.HOT
 const HOTON = get(ENV, "HOT", "0") == "1"
 if HOTON
@@ -718,10 +720,13 @@ matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzon
 function checkpoint(name, k)
     mkpath(CKDIR)
     TF.save_state(joinpath(CKDIR, "m2c_$(name).tstate.gz"))
-    serialize(joinpath(CKDIR, "m2c_$(name).aux"), (; k, mat = matstate(), ALIFAC = copy(ALIFAC[]), ALIFIX = copy(ALIFIX[]), ALILAST = ALILAST[], ALIINT = ALIINT[],
+    ax = (; k, mat = matstate(), ALIFAC = copy(ALIFAC[]), ALIFIX = copy(ALIFIX[]), ALILAST = ALILAST[], ALIINT = ALIINT[],
         NALICALL = NALICALL[], NIMP = NIMP[], LLINE = LLINE[], nextln = nextln[], SNAPNEXT = SNAPNEXT[], SNAPS,
-        trb = (; STATS = copy(Trbdf2.STATS), BE_LEFT = Trbdf2.BE_LEFT[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV)))
+        trb = (; STATS = copy(Trbdf2.STATS), BE_LEFT = Trbdf2.BE_LEFT[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV))
+    TX.MG[] && (ax = merge(ax, (; mg = (; edges = copy(TX.MGEDGE[]), E = deepcopy(TX.MGEN[]), F = deepcopy(TX.MGFN[])))))   # MGROUPS: the group fields
+    serialize(joinpath(CKDIR, "m2c_$(name).aux"), ax)
 end
+const MGAUX = Ref{Any}(nothing)       # (MGROUPS) the group fields of the checkpoint a run restarted from
 # settings that must agree between a run and its restart (the set-up and the physics); the rest may change
 const CKENV = ("IC", "TCMB", "AVZONE", "AVQL1", "AVCQ2", "CHEM", "NLTE", "NALI", "NBIN", "K5", "MCLOUD", "LRJOIN", "DLNJOIN", "DM", "PSWITCH",
                "INTEGRATOR", "THETA", "XE0", "RAD")   # (not CDYN: the accretion phase relaxes the dynamical Δt limit at a restart)
@@ -751,6 +756,7 @@ function restart!(name; allow = ())
     SNAPS === nothing || aux.SNAPS === nothing || (empty!(SNAPS); append!(SNAPS, aux.SNAPS))
     empty!(Trbdf2.STATS); merge!(Trbdf2.STATS, aux.trb.STATS); Trbdf2.BE_LEFT[] = aux.trb.BE_LEFT
     TX.PEXT[] = aux.PEXT; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
+    hasproperty(aux, :mg) && (MGAUX[] = aux.mg)
     TF.setscalar!(:tmax, 1e3tff)                   # a run stopped by TSTOP/NSTOP has tmax = its last time
     KOFF[] = aux.k
     pr("restarted from checkpoint %s at step %d, t = %.6e yr, log n_c = %.3f, T_c = %.1f K\n", name, aux.k, TF.getscalar(:timen) / 3.156e7,
@@ -1398,6 +1404,63 @@ if CPLPROF
         end
     end
 end
+"""
+MGROUPS (docs/POPIII_MULTIGROUP.md): G radiation groups as Newton unknowns 10 … 9 + 2G (TitanResidFast MGRad.jl), group opacity ratios
+before every hydro step (PopIIIMaterial.mg_ratios!), the star-light rates from the group fields (starlight_setup), the pivoted banded
+solver. The group fields come from the checkpoint (MGAUX) or, the first time, from the grey field (CMB part at T_cmb, the excess at T_r
+inside the photosphere and at the star's T_eff outside it).
+"""
+function mg_install!()
+    COUPLED || error("MGROUPS needs COUPLED=1")
+    Int(TF.getscalar(:lrad)) == 1 || error("MGROUPS needs the radiation field (RAD=1)")
+    (TX.COMPTON[] || TX.GASROW[] || TX.INNER_SINK[] || !isnan(TX.PEXT[])) && error("MGROUPS: COMPTON, GASROW, INNER_SINK, PEXT are not supported")
+    edges = PM.mg_edges(ENV["MGROUPS"]); G = length(edges) + 1
+    TF.PARAMS[:meqn] >= 9 + 2G || error("MGROUPS: meqn = $(TF.PARAMS[:meqn]) < $(9 + 2G)")
+    tcmb = parse(Float64, get(ENV, "TCMB", "0"))
+    TX.mg_setup!(edges, PM.EVERG / ChemNet.kB, tcmb, 9, length(TF.var(:dn)))
+    TF.setscalar!(:neqn, 9 + 2G)
+    PM.mg_roles!(); r_ = PM.MGROLE[]; TX.MGQG[] = r_.Lya; TX.MGSLG[] = r_.Hm
+    PM.SLIMP && (TX.MGSLQ[] = PM.sl_qt_mg)
+    get(ENV, "MGSOLVER", "band") == "band" && (TD.ROUTINES[:matslv] = JuliaSolver.matslv!)
+    h0 = TC.CPLH[]
+    TC.CPLH[] = (; newstep = () -> (h0.newstep(); TX.mg_newstep!()), reset = () -> (h0.reset(); TX.mg_reset!()),
+                 update = (rhs, a_, b_) -> (h0.update(rhs, a_, b_); TX.mg_update!(rhs, a_, b_)),
+                 dmax = (rhs, a_, b_) -> max(h0.dmax(rhs, a_, b_), TX.mg_dmax!(rhs, a_, b_)))
+    let f0 = TD.STEPFN[]
+        TD.STEPFN[] = () -> (PM.mg_ratios!(mat); f0(); nothing)
+    end
+    a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
+    ax = MGAUX[]
+    if ax !== nothing && ax.edges == TX.MGEDGE[]
+        for g in 1:G; copyto!(TX.MGEN[][g], ax.E[g]); copyto!(TX.MGFN[][g], ax.F[g]); copyto!(TX.MGEO[][g], ax.E[g]); copyto!(TX.MGFO[][g], ax.F[g]); end
+        TX.mg_newstep!(); src = "the checkpoint"
+    else
+        dn, rn, chi, er, fr = TF.var(:dn), TF.var(:rn), TF.var(:chifn), TF.var(:ern), TF.var(:frn)
+        arad = 7.565723e-15; τ = zeros(length(dn)); t_ = 0.0
+        for k in b_:-1:a_; t_ += chi[k] * dn[k] * (rn[k+1] - rn[k]); τ[k] = t_; end
+        kph = a_; for k in b_:-1:a_; τ[k] >= 2 / 3 && (kph = k; break); end
+        L = 4π * rn[kph+1]^2 * fr[kph+1]; Te = L > 0 ? (L / (4π * rn[kph+1]^2 * 5.670374419e-5))^0.25 : 0.0
+        Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : max(Te, (max(er[k], 1e-300) / arad)^0.25) for k in eachindex(dn)]
+        TX.mg_init_from_grey!(Ts); src = @sprintf("the grey field (T_eff %.0f K outside zone %d)", Te, kph - a_ + 1)
+    end
+    PM.mg_ratios!(mat)
+    pr("MGROUPS: %d groups, edges %s eV, unknowns 10..%d (neqn %d, meqn %d), q from group %d, chemistry energy from group %d, solver %s; fields from %s\n",
+       G, join((@sprintf("%.4g", e) for e in edges), ","), 9 + 2G, 9 + 2G, TF.PARAMS[:meqn], TX.MGSLG[], TX.MGQG[], get(ENV, "MGSOLVER", "band"), src)
+    nothing
+end
+"(MGROUPS) a record per snapshot in POPIII_OUT/mg_rec.jls: groups, grey field, state, ratios, star-light rates."
+function mg_record(k)
+    a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); rg = a_-1:b_+2; sd = PM.SLDIAG[]
+    rec = (; step = k, t = TF.getscalar(:timen), dt = TF.getscalar(:timen) - TF.getscalar(:timeo), r = TF.var(:rn)[rg], ρ = TF.var(:dn)[rg], T = TF.var(:tn)[rg],
+           E = TF.var(:ern)[rg], F = TF.var(:frn)[rg], chi = TF.var(:chifn)[rg], kE = TF.var(:xken)[rg], kP = TF.var(:xkpn)[rg], fedd = TF.var(:fedd)[rg],
+           Eg = [TX.MGEN[][g][rg] for g in 1:TX.MGN[]], Fg = [TX.MGFN[][g][rg] for g in 1:TX.MGN[]],
+           rE = [TX.MGRE[][g][rg] for g in 1:TX.MGN[]], rP = [TX.MGRP[][g][rg] for g in 1:TX.MGN[]], rR = [TX.MGRR[][g][rg] for g in 1:TX.MGN[]],
+           k1 = [TX.MGK1[][g][rg] for g in 1:TX.MGN[]], edges = copy(TX.MGEDGE[]),
+           sl = sd === nothing ? nothing : (; kph = sd.kph, Te = sd.Te, L = sd.L, kHm = sd.kHm[rg], kH = sd.kH[rg], kLW = sd.kLW[rg]),
+           xHp = [ChemNet.full(mat.x[z], mat.net)[:Hp] for z in a_:b_], xH2 = [ChemNet.full(mat.x[z], mat.net)[:H2] for z in a_:b_])
+    open(io -> serialize(io, rec), joinpath(get(ENV, "POPIII_OUT", "."), "mg_rec.jls"), "a")
+    nothing
+end
 const PROFSAMPLE = haskey(ENV, "CPLPROFILE") ? parse(Int, ENV["CPLPROFILE"]) : -1     # step at which a 200-step Profile sample starts
 const PROFSAMPLEN = parse(Int, get(ENV, "CPLPROFILEN", "200"))                       # (PERF512) its length in steps
 PROFSAMPLE >= 0 && @eval using Profile
@@ -1483,6 +1546,8 @@ try
     elseif Int(TF.getscalar(:neqn)) == 9
         TF.setscalar!(:neqn, 7)                    # (restart from a COUPLED checkpoint)
     end
+    COUPLED && !PM.MGON && Int(TF.getscalar(:neqn)) > 9 && TF.setscalar!(:neqn, 9)   # (restart from an MGROUPS checkpoint without groups)
+    PM.MGON && mg_install!()
     Trbdf2.ERRCTL[] || error("DTERR must be set (the step control of the stack; TITAN's heuristic is diagnostic only)")
     if Trbdf2.ERRCTL[]                             # DTERR: coverage of the COUPLED zones and the line cap the heuristic would apply, on the trace lines
         Trbdf2.TRACE_EXTRA[] = function ()
@@ -1561,6 +1626,7 @@ try
         TCHEM[] += time() - tc0
         RAD && TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())   # T changed in chem!: Planck function, opacity, e_g + E_r/ρ
         REC.on && SNAPEVERY > 0 && k % SNAPEVERY == 0 && recsnap!(k)
+        PM.MGON && SNAPEVERY > 0 && k % SNAPEVERY == 0 && mg_record(k)
         if SNAPS !== nothing                         # profiles for post-processing: every 0.25 dex of n_c, and every SNAPEVERY steps
             lnc = log10(TF.var(:dn)[a] / PC.mH)
             if lnc >= SNAPNEXT[] || (SNAPEVERY > 0 && k % SNAPEVERY == 0)

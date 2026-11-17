@@ -81,6 +81,8 @@ function int_eval(ex, P::Dict{Symbol,Any})
     error("cannot evaluate dimension expression $ex")
 end
 
+"MGROUPS=n (n groups, integer) or MGROUPS=e1,e2,… (interior edges in eV: one more group than edges)."
+mg_ngroups(s) = (occursin(',', s) || occursin('.', s)) ? length(split(s, ',')) + 1 : parse(Int, s)
 "Integer PARAMETERs of titan.par."
 function parse_params(path = joinpath(FSRC, "titan.par"))
     P = Dict{Symbol,Any}()
@@ -104,6 +106,11 @@ function parse_params(path = joinpath(FSRC, "titan.par"))
             if lowercase(k) == "meqn" && get(ENV, "COUPLED", "0") == "1"
                 get(ENV, "TITAN_NOLIB", "0") == "1" || error("COUPLED=1 needs TITAN_NOLIB=1 (libtitan has meqn = $(P[:meqn]))")
                 P[:meqn] = max(P[:meqn], 9)
+            end
+            # MGROUPS (TitanResidFast MGRad.jl): 2 unknowns per group behind the 9 of COUPLED
+            if lowercase(k) == "meqn" && haskey(ENV, "MGROUPS") && ENV["MGROUPS"] != "0"
+                get(ENV, "TITAN_NOLIB", "0") == "1" || error("MGROUPS needs TITAN_NOLIB=1")
+                P[:meqn] = max(P[:meqn], 9 + 2mg_ngroups(ENV["MGROUPS"]))
             end
         end
     end

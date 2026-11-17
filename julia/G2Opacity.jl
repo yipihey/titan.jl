@@ -225,6 +225,69 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS
     end
     (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
 end
+"""
+MGROUPS (docs/POPIII_MULTIGROUP.md): per-group means of `means_fast`'s physics on the same nodes and with the same populations, plus the
+grey means of the same call (Float64 only). `gidx[i]` is the group of node i. In-group shape temperatures: emission B_ν(Ts), absorption
+B_ν(Tws), extinction ∂B_ν/∂T(Ts) (Ts = max(T, Tmin), Tws = max(Tw, Tmin), so that every group mean is defined where B underflows); the
+grey normalisation uses T and Tw as `means_fast`. Returns (κE_g, κP_g, χ_g, κ1s_g, κE, κP, χ): κ1s_g the H(1s) bound–free part of the
+absorption (B_ν(Tws)-weighted, per mass), whether or not hbfP puts H bound–free into κE_g.
+"""
+function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, nHmS, hbfP, Tw = T, Tmin = 3000.0)
+    F = fastgrid(); kB = COp.kB; h = COp.h; ρ = Float64(ρ); T = Float64(T); Tw = Float64(Tw); kT = kB * T
+    Ts = max(T, Tmin); Tws = max(Tw, Tmin)
+    Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
+    χH = Z0.χH; χ2 = Z0.χHe2
+    wH = [Z0.occupation(n, 1, Nion, Nneu) for n in 1:NLEV]; wHe = [Z0.occupation(n, 2, Nion, Nneu) for n in 1:NLEV]
+    pH = zeros(NLEV); pHe = zeros(NLEV); sx = 0.0
+    for n in 2:NLEV; pH[n] = n2 * (n^2 / 4) * exp(-χH * (0.25 - 1 / n^2) / kT) * wH[n] / max(wH[2], 1e-300); sx += pH[n]; end
+    ng = max(n1 - sx, 0.0); pH[1] = ng
+    UHe = 0.0
+    for n in 1:NLEV; pHe[n] = n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n]; UHe += pHe[n]; end
+    for n in 1:NLEV; pHe[n] *= nHep / UHe; end
+    x = clamp((log10(T) - FLT0) / FDLT, 0.0, FNT - 1 - 1e-9); j = floor(Int, x) + 1; a = clamp(x - (j - 1), 0.0, 1.0)
+    cia = nH2 > 1e-3 * n1; wJ = Tw != T
+    N = length(F.ν); dis = zeros(N)
+    for (i, n, ns, σe) in F.DIS
+        d = 1 - Z0.occupation(ns, 1, Nion, Nneu) / max(wH[n], 1e-300)
+        d > 0 && (dis[i] += d * pH[n] * σe)
+    end
+    gE = zeros(G); gW = zeros(G); gP = zeros(G); gB = zeros(G); gR = zeros(G); gD = zeros(G); g1 = zeros(G)
+    sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0
+    Bf(ν, t) = (u = h * ν / (kB * t); u > 700 ? 0.0 : 2h * ν^3 / COp.c^2 / expm1(u))
+    Df(ν, t) = (u = h * ν / (kB * t); u > 700 ? 0.0 : 2h * ν^3 / COp.c^2 * u * exp(-u) / (t * (-expm1(-u))^2))
+    @inbounds for i in 1:N
+        ν = F.ν[i]; dν = F.w[i]; u = h * ν / kT; em = exp(-u); stim = 1 - em
+        B = 2h * ν^3 / COp.c^2 * em / stim; D = B * u / (T * stim)
+        ab = dis[i]; a1 = pH[1] * F.SH[1, i]
+        for n in 1:NLEV; s_ = F.SH[n, i]; s_ > 0 && (ab += pH[n] * s_); end
+        ab *= stim; a1 *= stim
+        ahe = nHe * F.σHeI[i]
+        if nHep > 0
+            for n in 1:NLEV; s_ = F.SHe[n, i]; s_ > 0 && (ahe += pHe[n] * s_); end
+        end
+        ahe *= stim
+        aff = _tint(F.HF, j, a, i) * ng * ne * kT +
+              3.692e8 * ne / (sqrt(T) * F.ν3[i]) * stim * ((nHp + nHep) * _tint(F.G1, j, a, i) + 4nHepp * _tint(F.G2, j, a, i))
+        acia = cia ? (_tint(F.C1, j, a, i) * nH2^2 + _tint(F.C2, j, a, i) * nH2 * nHe + _tint(F.C3, j, a, i) * nH2 * n1) : 0.0
+        a0 = acia + aff + ahe
+        σhm = F.σhm[i] * stim
+        sca = F.ray2[i] * nH2 + F.ray1[i] * ng + COp.σT * ne
+        hb = hbfP ? ab : 0.0
+        BJ = wJ ? COp.Bν(ν, Tw) : B
+        aE = a0 + σhm * nHm + hb; aP = a0 + σhm * nHmS + hb; ext = a0 + σhm * nHm + ab + sca
+        sE += aE * BJ * dν; sW += BJ * dν; sP += aP * B * dν; sB += B * dν
+        sR += D / max(ext, 1e-300) * dν; sD += D * dν
+        g = gidx[i]; Bs = Bf(ν, Ts); Bw = Bf(ν, Tws); Ds = Df(ν, Ts)
+        gE[g] += aE * Bw * dν; gW[g] += Bw * dν; g1[g] += a1 * Bw * dν
+        gP[g] += aP * Bs * dν; gB[g] += Bs * dν
+        gR[g] += Ds / max(ext, 1e-300) * dν; gD[g] += Ds * dν
+    end
+    q(a_, b_) = b_ > 0 ? a_ / b_ / ρ : 0.0
+    ([q(gE[g], gW[g]) for g in 1:G], [q(gP[g], gB[g]) for g in 1:G], [gR[g] > 0 ? gD[g] / gR[g] / ρ : 0.0 for g in 1:G],
+     [q(g1[g], gW[g]) for g in 1:G], sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
+end
+"Group index of every fast node for interior edges `edges` [Hz] (ascending)."
+group_index(edges) = (F = fastgrid(); [searchsortedlast(edges, ν) + 1 for ν in F.ν])
 ForwardDiff_value(x::ForwardDiff.Dual) = ForwardDiff_value(ForwardDiff.value(x))
 ForwardDiff_value(x) = x
 const FASTON = get(ENV, "G2OPAC", "0") == "2"

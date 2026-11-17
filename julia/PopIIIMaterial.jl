@@ -305,7 +305,7 @@ photoionization where the gray LTE term (T > T_r) cooled.
 """
 const NLOPAC = Ref(false)
 const NLOPC = Ref{Vector{Any}}(Any[])          # per zone: (; T0, RE, qE, RP, qP, RR, qR) or nothing
-import ..ContinuumOpacity, ..G2Opacity
+import ..ContinuumOpacity, ..G2Opacity, ..Z0Physics
 const COp = ContinuumOpacity; const G2O = G2Opacity
 const NLGRID = Ref{Vector{Float64}}(Float64[])
 """
@@ -1107,12 +1107,22 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             Tc = (max(er[k], Ecmb) / arad)^0.25; W = 1.0
         end
         (W > 0 && Tc > 0) || return (0.0, 0.0, 0.0, 1.0)
-        env = (Trad = Tc, J = ν -> W * _bnu(ν, Tc))
-        kHm = sl.pHm === nothing ? 0.0 : CNn.photorate(sl.pHm, tn[k], env); kH = sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, tn[k], env)
+        Wg = nothing; kHon = false                     # MGROUPS: one dilution per group, from the group fields (MGOpac.jl)
+        if MGON
+            bl = SLBLEND[] && Te > 0; therm = bl ? wq >= 1 : !(k > kph && Te > 0)
+            Wg = mg_wg(k, Tc, Ecmb, bl, therm); kHon = !therm && !(TL3DEEP && tauz_[k] >= 3.0)
+        end
+        if Wg === nothing
+            env = (Trad = Tc, J = ν -> W * _bnu(ν, Tc))
+            kHm = sl.pHm === nothing ? 0.0 : CNn.photorate(sl.pHm, tn[k], env); kH = sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, tn[k], env)
+        else
+            env = (Trad = Tc, J = mg_J(Wg, Tc))
+            kHm = sl.pHm === nothing ? 0.0 : CNn.photorate(sl.pHm, tn[k], env); kH = kHon ? mg_kH(Wg, Tc) : 0.0
+        end
         f = 1.0; kLW = 0.0
         if k > kph && sl.shield !== :off
             f = sl.shield === :none ? 1.0 : fsh_h2(NH2[k], tn[k]) * fsh_hi(NHI[k])
-            kLW = 1.1e8 * 4π * W * _bnu(νLW, Tc) * f
+            kLW = 1.1e8 * 4π * (Wg === nothing ? W : Wg[MGROLE[].LW]) * _bnu(νLW, Tc) * f
         end
         diag.kHm[k] = kHm; diag.kH[k] = kH; diag.kLW[k] = kLW; diag.fsh[k] = f
         if SLIMP && CPLPREP[]                            # SLIMP: how this zone's star light follows its E_r, F_r (sl_qt)
@@ -1123,6 +1133,9 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             # (SLW0 is sized by cpl_prepare! before the chemistry: the zones run on CHEMTHREADS tasks, a resize here raced and lost records)
             (SLSTAR[] && k <= length(SLW0[])) && (SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
                          ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off))
+            # MGROUPS: q follows the dilution of the H⁻-band group (TX.MGSLG); the record carries every group's W_g for the T_c refresh (cpl_tq)
+            (MGON && SLSTAR[] && k <= length(SLW0[]) && SLW0[][k] !== nothing) &&
+                (SLW0[][k] = merge(SLW0[][k], (; W0 = max(Wg[TX.MGSLG[]], 1e-300), Wg, kHon)))
         end
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
             d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH(); n1 = nH * max(d[:H], 1e-30)
@@ -1130,8 +1143,8 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             g = (abs(un[k+1] - un[k]) / (rn[k+1] - rn[k]) + 2abs(ub) / rc) / 3
             τS = 3A21LYA * LYA_LAM^3 * n1 / (8π * max(g, 1e-30))
             RL = 3A21LYA * (τS < 1e-6 ? 1.0 : -expm1(-τS) / τS)
-            nb = W / expm1(E21 / (CNn.kB * Tc))
-            diag.tl3[k] = (; β = W * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
+            nb = (Wg === nothing ? W : Wg[MGROLE[].Lya]) / expm1(E21 / (CNn.kB * Tc))
+            diag.tl3[k] = (; β = (Wg === nothing ? W : Wg[MGROLE[].Ba]) * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
             TL3DEEP && (diag.tl3[k] = merge(diag.tl3[k], (; deep = tauz_[k] >= 3.0)))
             ov_ = LYAOVR[]; (k <= length(ov_) && ov_[k] !== nothing) && (diag.tl3[k] = merge(diag.tl3[k], ov_[k]))   # LYART: transferred Lyα
         end
@@ -1141,6 +1154,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
     rates
 end
 include(joinpath(@__DIR__, "LyaTransfer.jl"))
+include(joinpath(@__DIR__, "MGOpac.jl"))                # MGROUPS (default off)
 "dx/dt of the star-light reactions (rates lagged) for ChemNet.step's `extra`. No heat here: the LW energy goes to TitanResidFast.GASQ (see `lwheat`)."
 function starlight_terms(m::NetGas, ρ, kHm, kH, kLW)
     fr_ = m.net.free; iHp = findfirst(==(:Hp), fr_); iHm = findfirst(==(:Hm), fr_); iH2 = findfirst(==(:H2), fr_)
@@ -1592,16 +1606,19 @@ function cpl_tq(t, q, tc = 1.0; phc = t.phc, phc0 = t.slq.phc0)
     s_ = t.slq; p3b = s_.p3; envb = t.env; extrab = t.extra; r = s_.rec
     if tc != 1 && r !== nothing                  # SLIMP=2: the terms at the iterate's colour temperature (Float; W at its start value W0)
         Tc = r.Tc0 * tc; W0 = r.W0; sl = STARLIGHT[]
-        nb = W0 / expm1(E21 / (CNn.kB * Tc))
-        p3b = merge(s_.p3, (; β = W0 * beta2s_bb(Tc), P12 = (s_.p3.RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc))
-        envb = s_.lj ? (hasproperty(t.env, :ljW) ? merge(t.env, (; Trad = Tc, J = ν -> W0 * _bnu(ν, Tc), ljW = W0, tl3 = p3b)) :
-                                                   merge(t.env, (; Trad = Tc, J = ν -> W0 * _bnu(ν, Tc), tl3 = p3b))) : merge(t.env, (; tl3 = p3b))
+        mgr_ = hasproperty(r, :Wg)                   # MGROUPS: each process with its group's dilution
+        WBa = mgr_ ? r.Wg[MGROLE[].Ba] : W0; WLy = mgr_ ? r.Wg[MGROLE[].Lya] : W0
+        nb = WLy / expm1(E21 / (CNn.kB * Tc))
+        p3b = merge(s_.p3, (; β = WBa * beta2s_bb(Tc), P12 = (s_.p3.RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc))
+        Jb = mgr_ ? mg_J(r.Wg, Tc) : (ν -> W0 * _bnu(ν, Tc))
+        envb = s_.lj ? (hasproperty(t.env, :ljW) ? merge(t.env, (; Trad = Tc, J = Jb, ljW = WBa, tl3 = p3b)) :
+                                                   merge(t.env, (; Trad = Tc, J = Jb, tl3 = p3b))) : merge(t.env, (; tl3 = p3b))
         ph_ = s_.ph; phc = Tv -> Any[(p_, CNn.photorates_t(p_, Tv, envb)...) for p_ in ph_]
         if t.extra !== nothing
-            e1 = (Trad = Tc, J = ν -> W0 * _bnu(ν, Tc))
+            e1 = (Trad = Tc, J = Jb)
             kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, r.T, e1)
-            kH = sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, r.T, e1)
-            kLW = r.lw ? 1.1e8 * 4π * W0 * _bnu(12.87 * EVERG / CNn.hP, Tc) * r.fsh : 0.0
+            kH = mgr_ ? (r.kHon ? mg_kH(r.Wg, Tc) : 0.0) : sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, r.T, e1)
+            kLW = r.lw ? 1.1e8 * 4π * (mgr_ ? r.Wg[MGROLE[].LW] : W0) * _bnu(12.87 * EVERG / CNn.hP, Tc) * r.fsh : 0.0
             extrab = starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
         end
     end
@@ -1775,7 +1792,9 @@ function cpl_finish!(m::NetGas)
         TX.cplz(k) || continue
         t = CPLTERMS[][k]
         if SLIMP && hasproperty(t, :slq) && sl_on(k)   # SLIMP: the fast species at the star light of the solved E_r, F_r
-            er_, fr_ = TM.v(:ern), TM.v(:frn); qt_ = sl_qt(k, er_[k], fr_[k], fr_[k+1]); t = cpl_tq(t, qt_[1], qt_[2])
+            er_, fr_ = TM.v(:ern), TM.v(:frn)
+            qt_ = MGON ? (g_ = TX.MGSLG[]; sl_qt_mg(k, er_[k], TX.MGEN[][g_][k], TX.MGFN[][g_][k], TX.MGFN[][g_][k+1])) : sl_qt(k, er_[k], fr_[k], fr_[k+1])
+            t = cpl_tq(t, qt_[1], qt_[2])
         end
         x, _ = CNn.ck_eval([TX.XSN[][1][k], TX.XSN[][2][k]], dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)
         old = m.x[k]; m.x[k] = length(old) > nf ? vcat(x, old[nf+1:end]) : x

@@ -56,8 +56,15 @@ const SAVE = Dict{Symbol,Vector{Float64}}()
 # COUPLED: the old species (TitanResidFast.XSO) are saved, restored and combined with the other old arrays
 const SAVEX = [Float64[], Float64[]]
 save!() = (for s in OLD; copyto!(get!(() -> similar(vf(s)), SAVE, s), vf(s)); end;
-           TX.COUPLED[] && for i in 1:2; length(SAVEX[i]) == length(TX.XSO[][i]) || (SAVEX[i] = similar(TX.XSO[][i])); copyto!(SAVEX[i], TX.XSO[][i]); end)
-restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:2; copyto!(TX.XSO[][i], SAVEX[i]); end)
+           TX.COUPLED[] && for i in 1:2; length(SAVEX[i]) == length(TX.XSO[][i]) || (SAVEX[i] = similar(TX.XSO[][i])); copyto!(SAVEX[i], TX.XSO[][i]); end;
+           TX.MG[] && mg_save!())
+restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:2; copyto!(TX.XSO[][i], SAVEX[i]); end;
+              TX.MG[] && mg_restore!())
+# MGROUPS: the old group fields (TitanResidFast MGEO, MGFO) saved, restored and combined like E_r (on E ΔV) and F_r (on the flux-row inertia)
+const SAVEMG = [Vector{Vector{Float64}}(), Vector{Vector{Float64}}()]
+mg_save!() = (SAVEMG[1] = deepcopy(TX.MGEO[]); SAVEMG[2] = deepcopy(TX.MGFO[]); nothing)
+mg_restore!() = (for g in 1:TX.MGN[]; copyto!(TX.MGEO[][g], SAVEMG[1][g]); copyto!(TX.MGFO[][g], SAVEMG[2][g]); end; nothing)
+mgkeys(g) = (Symbol(:EV, g), Symbol(:QF, g))
 
 function newton!()
     s!(:iter, 1)
@@ -122,6 +129,16 @@ function bdf_old!()
             Qγ = frn[k] * 2 * (mγ(k-1) + mγ(k)) / (dn[k-1] + dn[k])
             Qn = fr0[k] * 2 * (mn(k-1) + mn(k)) / (d0[k-1] + d0[k])
             fro[k] = cb(Qγ, Qn) * (do_[k-1] + do_[k]) / (2 * (ms[k-1] + ms[k]))
+        end
+        if TX.MG[]                     # MGROUPS: each group as E_r and F_r
+            for g in 1:TX.MGN[]
+                en_, fn_, eo_, fo_ = TX.MGEN[][g], TX.MGFN[][g], TX.MGEO[][g], TX.MGFO[][g]; e0_, f0_ = SAVEMG[1][g], SAVEMG[2][g]
+                @inbounds for k in rng; eo_[k] = cb(en_[k] * dvn[k], e0_[k] * dv0[k]) / dvo[k]; end
+                @inbounds for k in a+1:b
+                    Qγ = fn_[k] * 2 * (mγ(k-1) + mγ(k)) / (dn[k-1] + dn[k]); Qn = f0_[k] * 2 * (mn(k-1) + mn(k)) / (d0[k-1] + d0[k])
+                    fo_[k] = cb(Qγ, Qn) * (do_[k-1] + do_[k]) / (2 * (ms[k-1] + ms[k]))
+                end
+            end
         end
     end
     @inbounds for k in a+1:b          # momentum: u·(m₋ + m₊) (boundary velocities are fixed)
@@ -270,7 +287,7 @@ const TRACE_EXTRA = Ref{Any}(nothing)
 const VNAMES = Dict(1 => "r", 2 => "m", 3 => "rho", 4 => "u", 5 => "T", 6 => "E_r", 7 => "F_r", 8 => "x_H+", 9 => "x_H2")
 
 "Conserved combinations of a state (arrays of the new or the old time level; xs = the two coupled species)."
-function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs)
+function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs, mg = nothing)
     a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1; n = length(d)
     C = Dict{Symbol,Vector{Float64}}(s => zeros(n) for s in (:m, :me, :xme, :r, :P))
     m = C[:m]
@@ -289,11 +306,18 @@ function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs)
             @inbounds for k in a:b; TX.cplz(k) && (x[k] = m[k] * xs[i][k]); end
         end
     end
+    if mg !== nothing                  # MGROUPS: E_g ΔV and the flux-row inertia of F_g
+        for g in 1:TX.MGN[]
+            kE, kF = mgkeys(g); EV = zeros(n); QF = zeros(n); C[kE] = EV; C[kF] = QF; Eg = mg[1][g]; Fg = mg[2][g]
+            @inbounds for k in a:b; EV[k] = Eg[k] * dv[k]; end
+            @inbounds for k in a+1:b; QF[k] = Fg[k] * 2 * (m[k-1] + m[k]) / (d[k-1] + d[k]); end
+        end
+    end
     C
 end
-combos_new() = combos(vf(:dn), vf(:dvoln), vf(:egn), vf(:egrn), vf(:ern), vf(:un), vf(:frn), vf(:xmen), vf(:rn), TX.XSN[])
-combos_old() = combos(vf(:do), vf(:dvolo), vf(:ego), vf(:egro), vf(:ero), vf(:uo), vf(:fro), vf(:xmeo), vf(:ro), TX.XSO[])
-combos_saved() = combos(SAVE[:do], SAVE[:dvolo], SAVE[:ego], SAVE[:egro], SAVE[:ero], SAVE[:uo], SAVE[:fro], SAVE[:xmeo], SAVE[:ro], SAVEX)
+combos_new() = combos(vf(:dn), vf(:dvoln), vf(:egn), vf(:egrn), vf(:ern), vf(:un), vf(:frn), vf(:xmen), vf(:rn), TX.XSN[], TX.MG[] ? (TX.MGEN[], TX.MGFN[]) : nothing)
+combos_old() = combos(vf(:do), vf(:dvolo), vf(:ego), vf(:egro), vf(:ero), vf(:uo), vf(:fro), vf(:xmeo), vf(:ro), TX.XSO[], TX.MG[] ? (TX.MGEO[], TX.MGFO[]) : nothing)
+combos_saved() = combos(SAVE[:do], SAVE[:dvolo], SAVE[:ego], SAVE[:egro], SAVE[:ero], SAVE[:uo], SAVE[:fro], SAVE[:xmeo], SAVE[:ro], SAVEX, TX.MG[] ? (SAVEMG[1], SAVEMG[2]) : nothing)
 
 "Old arrays := the state with conserved combinations C (as bdf_old!, for any combination). false if a mass or volume is ≤ 0."
 function old_from!(C)
@@ -319,6 +343,13 @@ function old_from!(C)
         egro, ero, fro = vf(:egro), vf(:ero), vf(:fro)
         @inbounds for k in a:b; egro[k] = C[:mer][k] / ms[k]; ero[k] = C[:EV][k] / dvo[k]; end
         @inbounds for k in a+1:b; fro[k] = C[:QF][k] * (do_[k-1] + do_[k]) / (2 * (ms[k-1] + ms[k])); end
+        if TX.MG[]
+            for g in 1:TX.MGN[]
+                kE, kF = mgkeys(g); eo_ = TX.MGEO[][g]; fo_ = TX.MGFO[][g]
+                @inbounds for k in a:b; eo_[k] = C[kE][k] / dvo[k]; end
+                @inbounds for k in a+1:b; fo_[k] = C[kF][k] * (do_[k-1] + do_[k]) / (2 * (ms[k-1] + ms[k])); end
+            end
+        end
     end
     @inbounds for k in a+1:b; uo[k] = C[:P][k] / (ms[k-1] + ms[k]); end
     TitanCore.FREE_OUTER[] && (uo[b+1] = C[:P][b+1] / ms[b])
@@ -374,7 +405,8 @@ function refilter!(E1, Cs, δ0)
     x = zeros(neqn * nb); mx = 0.0
     @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = v; mx = max(mx, abs(v)); end
     ε = mx > 0 ? min(1.0, 1e-3 / mx) : 1.0
-    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2))
+    Wm = TX.MG[] ? TX.mgws(Float64, c.mgr) : nothing
+    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2), Wm === nothing ? nothing : (Wm.egn, Wm.fgn))
     TX.residual!(R, Wws, c, zeros(neqn * nb)); C0 = Dict(s_ => copy(v) for (s_, v) in stw())
     x .*= ε; TX.residual!(R, Wws, c, x); Cp = stw()
     Co = Dict{Symbol,Vector{Float64}}()
@@ -407,6 +439,12 @@ function wnorm(rhs)
                 acc(rhs[i, k] * q[k] / (rt * (q[k] + o.xfl)), i, k)
             end
         end
+        if TX.MG[]                     # MGROUPS: δE_g against the group's own E_g with the grey floor plus MGEFL·E_r (minor groups do not set Δt)
+            E = vf(:ern)[k]
+            for g in 1:TX.MGN[]
+                Eg = TX.MGEN[][g][k]; acc(rhs[TX.mgiE(g), k] * Eg / (rt * (Eg + o.efl * 7.565723e-15 * tn[k]^4 + TX.MGEFL[] * E)), TX.mgiE(g), k)
+            end
+        end
     end
     @inbounds for k in a+1:b
         cs = max(asn[k-1], asn[k]); acc(rhs[iu, k] * unom[k] / (rt * max(abs(un[k]), cs)), iu, k)
@@ -415,6 +453,12 @@ function wnorm(rhs)
         if lrad
             frn, ern, frnom = vf(:frn), vf(:ern), vf(:frnom)
             acc(rhs[iff, k] * frnom[k] / (rt * max(abs(frn[k]), o.ffl * 2.99792458e10 * 0.5 * (ern[k-1] + ern[k]))), iff, k)
+            if TX.MG[]
+                for g in 1:TX.MGN[]
+                    Fg = TX.MGFN[][g][k]
+                    acc(rhs[TX.mgiF(g), k] * TX.MGFNOM[][g][k] / (rt * max(abs(Fg), o.ffl * 2.99792458e10 * 0.5 * (ern[k-1] + ern[k]), TX.MGEFL[] * abs(frn[k]))), TX.mgiF(g), k)
+                end
+            end
         end
     end
     err = o.maxnorm ? worst : sqrt(ssq / max(nn, 1))
@@ -429,6 +473,9 @@ function finite_new()
     end
     if TX.COUPLED[]
         for i in 1:2; q = TX.XSN[][i]; @inbounds for k in a:b; TX.cplz(k) && !isfinite(q[k]) && return false; end; end
+    end
+    if TX.MG[]
+        for g in 1:TX.MGN[], q in (TX.MGEN[][g], TX.MGFN[][g]); @inbounds for k in a:b; isfinite(q[k]) || return false; end; end
     end
     true
 end
