@@ -92,6 +92,8 @@ O(u/c) ≲ 3e-4 here (u ≲ 100 km/s, free fall onto the star); Vaytet et al. (2
 
 ## 4. Group opacities and emission from the network populations
 
+*(Evaluation level: stages 1 and 2a evaluated the ratios below at the start of the step. Since stage 2b they are evaluated at the Newton iterate and the lagged path is deleted; §17. Lines per group: §17.)*
+
 **Network zones** (the photosphere, the envelope, the precursor): the G2 continuum on the zone's own populations
 (H, H⁻ from the network, n = 2 from the three-level atom, H₂, He, He⁺, He²⁺, e⁻; HM88 occupation probabilities; Gaunt factors;
 dissolved levels; docs/POPIII_G2_MATERIAL.md §6.2) on the 484 nodes of G2OPAC=2, reduced per group with the weights of the grey means:
@@ -590,3 +592,86 @@ sensitivity argument applies). IonFS's carrier beyond r_ph has no H I scattering
 escape rate; with the band transmission above nothing escapes).
 
 Newton failures and Δt of t_mb02 are those of t_mg47 over the same 60 steps (37 against 38 rejected attempts in the restart transient).
+
+## 17. Stage 2b: group opacities, emissivities and lines at the Newton iterate (e88345e)
+
+**What changed.** The lagged group ratios of stages 1/2a (`mg_ratios!`, `MGMILNET`; §4, §6 describe them and are superseded by this
+section) are deleted, not switched off. Each zone carries a record of 7 numbers per group — the ratios r_E, r_P, r_R of the group's
+κ_E, κ_P, χ_R to the grey means, the group's continuum κ_E, the ground-state photoionisation opacity K_1, its Milne emission A_1, the
+Raman opacity — plus two per Raman pair and (n_2, T_w): `mg_nv() = 7G + 2·pairs + 2` (`MGRad.jl`). The record is evaluated from the
+iterate's own composition in the same NLOIT call that gives the grey ratios (`material_opacg!`), and `mg_level` turns it and the grey
+(χ, κ_E, κ_P) of the same level into (κ_E,g, χ_g, κ_P,g, A_1). The old time level's record is the converged record of the previous
+step (`mg_fill!` → `MGVN` → `MGVO`).
+
+* **Deviation from the plan ("group_fast generic in the Dual type").** The record's Jacobian is the same finite-difference log-slope set
+  as the grey ratios' (`mg_slope`, from the same `nlo_ratio` calls), not an AD pass through `group_fast`: the grey NLOIT ratios are
+  linearised that way, and one linearisation for both keeps Σ_g rows = grey row exact in the Jacobian as well as in the residual.
+* **Lines per group.** The table opacity's line part is distributed with the Z0 line list's Planck-weighted shares per group
+  (`mg_linetab!`, `mg_lines`) instead of the continuum ratio. The Lyman lines inside the LW band are left out of the shares (they are
+  the Lorentz wings of §16, already in the continuum on the fast grid).
+* **Defect of stage 2a found on the way.** 2a formed κ_E,g = (lagged continuum ratio) × (line-including grey κ_E) and floored
+  χ_g ≥ κ_E,g. At step 14450: zone 23 κ_E,LW 2.27e3 cm² g⁻¹ (2a) against 49.5 (2b) with χ_LW ≈ 90; zone 26 0.381 against 0.119;
+  ionising group zone 26 8.0e6 against 2.7e6, zones 22–25 30–60× lower in 2b. In the interior the floor was 3–400× the Rosseland
+  mean, so the groups did not sum to the grey diffusion flux. Replaced by `mg_chif` (Rosseland mean where the zone is thick,
+  absorption mean with weight e^{−χ_R m} where it is thin; docstring in `MGRad.jl`).
+* **Milne emission** A_1 from the same K_1 at the iterate. Unit check of the implied α_1 against α_A − α_B: 1.065 (5000 K),
+  1.018 (1e4 K), 1.006 (2e4 K), 1.011 (4e4 K).
+* **Line cooling** of the coupled zones (H₂ rovibrational, HD, atomic; LINEIMP at the iterate) is emitted into the IR group (`Mg.lcl`,
+  group `MGLG`) with the gas row's time weights, so Σ_g rows = grey row holds to round-off. *Merge note for energy-compat:* this is one
+  added source term in the group energy row; the tie and boundary rows are untouched.
+* **`G2Opacity.group_fast`**: function barrier and task-local scratch (3.5 ms and 1.8 MB per call → 0.1 ms and 5 kB); the LW band is
+  carried on a compressed sub-grid (`LWSTRIDE = 32`, §16).
+
+**Sum identities.** By construction E_r = Σ E_g (max |ΣE_g/E − 1| ~ 1e-12 in t_mb06) and the gas row's exchange is Σ_g. The record's
+own Σ_g r_E b_g − 1 ≈ 0.9–1.1e-2 and Σ_g r_P b_g − 1 = 3.6e-2 are *not* a multigroup error: they are the Planck-quadrature error of the
+484-node fast grid against the analytic band fractions b_g (bquad.jl: optical +6.4e-2 at 186.5 K; LW −1.0…−6.6e-2; ionising +0.71 at
+1000 K falling to +5e-4 at 7.5e4 K). With the grid's own weights the identity holds to ≤ 1e-15 (unit test). The group means are
+normalised to the grey mean of the same grid, so the error does not enter the rows.
+
+**Grey path** (MGROUPS unset) bit-identical to 4f1fe93: t_mb05 against t_mb01, logs and final state md5
+246c3b436a9e423b0c6fafc6710cfec4.
+
+**Gate: 200 steps from the step-14400 checkpoint, 100 zones, MGROUPS=4 (t_mb06) against stage 2a (t_mg47).**
+
+| | 2b (t_mb06) | 2a (t_mg47) |
+|---|---|---|
+| Newton failures / 200 steps (per 50: ) | 59 (31, 9, 10, 9) | 44 (31, 11, 5, 5) |
+| error rejects | 0 | 8 |
+| Newton failures after step 14450 | 28 | 13 (+8 error rejects) |
+| median Δt of the failing attempts | 1.95e4 s | 1.33e4 s |
+| simulated time per step, steps 14460–14600 | 8.7e3 s | 7.9e3 s |
+| L(1.5 r_ph) median, rms | 6993 L☉, 0.47 % | 6955 L☉, 5.45 % |
+| r_ph median | 115.64 R☉ | 116.34 R☉ |
+| T_eff from (L, r_ph) | 4908 K | 4887 K |
+| wall time per step, steps 14500–14600 | 2.96 s | 2.99 s |
+
+*Verdict, not weakened:* the Δt gate is met in steady state (+11 % simulated time per step, +17 % per wall second); the luminosity noise
+is 10× smaller; cost equals 2a (grey: 1.65–1.71 s/step). **The Newton-failure count is higher (59 against 44; all rejects 59 against
+52).** The pattern is the step controller (limited by x_H2 in 171 of 200 accepted steps) growing Δt until Newton fails and cutting by
+4; 2b's failure threshold lies 1.5× higher, and the controller probes it more often. Counting all rejected attempts per simulated time after step 14450: 2b 28 per
+1.22e6 s, 2a 21 per 1.10e6 s — still 20 % more. Suspected obstruction: the controller has no memory of the last
+failing Δt; this is the grey stack's controller and was not changed.
+
+**IonFS gate on stage 2b (t_mb06, snapshots 14450/14500/14550/14600, `mb/ifs06`): NOT met.**
+
+| step | IonFS L_LW/L | MG L⁺_LW/L | ratio | IonFS L_ion/L | MG L⁺_ion/L | ratio |
+|---|---|---|---|---|---|---|
+| 14450 | 3.68e-9 | 1.32e-9 | 0.36 | 1.74e-11 | 2.76e-12 | 0.16 |
+| 14500 | 3.64e-9 | 1.33e-9 | 0.36 | 1.72e-11 | 3.01e-12 | 0.17 |
+| 14550 | 3.70e-9 | 1.35e-9 | 0.36 | 1.77e-11 | 3.02e-12 | 0.17 |
+| 14600 | 3.47e-9 | 1.45e-9 | 0.42 | 1.63e-11 | 3.47e-12 | 0.21 |
+
+Suspected reasons, partly quantified, none proven:
+1. *2a's agreement (0.80–0.91; §16) was partly fortuitous.* It rested on the κ_E,g defect above: an absorption opacity 3–50× too high
+   in the LW and ionising groups raises the thermal source at the group photosphere.
+2. *One albedo per group.* ε = κ_E/χ in the photospheric zone is 0.22 in 2b (0.67 in 2a): surface source factor √ε/(1 + √ε) ≈ 0.32
+   against 0.45. Frequency-resolved transfer lets LW photons out through the windows between the Lyman wings where a single group mean
+   cannot. The sensitivity to scattering is large in IonFS itself: without Rayleigh/Raman (`IFSRAM=0`, `mb/ifs06n`) its L_LW/L is
+   1.4–1.6e-8, ×3.9–4.5 above the result with scattering (L_ion unchanged).
+3. *The group photospheres lie in the unresolved temperature jump* between zone 26 (7525 K) and zone 27 (4861 K): B_LW changes by
+   e^{−10.5} across one interface; d ln B/d ln T = 19 (LW), 23.6 (ionising). A factor 2.7 is 5.2 % in T (390 K of the 2660 K jump), a
+   factor 5–6 is 7.6 %.
+
+General remedy (not built): opacity-binned sub-groups (window/wing) in the LW band, which give the band two albedos; not a tuned
+floor. What the shortfall means for the science at this epoch: nothing (T_eff ≈ 4500–4900 K; L_LW/L ~ 1e-9, and §16 shows the envelope
+absorbs it within one zone). It matters when T_eff rises; the gate is repeated with the final configuration in §20.
