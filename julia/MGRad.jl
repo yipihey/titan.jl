@@ -428,8 +428,9 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
                 isempty(GASQ[]) || (w += GASQ[][k] * dvol[k])
             end
             # the coupled zones' line cooling (H₂ rovibrational lines, HD: LINEIMP at the iterate) is emitted into group MGLG, with the
-            # gas row's time weights: what the gas loses in lines the radiation field gains
-            (g == MGLG[] && cplz(k) && GASROW[] && !(c.etotal && !c.useint[k])) && (θc = max(θ, CPL_THETA[]); w -= (θc * M.lcl[k] + (1 - θc) * MGLCO[][k]) * dvol[k])
+            # gas row's time weights: what the gas loses in lines the radiation field gains, in every zone (a gas row that holds
+            # gas + radiation — the total row, the lrad row without GASROW — takes the same term back, see the gas row)
+            (g == MGLG[] && cplz(k)) && (θc = max(θ, CPL_THETA[]); w -= (θc * M.lcl[k] + (1 - θc) * MGLCO[][k]) * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * eg[k]
             elseif k == ngre
