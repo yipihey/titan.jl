@@ -1198,6 +1198,8 @@ const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended ru
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 # Newton controls, applied after any restart: NITER (iterations per attempt), FAILTFAC (Δt factor after a failed attempt)
 haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
+haskey(ENV, "NWFREEZE") && (TC.NWFREEZE[] = String.(split(ENV["NWFREEZE"], ",")))     # (diagnostic, default off) see TitanCore.NWFREEZE
+haskey(ENV, "NWTRACE") && (Trbdf2.NWTRACE[] = open(ENV["NWTRACE"], "a"))      # (diagnostic, default off) Newton trace, see Trbdf2.NWTRACE
 haskey(ENV, "STOL") && TF.setscalar!(:stol, parse(Float64, ENV["STOL"]))
 haskey(ENV, "NTRY") && TF.setscalar!(:ntry, parse(Float64, ENV["NTRY"]))
 if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Trbdf2.TFAC[] = TD.FAIL_TFAC[]; end
@@ -1270,6 +1272,62 @@ if get(ENV, "GVAR", "0") == "1"
     pr("GVAR: gas momentum row with the gravity force dW/dr_j of the piecewise-constant density\n")
 end
 (TX.GFV[] || TX.GVAR[]) && TX.ECGRAV[] >= 3 && error("GFV/GVAR: ECGRAV 3 and 4 are written for the node-mass weight")
+
+# NWFD (diagnostic): for the unknowns j of every zone z in zlo:zhi, the central difference (h = 1e-5) of (a) the residual with the Newton context frozen (what
+# JACCHK does: everything the iterate's update! refreshes outside residual! -- EOS/opacity fills, Eddington factors f, g, h, the flux-tie weights -- held),
+# and (b) the full nonlinear map: the state is perturbed with update! (EOS, opacity, formal solution refreshed), a fresh context is built and the residual
+# evaluated at x = 0; the state is restored by the inverse update. Both against the assembled Jacobian of the iterate. Prints every (row, zone, var) with
+# |FD - AD| > 1e-3 x (largest diagonal entry of the row) for rows in zones z-3:z+3, for (a) and (b) separately, and the (b)-(a) difference.
+function nwfd!(zlo, zhi, iter)
+    a_ = Int(TF.getscalar(:ngrs)); c = TX.context(); ne = c.neqn; nb = c.nb; k0 = c.k0; ws = TX.getws(Float64, c.mgr)
+    E = (TF.var(:em2), TF.var(:em1), TF.var(:e00), TF.var(:ep1), TF.var(:ep2)); AD = [copy(e) for e in E]
+    rhs = TF.var(:rhs); h = parse(Float64, get(ENV, "NWFDH", "1e-5"))
+    pr("NWFD: step dt %.4e theta %.2f iteration %d, neqn %d, zones %d..%d (relative numbering; absolute = +%d), code %s\n", TF.getscalar(:dtime), TF.getscalar(:thet), iter, ne, zlo, zhi, a_ - 1, string(c.code))
+    base_ = (; f = copy(TF.var(:fedd)), g = TF.getscalar(:geddr), h = copy(TD.HEDD), hx = copy(TD.HXEDD), fx = copy(TD.FXEDD), gx = TD.GXEDD[], tie = copy(TD.TIEW))
+    FZ = Ref(String[])
+    function resid_now()
+        for n_ in FZ[]
+            n_ == "f" && copyto!(TF.var(:fedd), base_.f); n_ == "g" && TF.setscalar!(:geddr, base_.g)
+            n_ == "h" && copyto!(TD.HEDD, base_.h); n_ == "hx" && copyto!(TD.HXEDD, base_.hx); n_ == "fx" && copyto!(TD.FXEDD, base_.fx)
+            n_ == "gx" && (TD.GXEDD[] = base_.gx); n_ == "tie" && copyto!(TD.TIEW, base_.tie)
+        end
+        cc = TX.context(); Rr = zeros(ne, nb); TX.residual!(Rr, ws, cc, zeros(ne * nb)); Rr
+    end
+    function bump!(za, j, δ)
+        fill!(rhs, 0.0); rhs[j, za] = δ; TC.update!()
+    end
+    revert(δ, j) = (j <= 3 || j == 5 || j == 6) ? -δ / (1 + δ) : -δ
+    Rf = zeros(ne, nb)
+    R0 = resid_now()
+    sets_ = [s_ == "none" ? String[] : String.(split(s_, ",")) for s_ in split(get(ENV, "NWFDSETS", "none"), ";")]
+    for (iset, fz_) in enumerate(sets_)
+    FZ[] = fz_; ACC = Dict{Tuple{Int,Int},Tuple{Float64,Int,Float64}}()
+    pr("NWFD set %d: closure quantities held at the pre-perturbation values in the full FD: %s\n", iset, isempty(fz_) ? "none (full refresh)" : join(fz_, ","))
+    for z in zlo:zhi
+        za = a_ + z - 1; kbz = za - k0 + 1
+        for j in 1:ne
+            xv = zeros(ne * nb); ix = (kbz - 1) * ne + j
+            Rp = zeros(ne, nb); Rm = zeros(ne, nb)
+            xv[ix] = h; TX.residual!(Rp, ws, c, xv); xv[ix] = -h; TX.residual!(Rm, ws, c, xv)
+            FDa = (Rp .- Rm) ./ 2h
+            bump!(za, j, h); Rp2 = resid_now(); bump!(za, j, revert(h, j))
+            bump!(za, j, -h); Rm2 = resid_now(); bump!(za, j, revert(-h, j))
+            FDb = (Rp2 .- Rm2) ./ 2h
+            for kb in max(1, kbz - 3):min(nb, kbz + 3), i in 1:ne
+                o = kbz - kb; ad = abs(o) <= 2 ? AD[o + 3][i, j, k0 + kb - 1] : 0.0
+                scale = maximum(abs, (AD[3][i, jj, k0 + kb - 1] for jj in 1:ne)) + 1e-300
+                ea = abs(FDa[i, kb] - ad) > 1e-3 * scale; eb = abs(FDb[i, kb] - ad) > 1e-3 * scale; ec = abs(FDb[i, kb] - FDa[i, kb]) > 1e-3 * scale
+                let v_ = abs(FDb[i, kb] - ad) / scale; o_ = get(ACC, (i, j), (0.0, 0, 0.0)); ACC[(i, j)] = (max(o_[1], v_), o_[2] + (v_ > 1e-3 ? 1 : 0), max(o_[3], abs(FDa[i, kb] - ad) / scale)); end
+                (iset == 1 && (ea || eb || ec)) && pr("   row %d zone %d | col var %d zone %d (offset %d): FDfrozen %.5e FDfull %.5e AD %.5e diagscale %.3e | %s%s%s\n", i, kb + k0 - a_, j, z, o, FDa[i, kb], FDb[i, kb], ad, scale,
+                                       ea ? "frozen-vs-AD " : "", eb ? "full-vs-AD " : "", ec ? "full-vs-frozen" : "")
+            end
+        end
+    end
+    for ((i_, j_), (mx_, n_, mf_)) in sort(collect(ACC)); (mx_ > 1e-3 || mf_ > 1e-3) && pr("   SET%d row %d col var %d: max |FDfull-AD|/diag %.4g (%d entries > 1e-3), max |FDfrozen-AD|/diag %.4g\n", iset, i_, j_, mx_, n_, mf_); end
+    end
+    pr("NWFD: done; state drift check, max |R(after) - R(before)| / (max |R|) = %.3e\n", maximum(abs, resid_now() .- R0) / (maximum(abs, R0) + 1e-300))
+    nothing
+end
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)
 # JACCHK="k,z,iter": at step k, Newton iteration iter, finite differences of the residual against the assembled Jacobian for the variables of absolute zone z (debugging)
@@ -1700,6 +1758,42 @@ try
         end
         @printf("DTERR: error-controlled TR-BDF2 (rtol %g, x floor %g, F floor %g cE, E floor %g aT^4, %s norm, PI %s, safety/facmin/facmax %g/%g/%g, Newton-failure factor %g, BE retry %s); TITAN's heuristic and caps are diagnostic only\n",
                 Trbdf2.EOPT.rtol, Trbdf2.EOPT.xfl, Trbdf2.EOPT.ffl, Trbdf2.EOPT.efl, Trbdf2.EOPT.maxnorm ? "max" : "rms", Trbdf2.EOPT.pi, Trbdf2.EOPT.safety, Trbdf2.EOPT.facmin, Trbdf2.EOPT.facmax, Trbdf2.EOPT.fail, Trbdf2.EOPT.be)
+    end
+    # NWPROBE=<dt1>,<dt2>,... (diagnostic, default off): at step NWPROBEAT+1 [41] of this process, instead of the step, one trapezoidal-stage attempt at each
+    # of these step sizes from the live state (as a retry after a Newton failure starts, Trbdf2.step_err!), traced if NWTRACE is set; then the process ends.
+    # NWFD=<zlo>,<zhi>,<iter>: with it, at Newton iteration <iter> of the first attempt, finite differences against the assembled Jacobian for the unknowns
+    # of zones zlo..zhi (zone numbers as in the divergence message), see nwfd!.
+    if haskey(ENV, "NWPROBE") && haskey(ENV, "NWDUMP")      # NWDUMP=zlo,zhi: table of the photospheric zones at the probe state
+        Trbdf2.NWDUMP[] = function ()
+            zl, zh = parse.(Int, split(ENV["NWDUMP"], ",")); a_ = Int(TF.getscalar(:ngrs)); b_ = Int(TF.getscalar(:ngre))
+            rn = TF.var(:rn); dn = TF.var(:dn); tn = TF.var(:tn); ch = TF.var(:chifn); fe = TF.var(:fedd); er = TF.var(:ern); fr = TF.var(:frn)
+            ro = TF.var(:ro); dmdt = TF.var(:dmdt); un = TF.var(:un)
+            tau = zeros(length(rn)); for k in b_:-1:a_; tau[k] = (k < b_ ? tau[k+1] : 0.0) + ch[k] * dn[k] * (rn[k+1] - rn[k]); end
+            pr("NWDUMP step %d t %.9e dt(last) %.4e; geddr %.5f GXEDD %.5f; zones %d..%d (relative numbering)\n", Int(TF.getscalar(:jstep)), TF.getscalar(:timeo), TF.getscalar(:dtime), TF.getscalar(:geddr), TD.GXEDD[], zl, zh)
+            pr("  z   r/Rsun     T        rho       tau(z..out) chi*rho*dr  x_H+     x_H2    f        h(HEDD)  hx       fx       tiew(z) E_r/aT4  F/cE    u_km/s  urel_if_km/s dmdt_if  hmean/avchi eq\n")
+            for z in zl:zh
+                k = a_ + z - 1; y = ycomp(k); aT4 = 7.5657e-15 * tn[k]^4
+                hm = 2 / (1 / ch[k-1] + 1 / ch[k]); sfr = (isdefined(TX, :SFRATIO) && k <= length(TX.SFRATIO)) ? TX.SFRATIO[k] : NaN
+                pr("%3d %8.3f %8.1f %.3e %.3e %.3e %.3e %.3e %.5f %+.4f %+.4f %+.4f %.3f %.3e %.3f %+.2f %+.2f %+.3e %.4f %s\n", z, rn[k] / Rsun, tn[k], dn[k], tau[k], ch[k] * dn[k] * (rn[k+1] - rn[k]), y[1], y[3], fe[k],
+                   k <= length(TD.HEDD) ? TD.HEDD[k] : NaN, k <= length(TD.HXEDD) ? TD.HXEDD[k] : NaN, k <= length(TD.FXEDD) ? TD.FXEDD[k] : NaN, k <= length(TD.TIEW) ? TD.TIEW[k] : NaN,
+                   er[k] / aT4, fr[k] / (2.998e10 * er[k]), un[k] / 1e5, (un[k] - (rn[k] - ro[k]) / TF.getscalar(:dtime)) / 1e5, dmdt[k], sfr, mat.eqzone[k] ? "table" : "net")
+            end
+        end
+    end
+    if haskey(ENV, "NWPROBE")
+        if haskey(ENV, "NWFD")
+            let w = parse.(Int, split(ENV["NWFD"], ",")), mg0 = TD.ROUTINES[:matgen], done = Ref(false)
+                TD.ROUTINES[:matgen] = function ()
+                    mg0()
+                    (!isempty(Trbdf2.NWPROBE[]) && !done[] && Int(TF.getscalar(:iter)) == w[3]) || return
+                    done[] = true
+                    nwfd!(w[1], w[2], w[3]); flush(stdout); exit(0)
+                end
+            end
+        end
+        let f0 = TD.STEPFN[], cnt = Ref(0), nat = parse(Int, get(ENV, "NWPROBEAT", "40"))
+            TD.STEPFN[] = () -> (cnt[] += 1; cnt[] == nat + 1 && (Trbdf2.NWPROBE[] = parse.(Float64, split(ENV["NWPROBE"], ","))); f0(); nothing)
+        end
     end
     RUNEND[] = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k
