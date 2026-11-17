@@ -525,6 +525,78 @@ function sz_avchi!(avchi, chif, d, dvol, rmu, ngrs, ngre)
     end
     nothing
 end
+"""
+SLABFLUX (popiii_m2c `SLABFLUX=1[,n]`, default off; off = bit-identical): interface opacity from the exact steady solution of the
+grey moment equations across the slab between the two zone centres (docs/POPIII_SLABFLUX.md), in place of TITAN's harmonic mean.
+
+In the column-mass coordinate of the flux row (dm = ρ dr, M± = ½ρ±dV±/r^μ the half-zone columns, ΔM = M₋ + M₊, dτ = χ dm) the static
+first moment d(q f E)/dτ = −q F/c with no source inside the slab (finite-volume: the exchange of each half-zone is in its zone's energy
+rows) has F constant, so F = c Δ(q f E)/Δτ exactly, Δτ = ∫χ dm. The whole slab problem is then the optical depth between the centres
+for an opacity profile through the two centre values. Profile family κ ∝ (τ + τ₀)^n (n ≥ 1; τ₀ fixed by χ± and ΔM), which for a grey
+LTE layer at constant flux with χ ∝ T^q (T⁴ linear in τ) is exact with n = q/4; n → ∞ is the exponential in optical depth,
+n = 1 the exponential in column (log-linear in m), n = 2 gives the geometric mean:
+    Δτ = ΔM χ_n,   χ_n = χ₊ ℰ(x/n) / ℰ(−x(n−1)/n),   x = ln(χ₋/χ₊),   ℰ(y) = (e^y − 1)/y,
+    n → ∞:  χ_∞ = χ₊ x/(1 − e^{−x}) = ln(χ₋/χ₊)/(1/χ₊ − 1/χ₋)     (the Scharfetter–Gummel / Bernoulli form, B(−x) = x/(1 − e^{−x})).
+χ_n is symmetric in χ±, lies between the harmonic and the logarithmic mean (H ≤ χ_∞ ≤ G ≤ χ_1), equals χ when χ₋ = χ₊ (Δτ = a + b,
+the series of the two half-zones: diffusion limit F = −(c/3χρ)∂E/∂r, Larsen, Morel & Miller 1987) and is ≤ max χ± (Δτ ≪ 1 stays
+negligible against the r^μ Δ(q f E) term: the VEF/FLUXTIE free-streaming limit is untouched). It depends on χ± only (not on E, so the
+flux stays diffusive in E: ∂F_k/∂E_k > 0 is never produced), is C∞ (ℰ by its series for |y| < 1e-2) and couples only the two zones.
+Default n → ∞ (`SLABFLUX=1`), the smallest optical depth of the family (closest to TITAN's); `SLABFLUX=1,n` sets n.
+The same avchi enters the flux row and the radiation-force work of the energy rows. With SUBZONE also set, SUBZONE's front form is
+applied on top (its Δτ_T is then this Δτ).
+"""
+const SLABFLUX = Ref(false); const SFN = Ref(Inf)
+"(SLABFLUX diagnostic) per interface: Δτ_SF/Δτ_T (values) of the last residual evaluation."
+const SFRATIO = Float64[]
+"ℰ(y) = (e^y − 1)/y, C∞ (series for |y| < 1e-2: truncation y⁷/8!, derivatives without the 1/y² cancellation)."
+@inline function sf_E(y)
+    abs(val(y)) < 1e-2 && return 1 + y * (1 / 2 + y * (1 / 6 + y * (1 / 24 + y * (1 / 120 + y * (1 / 720 + y / 5040)))))
+    return expm1(y) / y
+end
+"SLABFLUX: the interface opacity χ_n of zones with χ₋ = χm, χ₊ = χp (n = Inf: exponential in optical depth)."
+@inline function sf_mean(χm, χp, n)
+    x = log(χm / χp)
+    isinf(n) && return χp / sf_E(-x)
+    return χp * sf_E(x / n) / sf_E(-x * (n - 1) / n)
+end
+"SLABFLUX: replace avchi of the interior interfaces ngrs+1..ngre by χ_n (see SLABFLUX); θ-level χ."
+function sf_avchi!(avchi, chif, ngrs, ngre)
+    n = SFN[]
+    length(SFRATIO) < ngre + 1 && resize!(SFRATIO, ngre + 1); fill!(SFRATIO, 1.0)
+    @inbounds for k in ngrs+1:ngre
+        a0 = avchi[k]
+        avchi[k] = sf_mean(chif[k-1], chif[k], n)
+        SFRATIO[k] = val(avchi[k]) / val(a0)
+    end
+    nothing
+end
+"""
+SLABTIE (popiii_m2c `SLABTIE=1`, needs SLABFLUX with n = ∞; default off; off = bit-identical): the outward donor factor of the FLUXTIE row
+from the slab solution. FLUXTIE (F_k = h c E upwinded, where τ from the outer boundary ≤ 1) takes h = H/J of the formal solution at the
+donor zone's *centre*. When the donor is the opaque side of an unresolved photosphere (zone Δτ 1e4, its centre τ ~ 1e4 below the
+interface in the formal solution's piecewise-constant picture) h ≈ 1/(3τ) ~ 1e-5 and the interface flux is choked although, in the
+exponential-in-τ slab profile of SLABFLUX, the donor centre lies only τ_i (~0.1–10) below the interface. SLABTIE uses the steady slab
+solution from the donor centre to the interface (f E − f E_s = F τ_i/c) with a Marshak/Eddington free surface (F = c E_s/2):
+    h_slab(τ) = f₋/(τ + 2 f₋),     h = max(h_FS + h_slab(τ_i) − h_slab(a), 0)
+(h_FS the formal solution's donor h; a = χ₋M₋ the donor's half-zone depth in the formal solution's piecewise-constant picture, so the
+correction is the change of the Marshak slab estimate when the donor centre is moved from depth a to the slab depth τ_i),
+τ_i = Δτ_SF ln(1 + (R − 1) M₋/ΔM)/ln R (R = χ₋/χ₊; the column M₋ of the donor's half-zone in the χ ∝ e^{−βτ} profile; = a for R = 1).
+No front (R = 1): h = h_FS exactly. Front (a ≫ τ_i): h ≈ h_FS + f/(τ_i + 2f): 1/(3τ_i + 2) for a thick slab (diffusion), ½ for τ_i → 0
+(Marshak). The inward term is unchanged. Local (zones k−1, k), smooth in χ±, ρ±, r (Duals) except the max at h = 0.
+"""
+const SLABTIE = Ref(false)
+"SLABTIE: optical depth from the donor centre (χm, column Mm) to the interface in SLABFLUX's exponential-in-τ profile."
+@inline function st_tauint(χm, χp, Mm, Mp)
+    ΔM = Mm + Mp; φ = Mm / ΔM; x = log(χm / χp)
+    Δτ = ΔM * sf_mean(χm, χp, Inf)
+    abs(val(x)) < 1e-6 && return Δτ * (φ + 0.5 * φ * (1 - φ) * x)
+    return Δτ * log1p(expm1(x) * φ) / x
+end
+"SLABTIE: the outward donor factor h (see SLABTIE)."
+@inline function st_hdonor(hfs, fm, χm, χp, Mm, Mp)
+    τi = st_tauint(χm, χp, Mm, Mp)
+    return max(hfs + fm / (τi + 2fm) - fm / (χm * Mm + 2fm), 0.0)
+end
 @inline function excap(cc, κ, ρ, dt)
     EXCAP[] > 0 || return 1.0
     return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
@@ -984,6 +1056,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     end
     avchi = W.avchi
     c.lrad && @inbounds for k in ngrs:ngre+1; avchi[k] = 2 / (1 / chif[k-1] + 1 / chif[k]); end
+    c.lrad && SLABFLUX[] && sf_avchi!(avchi, chif, ngrs, ngre)
     c.lrad && SUBZONE[] && sz_avchi!(avchi, chif, d, dvol, rmu, ngrs, ngre)
     # viscosity
     qf, dudr = W.qf, W.dudr; xmu4 = 0.25xmu
@@ -1380,7 +1453,12 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 rcm = (0.5 * (r[k-1] + r[k]))^mu; rcp = (0.5 * (r[k] + r[k+1]))^mu
                 # upwind (donor cell): outward light from the zone inside, inward from the zone outside, diluted as r^-2. The centred
                 # average ½(hE_(k−1) + hE_k) cannot see an odd–even E mode, which nothing damps in thin gas (E → 0 at zone 214, step 87126)
+                if !SLABTIE[]
                 B = rmu[k] * fr[k] / cc - (rcm * max(TD.HEDD[k-1], 0.0) * er[k-1] + rcp * min(TD.HEDD[k], 0.0) * er[k])
+                else                                 # SLABTIE: outward donor h from the slab depth of the donor's centre below the interface
+                    hd = st_hdonor(max(TD.HEDD[k-1], 0.0), fedd[k-1], chif[k-1], chif[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k])
+                    B = rmu[k] * fr[k] / cc - (rcm * hd * er[k-1] + rcp * min(TD.HEDD[k], 0.0) * er[k])
+                end
                 R[iF, kb(k)] = (1 - wt) * R[iF, kb(k)] + wt * B
             end
         end
