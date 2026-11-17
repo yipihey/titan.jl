@@ -1217,6 +1217,12 @@ if get(ENV, "SLABFLUX", "0") != "0"
         TX.SLABFLUX[] && pr("SLABFLUX: interface opacity from the steady slab solution, profile kappa ~ (tau + tau0)^n, n = %s%s\n", isinf(TX.SFN[]) ? "Inf (exponential in tau)" : @sprintf("%.3g", TX.SFN[]), TX.SUBZONE[] ? "; SUBZONE applied on top" : "")
     end
 end
+# SLABTIE=1 (default off; needs SLABFLUX=1 with n = Inf): FLUXTIE's outward donor h from the slab depth of the donor centre below the interface (TX.SLABTIE)
+if get(ENV, "SLABTIE", "0") == "1"
+    (TX.SLABFLUX[] && isinf(TX.SFN[])) || error("SLABTIE=1 needs SLABFLUX=1 (n = Inf)")
+    TX.SLABTIE[] = true
+    pr("SLABTIE: FLUXTIE outward donor h = h_FS + f/(tau_i + 2f) - f/(a + 2f), tau_i the slab depth of the donor centre below the interface, a its half-zone depth\n")
+end
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)
 # JACCHK="k,z,iter": at step k, Newton iteration iter, finite differences of the residual against the assembled Jacobian for the variables of absolute zone z (debugging)
