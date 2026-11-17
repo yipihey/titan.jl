@@ -1228,10 +1228,6 @@ if get(ENV, "SLABTIE", "0") == "1"
     (TX.SLABFLUX[] && isinf(TX.SFN[])) || error("SLABTIE=1 needs SLABFLUX=1 (n = Inf)")
     TX.SLABTIE[] = true
     pr("SLABTIE: FLUXTIE outward donor h = h_FS + f/(tau_i + 2f) - f/(a + 2f), tau_i the slab depth of the donor centre below the interface, a its half-zone depth\n")
-    if haskey(ENV, "TIESMOOTH") && ENV["TIESMOOTH"] != "0"      # (default off) Newton fix 1 of docs/POPIII_MULTIGROUP.md §5
-        TX.TIESM[] = parse(Float64, ENV["TIESMOOTH"])
-        pr("TIESMOOTH: SLABTIE's max(h, 0) replaced by the smooth ramp (h + sqrt(h^2 + eps^2))/2, eps = %g\n", TX.TIESM[])
-    end
 end
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)
@@ -1432,11 +1428,8 @@ function mg_install!()
     TX.mg_valloc!(length(TF.var(:dn)))
     TX.MGSLQ[] = PM.sl_qt_mg; TX.MGH2FN[] = PM.mg_h2iter!
     TX.MGZONEQ[] = (k, ρ, T, a, b, qv, t) -> PM.cpl_zone_qg(mat, k, ρ, T, a, b, qv, t)
-    get(ENV, "MGSOLVER", "band") == "band" && (TD.ROUTINES[:matslv] = JuliaSolver.matslv!)
-    if get(ENV, "MGVEF", "1") == "1"               # stage 2a: Eddington factors per group (mg_eddfac!)
-        TX.MGVEF[] = true
-        let f0 = TC.EDDFAC[]; TC.EDDFAC[] = () -> mg_eddfac!(f0) end
-    end
+    TD.ROUTINES[:matslv] = JuliaSolver.matslv!        # banded LU with partial pivoting (the block solver pivots only inside a block: diverges for neqn = 9 + 2G, t_mg23)
+    let f0 = TC.EDDFAC[]; TC.EDDFAC[] = () -> mg_eddfac!(f0) end      # Eddington factors per group
     h0 = TC.CPLH[]
     TC.CPLH[] = (; newstep = () -> (h0.newstep(); TX.mg_newstep!()), reset = () -> (h0.reset(); TX.mg_reset!()),
                  update = (rhs, a_, b_) -> (h0.update(rhs, a_, b_); TX.mg_update!(rhs, a_, b_)),
@@ -1455,26 +1448,22 @@ function mg_install!()
         # the excess over the CMB has the star's colour only where it is the star's light (at least half the free-streaming estimate
         # L/(4π r² c)); farther out it is the cloud's own emission: T_s = the gas temperature there. (The T_eff shape everywhere put
         # 0.1–0.3 E_CMB of optical light into the 1–143 pc cloud, which per-group free streaming then drained at up to 5e8 L☉, t_mg28.)
-        # the excess over the CMB has the star's colour only where it is the star's light (at least half the free-streaming estimate
-        # L/(4π r² c)); farther out it is the cloud's own emission: T_s = the gas temperature there. (The T_eff shape everywhere put
-        # 0.1–0.3 E_CMB of optical light into the 1–143 pc cloud, which per-group free streaming then drained at up to 5e8 L☉, t_mg28.)
         Ec_ = arad * parse(Float64, get(ENV, "TCMB", "0"))^4; tg = TF.var(:tn); rr = TF.var(:rn)
         lit(k) = Te > 0 && k > kph && k < length(rr) && (er[k] - Ec_) >= 0.5 * L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10)
         kend = kph + 1; while kend <= b_ && lit(kend); kend += 1; end          # one star-lit region from the photosphere out (no zone-to-zone switching)
         Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : (k > kph && k < kend) ? max(Te, (max(er[k], 1e-300) / arad)^0.25) : max(tg[k], 1.0)
               for k in eachindex(dn)]
         TX.mg_init_from_grey!(Ts); src = @sprintf("the grey field (T_eff %.0f K outside zone %d)", Te, kph - a_ + 1)
-        # (Tried: the excess beyond the star-lit region at T_CMB, and a continuous starlight/CMB split capped at L/(4π r² c), e8d0b3b: both fail
-        #  the first step (t_mg40–t_mg43); this partition leaves a draining optical reservoir in the far cloud, docs §14.)
+        # (this partition leaves a draining optical reservoir in the far cloud; the two alternatives tried failed the first step: docs/POPIII_MULTIGROUP.md §14, §19)
     end
     PM.nloc_reset!(length(mat.x))                    # (a restart evaluated the opacities once before the groups existed: no group records in that cache)
     PM.mg_fill!(mat); copyto!(TX.MGVO[], TX.MGVN[])
-    pr("MGROUPS: %d groups, edges %s eV, unknowns 10..%d (neqn %d, meqn %d), q from group %d, chemistry energy from group %d, solver %s; fields from %s\n",
-       G, join((@sprintf("%.4g", e) for e in edges), ","), 9 + 2G, 9 + 2G, TF.PARAMS[:meqn], TX.MGSLG[], TX.MGQG[], get(ENV, "MGSOLVER", "band"), src)
+    pr("MGROUPS: %d groups, edges %s eV, unknowns 10..%d (neqn %d, meqn %d), q from group %d, chemistry energy from group %d; fields from %s\n",
+       G, join((@sprintf("%.4g", e) for e in edges), ","), 9 + 2G, 9 + 2G, TF.PARAMS[:meqn], TX.MGSLG[], TX.MGQG[], src)
     nothing
 end
 """
-(MGROUPS, MGVEF, stage 2a) Eddington factors per group: after the grey formal solution `f0`, the same formal solution (TitanCore.eddfac!,
+(MGROUPS) Eddington factors per group: after the grey formal solution `f0`, the same formal solution (TitanCore.eddfac!,
 tangent rays, linear-in-τ source, VEF_BG background, EDDSCAT) once per group on the group's arrays, swapped into the state arrays it reads:
 χ → χ_g, absorption κ_P → κ_E,g, B → emission/κ_E,g of the zone's group record (TX.mg_level on MGVN: the same values as the rows;
 the source is (emission + (χ_g − κ_E,g) J_g)/χ_g: absorption κ_E,g, the rest of χ_g scattering), E_r → E_g, F_r → F_g, I_cmb → I_cmb b_g(T_cmb).
@@ -1482,7 +1471,6 @@ Out: f_g, h_g, the tie weights of the group's own depth, g_g. Then the grey stat
 """
 function mg_eddfac!(f0)
     f0()
-    TX.MGVEF[] || return nothing
     a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); G = TX.MGN[]
     ins = (:chifn, :xkpn, :plfn, :ern, :frn, :dtau); sv = Dict(s_ => copy(TF.var(s_)) for s_ in (ins..., :fedd))
     hsv = copy(TD.HEDD); wsv = copy(TD.TIEW); fxsv = copy(TD.FXEDD); gxsv = TD.GXEDD[]

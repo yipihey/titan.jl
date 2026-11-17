@@ -30,13 +30,11 @@ const MGQG = Ref(2)                             # the group that carries RAYQ/GA
 const MGH2G = Ref(0)                            # the LW group with the H₂ photon-conserving absorption (stage 2c; 0: none)
 const MGH2T = Ref(0)                            # the group that receives the H₂ fluorescence (the one below the LW group)
 const MGBFLOOR = 1e-200                         # floor of a group's Planck fraction (energy 1e-200 aT⁴: none; keeps ln E_g finite)
-const MGCLAMP = Ref(3.0)                        # clamp of a correction of ln E_g per Newton iteration
+const MGCLAMP = 3.0                             # clamp of a correction of ln E_g per Newton iteration
 const MGEMIN = 1e-150                           # floor of E_g/E_r after an update (an underflowed group makes the Newton matrix singular)
-const MGCFL = Ref(1e-3)                         # convergence weight floor: |δ ln E_g| counts with E_g/(E_g + MGCFL·E_r)
-const MGEFL = Ref(1e-3)                         # TR-BDF2 error-norm floor: changes of a group below MGEFL·E_r do not limit Δt
-# (Tried and reverted, t_mg17/t_mg18: E_g ← E_g(1 + δ) (Newton in E_g, clamp [1e-6 − 1, 1e3]) with MGCFL = 1e-12: the ionising group then
-#  flip-flops between ~1e-22 and ~1e-49 of E_r at the photosphere from step to step and Δt fell to 446–2228 s (log update ~1e4 s);
-#  docs/POPIII_MULTIGROUP.md §10.)
+const MGCFL = 1e-3                              # convergence weight floor: |δ ln E_g| counts with E_g/(E_g + MGCFL·E_r)
+const MGEFL = 1e-3                              # TR-BDF2 error-norm floor: changes of a group below MGEFL·E_r do not limit Δt
+# (the unknown is ln E_g: why, and what these five numbers do, docs/POPIII_MULTIGROUP.md §10, §19)
 const MGTCMB = Ref(0.0)
 vvec(n, m) = [zeros(m) for _ in 1:n]
 const MGEN = Ref(Vector{Vector{Float64}}()); const MGFN = Ref(Vector{Vector{Float64}}())     # new level (Newton iterate base)
@@ -111,17 +109,15 @@ const MGRAMP = Ref(Tuple{Int,Int,Float64,Float64}[])
 "Set the Raman pairs (PopIIIMaterial.mg_roles!)."
 mg_rampairs!(pairs) = (MGRAMP[] = pairs; nothing)
 """
-MGVEF (stage 2a, popiii_m2c `MGVEF=1`, the default with MGROUPS): every group's own Eddington factors from a formal solution with the group's
+Every group's own Eddington factors from a formal solution with the group's
 χ_g, κ_E,g, emission and background (popiii_m2c `mg_eddfac!`, run after the grey one wherever TITAN calls it: every Newton update with VEFIMP):
 f_g per zone (MGFEDD), the tie's h_g (MGHEDD) and weights (MGTIEW, from the group's own optical depth), the outer g_g (MGGEDDR). The grey
 array fedd then holds Σ_g f_g E_g / Σ_g E_g (the radiation pressure of the total rows, MLT, …). Frozen in the Jacobian, as the grey factors.
 """
-const MGVEF = Ref(false); const MGVEFOK = Ref(false)
 const MGFEDD = Ref(Vector{Vector{Float64}}()); const MGHEDD = Ref(Vector{Vector{Float64}}()); const MGTIEW = Ref(Vector{Vector{Float64}}())
 const MGGEDDR = Ref(Float64[])
+const MGVEFOK = Ref(false)                       # the group formal solutions have run (before the first one: the grey factors)
 const MGHPLUS = Ref(Vector{Vector{Float64}}())   # (diagnostic) outgoing half moment H⁺ of each group's formal solution per interface
-"(diagnostic) of the last residual: Σ_g E_g/E_r − 1 worst, the group luminosities through each interface are in MGEN/MGFN"
-const MGNEWTON = Ref(0)
 mgiE(g) = MGI0[] + 2g - 1; mgiF(g) = MGI0[] + 2g
 
 "Allocate the group arrays for mgr zones (values kept where present)."
@@ -255,14 +251,14 @@ end
 end
 "maxdel: clamp ln E_g corrections to ±MGCLAMP and return the convergence measure (|δ ln E_g| weighted by E_g/(E_g + MGCFL·E_r))."
 function mg_dmax!(rhs, a, b)
-    d = 0.0; cl = MGCLAMP[]; er = v(:ern)
+    d = 0.0; cl = MGCLAMP; er = v(:ern)
     @inbounds for g in 1:MGN[]
         E = MGEN[][g]; iE = mgiE(g)
         for k in a:b
             δ = rhs[iE, k]
             isfinite(δ) || (rhs[iE, k] = 0.0; d = Inf; continue)
             rhs[iE, k] = clamp(δ, -cl, cl)
-            w = E[k] / (E[k] + MGCFL[] * er[k])
+            w = E[k] / (E[k] + MGCFL * er[k])
             d = max(d, abs(rhs[iE, k]) * w)
         end
         for k in a:b+1; isfinite(rhs[mgiF(g), k]) || (rhs[mgiF(g), k] = 0.0; d = Inf); end
@@ -418,7 +414,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
         en, fn, eg, fg = M.egn[g], M.fgn[g], M.eg[g], M.fg[g]; EO = MGEO[][g]; FO = MGFO[][g]
         ke = M.xke[g]; em = M.emit[g]; erb = M.erb[g]; frb = M.frb[g]; av = M.avchi[g]
         qg = g == MGQG[]
-        vef = MGVEF[] && MGVEFOK[]
+        vef = MGVEFOK[]
         fedd = vef ? MGFEDD[][g] : c.fedd; HE = vef ? MGHEDD[][g] : TD.HEDD; TW = vef ? MGTIEW[][g] : TD.TIEW; gr = vef ? MGGEDDR[][g] : P.geddr
         # ---- energy
         for k in ngrs:ngre

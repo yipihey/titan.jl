@@ -13,9 +13,8 @@ function mg_edges(s)
     t = mg_thresholds()
     (occursin(',', s) || occursin('.', s)) && return parse.(Float64, split(s, ','))
     n = parse(Int, s)
-    n == 3 ? [t.Hm, t.LW] : n == 4 ? [t.Hm, t.LW, t.H] : n == 6 ? [t.Hm, t.LW, t.H, t.He1, t.He2] :
-    n == 7 ? [t.Hm, t.Ba, t.LW, t.H, t.He1, t.He2] : n == 8 ? [t.Hm, t.Pa, t.Ba, t.LW, t.H, t.He1, t.He2] :
-    error("MGROUPS=$n: default edge sets for 3, 4, 6, 7, 8 groups (or give the edges in eV)")
+    n == 4 ? [t.Hm, t.LW, t.H] : n == 6 ? [t.Hm, t.LW, t.H, t.He1, t.He2] :
+    error("MGROUPS=$n: edge sets for 4 (IR | optical | LW | ionising) and 6 (+ He I, He II) groups, or give the edges in eV")
 end
 "Group containing photon energy e [eV]."
 mg_gof(e) = searchsortedlast(TX.MGEDGE[], e) + 1
@@ -24,6 +23,8 @@ const MGROLE = Ref{Any}(nothing)
 function mg_roles!()
     t = mg_thresholds()
     MGROLE[] = (; Hm = mg_gof(t.Hm * 1.0001), Ba = mg_gof(t.Ba * 1.0001), Lya = mg_gof(E21 / EVERG), LW = mg_gof(12.87), H = mg_gof(t.H * 1.0001))
+    r = MGROLE[]      # the LW closure and the H(1s) pair need the LW band as a group of its own, a group below it for the fluorescence, an ionising group above it
+    (1 < r.LW < r.H <= length(TX.MGEDGE[]) + 1 && mg_gof(11.2 * 1.0001) == r.LW) || error("MGROUPS: the edges must contain the LW band's lower end (11.2 eV) and the H edge ($(t.H) eV), with a group below the LW band")
     # Raman pairs (TX.MGRAMP): every group between Lyα and the Lyman limit (G2O.lwband) with the groups of its Stokes partners hν − E_21
     e = TX.MGEDGE[]; G = length(e) + 1; e21 = E21 / EVERG; hz = EVERG / CNn.hP; pairs = Tuple{Int,Int,Float64,Float64}[]
     for gL in 2:G-1
@@ -37,7 +38,7 @@ function mg_roles!()
     MGROLE[]
 end
 const MGGIDX = Ref{Vector{Int}}(Int[])
-const MGTMIN = parse(Float64, get(ENV, "MGTMIN", "3000"))     # in-group shape temperature floor of the group means [K]
+const MGTMIN = 3000.0                                         # in-group shape temperature floor of the group means [K] (docs/POPIII_MULTIGROUP.md §4, §19)
 
 const MGEHZ = Ref(Float64[])                                  # interior group edges [Hz]
 "The record of a zone without group data (MGROUPS off, or the group means failed): `nlo_it` then writes the default record."
@@ -206,13 +207,16 @@ S1/SB is the group's energy absorption cross-section per ground-state atom (K_1 
 energy ε̄_g of the photons it absorbs.
 """
 function mg_h1s(g, T, Ts)
-    F = G2O.fastgrid(); gi_ = MGGIDX[]; kT = CNn.kB * T; kTs = CNn.kB * Ts; xL = CNn.hP * MGEHZ[][g-1] / kTs
+    F = G2O.fastgrid(); gi_ = MGGIDX[]                 # (the grid's nodes ascend in ν: a group's nodes are one range)
+    _mg_h1s(F.ν, F.w, F.SH, searchsortedfirst(gi_, g):searchsortedlast(gi_, g), CNn.hP * MGEHZ[][g-1], T, Ts)
+end
+function _mg_h1s(νs, ws, SH, rng, hνL, T, Ts)          # (function barrier: the grid is held untyped)
+    kT = CNn.kB * T; kTs = CNn.kB * Ts; xL = hνL / kTs
     S1 = zero(T) * zero(Ts); SN = S1; SB = zero(Ts)
-    @inbounds for i in eachindex(F.ν)
-        gi_[i] == g || continue
-        ν = F.ν[i]; x = CNn.hP * ν / kTs; ForwardDiff.value(x - xL) > 700 && continue
-        B = 2CNn.hP * ν^3 / CNn.c^2 * exp(xL - x) / (-expm1(-x)) * F.w[i]; SB += B
-        σ = F.SH[1, i]; σ > 0 || continue
+    @inbounds for i in rng
+        ν = νs[i]; x = CNn.hP * ν / kTs; ForwardDiff.value(x - xL) > 700 && continue
+        B = 2CNn.hP * ν^3 / CNn.c^2 * exp(xL - x) / (-expm1(-x)) * ws[i]; SB += B
+        σ = SH[1, i]; σ > 0 || continue
         a = σ * (-expm1(-CNn.hP * ν / kT)) * B; S1 += a; SN += a / (CNn.hP * ν)
     end
     S1, SN, SB, xL
@@ -236,7 +240,7 @@ a rate ∝ the gross loop rate (t_mb09–t_mb13).
 """
 function mg_kion(cu, T, Tc)
     Ts = mg_t1s(T, Tc); s = zero(cu[1]) * zero(T)
-    for g in MGROLE[].H:TX.MGN[]
+    for g in (MGROLE[].H::Int):TX.MGN[]
         _, SN, SB = mg_h1s(g, T, Ts)
         ForwardDiff.value(SB) > 0 && (s += cu[g] * SN / SB)
     end
@@ -244,7 +248,7 @@ function mg_kion(cu, T, Tc)
 end
 function mg_arec(T, Tc)
     Ts = mg_t1s(T, Tc); λ3 = (CNn.hP^2 / (2π * CNn.me * CNn.kB * T))^1.5; plf = 5.670374419e-5 * T^4 / π; s = zero(T)
-    for g in MGROLE[].H:TX.MGN[]
+    for g in (MGROLE[].H::Int):TX.MGN[]
         S1, SN, _ = mg_h1s(g, T, Ts); ForwardDiff.value(S1) > 0 || continue
         E1, _, EB, xL = mg_h1s(g, T, T)
         # (group_fast takes the emission mean with the weight B_ν(max(T, MGTMIN)) where the group's Σ B_ν(T) w underflows, < 1e-280)
