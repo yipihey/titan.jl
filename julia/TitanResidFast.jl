@@ -1662,6 +1662,11 @@ function zone_diag(dt)
     residual!(R, ws, c, zeros(neqn * nb)); W = ws.a
     it = c.ix[5]; iF = c.ix[7]; a, b = c.ngrs, c.ngre
     imb = [R[it, k - c.k0 + 1] for k in a:b]
+    # the part of R_tot − R_gas − R_E that is the advection-limiter mismatch: the total row advects e_g + E/ρ with one van Leer limiter
+    # (egb), the gas row e_g (egbg) and the radiation row E/ρ (erb) with their own; face term −ṁ (egb − egbg − erb)
+    dm = W.dmdt; fa(j) = val(dm[j] * (W.egb[j] - W.egbg[j] - W.erb[j]))
+    adv = [(k > a ? fa(k) : 0.0) - (k < b ? fa(k + 1) : 0.0) for k in a:b]
+    kin = [val(0.25 * (W.dn[k] * W.dvoln[k] * (W.un[k]^2 + W.un[k+1]^2) - c.do_[k] * c.dvolo[k] * (c.uo[k]^2 + c.uo[k+1]^2)) / dt) for k in a:b]
     tw = length(TD.TIEW) >= b + 1 ? copy(TD.TIEW[a:b+1]) : zeros(b - a + 2)
     ft = TD.FLUXTIE[]; TD.FLUXTIE[] = (ft[1], 0.0)
     rm = try
@@ -1670,7 +1675,7 @@ function zone_diag(dt)
         TD.FLUXTIE[] = ft
     end
     W2 = ws.a
-    (; imb, useint = ui[a:b], tiew = tw, rmom = rm, u = copy(W2.u[a:b+1]), r = copy(W2.rn[a:b+1]), E = copy(W2.ern[a:b]), T = copy(W2.tn[a:b]),
+    (; imb, adv, kin, useint = ui[a:b], tiew = tw, rmom = rm, u = copy(W2.u[a:b+1]), r = copy(W2.rn[a:b+1]), E = copy(W2.ern[a:b]), T = copy(W2.tn[a:b]),
        F = copy(W2.frn[a:b+1]), ρ = copy(W2.dn[a:b]))
 end
 
