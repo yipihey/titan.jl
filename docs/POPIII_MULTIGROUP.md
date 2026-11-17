@@ -11,7 +11,9 @@ plan of the remaining stages. Where a section says "stage 1", the prototype does
 
 Current state (17 Nov 2026, branch `mg2b`): §15–§17 Rayleigh/Raman scattering and stage 2b; §18 stage 2c (photo-rates and photo-heating
 from the group fields inside the solve); §19 the switch audit: `MGROUPS` is the only switch, and the switches that §5–§14 name
-(`MGVEF`, `MGSOLVER`, `MGMILNE`, `MGN2BF`, `MGMILNET`, `TIESMOOTH`) are history; §20 validation of the final configuration.
+(`MGVEF`, `MGSOLVER`, `MGMILNE`, `MGN2BF`, `MGMILNET`, `TIESMOOTH`) are history; §20 validation of the final configuration (bce234e): from a grey checkpoint after protostar formation the multigroup
+run is as stable as grey and adds no energy error of its own; two gates are **not** met — the IonFS comparison (§20.3) and the run
+from the initial conditions, which does not reach the protostar (§20.6).
 
 ## 1. Why, and what multigroup has to deliver
 
@@ -621,7 +623,8 @@ step (`mg_fill!` → `MGVN` → `MGVO`).
 * **Milne emission** A_1 from the same K_1 at the iterate. Unit check of the implied α_1 against α_A − α_B: 1.065 (5000 K),
   1.018 (1e4 K), 1.006 (2e4 K), 1.011 (4e4 K).
 * **Line cooling** of the coupled zones (H₂ rovibrational, HD, atomic; LINEIMP at the iterate) is emitted into the IR group (`Mg.lcl`,
-  group `MGLG`) with the gas row's time weights, so Σ_g rows = grey row holds to round-off. *Merge note for energy-compat:* this is one
+  group `MGLG`) with the gas row's time weights, so Σ_g rows = grey row holds to round-off (as committed in 2b only where the gas row
+  is the internal-energy row; made consistent for every row type in §20.4). *Merge note for energy-compat:* this is one
   added source term in the group energy row; the tie and boundary rows are untouched.
 * **`G2Opacity.group_fast`**: function barrier and task-local scratch (3.5 ms and 1.8 MB per call → 0.1 ms and 5 kB); the LW band is
   carried on a compressed sub-grid (`LWSTRIDE = 32`, §16).
@@ -972,4 +975,305 @@ those are what limit Δt in the runs of §18 and §20.
 
 The table of §18.8, plus `SLIMPDBG` (`TitanResidFast.jl`, `PopIIIMaterial.jl`: debugging prints of the SLIMP=2 bring-up, off by default).
 All of them are grey star-light parameters or leftovers that MGROUPS does not read; deleting them changes the grey stack and belongs with
-the decision to make MGROUPS the production path.
+the decision to make MGROUPS the production path. One more, found in §20.1: `CONV=1e-3` in the runs' `run.env` is read by
+`popiii_m1.jl` and `s5_run.jl` only, not by `popiii_m2c.jl` — the production runs iterate to TITAN's default 1e-5 and the entry
+suggests otherwise; remove it from the env files (or read it, which changes every run).
+
+## 20. Validation of the final configuration (8076ce0, bce234e)
+
+Tree `mg_trees/wip20` = commit 8076ce0 (§20.1–20.3, 20.5, 20.6); tree `mg_trees/wip25` = commit bce234e, which adds the line-cooling
+repair of §20.4 (at this checkpoint it changes the solve by < 0.1 L☉ of line emission in zones 1–27 and the diagnostic by 640 L☉) and
+with which the 500 steps were repeated (§20.2). All checkpoint runs: z100mm checkpoint of step 14400 (t = 237 841 yr, 100 zones, photosphere zone 26),
+production physics, `MGROUPS=4` and nothing else, 8 threads.
+
+### 20.1 The time-step error estimate vanished under MGROUPS: cause and repair
+
+*Symptom.* Stage 2c as committed (672c2fd, `t_mb18`) had 100 Newton failures in 200 steps, and `err` of the accepted steps was
+1e-16 … 1e-13 in 8 of the 10 trace lines. A diagnostic copy of the tree (`wip19d`, a print in `refilter!`; run `t_mb22`, 100 steps, every
+step traced): the estimate is below 1e-9 in **53 of 100 steps**, from the first step on; 40 Newton failures.
+
+*Cause.* TR-BDF2's error estimate is filtered twice (Hosea & Shampine 1996, Appl. Numer. Math. 20, 21, §6; `Trbdf2.jl`): Est =
+(I − hdJ)⁻¹ est, then EST = (I − hdJ)⁻¹ Est. The second solve needs the image of Est in the conserved combinations, ΔQ = Q_y·Est. The
+code took it by a finite difference, (Q(y + ε Est) − Q(y))/ε with ε = min(1, 1e-3/max|Est|), max over all unknowns. The group unknowns
+are corrections to ln E_g. In the molecular cloud (zones 48–74 at this checkpoint) H₂ absorbs the LW group, and H the ionising group, down
+to the floor 1e-150 E_r; there the first-filter estimate of δ ln E_g is 1e43 … 1e133 (a floor value has no meaningful logarithmic
+error; the weighted norm gives these entries zero weight, so they are harmless *in the norm*). But they set ε = 1e-47 … 1e-137: y + ε Est
+equals y in floating point, the difference is exactly zero, EST = 0, and the controller is told that the step has no error. It then
+raises Δt five-fold per step until the Newton iteration fails, and quarters it. The same happened in 2 of the 10 trace lines of stage 2b
+(`t_mb06`), i.e. the defect is as old as the logarithmic group update (stage 1); the Newton-failure counts of §10, §13 and §17 contain it.
+
+*Repair* (`refilter_mg!`, used whenever MGROUPS is on): the image is taken exactly, with one evaluation of the residual's state in dual
+numbers that carry Est as the single direction, ΔQ_k = ∂Q_k/∂y · Est. No step size, no cancellation; `combos` is generic in the number
+type for this. This is the general form of what the finite difference approximated, not a guard on the group entries. The grey path
+keeps its finite difference so that it stays bit-identical to production (`t_mb24`: 30 grey steps, final state identical to the
+reference). Recommendation to the PI: let the grey path use the exact image as well (one code path; the grey trajectory then changes at
+round-off level, which is why it was not done here).
+
+*Result* (`t_mb23`, 200 steps, every step traced):
+
+| | 672c2fd `t_mb18` | 8076ce0 `t_mb23` | grey (`t_mg13`) |
+|---|---|---|---|
+| steps with err < 1e-6 | 8 of 10 traced | **0 of 199** (first step after a restart has no estimate) | — |
+| err of the accepted steps (p10, median, p90) | — | 0.0076, 0.0117, 0.018 | — |
+| limiting variable | — | x_H2 192 steps (zone 28), x_H+ 7 | — |
+| Newton failures per 50 steps | 12, 29, 32, 27 (100) | **10, 9, 9, 9 (37)** | 18, 19, 19 per 100 |
+| Δt (p10, median, p90) | median 1.07e4 s | 5.7e3, 9.3e3, 2.0e4 s | — |
+| L(1.5 r_ph) median, rms | 6219 L☉, — | 6208 L☉, 0.39 % | — |
+| r_ph, T_eff(L, r_ph) | 115.68 R☉, 4766 K | 115.66 R☉, 4764 K | — |
+
+The multigroup run now fails as often as the grey run (18.5 against 18–19 per 100 steps). The first-step burst of stages 2a/2b (31
+failures in the first 50 steps of `t_mb06`) is gone as well: 10.
+
+
+*What limits Δt now: the Newton iteration, in three separable ways.* The iteration stops at `dmax ≤ 1e-5` within 25 iterations
+(`newton!`, `Trbdf2.jl`; the `CONV=1e-3` of the runs' `run.env` is not read by `popiii_m2c.jl` — only `popiii_m1.jl` and `s5_run.jl`
+read it — so the runs iterate to TITAN's default 1e-5, as the failed iterations at 1.4e-5 below show; a dead setting, §19.4). The measure
+is the base stack's max(|δr/r|, |δm/m|, |δρ/ρ|, |δT/T|, |δE_r/E_r|) plus the species' plus the groups' (`mg_dmax!`); u and F_r are not
+in it. A copy tree with both parts printed separately (`wip20d`, runs `t_mb27`, `t_mb33`, `t_mb36`) gives:
+
+1. *At the checkpoint: the base stack's photospheric stall, as in grey.* 100 steps of `t_mb27`: 17 iteration-limit failures; in all 17
+   the base measure is the larger one and the group measure is 0.33–0.345 of it (e.g. 8.1e-5 / 2.8e-5 at Δt = 1.85e4 s; 1.4e-5 /
+   4.9e-6). The stalled unknown is x_H+ of zone 26 (the photosphere) in 34 of 37 failures of the multigroup run and 74 of 75 of the
+   grey run; the corrections oscillate at ≈ 3e-5 against the 1e-5 tolerance. The groups add nothing to it: 18.4 failures per 100
+   steps against 18.75 grey (§20.2).
+2. *At a restart from a grey checkpoint and at the first step from the initial conditions: an exactly singular matrix.* 2 failures in
+   `t_mb27` and 1 in `t_mb33` are `LAPACKException(1766)` / `(1768)` from `gbtrf`: zero pivots in the F_3 and F_4 columns of the last
+   ghost block. The matrix itself is well formed (dump in `t_mb35`: ghost rows −1, +1), but the groups are empty there: E_3 = 6.7e-158
+   erg cm⁻³, nom(F_3) = 1.1e-50 against cE_3 = 2e-147, so within the same group's rows the ln E_g and F_g columns differ by ~100
+   orders of magnitude (row scales 1.5e157 and 9.0e49), and an entry of column 1768 two blocks further in is 1.3e-36 of its row's
+   maximum. Partial pivoting then meets pivots at round-off level or exactly zero. The step is repeated at Δt/4 and Δt/16 and
+   then passes (1.37e4 → 3.4e3 → 8.6e2 s at the checkpoint), and the groups relax within the first steps.
+   *Tried and not in the code* (negative result): at a grey restart the partition gives the empty groups F_g = F_r b_g(T), i.e.
+   |F_g| ≫ cE_g by 97 orders; limiting every group's flux to c·½(E_g,k−1 + E_g,k) and giving the cut part to the group that
+   holds the energy (copy tree `wip26`, run `t_mb40`) leaves the two failed attempts exactly as they were (divergence at the first
+   iteration, the same 1.37e4 → 3.4e3 → 8.6e2 s; last corrections 1e13–1e17 against 1e9–1e12 without). The unrealisable fluxes are
+   therefore not the cause; what remains is the emptiness itself (E_g 150 orders below E_r in the outer zones, where the grey
+   field has no excess over the CMB). Cost: two rejected attempts once per restart from a grey checkpoint; open.
+3. *From the initial conditions: the centre of the collapsing core, in grey and multigroup alike* (§20.6). In the early collapse
+   (`t_mb33`, `t_mb36`, Δt = 1e10–1e11 s) 25 of 25 iteration-limit failures end with the group measure above the base measure, the
+   base measure already below 1e-5 in 22 of them (2.3e-9 / 2.5e-5; 4.9e-11 / 1.6e-5); the worst group is always group 1 — the one
+   that holds E_r — in zones 6–12, with δ ln E_1 = 1.2e-5 … 5.8e-5. The simplest reading (not verified iteration by
+   iteration) is that this is not a separate failure mode: E_r is updated linearly and E_1 by exp(δ), so a correction δ of ln E_1
+   leaves ½δ² in the linear sum row E_r − Σ_g E_g, which the next iteration removes from ln E_1 alone; a last correction of
+   1e-5–1e-4 with E_r converged would then mean that the iteration before it still moved E_r by ~1e-2 — the iteration had not
+   finished in 25 iterations and the logarithmic group variable is one iteration behind the base variable. Two repairs of the
+   linear solve, tried on the assumption that it was solve error instead, changed nothing, and neither did 50 iterations instead
+   of 25 (§20.6): the iteration stalls, it is not slow.
+
+### 20.2 500 steps from the checkpoint
+
+`t_mb26` (`MGROUPS=4 EDIAG=1 SNAPEVERY=10`, steps 14400–14898, 5.21e6 s of model time), against the grey run and stage 2b:
+
+| | grey `t_mg13` (400 steps) | 2b `t_mb06` (200 steps) | final `t_mb26` (500 steps) |
+|---|---|---|---|
+| Newton failures per 100 steps | 18.75 | 29.5 (19 after the first 50 steps) | **18.4** (19, 18, 19, 18, 18) |
+| steps rejected by the error estimate | — | — | 0 |
+| variable with the largest error estimate | — | — | x_H2 in 470 steps (zone 28), x_H+ in 29 (err as in §20.1) |
+| Δt median over the records | 1.15e4 s | 7.2e3 s | 1.15e4 s |
+| Δt of the failed attempts (median; range) | 1.71e4 s; 0.58–2.97e4 | — | 2.58e4 s; 2.16–3.64e4 |
+| L(1.5 r_ph) median; rms | 6507 L☉; 0.7 % | 6993 L☉; 0.47 % | **6233 L☉; 0.71 %** (6124–6336, 50 records) |
+| r_ph median | 115.5–116.3 R☉ | 115.64 R☉ | 115.87 R☉ |
+| T_eff(L(1.5 r_ph), r_ph) | — | 4908 K | 4764 K |
+| wall time per step | 1.64–1.67 s | 2.96 s | 4.19 s (`t_mb23`; 4.35–4.64 s with EDIAG and 5× the records) |
+
+*Repeated with the committed final code* (bce234e, `t_mb42`, same settings, 500 steps): 18.6 Newton failures per 100 steps (19, 18,
+19, 19, 18, two of the 93 being the restart's first step, §20.1), L(1.5 r_ph) = 6238 L☉ with rms 0.70 % (6109–6333, 50 records),
+r_ph = 115.91 R☉, T_eff = 4765 K, Δt median 1.18e4 s, 4.36–4.44 s per step, total-energy imbalance 3671 L☉ (§20.4).
+
+No step was rejected, no run stopped, the luminosity and the photosphere are as quiet as in the grey run. The final configuration is
+11 % less luminous than stage 2b at the same epoch and 4 % less than grey: with the photo-rates taken from the group fields the zones
+just above the photosphere are cooler and molecular (step 14500, 2b → final: zone 27 T 4803 → 4559 K, x_H2 1.8e-4 → 2.1e-2; zone 28
+3721 → 2767 K; zone 25 7579 → 8239 K). Which of the two is right cannot be decided on this grid (§20.3: zones 26/27/28 are at
+4877/4559/2767 K, one zone per factor 1.7 in T).
+
+### 20.3 IonFS gate: not met, and why it cannot discriminate at this epoch
+
+Gate (task brief): on ≥ 4 snapshots the outgoing LW and ionising photon luminosities at the photosphere within a factor 2 of the
+frequency-resolved formal solution (`ionfs_post_ram.jl`, static spherical Feautrier/ALI with scattering on the run's own structure; MG
+side L⁺_g = 4πr²·4π·H⁺_g at the interface nearest r_ph, script `mg/gate.jl`). Five snapshots of `t_mb26`:
+
+| step | IonFS L_LW/L | IonFS L_ion/L | MG L⁺_LW/L | MG/IonFS | MG L⁺_ion/L | MG/IonFS | IonFS L_LW/L without its sub-zone model | MG/IonFS |
+|---|---|---|---|---|---|---|---|---|
+| 14500 | 6.32e-13 | 1.28e-10 | 2.77e-10 | 439 | 4.61e-12 | 0.036 | 5.09e-9 | 0.054 |
+| 14600 | 6.19e-13 | 2.30e-10 | 4.37e-10 | 705 | 1.09e-19 | 4.8e-10 | 8.50e-9 | 0.051 |
+| 14700 | 6.23e-13 | 1.87e-10 | 3.74e-10 | 601 | 8.67e-20 | 4.6e-10 | 7.07e-9 | 0.053 |
+| 14800 | 6.19e-13 | 1.26e-10 | 2.78e-10 | 449 | 5.80e-12 | 0.046 | 5.00e-9 | 0.056 |
+| 14890 | 6.25e-13 | 1.31e-10 | 2.84e-10 | 454 | 4.67e-12 | 0.036 | 5.16e-9 | 0.055 |
+
+**The gate is not met in either band on any snapshot** (stage 2b, §17: LW 0.36–0.42, ionising 0.16–0.21 — not met either). Nothing was
+tuned to change that. The quantified reasons:
+
+1. *The reference is undetermined to 4 dex in the LW band.* IonFS replaces the front zone by sub-points on a grey T(τ) =
+   T_eff (¾(τ + ⅔))^¼ profile when that zone's half optical depth exceeds 1 (`if Lrun > 0 && τzc > 1`), and otherwise uses the zone
+   temperature. In the 2b snapshots the branch was not taken (Q_LW = 3.7e39 s⁻¹); in the final-configuration snapshots it is, and the LW
+   photons then leave from the τ → 0 skin at 0.84 T_eff ≈ 3640–3750 K: Q_LW = 5.3–5.5e35 s⁻¹. The same snapshots with the branch
+   disabled (`mb/ifs/ionfs_post_ram_nosub.jl`, output `mb/ifs26n`): Q_LW = 4.4–7.3e39 s⁻¹, **8000–14000 times more**. The Wien-tail
+   sensitivity d ln B_LW/d ln T is 19–33 across the temperature cliff of zones 26/27/28 (4877/4559/2767 K), which the grid does not
+   resolve. The multigroup value lies between the two references (0.05× and 440–700×): L⁺_LW ≈ 2.3e38 photons/s, 0.4 of the blackbody
+   half-flux at T(zone 27). A factor-2 gate against a reference with a 4-dex switch tests the switch, not the transport.
+2. *The half-flux diagnostic of an opaque group at one interface is not a robust quantity.* The record's passive H⁺_g is not consistent
+   with the moment solution it is derived from: in the LW group L⁺ (2.77e-10 L) is smaller than the net L_LW (3.36e-10 L) at r_ph, and
+   cE_g/4 would give 7e-9 L (LW) and 2–4e-11 L (ionising). The ionising L⁺ at r_ph jumps between 4.6e-12 and 1e-19 of L from snapshot
+   to snapshot while E_4/E_r in the adjoining zones is unchanged (5.4e-11 in zone 26, 2.7e-11 in zone 27): the interface nearest r_ph
+   sits on either side of the zone where the group is absorbed. The gate quantity should be the net group luminosity through a fixed
+   optical-depth surface, and the reference should come from a structure that resolves the photosphere; neither exists at 100 zones.
+3. *Ionising band:* IonFS emits 9.3e37–1.6e38 photons/s from the photosphere model and all of them are absorbed in the first zone
+   outside (Q_esc = 0, r_IF = r_ph in all snapshots); the multigroup net ionising luminosity at r_ph is 5–12e-20 L. Both say the same
+   thing about what leaves; the ratio at the interface is dominated by point 2.
+
+**What both calculations agree on, and what the science question needs:** nothing gets ahead of the photosphere at this epoch. The
+multigroup net LW luminosity falls from 6.9e-3 L (zone 25) through 6.2e-6 (26), 3.4e-10 (27, r_ph), 5.8e-11 (28) to 7.4e-15 L (zone 29),
+where x_H2 = 0.41–0.44; E_LW/E_r = 3.4e-8, 8.5e-9, 1.3e-12, 7.5e-14 in zones 26–29. The net ionising luminosity is 5.6e-20 L at r_ph
+and 1.7e-25 L at zone 29. IonFS: Q_esc,H = 0, ionisation front at r_ph. The gate has to be repeated when the photosphere is hot enough
+for the LW and ionising bands not to sit on the Wien tail of an unresolved cliff (T_ph ≳ 1e4 K), where the reference is well defined.
+### 20.4 Conservation
+
+**Sum identities** (all 50 records of `t_mb26`): max over zones of |Σ_g E_g/E_r − 1| = 1.1e-13 … 1.9e-12, of |Σ_g F_g − F_r|/|F_r|
+= 2.1e-16 … 1.5e-15. The gas row's exchange is the sum of the group rows' exchange terms by construction (`Mg.xch`).
+
+**Budget of each group row** (`mb/p2c/budget.jl`, step 14800 of `t_mb26`, zones 27–60, L☉; the script evaluates emission, absorption,
+transfers, ΔL and dE/dt from the record and has no velocity-dependent terms, so the residual column is what advection and
+compression work carry plus the record's rounding):
+
+| group | emission | absorption | line cooling in | transfers | net source | ΔL across the shell | dE/dt | residual |
+|---|---|---|---|---|---|---|---|---|
+| 1 IR | 1030.8 | 692.5 | 633.1 | — | 971.4 | 971.2 | 2.1 | −1.9 |
+| 2 optical | 7874.0 | 6199.7 | — | −3.8e-7 | 1674.3 | 1721.6 | −34.6 | −12.6 |
+| 3 LW | 3.4e-12 | 2.24e-6 | — | +3.8e-7 | −1.86e-6 | −1.43e-6 | — | −4.3e-7 |
+| 4 ionising | 415.14 | 415.12 | — | — | 0.021 | −2e-16 | — | 0.021 |
+| Σ | 9319.9 | 7307.3 | 633.1 | 0 | 2645.7 | 2692.8 | | |
+
+The LW group absorbs what flows in (1.44e-6 L☉ at zone 27) and hands 17 % of it to the group below as fluorescence; the ionising
+group is in on-the-spot balance to 5e-5 (it emits and reabsorbs 415 L☉ in place and transports nothing).
+
+**Total energy (EDIAG).** `EDIAG` evaluates the conservative total-energy row at every converged stage and reports what the rows the
+solve actually used left over. Grey: 3741 L☉ (§12; bands: zones 1–26 −0.4, 27–50 +442, 51–87 +19, 88–100 +3280 — the last is u × the
+radiation-momentum residual at the FLUXTIE interfaces and belongs to the energy-formulation work). Stage 1: 3754; 2a: 3801. The final
+configuration at 8076ce0 gave **4315 L☉** (`t_mb26`, 490 steps, p10 4309, p90 4322), 574 more than grey, and the per-zone table
+(`EDIAG=2`, `t_mb34` against grey `t_mg24`) put all of the difference in zones 36–57 (T = 900–1700 K, molecular infall):
+
+| zone | 36 | 38 | 40 | 42 | 44 | 46 | 48 | 50 | 52 | 54 | 56 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| grey imbalance [L☉] | 38.7 | 13.4 | 6.1 | 3.9 | 2.6 | 1.9 | 1.5 | 1.1 | — | — | — |
+| multigroup, 8076ce0 | 49.0 | 33.2 | 34.0 | 41.7 | 54.7 | 65.2 | 57.2 | 22.0 | 9.0 | 7.3 | 4.5 |
+| line cooling emitted into the IR group, `Mg.lcl` ΔV | 10.4 | 19.7 | 28.1 | 38.0 | 52.3 | 63.3 | 55.6 | 21.0 | 8.5 | 6.7 | 4.2 |
+
+The difference is the H₂ line cooling, zone by zone (Σ over zones 27–56: 621.5 L☉). *Cause:* stage 2b emits the coupled zones' line
+cooling into the IR group, but only where the gas row is the internal-energy row; a row that holds gas + radiation (the conservative
+total row, the `lrad` row without `GASROW`, and therefore EDIAG's all-zones total row) still subtracted the whole chemistry cooling
+`cpL`, as in grey where the line photons leave the system. Two consequences: the diagnostic counted the line emission, which the solve
+had moved from the gas into E_1, as lost; and — a real inconsistency — in the zones the solve closes with the total row (zones 1–26
+here) the line photons were removed from the gas and not given to any group. At the checkpoint the second is harmless (line cooling
+of zones 1–27: < 0.1 L☉); in a prestellar core closed with total rows it would not be.
+
+*Repair:* the group row gets the line emission in every coupled zone, and a gas row that holds gas + radiation takes the same term
+back (`mg_rows!` in `MGRad.jl`; one added term after the chemistry cooling in the gas row of `TitanResidFast.jl`, MGROUPS only —
+*merge note for energy-compat:* a source term, no change of the row's discretisation). With it (`t_mb38`, `EDIAG=2`, 100 steps):
+
+| band | grey `t_mg24` | multigroup 8076ce0 `t_mb34` | multigroup, repaired `t_mb38` |
+|---|---|---|---|
+| zones 1–26 | −0.4 | +0.4 | +0.4 |
+| zones 27–50 | +442 | +1016 | **+438** |
+| zones 51–87 | +19 | +85 | **+19** |
+| zones 88–100 | +3280 | +3214 | +3213 |
+| all | 3741 | 4315 | **3670** (per-step median 3676, p10 3671, p90 3681, 90 steps) |
+
+Over 500 steps with the committed code (`t_mb42`): median 3671 L☉, p10 3665, p90 3677 (490 steps; 40 steps `t_mb29`: 3677).
+The multigroup rows now leave the same total-energy imbalance as the grey rows, band by band: the group rows add no energy error of
+their own, and what remains is the grey stack's (§12), owned by the energy-formulation branch.
+### 20.5 Cost
+
+Measured, 8 threads, 100 zones, from the checkpoint (protostar with a photosphere; 31 Newton iterations per step in all stacks):
+
+| | grey `t_mg13` | stage 1 `t_mg14`, `t_mg16` | 2b `t_mb06` | 2c 672c2fd `t_mb18` | final 8076ce0 `t_mb23` |
+|---|---|---|---|---|---|
+| wall time per step | 1.64–1.67 s | 2.45–2.55 s | 2.96 s | 10.75 s | **4.19 s (×2.5 grey)** |
+| allocation per 100 steps | 275–278 GB | — | 430 GB | 1852 GB | 717 GB |
+| garbage collection per 100 steps | 24–25 s | — | — | — | 70 s |
+| Jacobian assembly (`matgen`) per Newton iteration | 42.6 ms | 53.3 ms | — | — | 113 ms (`t_mb27`, CPLPROF) |
+| `update` per Newton iteration | — | 7.5 ms | — | — | 18.7 ms |
+| banded LU (n = 1768, bandwidth 50) per 50 steps | 0.6 s (block solver) | 16–18 s | — | — | not timed separately |
+
+In the final code 85 % of a step is the Jacobian assembly and 13 % the update (which re-evaluates the group records at the new
+iterate). The assembly went from 42.6 ms (grey) to 53.3 ms with the wider dual numbers of stage 1 (102 partials instead of 54) and to
+113 ms with the group physics of 2b/2c evaluated at the iterate — the no-lag requirement: in 500 steps of `t_mb26` 1.9e7 evaluations of
+the group opacity ratios (3562 thread-seconds, 7.1 per step) and 6206 thread-seconds of correlated-k expansions. The untyped-grid defect
+that made 672c2fd cost 10.75 s is repaired (§19.3).
+
+In the prestellar collapse from the initial conditions the multigroup run costs the same per step as the grey one (1.84–1.99 s against
+1.96 s, §20.6): the group-field rates and the opacity ratios run only in zones with a record of the star's light.
+
+What the plan's remedies (§7, §11) would buy, from these measurements — none was built:
+
+* *Analytic group-row Jacobian or two-pass colouring* (the material sweep keeps 54 partials, the group rows get their own narrow
+  pass): removes the width cost. Stage 1 measured that cost on the material alone: 53.3 − 42.6 = 10.7 ms per iteration, 0.33 s per
+  step. Of the 60 ms per iteration that 2b/2c added, the part that is dual arithmetic at width 102 would shrink by up to 102/54; if all
+  of it scaled, 0.9 s per step more. Bound: 0.3–1.2 s of the 4.19 s. It does not bring the cost to the plan's ×1.2 target by itself.
+* *What would:* the opacity ratios and their correlated-k expansions at the iterate are the largest single item (≈ 20 thread-seconds
+  per step, 2.5 s of wall time if perfectly parallel; the two timers of the previous paragraph may overlap, and part of the
+  expansions is the grey opacity's). They are evaluated once per colour per iteration in dual numbers; with the
+  group rows in a second pass they would be needed once per iteration in plain numbers plus their T, ρ, x derivatives (three more
+  columns). That is the same restructuring as the first item and is where its real gain lies, but the number is an expectation, not
+  a measurement.
+* *Pivoted block solver in place of banded LAPACK:* the LU is 0.33 s per step (8 %); a block-pentadiagonal elimination with 17 × 17
+  blocks scales as (17/9)³ of the grey solver's 0.012 s per step, ≈ 0.08 s.
+* *Jacobian-free Newton–Krylov with the banded matrix as a lagged preconditioner:* replaces most assemblies by residual evaluations.
+  Not measured; it changes the convergence behaviour of an iteration that already fails 18 times per 100 steps for reasons outside the
+  group rows (§20.1), so it should not be tried before that is resolved.
+* *Allocation:* 7.2 GB per step against 2.8 GB grey, 0.45 s per step more garbage collection; typed, preallocated group work arrays
+  for the update would remove most of it.
+
+For correctness nothing more was needed: the 2.5× is affordable for the 100-zone production runs (z100mm: 1e4 steps in 4.6 h grey,
+11.6 h multigroup).
+### 20.6 From the initial conditions: the multigroup run does not reach the protostar
+
+Set-up as `docs/POPIII_STACK.md`: abn02red initial conditions, 100 zones, production physics (env files of `z100mm`), `MGROUPS=4` from
+step 1, 8 threads. A grey control was run from the same tree and the same files, because `z100mm` is not a clean reference (it was
+restarted through several code versions).
+
+| | grey control `t_mb32` | multigroup `t_mb25` (8076ce0) |
+|---|---|---|
+| log n_c ≥ 8 | step 94, t = 2.2774e5 yr | step 147, 2.2827e5 yr |
+| ≥ 9 | step 184, 2.3983e5 yr | step 346, 2.4028e5 yr |
+| ≥ 9.5 | step 190 | step 451, 2.4188e5 yr |
+| ≥ 10 | step 214, 2.4201e5 yr, Δt = 2.2e9 s | step 900, 2.4264e5 yr, Δt = 4.4e7 s |
+| ≥ 22 (protostar) | **step 273**, 2.42760e5 yr, T_c = 4.6e4 K | **not reached**: stopped at step 1000, log n_c = 10.16, Δt = 1.9e7 s |
+| Newton failures up to step 100 / 200 / 300 / 400 / 500 | 21 / 46 / 53 / 57 / 57 | 24 / 52 / 83 / 116 / 151 (333 at step 1000) |
+| wall time per step | 1.2–2.2 s | 1.84–1.99 s |
+
+**The multigroup stack does not pass this test.** Up to log n_c ≈ 8.5 the two runs fail equally often; then the grey run's failures
+stop and it collapses to the protostar in 90 more steps, while the multigroup run keeps failing 33–37 times per 100 steps with Δt
+held 50 times smaller at the same central density, and creeps. The run was stopped at step 1000 (0.1 dex in 100 steps); all runs of
+this section are stopped.
+
+What the failures are, as far as measured:
+
+* In both runs the failing iterations end with the same pattern in the base unknowns (print of the last corrections per equation):
+  δr/r = 1e-5 … 7e-4 and δm/m = 3 δr/r at zones 6–8, δE_r/E_r = 1e-4 … 5e-3 at zone 2, δF_r at zones 2–4, changing sign from one
+  failure to the next. These are the innermost zones of the fixed logarithmic grid (Δr = 2–7e9 cm, optical depth per zone 1e-13,
+  F/(cE) = 1e-11 … 1e-10, cΔt/Δr = 1e8 … 5e8 at Δt = 3e7 s): a free-streaming, isotropic radiation field crossed 1e8 times per
+  step. The mode exists in the grey stack; the grey run gets through it.
+* In the early collapse of the multigroup run (`t_mb33`, `t_mb36`) the failing iterations end with the base measure converged and
+  ln E_1 of zones 6–12 still moving by 1e-5 … 1e-4: most simply the logarithmic group variable being one iteration behind
+  (§20.1, item 3), i.e. the same slow iterations seen through the group measure.
+* *Two repairs of the linear solve were tried and are not in the code* (negative results; the hypothesis was that the banded LU
+  loses the central zones' corrections to round-off, cΔt/Δr being 1e8–1e11). (a) Column equilibration in addition to the row
+  scaling (tree `wip22`, run `t_mb37`): failures 27 / 55 / 84 at steps 100 / 200 / 300, log n_c ≥ 8.5 at step 243 — as without
+  (24 / 52 / 83; step 227). (b) Column equilibration plus two steps of iterative refinement (tree `wip24`, run `t_mb39`): the
+  first solve is accurate to 1e-8 … 1e-10 of the largest correction and the refined one to 1e-14, and the failures are 22 / 51 /
+  83 at steps 100 / 200 / 300, and step 300 is at t = 2.3926e5 yr with log n_c = 8.89, the same time as step 300 of `t_mb25`.
+  **The linear solve is not the obstruction.**
+* *The iteration limit is not the obstruction either* (`t_mb41`, bce234e, `NITER=50` instead of 25): failures 26 / 54 / 85 / 118
+  at steps 100 / 200 / 300 / 400 (`t_mb25`: 24 / 52 / 83 / 116), log n_c ≥ 8.5 at step 189, 8.81 at step 300. After 50 iterations
+  the last corrections are the same as after 25 (δr/r = −4e-5 and δm/m = −1.2e-4 at zone 7, δE_r/E_r = −3.4e-4 and δF_r at zone 2):
+  the iteration does not converge slowly, it stalls in an oscillation of the centre zones.
+
+**What is not known:** why the multigroup run keeps failing after log n_c ≈ 8.5 where the grey run stops failing. The failing
+unknowns are the base stack's in both. Candidates that the measurements above do not separate: (i) the group pair (ln E_1,
+F_1) duplicates (E_r, F_r) in zones where nothing absorbs or emits, and the pair of rows changes the Newton path of the
+oscillating centre mode — the grey iteration leaves the oscillation, the multigroup one does not; (ii) the group tie and boundary
+rows at the centre. (ii) is the energy-formulation branch's area and was not touched. The next measurement would be the per-
+iteration corrections of one failing step in both stacks from the same state (a grey checkpoint at log n_c ≈ 9 restarted grey and
+multigroup). Until this is resolved **a multigroup run has to start from a grey checkpoint after protostar formation** — the
+configuration validated in §20.1–20.4 — and the science question at the earliest epoch (does LW or ionising light get ahead of
+the photosphere during protostar formation) is answered only from step 14400 on.
