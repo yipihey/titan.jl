@@ -653,6 +653,23 @@ and the second sum is not Σ_j u_rel,j g_j ½(m_j−1 + m_j) where the advected 
   4  as 3, in the zones the dual-energy stack gives the total row
 """
 const ECGRAV = Ref(0)
+"""
+ERLAB[] (provisional, ENV ERLAB=1, default false; lrad = 1, grey): ECOMPAT's radiation half alone (docs/POPIII_ENERGY.md §18). The radiation
+energy row is the lab-frame conservation law of ECOMPAT (comoving row + u × radiation momentum equation); the gas rows are the stack's
+(dual-energy: total row where c.etotal && !useint, the GASROW first-law row elsewhere). Use with TIEFRAME (the driver switches it on).
+"""
+const ERLAB = Ref(false)
+"""
+GFV[] (provisional, ENV GFV=1, default false; μ = 2 self-gravity): finite-volume weight in the gas momentum row (docs/POPIII_ENERGY.md §19).
+The row's gravity term is the node mass times the interface's acceleration, g_j ½(m_j−1 + m_j), exact where the interface moves with the gas.
+GFV replaces it by ∫ρ g dV between the centres of the two zones for piecewise constant density and r² g = 4πG M_j across the node,
+    4πG M_j ½[ρ_j−1 (r_j − r_j−1) + ρ_j (r_j+1 − r_j)],
+the weight that the flux form of the inertia (ṁ Δū between the zone centres) balances in steady flow through the mesh. Zone k's part of
+interface j's weight is `gwt(k, j, …)`; the uniform-field term (1 − μ/2) P.g keeps the node mass. Not applied to the PEXT free-surface row.
+"""
+const GFV = Ref(false)
+"Zone k's part of the mass that the gravity term of interface j's momentum row multiplies by g_j: ½ m_k, or with GFV ½ r_j^μ ρ_k (r_k+1 − r_k)."
+@inline gwt(k, j, d, dvol, r, rmu) = GFV[] ? 0.5 * rmu[j] * d[k] * (r[k+1] - r[k]) : 0.5 * d[k] * dvol[k]
 @inline function ecgrav(k, c, W, exact::Bool)
     P = c.p; xmu = Float64(c.mu); a, b = c.ngrs, c.ngre; r = W.r
     G4 = 2xmu * P.cpi * P.cgrav
@@ -661,8 +678,9 @@ const ECGRAV = Ref(0)
     w = zero(W.u[k] * mh)
     if !exact
         uf(j) = gridmoves() ? W.u[j] : W.urel[j]
-        k > a && (w += g(k) * (W.rmu[k] * uf(k) * W.db[k] * Δr - W.u[k] * mh))
-        k < b && (w += g(k + 1) * (W.rmu[k+1] * uf(k + 1) * W.db[k+1] * Δr - W.u[k+1] * mh))
+        mg(j) = GFV[] ? gwt(k, j, W.d, W.dvol, r, W.rmu) : mh          # the momentum row's weight (GFV)
+        k > a && (w += g(k) * (W.rmu[k] * uf(k) * W.db[k] * Δr - W.u[k] * mg(k)))
+        k < b && (w += g(k + 1) * (W.rmu[k+1] * uf(k + 1) * W.db[k+1] * Δr - W.u[k+1] * mg(k + 1)))
     else
         xmu == 2 || error("ECGRAV 3/4: spherical geometry only")
         xe(j) = EXTMASS[] === nothing ? zero(r[j]) : EXTMASS[](r[j])
@@ -1350,7 +1368,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
              c.uo[k] * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2dt) -
             0.5 * ((dmdt[k] + dmdt[k+1]) * ub[k] - (dmdt[k-1] + dmdt[k]) * ub[k-1]) +
             rmu[k] * (pg[k] - pg[k-1]) +
-            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk +
+            (GFV[] ? 2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] * (gwt(k - 1, k, d, dvol, r, rmu) + gwt(k, k, d, dvol, r, rmu)) + (1 - 0.5xmu) * P.g * mk :
+                     (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk) +
             r1 * (r3k * qf[k] - r3m * qf[k-1])
         c.lrad && (w -= (Mg === nothing ? avchi[k] * fr[k] : Mg.frc[k]) / cc * mk)   # (MGROUPS: Σ_g χ̄_g F_g)
         R[iu, kb(k)] = w
@@ -1401,7 +1420,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             # discretisation of the pressure difference that balances the momentum equation.
             lp = log(Pp / Pm)
             if MLT_HS[]
-                lph = MLT_HSDISC[] ? -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi) : -0.5 * (rn[k+1] - rn[k-1]) / HP
+                lph = MLT_HSDISC[] ? (GFV[] ? -gk * (gwt(k - 1, k, d, dvol, r, rmu) + gwt(k, k, d, dvol, r, rmu)) / (rmu[k] * Pi) :
+                                              -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (rn[k+1] - rn[k-1]) / HP
                 q = clamp((ForwardDiff.value(lp / lph) - 0.25) / 0.5, 0.0, 1.0); sw = q * q * (3 - 2q)
                 sw < 1 && (lp = sw * lp + (1 - sw) * lph)
             end
@@ -1546,7 +1566,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         # ------------------------------------------------------------ RADIATION ENERGY
         @inbounds for k in ngrs:ngre
             aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
-            if ECOMPAT[]                       # lab-frame conservation law: flux of u P and the work on the gas (see ECOMPAT)
+            if ECOMPAT[] || ERLAB[]            # lab-frame conservation law: flux of u P and the work on the gas (see ECOMPAT)
                 fEl = k == ngrs ? fedd[k] * er[k] : 0.5 * (fedd[k-1] * er[k-1] + fedd[k] * er[k])
                 fEu = k == ngre ? fedd[k] * er[k] : 0.5 * (fedd[k] * er[k] + fedd[k+1] * er[k+1])
                 wk = rmu[k+1] * u[k+1] * fEu - rmu[k] * u[k] * fEl
@@ -1710,8 +1730,8 @@ const ETOT_GRAV = Ref(false)
 const ETOT_GRAV_GRID = Ref(false)
 "Run f with ECOMPAT off: the conservative total-energy rows and the plain internal rows of the diagnostics (the independent check of the compatible rows)."
 function nocompat(f)
-    e = ECOMPAT[]; ECOMPAT[] = false
-    try f() finally ECOMPAT[] = e end
+    e = ECOMPAT[]; l = ERLAB[]; ECOMPAT[] = false; ERLAB[] = false
+    try f() finally ECOMPAT[] = e; ERLAB[] = l end
 end
 "Conservative total-energy row of zone k: Δ[m(e_g [+E_r/ρ]) + m(u_k²+u_{k+1}²)/4]/dt + Φ_{k+1} − Φ_k."
 @inline function etot_row(k, c, W, ::Type{T}) where {T}
@@ -1836,7 +1856,7 @@ function zone_diag(dt)
     neqn, nb = c0.neqn, c0.nb; z = zeros(neqn * nb); ws = getws(Float64, c0.mgr)
     cg = context(; etotal = false, dt); Rg = zeros(neqn, nb); residual!(Rg, ws, cg, z)          # internal-energy rows in every zone
     Rc = Rg                                                                                     # (ECOMPAT: the compatible rows; the split below is of the plain ones)
-    ECOMPAT[] && (Rg = zeros(neqn, nb); nocompat(() -> residual!(Rg, ws, cg, z)))
+    (ECOMPAT[] || ERLAB[]) && (Rg = zeros(neqn, nb); nocompat(() -> residual!(Rg, ws, cg, z)))
     c = context(; etotal = true, ηsw = 0.0, dt)
     R = zeros(neqn, nb); nocompat(() -> residual!(R, ws, c, z)); W = ws.a
     iu, it, ie, iF = c.ix[4], c.ix[5], c.ix[6], c.ix[7]; a, b = c.ngrs, c.ngre; kb(k) = k - c.k0 + 1
@@ -1871,8 +1891,8 @@ function zone_diag(dt)
         ine = 0.5 * (un[j] * mn(k) - uo[j] * mo(k)) / dt
         ad = lo ? -Φ(k) + dm[j] * u[j] : Φ(k) - dm[j] * u[j]
         pt = 0.5 * (pg[j-1] + pg[j]); pr_ = lo ? rmu[j] * (pg[k] - pt) : rmu[j] * (pt - pg[k])
-        gr = g_(j) * 0.5 * m(k)
-        sj = 0.5 * (r3_(j - 1) * qf[j-1] + r3_(j) * qf[j]); vi = lo ? r1(j) * (r3_(k) * qf[k] - sj) : r1(j) * (sj - r3_(k) * qf[k])
+        gr = GFV[] ? g_(j) * gwt(k, j, d, dvol, r, rmu) : g_(j) * 0.5 * m(k)
+        sj =0.5 * (r3_(j - 1) * qf[j-1] + r3_(j) * qf[j]); vi = lo ? r1(j) * (r3_(k) * qf[k] - sj) : r1(j) * (sj - r3_(k) * qf[k])
         ra = lrad ? -avchi[j] * fr[j] / cc * 0.5 * m(k) : 0.0
         (ine, ad, pr_, gr, vi, ra)
     end

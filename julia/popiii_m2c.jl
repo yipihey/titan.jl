@@ -1250,6 +1250,19 @@ if get(ENV, "ECOMPAT", "0") == "1"
     TX.ECGRAV[] != 0 && pr("ECGRAV %d: compatible gas row with the gravity term (%s form, %s)\n", TX.ECGRAV[], TX.ECGRAV[] >= 3 ? "mass flux x potential difference" : "total row's",
                            TX.ECGRAV[] in (2, 3) ? "every zone" : "zones the dual-energy stack gives the total row")
 end
+# ERLAB=1 (provisional, default off): ECOMPAT's lab-frame radiation energy row with the stack's gas rows (TX.ERLAB, docs/POPIII_ENERGY.md §18); implies TIEFRAME
+if get(ENV, "ERLAB", "0") == "1"
+    TX.GASROW[] || error("ERLAB=1 needs the gas-alone row (GASROW)")
+    TX.ECOMPAT[] && error("ERLAB=1: ECOMPAT=1 already has the lab-frame radiation row")
+    TX.ERLAB[] = true
+    TX.TIEFRAME[] || (TX.TIEFRAME[] = true; pr("ERLAB: TIEFRAME switched on\n"))
+    pr("ERLAB: lab-frame radiation energy row; gas rows of the stack (dual-energy)\n")
+end
+# GFV=1 (provisional, default off): finite-volume gravity weight in the gas momentum row (TX.GFV, docs/POPIII_ENERGY.md §19)
+if get(ENV, "GFV", "0") == "1"
+    TX.GFV[] = true
+    pr("GFV: gas momentum row with the finite-volume gravity weight 4 pi G M_j (rho_j-1 dr_j-1 + rho_j dr_j)/2\n")
+end
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)
 # JACCHK="k,z,iter": at step k, Newton iteration iter, finite differences of the residual against the assembled Jacobian for the variables of absolute zone z (debugging)
