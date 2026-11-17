@@ -254,6 +254,10 @@ function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, n
         d > 0 && (dis[i] += d * pH[n] * σe)
     end
     gE = zeros(G); gW = zeros(G); gP = zeros(G); gB = zeros(G); gR = zeros(G); gD = zeros(G); g1 = zeros(G); g1W = zeros(G)
+    # the same with the floored shape temperature, used for a group whose actual weight underflows (cold gas, high groups): its Planck
+    # fraction is then at the floor, so emission does not matter, but absorption and extinction of the light it carries (the star's) do —
+    # a grey fallback gave the LW band the cold gas's H₂ CIA κ_E and absorbed it within a few zones (t_mg34)
+    fE = zeros(G); fW = zeros(G); fP = zeros(G); fB = zeros(G); fR = zeros(G); fD = zeros(G); Tf = max(T, Tmin)
     sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0
     Bf(ν, t) = (u = h * ν / (kB * t); u > 700 ? 0.0 : 2h * ν^3 / COp.c^2 / expm1(u))
     Df(ν, t) = (u = h * ν / (kB * t); u > 700 ? 0.0 : 2h * ν^3 / COp.c^2 * u * exp(-u) / (t * (-expm1(-u))^2))
@@ -280,13 +284,16 @@ function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, n
         sE += aE * BJ * dν; sW += BJ * dν; sP += aP * B * dν; sB += B * dν
         sR += D / max(ext, 1e-300) * dν; sD += D * dν
         g = gidx[i]; Bs = Bf(ν, Ts); Bw = Bf(ν, Tws); Ds = Df(ν, Ts)
-        B1 = Bf(ν, T1s)
+        B1 = Bf(ν, T1s); Bfl = Bf(ν, Tf); Dfl = Df(ν, Tf)
+        fE[g] += aE * B1 * dν; fW[g] += B1 * dν; fP[g] += aP * Bfl * dν; fB[g] += Bfl * dν; fR[g] += Dfl / max(ext, 1e-300) * dν; fD[g] += Dfl * dν
         gE[g] += aE * Bw * dν; gW[g] += Bw * dν; g1[g] += a1 * B1 * dν; g1W[g] += B1 * dν
         gP[g] += aP * Bs * dν; gB[g] += Bs * dν
         gR[g] += Ds / max(ext, 1e-300) * dν; gD[g] += Ds * dν
     end
     q(a_, b_) = b_ > 0 ? a_ / b_ / ρ : 0.0
-    ([q(gE[g], gW[g]) for g in 1:G], [q(gP[g], gB[g]) for g in 1:G], [gR[g] > 0 ? gD[g] / gR[g] / ρ : 0.0 for g in 1:G],
+    uf(w) = !(w > 1e-280)                                                    # (the group's actual weight underflowed)
+    ([uf(gW[g]) ? q(fE[g], fW[g]) : q(gE[g], gW[g]) for g in 1:G], [uf(gB[g]) ? q(fP[g], fB[g]) : q(gP[g], gB[g]) for g in 1:G],
+     [uf(gD[g]) ? (fR[g] > 0 ? fD[g] / fR[g] / ρ : 0.0) : (gR[g] > 0 ? gD[g] / gR[g] / ρ : 0.0) for g in 1:G],
      [q(g1[g], g1W[g]) for g in 1:G], sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
 end
 "Group index of every fast node for interior edges `edges` [Hz] (ascending)."
