@@ -336,6 +336,12 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
                 hd = SLABTIE[] ? st_hdonor(max(HE[k-1], 0.0), fedd[k-1], chi[k-1], chi[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k]) :
                                  max(HE[k-1], 0.0)
                 B = rmu[k] * fg[k] / cc - (rcm * hd * eg[k-1] + rcp * min(HE[k], 0.0) * eg[k])
+                if TIEFRAME[]                        # F_g is the comoving flux, as the grey row (TitanResidFast.TIEFRAME), per group
+                    hi = min(HE[k], 0.0)
+                    B += (-dmdt[k] * erb[k] + (rn[k]^(c.mu + 1) - c.ro[k]^(c.mu + 1)) / ((c.mu + 1) * dt) * 0.5 * (eg[k-1] + eg[k]) +
+                          rmu[k] * u[k] * 0.5 * (fedd[k-1] * eg[k-1] + fedd[k] * eg[k]) -
+                          2u[k] * (rcm * hd^2 * eg[k-1] + rcp * hi^2 * eg[k])) / cc
+                end
                 w = (1 - wt) * w + wt * B
             end
             R[iFg, kb(k)] = w
@@ -344,6 +350,10 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
         bcmb = MGBCMB_[g]; ximg = P.ximr * bcmb
         R[iFg, kb(ngre+1)] = P.cpi * (2gr + 1) * ximg + fn[ngre+1] -
                              cc * gr * (sph ? mg_esurf(rn, en, M.chifn[g], dn, fn, fedd, ngre, xmu, cc, 4P.cpi * ximg / cc) : en[ngre])
+        if TIEFRAME[]                                # the boundary condition holds for the lab-frame flux
+            ub_ = W.un[ngre+1]
+            R[iFg, kb(ngre+1)] = (R[iFg, kb(ngre+1)] - fn[ngre+1]) * (1 + 2gr * ub_ / cc) + fn[ngre+1] + (1 + fedd[ngre]) * ub_ * en[ngre]
+        end
         R[iFg, 1] = X(iFg, k0)
         k = ngrs - 1
         R[iFg, kb(k)] = P.lribc == 2 ? fn[k+2] + fn[k] : rn[k+1]^c.mu * fn[k+1] - rn[k]^c.mu * fn[k]
