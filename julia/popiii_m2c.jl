@@ -1448,7 +1448,13 @@ function mg_install!()
         for k in b_:-1:a_; t_ += chi[k] * dn[k] * (rn[k+1] - rn[k]); τ[k] = t_; end
         kph = a_; for k in b_:-1:a_; τ[k] >= 2 / 3 && (kph = k; break); end
         L = 4π * rn[kph+1]^2 * fr[kph+1]; Te = L > 0 ? (L / (4π * rn[kph+1]^2 * 5.670374419e-5))^0.25 : 0.0
-        Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : max(Te, (max(er[k], 1e-300) / arad)^0.25) for k in eachindex(dn)]
+        # the excess over the CMB has the star's colour only where it is the star's light (at least half the free-streaming estimate
+        # L/(4π r² c)); farther out it is the cloud's own emission: T_s = the gas temperature there. (The T_eff shape everywhere put
+        # 0.1–0.3 E_CMB of optical light into the 1–143 pc cloud, which per-group free streaming then drained at up to 5e8 L☉, t_mg28.)
+        Ec_ = arad * parse(Float64, get(ENV, "TCMB", "0"))^4; tg = TF.var(:tn); rr = TF.var(:rn)
+        star(k) = Te > 0 && k > kph && (er[k] - Ec_) >= 0.5 * L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10)
+        Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : star(k) ? max(Te, (max(er[k], 1e-300) / arad)^0.25) : max(tg[k], 1.0)
+              for k in eachindex(dn)]
         TX.mg_init_from_grey!(Ts); src = @sprintf("the grey field (T_eff %.0f K outside zone %d)", Te, kph - a_ + 1)
     end
     PM.mg_ratios!(mat)
