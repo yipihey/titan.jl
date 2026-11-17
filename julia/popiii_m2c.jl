@@ -1228,6 +1228,10 @@ if get(ENV, "SLABTIE", "0") == "1"
     (TX.SLABFLUX[] && isinf(TX.SFN[])) || error("SLABTIE=1 needs SLABFLUX=1 (n = Inf)")
     TX.SLABTIE[] = true
     pr("SLABTIE: FLUXTIE outward donor h = h_FS + f/(tau_i + 2f) - f/(a + 2f), tau_i the slab depth of the donor centre below the interface, a its half-zone depth\n")
+    if haskey(ENV, "TIESMOOTH") && ENV["TIESMOOTH"] != "0"      # (default off) Newton fix 1 of docs/POPIII_MULTIGROUP.md §5
+        TX.TIESM[] = parse(Float64, ENV["TIESMOOTH"])
+        pr("TIESMOOTH: SLABTIE's max(h, 0) replaced by the smooth ramp (h + sqrt(h^2 + eps^2))/2, eps = %g\n", TX.TIESM[])
+    end
 end
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)

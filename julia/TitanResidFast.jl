@@ -592,9 +592,17 @@ const SLABTIE = Ref(false)
     abs(val(x)) < 1e-6 && return Δτ * (φ + 0.5 * φ * (1 - φ) * x)
     return Δτ * log1p(expm1(x) * φ) / x
 end
+"""
+TIESMOOTH (popiii_m2c `TIESMOOTH=ε`, with SLABTIE; default 0 = off, off = bit-identical; docs/POPIII_MULTIGROUP.md §5, Newton fix 1): the
+max(h, 0) of SLABTIE's donor factor replaced by the C∞ ramp s(h) = ½(h + √(h² + ε²)) (≥ 0, → h for h ≫ ε, s(0) = ε/2), so that the
+row's derivative is continuous where the slab correction drives h through 0.
+"""
+const TIESM = Ref(0.0)
+@inline sramp(x, ε) = 0.5 * (x + sqrt(x * x + ε * ε))
 "SLABTIE: the outward donor factor h (see SLABTIE)."
 @inline function st_hdonor(hfs, fm, χm, χp, Mm, Mp)
     τi = st_tauint(χm, χp, Mm, Mp)
+    TIESM[] > 0 && return sramp(hfs + fm / (τi + 2fm) - fm / (χm * Mm + 2fm), TIESM[])
     return max(hfs + fm / (τi + 2fm) - fm / (χm * Mm + 2fm), 0.0)
 end
 @inline function excap(cc, κ, ρ, dt)
