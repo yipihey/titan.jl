@@ -467,8 +467,8 @@ pumping fill it). The three-level value is the physically right one in every reg
 
 **But n₂ does not set the LW band.** The H n ≥ 2 bound–free at 11.2–13.6 eV is ≤ 1e-5 cm² g⁻¹ above the photosphere with *any* of the three
 n₂ (G2 group means, the same snapshot), against the band's Rayleigh extinction 0.36 cm² g⁻¹ — so the n ≥ 2 absorption, now added to the LW and
-ionising groups of case-B zones with the three-level n₂ (0998ca3, `MGN2BF`), changes nothing measurable (t_mg45 with it off is bit for bit
-t_mg36). What did set the LW band was a **numerical** absorber: the ground state's dissolved Lyman pseudo-continuum (G2Opacity's DIS window,
+ionising groups of case-B zones with the three-level n₂ (0998ca3, `MGN2BF`), changes nothing measurable (t_mg45 with it off has the same perf record as
+t_mg36 to the printed digits). What did set the LW band was a **numerical** absorber: the ground state's dissolved Lyman pseudo-continuum (G2Opacity's DIS window,
 q ≤ 1/1600, 13.590–13.598 eV) fell into the LW group, and in a Planck (arithmetic) mean that 6e-4-wide sliver of ground-state absorption raised
 κ_E,LW ×1e5 in the LTE zones below the photosphere (zone 25: 9.5e3 against 0.07 cm² g⁻¹), thermalising the whole band at 7400 K one zone
 deeper and 2500 K hotter than the front. The RADGROUPS trial met the same effect with the H(1s) continuum. Fix: the LW/ionising edge at the
