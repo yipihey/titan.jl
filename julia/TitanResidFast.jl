@@ -585,6 +585,24 @@ No front (R = 1): h = h_FS exactly. Front (a ≫ τ_i): h ≈ h_FS + f/(τ_i + 2
 (Marshak). The inward term is unchanged. Local (zones k−1, k), smooth in χ±, ρ±, r (Duals) except the max at h = 0.
 """
 const SLABTIE = Ref(false)
+"""
+TIEFRAME (popiii_m2c `TIEFRAME=1`; provisional switch, default off = bit-identical; docs/POPIII_ENERGY.md §3): FLUXTIE and the outer
+boundary row in the frame of the unknowns. E and F of the rows are comoving-frame moments (the energy row carries ∇·(uE) and P:∇u); the
+formal solution that gives h = H/J, f = K/J and g is static, i.e. it describes the field of an observer at rest. To O(u/c)
+(Mihalas & Mihalas 1984 §91; Krumholz, Klein & McKee 2007, ApJ 667, 626, eqs. 31–33; Mihalas & Auer 2001, JQSRT 71, 61)
+    F_lab = F₀ + u (E₀ + P₀),   E_lab = E₀ + 2 u F₀/c²,
+so the closure F_lab = h c E_lab is, for the unknowns, F₀ = [h c − (1 + f − 2h²) u] E₀ (h = f = 1: F₀ = c E₀, a beam stays a beam;
+h = 0, f = 1/3: F₀ = −(4/3) u E₀, the flux a moving observer sees in an isotropic field). Without the u terms the row said F₀ = h c E₀:
+in the CMB-dominated cloud (h ~ 1e-6…1e-3) the energy row's ∇·(uE) + (E/3)∇·u was then balanced by nothing and the infall compressed the
+CMB like a trapped gas (E_r up to 6 E_CMB at 0.2 pc, −1e5 L☉ through the outer boundary, docs/POPIII_ENERGY.md §3).
+Discrete form at interface k (all at the θ-level of the row, nothing lagged), chosen so that a uniform isotropic field is a steady state of
+the energy row to round-off, also on a moving mesh (well-balanced):
+    r² F₀ = r_c² c (h E)_donor + ṁ_k (E/ρ)ᵇ_k − V̇_k ½(E₋ + E₊) − r² u ½(f₋E₋ + f₊E₊) + 2 u r_c² (h² E)_donor,
+ṁ_k (E/ρ)ᵇ_k the advective flux of the energy row itself (dmdt·erb, = −r² ρᵇ u_rel (E/ρ)ᵇ), V̇_k = (r_new³ − r_old³)/(3Δt) the volume the
+interface sweeps per unit time (the same radii as ΔV_new − ΔV_old of the row: geometric conservation); the two together are −r² u E.
+Outer boundary: F_lab = g c E_s − π(2g + 1) I_in becomes F₀ = [g c E_s − π(2g + 1) I_in](1 + 2 g u/c) − (1 + f) u E.
+"""
+const TIEFRAME = Ref(false)
 "SLABTIE: optical depth from the donor centre (χm, column Mm) to the interface in SLABFLUX's exponential-in-τ profile."
 @inline function st_tauint(χm, χp, Mm, Mp)
     ΔM = Mm + Mp; φ = Mm / ΔM; x = log(χm / χp)
@@ -1479,12 +1497,22 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                     hd = st_hdonor(max(TD.HEDD[k-1], 0.0), fedd[k-1], chif[k-1], chif[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k])
                     B = rmu[k] * fr[k] / cc - (rcm * hd * er[k-1] + rcp * min(TD.HEDD[k], 0.0) * er[k])
                 end
+                if TIEFRAME[]                        # the unknown F is the comoving flux: F₀ = F_lab − (1 + f) u E + 2 h² u E (see TIEFRAME)
+                    ho = SLABTIE[] ? hd : max(TD.HEDD[k-1], 0.0); hi = min(TD.HEDD[k], 0.0)
+                    B += (-dmdt[k] * erb[k] + (rn[k]^(mu + 1) - c.ro[k]^(mu + 1)) / (xmup1 * dt) * 0.5 * (er[k-1] + er[k]) +
+                          rmu[k] * u[k] * 0.5 * (fedd[k-1] * er[k-1] + fedd[k] * er[k]) -
+                          2u[k] * (rcm * ho^2 * er[k-1] + rcp * hi^2 * er[k])) / cc
+                end
                 R[iF, kb(k)] = (1 - wt) * R[iF, kb(k)] + wt * B
             end
         end
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)
         R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
+        if TIEFRAME[]                                # the boundary condition holds for the lab-frame flux (see TIEFRAME)
+            ub_ = un[ngre+1]
+            R[iF, kb(ngre+1)] = (R[iF, kb(ngre+1)] - frn[ngre+1]) * (1 + 2P.geddr * ub_ / cc) + frn[ngre+1] + (1 + fedd[ngre]) * ub_ * ern[ngre]
+        end
         R[iF, 1] = X(iF, k0)
         k = ngrs - 1
         R[iF, kb(k)] = P.lribc == 2 ? frn[k+2] + frn[k] : rn[k+1]^mu * frn[k+1] - rn[k]^mu * frn[k]
@@ -1662,6 +1690,7 @@ and viscous stress against the face means that `eflux` uses), and u the θ-level
         + prs + V4 + G5 + adv                                       pressure work (0), viscous work, gravity power, advection limiters
         + R6a + R6b + R6c (+ Rbnd)                                  radiation: ½Σ u_j × (momentum row in moment form; VEF_SPH − TITAN static
                                                                     terms; −its inertia terms)
+        + old                                                       the old arrays' e_gas+rad against e_gas + E/ρ (see below)
         + rem                                                       round-off
 
     K2a = −(2θ − 1) ¼ m̂_k Σ_j (u_j^new − u_j^old)²/dt              m̂ = ½(m_new + m_old), j = k, k+1
@@ -1670,6 +1699,8 @@ and viscous stress against the face means that `eflux` uses), and u the θ-level
     V4  = q_k [r̄_k^{3μ/2} (u_k+1 r_k+1^{−μ/2} − u_k r_k^{−μ/2}) − (du/dr)_k ΔV_k]
     G5  = (ETOT_GRAV terms of the total row) − ½ m_k (u_k g_k + u_k+1 g_k+1)
 
+old = −m_old (egro − ego − ero/ρ_old)/dt: the total row differences `egro`, the gas row `ego`. They differ in COUPLED zones, where `ego` is
+re-evaluated between the steps with the species of the finished step (cpl_prepare!) and `egro` is the solve's own value (docs/POPIII_ENERGY.md §2.3).
 Kbnd, Rbnd: what is left in the boundary zones, whose outer faces have no momentum row (0 in interior zones: the check of the formulas).
 Also returned: `Kn`, `Ko` (zone kinetic energy ¼ m (u_k² + u_k+1²) of the new and of the old arrays; in a BDF stage the old arrays are y*, and
 K(y*) − (A K_γ − B K_n) is the part of the step's kinetic-energy budget no stage row sees), which zones the solve closed with the internal-energy
@@ -1736,7 +1767,7 @@ function zone_diag(dt)
         end
     end
     v0() = zeros(nz)
-    uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko = (v0() for _ in 1:17)
+    uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old = (v0() for _ in 1:18)
     eg0 = ETOT_GRAV[]
     for k in a:b
         i = k + o
@@ -1767,10 +1798,11 @@ function zone_diag(dt)
         Kbnd[i] = Kraw - K2a[i] - K2b[i] - K3a[i]
         prs[i] = p_; V4[i] = vi; G5[i] = gr
         Rbnd[i] = ra - (R6a[i] + R6b[i] + R6c[i] + dΨr[i])
-        rem[i] = imb[i] - Gr[i] - Er[i] - (Kraw + p_ + vi + gr + ra + adv[i]) - S
+        lrad && (old[i] = (c.ero[k] * c.dvolo[k] - mo(k) * (c.egro[k] - c.ego[k]) + mn(k) * (W.egrn[k] - W.egn[k]) - W.ern[k] * W.dvoln[k]) / dt)
+        rem[i] = imb[i] - Gr[i] - Er[i] - (Kraw + p_ + vi + gr + ra + adv[i]) - S - old[i]
     end
     (; imb, adv, kin, useint = ui[a:b], tiew = tw, rmom = rm, u = copy(W.u[a:b+1]), r = copy(W.rn[a:b+1]), E = copy(W.ern[a:b]), T = copy(W.tn[a:b]),
-       F = copy(W.frn[a:b+1]), ρ = copy(W.dn[a:b]), θ, Gr, Er, uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko,
+       F = copy(W.frn[a:b+1]), ρ = copy(W.dn[a:b]), θ, Gr, Er, uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old,
        mchk, rchk, Mrow, ub = copy(ub[a:b]), dmdt = copy(dm[a:b+1]), qf = copy(qf[a:b]), pg = copy(W.pgn[a:b]), eg = copy(W.egn[a:b]),
        un = copy(un[a:b+1]), uo = copy(uo[a:b+1]), mn = [mn(k) for k in a:b], mo = [mo(k) for k in a:b], fedd = copy(fedd[a:b]),
        hedd = length(TD.HEDD) >= b ? copy(TD.HEDD[a:b]) : zeros(nz), urel = copy(W.urel[a:b+1]), db = copy(W.db[a:b+1]), xm = copy(W.xm[a:b+1]))

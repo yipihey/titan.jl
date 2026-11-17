@@ -1233,6 +1233,11 @@ if get(ENV, "SLABTIE", "0") == "1"
         pr("TIESMOOTH: SLABTIE's max(h, 0) replaced by the smooth ramp (h + sqrt(h^2 + eps^2))/2, eps = %g\n", TX.TIESM[])
     end
 end
+# TIEFRAME=1 (provisional, default off): FLUXTIE and the outer boundary row in the frame of the unknowns (comoving), TX.TIEFRAME, docs/POPIII_ENERGY.md §3
+if get(ENV, "TIEFRAME", "0") == "1"
+    TX.TIEFRAME[] = true
+    pr("TIEFRAME: FLUXTIE closes the lab-frame flux, F_0 = [h c - (1 + f - 2 h^2) u] E_0 for the comoving unknowns; outer boundary row likewise\n")
+end
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)
 # JACCHK="k,z,iter": at step k, Newton iteration iter, finite differences of the residual against the assembled Jacobian for the variables of absolute zone z (debugging)
