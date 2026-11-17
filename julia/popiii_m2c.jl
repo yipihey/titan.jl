@@ -1457,7 +1457,8 @@ function mg_record(k)
            rE = [TX.MGRE[][g][rg] for g in 1:TX.MGN[]], rP = [TX.MGRP[][g][rg] for g in 1:TX.MGN[]], rR = [TX.MGRR[][g][rg] for g in 1:TX.MGN[]],
            k1 = [TX.MGK1[][g][rg] for g in 1:TX.MGN[]], edges = copy(TX.MGEDGE[]),
            sl = sd === nothing ? nothing : (; kph = sd.kph, Te = sd.Te, L = sd.L, kHm = sd.kHm[rg], kH = sd.kH[rg], kLW = sd.kLW[rg]),
-           xHp = [ChemNet.full(mat.x[z], mat.net)[:Hp] for z in a_:b_], xH2 = [ChemNet.full(mat.x[z], mat.net)[:H2] for z in a_:b_])
+           xHp = [ChemNet.full(mat.x[z], mat.net)[:Hp] for z in a_:b_], xH2 = [ChemNet.full(mat.x[z], mat.net)[:H2] for z in a_:b_],
+           wrec = [z <= length(PM.MGWREC[]) ? PM.MGWREC[][z] : nothing for z in rg])
     open(io -> serialize(io, rec), joinpath(get(ENV, "POPIII_OUT", "."), "mg_rec.jls"), "a")
     nothing
 end

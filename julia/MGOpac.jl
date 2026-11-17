@@ -37,6 +37,7 @@ function mg_ratios!(m::NetGas)
     isempty(MGGIDX[]) && (MGGIDX[] = G2O.group_index(TX.MGEDGE[] .* (EVERG / CNn.hP)))
     MGROLE[] === nothing && mg_roles!()
     gH = MGROLE[].H
+    length(MGWREC[]) == length(dn) || (MGWREC[] = Any[nothing for _ in dn])
     for g in 1:G; fill!(TX.MGRE[][g], 1.0); fill!(TX.MGRP[][g], 1.0); fill!(TX.MGRR[][g], 1.0); fill!(TX.MGK1[][g], 0.0); end
     st = NLOST[]
     for k in a:b
@@ -66,6 +67,10 @@ function mg_ratios!(m::NetGas)
     nothing
 end
 
+"(diagnostic) per zone of the last chemistry: (grey W, group W_g, T_c) of the star light (MGROUPS only; not in the checkpoint)."
+const MGWREC = Ref(Any[])
+# (sized by mg_ratios!, serially before the step: the chemistry's zones may run on CHEMTHREADS tasks)
+mg_wrec!(k, W, Wg, Tc) = (k <= length(MGWREC[]) && (MGWREC[][k] = (W, copy(Wg), Tc)); nothing)
 "H(1s) photoionisation rate per atom of group g in J_ν = B_ν(T_c) (W = 1): 4π Σ σ_1s B_ν/(hν) w over the group's G2 nodes."
 function mg_kH1s(g, Tc)
     F = G2O.fastgrid(); s = 0.0; gi_ = MGGIDX[]

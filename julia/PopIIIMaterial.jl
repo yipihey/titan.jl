@@ -1111,6 +1111,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         if MGON
             bl = SLBLEND[] && Te > 0; therm = bl ? wq >= 1 : !(k > kph && Te > 0)
             Wg = mg_wg(k, Tc, Ecmb, bl, therm); kHon = !therm && !(TL3DEEP && tauz_[k] >= 3.0)
+            CPLPREP[] || mg_wrec!(k, W, Wg, Tc)        # (diagnostic: the grey W next to the group W_g, for mg_record)
         end
         if Wg === nothing
             env = (Trad = Tc, J = ν -> W * _bnu(ν, Tc))
