@@ -1280,7 +1280,7 @@ end
 function nwfd!(zlo, zhi, iter)
     a_ = Int(TF.getscalar(:ngrs)); c = TX.context(); ne = c.neqn; nb = c.nb; k0 = c.k0; ws = TX.getws(Float64, c.mgr)
     E = (TF.var(:em2), TF.var(:em1), TF.var(:e00), TF.var(:ep1), TF.var(:ep2)); AD = [copy(e) for e in E]
-    rhs = TF.var(:rhs); h = 1e-5
+    rhs = TF.var(:rhs); h = parse(Float64, get(ENV, "NWFDH", "1e-5"))
     pr("NWFD: step dt %.4e theta %.2f iteration %d, neqn %d, zones %d..%d (relative numbering; absolute = +%d), code %s\n", TF.getscalar(:dtime), TF.getscalar(:thet), iter, ne, zlo, zhi, a_ - 1, string(c.code))
     resid_now() = (cc = TX.context(); Rr = zeros(ne, nb); TX.residual!(Rr, ws, cc, zeros(ne * nb)); Rr)
     function bump!(za, j, δ)
