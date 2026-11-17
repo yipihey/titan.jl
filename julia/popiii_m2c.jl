@@ -1426,6 +1426,10 @@ function mg_install!()
     PM.mg_roles!(); r_ = PM.MGROLE[]; TX.MGQG[] = r_.Lya; TX.MGSLG[] = r_.Hm
     PM.SLIMP && (TX.MGSLQ[] = PM.sl_qt_mg)
     get(ENV, "MGSOLVER", "band") == "band" && (TD.ROUTINES[:matslv] = JuliaSolver.matslv!)
+    if get(ENV, "MGVEF", "1") == "1"               # stage 2a: Eddington factors per group (mg_eddfac!)
+        TX.MGVEF[] = true
+        let f0 = TC.EDDFAC[]; TC.EDDFAC[] = () -> mg_eddfac!(f0) end
+    end
     h0 = TC.CPLH[]
     TC.CPLH[] = (; newstep = () -> (h0.newstep(); TX.mg_newstep!()), reset = () -> (h0.reset(); TX.mg_reset!()),
                  update = (rhs, a_, b_) -> (h0.update(rhs, a_, b_); TX.mg_update!(rhs, a_, b_)),
@@ -1452,6 +1456,50 @@ function mg_install!()
        G, join((@sprintf("%.4g", e) for e in edges), ","), 9 + 2G, 9 + 2G, TF.PARAMS[:meqn], TX.MGSLG[], TX.MGQG[], get(ENV, "MGSOLVER", "band"), src)
     nothing
 end
+"""
+(MGROUPS, MGVEF, stage 2a) Eddington factors per group: after the grey formal solution `f0`, the same formal solution (TitanCore.eddfac!,
+tangent rays, linear-in-τ source, VEF_BG background, EDDSCAT) once per group on the group's arrays, swapped into the state arrays it reads:
+χ → χ_g = max(χ r_R,g, κ_E,g), absorption κ_P → κ_E,g = κ_E r_E,g + κ_1s,g, B → κ_P,g B_g/κ_E,g (so that the source is
+(κ_P,g B_g + (χ_g − κ_E,g) J_g)/χ_g: emission κ_P,g B_g, absorption κ_E,g, the rest of χ_g scattering), E_r → E_g, F_r → F_g, I_cmb → I_cmb b_g(T_cmb).
+Out: f_g, h_g, the tie weights of the group's own depth, g_g. Then the grey state is restored and fedd := Σ f_g E_g / Σ E_g.
+"""
+function mg_eddfac!(f0)
+    f0()
+    TX.MGVEF[] || return nothing
+    a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); G = TX.MGN[]
+    ins = (:chifn, :xkpn, :plfn, :ern, :frn, :dtau); sv = Dict(s_ => copy(TF.var(s_)) for s_ in (ins..., :fedd))
+    hsv = copy(TD.HEDD); wsv = copy(TD.TIEW); fxsv = copy(TD.FXEDD); gxsv = TD.GXEDD[]
+    gr0, gl0, xi0 = TF.getscalar(:geddr), TF.getscalar(:geddl), TF.getscalar(:ximr)
+    chi, kp, pl, er, fr = (TF.var(s_) for s_ in (:chifn, :xkpn, :plfn, :ern, :frn)); xke = TF.var(:xken); tn = TF.var(:tn)
+    try
+        for g in 1:G
+            RE, RP, RR, K1 = TX.MGRE[][g], TX.MGRP[][g], TX.MGRR[][g], TX.MGK1[][g]
+            for k in a_-1:b_+1
+                kE = max(xke[k] * RE[k] + K1[k], 1e-300)
+                kP = sv[:xkpn][k] * RP[k]; B = sv[:plfn][k] * TX.mg_bfrac(g, tn[k])
+                chi[k] = max(sv[:chifn][k] * RR[k], kE); kp[k] = kE; pl[k] = kP * B / kE
+            end
+            copyto!(er, TX.MGEN[][g]); copyto!(fr, TX.MGFN[][g]); TF.setscalar!(:ximr, xi0 * TX.MGBCMB_[g])
+            f0()
+            copyto!(TX.MGFEDD[][g], TF.var(:fedd))
+            length(TD.HEDD) >= b_ + 1 && (h = TX.MGHEDD[][g]; @inbounds for k in eachindex(h); h[k] = k <= length(TD.HEDD) ? TD.HEDD[k] : 0.0; end)
+            length(TD.TIEW) >= b_ + 1 && (w = TX.MGTIEW[][g]; @inbounds for k in eachindex(w); w[k] = k <= length(TD.TIEW) ? TD.TIEW[k] : 0.0; end)
+            TX.MGGEDDR[][g] = TF.getscalar(:geddr)
+        end
+    finally
+        for s_ in (ins..., :fedd); copyto!(TF.var(s_), sv[s_]); end
+        copyto!(TD.HEDD, hsv); copyto!(TD.TIEW, wsv); copyto!(TD.FXEDD, fxsv); TD.GXEDD[] = gxsv
+        TF.setscalar!(:geddr, gr0); TF.setscalar!(:geddl, gl0); TF.setscalar!(:ximr, xi0)
+    end
+    fe = TF.var(:fedd)
+    for k in a_-1:b_+2
+        sE = 0.0; sF = 0.0
+        for g in 1:G; e_ = TX.MGEN[][g][k]; sE += e_; sF += TX.MGFEDD[][g][k] * e_; end
+        sE > 0 && (fe[k] = sF / sE)
+    end
+    TX.MGVEFOK[] = true
+    nothing
+end
 "(MGROUPS) a record per snapshot in POPIII_OUT/mg_rec.jls: groups, grey field, state, ratios, star-light rates."
 function mg_record(k)
     a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); rg = a_-1:b_+2; sd = PM.SLDIAG[]
@@ -1460,6 +1508,7 @@ function mg_record(k)
            Eg = [TX.MGEN[][g][rg] for g in 1:TX.MGN[]], Fg = [TX.MGFN[][g][rg] for g in 1:TX.MGN[]],
            rE = [TX.MGRE[][g][rg] for g in 1:TX.MGN[]], rP = [TX.MGRP[][g][rg] for g in 1:TX.MGN[]], rR = [TX.MGRR[][g][rg] for g in 1:TX.MGN[]],
            k1 = [TX.MGK1[][g][rg] for g in 1:TX.MGN[]], edges = copy(TX.MGEDGE[]),
+           fg = TX.MGVEFOK[] ? [TX.MGFEDD[][g][rg] for g in 1:TX.MGN[]] : nothing, gr = copy(TX.MGGEDDR[]),
            sl = sd === nothing ? nothing : (; kph = sd.kph, Te = sd.Te, L = sd.L, kHm = sd.kHm[rg], kH = sd.kH[rg], kLW = sd.kLW[rg]),
            xHp = [ChemNet.full(mat.x[z], mat.net)[:Hp] for z in a_:b_], xH2 = [ChemNet.full(mat.x[z], mat.net)[:H2] for z in a_:b_],
            wrec = [z <= length(PM.MGWREC[]) ? PM.MGWREC[][z] : nothing for z in rg])

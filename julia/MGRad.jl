@@ -44,6 +44,15 @@ const MGESO = Ref(Vector{Vector{Float64}}()); const MGFSO = Ref(Vector{Vector{Fl
 const MGFNOM = Ref(Vector{Vector{Float64}}())   # nominal F_g scale per interface (correction F_g += δ·nom)
 const MGRE = Ref(Vector{Vector{Float64}}()); const MGRP = Ref(Vector{Vector{Float64}}()); const MGRR = Ref(Vector{Vector{Float64}}())
 const MGK1 = Ref(Vector{Vector{Float64}}())     # absolute H(1s) absorption [cm² g⁻¹] per group (ionizing groups of lit network zones)
+"""
+MGVEF (stage 2a, popiii_m2c `MGVEF=1`, the default with MGROUPS): every group's own Eddington factors from a formal solution with the group's
+χ_g, κ_E,g, emission and background (popiii_m2c `mg_eddfac!`, run after the grey one wherever TITAN calls it: every Newton update with VEFIMP):
+f_g per zone (MGFEDD), the tie's h_g (MGHEDD) and weights (MGTIEW, from the group's own optical depth), the outer g_g (MGGEDDR). The grey
+array fedd then holds Σ_g f_g E_g / Σ_g E_g (the radiation pressure of the total rows, MLT, …). Frozen in the Jacobian, as the grey factors.
+"""
+const MGVEF = Ref(false); const MGVEFOK = Ref(false)
+const MGFEDD = Ref(Vector{Vector{Float64}}()); const MGHEDD = Ref(Vector{Vector{Float64}}()); const MGTIEW = Ref(Vector{Vector{Float64}}())
+const MGGEDDR = Ref(Float64[])
 "(diagnostic) of the last residual: Σ_g E_g/E_r − 1 worst, the group luminosities through each interface are in MGEN/MGFN"
 const MGNEWTON = Ref(0)
 mgiE(g) = MGI0[] + 2g - 1; mgiF(g) = MGI0[] + 2g
@@ -57,6 +66,10 @@ function mg_alloc!(mgr)
     for R_ in (MGRE, MGRP, MGRR)
         (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = [ones(mgr) for _ in 1:G])
     end
+    for R_ in (MGFEDD, MGHEDD, MGTIEW)
+        (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = vvec(G, mgr))
+    end
+    length(MGGEDDR[]) == G || (MGGEDDR[] = fill(0.5, G))
     nothing
 end
 
@@ -207,8 +220,9 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
         end
         chi = M.chif[g]; chn = M.chifn[g]; ke = M.xke[g]; em = M.emit[g]
         for k in ngrs-1:ngre+1
-            chi[k] = W.chif[k] * RR[k]; chn[k] = W.chifn[k] * RR[k]
             ke[k] = W.xke[k] * RE[k] + K1[k]
+            # extinction at least the absorption (χ_g is a harmonic-type mean, κ_E,g a Planck-type one: for the H(1s) group κ_E,g > χ_g otherwise)
+            chi[k] = max(W.chif[k] * RR[k], ke[k]); chn[k] = max(W.chifn[k] * RR[k], W.xken[k] * RE[k] + K1[k])
             # emission per unit mass: 4π κ_P,g B_g, B_g = b_g(T) σT⁴/π at each level, θ-weighted (κ_P at the θ level as the grey row)
             bn = mg_bfrac(g, tn[k]); bo = θ < 1 ? mg_bfrac(g, to[k]) : 0.0
             em[k] = 4P.cpi * W.xkp[k] * RP[k] * (θ * W.plfn[k] * bn + (1 - θ) * c.plfo[k] * bo)
@@ -257,7 +271,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
     ie, iF = c.ix[6], c.ix[7]
     X(i, k) = x[(kb(k) - 1) * neqn + i]
     ern, frn, rn, dn, dvoln, u, r, rmu, d, dvol, dmdt, urel = W.ern, W.frn, W.rn, W.dn, W.dvoln, W.u, W.r, W.rmu, W.d, W.dvol, W.dmdt, W.urel
-    fedd = c.fedd; G = MGN[]
+    G = MGN[]
     # grey rows → sums
     @inbounds for k in ngrs:ngre
         s = zero(T); for g in 1:G; s += M.egn[g][k]; end
@@ -273,6 +287,8 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
         en, fn, eg, fg = M.egn[g], M.fgn[g], M.eg[g], M.fg[g]; EO = MGEO[][g]; FO = MGFO[][g]
         ke = M.xke[g]; em = M.emit[g]; erb = M.erb[g]; frb = M.frb[g]; av = M.avchi[g]
         qg = g == MGQG[]
+        vef = MGVEF[] && MGVEFOK[]
+        fedd = vef ? MGFEDD[][g] : c.fedd; HE = vef ? MGHEDD[][g] : TD.HEDD; TW = vef ? MGTIEW[][g] : TD.TIEW; gr = vef ? MGGEDDR[][g] : P.geddr
         # ---- energy
         for k in ngrs:ngre
             aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
@@ -312,20 +328,20 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
                 qs = vefq(fedd, r, xmu, k)
                 inert + rmu[k] * (qs * fedd[k] * eg[k] - fedd[k-1] * eg[k-1] / qs) + 0.5 * rmu[k] * (fg[k] / cc^2) * (u[k+1] - u[k-1]) + drag
             end
-            wt = tie ? TD.TIEW[k] : 0.0
+            wt = tie ? TW[k] : 0.0
             if wt > 0
                 rcm = (0.5 * (r[k-1] + r[k]))^c.mu; rcp = (0.5 * (r[k] + r[k+1]))^c.mu
-                hd = SLABTIE[] ? st_hdonor(max(TD.HEDD[k-1], 0.0), fedd[k-1], chi[k-1], chi[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k]) :
-                                 max(TD.HEDD[k-1], 0.0)
-                B = rmu[k] * fg[k] / cc - (rcm * hd * eg[k-1] + rcp * min(TD.HEDD[k], 0.0) * eg[k])
+                hd = SLABTIE[] ? st_hdonor(max(HE[k-1], 0.0), fedd[k-1], chi[k-1], chi[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k]) :
+                                 max(HE[k-1], 0.0)
+                B = rmu[k] * fg[k] / cc - (rcm * hd * eg[k-1] + rcp * min(HE[k], 0.0) * eg[k])
                 w = (1 - wt) * w + wt * B
             end
             R[iFg, kb(k)] = w
         end
         R[iFg, kb(ngrs)] = X(iFg, ngrs)
         bcmb = MGBCMB_[g]; ximg = P.ximr * bcmb
-        R[iFg, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * ximg + fn[ngre+1] -
-                             cc * P.geddr * (sph ? mg_esurf(rn, en, M.chifn[g], dn, fn, fedd, ngre, xmu, cc, 4P.cpi * ximg / cc) : en[ngre])
+        R[iFg, kb(ngre+1)] = P.cpi * (2gr + 1) * ximg + fn[ngre+1] -
+                             cc * gr * (sph ? mg_esurf(rn, en, M.chifn[g], dn, fn, fedd, ngre, xmu, cc, 4P.cpi * ximg / cc) : en[ngre])
         R[iFg, 1] = X(iFg, k0)
         k = ngrs - 1
         R[iFg, kb(k)] = P.lribc == 2 ? fn[k+2] + fn[k] : rn[k+1]^c.mu * fn[k+1] - rn[k]^c.mu * fn[k]
