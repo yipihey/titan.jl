@@ -533,12 +533,18 @@ function _nlmf(F, ct, ρ, T, n1, n2, nH2, nHe, nHp, ne, nHm, nHmS, hbfP, Tw)    
     end
     (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
 end
-"(NLOIT, restart) NLOST from the checkpoint: network zones that had non-LTE factors (NLOPC) take their composition and the three-level parameters of SLDIAG."
+"""
+(NLOIT, restart) NLOST from the checkpoint: network zones that had non-LTE factors (NLOPC) take their composition and the three-level
+parameters of SLDIAG. MGROUPS: the zones whose three-level record is the last chemistry's (it carries `chemq`: exactly the zones that
+chemistry gave an NLOST entry) — NLOPC is no longer filled under NLOIT, so the NLOPC test restores nothing and the first step after a
+restart runs the network zones on the table opacity with default group records (ionising and LW groups transparent: docs §18). The grey
+path keeps the NLOPC test in this round (bit-identity with popiii-s6); it has the same first-step defect.
+"""
 function nlost_restart!(m)
     n = length(m.x); NLOST[] = Any[nothing for _ in 1:n]; nloc_reset!(n)
     sd = SLDIAG[]; (sd === nothing || !hasproperty(sd, :tl3)) && return nothing
     for k in 1:min(n, length(NLOPC[]), length(sd.tl3))
-        (NLOPC[][k] === nothing || m.eqzone[k] || sd.tl3[k] === nothing) && continue
+        (m.eqzone[k] || sd.tl3[k] === nothing || (MGON ? !hasproperty(sd.tl3[k], :chemq) : NLOPC[][k] === nothing)) && continue
         NLOST[][k] = (; d = CNn.full(m.x[k], m.net), p = sd.tl3[k])
     end
     nothing
@@ -574,7 +580,7 @@ function nlo_ratio(ρ, T, d, p)
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
-    if MGON
+    if MGON && !isempty(MGGIDX[])            # (the groups exist from mg_init! on; a restart evaluates the opacities once before it)
         n2 = n2_tl3(T, n1, ne, np, p); hbf = hbf_deep(p)
         y = mg_group(ρ, T; n1, n2, nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hbf, Tw,
                      nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0))
@@ -592,10 +598,17 @@ end
 "(NLOIT) weight of the table calibration: smooth step in ln T from 0 at NLOITW[1] to 1 at NLOITW[2]."
 nlo_w(T) = (x = clamp((log(T) - log(NLOITW[1])) / (log(NLOITW[2]) - log(NLOITW[1])), 0.0, 1.0); x * x * (3 - 2x))
 "(NLOIT) composition of zone k at (ρ, T) and x_H⁺, x_H₂ (coupled zones: CK expansion with the step's terms; else the chemistry's)."
-function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0)
+function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0, live = false)
     t = (TX.cplz(k) && k <= length(CPLTERMS[])) ? CPLTERMS[][k] : nothing
     t === nothing && return s.d, s.p
     t0_ = time_ns()
+    if MGON && mg_hasrec(t)                           # stage 2c: the composition in the group fields (cpl_tqg); `live`: at the iterate's q_g, s
+        G_ = TX.MGN[]; B_ = live ? TX.CPLQ[][3] : nothing; go_ = TX.MGSLG[]; V_(x_) = Float64(ForwardDiff.value(x_))
+        tq = cpl_tqg(t, ntuple(g -> g == go_ ? Float64(q) : live ? V_(B_[g, k]) : 1.0, G_), live ? V_(B_[G_+1, k]) : t.slq.rec.s0, Float64(tc))
+        x, _ = CNn.ck_eval([x1, x2], ρ, T, m.net; env = tq.env, phc = tq.phc, extra = tq.extra)
+        Threads.atomic_add!(NLOCNS, Int(time_ns() - t0_))
+        return CNn.full(x, m.net), tq.env.tl3
+    end
     # (not t.phc: its one-entry cache is shared with the residual's dual evaluation, which would then take this call's Float rates
     # at the same T and lose ∂(photo-rates)/∂T from the coupled zone's Jacobian)
     ph_, en_ = t.phraw; phc = Tq -> Any[(p_, CNn.photorates_t(p_, Tq, en_)...) for p_ in ph_]
@@ -657,19 +670,21 @@ function nlo_it(m::NetGas, k, ρ, T, s, o = nothing)
         qd = TX.CPLQ[][1][k]; td = TX.CPLQ[][2][k]; qv = Float64(ForwardDiff.value(qd)); tv = Float64(ForwardDiff.value(td))
         length(NLOQC[]) < k && (NLOQC[] = vcat(NLOQC[], Any[nothing for _ in length(NLOQC[])+1:k]))
         e_ = NLOQC[][k]; key = (v..., qv, tv)
+        mgl = MGON && length(TX.CPLQ[]) >= 3            # stage 2c: every group's q and the LW factor belong to the point
+        mgl && (B_ = TX.CPLQ[][3]; key = (key..., ntuple(i -> Float64(ForwardDiff.value(B_[i, k])), size(B_, 1))...))
         if e_ === nothing || e_[1] != key
-            Rq, neq, gq = (qv == 1 && tv == 1) ? (c.R, c.ne, c.g) : nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv)...)
+            Rq, neq, gq = (qv == 1 && tv == 1 && !mgl) ? (c.R, c.ne, c.g) : nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, mgl)...)
             e_ = (key, Rq, neq, e_ === nothing ? nothing : e_[4], e_ === nothing ? ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)) : e_[5], gq, e_ === nothing ? (MGNOV, MGNOV) : e_[7])
         end
         dual = qd isa ForwardDiff.Dual || td isa ForwardDiff.Dual
         if dual && !(e_[4] !== nothing && all(abs(log(key[i] / e_[4][i])) < NLOITJ[i <= 2 ? 1 : 2] for i in 1:6))
-            ε = 1e-2; Rp, _, gp = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv * (1 + ε), tv)...)
-            Rm, _, gm = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv / (1 + ε), tv)...)
+            ε = 1e-2; Rp, _, gp = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv * (1 + ε), tv, mgl)...)
+            Rm, _, gm = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv / (1 + ε), tv, mgl)...)
             sq = ntuple(i -> log(Rp[i] / Rm[i]) / (2log1p(ε)), 3); gq1 = MGON ? mg_slope(gp, gm, 2log1p(ε)) : MGNOV
             st = (0.0, 0.0, 0.0); gt1 = MGNOV
             if SLIMPN >= 2
-                εt = 1e-3; Tp, _, gtp = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv * (1 + εt))...)
-                Tm, _, gtm = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv / (1 + εt))...)
+                εt = 1e-3; Tp, _, gtp = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv * (1 + εt), mgl)...)
+                Tm, _, gtm = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv / (1 + εt), mgl)...)
                 st = ntuple(i -> log(Tp[i] / Tm[i]) / (2log1p(εt)), 3); MGON && (gt1 = mg_slope(gtp, gtm, 2log1p(εt)))
             end
             e_ = (e_[1], e_[2], e_[3], key, (sq, st), e_[6], (gq1, gt1))
@@ -976,7 +991,7 @@ function tl3_network(net)
             push!(rx, r)
         end
     end
-    CNn.Network(net.species, net.free, vcat(rx, tl3_reactions()))
+    CNn.Network(net.species, net.free, MGON ? vcat(rx, tl3_reactions(), mg_h1s_reactions()) : vcat(rx, tl3_reactions()))
 end
 _fv(x::ForwardDiff.Dual) = _fv(ForwardDiff.value(x)); _fv(x::Real) = Float64(x)
 """
@@ -993,7 +1008,7 @@ const LOCALJTAB = get(ENV, "LOCALJTAB", "1") == "1"
 # cloud (W ~ 1e-10, T ~ 200–900 K) failed in ChemNet.step_ck with LOCALJ's env (t_tau3), and its photo-rates there are negligible
 const LOCALJWMIN = parse(Float64, get(ENV, "LOCALJWMIN", "0"))
 ljon(p) = LOCALJ && p !== nothing && hasproperty(p, :Tc) && p.Tc > 0 && (LOCALJWMIN == 0 || p.β / beta2s_bb(p.Tc) >= LOCALJWMIN)
-tl3env(m, p) = ljon(p) ?
+tl3env(m, p) = (MGON && p !== nothing && hasproperty(p, :mgq)) ? merge(m.env, (; tabkey = m.env, mgq = p.mgq, tl3 = p)) : ljon(p) ?
     (W_ = p.β / beta2s_bb(p.Tc); Tc_ = p.Tc;
      LOCALJTAB ? merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, ljW = W_, tl3 = p)) :
                  merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, tl3 = p))) :
@@ -1109,6 +1124,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
     kph = a; for k in b:-1:a; tauz_[k] >= 2 / 3 && (kph = k; break); end
     L = 4π * rn[kph+1]^2 * fr[kph+1]; Te = L > 0 ? (L / (4π * rn[kph+1]^2 * 5.670374419e-5))^0.25 : 0.0
     SLIMP && CPLPREP[] && (SLSTAR[] = tauz_[kph] >= 2 / 3 && Te > 0)
+    MGON && (MGKPH[] = kph; length(MGX2[]) == length(dn) || (MGX2[] = zeros(length(dn))))
     arad = 7.565723e-15; Ecmb = arad * sl.tcmb^4
     nz = length(dn); NH2 = zeros(nz); NHI = zeros(nz)
     s2 = 0.0; s1 = 0.0
@@ -1116,7 +1132,10 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH(); dr = rn[k+1] - rn[k]
         nh2 = nH * max(d[:H2], 0.0); nhi = nH * max(d[:H], 0.0)
         NH2[k] = s2 + 0.5nh2 * dr; NHI[k] = s1 + 0.5nhi * dr
-        if sl.shield === :sobolev
+        if MGON
+            MGX2[][k] = max(d[:H2], 0.0)
+            NH2[k] = mg_ncol(NH2[k], nh2, tn[k], abs(un[k+1] - un[k]) / dr)   # (stage 2c: the same column as mg_h2lw!)
+        elseif sl.shield === :sobolev
             dudr = abs(un[k+1] - un[k]) / dr
             if dudr > 0
                 vth = sqrt(2CNn.kB * tn[k] / 1.6735575e-24)
@@ -1146,7 +1165,6 @@ function starlight_setup(m::NetGas, a, b, tauz_)
     slcu(k) = SLWFLUX ? max(CNn.c * (er[k] - Ecmb), 0.5 * (max(fr[k], 0.0) + max(fr[k+1], 0.0))) : CNn.c * (er[k] - Ecmb)
     function rates(k)
         wq = 0.0
-        MGON && k <= length(MGA1[]) && (MGA1[][k] = 0.0)         # (set below where the group H(1s) photoionisation is on)
         if SLBLEND[] && Te > 0
             # smooth in τ (no jump at the moving τ = 2/3 zone): colour temperature from T_eff (τ ≤ 0.3) to the local T_r (τ ≥ 3), log blend,
             # dilution W from the local energy density (W = 1 at T_c = T_r). The sharp switch changed x_ss of the zone just outside τ = 2/3
@@ -1161,26 +1179,27 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         else
             Tc = (max(er[k], Ecmb) / arad)^0.25; W = 1.0
         end
-        (W > 0 && Tc > 0) || return (0.0, 0.0, 0.0, 1.0)
-        Wg = nothing; kHon = false                     # MGROUPS: one dilution per group, from the group fields (MGOpac.jl)
+        ((MGON || W > 0) && Tc > 0) || return (0.0, 0.0, 0.0, 1.0)   # (MGROUPS: the grey W gates nothing)
+        Wg = nothing; kHon = false; cu0 = nothing      # MGROUPS: the star light is the group fields (MGOpac.jl mg_cu, mg_wg)
         if MGON
-            bl = SLBLEND[] && Te > 0; therm = bl ? wq >= 1 : !(k > kph && Te > 0)
-            Wg = mg_wg(k, Tc, Ecmb, bl, therm); kHon = !therm && !(TL3DEEP && tauz_[k] >= 3.0)
+            therm = (SLBLEND[] && Te > 0) ? wq >= 1 : !(k > kph && Te > 0)
+            cu0 = mg_cu(k, Ecmb); Wg = mg_wg(cu0, Tc); kHon = !therm && !(TL3DEEP && tauz_[k] >= 3.0)
             CPLPREP[] || mg_wrec!(k, W, Wg, Tc)        # (diagnostic: the grey W next to the group W_g, for mg_record)
         end
         if Wg === nothing
             env = (Trad = Tc, J = ν -> W * _bnu(ν, Tc))
             kHm = sl.pHm === nothing ? 0.0 : CNn.photorate(sl.pHm, tn[k], env); kH = sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, tn[k], env)
         else
-            env = (Trad = Tc, J = mg_J(Wg, Tc))
-            kHm = sl.pHm === nothing ? 0.0 : CNn.photorate(sl.pHm, tn[k], env); kH = kHon ? mg_kH(Wg, Tc) : 0.0
-            a1 = (kHon && MGMILNE) ? dn[k] / CNn.μH() * (CNn.hP^2 / (2π * CNn.me * CNn.kB * tn[k]))^1.5 * exp(min(Z0Physics.χH / (CNn.kB * tn[k]), 700.0)) * mg_kH(ones(TX.MGN[]), tn[k]) : 0.0
-            k <= length(MGA1[]) && (MGA1[][k] = a1)
+            kHm = sl.pHm === nothing ? 0.0 : CNn.photorates_g(sl.pHm, tn[k], Tc, cu0, MGEHZ[]); kH = kHon ? mg_kion(cu0, tn[k], Tc) : 0.0   # (kH: the record's; the network's own reaction acts, mg_h1s_reactions)
         end
         f = 1.0; kLW = 0.0
-        if k > kph && sl.shield !== :off
+        if Wg !== nothing                               # MGROUPS: the LW group's field with the photon-conserving closure (mg_fshJ)
+            if k > kph
+                fs_, J_, J0_ = mg_fshJ(NH2[k], tn[k]); f = fs_ * J0_ / J_; kLW = mg_klw(cu0[MGROLE[].LW], Tc) * f
+            end
+        elseif k > kph && sl.shield !== :off
             f = sl.shield === :none ? 1.0 : fsh_h2(NH2[k], tn[k]) * fsh_hi(NHI[k])
-            kLW = 1.1e8 * 4π * (Wg === nothing ? W : Wg[MGROLE[].LW]) * _bnu(νLW, Tc) * f
+            kLW = 1.1e8 * 4π * W * _bnu(νLW, Tc) * f
         end
         diag.kHm[k] = kHm; diag.kH[k] = kH; diag.kLW[k] = kLW; diag.fsh[k] = f
         if SLIMP && CPLPREP[]                            # SLIMP: how this zone's star light follows its E_r, F_r (sl_qt)
@@ -1191,9 +1210,9 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             # (SLW0 is sized by cpl_prepare! before the chemistry: the zones run on CHEMTHREADS tasks, a resize here raced and lost records)
             (SLSTAR[] && k <= length(SLW0[])) && (SLW0[][k] = (; W0 = W, Tc0 = Tc, wq, Tsrc = (md === :blend ? (SLEB[] ? tr_at_tau(tauz_[k] + 2 / 3) : Te) : Tc), mode = md, Ecmb,
                          ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off))
-            # MGROUPS: q follows the dilution of the H⁻-band group (TX.MGSLG); the record carries every group's W_g for the T_c refresh (cpl_tq)
+            # MGROUPS: the record carries every group's c u_g at the start of the step and the LW factor (sl_qt_mg, cpl_tqg)
             (MGON && SLSTAR[] && k <= length(SLW0[]) && SLW0[][k] !== nothing) &&
-                (SLW0[][k] = merge(SLW0[][k], (; W0 = max(Wg[TX.MGSLG[]], 1e-300), Wg, kHon, a1 = k <= length(MGA1[]) ? MGA1[][k] : 0.0)))
+                (SLW0[][k] = merge(SLW0[][k], (; cu0, s0 = f, lw = k > kph, kHon)))
         end
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
             d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH(); n1 = nH * max(d[:H], 1e-30)
@@ -1205,8 +1224,11 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             diag.tl3[k] = (; β = (Wg === nothing ? W : Wg[MGROLE[].Ba]) * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
             TL3DEEP && (diag.tl3[k] = merge(diag.tl3[k], (; deep = tauz_[k] >= 3.0)))
             ov_ = LYAOVR[]; (k <= length(ov_) && ov_[k] !== nothing) && (diag.tl3[k] = merge(diag.tl3[k], ov_[k]))   # LYART: transferred Lyα
+            Wg === nothing || (diag.tl3[k] = merge(diag.tl3[k], (; mgq = mg_env(cu0, Wg, Tc, kHon))))   # MGROUPS: the photo list's rates from the group fields (tl3env)
         end
-        (kHm, kH, kLW, f)
+        # (MGROUPS with the three-level atom: H⁻ photodetachment is in the network's photo list with the group rates, not in the extra terms,
+        # and H(1s) photoionisation with its ground-state recombination is the network's reaction pair mg_h1s_reactions)
+        ((Wg !== nothing && tl3on) ? 0.0 : kHm, Wg !== nothing ? 0.0 : kH, kLW, f)
     end
     tl3on && LYART[] && lya_transfer!(m, a, b, tauz_, kph, rates, diag)
     rates
@@ -1214,14 +1236,13 @@ end
 include(joinpath(@__DIR__, "LyaTransfer.jl"))
 include(joinpath(@__DIR__, "MGOpac.jl"))                # MGROUPS (default off)
 "dx/dt of the star-light reactions (rates lagged) for ChemNet.step's `extra`. No heat here: the LW energy goes to TitanResidFast.GASQ (see `lwheat`)."
-function starlight_terms(m::NetGas, ρ, kHm, kH, kLW; a1 = 0.0)
+function starlight_terms(m::NetGas, ρ, kHm, kH, kLW)
     fr_ = m.net.free; iHp = findfirst(==(:Hp), fr_); iHm = findfirst(==(:Hm), fr_); iH2 = findfirst(==(:H2), fr_)
     nH = ρ / CNn.μH()
     extra = x -> begin
-        f = zeros(eltype(x), length(x)); d = CNn.full(x, m.net)
+        f = zeros(promote_type(eltype(x), typeof(kH), typeof(kLW)), length(x)); d = CNn.full(x, m.net)
         iHm === nothing || (f[iHm] -= kHm * x[iHm])
         f[iHp] += kH * max(d[:H], zero(d[:H]))
-        a1 == 0 || (f[iHp] -= a1 * max(d[:e], zero(d[:e])) * max(d[:Hp], zero(d[:Hp])))     # (MGROUPS) ground-state recombination, see MGA1
         iH2 === nothing || (f[iH2] -= kLW * x[iH2])
         f
     end
@@ -1294,13 +1315,13 @@ function chem_core!(m::NetGas)
         LOCALJ && ljon(SLDIAG[].tl3[k]) && (kHm = 0.0)
         all(isfinite, (kHm, kH, kLW)) || error("starlight: non-finite rates in zone $k: kHm $kHm kH $kH kLW $kLW, T $(tn[k]), ρ $(dn[k]), E_r $(TM.v(:ern)[k])")
         (kHm == 0 && kH == 0 && kLW == 0) && return extra0, cool0
-        ex = MGON ? starlight_terms(m, dn[k], kHm, kH, kLW; a1 = k <= length(MGA1[]) ? MGA1[][k] : 0.0) : starlight_terms(m, dn[k], kHm, kH, kLW)
+        ex = starlight_terms(m, dn[k], kHm, kH, kLW)
         ex2 = extra0 === nothing ? ex : (x -> extra0(x) .+ ex(x))
         ex2, cool0
     end
     # LW energy absorbed in zone k over the step, from the end-of-step H₂ (steady under LW): 4.48 eV binding + 0.4 eV fragment kinetic energy
     # per dissociation (UV pumping heat left out); the chemistry is energy-neutral (it takes the binding energy from u and gives it back on re-formation)
-    lwheat!(k, x1) = (slrates === nothing || isempty(TX.GASQ[])) ? nothing :
+    lwheat!(k, x1) = (MGON || slrates === nothing || isempty(TX.GASQ[])) ? nothing :
         (TX.GASQ[][k] = SLDIAG[].kLW[k] * max(CNn.full(x1, m.net)[:H2], 0.0) * dn[k] / CNn.μH() * (4.48 + 0.4) * EVERG; nothing)
     # (COUPLED prepare pass: the hydro step about to run reads these from the last chemistry; they must not be cleared here)
     CPLPREP[] || slrates === nothing || isempty(TX.GASQ[]) || fill!(TX.GASQ[], 0.0)
@@ -1403,7 +1424,7 @@ function chem_core!(m::NetGas)
                 envc = envk; phc_ = phk; cache = Ref((NaN, Any[]))
                 phc = Tv -> (Tv == cache[][1] || (cache[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, envc)...) for p_ in phc_])); cache[][2])
                 if SLIMP && p3 !== nothing && isempty(TX.CHEMB[])   # SLIMP: what scales with W (see sl_q, cpl_tq)
-                    lj = hasproperty(envk, :ljW) || (ljon(p3) && hasproperty(envk, :J))
+                    lj = !MGON && (hasproperty(envk, :ljW) || (ljon(p3) && hasproperty(envk, :J)))
                     envc0 = !lj ? nothing : hasproperty(envk, :ljW) ? merge(envk, (; J = ν -> 0.0, ljW = 0.0)) : merge(envk, (; J = ν -> 0.0))
                     cache0 = Ref((NaN, Any[]))
                     phc0 = envc0 === nothing ? nothing :
@@ -1665,20 +1686,17 @@ function cpl_tq(t, q, tc = 1.0; phc = t.phc, phc0 = t.slq.phc0)
     s_ = t.slq; p3b = s_.p3; envb = t.env; extrab = t.extra; r = s_.rec
     if tc != 1 && r !== nothing                  # SLIMP=2: the terms at the iterate's colour temperature (Float; W at its start value W0)
         Tc = r.Tc0 * tc; W0 = r.W0; sl = STARLIGHT[]
-        mgr_ = hasproperty(r, :Wg)                   # MGROUPS: each process with its group's dilution
-        WBa = mgr_ ? r.Wg[MGROLE[].Ba] : W0; WLy = mgr_ ? r.Wg[MGROLE[].Lya] : W0
-        nb = WLy / expm1(E21 / (CNn.kB * Tc))
-        p3b = merge(s_.p3, (; β = WBa * beta2s_bb(Tc), P12 = (s_.p3.RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc))
-        Jb = mgr_ ? mg_J(r.Wg, Tc) : (ν -> W0 * _bnu(ν, Tc))
-        envb = s_.lj ? (hasproperty(t.env, :ljW) ? merge(t.env, (; Trad = Tc, J = Jb, ljW = WBa, tl3 = p3b)) :
-                                                   merge(t.env, (; Trad = Tc, J = Jb, tl3 = p3b))) : merge(t.env, (; tl3 = p3b))
+        nb = W0 / expm1(E21 / (CNn.kB * Tc))
+        p3b = merge(s_.p3, (; β = W0 * beta2s_bb(Tc), P12 = (s_.p3.RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc))
+        envb = s_.lj ? (hasproperty(t.env, :ljW) ? merge(t.env, (; Trad = Tc, J = ν -> W0 * _bnu(ν, Tc), ljW = W0, tl3 = p3b)) :
+                                                   merge(t.env, (; Trad = Tc, J = ν -> W0 * _bnu(ν, Tc), tl3 = p3b))) : merge(t.env, (; tl3 = p3b))
         ph_ = s_.ph; phc = Tv -> Any[(p_, CNn.photorates_t(p_, Tv, envb)...) for p_ in ph_]
         if t.extra !== nothing
-            e1 = (Trad = Tc, J = Jb)
+            e1 = (Trad = Tc, J = ν -> W0 * _bnu(ν, Tc))
             kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, r.T, e1)
-            kH = mgr_ ? (r.kHon ? mg_kH(r.Wg, Tc) : 0.0) : sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, r.T, e1)
-            kLW = r.lw ? 1.1e8 * 4π * (mgr_ ? r.Wg[MGROLE[].LW] : W0) * _bnu(12.87 * EVERG / CNn.hP, Tc) * r.fsh : 0.0
-            extrab = mgr_ ? starlight_terms(s_.mm, r.ρ, kHm, kH, kLW; a1 = r.a1) : starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
+            kH = sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, r.T, e1)
+            kLW = r.lw ? 1.1e8 * 4π * W0 * _bnu(12.87 * EVERG / CNn.hP, Tc) * r.fsh : 0.0
+            extrab = starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
         end
     end
     # (a rate that is exactly 0 stays a Float 0: q·0 is a Dual zero, and tl3_heat's E21 P12/(Q12 + P12 + 1e-300) then has 0/0 partials
@@ -1693,7 +1711,11 @@ function cpl_tq(t, q, tc = 1.0; phc = t.phc, phc0 = t.slq.phc0)
 end
 function cpl_g(m::NetGas, k, z)
     t = CPLTERMS[][k]; ρ = z[1]; T = z[2]; lc = MGON ? t.lcool : nothing
-    length(z) >= 5 && hasproperty(t, :slq) && (t = cpl_tq(t, z[5], length(z) >= 6 ? Float64(ForwardDiff.value(z[6])) : 1.0))
+    if MGON && length(z) > 6                         # stage 2c: z = (ρ, T, x1, x2, q_1 … q_G, s, t), see cpl_tqg
+        mg_hasrec(t) && (G_ = length(z) - 6; t = cpl_tqg(t, ntuple(g -> z[4+g], G_), z[5+G_], Float64(ForwardDiff.value(z[end]))))
+    else
+        length(z) >= 5 && hasproperty(t, :slq) && (t = cpl_tq(t, z[5], length(z) >= 6 ? Float64(ForwardDiff.value(z[6])) : 1.0))
+    end
     x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
     u, p = CNn.eos(ρ, T, x, m.net)
     dfull = CNn.full(x, m.net)
@@ -1776,9 +1798,10 @@ const CPLCACHEQ = Ref(Any[])
 function cpl_vjq(m, k, v)
     y, J = cpl_vj(m, k, v)
     if length(v) >= 6
-        ε = 1e-3; zp = [v...]; zm = [v...]; zp[6] = v[6] * (1 + ε); zm[6] = v[6] / (1 + ε)
+        jt = length(v) > 6 ? length(v) : 6          # (MGROUPS: t is the last variable)
+        ε = 1e-3; zp = [v...]; zm = [v...]; zp[jt] = v[jt] * (1 + ε); zm[jt] = v[jt] / (1 + ε)
         yp = cpl_g(m, k, zp); ym = cpl_g(m, k, zm)
-        for i in 1:8; J[i, 6] = (yp[i] - ym[i]) / (v[6] * 2log1p(ε)); end
+        for i in 1:8; J[i, jt] = (yp[i] - ym[i]) / (v[jt] * 2log1p(ε)); end
     end
     if TX.SLIMPDBG[] > 0 && !all(isfinite, J)
         TX.SLIMPDBG[] -= 1; bad = [(i, j) for i in 1:8, j in 1:size(J, 2) if !isfinite(J[i, j])]
@@ -1849,12 +1872,19 @@ end
 "After the hydro step (and advect_species!, which moved the HD tail): the coupled zones' free species := CK expansion of the solution."
 function cpl_finish!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); nf = length(m.net.free); dn, tn = TM.v(:dn), TM.v(:tn)
+    h2s = (MGON && SLIMP && SLSTAR[]) ? mg_h2now()[3] : nothing      # stage 2c: the LW factor of the solved state
     for k in a:b
         TX.cplz(k) || continue
         t = CPLTERMS[][k]
-        if SLIMP && hasproperty(t, :slq) && sl_on(k)   # SLIMP: the fast species at the star light of the solved E_r, F_r
+        if MGON
+            if SLIMP && sl_on(k) && mg_hasrec(t)       # stage 2c: the fast species in the solved group fields
+                r_ = t.slq.rec; E_ = TX.MGEN[]
+                t = cpl_tqg(t, ntuple(g -> max(CNn.c * (E_[g][k] - r_.Ecmb * TX.MGBCMB_[g]), MGCUFL) / r_.cu0[g], TX.MGN[]), r_.lw ? h2s[k] : r_.s0,
+                            Float64(mg_tc(r_, TM.v(:ern)[k]) / r_.Tc0))
+            end
+        elseif SLIMP && hasproperty(t, :slq) && sl_on(k)   # SLIMP: the fast species at the star light of the solved E_r, F_r
             er_, fr_ = TM.v(:ern), TM.v(:frn)
-            qt_ = MGON ? (g_ = TX.MGSLG[]; sl_qt_mg(k, er_[k], TX.MGEN[][g_][k], TX.MGFN[][g_][k], TX.MGFN[][g_][k+1])) : sl_qt(k, er_[k], fr_[k], fr_[k+1])
+            qt_ = sl_qt(k, er_[k], fr_[k], fr_[k+1])
             t = cpl_tq(t, qt_[1], qt_[2])
         end
         x, _ = CNn.ck_eval([TX.XSN[][1][k], TX.XSN[][2][k]], dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)

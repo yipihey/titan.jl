@@ -345,6 +345,7 @@ const PHTAB = CowCache{Any}(); const PHLOCK = PHTAB.lk
 "(HM88) the Milne inverse of H photoionization × φ (see HM88); otherwise `_photorates_t`."
 photorates_t(p::Photo, T, env) = (HM88 && p.R === :H && hasproperty(env, :hm)) ? (r = _photorates_t(p, T, env); (r[1], r[2] * hm_phi(T, env))) : _photorates_t(p, T, env)
 function _photorates_t(p::Photo, T, env)
+    hasproperty(env, :mgq) && return photorates_mgq(p, T, env)
     hasproperty(env, :ljW) && return photorates_lj(p, T, env)
     (hasproperty(env, :static) && env.static) || return photorates(p, T, env)
     # env.tabkey: a per-zone env (extra fields for reactions) that shares the static J of `tabkey`, and so its table
@@ -435,6 +436,90 @@ function photorates_lj(p::Photo, T, env)
     r = exp(_cr4(row(jc - 1), row(jc), row(jc + 1), row(jc + 2), vc))
     R = W * R
     (R < 1e-290 ? zero(R) : R), a0 * (1 + W * r)
+end
+
+# ------------------------------------------------------------------ group-resolved photo-rates (MGROUPS stage 2c)
+"""
+Photo-rates from multigroup radiation fields. In group g (ν_g … ν_g+1) the field is c u_g = 4π∫_g J_ν dν [erg cm⁻² s⁻¹] with the in-group
+shape of B_ν(T_c); the rate of level l is then c u_g Q_{l,g}(T_c),
+
+  Q_{l,g}(T_c) = ∫_g σ_l B_ν(T_c)/(hν) dν / ∫_g B_ν(T_c) dν   [cm² erg⁻¹],
+
+tabulated here as ln Q on log₁₀T_c = 1 … 6.5 (0.01 dex; linear interpolation, clamped). Both integrals carry the factor e^{hν_g/kT_c}
+(the Planck function relative to the group's lower edge), so the ratio is finite where the group lies far in the Wien tail; log-spaced
+midpoint rule (LJTABN points) from max(ν_g, ν_threshold) to min(ν_g+1, ν_g + 60 kT_c/h). A group entirely below a level's threshold has
+no entry (−Inf). Identity (checked in mb/p2c/gtab.jl): Σ_g b_g(T_c) 4σT_c⁴ Q_{l,g} = 4π∫σ_l B_ν/(hν) dν, the rate of `lj_tables` at W = 1.
+"""
+const LJG_C = (1.0, 0.01, 551)
+const LJGTAB = CowCache{Any}()
+function _gquad(wt::F, f::H, a, b, n) where {F,H}
+    s = 0.0; la = log(a); h = (log(b) - la) / n; νa = a
+    for i in 1:n
+        νb = exp(la + i * h); ν = 0.5 * (νa + νb); s += wt(ν) * f(ν) * (νb - νa); νa = νb
+    end
+    s
+end
+function lj_gtables(p::Photo, ehz::Vector{Float64})
+    key = (p, ehz)
+    t = cowget(LJGTAB, key, nothing); t === nothing || return t
+    cowget!(LJGTAB, key) do
+        G = length(ehz) + 1; lvs = p.levels; nc = LJG_C[3]; n = LJTABN
+        lQ = fill(-Inf, G, length(lvs), nc)
+        Threads.@threads for j in 1:nc
+            kt = kB * 10^(LJG_C[1] + LJG_C[2] * (j - 1)) / hP             # kT_c/h [Hz]
+            for g in 1:G
+                ν1 = g == 1 ? 0.0 : ehz[g-1]; ν2 = g == G ? Inf : ehz[g]
+                wt = ν -> 2hP * ν^3 / c^2 * exp(-(ν - ν1) / kt) / (-expm1(-ν / kt))
+                lo = max(ν1, 1e-6 * kt); hi = min(ν2, ν1 + 60 * kt)
+                den = _gquad(wt, ν -> 1.0, lo, hi, n)
+                for (l, lv) in enumerate(lvs)
+                    νt = lv[3] / hP; σf = lv[4]
+                    νt < ν2 || continue
+                    νa = max(lo, νt)
+                    num = νa < hi ? _gquad(wt, ν -> σf(ν) / (hP * ν), νa, hi, n) : 0.0
+                    lQ[g, l, j] = log(max(num / den, 1e-300))
+                end
+            end
+        end
+        lQ
+    end
+end
+"Σ_levels (g_l/Z) e^{−E_x/kT} Σ_g cu_g Q_{l,g}(T_c) [s⁻¹]: the photo-rate of process p in the group fields cu (see `lj_gtables`); T, cu may be Duals."
+function photorates_g(p::Photo, T, Tc::Float64, cu, ehz::Vector{Float64})
+    tb = lj_gtables(p, ehz); G = length(ehz) + 1
+    x = clamp((log10(Tc) - LJG_C[1]) / LJG_C[2], 0.0, LJG_C[3] - 1.0); j = min(Int(floor(x)) + 1, LJG_C[3] - 1); w = x - (j - 1)
+    Z = p.Z(T); R = zero(T) * zero(cu[1])
+    for (l, lv) in enumerate(p.levels)
+        s = zero(R)
+        for g in 1:G
+            a = tb[g, l, j]; b = tb[g, l, j+1]; isfinite(a) || continue
+            q = a + w * (b - a); q > -600 && (s += cu[g] * exp(q))
+        end
+        R += lv[2] / Z * exp(-lv[1] / (kB * T)) * s
+    end
+    R
+end
+"Stimulated part of the Milne coefficient in J = W B_ν(T_c) per unit W: α = α₀(T)(1 + W r(T, T_c)) of `photorates_lj`; 0 outside its tables."
+function lj_stim(p::Photo, T, Tc::Float64)
+    lT = log10(T); lc = log10(Tc); lTv = _ljv(lT)
+    ok = LJ_T[1] + 2LJ_T[2] <= lTv <= LJ_T[1] + LJ_T[2] * (LJ_T[3] - 3) && LJ_2C[1] + 2LJ_2C[2] <= lc <= LJ_2C[1] + LJ_2C[2] * (LJ_2C[3] - 3) &&
+         LJ_2T[1] + 2LJ_2T[2] <= lTv <= LJ_2T[1] + LJ_2T[2] * (LJ_2T[3] - 3)
+    ok || return zero(T)
+    tb = lj_tables(p)
+    it, wt = _ljidx(lT, LJ_T); a0 = exp(_cr4(tb.lA0[it-1], tb.lA0[it], tb.lA0[it+1], tb.lA0[it+2], wt))
+    jt, vt = _ljidx(lT, LJ_2T); jc, vc = _ljidx(lc, LJ_2C)
+    row(j) = _cr4(tb.lr[jt-1, j], tb.lr[jt, j], tb.lr[jt+1, j], tb.lr[jt+2, j], vt)
+    a0 * exp(_cr4(row(jc - 1), row(jc), row(jc + 1), row(jc + 2), vc))
+end
+"""
+(R, α) of process p in a zone whose radiation field is the static field of `env.tabkey` (the CMB, tabulated) plus the multigroup star light
+`env.mgq = (; Tc, cu, W, ehz)`: R = R_static + Σ_g c u_g Q_g(T_c) (`photorates_g`), α = α_static + W_g α₀ r(T, T_c) with the dilution W_g of the
+group that holds the ground level's threshold (`lj_stim`).
+"""
+function photorates_mgq(p::Photo, T, env)
+    q = env.mgq; R0, A0 = _photorates_t(p, T, env.tabkey)
+    g = searchsortedlast(q.ehz, p.levels[1][3] / hP * 1.01) + 1      # (the group just above the threshold; 1 %: the H⁻ edge 0.7551 eV against the pair's 0.754 eV)
+    (R0 + photorates_g(p, T, q.Tc, q.cu, q.ehz), p.milne ? A0 + q.W[g] * lj_stim(p, T, q.Tc) : A0 + zero(q.W[g]))
 end
 
 # ------------------------------------------------------------------ composition

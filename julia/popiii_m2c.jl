@@ -1425,10 +1425,13 @@ function mg_install!()
     TF.setscalar!(:neqn, 9 + 2G)
     PM.G2O.FASTON || error("MGROUPS needs G2OPAC=2 (the group means come from G2Opacity.group_fast)")
     PM.G2B === nothing || error("MGROUPS does not support G2BLEND")
-    PM.mg_init!(); r_ = PM.MGROLE[]; TX.MGQG[] = r_.Lya; TX.MGSLG[] = r_.Hm
+    PM.SLIMPN >= 2 || error("MGROUPS needs SLIMP=2 (the chemistry's radiation is the group fields at the Newton iterate)")
+    PM.mg_init!(mat.net.free); r_ = PM.MGROLE[]; TX.MGQG[] = r_.Lya; TX.MGSLG[] = r_.Hm
+    mat.net.free[ChemNet.ckinfo(mat.net).slow[2]] === :H2 || error("MGROUPS: the second coupled species must be H2 (the LW closure reads it)")
     TX.MGXH[] = PM.Z0Physics.χH / PM.EVERG; TX.MGGH[] = r_.H; TX.MGLG[] = 1
     TX.mg_valloc!(length(TF.var(:dn)))
-    PM.SLIMP && (TX.MGSLQ[] = PM.sl_qt_mg)
+    TX.MGSLQ[] = PM.sl_qt_mg; TX.MGH2FN[] = PM.mg_h2iter!
+    TX.MGZONEQ[] = (k, ρ, T, a, b, qv, t) -> PM.cpl_zone_qg(mat, k, ρ, T, a, b, qv, t)
     get(ENV, "MGSOLVER", "band") == "band" && (TD.ROUTINES[:matslv] = JuliaSolver.matslv!)
     if get(ENV, "MGVEF", "1") == "1"               # stage 2a: Eddington factors per group (mg_eddfac!)
         TX.MGVEF[] = true
@@ -1464,6 +1467,7 @@ function mg_install!()
         # (Tried: the excess beyond the star-lit region at T_CMB, and a continuous starlight/CMB split capped at L/(4π r² c), e8d0b3b: both fail
         #  the first step (t_mg40–t_mg43); this partition leaves a draining optical reservoir in the far cloud, docs §14.)
     end
+    PM.nloc_reset!(length(mat.x))                    # (a restart evaluated the opacities once before the groups existed: no group records in that cache)
     PM.mg_fill!(mat); copyto!(TX.MGVO[], TX.MGVN[])
     pr("MGROUPS: %d groups, edges %s eV, unknowns 10..%d (neqn %d, meqn %d), q from group %d, chemistry energy from group %d, solver %s; fields from %s\n",
        G, join((@sprintf("%.4g", e) for e in edges), ","), 9 + 2G, 9 + 2G, TF.PARAMS[:meqn], TX.MGSLG[], TX.MGQG[], get(ENV, "MGSOLVER", "band"), src)
@@ -1486,6 +1490,7 @@ function mg_eddfac!(f0)
     chi, kp, pl, er, fr = (TF.var(s_) for s_ in (:chifn, :xkpn, :plfn, :ern, :frn)); xke = TF.var(:xken); tn = TF.var(:tn)
     dn, dvol, rmu = TF.var(:dn), TF.var(:dvoln), TF.var(:rmun); V = TX.MGVN[]
     c4pi = TF.getscalar(:cc) / (4π)
+    κh, κhg, _ = PM.mg_h2now(); gH2 = TX.MGH2G[]     # H₂ Lyman–Werner absorption and its fluorescence (stage 2c)
     try
         for g in 1:G
             j = TX.mgv(g, 1)
@@ -1499,6 +1504,10 @@ function mg_eddfac!(f0)
                     kc = V[TX.mgvp(p_, 1), k]; kw = V[TX.mgvp(p_, 2), k]; (kc > 0 || kw > 0) || continue
                     pr_[1] == g && (kE += kw; em += kc * c4pi * TX.MGEN[][pr_[2]][k])
                     pr_[2] == g && (kE += kc; em += kw * c4pi * TX.MGEN[][pr_[1]][k])
+                end
+                if gH2 > 0 && κh[k] > 0
+                    g == gH2 && (kE += κh[k]; chi[k] += κh[k])
+                    g == TX.MGH2T[] && (em += (κh[k] - κhg[k]) * c4pi * TX.MGEN[][gH2][k])
                 end
                 kp[k] = kE; pl[k] = em / kE
             end
@@ -1547,7 +1556,8 @@ function mg_record(k)
            n2 = V[end-1, rg],
            sl = sd === nothing ? nothing : (; kph = sd.kph, Te = sd.Te, L = sd.L, kHm = sd.kHm[rg], kH = sd.kH[rg], kLW = sd.kLW[rg]),
            xHp = [ChemNet.full(mat.x[z], mat.net)[:Hp] for z in a_:b_], xH2 = [ChemNet.full(mat.x[z], mat.net)[:H2] for z in a_:b_],
-           wrec = [z <= length(PM.MGWREC[]) ? PM.MGWREC[][z] : nothing for z in rg])
+           wrec = [z <= length(PM.MGWREC[]) ? PM.MGWREC[][z] : nothing for z in rg],
+           h2 = (h_ = PM.mg_h2now(); (; κ = h_[1][rg], κg = h_[2][rg], s = h_[3][rg])))
     open(io -> serialize(io, rec), joinpath(get(ENV, "POPIII_OUT", "."), "mg_rec.jls"), "a")
     nothing
 end

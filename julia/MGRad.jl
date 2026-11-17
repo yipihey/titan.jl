@@ -27,6 +27,8 @@ const MGEDGE = Ref(Float64[])                   # interior edges [eV], ascending
 const MGI0 = Ref(9)
 const MGEVK = Ref(1.602176634e-12 / 1.380649e-16)   # eV / k_B [K]; set by the driver from ChemNet's constants
 const MGQG = Ref(2)                             # the group that carries RAYQ/GASQ (optical)
+const MGH2G = Ref(0)                            # the LW group with the H₂ photon-conserving absorption (stage 2c; 0: none)
+const MGH2T = Ref(0)                            # the group that receives the H₂ fluorescence (the one below the LW group)
 const MGBFLOOR = 1e-200                         # floor of a group's Planck fraction (energy 1e-200 aT⁴: none; keeps ln E_g finite)
 const MGCLAMP = Ref(3.0)                        # clamp of a correction of ln E_g per Newton iteration
 const MGEMIN = 1e-150                           # floor of E_g/E_r after an update (an underflowed group makes the Newton matrix singular)
@@ -279,12 +281,14 @@ struct MGWS{T}
     xfer::Vector{Vector{T}}                         # energy gained from other groups per mass and time (Raman pairs; Σ_g = 0)
     gv::Matrix{T}                                   # the zones' group opacity records at the iterate (see MGVN)
     lcl::Vector{T}                                  # line cooling of the coupled zones at the iterate [erg cm⁻³ s⁻¹] (into group MGLG)
+    kh2::Vector{T}; kh2g::Vector{T}                 # H₂ Lyman–Werner absorption of group MGH2G at the iterate [cm² g⁻¹]: all of it, its share that heats the gas
+    qs::Matrix{T}                                   # (G+1) × zones: c u_g/c u_g(start of step) of every group, and the LW factor f_sh J(0)/J (MGSLQ, MGH2FN)
 end
 const MGWSC = Dict{DataType,Any}()
 mgws(::Type{T}, mgr) where {T} = get!(MGWSC, T) do
     G = MGN[]; z() = [zeros(T, mgr) for _ in 1:G]; gv = zeros(T, mg_nv(), mgr)
     for k in 1:mgr; mg_default!(view(gv, :, k)); end
-    MGWS{T}(z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), zeros(T, mgr), zeros(T, mgr), z(), gv, zeros(T, mgr))
+    MGWS{T}(z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), zeros(T, mgr), zeros(T, mgr), z(), gv, zeros(T, mgr), zeros(T, mgr), zeros(T, mgr), ones(T, G + 1, mgr))
 end::MGWS{T}
 "The record column of zone k in the workspace of number type T (the material sweep writes it; zones are distinct per task)."
 @inline mg_gcol(::Type{T}, k) where {T} = view((MGWSC[T]::MGWS{T}).gv, :, k)
@@ -334,6 +338,10 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
             end
             chn[k] = chN; em[k] = 4P.cpi * e_
         end
+        if g == MGH2G[]                              # H₂ Lyman–Werner absorption (new level; MGH2FN): extinction κ_H2, to the gas κ_H2,gas
+            kh = M.kh2; kg = M.kh2g
+            for k in ngrs:ngre; ke[k] += kg[k]; chi[k] += kh[k]; chn[k] += kh[k]; end
+        end
         av = M.avchi[g]
         for k in ngrs:ngre+1; av[k] = 2 / (1 / chi[k-1] + 1 / chi[k]); end
         SLABFLUX[] && sf_avchi!(av, chi, ngrs, ngre)
@@ -366,6 +374,12 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
             cθ = mix ? θ * gv[jc, k] + (1 - θ) * go[jc, k] : gv[jc, k]; wθ = mix ? θ * gv[jw, k] + (1 - θ) * go[jw, k] : gv[jw, k]
             (val(cθ) > 0 || val(wθ) > 0) || continue
             t = cc * (cθ * ep[k] - wθ * eL[k]); xl[k] += t; xp[k] -= t
+        end
+    end
+    if MGH2G[] > 0                                   # H₂ fluorescence: the absorbed LW energy that does not heat the gas, into group MGH2T
+        xl = M.xfer[MGH2G[]]; xt = M.xfer[MGH2T[]]; eL = M.eg[MGH2G[]]; kh = M.kh2; kg = M.kh2g
+        @inbounds for k in ngrs:ngre
+            t = cc * (kh[k] - kg[k]) * eL[k]; xt[k] += t; xl[k] -= t
         end
     end
     nothing

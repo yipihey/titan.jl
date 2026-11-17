@@ -610,8 +610,13 @@ end
     return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
 end
 include(joinpath(@__DIR__, "MGRad.jl"))                 # MGROUPS (default off)
-"(MGROUPS with SLIMP) (q, t) of zone k at the iterate from the grey E_r and group MGSLG's E_g, F_g, F_g+1 (PopIIIMaterial.sl_qt_mg)."
-const MGSLQ = Ref{Any}(nothing); const MGSLG = Ref(2)
+"""
+(MGROUPS, stage 2c) The star light of a coupled zone is its group fields at the Newton iterate. `MGSLQ[](Mg, k, E_k)` fills Mg.qs[1:G, k] with
+c u_g/c u_g(start of step) and returns (q of group MGSLG, T_c/T_c,start) (PopIIIMaterial.sl_qt_mg); `MGH2FN[](Mg, dn, tn, rn, un, x_H2, t, a, b)`
+the H₂ Lyman–Werner closure of the iterate (Mg.kh2, Mg.kh2g, Mg.qs[G+1, :]; PopIIIMaterial.mg_h2iter!); `MGZONEQ[](k, ρ, T, x1, x2, qv, t)` the
+zone's terms in those fields (PopIIIMaterial.cpl_zone_qg). `CPLQ[]` carries (q, t, Mg.qs) to the NLOIT opacity during the material sweep.
+"""
+const MGSLQ = Ref{Any}(nothing); const MGSLG = Ref(2); const MGH2FN = Ref{Any}(nothing); const MGZONEQ = Ref{Any}(nothing)
 
 "van Leer interpolation (advectc: centred=true, advecti: centred=false)."
 @inline function advect!(qb, qsn, qn, qo, qso, flow, θ, cadv, eps, ngrs, ngre, centred::Bool, id::Int = 0)
@@ -995,9 +1000,9 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             @inbounds for k in eachindex(slq); slq[k] = one(T); slt[k] = one(T); end
             if Mg === nothing
                 @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
-            else                                     # MGROUPS: the star-light dilution from group MGSLG (optical) at the iterate
-                gq = MGSLG[]
-                @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = MGSLQ[](k, ern[k], Mg.egn[gq][k], Mg.fgn[gq][k], Mg.fgn[gq][k+1])); end
+            else                                     # MGROUPS: every group's field at the iterate against its start-of-step value, and the H₂ LW closure
+                @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = MGSLQ[](Mg, k, ern[k])); end
+                MGH2FN[] === nothing || MGH2FN[](Mg, dn, tn, rn, un, xs2, slt, ngrs, ngre)
             end
             if SLIMPDBG[] > 0
                 fin(v) = isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v)))
@@ -1006,7 +1011,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                     SLIMPDBG[] -= 1; println("SLIMPDBG q/t non-finite zone $(k - ngrs + 1): q $(slq[k]) t $(slt[k]) E $(ern[k]) F $(frn[k]) $(frn[k+1])"); break
                 end
             end
-            CPLQ[] = (slq, slt)
+            CPLQ[] = Mg === nothing ? (slq, slt) : (slq, slt, Mg.qs)
         end
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
@@ -1019,7 +1024,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             try zone_sweep!(ngrs:ngre, k -> true) do k
                 @inbounds if cplz(k)
                     y = (slq === nothing || !SLON_FN[](k)) ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) :
-                        CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slq[k], CPLQT[][k])
+                        Mg === nothing ? CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slq[k], CPLQT[][k]) :
+                        MGZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], view(Mg.qs, :, k), CPLQT[][k])
                     W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
                     if SLIMPDBG[] > 0 && !all(v -> isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v))), y)
                         SLIMPDBG[] -= 1; println("SLIMPDBG cpl zone $(k - ngrs + 1) non-finite: y ", y, " q ", slq === nothing ? 1 : slq[k], " t ", slq === nothing ? 1 : CPLQT[][k])
