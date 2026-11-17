@@ -62,7 +62,7 @@ function mg_ratios!(m::NetGas)
             TX.MGRE[][g][k] = isfinite(rE) && rE > 0 ? rE : 1.0
             TX.MGRP[][g][k] = isfinite(rP) && rP > 0 ? rP : 1.0
             TX.MGRR[][g][k] = isfinite(rR) && rR > 0 ? rR : 1.0
-            (!hbf && g >= gH && isfinite(k1[g])) && (TX.MGK1[][g][k] = k1[g]; TX.MGK1E[][g][k] = k1[g] * mg_saha1s(T, ne, np) / max(n1, 1e-300))
+            (!hbf && g >= gH && isfinite(k1[g])) && (TX.MGK1[][g][k] = k1[g]; MGMILNE && (TX.MGK1E[][g][k] = k1[g] * mg_saha1s(T, ne, np) / max(n1, 1e-300)))
         end
     end
     nothing
@@ -81,6 +81,8 @@ Saha population) — the network is case B (no recombination to 1s), the groups 
 balance needs them (detailed balance: k_1s n_1s = a1 n_e n_p/n_H in LTE).
 """
 const MGA1 = Ref(Float64[])
+"MGMILNE=0: no H(1s) recombination emission in the ionising groups and no ground-state recombination in the network (stage-1 case B)."
+const MGMILNE = get(ENV, "MGMILNE", "1") == "1"
 "H(1s) photoionisation rate per atom of group g in J_ν = B_ν(T_c) (W = 1): 4π Σ σ_1s B_ν/(hν) w over the group's G2 nodes."
 function mg_kH1s(g, Tc)
     F = G2O.fastgrid(); s = 0.0; gi_ = MGGIDX[]

@@ -1119,7 +1119,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         else
             env = (Trad = Tc, J = mg_J(Wg, Tc))
             kHm = sl.pHm === nothing ? 0.0 : CNn.photorate(sl.pHm, tn[k], env); kH = kHon ? mg_kH(Wg, Tc) : 0.0
-            a1 = kHon ? dn[k] / CNn.μH() * (CNn.hP^2 / (2π * CNn.me * CNn.kB * tn[k]))^1.5 * exp(min(Z0Physics.χH / (CNn.kB * tn[k]), 700.0)) * mg_kH(ones(TX.MGN[]), tn[k]) : 0.0
+            a1 = (kHon && MGMILNE) ? dn[k] / CNn.μH() * (CNn.hP^2 / (2π * CNn.me * CNn.kB * tn[k]))^1.5 * exp(min(Z0Physics.χH / (CNn.kB * tn[k]), 700.0)) * mg_kH(ones(TX.MGN[]), tn[k]) : 0.0
             k <= length(MGA1[]) && (MGA1[][k] = a1)
         end
         f = 1.0; kLW = 0.0
