@@ -1646,6 +1646,34 @@ function stage_diag(dt)
        fin = eflux(c.ngrs, c, W, Float64) * dt, fout = eflux(c.ngre + 1, c, W, Float64) * dt, imb)
 end
 
+"""
+    zone_diag(dt) -> (; imb, useint, tiew, rmom, u, ...)
+
+(Diagnostic, EDIAG=2.) Right after a converged stage: per zone the residual of the conservative total-energy row (all zones, ηsw = 0) at the
+converged state [erg s⁻¹ sr⁻¹] (its sum × dt is `stage_diag`'s imb), which zones the solve actually closed with the internal-energy row
+(`useint` of the run's own context), the FLUXTIE weight per interface, and the residual of the radiation-momentum row in its moment-equation
+form (FLUXTIE off) at every interface [dyn sr⁻¹]: where the solve used the tie, total row − kinetic − radiation row leaves −u × that residual
+on the gas (ETASW_TIE), so Σ u_k R_mom,k is the leak that bookkeeping predicts.
+"""
+function zone_diag(dt)
+    c0 = context(; dt); ui = copy(c0.useint)
+    c = context(; etotal = true, ηsw = 0.0, dt)
+    nb = c.nb; neqn = c.neqn; R = zeros(neqn, nb); ws = getws(Float64, c.mgr)
+    residual!(R, ws, c, zeros(neqn * nb)); W = ws.a
+    it = c.ix[5]; iF = c.ix[7]; a, b = c.ngrs, c.ngre
+    imb = [R[it, k - c.k0 + 1] for k in a:b]
+    tw = length(TD.TIEW) >= b + 1 ? copy(TD.TIEW[a:b+1]) : zeros(b - a + 2)
+    ft = TD.FLUXTIE[]; TD.FLUXTIE[] = (ft[1], 0.0)
+    rm = try
+        R2 = zeros(neqn, nb); residual!(R2, ws, c, zeros(neqn * nb)); [R2[iF, k - c.k0 + 1] for k in a:b+1]
+    finally
+        TD.FLUXTIE[] = ft
+    end
+    W2 = ws.a
+    (; imb, useint = ui[a:b], tiew = tw, rmom = rm, u = copy(W2.u[a:b+1]), r = copy(W2.rn[a:b+1]), E = copy(W2.ern[a:b]), T = copy(W2.tn[a:b]),
+       F = copy(W2.frn[a:b+1]), ρ = copy(W2.dn[a:b]))
+end
+
 # ------------------------------------------------------------------ assembly
 struct JTag end
 # JTag is a hand-made tag (not a ForwardDiff.Tag), so ForwardDiff cannot order it against tags created by

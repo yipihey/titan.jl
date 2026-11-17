@@ -1553,6 +1553,19 @@ try
     end
     COUPLED && !PM.MGON && Int(TF.getscalar(:neqn)) > 9 && TF.setscalar!(:neqn, 9)   # (restart from an MGROUPS checkpoint without groups)
     PM.MGON && mg_install!()
+    if get(ENV, "EDIAG", "0") == "2"               # (diagnostic, default off) EDIAG=1 plus the per-zone breakdown (TX.zone_diag) to ediagz.jls
+        let f_ = joinpath(get(ENV, "POPIII_OUT", "."), "ediag.csv"), fz = joinpath(get(ENV, "POPIII_OUT", "."), "ediagz.jls")
+            isfile(f_) || open(io -> println(io, "jstep,kind,dt,imb,dE,fin,fout"), f_, "w")
+            TD.STAGE_HOOK[] = function (kind, dt)
+                d_ = TX.stage_diag(dt)
+                open(io -> @printf(io, "%d,%s,%.6e,%.6e,%.6e,%.6e,%.6e\n", Int(TF.getscalar(:jstep)), kind, dt, d_.imb, d_.dE, d_.fin, d_.fout), f_, "a")
+                z_ = TX.zone_diag(dt)
+                open(io -> serialize(io, merge((; jstep = Int(TF.getscalar(:jstep)), kind, dt), z_)), fz, "a")
+                nothing
+            end
+        end
+        pr("EDIAG=2: total-energy rows of every converged stage -> ediag.csv, per zone -> ediagz.jls\n")
+    end
     if get(ENV, "EDIAG", "0") == "1"               # (diagnostic, default off) total-energy non-conservation of every converged implicit stage
         # TitanResidFast.stage_diag: the conservative total-energy rows of all zones (ηsw = 0) at the converged state of the stage, summed × the stage's
         # dt = ΔE_total + dt (Φ_out − Φ_in) − (what the rows of the solve actually conserved): one line per stage in POPIII_OUT/ediag.csv
