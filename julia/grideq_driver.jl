@@ -37,6 +37,9 @@ geqv(key, defs) = (v = haskey(ENV, key) ? parse.(Float64, split(ENV[key], ",")) 
 const GEQW = geqv("GEQW", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0])   # entry 8 wχ: ln(χρ) of the Newton iterate (mode 1; with wτ = 0 and GEQX off the monitor has no lagged term)
 const GEQC = geqv("GEQC", [100.0, 1.5, 30.0, 0.5, 0.5, 0.1, 1e4, 0.3, 0.0])
 const GEQX = geqv("GEQX", [0.0, 1e-3])
+# GEQGP=w_g,L_ref [L_sun] (provisional, default 0 = off; implicit grid equation only): density jump x gravity power of the zone in the monitor
+# (TitanResidFast.grideq_rows!, docs/POPIII_ENERGY.md §14.6)
+const GEQGP = geqv("GEQGP", [0.0, 100.0])
 const GEQRAMP = haskey(ENV, "GEQRAMP") ? parse.(Float64, split(ENV["GEQRAMP"], ",")) : nothing
 const GEQJ0 = Ref(-1)                  # jstep at the first grideq_step! of this process (GEQRAMP; -2: no ramp, the mesh is close to the rule)
 "max_j(M_j Δln r_j) / median over the zones above the centre: how far the mesh is from equidistribution (GEQRAMP)."
@@ -135,7 +138,7 @@ function grideq_step!()
             # GEQX: composition, ln(x + xfl) of every species, centred zone differences as the τ term
             s.X === nothing || (sx[a+j-1] += GEQX[1] * sum((h * (s.X[q, jp] - s.X[q, jm]))^2 for q in axes(s.X, 1)))
         end
-        TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, sx, wχ = GEQW[8])
+        TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, sx, wχ = GEQW[8], gp = (GEQGP[1], GEQGP[2] * 3.828e33 / (4π)))
     else
         rt = geq_target(s); w = TX.GRIDVEL[]; fill!(w, 0.0)
         for j in 3:n                                              # interfaces above the first one, below the outer edge

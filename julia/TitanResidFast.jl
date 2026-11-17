@@ -1016,7 +1016,7 @@ end
 # ------------------------------------------------------------------ residual
 
 "Grid-equation rows of GRIDEQ (see there) for the interfaces k1+1 … k2−1."
-function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, chi = nothing)
+function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, chi = nothing; un = nothing, G4 = 0.0)
     k1, k2 = ge.k1, ge.k2; zl, zh = k1, k2 - 1                  # zones between the fixed interfaces
     α = ge.alph * (1 + ge.alph); wρ, wP, wT, wE, wm = ge.w
     zc(j) = clamp(j, zl, zh)
@@ -1029,6 +1029,13 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
             wE * (h * log(er[jp] / er[jm]))^2 + wm * (h * (lm(jp) - lm(jm)))^2 + ge.sx[j]
         # (GEQW entry 8, wχ > 0: the extinction coefficient χρ of the Newton iterate, ln(χ_jp ρ_jp/χ_jm ρ_jm): the opacity cliff, local, not lagged)
         (hasproperty(ge, :wχ) && ge.wχ > 0 && chi !== nothing) && (S += ge.wχ * (h * log((chi[jp] * dn[jp]) / (chi[jm] * dn[jm])))^2)
+        # (GEQGP = w_g, L_ref; provisional, default off; docs/POPIII_ENERGY.md §14.6) the density jump weighted with the gravity power of the
+        # zone, w_g (∂ln ρ/∂j)² ½(|u_j| g_j + |u_j+1| g_j+1) m_j / L_ref, of the Newton iterate (local, not lagged): where the advected interface
+        # density differs from the mean density of the node AND gravity does work, i.e. where the two discrete gravity powers differ (G5)
+        if hasproperty(ge, :gp) && ge.gp[1] > 0 && un !== nothing
+            gq(i) = G4 * (xmtot - xmen[i] + (EXTMASS[] === nothing ? zero(rn[i]) : EXTMASS[](rn[i]))) / rn[i]^2
+            S += ge.gp[1] * (h * log(dn[jp] / dn[jm]))^2 * 0.5 * (abs(un[j]) * gq(j) + abs(un[j+1]) * gq(j + 1)) * (xmen[j] - xmen[j+1]) / ge.gp[2]
+        end
         G2 = ν(j)^2 * S; G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
         γ = ge.tauv[j] / dt
         ((1 + γ) * xnt - γ * xnto) / sqrt(1 + G2)
@@ -1280,7 +1287,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         else
             @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k] - gv[k] * dt; end
         end
-        GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[], W.chifn)
+        GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[], W.chifn; un, G4 = 2 * Float64(c.mu) * P.cpi * P.cgrav)
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
     end
