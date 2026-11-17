@@ -446,4 +446,5 @@ leaving the layers inside, as IonFS's vacuum-above formal solution — and the n
   LW band thermalise deeper and hotter. To check next: the group's κ_E,LW/κ_P,LW profile against IonFS's coeffs3 on the same snapshot.
   Also note IonFS's LW itself varies ×5 between snapshots 25 steps apart (9.7e-9 → 3.0e-9), and was 1.5e-7 on the stage-1 snapshots
   (different photosphere structure).
-* Bit-identity off for the final tree: see §13 end.
+* Bit-identity off for the final tree 691cbfe (EDIAG=2, zone_diag, HPON, starlight_terms' a1, all stage-2a code): `t_mg39` vs `t_mg10`,
+  30 steps, 591/591 state arrays + .aux identical.
