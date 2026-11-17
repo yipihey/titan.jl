@@ -356,3 +356,37 @@ cores 24–31 / 32–39):
    repeated where the photosphere is in the dark/bright switching of POPIII_SLABFLUX.md) and JFNK with the banded Jacobian as preconditioner for exact f, g, h derivatives (grey first).
 5. **Stage 4 — validation and production tests:** 6- and 8-group runs; L_em steadiness over ≥ 1e4 steps; a from-IC 100-zone start through
    protostar formation (IC=abn02red on the z100mm mesh) with MGROUPS from the first step; the IonFS comparison at the break-out phase.
+
+## 12. The grey stack's total-energy imbalance (~3.7e3 L☉ at z100mm step 14400)
+
+Question (PI): the conservative total-energy rows, evaluated at every converged stage (`EDIAG`), leave 3741 L☉ in the grey run — 60 % of
+the emergent L. What is it? Diagnostic `EDIAG=2` (TitanResidFast `zone_diag`: per zone the total-energy row residual, which rows the solve
+used, the FLUXTIE weights, the radiation momentum row in its moment-equation form, the advection-limiter mismatch and ΔK). Runs `t_mg24`
+(40 steps), `t_mg26` (30 steps) from the same checkpoint, grey stack, medians over the BDF stages (scripts in the scratchpad mg/ezone*.jl).
+
+| where | imbalance [L☉] | of which explained by |
+|---|---|---|
+| zones 1–26 (the star inside the photosphere, total-energy rows) | −0.4 (Σ\|zone\| 11) | — (solved rows: 0) |
+| zones 27–50 (r_ph = 116 R☉ … 3.6e4 R☉, the 10–49 km/s infall; internal-energy rows) | **+442** (Σ\|zone\| 1704, alternating ±150…580 zone to zone around the infall maximum) | advection-limiter mismatch −0.2; u·R_mom 0.1; the rest is the kinetic-energy/work discretisation of the dual-energy rows (ΔK/dt of these zones 298) |
+| zones 51–87 (3.6e4 R☉ … 1.1 pc) | +19 | u·R_mom 23 |
+| zones 88–100 (1.1 … 143 pc, CMB-dominated cloud; internal-energy rows, tie weight 1) | **+3280** | **u·R_mom = 3391** (zone by zone, e.g. 394 vs 375, 705 vs 555, 682 vs 875 L☉) |
+| total | 3740 | — |
+
+* It is **entirely the non-conservation of the dual-energy zones** (74 of 100 zones, every zone outside the photosphere, use the
+  internal-energy/GASROW row: ETASW 0.6, ETASWTH, ETASWTIE); the zones on the total-energy row balance to −0.4 L☉. It is not accretion
+  luminosity at the inner boundary or the moving mesh (zones 1–26: −0.4 L☉), not the chemistry or H₂ line sources (they are in both rows),
+  not the table/network blend (interior zones balanced), not the separate van Leer limiters of e_g and E/ρ (−0.2 L☉).
+* **88 % (3280 L☉) is in the outer cloud at 1–143 pc** and is, to 3 %, u × (residual of the radiation momentum equation) at the FLUXTIE
+  interfaces: there the radiation row is the tie F = h c E, the gas feels χ̄F/c, but the energy rows do the compression work f E ∇·u of a
+  field that is the CMB (E ≈ a T_CMB⁴), so total − kinetic − radiation rows leave −u·(∇·P + χρF/c) (the effect ETASW_TIE's docstring
+  describes). It is a bookkeeping inconsistency of the CMB field at the 1e-2 level of its compression work, not an energy flow from or to
+  the star or the gas (the gas row is solved; the radiation force of the tie flux there is ~1e-7 of gravity).
+* **12 % (442 L☉ net, 7 % of L_em) is near the star**, in the supersonic infall just outside the photosphere, alternating in sign zone to
+  zone: the internal-energy row plus the momentum row do not conserve e + K discretely where K/m ≫ e (kinetic-energy changes of the
+  momentum discretisation are not returned as heat, or vice versa). This one can matter for the emergent luminosity.
+* **Is it a bug?** No coding error found: total-energy rows everywhere (ETASW = ETASWTH = ETASWTIE = 0, `t_mg25`) conserve to −1.1 L☉ but
+  the run fails after 23 steps (the photosphere jumps from zone 26 to 31; 66 Δt rejections against 8), as the dual-energy switches were
+  introduced to prevent. The imbalance is the price of the dual-energy formulation and of the tie closure. Remedies (not built): (a) for the
+  ledger, book u·R_mom of the tie zones explicitly (it accounts for 3391 of the 3740 L☉); (b) for the near-star 442 L☉, a dual-energy
+  synchronisation that puts the kinetic-energy discretisation error into the gas row (e.g. the total-energy row's ΔE − ΔK − ΔE_r as a source
+  of the internal-energy row where η is near the switch), to be tested for stability against t_mg25's failure.
