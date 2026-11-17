@@ -1409,9 +1409,9 @@ if CPLPROF
     end
 end
 """
-MGROUPS (docs/POPIII_MULTIGROUP.md): G radiation groups as Newton unknowns 10 … 9 + 2G (TitanResidFast MGRad.jl), group opacity ratios
-before every hydro step (PopIIIMaterial.mg_ratios!), the star-light rates from the group fields (starlight_setup), the pivoted banded
-solver. The group fields come from the checkpoint (MGAUX) or, the first time, from the grey field (CMB part at T_cmb, the excess at T_r
+MGROUPS (docs/POPIII_MULTIGROUP.md): G radiation groups as Newton unknowns 10 … 9 + 2G (TitanResidFast MGRad.jl), the group opacities and
+emissivities from the material at the Newton iterate (PopIIIMaterial material_opacg!, MGOpac.jl), the star-light rates from the group
+fields (starlight_setup), the pivoted banded solver. The group fields come from the checkpoint (MGAUX) or, the first time, from the grey field (CMB part at T_cmb, the excess at T_r
 inside the photosphere and at the star's T_eff outside it).
 """
 function mg_install!()
@@ -1423,7 +1423,11 @@ function mg_install!()
     tcmb = parse(Float64, get(ENV, "TCMB", "0"))
     TX.mg_setup!(edges, PM.EVERG / ChemNet.kB, tcmb, 9, length(TF.var(:dn)))
     TF.setscalar!(:neqn, 9 + 2G)
-    PM.mg_roles!(); r_ = PM.MGROLE[]; TX.MGQG[] = r_.Lya; TX.MGSLG[] = r_.Hm
+    PM.G2O.FASTON || error("MGROUPS needs G2OPAC=2 (the group means come from G2Opacity.group_fast)")
+    PM.G2B === nothing || error("MGROUPS does not support G2BLEND")
+    PM.mg_init!(); r_ = PM.MGROLE[]; TX.MGQG[] = r_.Lya; TX.MGSLG[] = r_.Hm
+    TX.MGXH[] = PM.Z0Physics.χH / PM.EVERG; TX.MGGH[] = r_.H; TX.MGLG[] = 1
+    TX.mg_valloc!(length(TF.var(:dn)))
     PM.SLIMP && (TX.MGSLQ[] = PM.sl_qt_mg)
     get(ENV, "MGSOLVER", "band") == "band" && (TD.ROUTINES[:matslv] = JuliaSolver.matslv!)
     if get(ENV, "MGVEF", "1") == "1"               # stage 2a: Eddington factors per group (mg_eddfac!)
@@ -1434,9 +1438,6 @@ function mg_install!()
     TC.CPLH[] = (; newstep = () -> (h0.newstep(); TX.mg_newstep!()), reset = () -> (h0.reset(); TX.mg_reset!()),
                  update = (rhs, a_, b_) -> (h0.update(rhs, a_, b_); TX.mg_update!(rhs, a_, b_)),
                  dmax = (rhs, a_, b_) -> max(h0.dmax(rhs, a_, b_), TX.mg_dmax!(rhs, a_, b_)))
-    let f0 = TD.STEPFN[]
-        TD.STEPFN[] = () -> (PM.mg_ratios!(mat); f0(); nothing)
-    end
     a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     ax = MGAUX[]
     if ax !== nothing && ax.edges == TX.MGEDGE[]
@@ -1463,7 +1464,7 @@ function mg_install!()
         # (Tried: the excess beyond the star-lit region at T_CMB, and a continuous starlight/CMB split capped at L/(4π r² c), e8d0b3b: both fail
         #  the first step (t_mg40–t_mg43); this partition leaves a draining optical reservoir in the far cloud, docs §14.)
     end
-    PM.mg_ratios!(mat)
+    PM.mg_fill!(mat); copyto!(TX.MGVO[], TX.MGVN[])
     pr("MGROUPS: %d groups, edges %s eV, unknowns 10..%d (neqn %d, meqn %d), q from group %d, chemistry energy from group %d, solver %s; fields from %s\n",
        G, join((@sprintf("%.4g", e) for e in edges), ","), 9 + 2G, 9 + 2G, TF.PARAMS[:meqn], TX.MGSLG[], TX.MGQG[], get(ENV, "MGSOLVER", "band"), src)
     nothing
@@ -1471,8 +1472,8 @@ end
 """
 (MGROUPS, MGVEF, stage 2a) Eddington factors per group: after the grey formal solution `f0`, the same formal solution (TitanCore.eddfac!,
 tangent rays, linear-in-τ source, VEF_BG background, EDDSCAT) once per group on the group's arrays, swapped into the state arrays it reads:
-χ → χ_g = max(χ r_R,g, κ_E,g), absorption κ_P → κ_E,g = κ_E r_E,g + κ_1s,g, B → κ_P,g B_g/κ_E,g (so that the source is
-(κ_P,g B_g + (χ_g − κ_E,g) J_g)/χ_g: emission κ_P,g B_g, absorption κ_E,g, the rest of χ_g scattering), E_r → E_g, F_r → F_g, I_cmb → I_cmb b_g(T_cmb).
+χ → χ_g, absorption κ_P → κ_E,g, B → emission/κ_E,g of the zone's group record (TX.mg_level on MGVN: the same values as the rows;
+the source is (emission + (χ_g − κ_E,g) J_g)/χ_g: absorption κ_E,g, the rest of χ_g scattering), E_r → E_g, F_r → F_g, I_cmb → I_cmb b_g(T_cmb).
 Out: f_g, h_g, the tie weights of the group's own depth, g_g. Then the grey state is restored and fedd := Σ f_g E_g / Σ E_g.
 """
 function mg_eddfac!(f0)
@@ -1483,19 +1484,21 @@ function mg_eddfac!(f0)
     hsv = copy(TD.HEDD); wsv = copy(TD.TIEW); fxsv = copy(TD.FXEDD); gxsv = TD.GXEDD[]
     gr0, gl0, xi0 = TF.getscalar(:geddr), TF.getscalar(:geddl), TF.getscalar(:ximr)
     chi, kp, pl, er, fr = (TF.var(s_) for s_ in (:chifn, :xkpn, :plfn, :ern, :frn)); xke = TF.var(:xken); tn = TF.var(:tn)
+    dn, dvol, rmu = TF.var(:dn), TF.var(:dvoln), TF.var(:rmun); V = TX.MGVN[]
     c4pi = TF.getscalar(:cc) / (4π)
     try
         for g in 1:G
-            RE, RP, RR, K1 = TX.MGRE[][g], TX.MGRP[][g], TX.MGRR[][g], TX.MGK1[][g]
+            j = TX.mgv(g, 1)
             for k in a_-1:b_+1
-                kE = max(xke[k] * RE[k] + K1[k], 1e-300)
-                kP = sv[:xkpn][k] * RP[k] + TX.MGK1E[][g][k]; em = kP * sv[:plfn][k] * TX.mg_bfrac(g, tn[k])
-                KR = TX.MGKRAM[][g][k]; chi[k] = max(sv[:chifn][k] * RR[k], kE + KR)
+                m = TX.mg_zcol(dn, dvol, rmu, k)
+                kE, chi[k], kP, a1 = TX.mg_level(V, j, k, sv[:chifn][k], xke[k], sv[:xkpn][k], m)
+                kE = max(kE, 1e-300); em = kP * sv[:plfn][k] * TX.mg_bfrac(g, tn[k])
+                (g >= TX.MGGH[] && a1 > 0) && (em += a1 * sv[:plfn][k] * TX.mg_xfrac(g, tn[k], TX.MGXH[]))
                 # Raman pairs (TX.MGRAMP): absorption and source of the group's share of the transfer
                 for (p_, pr_) in enumerate(TX.MGRAMP[])
-                    kr = TX.MGKRAM[][pr_[1]][k]; kr > 0 || continue
-                    pr_[1] == g && (kE += kr * TX.MGRAMW[][p_][k]; em += kr * TX.MGRAMC[][p_][k] * c4pi * TX.MGEN[][pr_[2]][k])
-                    pr_[2] == g && (kE += kr * TX.MGRAMC[][p_][k]; em += kr * TX.MGRAMW[][p_][k] * c4pi * TX.MGEN[][pr_[1]][k])
+                    kc = V[TX.mgvp(p_, 1), k]; kw = V[TX.mgvp(p_, 2), k]; (kc > 0 || kw > 0) || continue
+                    pr_[1] == g && (kE += kw; em += kc * c4pi * TX.MGEN[][pr_[2]][k])
+                    pr_[2] == g && (kE += kc; em += kw * c4pi * TX.MGEN[][pr_[1]][k])
                 end
                 kp[k] = kE; pl[k] = em / kE
             end
@@ -1524,17 +1527,24 @@ function mg_eddfac!(f0)
 end
 "(MGROUPS) a record per snapshot in POPIII_OUT/mg_rec.jls: groups, grey field, state, ratios, star-light rates."
 function mg_record(k)
-    a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); rg = a_-1:b_+2; sd = PM.SLDIAG[]
+    a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); rg = a_-1:b_+2; sd = PM.SLDIAG[]; V = TX.MGVN[]; G = TX.MGN[]
+    rat(a, b) = [b[i] > 0 ? a[i] / b[i] : 0.0 for i in eachindex(a)]
     rec = (; step = k, t = TF.getscalar(:timen), dt = TF.getscalar(:timen) - TF.getscalar(:timeo), r = TF.var(:rn)[rg], ρ = TF.var(:dn)[rg], T = TF.var(:tn)[rg],
            E = TF.var(:ern)[rg], F = TF.var(:frn)[rg], chi = TF.var(:chifn)[rg], kE = TF.var(:xken)[rg], kP = TF.var(:xkpn)[rg], fedd = TF.var(:fedd)[rg],
            Eg = [TX.MGEN[][g][rg] for g in 1:TX.MGN[]], Fg = [TX.MGFN[][g][rg] for g in 1:TX.MGN[]],
-           rE = [TX.MGRE[][g][rg] for g in 1:TX.MGN[]], rP = [TX.MGRP[][g][rg] for g in 1:TX.MGN[]], rR = [TX.MGRR[][g][rg] for g in 1:TX.MGN[]],
-           k1 = [TX.MGK1[][g][rg] for g in 1:TX.MGN[]], edges = copy(TX.MGEDGE[]),
-           kram = [TX.MGKRAM[][g][rg] for g in 1:TX.MGN[]], rampairs = copy(TX.MGRAMP[]), ramC = [a[rg] for a in TX.MGRAMC[]], ramW = [a[rg] for a in TX.MGRAMW[]],
+           rE = [V[TX.mgv(g, 1), rg] for g in 1:G], rP = [V[TX.mgv(g, 2), rg] for g in 1:G], rR = [V[TX.mgv(g, 3), rg] for g in 1:G],
+           rEc = [V[TX.mgv(g, 4), rg] for g in 1:G], k1 = [V[TX.mgv(g, 5), rg] for g in 1:G], a1 = [V[TX.mgv(g, 6), rg] for g in 1:G],
+           edges = copy(TX.MGEDGE[]), kram = [V[TX.mgv(g, 7), rg] for g in 1:G], rampairs = copy(TX.MGRAMP[]),
+           ramC = [rat(V[TX.mgvp(p_, 1), rg], V[TX.mgv(TX.MGRAMP[][p_][1], 7), rg]) for p_ in eachindex(TX.MGRAMP[])],
+           ramW = [rat(V[TX.mgvp(p_, 2), rg], V[TX.mgv(TX.MGRAMP[][p_][1], 7), rg]) for p_ in eachindex(TX.MGRAMP[])],
+           tw = V[end, rg], lcl = TX.MGLCO[][rg],
+           sumE = [sum(TX.mg_bfrac(g, V[end, z] > 0 ? V[end, z] : TF.var(:tn)[z]) * V[TX.mgv(g, 1), z] for g in 1:G) for z in rg],
+           u = TF.var(:un)[rg],
+           sumP = [sum(TX.mg_bfrac(g, TF.var(:tn)[z]) * V[TX.mgv(g, 2), z] for g in 1:G) for z in rg],
            tl3 = sd === nothing ? nothing : [sd.tl3[z] === nothing ? nothing : (; β = sd.tl3[z].β, RL = sd.tl3[z].RL, ne = sd.tl3[z].ne, P12 = sd.tl3[z].P12) for z in rg],
            fg = TX.MGVEFOK[] ? [TX.MGFEDD[][g][rg] for g in 1:TX.MGN[]] : nothing, gr = copy(TX.MGGEDDR[]),
            hplus = TX.MGVEFOK[] ? [TX.MGHPLUS[][g][rg] for g in 1:TX.MGN[]] : nothing,
-           n2 = length(PM.MGN2[]) >= b_ + 2 ? PM.MGN2[][rg] : nothing,
+           n2 = V[end-1, rg],
            sl = sd === nothing ? nothing : (; kph = sd.kph, Te = sd.Te, L = sd.L, kHm = sd.kHm[rg], kH = sd.kH[rg], kLW = sd.kLW[rg]),
            xHp = [ChemNet.full(mat.x[z], mat.net)[:Hp] for z in a_:b_], xH2 = [ChemNet.full(mat.x[z], mat.net)[:H2] for z in a_:b_],
            wrec = [z <= length(PM.MGWREC[]) ? PM.MGWREC[][z] : nothing for z in rg])

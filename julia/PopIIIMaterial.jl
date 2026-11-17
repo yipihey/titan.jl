@@ -484,11 +484,13 @@ const NLOST = Ref{Vector{Any}}(Any[])        # per zone: (; d, p) at the end of 
 mutable struct NloC
     v::NTuple{4,Float64}; R::NTuple{3,Float64}; ne::Float64
     vJ::NTuple{4,Float64}; qT::NTuple{3,Float64}; qx::NTuple{3,Float64}; qr::NTuple{3,Float64}; qx2::NTuple{3,Float64}; hasJ::Bool
+    # MGROUPS: the zone's group record at v (MGOpac.jl mg_pack; empty without MGROUPS) and its logarithmic slopes, as R and qT, qx, qr, qx2
+    g::Vector{Float64}; gT::Vector{Float64}; gx::Vector{Float64}; gr::Vector{Float64}; gx2::Vector{Float64}
 end
 const NLOC = Ref{Vector{Any}}(Any[])          # per zone cache
 const NLOITN = Threads.Atomic{Int}(0); const NLOITNS = Threads.Atomic{Int}(0); const NLOCNS = Threads.Atomic{Int}(0); const NLOITJN = Threads.Atomic{Int}(0)     # (evaluations of R, of its slopes)
 nloc_reset!(n) = (length(NLOC[]) == n ? fill!(NLOC[], nothing) : (NLOC[] = Any[nothing for _ in 1:n]); SLIMP && (NLOQC[] = Any[nothing for _ in 1:n]); nothing)
-"(SLIMP) per zone the NLOIT ratio at the star-light factor q: (key (ρ, T, x1, x2, q), R, n_e, key of the q slope, d ln R/d ln q)."
+"(SLIMP) per zone the NLOIT ratio at the star-light factor q: (key (ρ, T, x1, x2, q), R, n_e, key of the q slope, d ln R/d ln q, group record, its slopes)."
 const NLOQC = Ref{Vector{Any}}(Any[])
 "CIA kernels on the nlte_means frequencies (every 8th point), tabulated on the union of the tables' node temperatures: exact (kcia and k_h2h2 are piecewise linear in T between those nodes, held outside)."
 const CIATAB = Ref{Any}(nothing)
@@ -541,7 +543,10 @@ function nlost_restart!(m)
     end
     nothing
 end
-"(NLOIT) the ratios (R_E, R_P, R_R) and n_e [cm⁻³] of composition d (full fractions) at (ρ, T), three-level parameters p."
+"""
+(NLOIT) the ratios (R_E, R_P, R_R) and n_e [cm⁻³] of composition d (full fractions) at (ρ, T), three-level parameters p. Third value:
+the zone's group record (MGROUPS: the group means and the grey means then come from one G2Opacity.group_fast call; else empty).
+"""
 function nlo_ratio(ρ, T, d, p)
     t0_ = time_ns()
     nH = ρ / CNn.μH(); nHe = PC.yHe * nH
@@ -569,11 +574,20 @@ function nlo_ratio(ρ, T, d, p)
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
+    if MGON
+        n2 = n2_tl3(T, n1, ne, np, p); hbf = hbf_deep(p)
+        y = mg_group(ρ, T; n1, n2, nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hbf, Tw,
+                     nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0))
+        if y !== nothing
+            Threads.atomic_add!(NLOITN, 1); Threads.atomic_add!(NLOITNS, Int(time_ns() - t0_))
+            return (y[5] / bP, y[6] / bP, y[7] / bR), ne, mg_pack(ρ, T, Tw, n1, ne, np, n2, hbf, y)
+        end
+    end
     E, P, R = G2O.ON ? nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hbf_deep(p), Tw,
                                        nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0)) :
                 nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hbf_deep(p), Tw)
     Threads.atomic_add!(NLOITN, 1); Threads.atomic_add!(NLOITNS, Int(time_ns() - t0_))
-    (E / bP, P / bP, R / bR), ne
+    (E / bP, P / bP, R / bR), ne, MGNOV
 end
 "(NLOIT) weight of the table calibration: smooth step in ln T from 0 at NLOITW[1] to 1 at NLOITW[2]."
 nlo_w(T) = (x = clamp((log(T) - log(NLOITW[1])) / (log(NLOITW[2]) - log(NLOITW[1])), 0.0, 1.0); x * x * (3 - 2x))
@@ -596,63 +610,72 @@ function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0)
     Threads.atomic_add!(NLOCNS, Int(time_ns() - t0_))
     CNn.full(x, m.net), (hasproperty(t.env, :tl3) ? t.env.tl3 : s.p)
 end
-"(NLOIT) (χ, κ_E, κ_P) of network zone k at the iterate (see NLOIT)."
-function nlo_it(m::NetGas, k, ρ, T, s)
+"""
+(NLOIT) (χ, κ_E, κ_P) of network zone k at the iterate (see NLOIT). MGROUPS: `o` receives the zone's group record in its number type
+(value: the record of the iterate's composition; derivatives: logarithmic slopes by differences, from the same evaluations as the
+grey ratios' slopes).
+"""
+function nlo_it(m::NetGas, k, ρ, T, s, o = nothing)
     κR0, κP0 = OPAC[](ρ, T)
     cz = TX.cplz(k)
     w = TX.CPLW[]; xd = cz ? (w === nothing ? TX.XSN[][1][k] : w[1][k]) : 1.0; xd2 = cz ? (w === nothing ? TX.XSN[][2][k] : w[2][k]) : 1.0
     ρv = Float64(ForwardDiff.value(ρ)); Tv = Float64(ForwardDiff.value(T)); xv = Float64(ForwardDiff.value(xd)); xv2 = Float64(ForwardDiff.value(xd2))
     if s === nothing                          # no three-level parameters: the table, χ floored at Thomson on the zone's electrons
         cc = CNn.compiled(m.net); ne = max(CNn.fullvec(m.x[k], cc)[cc.ie], 0.0) * ρv / CNn.μH()
+        o === nothing || TX.mg_default!(o)
         return chicap(max(κR0, COp.σT * ne / ρ), T), κP0, κP0
     end
     keep = k <= length(NLOC[])                # (the cache is sized by nloc_reset!; a zone beyond it is evaluated without one)
     c = keep ? NLOC[][k] : nothing; v = (ρv, Tv, xv, xv2)
     if c === nothing || c.v != v
         d, p = nlo_comp(m, k, s, ρv, Tv, xv, xv2)
-        R, ne = nlo_ratio(ρv, Tv, d, p)
-        c === nothing ? (c = NloC(v, R, ne, (NaN, NaN, NaN, NaN), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), false); keep && (NLOC[][k] = c)) : (c.v = v; c.R = R; c.ne = ne)
+        R, ne, g = nlo_ratio(ρv, Tv, d, p)
+        c === nothing ? (c = NloC(v, R, ne, (NaN, NaN, NaN, NaN), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), false, g, MGNOV, MGNOV, MGNOV, MGNOV);
+                         keep && (NLOC[][k] = c)) : (c.v = v; c.R = R; c.ne = ne; c.g = g)
     end
     needJ = T isa ForwardDiff.Dual || xd isa ForwardDiff.Dual || ρ isa ForwardDiff.Dual
     if needJ && !(c.hasJ && abs(log(Tv / c.vJ[2])) < NLOITJ[1] && abs(log(ρv / c.vJ[1])) < NLOITJ[1] && (!cz || (abs(log(xv / c.vJ[3])) < NLOITJ[2] && abs(log(xv2 / c.vJ[4])) < NLOITJ[2])))
-        εT = 1e-3; d1, p1 = nlo_comp(m, k, s, ρv, Tv * (1 + εT), xv, xv2); R1, _ = nlo_ratio(ρv, Tv * (1 + εT), d1, p1)
-        d0, p0 = nlo_comp(m, k, s, ρv, Tv / (1 + εT), xv, xv2); R0, _ = nlo_ratio(ρv, Tv / (1 + εT), d0, p0)
+        εT = 1e-3; d1, p1 = nlo_comp(m, k, s, ρv, Tv * (1 + εT), xv, xv2); R1, _, g1 = nlo_ratio(ρv, Tv * (1 + εT), d1, p1)
+        d0, p0 = nlo_comp(m, k, s, ρv, Tv / (1 + εT), xv, xv2); R0, _, g0 = nlo_ratio(ρv, Tv / (1 + εT), d0, p0)
         c.qT = ntuple(i -> log(R1[i] / R0[i]) / (2log1p(εT)), 3)          # (central: the ratio is steep in T, q ~ 10-20)
+        MGON && (c.gT = mg_slope(g1, g0, 2log1p(εT)))
         if cz
-            εx = 1e-2; d2, p2 = nlo_comp(m, k, s, ρv, Tv, xv * (1 + εx), xv2); R2, _ = nlo_ratio(ρv, Tv, d2, p2)
+            εx = 1e-2; d2, p2 = nlo_comp(m, k, s, ρv, Tv, xv * (1 + εx), xv2); R2, _, g2 = nlo_ratio(ρv, Tv, d2, p2)
             c.qx = ntuple(i -> log(R2[i] / c.R[i]) / log1p(εx), 3)
-            d4, p4 = nlo_comp(m, k, s, ρv, Tv, xv, xv2 * (1 + εx)); R4, _ = nlo_ratio(ρv, Tv, d4, p4)
+            d4, p4 = nlo_comp(m, k, s, ρv, Tv, xv, xv2 * (1 + εx)); R4, _, g4 = nlo_ratio(ρv, Tv, d4, p4)
             c.qx2 = ntuple(i -> log(R4[i] / c.R[i]) / log1p(εx), 3)
+            MGON && (c.gx = mg_slope(g2, c.g, log1p(εx)); c.gx2 = mg_slope(g4, c.g, log1p(εx)))
         end
-        εr = 1e-3; d3, p3 = nlo_comp(m, k, s, ρv * (1 + εr), Tv, xv, xv2); R3, _ = nlo_ratio(ρv * (1 + εr), Tv, d3, p3)
+        εr = 1e-3; d3, p3 = nlo_comp(m, k, s, ρv * (1 + εr), Tv, xv, xv2); R3, _, g3 = nlo_ratio(ρv * (1 + εr), Tv, d3, p3)
         c.qr = ntuple(i -> log(R3[i] / c.R[i]) / log1p(εr), 3)
+        MGON && (c.gr = mg_slope(g3, c.g, log1p(εr)))
         c.vJ = v; c.hasJ = true; Threads.atomic_add!(NLOITJN, 1)
     end
     RE, RP, RR = c.R
-    nebase = c.ne
+    nebase = c.ne; gb = c.g; gsq = MGNOV; gst = MGNOV; dualq = false
     if SLIMP && cz && TX.CPLQ[] !== nothing && sl_on(k)      # SLIMP: the ratio at the iterate's star-light factors (value exact, slopes in ln q, ln t by differences)
         qd = TX.CPLQ[][1][k]; td = TX.CPLQ[][2][k]; qv = Float64(ForwardDiff.value(qd)); tv = Float64(ForwardDiff.value(td))
         length(NLOQC[]) < k && (NLOQC[] = vcat(NLOQC[], Any[nothing for _ in length(NLOQC[])+1:k]))
         e_ = NLOQC[][k]; key = (v..., qv, tv)
         if e_ === nothing || e_[1] != key
-            Rq, neq = (qv == 1 && tv == 1) ? (c.R, c.ne) : nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv)...)
-            e_ = (key, Rq, neq, e_ === nothing ? nothing : e_[4], e_ === nothing ? ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)) : e_[5])
+            Rq, neq, gq = (qv == 1 && tv == 1) ? (c.R, c.ne, c.g) : nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv)...)
+            e_ = (key, Rq, neq, e_ === nothing ? nothing : e_[4], e_ === nothing ? ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)) : e_[5], gq, e_ === nothing ? (MGNOV, MGNOV) : e_[7])
         end
         dual = qd isa ForwardDiff.Dual || td isa ForwardDiff.Dual
         if dual && !(e_[4] !== nothing && all(abs(log(key[i] / e_[4][i])) < NLOITJ[i <= 2 ? 1 : 2] for i in 1:6))
-            ε = 1e-2; Rp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv * (1 + ε), tv)...)
-            Rm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv / (1 + ε), tv)...)
-            sq = ntuple(i -> log(Rp[i] / Rm[i]) / (2log1p(ε)), 3)
-            st = (0.0, 0.0, 0.0)
+            ε = 1e-2; Rp, _, gp = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv * (1 + ε), tv)...)
+            Rm, _, gm = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv / (1 + ε), tv)...)
+            sq = ntuple(i -> log(Rp[i] / Rm[i]) / (2log1p(ε)), 3); gq1 = MGON ? mg_slope(gp, gm, 2log1p(ε)) : MGNOV
+            st = (0.0, 0.0, 0.0); gt1 = MGNOV
             if SLIMPN >= 2
-                εt = 1e-3; Tp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv * (1 + εt))...)
-                Tm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv / (1 + εt))...)
-                st = ntuple(i -> log(Tp[i] / Tm[i]) / (2log1p(εt)), 3)
+                εt = 1e-3; Tp, _, gtp = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv * (1 + εt))...)
+                Tm, _, gtm = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv / (1 + εt))...)
+                st = ntuple(i -> log(Tp[i] / Tm[i]) / (2log1p(εt)), 3); MGON && (gt1 = mg_slope(gtp, gtm, 2log1p(εt)))
             end
-            e_ = (e_[1], e_[2], e_[3], key, (sq, st))
+            e_ = (e_[1], e_[2], e_[3], key, (sq, st), e_[6], (gq1, gt1))
         end
         NLOQC[][k] = e_
-        RE, RP, RR = e_[2]; nebase = e_[3]
+        RE, RP, RR = e_[2]; nebase = e_[3]; gb = e_[6]; gsq, gst = e_[7]; dualq = dual
         if dual
             lq = log(qd / qv); lτ = log(td / tv); sq, st = e_[5]
             RE = RE * exp(sq[1] * lq + st[1] * lτ); RP = RP * exp(sq[2] * lq + st[2] * lτ); RR = RR * exp(sq[3] * lq + st[3] * lτ)
@@ -662,6 +685,30 @@ function nlo_it(m::NetGas, k, ρ, T, s)
         lt = log(T / Tv); lx = cz ? log(xd / xv) : zero(lt); lr = log(ρ / ρv); lx2 = cz ? log(xd2 / xv2) : zero(lt)
         RE = RE * exp(c.qT[1] * lt + c.qx[1] * lx + c.qr[1] * lr + c.qx2[1] * lx2); RP = RP * exp(c.qT[2] * lt + c.qx[2] * lx + c.qr[2] * lr + c.qx2[2] * lx2)
         RR = RR * exp(c.qT[3] * lt + c.qx[3] * lx + c.qr[3] * lr + c.qx2[3] * lx2)
+    end
+    if o !== nothing
+        n = length(gb)
+        if n == 0
+            TX.mg_default!(o)
+        else
+            sT = needJ && length(c.gT) == n; sr = needJ && length(c.gr) == n; sx = needJ && cz && length(c.gx) == n && length(c.gx2) == n
+            sq_ = dualq && length(gsq) == n; st_ = dualq && length(gst) == n
+            if sT || sr || sx || sq_ || st_
+                @inbounds for i in 1:n
+                    b = gb[i]
+                    if b == 0
+                        o[i] = zero(eltype(o))
+                    else
+                        e = zero(eltype(o))
+                        sT && (e += c.gT[i] * lt); sr && (e += c.gr[i] * lr); sx && (e += c.gx[i] * lx + c.gx2[i] * lx2)
+                        sq_ && (e += gsq[i] * lq); st_ && (e += gst[i] * lτ)
+                        o[i] = b * exp(e)
+                    end
+                end
+            else
+                copyto!(o, gb)
+            end
+        end
     end
     ned = cz ? nebase * (xd / xv) : nebase
     return chicap(max(κR0 * RR, COp.σT * ned / ρ), T), κP0 * RE, κP0 * RP
@@ -711,6 +758,13 @@ TX.opac_pure(::NetGas) = false
     end
     return chicap(κR, T), κP, κP
 end
+"MGROUPS: as `material_opac`, and the zone's group record into `o` (network zones: at the iterate, `nlo_it`; table zones: the default record)."
+@inline function TX.material_opacg!(o, m::NetGas, ρ, T)
+    k = TX.ZONE[]
+    (NLOIT && NLOPAC[] && k <= length(m.eqzone) && !m.eqzone[k]) && return nlo_it(m, k, ρ, T, k <= length(NLOST[]) ? NLOST[][k] : nothing, o)
+    TX.mg_default!(o)
+    TX.material_opac(m, ρ, T)
+end
 "`SLWFLUX=1` (default off): star-light dilution W from max(c(E_r − E_cmb), F_r) instead of c(E_r − E_cmb) alone (see starlight_setup)."
 const SLWFLUX = get(ENV, "SLWFLUX", "0") == "1"
 function TM.fill_opac!(m::NetGas)
@@ -721,7 +775,7 @@ function TM.fill_opac!(m::NetGas)
     sweep! = (NLOIT && NLOITDIAG[] > 0) ? ((f, ks, ok) -> (for k in ks; ok(k) || continue; TX.ZONE[] = k; f(k); end)) : TX.zone_sweep!
     sweep!(TM.krange(), k -> @inbounds(dn[k] > 0 && tn[k] > 0)) do k
       @inbounds begin
-        χ, κE, κP = TX.material_opac(m, dn[k], tn[k])
+        χ, κE, κP = (MGON && k <= size(TX.MGVN[], 2)) ? TX.material_opacg!(view(TX.MGVN[], :, k), m, dn[k], tn[k]) : TX.material_opac(m, dn[k], tn[k])
         chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
         NLOIT && NLOITDIAG[] > 0 && nloit_diag(m, k, dn[k], tn[k], (χ, κE, κP))
         # electrons for the scattering term of the formal solution (the template state's xnen is not ours)
@@ -1092,6 +1146,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
     slcu(k) = SLWFLUX ? max(CNn.c * (er[k] - Ecmb), 0.5 * (max(fr[k], 0.0) + max(fr[k+1], 0.0))) : CNn.c * (er[k] - Ecmb)
     function rates(k)
         wq = 0.0
+        MGON && k <= length(MGA1[]) && (MGA1[][k] = 0.0)         # (set below where the group H(1s) photoionisation is on)
         if SLBLEND[] && Te > 0
             # smooth in τ (no jump at the moving τ = 2/3 zone): colour temperature from T_eff (τ ≤ 0.3) to the local T_r (τ ≥ 3), log blend,
             # dilution W from the local energy density (W = 1 at T_c = T_r). The sharp switch changed x_ss of the zone just outside τ = 2/3
@@ -1355,10 +1410,10 @@ function chem_core!(m::NetGas)
                         (Tv -> (Tv == cache0[][1] || (cache0[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, envc0)...) for p_ in phc_])); cache0[][2]))
                     slq = (; p3, lj, envc0, phc0, c0 = cools0, nHs = dn[k] / CNn.μH(), ph = phc_, net = m.net, mm = m,
                            rec = (k <= length(SLW0[]) ? SLW0[][k] : nothing))
-                    CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs, phraw = (phc_, envc), slq)
+                    CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs, phraw = (phc_, envc), lcool = cool, slq)
                     return nothing
                 end
-                CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs, phraw = (phc_, envc))   # (phraw: NLOIT's uncached photo-rates)
+                CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs, phraw = (phc_, envc), lcool = cool)   # (phraw: NLOIT's uncached photo-rates; lcool: the line cooling alone)
                 return nothing
             end
             if CPLPOST[] && TX.cplz(k) && p3 !== nothing
@@ -1637,7 +1692,7 @@ function cpl_tq(t, q, tc = 1.0; phc = t.phc, phc0 = t.slq.phc0)
     (; env, phc = phq, cooling, extra = ex)
 end
 function cpl_g(m::NetGas, k, z)
-    t = CPLTERMS[][k]; ρ = z[1]; T = z[2]
+    t = CPLTERMS[][k]; ρ = z[1]; T = z[2]; lc = MGON ? t.lcool : nothing
     length(z) >= 5 && hasproperty(t, :slq) && (t = cpl_tq(t, z[5], length(z) >= 6 ? Float64(ForwardDiff.value(z[6])) : 1.0))
     x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
     u, p = CNn.eos(ρ, T, x, m.net)
@@ -1654,17 +1709,19 @@ function cpl_g(m::NetGas, k, z)
                 CPLDBGZ[], T, ρ, z[3], z[4], d[:e], d[:Hm], Λ, p3 === nothing ? 0.0 : tl3_heat(ρ, T, d, p3)[1], p3s === nothing ? 0.0 : tl3_heat(ρ, T, d, p3s)[1],
                 p3s === nothing ? 0.0 : lya_bb(ρ, T, d, p3s), fs[1], fs[2], u)
     end
-    [p, u, fs[1], fs[2], Λ, cq, yq]
+    # MGROUPS: the line cooling alone (zone_cooling: the H₂/HD line transfer's net loss), which the hydro solve gives to the IR group
+    Λl = lc === nothing ? zero(u) : lc(ρ, T, dfull) + zero(u)
+    [p, u, fs[1], fs[2], Λ, cq, yq, Λl]
 end
-"(diagnostic, with CPLJCHECK) zone k's local (p, e, S₁, S₂, Λ, cq, yq): ForwardDiff Jacobian against central differences in (ρ, T, x_H⁺, x_H₂)."
+"(diagnostic, with CPLJCHECK) zone k's local (p, e, S₁, S₂, Λ, cq, yq, Λ_lines): ForwardDiff Jacobian against central differences in (ρ, T, x_H⁺, x_H₂)."
 function cpl_gcheck(m::NetGas, k)
     z0 = [TM.v(:dn)[k], TM.v(:tn)[k], TX.XSN[][1][k], TX.XSN[][2][k]]
-    J = ForwardDiff.jacobian(z -> cpl_g(m, k, z), z0); names = ("p", "e", "S1", "S2", "Λ", "cq", "yq"); vn = ("ρ", "T", "x1", "x2")
+    J = ForwardDiff.jacobian(z -> cpl_g(m, k, z), z0); names = ("p", "e", "S1", "S2", "Λ", "cq", "yq", "Λl"); vn = ("ρ", "T", "x1", "x2")
     for j in 1:4, rh in (1e-6, 1e-4, 1e-2)
         h = rh * z0[j]; zp = copy(z0); zm = copy(z0); zp[j] += h; zm[j] -= h
         fd = (cpl_g(m, k, zp) .- cpl_g(m, k, zm)) ./ 2h
         @printf("CPLGCHECK zone %d d/d%s (FD step %.0e): %s\n", k - Int(TF.getscalar(:ngrs)) + 1, vn[j], rh,
-                join((@sprintf("%s AD %.5e FD %.5e", names[i], J[i, j], fd[i]) for i in 1:7 if max(abs(J[i, j]), abs(fd[i])) > 0), " | "))
+                join((@sprintf("%s AD %.5e FD %.5e", names[i], J[i, j], fd[i]) for i in 1:8 if max(abs(J[i, j]), abs(fd[i])) > 0), " | "))
     end
     y0 = cpl_g(m, k, z0); d0 = CNn.full(cpl_ckx(m, k, z0), m.net)
     @printf("CPLGCHECK zone %d values: Λ %.6e cq %.6e yq %.6e | x_e %.6e x_H %.6e x_H+ %.6e\n", k - Int(TF.getscalar(:ngrs)) + 1, y0[5], y0[6], y0[7], d0[:e], d0[:H], d0[:Hp])
@@ -1674,7 +1731,7 @@ cpl_ckx(m, k, z) = (t = CPLTERMS[][k]; CNn.ck_eval([z[3], z[4]], z[1], z[2], m.n
 cpl_lift(y, J, ρ::Float64, T::Float64, a::Float64, b::Float64) = Tuple(y)
 function cpl_lift(y, J, ρ::D, T::D, a::D, b::D) where {D<:ForwardDiff.Dual}
     P1, P2, P3, P4 = ForwardDiff.partials(ρ), ForwardDiff.partials(T), ForwardDiff.partials(a), ForwardDiff.partials(b)
-    ntuple(i -> D(y[i], J[i, 1] * P1 + J[i, 2] * P2 + J[i, 3] * P3 + J[i, 4] * P4), 7)
+    ntuple(i -> D(y[i], J[i, 1] * P1 + J[i, 2] * P2 + J[i, 3] * P3 + J[i, 4] * P4), 8)
 end
 cpl_lift(y, J, ρ, T, a, b) = (pr = promote(ρ, T, a, b); cpl_lift(y, J, pr...))
 "(p, e, S_H⁺, S_H₂, Λ) of coupled zone k at (ρ, T, x_H⁺, x_H₂), with derivatives (see COUPLED above)."
@@ -1689,7 +1746,7 @@ const CPLJLAG = let s_ = split(get(ENV, "CPLJLAG", "3e-3,0.1"), ","); s_[1] == "
                            abs(log(v[3] / vJ[3])) < CPLJLAG[2] && abs(log(v[4] / vJ[4])) < CPLJLAG[2]
 function cpl_vj(m, k, v)
     t0 = time_ns(); z0 = [v...]
-    res = ForwardDiff.DiffResults.JacobianResult(zeros(7), z0)
+    res = ForwardDiff.DiffResults.JacobianResult(zeros(8), z0)
     ForwardDiff.jacobian!(res, z -> cpl_g(m, k, z), z0)
     Threads.atomic_add!(CPLPN, 1); Threads.atomic_add!(CPLPT, Int(time_ns() - t0))
     copy(ForwardDiff.DiffResults.value(res)), copy(ForwardDiff.DiffResults.jacobian(res))
@@ -1721,10 +1778,10 @@ function cpl_vjq(m, k, v)
     if length(v) >= 6
         ε = 1e-3; zp = [v...]; zm = [v...]; zp[6] = v[6] * (1 + ε); zm[6] = v[6] / (1 + ε)
         yp = cpl_g(m, k, zp); ym = cpl_g(m, k, zm)
-        for i in 1:7; J[i, 6] = (yp[i] - ym[i]) / (v[6] * 2log1p(ε)); end
+        for i in 1:8; J[i, 6] = (yp[i] - ym[i]) / (v[6] * 2log1p(ε)); end
     end
     if TX.SLIMPDBG[] > 0 && !all(isfinite, J)
-        TX.SLIMPDBG[] -= 1; bad = [(i, j) for i in 1:7, j in 1:size(J, 2) if !isfinite(J[i, j])]
+        TX.SLIMPDBG[] -= 1; bad = [(i, j) for i in 1:8, j in 1:size(J, 2) if !isfinite(J[i, j])]
         println("SLIMPDBG cpl_vjq zone $k v $v: non-finite J at $bad; y $y; rec ", CPLTERMS[][k].slq.rec)
     end
     y, J
@@ -1732,7 +1789,7 @@ end
 function cpl_liftq(y, J, xs...)
     D = promote_type(map(typeof, xs)...); D <: ForwardDiff.Dual || return Tuple(y)
     Ps = map(x -> ForwardDiff.partials(D(x)), xs)
-    ntuple(i -> D(y[i], sum(J[i, j] * Ps[j] for j in eachindex(Ps))), 7)
+    ntuple(i -> D(y[i], sum(J[i, j] * Ps[j] for j in eachindex(Ps))), 8)
 end
 "(SLIMP) cpl_zone with the star-light factors q = W/W_start (and t = T_c/T_c,start) as local variables (cached per zone on the Float values)."
 function cpl_zone_q(m::NetGas, k, ρ, T, a, b, q, tc = 1.0)
@@ -1785,7 +1842,7 @@ function cpl_prepare!(m::NetGas)
     for k in a:b
         TX.cplz(k) || continue
         y = cpl_zone(m, k, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k])
-        TX.XSRCO[][1][k] = y[3]; TX.XSRCO[][2][k] = y[4]; TX.XLAMO[][k] = y[5]
+        TX.XSRCO[][1][k] = y[3]; TX.XSRCO[][2][k] = y[4]; TX.XLAMO[][k] = y[5]; MGON && (TX.MGLCO[][k] = y[8])
     end
     nothing
 end

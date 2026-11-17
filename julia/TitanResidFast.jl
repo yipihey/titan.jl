@@ -685,6 +685,8 @@ function compton_old!(ngrs, ngre)
     end
 end
 function material_opac end
+"MGROUPS: `material_opac`, and the zone's group record (MGRad.jl) into `o` in the number type of (ρ, T). Default: the grey record."
+material_opacg!(o, m, ρ, T) = (mg_default!(o); material_opac(m, ρ, T))
 "(PERF512) true if `material_opac(m, ρ::Float64, T::Float64)` has no side effects (no per-zone caches), so it may run on several tasks with the same ZONE[]."
 opac_pure(m) = false
 """
@@ -777,7 +779,7 @@ const MLT_HSDISC = Ref(false)
         W.pgn[k] = pg; W.egn[k] = eg; W.asn[k] = as_
         hassrc && (W.snuc[k] = material_source(m, dn[k], tn[k]))
         if c.lrad
-            χ, κE, κP = material_opac(m, dn[k], tn[k])
+            χ, κE, κP = MG[] ? material_opacg!(mg_gcol(eltype(W.chifn), k), m, dn[k], tn[k]) : material_opac(m, dn[k], tn[k])
             W.chifn[k] = χ; W.xken[k] = κE; W.xkpn[k] = κP
             t2 = tn[k] * tn[k]
             W.plfn[k] = P.csigr * (t2 * t2) / P.cpi
@@ -1023,8 +1025,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                         SLIMPDBG[] -= 1; println("SLIMPDBG cpl zone $(k - ngrs + 1) non-finite: y ", y, " q ", slq === nothing ? 1 : slq[k], " t ", slq === nothing ? 1 : CPLQT[][k])
                     end
                     W.cpQ[k] = y[6]; W.cpY[k] = y[7]
+                    Mg === nothing || (Mg.lcl[k] = y[8])
                 else
                     W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
+                    Mg === nothing || (Mg.lcl[k] = zero(T))
                 end
             end
             finally ZONE0[] = z0 end

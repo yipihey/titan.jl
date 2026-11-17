@@ -1,4 +1,4 @@
-# ------------------------------------------------------------------ MGROUPS: material side (group opacity ratios, group photo-rates)
+# ------------------------------------------------------------------ MGROUPS: material side (group opacity records, group photo-rates)
 # Included into PopIIIMaterial. Design: docs/POPIII_MULTIGROUP.md. Nothing here runs unless MGROUPS is set (MGON false: no call).
 const MGON = haskey(ENV, "MGROUPS") && ENV["MGROUPS"] != "0"
 "Group edges of the code's own thresholds [eV]: H⁻ photodetachment (λ₀ = 1.6419 μm, ContinuumOpacity.σ_Hm_bf), H n = 3, 2 (χ_H/n²), the
@@ -33,84 +33,164 @@ function mg_roles!()
             e2 > e1 && push!(pairs, (gL, gp, e1, e2))
         end
     end
-    TX.mg_rampairs!(pairs, length(TM.v(:dn)))
+    TX.mg_rampairs!(pairs)
     MGROLE[]
 end
 const MGGIDX = Ref{Vector{Int}}(Int[])
 const MGTMIN = parse(Float64, get(ENV, "MGTMIN", "3000"))     # in-group shape temperature floor of the group means [K]
 
+const MGEHZ = Ref(Float64[])                                  # interior group edges [Hz]
+"The record of a zone without group data (MGROUPS off, or the group means failed): `nlo_it` then writes the default record."
+const MGNOV = Float64[]
 """
-Per-zone group ratios at the start of a hydro step (`TX.MGRE/MGRP/MGRR`, `TX.MGK1`): network zones with a composition record (NLOST:
-the last chemistry's species and three-level parameters) take G2Opacity.group_fast on that composition (κ_E weighted with B_ν(T_c) as
-NLOPACJ, H bound–free in κ_E/κ_P only in deep zones, NLOHBFDEEP), ratio = group mean / grey mean of the same call; the absolute H(1s)
-absorption of the groups at and above χ_H where H bound–free is not in κ_E (case B zones). Table zones and zones without a record: 1, 0
-(the grey field split by Planck fractions: the diffusion limit of the optically thick interior).
+Set-up of the material side (popiii_m2c mg_install!, after TX.mg_setup!): roles and Raman pairs, the groups of the G2 nodes, the line
+table, per-zone diagnostics.
 """
-function mg_ratios!(m::NetGas)
-    a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); dn, tn = TM.v(:dn), TM.v(:tn); G = TX.MGN[]
-    isempty(MGGIDX[]) && (MGGIDX[] = G2O.group_index(TX.MGEDGE[] .* (EVERG / CNn.hP)))
-    MGROLE[] === nothing && mg_roles!()
-    gH = MGROLE[].H
-    length(MGWREC[]) == length(dn) || (MGWREC[] = Any[nothing for _ in dn])
-    for g in 1:G; fill!(TX.MGRE[][g], 1.0); fill!(TX.MGRP[][g], 1.0); fill!(TX.MGRR[][g], 1.0); fill!(TX.MGK1[][g], 0.0); fill!(TX.MGK1E[][g], 0.0); fill!(TX.MGKRAM[][g], 0.0); end
-    for p_ in eachindex(TX.MGRAMP[]); fill!(TX.MGRAMC[][p_], 0.0); fill!(TX.MGRAMW[][p_], 0.0); end; ehz = TX.MGEDGE[] .* (EVERG / CNn.hP)
-    length(MGA1[]) == length(dn) || (MGA1[] = zeros(length(dn))); fill!(MGA1[], 0.0)
-    length(MGN2[]) == length(dn) || (MGN2[] = zeros(length(dn))); fill!(MGN2[], 0.0)
-    st = NLOST[]
-    for k in a:b
-        (m.eqzone[k] || k > length(st) || st[k] === nothing) && continue
-        d, p = st[k].d, st[k].p
-        ρ = dn[k]; T = tn[k]; nH = ρ / CNn.μH(); nHe = PC.yHe * nH
-        n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
-        CNn.HECHEM && (nHe = nH * max(d[:He], 0.0))
-        nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T); nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
-        Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T; hbf = hbf_deep(p)
-        y = try
-            G2O.group_fast(ρ, T, MGGIDX[], G; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS,
-                           hbfP = hbf, Tw, nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0), Tmin = MGTMIN, edges = ehz)
-        catch
-            nothing
-        end
-        y === nothing && continue
-        κE, κP, χ, k1, gE, gP, gχ, k2, kram = y
-        n2z = n2_tl3(T, n1, ne, np, p); k <= length(MGN2[]) && (MGN2[][k] = n2z)
-        mg_raman!(k, kram, n2z, n1, Tw)
-        for g in 1:G
-            rE = gE > 0 ? κE[g] / gE : 1.0; rP = gP > 0 ? κP[g] / gP : 1.0; rR = gχ > 0 && χ[g] > 0 ? χ[g] / gχ : 1.0
-            TX.MGRE[][g][k] = isfinite(rE) && rE > 0 ? rE : 1.0
-            TX.MGRP[][g][k] = isfinite(rP) && rP > 0 ? rP : 1.0
-            TX.MGRR[][g][k] = isfinite(rR) && rR > 0 ? rR : 1.0
-            (!hbf && g >= gH && isfinite(k1[g])) && (TX.MGK1[][g][k] = k1[g]; MGMILNE && T >= MGMILNET && (TX.MGK1E[][g][k] = k1[g] * mg_saha1s(T, ne, np) / max(n1, 1e-300)))
-            # H n ≥ 2 bound–free (three-level n = 2, Boltzmann × HM88 above it) of the groups at and above the LW band: NLOPAC leaves all H
-            # bound–free out of κ_E in case-B zones because the three-level atom carries the n = 2 photo-exchange as a chemistry heat with the
-            # optical group's dilution — right for the Balmer continuum, but the LW and ionising photons absorbed by n ≥ 2 were then not removed
-            (MGN2BF && !hbf && g >= MGROLE[].LW && isfinite(k2[g])) && (TX.MGK1[][g][k] += k2[g])
-        end
-    end
+function mg_init!()
+    n = length(TM.v(:dn))
+    MGEHZ[] = TX.MGEDGE[] .* (EVERG / CNn.hP); MGGIDX[] = G2O.group_index(MGEHZ[])
+    mg_roles!()
+    MGWREC[] = Any[nothing for _ in 1:n]; MGA1[] = zeros(n)
+    mg_linetab!()
     nothing
 end
 
-"The Raman coefficients of zone k (TX.MGRAMP): κ_Ram per group, and per pair ω and C with n_2s = n_2/4 of the three-level atom."
-function mg_raman!(k, kram, n2, n1, Tw)
-    for g in eachindex(kram); TX.MGKRAM[][g][k] = isfinite(kram[g]) ? kram[g] : 0.0; end
-    b2 = n1 > 0 ? n2 / (4n1) * exp(min(E21 / (CNn.kB * Tw), 600.0)) : 0.0; isfinite(b2) || (b2 = 0.0)
-    P = TX.MGRAMP[]
-    for gL in unique(first.(P))
-        ps = [i for i in eachindex(P) if P[i][1] == gL]; bs = [TX.mg_band(P[i][3], P[i][4], Tw) for i in ps]; tot = sum(bs)
-        for (j, i) in enumerate(ps)
-            # (the shares where the band's Planck weight underflows, T_w ≲ 250 K: by width; no light there)
-            TX.MGRAMW[][i][k] = tot > 1e-250 ? bs[j] / tot : (P[i][4] - P[i][3]) / (TX.MGEDGE[][gL] - TX.MGEDGE[][gL-1])
-            TX.MGRAMC[][i][k] = bs[j] > 1e-150 ? b2 * bs[j] / TX.mg_bfrac(P[i][2], Tw) : 0.0
+"""
+The lines' share of the grey Planck-type means and its distribution over the groups (stage 2b).
+
+The network zones' grey κ_P (and κ_E) is the continuum code's mean of the zone's composition times (P_t/P_q)^w (NLOIT: the opacity
+table's Planck mean over the continuum code's in equilibrium, w = nlo_w(T)). The table's Planck mean (stellaropacity_build.jl) is
+log-blended, weight b(T) = smoothstep((log₁₀T − 3.8)/0.3), from the low-temperature continuum mean (no lines) to
+Z0Physics.kappa_means(lines = true, lines_R = false): continuum plus the Planck-weighted strengths of the H, He I and He II lines. So
+the grey mean carries the factor e^{w b λ}, λ(ρ, T) = ln(P_L/P_C) of Z0Physics with and without the lines, which is the lines' part,
+φ = 1 − e^{−w b λ} of the mean; the rest of P_t/P_q is the continuum's calibration. λ and the lines' group shares s_g (each line
+in the group of its hν₀, weight u₀³/(e^{u₀} − 1)(1 − e^{−u₀}) S as in kappa_means) are tabulated here on (log T, log ρ) from the same
+functions and composition as the table. Lines inside a group whose H(1s) line wings are carried exactly (G2O.lwband: Lyβ and above,
+Rayleigh + Raman of HScatter, docs §16) are left out of the shares, which are renormalised: the Lyman lines of that band scatter
+(or Raman-convert), they do not thermalise, and their LTE Planck mean in κ_E,LW would absorb the band below the photosphere.
+"""
+const MGLT = Ref{Any}(nothing)
+const MGLTB = (3.8, 0.3)                                      # the table's blend (stellaropacity_build.jl: wlo = 1 − smoothstep((lT − 3.8)/0.3))
+function mg_linetab!()
+    G = TX.MGN[]; e = MGEHZ[]; Z = Z0Physics
+    X = 1 / (1 + 4PC.yHe); comp = Z.Comp(X, 1 - X)
+    lT = collect(MGLTB[1]:0.05:5.0); lr = collect(-18.0:1.0:-4.0); nt = length(lT); nr = length(lr)
+    excl = [g > 1 && g < G && G2O.lwband(e[g-1], e[g]) for g in 1:G]
+    λ = zeros(nt, nr); S = zeros(G, nt, nr); t0 = time()
+    Threads.@threads for idx in 1:nt*nr
+        i = (idx - 1) % nt + 1; j = (idx - 1) ÷ nt + 1; T = 10.0^lT[i]; ρ = 10.0^lr[j]
+        _, pc = Z.kappa_means(ρ, T; comp, lines = false); _, pl = Z.kappa_means(ρ, T; comp, lines = true, lines_R = false)
+        λ[i, j] = (pc > 0 && pl > pc) ? log(pl / pc) : 0.0
+        sh = zeros(G)
+        for (ν0, S_) in Z.line_strengths(Z.opacity_state(ρ, T; comp), T)
+            u0 = Z.h * ν0 / (Z.kB * T); u0 > 300 && continue
+            g = mg_gof(Z.h * ν0 / EVERG); excl[g] && continue
+            sh[g] += u0^3 / expm1(u0) * (-expm1(-u0)) * S_
         end
+        tot = sum(sh)
+        for g in 1:G; S[g, i, j] = (isfinite(tot) && tot > 0) ? sh[g] / tot : TX.mg_bfrac(g, T); end
+    end
+    MGLT[] = (; t0 = lT[1], dt = 0.05, nt, r0 = lr[1], dr = 1.0, nr, λ, S)
+    @printf("MGROUPS line table: %d × %d points (log T %.2f–%.2f, log ρ %.0f–%.0f), λ = ln(P_L/P_C) %.2f–%.2f, %.1f s\n", nt, nr, lT[1], lT[end], lr[1], lr[end],
+            minimum(λ), maximum(λ), time() - t0)
+    nothing
+end
+"(φ, s_g) at (ρ, T): the lines' part of the grey Planck-type means and the lines' group shares (bilinear in log T, log ρ; clamped). φ = 0 below the table's blend."
+function mg_lines(ρ, T)
+    L = MGLT[]; lt = log10(T)
+    (L === nothing || lt <= MGLTB[1]) && return 0.0, MGNOV
+    w = nlo_w(T); w > 0 || return 0.0, MGNOV
+    x = clamp((lt - L.t0) / L.dt, 0.0, L.nt - 1 - 1e-9); i = floor(Int, x) + 1; a = x - (i - 1)
+    y = clamp((log10(ρ) - L.r0) / L.dr, 0.0, L.nr - 1 - 1e-9); j = floor(Int, y) + 1; b = y - (j - 1)
+    w00 = (1 - a) * (1 - b); w10 = a * (1 - b); w01 = (1 - a) * b; w11 = a * b
+    λ = w00 * L.λ[i, j] + w10 * L.λ[i+1, j] + w01 * L.λ[i, j+1] + w11 * L.λ[i+1, j+1]
+    bl = clamp((lt - MGLTB[1]) / MGLTB[2], 0.0, 1.0); bl = bl * bl * (3 - 2bl)
+    φ = -expm1(-bl * w * λ)
+    φ > 0 || return 0.0, MGNOV
+    φ, [w00 * L.S[g, i, j] + w10 * L.S[g, i+1, j] + w01 * L.S[g, i, j+1] + w11 * L.S[g, i+1, j+1] for g in 1:TX.MGN[]]
+end
+
+"""
+The group means of a network composition at (ρ, T): G2Opacity.group_fast (absorption weighted with B_ν(T_w), T_w the colour temperature
+as NLOPACJ; H bound–free in κ_E/κ_P only in deep zones, NLOHBFDEEP). Its 5th–7th values are the grey means of `means_fast` on the same
+nodes: `nlo_ratio` takes the zone's grey means from this call, so the group ratios and the grey means belong to one evaluation.
+`nothing` if the evaluation throws.
+"""
+mg_group(ρ, T; kw...) = try
+    G2O.group_fast(ρ, T, MGGIDX[], TX.MGN[]; Tmin = MGTMIN, edges = MGEHZ[], kw...)
+catch
+    nothing
+end
+"""
+The zone's group record (TX.mg_nv() numbers, layout: MGRad.jl) from the group means y of `mg_group` at (ρ, T): the ratios of the group
+means to the grey means of the same call, continuum and lines (`mg_lines`):
+  r_P,g = (1 − φ) κ_P,g/κ_P + φ ℓ_g,  ℓ_g = s_g/b_g(T)        (Σ_g b_g(T) r_P,g = 1),
+  r_E,g = (1 − φ) κ_E,g/κ_E + φ ℓ_g/Σ_g′ b_g′(T_w) ℓ_g′       (Σ_g b_g(T_w) r_E,g = 1),   r_Ec,g = (1 − φ) κ_E,g/κ_E,
+r_R,g = χ_g/χ (the table's Rosseland mean has no lines); the absolute H(1s) (and, MGN2BF, n ≥ 2) bound–free absorption K_1 of the
+groups at and above χ_H (LW band) where H bound–free is not in κ_E (case-B zones); the Milne emission coefficient
+A_1 = σ̄_1s,g n_e n_p λ_e³/ρ of the same groups and zones (emission 4π A_1 e^{χ_H/kT} b_g(T) σT⁴/π: spontaneous + induced recombination
+to the ground state in detailed balance with K_1; in LTE, n_1 = n_e n_p λ_e³ e^{χ_H/kT}, emission = absorption of a Planck field);
+κ_Ram and the Raman pairs' κ_Ram C, κ_Ram ω (MGRad.jl MGRAMP; n_2s = n_2/4 of the three-level atom). A ratio that is not finite and
+positive is 1 (grey).
+"""
+function mg_pack(ρ, T, Tw, n1, ne, np, n2, hbf, y)
+    G = TX.MGN[]; o = zeros(TX.mg_nv()); r = MGROLE[]
+    κE, κP, χ, k1, gE, gP, gχ, k2, kram, s1 = y
+    ok(v) = isfinite(v) && v > 0
+    φ, sh = mg_lines(ρ, T); ℓ = MGNOV; nrm = 0.0
+    if φ > 0
+        ℓ = [(b = TX.mg_bfrac(g, T); b > 1e-150 ? sh[g] / b : 0.0) for g in 1:G]
+        for g in 1:G; nrm += TX.mg_bfrac(g, Tw) * ℓ[g]; end
+        ok(nrm) || (φ = 0.0)
+    end
+    λ3 = (CNn.hP^2 / (2π * CNn.me * CNn.kB * T))^1.5
+    for g in 1:G
+        rE = gE > 0 ? κE[g] / gE : 1.0; ok(rE) || (rE = 1.0)
+        rP = gP > 0 ? κP[g] / gP : 1.0; ok(rP) || (rP = 1.0)
+        rR = (gχ > 0 && χ[g] > 0) ? χ[g] / gχ : 1.0; ok(rR) || (rR = 1.0)
+        j = TX.mgv(g, 1)
+        o[j] = φ > 0 ? (1 - φ) * rE + φ * ℓ[g] / nrm : rE
+        o[j+1] = φ > 0 ? (1 - φ) * rP + φ * ℓ[g] : rP
+        o[j+2] = rR; o[j+3] = (1 - φ) * rE
+        # H n ≥ 2 bound–free (three-level n = 2, Boltzmann × HM88 above it) of the groups at and above the LW band: NLOPAC leaves all H
+        # bound–free out of κ_E in case-B zones because the three-level atom carries the n = 2 photo-exchange as a chemistry heat with the
+        # optical group's dilution — right for the Balmer continuum, but the LW and ionising photons absorbed by n ≥ 2 were then not removed
+        o[j+4] = ((!hbf && g >= r.H && isfinite(k1[g])) ? k1[g] : 0.0) + ((MGN2BF && !hbf && g >= r.LW && isfinite(k2[g])) ? k2[g] : 0.0)
+        o[j+5] = (MGMILNE && !hbf && g >= r.H && ok(s1[g])) ? s1[g] * ne * np * λ3 / ρ : 0.0
+        o[j+6] = ok(kram[g]) ? kram[g] : 0.0
+    end
+    b2 = n1 > 0 ? n2 / (4n1) * exp(min(E21 / (CNn.kB * Tw), 600.0)) : 0.0; isfinite(b2) || (b2 = 0.0)
+    P = TX.MGRAMP[]; i = 1
+    while i <= length(P)
+        gL = P[i][1]; i1 = i; while i1 < length(P) && P[i1+1][1] == gL; i1 += 1; end       # (the pairs of one gL are consecutive, mg_roles!)
+        KR = o[TX.mgv(gL, 7)]; tot = 0.0
+        for q in i:i1; tot += TX.mg_band(P[q][3], P[q][4], Tw); end
+        for q in i:i1
+            bs = TX.mg_band(P[q][3], P[q][4], Tw); jp = TX.mgvp(q, 1)
+            o[jp] = KR * (bs > 1e-150 ? b2 * bs / TX.mg_bfrac(P[q][2], Tw) : 0.0)
+            # (the shares where the band's Planck weight underflows, T_w ≲ 250 K: by width; no light there)
+            o[jp+1] = KR * (tot > 1e-250 ? bs / tot : (P[q][4] - P[q][3]) / (TX.MGEDGE[][gL] - TX.MGEDGE[][gL-1]))
+        end
+        i = i1 + 1
+    end
+    o[end-1] = n2; o[end] = Tw
+    o
+end
+"Elementwise logarithmic slope of two records (0 where an entry is not positive in both, or the records differ in length)."
+mg_slope(a, b, h) = length(a) == length(b) ? [(a[i] > 0 && b[i] > 0) ? log(a[i] / b[i]) / h : 0.0 for i in eachindex(a)] : zeros(length(b))
+"The new level's records of all zones (MGVN) from the present state (install, restart): the sweep of fill_opac! without touching TITAN's arrays."
+function mg_fill!(m::NetGas)
+    OPAC[] === nothing && return nothing
+    dn, tn = TM.v(:dn), TM.v(:tn); V = TX.MGVN[]
+    TX.zone_sweep!(TM.krange(), k -> @inbounds(dn[k] > 0 && tn[k] > 0)) do k
+        TX.material_opacg!(view(V, :, k), m, dn[k], tn[k])
     end
     nothing
 end
 "(diagnostic) per zone of the last chemistry: (grey W, group W_g, T_c) of the star light (MGROUPS only; not in the checkpoint)."
 const MGWREC = Ref(Any[])
-# (sized by mg_ratios!, serially before the step: the chemistry's zones may run on CHEMTHREADS tasks)
+# (sized by mg_init!, serially: the chemistry's zones may run on CHEMTHREADS tasks)
 mg_wrec!(k, W, Wg, Tc) = (k <= length(MGWREC[]) && (MGWREC[][k] = (W, copy(Wg), Tc)); nothing)
-"LTE H(1s) density for n_e, n_p at T [cm⁻³]: n_e n_p λ_e³ e^{χ_H/kT} (g_1s = 2, g_p = 1, g_e = 2), χ_H of the G2 continuum (Z0Physics)."
-mg_saha1s(T, ne, np) = (λ3 = (CNn.hP^2 / (2π * CNn.me * CNn.kB * T))^1.5; x = Z0Physics.χH / (CNn.kB * T); x > 700 ? 0.0 : ne * np * λ3 * exp(x))
 """
 (per zone, set in starlight_setup where the group H(1s) photoionisation is on) the matching ground-state recombination of the network:
 dx_H⁺/dt −= a1 x_e x_H⁺, a1 = n_H λ_e³ e^{χ_H/kT} × k_1s(B_ν(T)) (spontaneous Milne recombination: the photoionisation rate in J = B_ν(T) times the
@@ -118,16 +198,10 @@ Saha population) — the network is case B (no recombination to 1s), the groups 
 balance needs them (detailed balance: k_1s n_1s = a1 n_e n_p/n_H in LTE).
 """
 const MGA1 = Ref(Float64[])
-"(diagnostic) three-level n = 2 [cm⁻³] of the network zones at the last ratio refresh (mg_record)."
-const MGN2 = Ref(Float64[])
 "MGN2BF=0: no H n ≥ 2 bound–free in the LW and ionising groups' κ_E of case-B zones (before 2a-fix)."
 const MGN2BF = get(ENV, "MGN2BF", "1") == "1"
 "MGMILNE=0: no H(1s) recombination emission in the ionising groups and no ground-state recombination in the network (stage-1 case B)."
 const MGMILNE = get(ENV, "MGMILNE", "1") == "1"
-# Only above MGMILNET: the emission is K1E × b_g(T) with K1E ∝ e^{χ_H/kT} and b_g ∝ e^{−hν/kT} separately; where b_g reaches its 1e-200 floor
-# (cold gas) the product no longer cancels and the cloud at 300–1000 K emitted spuriously (t_mg32, E_g corrections 1e6–1e10 at 1e7 R☉).
-# Below ~2500 K the recombination emission at ≥ 13.6 eV is negligible.
-const MGMILNET = parse(Float64, get(ENV, "MGMILNET", "2500"))
 "H(1s) photoionisation rate per atom of group g in J_ν = B_ν(T_c) (W = 1): 4π Σ σ_1s B_ν/(hν) w over the group's G2 nodes."
 function mg_kH1s(g, Tc)
     F = G2O.fastgrid(); s = 0.0; gi_ = MGGIDX[]
