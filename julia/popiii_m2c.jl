@@ -1198,6 +1198,7 @@ const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended ru
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 # Newton controls, applied after any restart: NITER (iterations per attempt), FAILTFAC (Δt factor after a failed attempt)
 haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
+haskey(ENV, "NWFREEZE") && (TC.NWFREEZE[] = String.(split(ENV["NWFREEZE"], ",")))     # (diagnostic, default off) see TitanCore.NWFREEZE
 haskey(ENV, "NWTRACE") && (Trbdf2.NWTRACE[] = open(ENV["NWTRACE"], "a"))      # (diagnostic, default off) Newton trace, see Trbdf2.NWTRACE
 haskey(ENV, "STOL") && TF.setscalar!(:stol, parse(Float64, ENV["STOL"]))
 haskey(ENV, "NTRY") && TF.setscalar!(:ntry, parse(Float64, ENV["NTRY"]))
@@ -1282,13 +1283,26 @@ function nwfd!(zlo, zhi, iter)
     E = (TF.var(:em2), TF.var(:em1), TF.var(:e00), TF.var(:ep1), TF.var(:ep2)); AD = [copy(e) for e in E]
     rhs = TF.var(:rhs); h = parse(Float64, get(ENV, "NWFDH", "1e-5"))
     pr("NWFD: step dt %.4e theta %.2f iteration %d, neqn %d, zones %d..%d (relative numbering; absolute = +%d), code %s\n", TF.getscalar(:dtime), TF.getscalar(:thet), iter, ne, zlo, zhi, a_ - 1, string(c.code))
-    resid_now() = (cc = TX.context(); Rr = zeros(ne, nb); TX.residual!(Rr, ws, cc, zeros(ne * nb)); Rr)
+    base_ = (; f = copy(TF.var(:fedd)), g = TF.getscalar(:geddr), h = copy(TD.HEDD), hx = copy(TD.HXEDD), fx = copy(TD.FXEDD), gx = TD.GXEDD[], tie = copy(TD.TIEW))
+    FZ = Ref(String[])
+    function resid_now()
+        for n_ in FZ[]
+            n_ == "f" && copyto!(TF.var(:fedd), base_.f); n_ == "g" && TF.setscalar!(:geddr, base_.g)
+            n_ == "h" && copyto!(TD.HEDD, base_.h); n_ == "hx" && copyto!(TD.HXEDD, base_.hx); n_ == "fx" && copyto!(TD.FXEDD, base_.fx)
+            n_ == "gx" && (TD.GXEDD[] = base_.gx); n_ == "tie" && copyto!(TD.TIEW, base_.tie)
+        end
+        cc = TX.context(); Rr = zeros(ne, nb); TX.residual!(Rr, ws, cc, zeros(ne * nb)); Rr
+    end
     function bump!(za, j, δ)
         fill!(rhs, 0.0); rhs[j, za] = δ; TC.update!()
     end
     revert(δ, j) = (j <= 3 || j == 5 || j == 6) ? -δ / (1 + δ) : -δ
     Rf = zeros(ne, nb)
     R0 = resid_now()
+    sets_ = [s_ == "none" ? String[] : String.(split(s_, ",")) for s_ in split(get(ENV, "NWFDSETS", "none"), ";")]
+    for (iset, fz_) in enumerate(sets_)
+    FZ[] = fz_; ACC = Dict{Tuple{Int,Int},Tuple{Float64,Int,Float64}}()
+    pr("NWFD set %d: closure quantities held at the pre-perturbation values in the full FD: %s\n", iset, isempty(fz_) ? "none (full refresh)" : join(fz_, ","))
     for z in zlo:zhi
         za = a_ + z - 1; kbz = za - k0 + 1
         for j in 1:ne
@@ -1303,10 +1317,13 @@ function nwfd!(zlo, zhi, iter)
                 o = kbz - kb; ad = abs(o) <= 2 ? AD[o + 3][i, j, k0 + kb - 1] : 0.0
                 scale = maximum(abs, (AD[3][i, jj, k0 + kb - 1] for jj in 1:ne)) + 1e-300
                 ea = abs(FDa[i, kb] - ad) > 1e-3 * scale; eb = abs(FDb[i, kb] - ad) > 1e-3 * scale; ec = abs(FDb[i, kb] - FDa[i, kb]) > 1e-3 * scale
-                (ea || eb || ec) && pr("   row %d zone %d | col var %d zone %d (offset %d): FDfrozen %.5e FDfull %.5e AD %.5e diagscale %.3e | %s%s%s\n", i, kb + k0 - a_, j, z, o, FDa[i, kb], FDb[i, kb], ad, scale,
+                let v_ = abs(FDb[i, kb] - ad) / scale; o_ = get(ACC, (i, j), (0.0, 0, 0.0)); ACC[(i, j)] = (max(o_[1], v_), o_[2] + (v_ > 1e-3 ? 1 : 0), max(o_[3], abs(FDa[i, kb] - ad) / scale)); end
+                (iset == 1 && (ea || eb || ec)) && pr("   row %d zone %d | col var %d zone %d (offset %d): FDfrozen %.5e FDfull %.5e AD %.5e diagscale %.3e | %s%s%s\n", i, kb + k0 - a_, j, z, o, FDa[i, kb], FDb[i, kb], ad, scale,
                                        ea ? "frozen-vs-AD " : "", eb ? "full-vs-AD " : "", ec ? "full-vs-frozen" : "")
             end
         end
+    end
+    for ((i_, j_), (mx_, n_, mf_)) in sort(collect(ACC)); (mx_ > 1e-3 || mf_ > 1e-3) && pr("   SET%d row %d col var %d: max |FDfull-AD|/diag %.4g (%d entries > 1e-3), max |FDfrozen-AD|/diag %.4g\n", iset, i_, j_, mx_, n_, mf_); end
     end
     pr("NWFD: done; state drift check, max |R(after) - R(before)| / (max |R|) = %.3e\n", maximum(abs, resid_now() .- R0) / (maximum(abs, R0) + 1e-300))
     nothing

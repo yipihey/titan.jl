@@ -285,6 +285,24 @@ end
 "Eddington-factor routine called by peq (always) and update (ltran = 0). [Fortran until ported]"
 const EDDFAC = Ref{Function}(() -> TD.fcall(:eddfac_))
 
+
+"NWFREEZE (diagnostic): subset of f,g,h,hx,fx,gx,tie (the closure quantities eddfac! writes) held at their values from before each update!."
+const NWFREEZE = Ref(String[])
+function nw_freeze_save()
+    fr = NWFREEZE[]; fe = vf(:fedd)
+    (; f = "f" in fr ? copy(fe) : nothing, g = "g" in fr ? gf(:geddr) : nothing, h = "h" in fr ? copy(TD.HEDD) : nothing, hx = "hx" in fr ? copy(TD.HXEDD) : nothing,
+       fx = "fx" in fr ? copy(TD.FXEDD) : nothing, gx = "gx" in fr ? TD.GXEDD[] : nothing, tie = "tie" in fr ? copy(TD.TIEW) : nothing)
+end
+function nw_freeze_restore(s)
+    s.f === nothing || copyto!(vf(:fedd), s.f)
+    s.g === nothing || s!(:geddr, s.g)
+    for (a, b) in ((s.h, TD.HEDD), (s.hx, TD.HXEDD), (s.fx, TD.FXEDD), (s.tie, TD.TIEW))
+        a === nothing && continue
+        length(b) == length(a) ? copyto!(b, a) : (resize!(b, length(a)); copyto!(b, a))
+    end
+    s.gx === nothing || (TD.GXEDD[] = s.gx)
+    nothing
+end
 """
 Shared tail of update{h,rh} and peq{h,rh}: ghost-zone boundary values, geometry, EOS/opacity,
 Eddington factors and time-centred / zeroed arrays. `mode` ∈ (:update, :peq) selects the few
@@ -362,7 +380,15 @@ function _ghost_and_derived!(mode::Symbol, eos!, opac!)
             dplf[k] = 4.0 * plfn[k]
         end
         @inbounds for k in a:b+1; avchin[k] = 2.0 / (1.0 / chifn[k-1] + 1.0 / chifn[k]); end
-        (mode === :peq || gi(:ltran) == 0 || TD.VEF_ITER[]) && EDDFAC[]()     # (VEF_ITER: f, g of the Newton iterate, TitanDriver.VEF_ITER)
+        if mode === :peq || gi(:ltran) == 0 || TD.VEF_ITER[]
+            if mode === :update && !isempty(NWFREEZE[])          # (NWFREEZE, diagnostic, default off) the named closure quantities keep the values they had before this update
+                sv_ = nw_freeze_save()
+                EDDFAC[]()
+                nw_freeze_restore(sv_)
+            else
+                EDDFAC[]()     # (VEF_ITER: f, g of the Newton iterate, TitanDriver.VEF_ITER)
+            end
+        end
     end
     # ---- time-centred quantities
     θ = gf(:thet); dt = gf(:dtime)
