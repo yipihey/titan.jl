@@ -502,3 +502,12 @@ T_CMB, or as starlight capped at L/(4πr²c) plus CMB, removes the reservoir but
 cannot move a group by 200 decades in one step); kept the working partition (14a45a9). From the IC the reservoir does not arise.
 
 **Stage-2a state** (t_mg47, 34318f8, steps 14420–14480): L_em(1.5 r_ph) median 6987 L☉ (rms 4.4 %), T_eff 4502 K, Δt median 9.8e3 s.
+
+## 15. Round 3 (branch `mg2b`, from 4f1fe93): grey bit-identity re-verified
+
+`t_mb01` (tree 4f1fe93, MGROUPS unset, 30 steps from the step-14400 checkpoint, cores 32–39) against `t_mg10` (popiii-s6 43269f6, the same
+30 steps): the final checkpoint's `.aux` is byte-identical (md5 d540837f…), the decompressed `.tstate` is byte-identical (md5 246c3b43…; the
+`.gz` files differ only in the gzip header time), and the run logs (121 lines, every step record) and segment outputs (161 lines) differ in
+two wall-time lines only (`EP call 0.1 s`, the NLOIT timing summary); the NLOIT counters are equal (1 014 006 ratio evaluations, 88 779 slope
+refreshes). The step-14400 checkpoint used here and below is the copy kept in `runs/t_mg10/ck` (md5 aux 705f40fe…, tstate.gz f9ff2599…):
+z100mm's own `z19z100mmS5_auto0` rotates and was overwritten by the production run on 16 Nov 21:08.
