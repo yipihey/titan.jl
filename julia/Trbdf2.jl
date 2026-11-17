@@ -84,11 +84,31 @@ function eres()
     for j in c.ngrs+1:c.ngre; s += W.u[j] * R[iu, kb(j)]; end
     4π * abs(s) / 3.828e33
 end
+# NWTRACE=<file> (diagnostic, default off = bit-identical): one line per Newton iteration of every attempt (iteration, dmax, the base measure
+# max(|dr|,|dm|,|drho|,|dT|,|dE|), the species' weighted measure with its equation and zone, and for each of the equations the largest
+# raw correction with its zone), a header per attempt and a result line.
+const NWTRACE = Ref{Any}(nothing); const NWATT = Ref(0); const NWPROBE = Ref(false)
+function nwtrace_it()
+    io = NWTRACE[]; n = Int(g(:neqn)); kx = TF.var(:kx); dx = TF.var(:dx)
+    base = max(abs(dx[Int(g(:ir))]), abs(dx[Int(g(:im))]), abs(dx[Int(g(:id))]), abs(dx[Int(g(:it))]), abs(dx[Int(g(:ie))])) + 1.0e-30
+    cw = TX.CPLDM[]
+    println(io, "NWT att ", NWATT[], " it ", Int(g(:iter)), " dmax ", g(:dmax), " base ", base, " species ", cw[1], " eq ", cw[2], " zone ", cw[3], " | ",
+            join(("$(i):$(round(dx[i], sigdigits = 4))@$(kx[i])" for i in 1:n), " "))
+    flush(io)
+end
 function newton!()
+    NWTRACE[] === nothing && return newton0!()
+    NWATT[] += 1
+    println(NWTRACE[], "NWT head att ", NWATT[], " jstep ", Int(g(:jstep)), " thet ", g(:thet), " dtime ", g(:dtime), " niter ", Int(g(:niter)))
+    ok = newton0!()
+    println(NWTRACE[], "NWT end att ", NWATT[], " ok ", ok, " iter ", Int(g(:iter))); flush(NWTRACE[])
+    ok
+end
+function newton0!()
     s!(:iter, 1)
     try
         while true
-            r(:matgen); r(:matslv); r(:maxdel); r(:update)
+            r(:matgen); r(:matslv); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update)
             g(:dmax) <= g(:conv) && break
             s!(:iter, g(:iter) + 1)
             g(:iter) > g(:niter) && return false
@@ -632,6 +652,10 @@ function step_err!()
         else
         s!(:thet, 0.5); s!(:dtime, γ * Δ); s!(:timen, t0 + γ * Δ)
         ok = newton!()
+        if NWPROBE[]                                                        # (NWPROBE, diagnostic) one TR-stage attempt, then stop
+            println("NWPROBE: TR stage dt ", γ * Δ, " (step dt ", Δ, ") converged ", ok, " iterations ", Int(g(:iter)), " dmax ", g(:dmax))
+            return nothing
+        end
         ok && !finite_new() && (ok = false; ESTATS[:nonfinite] += 1)        # a non-finite stage is a failed attempt
         if !ok
             STATS[:fail_tr] += 1

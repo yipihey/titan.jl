@@ -286,8 +286,9 @@ function cpl_update!(rhs, a, b)
     nothing
 end
 "maxdel: clamp the species corrections to ±CPL_CLAMP and return their weighted maximum (convergence measure)."
+const CPLDM = Ref((0.0, 0, 0))     # (diagnostic, NWTRACE) the species' weighted convergence measure of the last cpl_dmax!, with its equation and zone
 function cpl_dmax!(rhs, a, b)
-    d = 0.0; cl = CPL_CLAMP[]; f = CPL_XFLOOR[]; kx = TF.var(:kx); dx = TF.var(:dx)
+    d = 0.0; cl = CPL_CLAMP[]; f = CPL_XFLOOR[]; kx = TF.var(:kx); dx = TF.var(:dx); wm_ = 0.0; wi_ = 0; wk_ = 0
     for i in 8:9; kx[i] = 0; dx[i] = 0.0; end
     @inbounds for k in a:b
         cplz(k) || continue
@@ -299,8 +300,10 @@ function cpl_dmax!(rhs, a, b)
             # weight by the larger of the iterate and the old abundance: a species the iterate drove to the floor (x_H⁺ 1e-40 next to the
             # shock, from 1e-3) is not converged; only species that are trace at both ends are left out
             xm_ = max(q[k], XSO[][i - 7][k]); d = max(d, abs(rhs[i, k]) * xm_ / (xm_ + f))
+            w_ = abs(rhs[i, k]) * xm_ / (xm_ + f); w_ > wm_ && (wm_ = w_; wi_ = i; wk_ = k - a + 1)
         end
     end
+    CPLDM[] = (wm_, wi_, wk_)
     d
 end
 
