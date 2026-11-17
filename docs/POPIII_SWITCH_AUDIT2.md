@@ -5,6 +5,10 @@ Second audit of every ENV switch, made for a clean code base that drops the earl
 `g2-domain` (00a21f1, not merged). The IonFS branches (`ionfs-implicit`, `ionfs-v2`) are still being worked on, so they are only
 listed. Stage 1 of the clean-up (§8) is implemented on this branch. Nothing is merged into `popiii-s6`.
 
+> **Status, 16 Nov evening.** The PI decided the open questions of §9. Stages 2 and 3 and two result-changing adoptions are now
+> implemented (§10): the fmove mesh bound in DTERR, and G2BLEND + H2PF as the defaults. The configuration that remains is described
+> in docs/POPIII_STACK.md. The tables in §2–§8 describe the code at 1782928 and stage 1.
+
 ## 0. Scope, reference stacks, method
 
 - **Switches.** Every `get(ENV, …)`, `ENV[…]` and `haskey(ENV, …)` in `julia/*.jl` and `julia/z0/*.jl`, plus GRIDEQ's `geqv(...)`
@@ -674,3 +678,88 @@ defined in the GRIDMAP block. It was restored verbatim before the verified commi
    SCVHXE, HM88, G2OPAC, NLOHBFDEEP, TL3DEEP, the PSW*/PSWNH table settings, SUBZONE and SLIMP) does start (§8 (I)). So one of the
    G2/SUBZONE/SLIMP additions breaks the cold IC. Bisecting it is the next step for the from-IC goal (G7); it is not part of this
    clean-up.
+
+## 10. Stages 2 and 3 and the result-changing adoptions (PI decisions, 16 Nov)
+
+**PI decisions**, carried out on `cleanup-audit`:
+1. CONV is dropped from the env.
+2. DTERR respects the moving mesh's motion bound.
+3. The S4/S5 line and the quasi-star/LRD line are kept.
+4. TL3RECKT, TL3NEFULL, OLDOPAC, H2PPD, ADVREL and SLFREEZE are deleted, together with the other never-adopted patches.
+5. LyaTransfer and the GPU line kernels are kept.
+6. G2BLEND and H2PF become the default once they are merged and the IC start works.
+7. The RAY path is kept.
+8. The ICs kept are abn02red (main), abn02fin and abn02z19.
+
+The branch first merged `popiii-s6` 38f886e (which includes 7547bab slimp-ic) and `g2-domain` 00a21f1. One conflict in
+`chem_core!` was resolved by keeping stage 1's simplified rule and adding the G2BLEND line. The result is **cedfdc6 = M0**, the
+reference for the bit tests.
+
+### 10.1 Commits
+
+| Commit | Content | Lines | Changes results? |
+|---|---|---|---|
+| ddd0c55, cedfdc6 | merges of popiii-s6 and g2-domain | – | no (M0 reproduces z300mm, below) |
+| **52a947f** stage 2a | `julia/popiii_stack.jl`: the z300mm stack as the defaults of popiii_m2c (a run sets only its mesh/output). Hard-wired methods: COUPLED, LINEIMP, NLOIT; DTERR required. Removed as superseded: IMPCOOL/IMPALWAYS/DTCOOL/TCOOLTH/LINEFRAC (LINEIMP), the lagged NLOPAC factors and NLOIMPT/NLOFIX switch/NLODAMP/CPLNLOX/NLOTMAX (NLOIT), ECHEMSPLIT and CPLBAND (COUPLED everywhere), STOLCHEM/CPLXSTOL/DTRADMAX/DTENV (DT hooks, diagnostic only under DTERR), the ERTAUCONV floor (VEFIMP). Removed as never adopted: TL3RECKT, TL3NEFULL, OLDOPAC, H2PPD, ADVREL, SLFREEZE, CPLIMPQ, AVCAP, SHOCKRAD/SHOCKDU, GEQREMAP. `restart!` skips checkpoint keys whose switch is gone. | +90 −429 | no |
+| **1c03845** stage 3 | one run from the IC: the start is the IC on the fixed log mesh (formerly ICEUL=1; the switch is gone) or a RESTART of a fixed-mesh checkpoint, and STARFROM is kept. Removed: RADFROM (radbuild!), REFINE, REZONE/REZ* and Rezone.jl, the lgrid 3 → 2 remap (envbuild!), ENVSPLIT, ENVMERGE, TRESET, MSTOP, the RHFC02 PrimordialGas material (CHEM=rhfc02, RHOEQ, EQEOS), and the ICs p100, abn02 and abn02hs. Removed from scripts/popiii_run: fullrun.sh, phaseA.env, stageA1–3.env; iceulrun.sh is the launcher and phaseB.env is empty. | +37 −852 | no |
+| **8e49124** (ii) | `Trbdf2.DT_BOUNDS`: hard bounds that DTERR respects; GRIDEQ's fmove cap is registered there | +15 −2 | **yes** |
+| **ea2bd2a** (ii) | G2BLEND always on (the table only where the non-ideality weight is complete) and H2PF a stack default. Removed: PSWITCH (NetGas pswitch = Inf), PSWNH, PSWHYS, PSWTMIN, PSWTEX, PSWSTAY, PSWTAU, CHEMFBDENSE. PSWRAMP is kept. | +14 −65 | **yes** |
+| **283c43e** | `GRIDEQ=off` for the fixed mesh (the stack default is 1); `docs/POPIII_STACK.md` | +56 −1 | no |
+
+CONV needs no code change: popiii_m2c never read it. It is gone from the minimal stack file.
+
+### 10.2 Bit-identity of stages 2a and 3 (env translated to the new defaults)
+
+The test trees are `git archive` exports under `runs/t_cl5`. They ran on cores 72–79 (membind 9) with 8 threads.
+- **Old env** (on M0): z300mm's `phaseB.env` + COMMON + `run.env`, as iceulrun.sh composes them.
+- **New env**: an empty `phaseB.env` and `run.env` = `SNAPEVERY=50`, which equals the stack's SNAPEVERY and only overrides the
+  test launcher's COMMON. For z100mm the new `run.env` adds its mesh: `ENVEUL=0,0.232584376,0.232584376,1e30
+  ENVCORE=0.1,0.232584376,1e30`.
+- `envcmp.py` lists every key whose effective value differs between the two. The keys that new code still reads are BALSPLIT=0
+  (its default), CONV (read only by test scripts) and REZ* (unused with REZONE=0). Every other difference is a removed switch.
+
+| Test | M0 (old env) | stage 2a (new env) | stage 3 (new env) |
+|---|---|---|---|
+| (R) restart z19z300mmS2 → step 6500 (100 steps, GRIDEQ, 290 zones) | = z300mm's own S3_auto1: 591/591 arrays, .aux bytes identical | = M0 and = z300mm: 591/591 arrays, .aux identical field by field | = z300mm S3_auto1: 591/591 arrays, .aux identical field by field |
+| (I) start from the IC with the z100mm stack (100-zone mesh, GRIDEQ from the IC, 30 steps to t = 7.0e12 s) | runs (the slimp-ic fix makes the from-IC start work, §9.9 resolved) | = M0: 591/591 arrays, .aux identical field by field | = M0: 591/591 arrays, .aux identical field by field |
+
+The .aux files of the new tree are not identical byte for byte. The only difference is the iteration order of the `env` Dict
+(the same 8 keys and values; the defaults are injected into ENV in a different order). Every other field serializes to the same
+bytes.
+
+### 10.3 Result-changing adoptions: test runs
+
+Each restart below starts from z300mm's `z19z300mmS2` (step 6400) and runs 200 steps with the new stack env. The reference is
+z300mm itself over the same 200 steps (`seg_z19z300mmS3.out`, `perf.csv`), which is bit-identical to M0. The from-IC runs use the
+z100mm stack for 100 steps. Their reference is z100mm's own production run (on 7547bab, old env). The per-step Δt is taken from
+the DTDIAG "line cap … dtime before" line, and the rejections from the DTERR reject lines.
+
+| Run | Code | Steps | Δt median / 10 % / 90 % [s] | steps with Δt < 1 s | Newton failures (error rejections) | Σ Δt [s] | at the last step |
+|---|---|---|---|---|---|---|---|
+| z300mm (reference) | 1782928 | 6400–6600 | 4.10e3 / 1.31e2 / 9.12e4 | 10 | 22 (0) | 5.24e6 | t 2.3893506e5 yr, M★ 0.1771 M☉, R★ 28.78, T_c 1.024e5 K, wall 788 s / 100 steps |
+| fmove in DTERR (`t_cl7/out_rfm`) | 8e49124 | 6400–6600 | 4.10e3 / 1.12e2 / 9.36e4 | 10 | 21 (0) | 5.28e6 | t 2.3893507e5 yr, M★ 0.1773, R★ 28.87, T_c 1.024e5, wall 791 s; **the bound set Δt in 2 of 200 steps** |
+| + G2BLEND + H2PF (`t_cl8/out_rg2`) | ea2bd2a | 6400–6600 | 3.51e3 / 1.11e2 / 8.75e3 | 10 | 23 (2) | 7.95e5 | t 2.3893493e5 yr, M★ 0.1689, R★ 27.61, T_c 1.020e5, wall 892 s; network zones 243 → 262 |
+| z100mm (reference, from the IC) | 7547bab | 0–100 | – | – | 24 divergences | – | t 2.33435e5 yr, log n_c 8.846, T_c 668.3 K, wall 352 s |
+| fmove, from the IC (`t_cl7/out_ifm`) | 8e49124 | 0–100 | – | – | 24 | – | **identical to z100mm** (t, n_c, T_c, divergences): the bound did not bind |
+| + G2BLEND + H2PF, from the IC (`t_cl8/out_ig2`) | ea2bd2a | 0–100 | – | – | 22 | – | t 2.34377e5 yr, log n_c 9.003, T_c 685.8 K, wall 350 s |
+
+**fmove in DTERR.** The change is stable. In the current state of z300mm (0.17 M☉, the photosphere front at zone ~78) the mesh
+moves slowly: the bound set Δt in 2 of 200 steps, and in none of the first 100 steps from the IC. It did not change the stability
+picture. Δt still collapses to ~1e-4 s every ~120 steps, in 10 of 200 steps, as in z300mm. The trace shows E_r of zone 78 limiting
+each collapse, followed by recovery within ~20 steps. **This collapse is a radiation/front effect, not mesh motion.** It is the
+main remaining obstacle to "fast and stable".
+
+**G2BLEND + H2PF.** The change is stable. From the z300mm checkpoint, the smooth blend moves 19 zones of the dense interior from
+the table to the network (243 → 262 network zones; all of them coupled). The restart then runs with a typical Δt like z300mm's
+(median 3.5e3 s against 4.1e3 s) and the same number of sub-second steps. But the 1e5 s steps after the collapse recoveries, which
+z300mm reached by step 6580, have not come back within 200 steps (90 % quantile 8.8e3 s against 9.1e4 s), so the physical time
+covered is 7× smaller. The cost per step is 13 % higher (892 against 788 s per 100 steps). At about the same physical time, the
+stellar quantities agree with z300mm to the level of the material change: T_c 1.020e5 against 1.022e5 K, and R★ 27.6 against
+27.1–28.8 R☉. M★ (the mass inside the first interface falling faster than 2 km/s) reads 0.1689 against 0.1677 M☉ at step 6500,
+because the material moved the infall boundary by about one zone. From the IC the collapse is slightly faster (log n_c 9.00
+against 8.85 at step 100, T_c 686 against 668 K), with 22 instead of 24 Newton divergences. This is the H2PF/HM88 network EOS in
+the cold gas.
+
+**Open question.** The longer test needed before G2BLEND can be called "faster" is whether its Δt recovers to the 1e5 s steps
+over a full segment (1000 steps). The from-IC run would have to be continued until the core forms (≈ 4000 steps for z100mm).
+Neither fits in this session's core budget. The adoption is in its own commit (ea2bd2a), so it can be reverted alone.
