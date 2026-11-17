@@ -1,6 +1,7 @@
 # Emergent spectra of recorded snapshots (RUNREC streams, see runrec.jl): post-processing, nothing here feeds back into a run.
 #
 #   julia -t 8 --project=<env> snapspec.jl <run dir> [stepmod]            # fills <run dir>/spec/<step>_<t>.jls, writes export/spec.{json,f32}
+#                                                                        # and export/spectau.{json,i16} (optical depth by process, `tauparts`; not cached)
 #   julia -t 8 --project=<env> snapspec.jl --old <snaps file> <out dir> [stepmod]
 #
 # For every snapshot two spectra, each at two places:
@@ -74,23 +75,22 @@ end
 Opac(atm, d) = (z = atm.zone; Opac(copy(atm.T), d.nH[z], d.nH2[z], d.nHe[z], d.nHp[z], d.ne[z], d.nHm[z]))
 const E0HM = 0.754 * CO.eV; const χH = 13.598 * CO.eV; const σ0H = 7.906e-18
 const QB = sqrt(NU[2] / NU[1])                       # a grid frequency ν stands for the band [ν/QB, ν QB]
+"The twelve opacity processes of `bandparts`, in order, and their display labels."
+const PROC = (:cia_h2h2, :cia_h2he, :cia_h2h, :hm_bf, :hm_ff, :h_bf1, :h_bf2, :h_bf3, :hp_ff, :ray_h2, :ray_h, :thomson)
+const PROCLABEL = ("CIA H₂–H₂", "CIA H₂–He", "CIA H₂–H", "H⁻ bound–free", "H⁻ free–free", "H bound–free n = 1 (Lyman continuum)",
+                   "H bound–free n = 2 (Balmer continuum)", "H bound–free n ≥ 3", "H⁺ free–free", "Rayleigh H₂", "Rayleigh H", "Thomson")
 """
-(absorption, scattering, thermal source) at point k for the band of frequency ν. Everything of ContinuumOpacity.alpha except
-hydrogen's bound–free continua emits B_ν(T_gas) × its absorption. The bound–free continua emit by recombination (attachment for
-H⁻) of the zone's own electrons: j_ν = σ_n(ν) n_e n_p n² λ_e³ e^{−(hν − χ_n)/kT} 2hν³/c² (Kirchhoff–Milne, Maxwellian electrons),
-whatever the level populations are. They absorb with the zone's own n = 1 (and H⁻); the excited levels, which the snapshot does not
-hold, are the smaller of Saha's with the zone's n_e n_p and Boltzmann's with its n = 1 (equal in LTE). Stimulated recombination
-is subtracted from the absorption.
-
-Recombination emission falls as e^{−(hν − χ_n)/kT} above each threshold, in cold gas within much less than a band (4.7 % in ν):
-bound–free emission and absorption are band averages (exact for Kramers' σ ∝ ν⁻³; H⁻ by midpoint sums that resolve kT).
+(parts, emission, B_ν) at point k for the band of frequency ν: the extinction coefficient [cm⁻¹] of each process of `PROC` (1–9 absorption with
+stimulated emission subtracted, 10–12 scattering), the thermal emission coefficient of the absorbing ones [erg s⁻¹ cm⁻³ Hz⁻¹ sr⁻¹] and B_ν(T_gas).
+`coeffs3` is its sum; the physics is described there.
 """
-function SP.coeffs3(o::Opac, k, ν)
+function bandparts(o::Opac, k, ν)
     T = o.T[k]; kT = CO.kB * T; hν = CO.h * ν
-    a, s, p = CO.alpha(ν, T; nH = o.nH[k], nH2 = o.nH2[k], nHe = o.nHe[k], nHp = o.nHp[k], ne = o.ne[k], nHm = o.nHm[k])
+    _, _, p = CO.alpha(ν, T; nH = o.nH[k], nH2 = o.nH2[k], nHe = o.nHe[k], nHp = o.nHp[k], ne = o.ne[k], nHm = o.nHm[k])
     B = CO.Bν(ν, T); stim = -expm1(-hν / kT); c2 = 2 * CO.h / CO.c^2
-    ab = a - p.hm_bf - p.h + 3.692e8 * o.ne[k] * o.nHp[k] / (sqrt(T) * ν^3) * stim       # CIA, H⁻ ff, H⁺ ff
-    em = ab * B
+    hpff = 3.692e8 * o.ne[k] * o.nHp[k] / (sqrt(T) * ν^3) * stim
+    em = (p.cia_h2h2 + p.cia_h2he + p.cia_h2h + p.hm_ff + hpff) * B
+    hmbf = 0.0; hbf1 = 0.0; hbf2 = 0.0; hbf3 = 0.0
     νl = ν / QB; νh = ν * QB; Δν = νh - νl
     λe3 = (CO.h^2 / (2π * CO.me * kT))^1.5
     # H⁻ bound–free
@@ -103,7 +103,7 @@ function SP.coeffs3(o::Opac, k, ν)
                 νi = νa + (i - 0.5) * dν; σ = CO.σ_Hm_bf(1e4 * CO.c / νi)
                 sa += σ * (-expm1(-CO.h * νi / kT)); se += σ * νi^3 * exp(-(CO.h * νi - E0HM) / kT)
             end
-            ab += o.nHm[k] * sa * dν / Δν; em += o.nH[k] * o.ne[k] * λe3 / 4 * c2 * se * dν / Δν
+            hmbf = o.nHm[k] * sa * dν / Δν; em += o.nH[k] * o.ne[k] * λe3 / 4 * c2 * se * dν / Δν
         end
     end
     # H bound–free, levels 1…30
@@ -118,10 +118,39 @@ function SP.coeffs3(o::Opac, k, ν)
             I = ea > -700 ? n^2 * exp(ea) * (kT / CO.h) * (-expm1(-CO.h * (νh - νa) / kT)) : 0.0
             nn = n == 1 ? n1 : n^2 * exp(min(lnep + χn / kT, ln1 - (χH - χn) / kT))
             νe = min(νa + kT / CO.h, 0.5 * (νa + νh))                                   # where the stimulated term sits in the band
-            ab += σν3 * max(nn * (νa^-2 - νh^-2) / 2 - I / νe^3, 0.0) / Δν; em += σν3 * c2 * I / Δν
+            t = σν3 * max(nn * (νa^-2 - νh^-2) / 2 - I / νe^3, 0.0) / Δν; em += σν3 * c2 * I / Δν
+            n == 1 ? (hbf1 += t) : n == 2 ? (hbf2 += t) : (hbf3 += t)
         end
     end
+    λμ = 1e4 / (ν / CO.c)
+    ((p.cia_h2h2, p.cia_h2he, p.cia_h2h, hmbf, p.hm_ff, hbf1, hbf2, hbf3, hpff,
+      CO.σ_ray_H2(λμ * 1e3) * o.nH2[k], CO.σ_ray_H(λμ * 1e4) * o.nH[k], CO.σT * o.ne[k]), em, B)
+end
+
+"""
+(absorption, scattering, thermal source) at point k for the band of frequency ν. Everything of ContinuumOpacity.alpha except
+hydrogen's bound–free continua emits B_ν(T_gas) × its absorption. The bound–free continua emit by recombination (attachment for
+H⁻) of the zone's own electrons: j_ν = σ_n(ν) n_e n_p n² λ_e³ e^{−(hν − χ_n)/kT} 2hν³/c² (Kirchhoff–Milne, Maxwellian electrons),
+whatever the level populations are. They absorb with the zone's own n = 1 (and H⁻); the excited levels, which the snapshot does not
+hold, are the smaller of Saha's with the zone's n_e n_p and Boltzmann's with its n = 1 (equal in LTE). Stimulated recombination
+is subtracted from the absorption.
+
+Recombination emission falls as e^{−(hν − χ_n)/kT} above each threshold, in cold gas within much less than a band (4.7 % in ν):
+bound–free emission and absorption are band averages (exact for Kramers' σ ∝ ν⁻³; H⁻ by midpoint sums that resolve kT).
+"""
+function SP.coeffs3(o::Opac, k, ν)
+    p, em, B = bandparts(o, k, ν); ab = 0.0
+    for j in 1:9; ab += p[j]; end
+    s = p[10] + p[11] + p[12]
     ab > 0 ? (ab, s, em / ab) : (ab, s, B)
+end
+
+"The region of snapshot x that is solved (zones deeper than grey optical depth TAUCUT replaced by a thermal inner boundary): first zone kept, points, opacity."
+function region(x, τ)
+    n = length(x.ρ); rc = [0.5 * (x.r[k] + x.r[k+1]) for k in 1:n]
+    kc = findlast(>(TAUCUT), τ); kc = kc === nothing ? 1 : min(kc, n - 8)       # first zone kept
+    atm = SP.atmosphere((r = x.r, d = x.ρ, T = x.T); rmin = kc > 1 ? rc[kc] : nothing, split = 3.0)
+    kc, atm, Opac(atm, densities(x))
 end
 
 """
@@ -131,10 +160,7 @@ the outer boundary) reaches 2/3 (NaN where the whole solved region is thinner), 
 and the iteration counts (0: scattering neglected, −1: direct solution with the full Λ matrix).
 """
 function continuum(x, τ, kph)
-    n = length(x.ρ); rc = [0.5 * (x.r[k] + x.r[k+1]) for k in 1:n]
-    kc = findlast(>(TAUCUT), τ); kc = kc === nothing ? 1 : min(kc, n - 8)       # first zone kept
-    atm = SP.atmosphere((r = x.r, d = x.ρ, T = x.T); rmin = kc > 1 ? rc[kc] : nothing, split = 3.0)
-    op = Opac(atm, densities(x))
+    kc, atm, op = region(x, τ)
     _, R = SP.rays(atm.r; ncore = kc > 1 ? 8 : 1)
     kc > 1 || (R = [merge(ray, (core = false,)) for ray in R])                   # whole sphere: no thermal core behind the rays
     R = SP.weights!(atm, R); ps = [ray.p for ray in R]
@@ -175,6 +201,49 @@ function continuum(x, τ, kph)
         end
     end
     (; Le, Lp, rτ, τin, its, kc, np)
+end
+
+"""
+Optical depth of each process (`PROC`) against wavelength, from the outer boundary inwards on the points and opacities of `continuum` (extinction:
+absorption with stimulated emission subtracted, plus scattering; the processes sum to the total of `continuum`, interval by interval: at an interface
+pair the process parts of the point with the smaller χ, as `SP.dtau`). `t23` (12 × nν): down to the radius where the monochromatic optical depth is
+2/3 (the parts sum to 2/3; `thick` false and the whole solved depth < 2/3 where the region is thinner, then `rτ` = NaN); `tph`: down to the run's
+photosphere interface kph (`phdepth` = :rph) or, if that is not inside the solved region, to its inner end (:inner).
+"""
+function tauparts(x, τ, kph)
+    kc, atm, op = region(x, τ); np = length(atm.r); nν = length(NU)
+    t23 = zeros(12, nν); tph = zeros(12, nν); rτ = fill(NaN, nν); thick = fill(false, nν)
+    rph = kph === nothing ? NaN : x.r[kph]
+    ip = (isfinite(rph) && atm.r[1] < rph < atm.r[end]) ? searchsortedlast(atm.r, rph) : 0
+    tail(I, k) = vec(sum(view(I, :, k+1:np-1); dims = 2))          # intervals k+1 … np−1: from the outer boundary down to point k+1
+    CO.tables()
+    Threads.@threads for i in 1:nν
+        ν = NU[i]; P = zeros(12, np); χ = zeros(np)
+        for k in 1:np
+            p, _, _ = bandparts(op, k, ν); P[:, k] .= p
+            ab = 0.0; for j in 1:9; ab += p[j]; end
+            χ[k] = max(ab, 1e-300) + p[10] + p[11] + p[12]
+        end
+        I = zeros(12, np - 1); tν = zeros(np)
+        for k in np-1:-1:1
+            dr = atm.r[k+1] - atm.r[k]; tν[k] = tν[k+1] + SP.dtau(χ[k], χ[k+1], dr, atm.jump[k])
+            q = atm.jump[k] ? (χ[k] <= χ[k+1] ? k : k + 1) : 0
+            for j in 1:12; I[j, k] = (q > 0 ? P[j, q] : 0.5 * (P[j, k] + P[j, k+1])) * dr; end
+        end
+        k3 = findlast(>(2 / 3), tν)
+        if k3 !== nothing && k3 < np
+            w = (tν[k3] - 2 / 3) / (tν[k3] - tν[k3+1]); rτ[i] = exp((1 - w) * log(atm.r[k3]) + w * log(atm.r[k3+1]))
+            thick[i] = true; t23[:, i] = tail(I, k3) .+ ((2 / 3 - tν[k3+1]) / (tν[k3] - tν[k3+1])) .* view(I, :, k3)       # = 1 − w, without the cancellation of w ≈ 1
+        else
+            t23[:, i] = vec(sum(I; dims = 2))
+        end
+        if ip > 0
+            tph[:, i] = tail(I, ip) .+ ((atm.r[ip+1] - rph) / (atm.r[ip+1] - atm.r[ip])) .* view(I, :, ip)
+        else
+            tph[:, i] = vec(sum(I; dims = 2))
+        end
+    end
+    (; t23, tph, rτ, thick, phdepth = ip > 0 ? :rph : :inner)
 end
 
 const HLL = Ref{Any}(nothing); const HLV = Ref{Any}(nothing)
@@ -231,11 +300,16 @@ spectra of abandoned branches in the cache). spec.f32 is Float32, spectrum after
 The line values are the formal solution's, scaled by one factor per snapshot (`lscale`) to the collisional total (see h2lines).
 spec.json: wavelengths [μm] of the continuum grid and of the lines, and per spectrum its step, time and the scalars SPSCAL
 (luminosities in L_sun; `Lc_*` = ∫ L_ν dν of the continuum spectrum, `Lrun_*` = the run's own grey radiative luminosity there).
+Also <out>/spectau.i16 and spectau.json, for the same snapshots in the same order (from the snapshot itself, not the cache; see `tauparts`):
+the optical depth of each of the 12 processes (`SnapSpec.PROC`) against wavelength, from the outer boundary down to the radius where the
+monochromatic τ = 2/3 (depth "tau23") and down to the run's photosphere ("rph"). spectau.i16 is Int16 little-endian, per spectrum
+2 depths × 12 processes × nν values of round(100 log10 τ) (−32768: τ ≤ 0 or not finite); spectau.json: proc, label, depth, lam [μm] and per
+spectrum [step, t_yr, "rph"|"inner" (where depth "rph" ends), number of wavelengths where the solved region is thicker than 2/3].
 """
 const SPSCAL = ["step", "t_yr", "kph", "r_ph", "T_eff", "Lrun_edge", "Lrun_ph", "Lc_edge", "Lc_ph", "Ll_edge", "Ll_ph", "Ll_formal", "Ll_run", "lscale",
                 "ndirect", "ali_iters"]
 function export_spec(L, cache, out)
-    mkpath(out); nν = length(SnapSpec.NU); q = SnapSpec.QB - 1 / SnapSpec.QB; rows = Any[]
+    mkpath(out); nν = length(SnapSpec.NU); q = SnapSpec.QB - 1 / SnapSpec.QB; rows = Any[]; trows = Any[]; tauv = Vector{Int16}[]; ttau = 0.0
     λl = 1e4 .* SnapSpec.CO.c ./ H2Lines.load().ν; nl = length(λl)
     open(joinpath(out, "spec.f32.tmp"), "w") do io
         for x in L
@@ -254,6 +328,10 @@ function export_spec(L, cache, out)
             push!(rows, [s.step, s.t / yr, s.kph, s.rph / Rs, Teff, s.Lrun_edge / Ls, s.Lrun_ph / Ls, band(c.Le) / Ls, s.kph > 0 ? band(c.Lp) / Ls : NaN,
                          l === nothing ? NaN : l.Lcoll / Ls, l === nothing ? NaN : l.Lcoll_ph / Ls, l === nothing ? NaN : l.Ltot / Ls, x.Llines / Ls, sc,
                          count(==(-1), c.its), l === nothing ? NaN : l.iters])
+            t0 = time(); τg = SnapSpec.greytau(x); tp = SnapSpec.tauparts(x, τg, findlast(>(2 / 3), τg)); ttau += time() - t0
+            enc(v) = (isfinite(v) && v > 0) ? Int16(clamp(round(100 * log10(v)), -32767, 32767)) : typemin(Int16)       # process-major: all wavelengths of one process together
+            push!(tauv, Int16[enc(v) for v in [vec(permutedims(tp.t23)); vec(permutedims(tp.tph))]])
+            push!(trows, "[$(s.step),$(@sprintf("%.6g", s.t / yr)),\"$(tp.phdepth)\",$(count(tp.thick))]")
         end
     end
     js(v) = isfinite(v) ? @sprintf("%.6g", v) : "null"
@@ -262,8 +340,14 @@ function export_spec(L, cache, out)
               join((@sprintf("%.6g", v) for v in λl), ","), "],\"scalars\":[", join(("\"$s\"" for s in SPSCAL), ","), "],\"spectra\":[",
               join(("[" * join(js.(r), ",") * "]" for r in rows), ","), "]}")
     end
-    for f in ("spec.f32", "spec.json"); mv(joinpath(out, f * ".tmp"), joinpath(out, f); force = true); end
-    println("exported $(length(rows)) spectra to $out")
+    open(joinpath(out, "spectau.i16.tmp"), "w") do io; for v in tauv; write(io, htol.(v)); end; end
+    open(joinpath(out, "spectau.json.tmp"), "w") do io
+        print(io, "{\"ver\":1,\"nnu\":$nν,\"np\":12,\"scale\":100,\"proc\":[", join(("\"$q\"" for q in SnapSpec.PROC), ","), "],\"label\":[",
+              join(("\"$q\"" for q in SnapSpec.PROCLABEL), ","), "],\"depth\":[\"tau23\",\"rph\"],\"lam\":[",
+              join((@sprintf("%.6g", 1e4 * SnapSpec.CO.c / ν) for ν in SnapSpec.NU), ","), "],\"spectra\":[", join(trows, ","), "]}")
+    end
+    for f in ("spec.f32", "spec.json", "spectau.i16", "spectau.json"); mv(joinpath(out, f * ".tmp"), joinpath(out, f); force = true); end
+    println("exported $(length(rows)) spectra to $out (optical depth by process: $(round(ttau, digits = 1)) s)")
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
