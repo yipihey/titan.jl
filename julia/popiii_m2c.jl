@@ -1208,6 +1208,15 @@ if get(ENV, "SUBZONE", "0") != "0"
         TX.SUBZONE[] && pr("SUBZONE: interface optical depth across unresolved fronts from the sub-zone form (opaque half-zone to tau_f = %.3g, transparent half-zone in series; front weight s(a)(1-s(b)), s = x^4/(x^4+tau_f^4))\n", TX.SZTAUF[])
     end
 end
+# SLABFLUX=1[,n] (default off): interface opacity from the exact steady slab solution between the zone centres, opacity profile
+# κ ∝ (τ + τ₀)^n (n omitted or 0: n → ∞, exponential in optical depth) instead of the harmonic mean (TX.SLABFLUX, docs/POPIII_SLABFLUX.md)
+if get(ENV, "SLABFLUX", "0") != "0"
+    let w_ = parse.(Float64, split(ENV["SLABFLUX"], ","))
+        TX.SLABFLUX[] = w_[1] != 0; length(w_) > 1 && w_[2] != 0 && (TX.SFN[] = w_[2])
+        TX.SFN[] >= 1 || error("SLABFLUX=1,n needs n >= 1 (or 0 for n = Inf)")
+        TX.SLABFLUX[] && pr("SLABFLUX: interface opacity from the steady slab solution, profile kappa ~ (tau + tau0)^n, n = %s%s\n", isinf(TX.SFN[]) ? "Inf (exponential in tau)" : @sprintf("%.3g", TX.SFN[]), TX.SUBZONE[] ? "; SUBZONE applied on top" : "")
+    end
+end
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)
 # JACCHK="k,z,iter": at step k, Newton iteration iter, finite differences of the residual against the assembled Jacobian for the variables of absolute zone z (debugging)
@@ -1628,6 +1637,10 @@ try
         if ENVEUL !== nothing
             envsink!()
             if k % PRINTEVERY == 0
+                if TX.SLABFLUX[] && !isempty(TX.SFRATIO)   # SLABFLUX: the interfaces whose optical depth changed by more than x1.5 (zone numbers from the inner boundary)
+                    jf = [j for j in a+1:min(b, length(TX.SFRATIO)) if !(1 / 1.5 < TX.SFRATIO[j] < 1.5)]
+                    pr("        SLABFLUX: %d interface(s) with dtau/dtau_T outside [2/3, 3/2]%s\n", length(jf), join((@sprintf(" | %d: %.3g", j - a + 1, TX.SFRATIO[j]) for j in jf[1:min(end, 8)]), ""))
+                end
                 if TX.SUBZONE[] && !isempty(TX.SZOMEGA)    # SUBZONE: the interfaces with a front weight > 0.05 (zone numbers from the inner boundary)
                     jf = [j for j in a+1:min(b, length(TX.SZOMEGA)) if TX.SZOMEGA[j] > 0.05]
                     pr("        SUBZONE: %d front interface(s)%s\n", length(jf), join((@sprintf(" | %d: w %.3f dtau/dtau_T %.3f", j - a + 1, TX.SZOMEGA[j], TX.SZRATIO[j]) for j in jf), ""))
