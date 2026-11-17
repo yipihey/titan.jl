@@ -40,6 +40,7 @@ function mg_ratios!(m::NetGas)
     length(MGWREC[]) == length(dn) || (MGWREC[] = Any[nothing for _ in dn])
     for g in 1:G; fill!(TX.MGRE[][g], 1.0); fill!(TX.MGRP[][g], 1.0); fill!(TX.MGRR[][g], 1.0); fill!(TX.MGK1[][g], 0.0); fill!(TX.MGK1E[][g], 0.0); end
     length(MGA1[]) == length(dn) || (MGA1[] = zeros(length(dn))); fill!(MGA1[], 0.0)
+    length(MGN2[]) == length(dn) || (MGN2[] = zeros(length(dn))); fill!(MGN2[], 0.0)
     st = NLOST[]
     for k in a:b
         (m.eqzone[k] || k > length(st) || st[k] === nothing) && continue
@@ -56,13 +57,18 @@ function mg_ratios!(m::NetGas)
             nothing
         end
         y === nothing && continue
-        κE, κP, χ, k1, gE, gP, gχ = y
+        κE, κP, χ, k1, gE, gP, gχ, k2 = y
+        n2z = n2_tl3(T, n1, ne, np, p); k <= length(MGN2[]) && (MGN2[][k] = n2z)
         for g in 1:G
             rE = gE > 0 ? κE[g] / gE : 1.0; rP = gP > 0 ? κP[g] / gP : 1.0; rR = gχ > 0 && χ[g] > 0 ? χ[g] / gχ : 1.0
             TX.MGRE[][g][k] = isfinite(rE) && rE > 0 ? rE : 1.0
             TX.MGRP[][g][k] = isfinite(rP) && rP > 0 ? rP : 1.0
             TX.MGRR[][g][k] = isfinite(rR) && rR > 0 ? rR : 1.0
             (!hbf && g >= gH && isfinite(k1[g])) && (TX.MGK1[][g][k] = k1[g]; MGMILNE && T >= MGMILNET && (TX.MGK1E[][g][k] = k1[g] * mg_saha1s(T, ne, np) / max(n1, 1e-300)))
+            # H n ≥ 2 bound–free (three-level n = 2, Boltzmann × HM88 above it) of the groups at and above the LW band: NLOPAC leaves all H
+            # bound–free out of κ_E in case-B zones because the three-level atom carries the n = 2 photo-exchange as a chemistry heat with the
+            # optical group's dilution — right for the Balmer continuum, but the LW and ionising photons absorbed by n ≥ 2 were then not removed
+            (MGN2BF && !hbf && g >= MGROLE[].LW && isfinite(k2[g])) && (TX.MGK1[][g][k] += k2[g])
         end
     end
     nothing
@@ -81,6 +87,10 @@ Saha population) — the network is case B (no recombination to 1s), the groups 
 balance needs them (detailed balance: k_1s n_1s = a1 n_e n_p/n_H in LTE).
 """
 const MGA1 = Ref(Float64[])
+"(diagnostic) three-level n = 2 [cm⁻³] of the network zones at the last ratio refresh (mg_record)."
+const MGN2 = Ref(Float64[])
+"MGN2BF=0: no H n ≥ 2 bound–free in the LW and ionising groups' κ_E of case-B zones (before 2a-fix)."
+const MGN2BF = get(ENV, "MGN2BF", "1") == "1"
 "MGMILNE=0: no H(1s) recombination emission in the ionising groups and no ground-state recombination in the network (stage-1 case B)."
 const MGMILNE = get(ENV, "MGMILNE", "1") == "1"
 # Only above MGMILNET: the emission is K1E × b_g(T) with K1E ∝ e^{χ_H/kT} and b_g ∝ e^{−hν/kT} separately; where b_g reaches its 1e-200 floor

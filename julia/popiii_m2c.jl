@@ -1451,10 +1451,13 @@ function mg_install!()
         # the excess over the CMB has the star's colour only where it is the star's light (at least half the free-streaming estimate
         # L/(4π r² c)); farther out it is the cloud's own emission: T_s = the gas temperature there. (The T_eff shape everywhere put
         # 0.1–0.3 E_CMB of optical light into the 1–143 pc cloud, which per-group free streaming then drained at up to 5e8 L☉, t_mg28.)
+        # Beyond the star-lit region the excess is the grey CMB solution's own residual (the cloud's emission there is ~1e-4 L☉ against an
+        # optical reservoir of 7.5e49 erg that drained at 4.6e5 L☉ when it was given the gas temperature's colour, t_mg36): partition it at T_CMB.
+        Tcm_ = max(parse(Float64, get(ENV, "TCMB", "0")), 1.0)
         Ec_ = arad * parse(Float64, get(ENV, "TCMB", "0"))^4; tg = TF.var(:tn); rr = TF.var(:rn)
         lit(k) = Te > 0 && k > kph && k < length(rr) && (er[k] - Ec_) >= 0.5 * L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10)
         kend = kph + 1; while kend <= b_ && lit(kend); kend += 1; end          # one star-lit region from the photosphere out (no zone-to-zone switching)
-        Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : (k > kph && k < kend) ? max(Te, (max(er[k], 1e-300) / arad)^0.25) : max(tg[k], 1.0)
+        Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : (k > kph && k < kend) ? max(Te, (max(er[k], 1e-300) / arad)^0.25) : Tcm_
               for k in eachindex(dn)]
         TX.mg_init_from_grey!(Ts); src = @sprintf("the grey field (T_eff %.0f K outside zone %d)", Te, kph - a_ + 1)
     end
@@ -1519,6 +1522,7 @@ function mg_record(k)
            k1 = [TX.MGK1[][g][rg] for g in 1:TX.MGN[]], edges = copy(TX.MGEDGE[]),
            fg = TX.MGVEFOK[] ? [TX.MGFEDD[][g][rg] for g in 1:TX.MGN[]] : nothing, gr = copy(TX.MGGEDDR[]),
            hplus = TX.MGVEFOK[] ? [TX.MGHPLUS[][g][rg] for g in 1:TX.MGN[]] : nothing,
+           n2 = length(PM.MGN2[]) >= b_ + 2 ? PM.MGN2[][rg] : nothing,
            sl = sd === nothing ? nothing : (; kph = sd.kph, Te = sd.Te, L = sd.L, kHm = sd.kHm[rg], kH = sd.kH[rg], kLW = sd.kLW[rg]),
            xHp = [ChemNet.full(mat.x[z], mat.net)[:Hp] for z in a_:b_], xH2 = [ChemNet.full(mat.x[z], mat.net)[:H2] for z in a_:b_],
            wrec = [z <= length(PM.MGWREC[]) ? PM.MGWREC[][z] : nothing for z in rg])
