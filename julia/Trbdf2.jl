@@ -59,104 +59,7 @@ save!() = (for s in OLD; copyto!(get!(() -> similar(vf(s)), SAVE, s), vf(s)); en
            TX.COUPLED[] && for i in 1:2; length(SAVEX[i]) == length(TX.XSO[][i]) || (SAVEX[i] = similar(TX.XSO[][i])); copyto!(SAVEX[i], TX.XSO[][i]); end)
 restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:2; copyto!(TX.XSO[][i], SAVEX[i]); end)
 
-"""
-S6 (ENV DAMPNEWTON=1, default off): damped Newton for the stage solves. TITAN's maxdel scales the whole correction by
-dtol/dmax (dtol = 0.1): one zone asking for a relative change of 100 (E_r of the cold thin infall outside a collapsing
-radiation-supported shell, 107.5 M_sun, jstep 86148) shrinks every zone's step 1000×, Newton stalls and Δt collapses below
-ulp(t). Instead, when the full correction exceeds DTRIG, the relative corrections of r, m, ρ, T, E_r are clipped zone by zone
-to ±DAMPALPHA (default 0.3), and the clipped step is backtracked (λ = 1, ½, … ≥ LMIN) on the row-equilibrated residual norm
-(as DampedNewton for TITAN's θ-step). Convergence is TITAN's: an undamped step with dmax ≤ conv. Small corrections take
-TITAN's update unchanged.
-"""
-const DAMP = Ref(get(ENV, "DAMPNEWTON", "0") == "1")
-const DALPHA = Ref(parse(Float64, get(ENV, "DAMPALPHA", "0.3")))
-const DTRIG = Ref(parse(Float64, get(ENV, "DAMPTRIG", "0.1")))
-const LMIN = Ref(1 / 16)
-const DTRACE = Ref(parse(Int, get(ENV, "DAMPTRACE", "0")))   # print the first DAMPTRACE damped iterations (debugging)
-function worst(R, S, neqn)
-    w = 0.0; wi = 0; wk = 0
-    @inbounds for kb in axes(R, 2), i in 1:neqn; v = abs(R[i, kb] * S[i, kb]); v > w && (w = v; wi = i; wk = kb); end
-    (w, wi, wk)
-end
-function scan(S, δ, rhs, k0, nb, neqn)          # merit along the clipped direction, λ = 2^-6 … 1
-    out = String[]
-    for λ in (0.0, 1/64, 1/32, 1/16, 1/8, 1/4, 1/2, 1.0)
-        @inbounds for kb in 1:nb, i in 1:neqn; rhs[i, k0+kb-1] = λ * δ[i, kb]; end
-        r(:update); push!(out, string(round(merit(S), sigdigits = 3))); prestore!()
-    end
-    join(out, " ")
-end
-const DSTATS = Dict(:damped => 0, :clipped => 0, :backtracks => 0, :minstep => 0)
-const PRIM = (:rn, :xmen, :un, :dn, :tn, :ern, :frn)
-const PSAVE = Dict{Symbol,Vector{Float64}}()
-psave!() = (for s in PRIM; copyto!(get!(() -> similar(vf(s)), PSAVE, s), vf(s)); end)
-prestore!() = (for s in PRIM; copyto!(vf(s), PSAVE[s]); end)
-function rowscales!(S, neqn, k0, nb)
-    E = (TF.var(:em2), TF.var(:em1), TF.var(:e00), TF.var(:ep1), TF.var(:ep2))
-    @inbounds for kb in 1:nb, i in 1:neqn
-        k = k0 + kb - 1; m = 0.0
-        for M in E, j in 1:neqn; m = max(m, abs(M[i, j, k])); end
-        S[i, kb] = m > 0 ? inv(m) : 1.0
-    end
-    S
-end
-function merit(S)
-    c = TX.context(); R = zeros(c.neqn, c.nb)
-    TX.residual!(R, TX.getws(Float64, c.mgr), c, zeros(c.neqn * c.nb))
-    v = 0.0; @inbounds for j in eachindex(R); v += abs2(R[j] * S[j]); end
-    sqrt(v)
-end
-function damped_iterate!()
-    neqn = Int(g(:neqn)); ngrs = Int(g(:ngrs)); ngre = Int(g(:ngre)); k0 = ngrs - 2; nb = ngre - ngrs + 5
-    S = zeros(neqn, nb); R0 = zeros(neqn, nb); δ = zeros(neqn, nb); rhs = TF.var(:rhs)
-    mult = [Int(g(x)) for x in (:ir, :im, :id, :it)]; Int(g(:lrad)) == 1 && push!(mult, Int(g(:ie)))
-    dtol0 = g(:dtol); s!(:dtol, 1e30)          # no global scaling in maxdel: the clip below is per zone
-    try
-        while true
-            r(:matgen)
-            rowscales!(S, neqn, k0, nb)
-            @inbounds for kb in 1:nb, i in 1:neqn; R0[i, kb] = rhs[i, k0+kb-1]; end
-            r(:matslv); r(:maxdel)
-            dfull = g(:dmax)
-            if dfull <= DTRIG[]
-                r(:update)
-                dfull <= g(:conv) && return true
-            else
-                DSTATS[:damped] += 1
-                ncl = 0
-                @inbounds for kb in 1:nb, i in 1:neqn
-                    d = rhs[i, k0+kb-1]
-                    if i in mult && abs(d) > DALPHA[]; d = copysign(DALPHA[], d); ncl += 1; end
-                    δ[i, kb] = d
-                end
-                ncl > 0 && (DSTATS[:clipped] += 1)
-                f0 = 0.0; @inbounds for j in eachindex(R0); f0 += abs2(R0[j] * S[j]); end; f0 = sqrt(f0)
-                psave!(); λ = 1.0
-                if DTRACE[] > 0
-                    DTRACE[] -= 1
-                    c = TX.context(); Rt = zeros(neqn, nb); TX.residual!(Rt, TX.getws(Float64, c.mgr), c, zeros(neqn * nb))
-                    w, wi, wk = worst(Rt, S, neqn)
-                    println("DAMPTRACE iter $(Int(g(:iter))) dt $(g(:dtime)) dmax $(round(dfull, sigdigits = 3)) clipped $ncl f0 $(round(f0, sigdigits = 3)) (worst row $wi zone $(k0 + wk - 1) $(round(w, sigdigits = 3))); f(λ = 0, 1/64 … 1): ", scan(S, δ, rhs, k0, nb, neqn))
-                end
-                while true
-                    @inbounds for kb in 1:nb, i in 1:neqn; rhs[i, k0+kb-1] = λ * δ[i, kb]; end
-                    r(:update)
-                    f = merit(S)
-                    (isfinite(f) && f <= (1 - 1e-4λ) * f0) && break
-                    if λ <= LMIN[]; DSTATS[:minstep] += 1; break; end      # accept the smallest step
-                    prestore!(); λ /= 2; DSTATS[:backtracks] += 1
-                end
-            end
-            s!(:iter, g(:iter) + 1)
-            g(:iter) > g(:niter) && return false
-        end
-    finally
-        s!(:dtol, dtol0)
-    end
-end
-
 function newton!()
-    DAMP[] && return newton_damped!()
     s!(:iter, 1)
     try
         while true
@@ -165,18 +68,6 @@ function newton!()
             s!(:iter, g(:iter) + 1)
             g(:iter) > g(:niter) && return false
         end
-        s!(:lboos, 1); r(:matgen); r(:matslv); r(:maxdel); r(:update); s!(:lboos, 0)
-    catch e
-        e isa InterruptException && rethrow()
-        s!(:lboos, 0); return false
-    end
-    all(isfinite, vf(:dn)) && all(isfinite, vf(:tn))
-end
-
-function newton_damped!()
-    s!(:iter, 1)
-    try
-        damped_iterate!() || return false
         s!(:lboos, 1); r(:matgen); r(:matslv); r(:maxdel); r(:update); s!(:lboos, 0)
     catch e
         e isa InterruptException && rethrow()
@@ -356,6 +247,14 @@ DTERRMAX=<s> (test only, default none): an upper bound on Δt, to separate step-
 DTERRTRACE=n (default 20): a line every n steps (Δt, err, the limiting variable and zone, the heuristic Δt), and every rejection.
 """
 const ERRCTL = Ref(haskey(ENV, "DTERR"))
+"""
+DT_BOUNDS: hard bounds on the next step that the error control respects (functions () -> Δt_max [s], evaluated after an accepted
+step, with the step's Δt in `dtime` and its old/new state in the arrays): the next Δt is min(error-controlled Δt, bounds). Not an
+accuracy criterion but a validity limit of a discretisation, e.g. GRIDEQ's mesh motion (no interface moves more than fmove × its
+smaller neighbouring zone per step, popiii_m2c). TITAN's DT_HOOKS stay diagnostic under DTERR; ESTATS[:bound] counts the steps a
+bound set.
+"""
+const DT_BOUNDS = Function[]
 const EOPT = let v = haskey(ENV, "DTERR") ? parse.(Float64, split(ENV["DTERR"], ",")) : Float64[], c = parse.(Float64, split(get(ENV, "DTERRCTL", "0.9,0.2,5"), ","))
     (rtol = isempty(v) ? 1e-2 : v[1], xfl = length(v) >= 2 ? v[2] : 1e-6, ffl = length(v) >= 3 ? v[3] : 1.0, efl = length(v) >= 4 ? v[4] : 0.0,
      safety = c[1], facmin = c[2], facmax = c[3], pi = get(ENV, "DTERRPI", "1") == "1", fail = parse(Float64, get(ENV, "DTERRFAIL", "0.25")),
@@ -632,6 +531,9 @@ function step_err!()
     end
     LASTERR[] = (err, info[1], info[2])
     hn = min(hn, o.hmax)                  # (DTERRMAX, a test bound only: default none)
+    for f_ in DT_BOUNDS                   # hard bounds (mesh motion): see DT_BOUNDS
+        hb = f_(); hb < hn && (hn = hb; ESTATS[:bound] = get(ESTATS, :bound, 0) + 1)
+    end
     HNEXT[] = hn
     STATS[:steps] += 1; ESTATS[:steps] += 1
     r(:totnrg)

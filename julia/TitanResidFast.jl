@@ -123,39 +123,17 @@ Empty (default) = TITAN's x_mtot − x_me.
 """
 const XMINT = Ref(Float64[])
 """
-ADV_REL[] (ENV ADVREL=1; default off): on the Lagrangian grid with frozen interior masses (XMINT) the interfaces move with the gas only at convergence. In
-an unconverged iterate u_rel = u − Δr/Δt ≠ 0 and the continuity row carries mass r² u_rel ρ_b across the interfaces, but with dm_e/dt = 0 that mass carried no
-momentum and no energy. The energy row then holds e × (the zone's mass defect), which depends on the zero point of e: with e = 0 for ionised gas, neutral gas
-has e ≈ −1e13 erg/g ≈ 400 c_v T at 250 K, so a zone that gains 1e-3 of its mass in the linearised step is heated by 40 %. Above a critical Δt that feedback
-makes the Jacobian singular at the predicted state (one singular value 1e-15, a zone-to-zone mode in u of the central zones) and Newton diverges from its first
-iteration. With ADV_REL the same mass flux advects momentum and energy (dm_e/dt := −r² u_rel ρ_b in those rows), as on TITAN's own grids. The converged
-solution is unchanged (u_rel = 0 there).
-"""
-const ADV_REL = Ref(get(ENV, "ADVREL", "0") == "1")
-"""
 PEXT[] (lgrid = 3, llobc = 1): free outer boundary. The outermost interface obeys the momentum equation of its half
 zone with a constant external pressure PEXT[] outside (RHFC02 App. A2.3) instead of the piston u = uextr. NaN
 (default) = TITAN's piston.
 """
 const PEXT = Ref(NaN)
 """
-GRIDWIN[] (lgrid = 2 only): adaptive window on the fixed mesh. `nothing` (default) = every interface fixed. Otherwise a
-NamedTuple (; k1, k2, tau, alph, wd, wt, gmax): interfaces k1 and k2 stay fixed and bound the window; the interfaces in between
-obey a Dorfi–Drury grid equation, equal arc length per zone, n̂_j = x̃_j / sqrt(1 + ν_j² S_j) equal for neighbouring zones,
-with ν_j = r̄_j/Δr_j (logarithmic baseline, as ladx = 2), S_j = wd (½ Δ ln ρ)² + wt (½ Δ ln T)² with the centred
-differences Δy_j = y_{j+1} − y_{j−1}, spatial smoothing x̃ = ν − α(1+α) Δ²ν (α = alph; neighbouring zones then differ
-by at most (1+α)/α) and time smoothing x̃ → (1 + τ/Δt) x̃ − (τ/Δt) x̃_old (τ = tau). The gradient term G² = ν² S is capped smoothly,
-G² gmax²/(G² + gmax²): a front that keeps steepening would otherwise pull zones without limit (Δt then follows the shrinking zones). The zones next to the window enter the
-smoothing with their fixed widths. Everything else in the residual is TITAN's moving-grid form (u_rel = u − ṙ, fluxes
-through the moving faces), which the fixed mesh had reduced to u_rel = u.
-"""
-const GRIDWIN = Ref{Any}(nothing)
-"""
 GRIDVEL[] (lgrid = 2 only): `nothing` (default) = every interface fixed. Otherwise a vector of interface velocities w [cm/s] (driver
 index, zero for an interface that stays): the grid row is r_new − r_old − w Δt with the Δt of the stage, so an interface follows the
 same straight path r_old + w t through the TR, the BDF2 and the backward-Euler stage of a step. The driver sets w between steps
-(`GRIDMAP` in popiii_m2c.jl: the mesh relaxes to a target computed from the state), so the row adds nothing to the Jacobian. All
-else is TITAN's moving-grid form as for GRIDWIN (u_rel = u − ṙ, fluxes through the moving faces, lab-frame gravity work).
+(GRIDEQ=0 in popiii_m2c.jl: the mesh relaxes to a prescribed target), so the row adds nothing to the Jacobian. All
+else is TITAN's moving-grid form (u_rel = u − ṙ, fluxes through the moving faces, lab-frame gravity work).
 """
 const GRIDVEL = Ref{Union{Nothing,Vector{Float64}}}(nothing)
 """
@@ -168,8 +146,8 @@ gmax², S_j = Σ_q w_q (½ Δ ln q)² over q = ρ, P, T, E_r and the interior ma
 at the ends) plus sx[j] (terms frozen for the step: the capped ln τ). All terms are logarithmic, so the rule has no scale.
 """
 const GRIDEQ = Ref{Any}(nothing)
-"A mesh with lgrid = 2 whose interfaces move (GRIDWIN window, GRIDVEL or GRIDEQ)."
-@inline gridmoves() = GRIDWIN[] !== nothing || GRIDVEL[] !== nothing || GRIDEQ[] !== nothing
+"A mesh with lgrid = 2 whose interfaces move (GRIDVEL or GRIDEQ)."
+@inline gridmoves() = GRIDVEL[] !== nothing || GRIDEQ[] !== nothing
 """
 AV_ZONE[] (G1): viscous length proportional to the local zone width. When > 0, zone k uses the length
 l_k = AV_ZONE[] × (r[k+1] − r[k]) (θ-centred radii, ForwardDiff-differentiable) instead of ql0 + ql1 r̄; ql0, ql1 are then
@@ -198,13 +176,6 @@ back by its recombination losses in the chemistry: the 30 % excursion held Δt a
 c̄ ← c̄ + Δe_chem/Δt after each chemistry step in zones that stayed on the network (zero elsewhere). CHEMBON[k]: zone k was balanced.
 """
 const CHEMB = Ref(Float64[]); const CHEMBON = Ref(Bool[])
-"""
-ECHEMF[] = (off, tab) (popiii_m2c ECHEMSPLIT; default nothing): the hydro step advects ẽ = e − off_k (off: the zone's chemical energy per gram at its
-frozen composition). A zone with `tab[k]` (equilibrium EOS: its latent heat is implicit in the Newton) gets in its energy row the chemical energy
-that the mass crossing each interface brings relative to its own offset, ṁ (off_donor − off_k), the donor taken by the sign of the mass flux;
-network zones get theirs with the species, after the step.
-"""
-const ECHEMF = Ref{Any}(nothing)
 
 """
 COUPLED (popiii_m2c COUPLED=1; default false): the slow species of the reduced network (ChemNet CHEMCK: x_H⁺, x_H₂ per H nucleus) are
@@ -236,11 +207,7 @@ const CPLQT = Ref{Any}(nothing)   # (SLIMP) t = T_c/T_c,start of the last residu
 const SLQBUF = Dict{Any,Any}()
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
 "Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
-# COUPLED: the three-level heats cq, yq of the iterate in the rows (CPLIMPQ=1, experimental: with CPLNLOX its Δt → 0 limit was ~300 K below
-# the split scheme's in the pre-shock band, unexplained); default 0: booked lagged in RAYQ/GASQ as for split zones (matches split within 15 K)
-const CPL_IMPQ = Ref(get(ENV, "CPLIMPQ", "0") == "1")
-@inline cplq(k) = CPL_IMPQ[] && cplz(k)
-const CPL_XFLOOR = Ref(1e-8); const CPL_CLAMP = Ref(parse(Float64, get(ENV, "CPLCLAMP", "1"))); const CPLDBG = Ref(parse(Int, get(ENV, "CPLDBG", "0")))
+const CPL_XFLOOR = Ref(1e-8); const CPL_CLAMP = Ref(parse(Float64, get(ENV, "CPLCLAMP", "1")))
 """
 Time weight of the chemistry source and cooling in the coupled rows (default 1: backward Euler in every stage, also in TR-BDF2's
 trapezoidal stage; the residual's θ otherwise). A species relaxing in seconds within a step of 1e3–1e6 s has, under the trapezoidal
@@ -297,12 +264,6 @@ handed back to the split chemistry for the rest of the step (CPLZ false; with EC
 the shock whose x_H⁺ had fallen to 1e-9 asked for δ ln x = −1e76 in every retry, the step never converged and Δt collapsed (t_cpl4, step 123110).
 """
 const CPL_BAD = Set{Int}(); const CPL_BADDELTA = Ref(parse(Float64, get(ENV, "CPLBADDELTA", "100"))); const CPL_NDECOUPLED = Ref(0)
-"""
-CPLTRACEX=x (default 0 = off): in a coupled zone, a species row whose iterate and old abundance are both below x gets no Newton correction
-(held for the step) and does not count for CPLBADDELTA. In the thermalised zones that leave the table (He II layer, 2–3e4 K) trace H₂
-(x ~ 1e-24) asked for δ ln x of −600…+550 and decoupled zones 70–72 (t_nolte, jstep 2217816).
-"""
-const CPL_TRACEX = Ref(parse(Float64, get(ENV, "CPLTRACEX", "0")))
 function cpl_reset!()
     for i in 1:2; copyto!(XSN[][i], XSO[][i]); end
     if !isempty(CPL_BAD)
@@ -310,7 +271,6 @@ function cpl_reset!()
         for k in CPL_BAD
             cplz(k) || continue
             CPLZ[][k] = false; CPL_NDECOUPLED[] += 1
-            ECHEMF[] !== nothing && (ECHEMF[][2][k] = false)
             (CPL_NDECOUPLED[] <= 30 || CPL_NDECOUPLED[] % 100 == 0) && println("COUPLED: zone $(k - a + 1) decoupled for this step (species correction > $(CPL_BADDELTA[]) in ln x), $(CPL_NDECOUPLED[]) so far")
         end
         empty!(CPL_BAD)
@@ -333,11 +293,7 @@ function cpl_dmax!(rhs, a, b)
         cplz(k) || continue
         for (i, q) in ((8, XSN[][1]), (9, XSN[][2]))
             abs(rhs[i, k]) > abs(dx[i]) && (kx[i] = k - a + 1; dx[i] = rhs[i, k])     # (raw correction, for the divergence message)
-            CPLDBG[] > 0 && abs(rhs[i, k]) > 20 && (CPLDBG[] -= 1;
-                println("CPLDBG iter $(gi(:iter)) zone $(k - a + 1) row $i: δ $(rhs[i, k]) x $(q[k]) x_old $(XSO[][i - 7][k]) x(H+,H2) $(XSN[][1][k]), $(XSN[][2][k]) T $(TF.var(:tn)[k]) T_old $(TF.var(:to)[k]) ρ $(TF.var(:dn)[k]) neighbours x_H+ $(XSN[][1][k-1]) $(XSN[][1][k+1]) cplz $(cplz(k-1)) $(cplz(k+1))"))
             isfinite(rhs[i, k]) || (rhs[i, k] = 0.0; d = Inf)                        # a non-finite correction: no change, not converged
-            # CPLTRACEX: a trace species (x and x_old below it) is held for the step and does not decouple the zone
-            CPL_TRACEX[] > 0 && max(q[k], XSO[][i - 7][k]) < CPL_TRACEX[] && (rhs[i, k] = 0.0)
             abs(rhs[i, k]) > CPL_BADDELTA[] && push!(CPL_BAD, k)
             rhs[i, k] = clamp(rhs[i, k], -cl, cl)
             # weight by the larger of the iterate and the old abundance: a species the iterate drove to the floor (x_H⁺ 1e-40 next to the
@@ -353,29 +309,12 @@ AV_TENSION[] (default true = TITAN): keep the viscous stress of a zone that shri
 radially relative to the mean (dudr > 0, the traceless form). Then q < 0, a tension. With l = AV_ZONE·Δr and Δr ~ r (the stretched
 zones outside an accretion shock) it can reach ~10× gravity and accelerate an infalling shell past the escape speed.
 false: viscosity only under radial compression.
-AV_CAP[] (default 0 = off): viscous length limited to AV_CAP × r̄.
 AV_TFRAC[], AV_TRAD[] (default 0, false = off; used with AV_TENSION[] = false): a reduced tension. AV_TFRAC = f in (0, 1): the stress of
 the tension zones is kept, times f. AV_TRAD: it is kept only where the zone is compressed radially in the plain sense (∂u/∂r < 0: the
 ramp of a shock whose zones are wide, Δr ~ r), not in smooth free fall (∂u/∂r > 0); times AV_TFRAC if that is set.
 """
 const AV_TENSION = Ref(true)
-const AV_CAP = Ref(0.0)
 const AV_TFRAC = Ref(0.0); const AV_TRAD = Ref(false)
-"""
-SHOCK_RAD[] (S6, default false; lrad = 1, TITAN's gas + radiation row): sub-grid radiative shock. The viscous heat of a zone whose velocity jump
-would give a post-shock temperature T_s = (3/16) μ m_H Δu²/k above SHOCK_DU[] goes to the radiation energy row instead of the gas. Physically the gas
-behind such a shock cools in ≪ the flow time through a layer far thinner than a zone (lines above ≈ 6000 K), so the zone-averaged gas should not hold this heat.
-The total energy row is untouched, so energy is conserved; momentum (q in the gas momentum row) too. Fraction: smoothstep in log Δu between the two values.
-"""
-const SHOCK_RAD = Ref(false)
-const SHOCK_DU = Ref((1.47e6, 1.9e6))     # cm/s: T_s = 6000 K, 1e4 K at μ = 1.22
-@inline function shock_frac(du::T) where {T}
-    du1, du2 = SHOCK_DU[]
-    (val(du) >= -du1) && return zero(T)
-    (val(du) <= -du2) && return one(T)
-    x = log(-du / du1) / log(du2 / du1)
-    return x * x * (3 - 2x)
-end
 """
 EXTMASS[] (Population III): static external mass distribution (e.g. the dark-matter halo of ABN02), a function
 r -> M_ext(< r) per steradian, added to the gas interior mass in the gravity terms (evaluated at the θ-centred radius;
@@ -395,8 +334,7 @@ function dualswitch(ngrs, ngre, lrad, ηsw)
     ηsw > 0 || return ui
     dO, dv, uo = v(:do), v(:dvolo), v(:uo); eo = lrad ? v(:egro) : v(:ego)
     for k in ngrs:ngre
-        eoff = ECHEMF[] === nothing ? 0.0 : ECHEMF[][1][k]      # (ECHEMSPLIT: e − Σ x E0 is advected; the switch keeps judging e)
-        m = dO[k] * dv[k]; ein = m * max(eo[k] + eoff + ETASW_EOFF[], 0.0); K = 0.25m * (uo[k]^2 + uo[k+1]^2)
+        m = dO[k] * dv[k]; ein = m * max(eo[k] + ETASW_EOFF[], 0.0); K = 0.25m * (uo[k]^2 + uo[k+1]^2)
         ui[k] = ein / (ein + K) < ηsw
     end
     ηth = ETASW_TH[]
@@ -592,28 +530,9 @@ end
     return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
 end
 
-"""
-`UPFREEZE=n` (default 0 = off): from Newton iteration n of a solve on, every interface keeps the upwind direction that iteration
-n − 1 found.  Where the flow relative to the grid is near zero (a moving grid window that follows a contact: `GRIDWIN`), the hard
-donor choice makes the residual's slope jump at zero flow by the ratio of the two zones' densities, and the Newton iteration
-alternates between the two directions for ever (traced 10 Nov 2026: `up` of four advected quantities flipping at one interface in
-every iteration, correction constant at 2e-5).  The flux itself is continuous at zero flow, so the frozen direction changes the
-converged state by the product of that near-zero flow and the jump.
-"""
-const UPFREEZE = Ref(parse(Int, get(ENV, "UPFREEZE", "0")))
-const UPHOLD = Ref(false)
-const UPDEC = Dict{Int,Vector{Bool}}()
-@inline function upwind(uf, hold::Bool, id::Int, k::Int, x::Bool)
-    up = decide(:up, id, k, x)
-    uf === nothing && return up
-    hold && return @inbounds uf[k]
-    @inbounds uf[k] = up
-    up
-end
 "van Leer interpolation (advectc: centred=true, advecti: centred=false)."
 @inline function advect!(qb, qsn, qn, qo, qso, flow, θ, cadv, eps, ngrs, ngre, centred::Bool, id::Int = 0)
     T = eltype(qb)
-    uf = UPFREEZE[] > 0 ? get!(() -> fill(true, TF.MGR), UPDEC, id) : nothing; hold = UPHOLD[]
     @inbounds for k in ngrs:ngre+1
         a = qn[k] - qn[k-1]; b = qn[k+1] - qn[k]; sdq = a + b
         den = sdq + (decide(:sgn, id, k, val(sdq) >= 0) ? eps : -eps)
@@ -621,13 +540,13 @@ end
     end
     if centred
         @inbounds for k in ngrs+1:ngre+1
-            s = upwind(uf, hold, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
+            s = decide(:up, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
             qb[k] = (0.5 + s) * (θ * (qn[k-1] + 0.5qsn[k-1]) + (1 - θ) * (qo[k-1] + 0.5qso[k-1])) +
                     (0.5 - s) * (θ * (qn[k]   - 0.5qsn[k])   + (1 - θ) * (qo[k]   - 0.5qso[k]))
         end
     else
         @inbounds for k in ngrs:ngre
-            s = upwind(uf, hold, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
+            s = decide(:up, id, k, val(flow[k]) >= 0) ? 0.5 : -0.5
             qb[k] = (0.5 + s) * (θ * (qn[k]   + 0.5qsn[k])   + (1 - θ) * (qo[k]   + 0.5qso[k])) +
                     (0.5 - s) * (θ * (qn[k+1] - 0.5qsn[k+1]) + (1 - θ) * (qo[k+1] - 0.5qso[k+1]))
         end
@@ -919,21 +838,6 @@ function zone_sweep!(f::F, ks::UnitRange{Int}, ok::G) where {F,G}
 end
 
 # ------------------------------------------------------------------ residual
-"Grid-equation rows of the adaptive window (see GRIDWIN) for the interfaces k1+1 … k2−1."
-function gridwin_rows!(R, ir, k0, rn, ro, dn, tn, dt, gw)
-    α = gw.alph * (1 + gw.alph); gam = gw.tau / dt
-    ν(j) = (rn[j+1] + rn[j]) / (2 * (rn[j+1] - rn[j])); νo(j) = (ro[j+1] + ro[j]) / (2 * (ro[j+1] - ro[j]))
-    function nhat(j)
-        xnt = ν(j) - α * (ν(j-1) - 2ν(j) + ν(j+1)); xnto = νo(j) - α * (νo(j-1) - 2νo(j) + νo(j+1))
-        S = gw.wd * (0.5 * log(dn[j+1] / dn[j-1]))^2 + gw.wt * (0.5 * log(tn[j+1] / tn[j-1]))^2
-        G2 = ν(j)^2 * S; G2 = isfinite(gw.gmax) ? G2 * gw.gmax^2 / (G2 + gw.gmax^2) : G2   # gradient cap: zones at most √(1+gmax²) finer than in smooth gas
-        ((1 + gam) * xnt - gam * xnto) / sqrt(1 + G2)
-    end
-    @inbounds for k in gw.k1+1:gw.k2-1
-        R[ir, k - k0 + 1] = nhat(k) - nhat(k - 1)
-    end
-    nothing
-end
 
 "Grid-equation rows of GRIDEQ (see there) for the interfaces k1+1 … k2−1."
 function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, chi = nothing)
@@ -968,7 +872,6 @@ const GEQDBG = Ref(get(ENV, "GEQDBG", "0") in ("1", "2"))
 const GEQDBG2 = Ref(get(ENV, "GEQDBG", "0") == "2" ? 5 : 0)
 
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
-    UPFREEZE[] > 0 && (UPHOLD[] = TF.getscalar(:iter) >= UPFREEZE[])
     ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
     P = c.p; θ = P.θ; dt = P.dt; xmu = Float64(mu); xmup1 = xmu + 1; cc = P.cc
     ir, im, id, iu, it, ie, iF = c.ix
@@ -1087,7 +990,6 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     @inbounds for k in ngrs:ngre
         dudr[k] = (u[k+1] - u[k]) / (r[k+1] - r[k]) - xmu4 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
         ql = AV_ZONE[] > 0 ? AV_ZONE[] * (r[k+1] - r[k]) : P.ql0 + P.ql1 * 0.5 * (r[k] + r[k+1])
-        AV_CAP[] > 0 && (ql = min(ql, AV_CAP[] * 0.5 * (r[k] + r[k+1])))
         div = (rmu[k+1] * u[k+1] - rmu[k] * u[k]) / dvol[k]
         if AV_TFRAC[] > 0 || AV_TRAD[]            # reduced tension (see AV_TFRAC)
             rc = val(div) < 0 && val(dudr[k]) < 0
@@ -1103,11 +1005,6 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     db, dsn, fl, ub, usn, flu, fle, egb, egsn = W.db, W.dsn, W.fl, W.ub, W.usn, W.flu, W.fle, W.egb, W.egsn
     @inbounds for k in ngrs+1:ngre+1; fl[k] = urel[k]; end
     advect!(db, dsn, dn, c.do_, c.dso, fl, θ, P.cadv, P.eps, ngrs, ngre, true, 1)
-    # ADV_REL: with frozen interior masses the continuity row still moves mass across the interior interfaces of an unconverged iterate (r² u_rel ρ_b);
-    # momentum and energy follow it, as they follow dm_e/dt on TITAN's own grids
-    if ADV_REL[] && !isempty(XMINT[])
-        @inbounds for k in ngrs+1:ngre; dmdt[k] = -rmu[k] * urel[k] * db[k]; end
-    end
     @inbounds for k in ngrs+1:ngre+1; fle[k] = -dmdt[k]; end
     @inbounds for k in ngrs:ngre; flu[k] = -(dmdt[k] + dmdt[k+1]); end
     advect!(ub, usn, un, c.uo, c.uso, flu, θ, P.cadv, P.eps, ngrs, ngre, false, 2)
@@ -1198,7 +1095,6 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         else
             @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k] - gv[k] * dt; end
         end
-        GRIDWIN[] === nothing || gridwin_rows!(R, ir, k0, rn, c.ro, dn, tn, dt, GRIDWIN[])
         GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[], W.chifn)
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
@@ -1350,7 +1246,6 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         if c.etotal && !c.useint[k]
             w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])     # the gas gets the ray's energy in chemistry: it leaves the total here (as the lrad total row)
-            cplq(k) && (w += W.cpQ[k] * dvol[k])               # COUPLED: the three-level chemistry heat of the iterate (not booked in RAYQ)
         elseif c.lrad && GASROW[]
             egbg = W.egbg
             w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
@@ -1358,7 +1253,6 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k] -
                 excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k] - src
             isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
-            cplq(k) && (w -= W.cpY[k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
@@ -1374,7 +1268,6 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 (pg[k] + er[k] * fedd[k]) * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] + qf[k] * dudr[k] * dvol[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
-            cplq(k) && (w += W.cpQ[k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egb[k+1] - (P.phil2 + er[k] * urel[k]) * rmu[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
@@ -1399,15 +1292,6 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
         isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
         cplz(k) && (θc = max(θ, CPL_THETA[]); w += (θc * W.cpL[k] + (1 - θc) * XLAMO[][k]) * dvol[k])   # COUPLED: the chemistry cooling, implicit
-        if ECHEMF[] !== nothing && ECHEMF[][2][k]
-            off_ = ECHEMF[][1]
-            if k < ngre || P.leobc == 3
-                i = k + 1; w += -dmdt[i] * ((ForwardDiff.value(dmdt[i]) > 0 ? off_[k] : off_[k+1]) - off_[k])
-            end
-            if k > ngrs
-                w += dmdt[k] * ((ForwardDiff.value(dmdt[k]) > 0 ? off_[k-1] : off_[k]) - off_[k])
-            end
-        end
         R[it, kb(k)] = w
     end
     R[it, 1] = X(it, k0)
@@ -1448,10 +1332,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 fedd[k] * er[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] +
                 excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
-            SHOCK_RAD[] && (w += shock_frac(u[k+1] - u[k]) * qf[k] * dudr[k] * dvol[k])
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
             isempty(GASQ[]) || (w += GASQ[][k] * dvol[k])
-            cplq(k) && (w += (W.cpQ[k] + W.cpY[k]) * dvol[k])  # COUPLED: the three-level heats of the iterate leave the gray field
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * er[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
@@ -1593,7 +1475,7 @@ const ETOT_GRAV_GRID = Ref(false)
         xmu = Float64(c.mu); P = c.p
         gi_(j) = 2xmu * P.cpi * P.cgrav * W.xm[j] / W.rmu[j] + (1 - 0.5xmu) * P.g
         Δr = 0.5 * (W.r[k+1] - W.r[k])
-        # (moving interfaces on lgrid = 2, GRIDWIN or GRIDVEL: the lab-frame mass flux r² u ρ_b; zones carried by the grid also change Σ m Φ)
+        # (moving interfaces on lgrid = 2, GRIDVEL or GRIDEQ: the lab-frame mass flux r² u ρ_b; zones carried by the grid also change Σ m Φ)
         uf(j) = gridmoves() ? W.u[j] : W.urel[j]
         k > c.ngrs && (w += W.rmu[k] * uf(k) * W.db[k] * gi_(k) * Δr)
         k < c.ngre && (w += W.rmu[k+1] * uf(k + 1) * W.db[k+1] * gi_(k + 1) * Δr)

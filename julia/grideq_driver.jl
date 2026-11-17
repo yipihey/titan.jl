@@ -32,27 +32,19 @@ f 10; a fixed-mesh checkpoint with its front in one zone: 26.5 for zdiagB's S5; 
 fixed-mesh checkpoint needs it: κ 30 would take ~30 crossing times of the front to adapt the mesh, while Δt stays at the fixed
 mesh's and the fixed-mesh run fails within ~30 steps. The next segment of the same run (mesh already adapted) does not ramp again.
 """
-const GRIDEQP = haskey(ENV, "GRIDEQ") ? parse(Int, ENV["GRIDEQ"]) : nothing
+const GRIDEQP = let v_ = get(ENV, "GRIDEQ", "off"); v_ in ("", "off") ? nothing : parse(Int, v_) end   # GRIDEQ=off: the fixed mesh (the stack default is 1)
 geqv(key, defs) = (v = haskey(ENV, key) ? parse.(Float64, split(ENV[key], ",")) : Float64[]; [i <= length(v) ? v[i] : defs[i] for i in eachindex(defs)])
 const GEQW = geqv("GEQW", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0])   # entry 8 wχ: ln(χρ) of the Newton iterate (mode 1; with wτ = 0 and GEQX off the monitor has no lagged term)
 const GEQC = geqv("GEQC", [100.0, 1.5, 30.0, 0.5, 0.5, 0.1, 1e4, 0.3, 0.0])
 const GEQX = geqv("GEQX", [0.0, 1e-3])
 const GEQRAMP = haskey(ENV, "GEQRAMP") ? parse.(Float64, split(ENV["GEQRAMP"], ",")) : nothing
 const GEQJ0 = Ref(-1)                  # jstep at the first grideq_step! of this process (GEQRAMP; -2: no ramp, the mesh is close to the rule)
-"max_j(M_j Δln r_j) / median over the zones above the centre: how far the mesh is from equidistribution (GEQRAMP, GEQREMAP)."
+"max_j(M_j Δln r_j) / median over the zones above the centre: how far the mesh is from equidistribution (GEQRAMP)."
 function geq_quality(s)
     D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0)
     q = [D.M[i] * log(s.r[i+2] / s.r[i+1]) for i in eachindex(D.M)]; qs = sort(q)
     (; ratio = maximum(q) / qs[(length(qs) + 1) ÷ 2], k = argmax(q) + 1)
 end
-"""
-GEQREMAP=f (with GRIDEQ and a restart from an lgrid = 2 checkpoint, regular centre; default 0 = off): if the checkpoint's mesh is far
-from the rule's, max_j(M_j Δln r_j) > f × median (a fixed-mesh checkpoint whose front sits in one zone), the state is rebuilt once on
-GRIDEQ's explicit target mesh of the same zone count (envbuild!: enclosed mass kept at every source interface with ENVCONS=1; T, E_r,
-x interpolated in ln r between zone centres; u, L at the interfaces; lagged material state reset as at the hand-over), mass zero point
-and fixed-mesh flags set again as ICEUL. A mesh already close to the rule (the next segment of the same run) is not remapped.
-"""
-const GEQREMAP = parse(Float64, get(ENV, "GEQREMAP", "0"))
 const GEQPREV = Ref{Any}(nothing)      # (t, x, M) of the last step: the monitor function's own motion (feature tracking)
 const GEQLAST = Ref{Any}(nothing)
 "State on the present mesh (interfaces centre first; m per steradian)."
@@ -76,23 +68,6 @@ function geq_lx()
 end
 geq_target(s; N = nsh - 1) = GridEq.target(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ, N; w = Tuple(GEQW), gmax = GEQC[1], alph = GEQC[2], τlo = GEQC[6], τhi = GEQC[7],
                                             X = s.Xd, wx = 1.0)
-"GEQREMAP: rebuild a restarted fixed-mesh state on the rule's mesh (see GEQREMAP)."
-function geq_remap!()
-    ENVCENTRE || error("GEQREMAP needs a regular centre (ENVEUL=0,...)")
-    s = geq_state(); Q = geq_quality(s)
-    pr("GEQREMAP: max M dln r / median %.3g (threshold %.3g) at zone %d (r %.4g R_sun)\n", Q.ratio, GEQREMAP, Q.k, s.r[Q.k] / Rsun)
-    Q.ratio > GEQREMAP || return nothing
-    E0 = geq_energy(); rq = geq_target(s)
-    envbuild!(; rIset = vcat(0.0, rq))
-    get(ENV, "ICXMZ", "1") == "1" && xmzero!()
-    envflags!(); ENVMS0[] = 0.0
-    TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
-    E1 = geq_energy()
-    pr("GEQREMAP: rebuilt on the rule's mesh (%d zones, dln r %.4f .. %.4f); mass %.10e -> %.10e Msun; E_int %.6e -> %.6e, E_kin %.4e -> %.4e, E_rad %.4e -> %.4e, E_grav %.6e -> %.6e erg (total change %.3e of |E_grav|)\n",
-       nsh, minimum(diff(log.(rq))), maximum(diff(log.(rq))), E0.M / Msun, E1.M / Msun, E0.ei, E1.ei, E0.ek, E1.ek, E0.er, E1.er, E0.eg, E1.eg,
-       ((E1.ei + E1.ek + E1.er + E1.eg) - (E0.ei + E0.ek + E0.er + E0.eg)) / abs(E0.eg))
-    nothing
-end
 "Grid totals (erg, g): internal (e incl. the chemical offsets), kinetic (zone-centred u), radiation, gravitational (−G m dm / r_c)."
 function geq_energy()
     r = TF.var(:rn)[a:b+1]; u = TF.var(:un)[a:b+1]; m = 4π .* envmenc(); e = TF.var(:egn)[a:b]; E = TF.var(:ern)[a:b]; n = nsh
