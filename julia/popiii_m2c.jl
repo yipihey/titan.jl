@@ -1244,6 +1244,10 @@ if get(ENV, "ECOMPAT", "0") == "1"
     TX.ECOMPAT[] = true
     TX.TIEFRAME[] || (TX.TIEFRAME[] = true; pr("ECOMPAT: TIEFRAME switched on\n"))
     pr("ECOMPAT: first-law gas row adjoint to the momentum row in every zone (ETOTAL/ETASW* row switching unused), lab-frame radiation energy row\n")
+    # ECGRAV=1..4 (provisional, default 0): gravity term of the compatible gas row (TX.ECGRAV, docs/POPIII_ENERGY.md §14)
+    TX.ECGRAV[] = parse(Int, get(ENV, "ECGRAV", "0"))
+    TX.ECGRAV[] != 0 && pr("ECGRAV %d: compatible gas row with the gravity term (%s form, %s)\n", TX.ECGRAV[], TX.ECGRAV[] >= 3 ? "mass flux x potential difference" : "total row's",
+                           TX.ECGRAV[] in (2, 3) ? "every zone" : "zones the dual-energy stack gives the total row")
 end
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)

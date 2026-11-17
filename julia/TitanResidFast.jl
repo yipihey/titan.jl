@@ -640,6 +640,44 @@ const KSTAR = Ref(Float64[])
     up = val(dmdt[j]) >= 0 ? j : j - 1
     dmdt[j] * 0.125 * (u[up+1] - u[up])^2
 end
+"""
+ECGRAV[] (provisional, ENV ECGRAV, default 0 = off; with ECOMPAT): a gravity term in the compatible gas row, taken from the gas as heat
+(docs/POPIII_ENERGY.md §14). The momentum row's power Σ_j u_j g_j ½(m_j−1 + m_j) is not the rate of change of a binding energy unless
+the mesh is Lagrangian: for W = Σ_j ½(m_j−1 + m_j) ψ_j (ψ_j = −4πG M_j/r_j with the enclosed mass M_j; + the external mass's potential)
+    dW/dt = Σ_j ½(m_j−1 + m_j) g_j ṙ_j + Σ_j F_j [½(ψ_j+1 − ψ_j−1) + 4πG ½(m_j−1 + m_j)/r_j],        F_j = −ṁ_j the relative mass flux,
+and the second sum is not Σ_j u_rel,j g_j ½(m_j−1 + m_j) where the advected density differs from the mean of the neighbours.
+  1  the total row's form (ETOT_GRAV: lab-frame mass flux r² u ρᵇ × g × ½Δr on each face; the diagnostic G5) minus the momentum row's
+     power, in the zones the dual-energy stack gives the total row (c.etotal && !useint): the controlled test of what that row does
+  2  the same in every zone
+  3  the exact difference above (zone k's half of each of its faces), in every zone: K + U + E_r + W conserved to the time discretisation
+  4  as 3, in the zones the dual-energy stack gives the total row
+"""
+const ECGRAV = Ref(0)
+@inline function ecgrav(k, c, W, exact::Bool)
+    P = c.p; xmu = Float64(c.mu); a, b = c.ngrs, c.ngre; r = W.r
+    G4 = 2xmu * P.cpi * P.cgrav
+    g(j) = G4 * W.xm[j] / W.rmu[j] + (1 - 0.5xmu) * P.g
+    mh = 0.5 * W.d[k] * W.dvol[k]; Δr = 0.5 * (r[k+1] - r[k])
+    w = zero(W.u[k] * mh)
+    if !exact
+        uf(j) = gridmoves() ? W.u[j] : W.urel[j]
+        k > a && (w += g(k) * (W.rmu[k] * uf(k) * W.db[k] * Δr - W.u[k] * mh))
+        k < b && (w += g(k + 1) * (W.rmu[k+1] * uf(k + 1) * W.db[k+1] * Δr - W.u[k+1] * mh))
+    else
+        xmu == 2 || error("ECGRAV 3/4: spherical geometry only")
+        xe(j) = EXTMASS[] === nothing ? zero(r[j]) : EXTMASS[](r[j])
+        # potential drop across zone k for mass entering through its lower face: ½[ψ_k+1 − ψ_k] + ½ 4πG m_k/r_k = ½ 4πG M_k+1 (1/r_k − 1/r_k+1);
+        # through its upper face ½ 4πG M_k (1/r_k − 1/r_k+1) (0 in the central zone); the external mass's part as g_ext ½Δr
+        if k > a
+            ir = 1 / r[k] - 1 / r[k+1]
+            w += -W.dmdt[k] * (0.5G4 * (W.xm[k+1] - xe(k + 1)) * ir + G4 * xe(k) / W.rmu[k] * Δr) - W.urel[k] * g(k) * mh
+            k < b && (w += -W.dmdt[k+1] * (0.5G4 * (W.xm[k] - xe(k)) * ir + G4 * xe(k + 1) / W.rmu[k+1] * Δr) - W.urel[k+1] * g(k + 1) * mh)
+        else
+            w += -W.dmdt[k+1] * G4 * xe(k + 1) / W.rmu[k+1] * Δr - W.urel[k+1] * g(k + 1) * mh
+        end
+    end
+    w
+end
 "SLABTIE: optical depth from the donor centre (χm, column Mm) to the interface in SLABFLUX's exponential-in-τ profile."
 @inline function st_tauint(χm, χp, Mm, Mp)
     ΔM = Mm + Mp; φ = Mm / ΔM; x = log(χm / χp)
@@ -1405,6 +1443,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 (ksflux(k + 1, u, dmdt, ngrs, ngre) - ksflux(k, u, dmdt, ngrs, ngre)) + (isempty(KSTAR[]) ? 0.0 : KSTAR[][k] / dt) -
                 (Mg === nothing ? excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) : Mg.xch[k]) * d[k] * dvol[k] +
                 compton(k, W, P) * dvol[k] - src
+            ECGRAV[] != 0 && (ECGRAV[] == 2 || ECGRAV[] == 3 || (c.etotal && !c.useint[k])) && (w += ecgrav(k, c, W, ECGRAV[] >= 3))
             isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
@@ -1847,7 +1886,7 @@ function zone_diag(dt)
     end
     v0() = zeros(nz)
     uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old, cres = (v0() for _ in 1:19)
-    dKs = v0(); kst = v0()
+    dKs = v0(); kst = v0(); ecg = v0()
     eg0 = ETOT_GRAV[]
     for k in a:b
         i = k + o
@@ -1883,10 +1922,11 @@ function zone_diag(dt)
         dKs[i] = ksflux(k + 1, u, dm, a, b) - ksflux(k, u, dm, a, b)           # sub-zone kinetic-energy flux of the compatible row (telescopes)
         kst[i] = isempty(KSTAR[]) ? 0.0 : KSTAR[][k] / dt                      # BDF stage: K(y*) − (A K_γ − B K_n), taken out by the compatible row
         # ECOMPAT: total row − (compatible rows + u × momentum rows), gravity and advection forms apart
-        cres[i] = imb[i] - gr - adv[i] - p_ - S - Gc[i] - Ec[i] - (ECOMPAT[] ? dKs[i] - kst[i] : 0.0)
+        (ECOMPAT[] && ECGRAV[] != 0 && (ECGRAV[] == 2 || ECGRAV[] == 3 || (c0.etotal && !ui[k]))) && (ecg[i] = ecgrav(k, c, W, ECGRAV[] >= 3))   # the row's gravity term (ECGRAV)
+        cres[i] = imb[i] - gr - adv[i] - p_ - S - Gc[i] - Ec[i] - (ECOMPAT[] ? dKs[i] - kst[i] - ecg[i] : 0.0)
     end
     (; imb, adv, kin, useint = ui[a:b], tiew = tw, rmom = rm, u = copy(W.u[a:b+1]), r = copy(W.rn[a:b+1]), E = copy(W.ern[a:b]), T = copy(W.tn[a:b]),
-       F = copy(W.frn[a:b+1]), ρ = copy(W.dn[a:b]), θ, Gr, Er, uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old, Gc, Ec, cres, dKs, kst,
+       F = copy(W.frn[a:b+1]), ρ = copy(W.dn[a:b]), θ, Gr, Er, uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old, Gc, Ec, cres, dKs, kst, ecg,
        mchk, rchk, Mrow, ub = copy(ub[a:b]), dmdt = copy(dm[a:b+1]), qf = copy(qf[a:b]), pg = copy(W.pgn[a:b]), eg = copy(W.egn[a:b]),
        un = copy(un[a:b+1]), uo = copy(uo[a:b+1]), mn = [mn(k) for k in a:b], mo = [mo(k) for k in a:b], fedd = copy(fedd[a:b]),
        hedd = length(TD.HEDD) >= b ? copy(TD.HEDD[a:b]) : zeros(nz), urel = copy(W.urel[a:b+1]), db = copy(W.db[a:b+1]), xm = copy(W.xm[a:b+1]))
