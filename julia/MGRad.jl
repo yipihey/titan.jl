@@ -54,6 +54,7 @@ array fedd then holds Σ_g f_g E_g / Σ_g E_g (the radiation pressure of the tot
 const MGVEF = Ref(false); const MGVEFOK = Ref(false)
 const MGFEDD = Ref(Vector{Vector{Float64}}()); const MGHEDD = Ref(Vector{Vector{Float64}}()); const MGTIEW = Ref(Vector{Vector{Float64}}())
 const MGGEDDR = Ref(Float64[])
+const MGHPLUS = Ref(Vector{Vector{Float64}}())   # (diagnostic) outgoing half moment H⁺ of each group's formal solution per interface
 "(diagnostic) of the last residual: Σ_g E_g/E_r − 1 worst, the group luminosities through each interface are in MGEN/MGFN"
 const MGNEWTON = Ref(0)
 mgiE(g) = MGI0[] + 2g - 1; mgiF(g) = MGI0[] + 2g
@@ -67,7 +68,7 @@ function mg_alloc!(mgr)
     for R_ in (MGRE, MGRP, MGRR)
         (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = [ones(mgr) for _ in 1:G])
     end
-    for R_ in (MGFEDD, MGHEDD, MGTIEW)
+    for R_ in (MGFEDD, MGHEDD, MGTIEW, MGHPLUS)
         (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = vvec(G, mgr))
     end
     length(MGGEDDR[]) == G || (MGGEDDR[] = fill(0.5, G))

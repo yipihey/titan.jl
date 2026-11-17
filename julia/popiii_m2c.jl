@@ -1487,7 +1487,9 @@ function mg_eddfac!(f0)
                 chi[k] = max(sv[:chifn][k] * RR[k], kE); kp[k] = kE; pl[k] = kP * B / kE
             end
             copyto!(er, TX.MGEN[][g]); copyto!(fr, TX.MGFN[][g]); TF.setscalar!(:ximr, xi0 * TX.MGBCMB_[g])
-            f0()
+            TC.HPON[] = true
+            try f0() finally TC.HPON[] = false end
+            hp = TX.MGHPLUS[][g]; @inbounds for k in eachindex(hp); hp[k] = k <= length(TC.HPLUS) ? TC.HPLUS[k] : 0.0; end
             copyto!(TX.MGFEDD[][g], TF.var(:fedd))
             length(TD.HEDD) >= b_ + 1 && (h = TX.MGHEDD[][g]; @inbounds for k in eachindex(h); h[k] = k <= length(TD.HEDD) ? TD.HEDD[k] : 0.0; end)
             length(TD.TIEW) >= b_ + 1 && (w = TX.MGTIEW[][g]; @inbounds for k in eachindex(w); w[k] = k <= length(TD.TIEW) ? TD.TIEW[k] : 0.0; end)
@@ -1516,6 +1518,7 @@ function mg_record(k)
            rE = [TX.MGRE[][g][rg] for g in 1:TX.MGN[]], rP = [TX.MGRP[][g][rg] for g in 1:TX.MGN[]], rR = [TX.MGRR[][g][rg] for g in 1:TX.MGN[]],
            k1 = [TX.MGK1[][g][rg] for g in 1:TX.MGN[]], edges = copy(TX.MGEDGE[]),
            fg = TX.MGVEFOK[] ? [TX.MGFEDD[][g][rg] for g in 1:TX.MGN[]] : nothing, gr = copy(TX.MGGEDDR[]),
+           hplus = TX.MGVEFOK[] ? [TX.MGHPLUS[][g][rg] for g in 1:TX.MGN[]] : nothing,
            sl = sd === nothing ? nothing : (; kph = sd.kph, Te = sd.Te, L = sd.L, kHm = sd.kHm[rg], kH = sd.kH[rg], kLW = sd.kLW[rg]),
            xHp = [ChemNet.full(mat.x[z], mat.net)[:Hp] for z in a_:b_], xH2 = [ChemNet.full(mat.x[z], mat.net)[:H2] for z in a_:b_],
            wrec = [z <= length(PM.MGWREC[]) ? PM.MGWREC[][z] : nothing for z in rg])

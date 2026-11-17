@@ -596,6 +596,12 @@ end
 cvmgp(a, b, c) = c < 0.0 ? b : a
 cvmgm(a, b, c) = c >= 0.0 ? b : a
 
+"""
+HPON[] (diagnostic, set by the MGROUPS group formal solutions; default false: nothing changes): eddfac! also stores at every interface k the
+outgoing half moment H⁺_k = ½∫₀¹ I μ dμ of the outward sweep (the light leaving the layers inside r_k, whatever lies outside) in HPLUS
+(excess over the background with VEF_BG; the tangent ray of r_k itself is not in the quadrature).
+"""
+const HPON = Ref(false); const HPLUS = Float64[]
 "Eddington factors f = K/J and boundary factors g from a formal solution (eddfac.f)."
 function eddfac!()
     a, b = gi(:ngrs), gi(:ngre); fedd = vf(:fedd)
@@ -753,6 +759,10 @@ function eddfac!()
             xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
         end
         for j in 1:nj; xim[j] = xip[j]; end
+        if HPON[] && isodd(l)
+            length(HPLUS) < length(fedd) && resize!(HPLUS, length(fedd))
+            HPLUS[a + (l - 1) ÷ 2] = -0.5 * _mom1(nj, xang, xim)
+        end
         if iseven(l)
             k = a + (l - 1) ÷ 2
             xang[nj+1] = 0.0
