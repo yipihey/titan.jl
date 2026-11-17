@@ -610,7 +610,13 @@ ECOMPAT[] (provisional, default false; lrad = 1, grey): compatible energy rows i
   * viscous work q_k r̄_k^{3μ/2} (u_{k+1} r_{k+1}^{−μ/2} − u_k r_k^{−μ/2}), the adjoint of the momentum row's r^{−μ/2} Δ(r̄^{3μ/2} q);
   * the kinetic energy the momentum row's discretisation does not keep, as cancellation-free products of differences, returned as heat:
       time    −(2θ − 1) ¼ ½(m_n + m_o) Σ_faces (u_n − u_o)² / Δt + (θ² − θ + ½) ¼ (m_n − m_o) Σ_faces (u_n − u_o)² / Δt
-      upwind  ½(ṁ_k + ṁ_k+1) (u_k+1 − u_k) (½(u_k + u_k+1) − û_k)            û the van Leer value of the momentum flux
+              (BDF stage of TR-BDF2: + D_k/Δt, D = K(y*) − (A K_γ − B K_n), `KSTAR`: the reference state's kinetic energy is not the BDF2
+              combination of the stage energies, and the step conserves only with the latter)
+      upwind  ½(ṁ_k + ṁ_k+1) (u_k+1 − u_k) (½(u_k + u_k+1) − û_k) − (G_k+1 − G_k)    û the van Leer value of the momentum flux,
+              G_j = ṁ_j (Δu)²_upwind/8 the flux of the sub-zone kinetic energy (zone kinetic energy ¼m(u_k² + u_k+1²) = ½m ū² + ⅛m(Δu)²)
+              with the relative mass flux (`ksflux`). The first term alone is not sign-definite (third order in Δu, it cools where the
+              velocity gradient steepens upstream); with the transport term the heating is ½|ṁ̄| [½(a − b)² + ¼(a − b)³/(a + b)] ≥ ⅛|ṁ̄|(a − b)²
+              for monotone data (a, b the velocity differences of the zone and of its upwind neighbour) and ⅜|ṁ̄|a² + ⅛|ṁ̄|b² at an extremum
   * the old-level energy is the one the previous solve left, e_old = (e_g + E/ρ)_old − E_old/ρ_old, not a re-evaluation of the EOS
     (COUPLED zones: `cpl_prepare!` re-evaluates e_g(ρ, T, x) with the new step's expansion terms);
   * no gravity term: the work of gravity is what the momentum row's force does, Σ_j u_j g_j ½(m_j−1 + m_j).
@@ -621,6 +627,19 @@ MOMENT equation's ∇·P, so the comoving row conserves only where that equation
 difference u (∇·P + χρF/c) was created (3.3e3 L☉ in the outer cloud of the 100-zone run). Use with TIEFRAME.
 """
 const ECOMPAT = Ref(false)
+"""
+KSTAR[] (ECOMPAT; set by Trbdf2.bdf_old!, emptied by its restore!): per zone D_k = K(y*) − (A K_γ − B K_n) [erg sr⁻¹], the kinetic energy
+¼m(u_k² + u_k+1²) of the BDF stage's reference state y* = A y_γ − B y_n (built on m and m u) minus the same combination of the stage
+kinetic energies, = A B ⅛ m Σ_faces (u_γ − u_n)² for equal masses. A stage row that differences against y* conserves E(y*), the step conserves
+A E_γ − B E_n; the gas row therefore takes D_k out of its old-level energy. Empty in every other stage.
+"""
+const KSTAR = Ref(Float64[])
+"ECOMPAT: flux G_j = ṁ_j (u_up+1 − u_up)²/8 of the sub-zone kinetic energy through interior interface j (upwind zone: j for ṁ_j ≥ 0, else j − 1); 0 at the boundaries."
+@inline function ksflux(j, u, dmdt, ngrs, ngre)
+    ngrs < j <= ngre || return zero(eltype(u))
+    up = val(dmdt[j]) >= 0 ? j : j - 1
+    dmdt[j] * 0.125 * (u[up+1] - u[up])^2
+end
 "SLABTIE: optical depth from the donor centre (χm, column Mm) to the interface in SLABFLUX's exponential-in-τ profile."
 @inline function st_tauint(χm, χp, Mm, Mp)
     ΔM = Mm + Mp; φ = Mm / ΔM; x = log(χm / χp)
@@ -1383,6 +1402,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * (vhi - vlo) +
                 (-(2θ - 1) * 0.125 * (mn_ + mo_) + (θ^2 - θ + 0.5) * 0.25 * (mn_ - mo_)) * du2 / dt +
                 0.5 * (dmdt[k] + dmdt[k+1]) * (u[k+1] - u[k]) * (0.5 * (u[k] + u[k+1]) - W.ub[k]) -
+                (ksflux(k + 1, u, dmdt, ngrs, ngre) - ksflux(k, u, dmdt, ngrs, ngre)) + (isempty(KSTAR[]) ? 0.0 : KSTAR[][k] / dt) -
                 (Mg === nothing ? excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) : Mg.xch[k]) * d[k] * dvol[k] +
                 compton(k, W, P) * dvol[k] - src
             isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
@@ -1827,6 +1847,7 @@ function zone_diag(dt)
     end
     v0() = zeros(nz)
     uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old, cres = (v0() for _ in 1:19)
+    dKs = v0(); kst = v0()
     eg0 = ETOT_GRAV[]
     for k in a:b
         i = k + o
@@ -1859,10 +1880,13 @@ function zone_diag(dt)
         Rbnd[i] = ra - (R6a[i] + R6b[i] + R6c[i] + dΨr[i])
         lrad && (old[i] = (c.ero[k] * c.dvolo[k] - mo(k) * (c.egro[k] - c.ego[k]) + mn(k) * (W.egrn[k] - W.egn[k]) - W.ern[k] * W.dvoln[k]) / dt)
         rem[i] = imb[i] - Gr[i] - Er[i] - (Kraw + p_ + vi + gr + ra + adv[i]) - S - old[i]
-        cres[i] = imb[i] - gr - adv[i] - p_ - S - Gc[i] - Ec[i]      # ECOMPAT: total row − (compatible rows + u × momentum rows), gravity and advection forms apart
+        dKs[i] = ksflux(k + 1, u, dm, a, b) - ksflux(k, u, dm, a, b)           # sub-zone kinetic-energy flux of the compatible row (telescopes)
+        kst[i] = isempty(KSTAR[]) ? 0.0 : KSTAR[][k] / dt                      # BDF stage: K(y*) − (A K_γ − B K_n), taken out by the compatible row
+        # ECOMPAT: total row − (compatible rows + u × momentum rows), gravity and advection forms apart
+        cres[i] = imb[i] - gr - adv[i] - p_ - S - Gc[i] - Ec[i] - (ECOMPAT[] ? dKs[i] - kst[i] : 0.0)
     end
     (; imb, adv, kin, useint = ui[a:b], tiew = tw, rmom = rm, u = copy(W.u[a:b+1]), r = copy(W.rn[a:b+1]), E = copy(W.ern[a:b]), T = copy(W.tn[a:b]),
-       F = copy(W.frn[a:b+1]), ρ = copy(W.dn[a:b]), θ, Gr, Er, uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old, Gc, Ec, cres,
+       F = copy(W.frn[a:b+1]), ρ = copy(W.dn[a:b]), θ, Gr, Er, uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old, Gc, Ec, cres, dKs, kst,
        mchk, rchk, Mrow, ub = copy(ub[a:b]), dmdt = copy(dm[a:b+1]), qf = copy(qf[a:b]), pg = copy(W.pgn[a:b]), eg = copy(W.egn[a:b]),
        un = copy(un[a:b+1]), uo = copy(uo[a:b+1]), mn = [mn(k) for k in a:b], mo = [mo(k) for k in a:b], fedd = copy(fedd[a:b]),
        hedd = length(TD.HEDD) >= b ? copy(TD.HEDD[a:b]) : zeros(nz), urel = copy(W.urel[a:b+1]), db = copy(W.db[a:b+1]), xm = copy(W.xm[a:b+1]))

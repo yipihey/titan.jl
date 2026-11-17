@@ -59,7 +59,7 @@ save!() = (for s in OLD; copyto!(get!(() -> similar(vf(s)), SAVE, s), vf(s)); en
            TX.COUPLED[] && for i in 1:2; length(SAVEX[i]) == length(TX.XSO[][i]) || (SAVEX[i] = similar(TX.XSO[][i])); copyto!(SAVEX[i], TX.XSO[][i]); end;
            TX.MG[] && mg_save!())
 restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:2; copyto!(TX.XSO[][i], SAVEX[i]); end;
-              TX.MG[] && mg_restore!())
+              TX.MG[] && mg_restore!(); isempty(TX.KSTAR[]) || (TX.KSTAR[] = Float64[]))
 # MGROUPS: the old group fields (TitanResidFast MGEO, MGFO) saved, restored and combined like E_r (on E ΔV) and F_r (on the flux-row inertia)
 const SAVEMG = [Vector{Vector{Float64}}(), Vector{Vector{Float64}}()]
 mg_save!() = (SAVEMG[1] = deepcopy(TX.MGEO[]); SAVEMG[2] = deepcopy(TX.MGFO[]); nothing)
@@ -147,6 +147,13 @@ function bdf_old!()
     if TitanCore.FREE_OUTER[]          # dynamic outer interface: momentum of the outer half zone
         k = b + 1
         uo[k] = cb(un[k] * mγ(k-1), u0[k] * mn(k-1)) / ms[k-1]
+    end
+    if TX.ECOMPAT[]                    # kinetic energy of y* minus the BDF2 combination of the stage kinetic energies (TX.KSTAR)
+        D = zeros(length(dn))
+        @inbounds for k in rng
+            D[k] = 0.25 * (ms[k] * (uo[k]^2 + uo[k+1]^2) - cb(mγ(k) * (un[k]^2 + un[k+1]^2), mn(k) * (u0[k]^2 + u0[k+1]^2)))
+        end
+        TX.KSTAR[] = D
     end
     true
 end
