@@ -29,11 +29,13 @@ const MGI0 = Ref(9)
 const MGEVK = Ref(1.602176634e-12 / 1.380649e-16)   # eV / k_B [K]; set by the driver from ChemNet's constants
 const MGQG = Ref(2)                             # the group that carries RAYQ/GASQ (optical)
 const MGBFLOOR = 1e-200                         # floor of a group's Planck fraction (energy 1e-200 aT⁴: none; keeps ln E_g finite)
-const MGCLAMP = Ref(1e3)                        # largest relative increase δ of E_g per Newton iteration (E_g ← E_g (1 + δ))
-const MGPOS = Ref(1e-6)                         # smallest factor 1 + δ of a decrease (positivity)
-const MGEMIN = 1e-150                           # floor of E_g/E_r after an update (a group that underflowed made the Newton matrix singular)
-const MGCFL = Ref(1e-12)                        # convergence weight floor: |δE_g/E_g| counts with E_g/(E_g + MGCFL·E_r)
+const MGCLAMP = Ref(3.0)                        # clamp of a correction of ln E_g per Newton iteration
+const MGEMIN = 1e-150                           # floor of E_g/E_r after an update (an underflowed group makes the Newton matrix singular)
+const MGCFL = Ref(1e-3)                         # convergence weight floor: |δ ln E_g| counts with E_g/(E_g + MGCFL·E_r)
 const MGEFL = Ref(1e-3)                         # TR-BDF2 error-norm floor: changes of a group below MGEFL·E_r do not limit Δt
+# (Tried and reverted, t_mg17/t_mg18: E_g ← E_g(1 + δ) (Newton in E_g, clamp [1e-6 − 1, 1e3]) with MGCFL = 1e-12: the ionising group then
+#  flip-flops between ~1e-22 and ~1e-49 of E_r at the photosphere from step to step and Δt fell to 446–2228 s (log update ~1e4 s);
+#  docs/POPIII_MULTIGROUP.md §10.)
 const MGTCMB = Ref(0.0)
 vvec(n, m) = [zeros(m) for _ in 1:n]
 const MGEN = Ref(Vector{Vector{Float64}}()); const MGFN = Ref(Vector{Vector{Float64}}())     # new level (Newton iterate base)
@@ -129,16 +131,12 @@ function mg_newstep!()
 end
 "Reset after a failed iterate: new := old."
 mg_reset!() = (for g in 1:MGN[]; copyto!(MGEN[][g], MGEO[][g]); copyto!(MGFN[][g], MGFO[][g]); end; nothing)
-"""
-Apply the Newton correction: E_g ← E_g (1 + δ) (δ = the solve's correction of ln E_g, clamped in mg_dmax! to [MGPOS − 1, MGCLAMP]: Newton in
-E_g itself, as TITAN updates E_r, so the group rows, linear in E_g at fixed state, converge in one or two iterations even where a group has to
-change by orders of magnitude; e^δ would move a falling group by at most ×e per iteration), F_g ← F_g + δ·nom.
-"""
+"Apply the Newton correction: E_g ← max(E_g e^δ, MGEMIN·E_r) (δ the correction of ln E_g, clamped to ±MGCLAMP in mg_dmax!), F_g ← F_g + δ·nom."
 function mg_update!(rhs, a, b)
     er = v(:ern)
     @inbounds for g in 1:MGN[]
         E = MGEN[][g]; F = MGFN[][g]; nom = MGFNOM[][g]; iE = mgiE(g); iF = mgiF(g)
-        for k in a:b; E[k] = max(E[k] * (1 + rhs[iE, k]), MGEMIN * er[k]); end
+        for k in a:b; E[k] = max(E[k] * exp(rhs[iE, k]), MGEMIN * er[k]); end
         for k in a+1:b+1; F[k] += rhs[iF, k] * nom[k]; end
         mg_ghosts!(E, F, a, b)
     end
@@ -150,21 +148,17 @@ end
     F[a] = 0.0; F[a-1] = gi(:lribc) == 2 ? -F[a+1] : F[a-1]; F[b+2] = F[b+1]
     nothing
 end
-"""
-maxdel: clamp the relative corrections of E_g to [MGPOS − 1, MGCLAMP] and return the convergence measure: |δ| weighted by E_g/(E_g + MGCFL·E_r)
-(every group converges relative to its own size wherever it is above 1e-12 of the field: the photo-rates of the minor groups need it), at most
-1 per entry so that a group far from its solution does not damp the whole correction through TITAN's dtol scaling.
-"""
+"maxdel: clamp ln E_g corrections to ±MGCLAMP and return the convergence measure (|δ ln E_g| weighted by E_g/(E_g + MGCFL·E_r))."
 function mg_dmax!(rhs, a, b)
-    d = 0.0; cl = MGCLAMP[]; lo = MGPOS[] - 1; er = v(:ern)
+    d = 0.0; cl = MGCLAMP[]; er = v(:ern)
     @inbounds for g in 1:MGN[]
         E = MGEN[][g]; iE = mgiE(g)
         for k in a:b
             δ = rhs[iE, k]
             isfinite(δ) || (rhs[iE, k] = 0.0; d = Inf; continue)
-            rhs[iE, k] = clamp(δ, lo, cl)
+            rhs[iE, k] = clamp(δ, -cl, cl)
             w = E[k] / (E[k] + MGCFL[] * er[k])
-            d = max(d, min(abs(rhs[iE, k]), 1.0) * w)
+            d = max(d, abs(rhs[iE, k]) * w)
         end
         for k in a:b+1; isfinite(rhs[mgiF(g), k]) || (rhs[mgiF(g), k] = 0.0; d = Inf); end
     end
