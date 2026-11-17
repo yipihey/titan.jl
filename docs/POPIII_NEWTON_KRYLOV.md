@@ -221,9 +221,23 @@ whether the time difference is the time-step error of the collapse phase or some
 
 60 steps from the stuck checkpoint (`nw0`), ERLAB=1, `DTERRTRACE=1`, 4 threads, NKRYLOV not set: the unmodified base tree (`/home/tabel/Projects/titan.jl`, popiii-s6 a4837c7, read only) `runs/t_nk32` and this tree `runs/t_nk33`.
 Compared: the decompressed final checkpoint state (`zcat ck/m2c_nk3?S1.tstate.gz | md5sum`: 97e00ce1ce80cb88de8e8a7328f7ee00 in both), the `.aux` files (md5 7350d11ed7eb7123e9f9c41d53364611 in both),
-and the 60 `DTERR jstep` lines (md5 a737fa41ef456b4a09a6db67f55ffe81 in both; `diff` empty). Both runs: 14 Newton failures in the 60 steps. **Bit-identical.**
+and the 60 `DTERR jstep` lines (md5 a737fa41ef456b4a09a6db67f55ffe81 in both; `diff` empty). Both runs: 14 Newton failures in the 60 steps. **Bit-identical.** Repeated on the final commit (after the cleanup commit, `runs/t_nk34`): the same three md5 sums. The final code with the switch on, probes at 1.5e4 and 1e6 s (`runs/t_nk35`): 4 and 4 Newton iterations.
 
 
 ## 9. Open issues
 
-RESULTS_OPEN
+1. **The second inexactness is located, not removed.** With the closure held, the band Jacobian still lacks ∂F_r/∂x_H⁺ in zones 15–24 (a factor ~10 in the entries of zones k−1, k) and is 0.1–4 % off in the
+   T, u, E_r, x_H⁺, x_H₂ rows of zones 16–28 (T1). Candidates are the opacity of the coupled zones (NLOIT/NLOPAC slope refresh, `CPLJLAG` reuse); not tested which. Whether this is the dt-independent 0.61 rate
+   is an inference from the location (the largest correction E_r, zone 22). The Krylov solve absorbs it (3–5 Newton iterations at every Δt) but it would be cheaper to fix the assembled entry.
+2. **Finite-difference noise.** `eddfac!` evaluates 1 − (1 + τ)e^{−τ}-type expressions in optically thin zones; f and h carry ~1e-6 round-off, so J v in the F_r rows of the outer zones needs ε ≳ 1e-5 (central)
+   and the one-sided ε ≈ 1e-7 of the first design does not work (§4). A cancellation-free evaluation (expm1) would change `eddfac!` at the round-off level (not bit-identical), so it was not touched.
+3. **Cost.** In the 400-step run the Krylov solve is 71 % of the wall (2078 of 2917 s; 15 linear solves and 59 products per step because the steps are 460 × longer and each retry repeats them). Per simulated year it
+   is ~200 × cheaper (T3), per step 2.4 × dearer; from the initial condition (T4) the wall to M* = 0.2 is 2.2 × longer, not shorter (step count 1100 against 1300). Each linear solve takes a full snapshot of
+   the Julia state (all arrays of `TF.JSTATE` except the Jacobian and rhs) per solve and restores it per product and refactors the band matrix with pivoting; both could be cut (snapshot only what `update!` writes; reuse the matslv factorisation) — not done.
+4. **Fallbacks.** In T4, 68 linear solves fell back to the band correction (`non-finite J v`: a perturbed update gave a non-finite residual in the start of the collapse; one SingularException). In T3 none.
+5. **T4 timing of core formation** differs by −0.36 % from the reference (§7), not diagnosed. L_ph shows one +80 % excursion at step 43,650 in the free-running T3 (§6), not diagnosed.
+6. **Not run**: the `TitanDriver.step!` path (θ-scheme, non-DTERR) uses the same `newton_linear!` but was not exercised with the switch on (it is bit-identical with the switch off by construction: same calls);
+   `NITER` smaller than 25 with NKRYLOV; `eta`/`mmax` variations (defaults 1e-3 and 30: no non-convergence in 5952 + 30 + 17 solves of T2/T3, 0 in T4's trace lines; the Krylov iterations per solve are 2.6–5).
+7. For the production run (not changed by this work): with NKRYLOV the Newton failures per 100 steps fall from 25.8 to 2.8 and the mean accepted Δt rises from 5.6e3 to 2.6e6 s from the stuck state, so a restart of
+   z100mm with `NKRYLOV=1` is the experiment to do; the step then runs to the error-estimate limit (x_H₂/x_H⁺ in the photosphere zones 27–31) and the accreted mass per wall-hour rises ~200 ×.
+
