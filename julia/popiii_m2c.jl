@@ -1742,24 +1742,24 @@ try
         @printf("DTERR: error-controlled TR-BDF2 (rtol %g, x floor %g, F floor %g cE, E floor %g aT^4, %s norm, PI %s, safety/facmin/facmax %g/%g/%g, Newton-failure factor %g, BE retry %s); TITAN's heuristic and caps are diagnostic only\n",
                 Trbdf2.EOPT.rtol, Trbdf2.EOPT.xfl, Trbdf2.EOPT.ffl, Trbdf2.EOPT.efl, Trbdf2.EOPT.maxnorm ? "max" : "rms", Trbdf2.EOPT.pi, Trbdf2.EOPT.safety, Trbdf2.EOPT.facmin, Trbdf2.EOPT.facmax, Trbdf2.EOPT.fail, Trbdf2.EOPT.be)
     end
-    # NWPROBE=<dt> (diagnostic, default off): ONE trapezoidal-stage attempt of a step of dt seconds from the restart state (through the same step
-    # wrapper chain as a normal step), traced if NWTRACE is set, then the process ends. NWFD=<zlo>,<zhi>,<iter>: with it, at Newton iteration <iter>
-    # of that attempt, finite differences against the assembled Jacobian for the unknowns of zones zlo..zhi (zone numbers as in the divergence message).
+    # NWPROBE=<dt1>,<dt2>,... (diagnostic, default off): at step NWPROBEAT+1 [41] of this process, instead of the step, one trapezoidal-stage attempt at each
+    # of these step sizes from the live state (as a retry after a Newton failure starts, Trbdf2.step_err!), traced if NWTRACE is set; then the process ends.
+    # NWFD=<zlo>,<zhi>,<iter>: with it, at Newton iteration <iter> of the first attempt, finite differences against the assembled Jacobian for the unknowns
+    # of zones zlo..zhi (zone numbers as in the divergence message), see nwfd!.
     if haskey(ENV, "NWPROBE")
         if haskey(ENV, "NWFD")
             let w = parse.(Int, split(ENV["NWFD"], ",")), mg0 = TD.ROUTINES[:matgen], done = Ref(false)
                 TD.ROUTINES[:matgen] = function ()
                     mg0()
-                    (done[] || Int(TF.getscalar(:iter)) != w[3]) && return
+                    (!isempty(Trbdf2.NWPROBE[]) && !done[] && Int(TF.getscalar(:iter)) == w[3]) || return
                     done[] = true
                     nwfd!(w[1], w[2], w[3]); flush(stdout); exit(0)
                 end
             end
         end
-        Trbdf2.HNEXT[] = parse(Float64, ENV["NWPROBE"]); Trbdf2.NWPROBE[] = true
-        TD.STEPFN[]()
-        Trbdf2.NWTRACE[] === nothing || close(Trbdf2.NWTRACE[])
-        flush(stdout); exit(0)
+        let f0 = TD.STEPFN[], cnt = Ref(0), nat = parse(Int, get(ENV, "NWPROBEAT", "40"))
+            TD.STEPFN[] = () -> (cnt[] += 1; cnt[] == nat + 1 && (Trbdf2.NWPROBE[] = parse.(Float64, split(ENV["NWPROBE"], ","))); f0(); nothing)
+        end
     end
     RUNEND[] = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k

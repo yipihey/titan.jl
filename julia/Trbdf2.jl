@@ -87,7 +87,7 @@ end
 # NWTRACE=<file> (diagnostic, default off = bit-identical): one line per Newton iteration of every attempt (iteration, dmax, the base measure
 # max(|dr|,|dm|,|drho|,|dT|,|dE|), the species' weighted measure with its equation and zone, and for each of the equations the largest
 # raw correction with its zone), a header per attempt and a result line.
-const NWTRACE = Ref{Any}(nothing); const NWATT = Ref(0); const NWPROBE = Ref(false)
+const NWTRACE = Ref{Any}(nothing); const NWATT = Ref(0); const NWPROBE = Ref(Float64[])
 function nwtrace_it()
     io = NWTRACE[]; n = Int(g(:neqn)); kx = TF.var(:kx); dx = TF.var(:dx)
     base = max(abs(dx[Int(g(:ir))]), abs(dx[Int(g(:im))]), abs(dx[Int(g(:id))]), abs(dx[Int(g(:it))]), abs(dx[Int(g(:ie))])) + 1.0e-30
@@ -645,6 +645,17 @@ function step_err!()
     save!(); Cn = combos_saved()
     s!(:jtry, 1); s!(:jback, 0)
     rejected = false; err = NaN; info = ("", 0, NaN); Dnew = nothing; nrej = 0
+    if !isempty(NWPROBE[])        # (NWPROBE, diagnostic, default off) one trapezoidal-stage attempt at each given step size from this state, as a retry after a failure would start it
+        for dtp in NWPROBE[]
+            restore!(); s!(:thet, θ0); s!(:dtime, dtp); s!(:tfac, dtp / Δ0); r(:reset); s!(:timen, t0 + dtp)
+            TitanCore.predict!(; halve = false, dtscale = γ1)
+            s!(:thet, 0.5); s!(:dtime, γ * dtp); s!(:timen, t0 + γ * dtp)
+            tw = time(); okp = newton!()
+            @printf("NWPROBE step dt %.4e (TR stage %.4e): converged %s, iterations %d, final dmax %.3e, %.1f s\n", dtp, γ * dtp, okp, Int(g(:iter)), g(:dmax), time() - tw)
+        end
+        NWTRACE[] === nothing || close(NWTRACE[])
+        flush(stdout); exit(0)
+    end
     while true
         Δ = g(:dtime); TD.FULL_DT[] = Δ; err = NaN; Dnew = nothing
         if alt
@@ -652,10 +663,6 @@ function step_err!()
         else
         s!(:thet, 0.5); s!(:dtime, γ * Δ); s!(:timen, t0 + γ * Δ)
         ok = newton!()
-        if NWPROBE[]                                                        # (NWPROBE, diagnostic) one TR-stage attempt, then stop
-            println("NWPROBE: TR stage dt ", γ * Δ, " (step dt ", Δ, ") converged ", ok, " iterations ", Int(g(:iter)), " dmax ", g(:dmax))
-            return nothing
-        end
         ok && !finite_new() && (ok = false; ESTATS[:nonfinite] += 1)        # a non-finite stage is a failed attempt
         if !ok
             STATS[:fail_tr] += 1
