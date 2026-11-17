@@ -1413,7 +1413,7 @@ inside the photosphere and at the star's T_eff outside it).
 function mg_install!()
     COUPLED || error("MGROUPS needs COUPLED=1")
     Int(TF.getscalar(:lrad)) == 1 || error("MGROUPS needs the radiation field (RAD=1)")
-    (TX.COMPTON[] || TX.GASROW[] || TX.INNER_SINK[] || !isnan(TX.PEXT[])) && error("MGROUPS: COMPTON, GASROW, INNER_SINK, PEXT are not supported")
+    (TX.COMPTON[] || TX.INNER_SINK[] || !isnan(TX.PEXT[])) && error("MGROUPS: COMPTON, INNER_SINK, PEXT are not supported")
     edges = PM.mg_edges(ENV["MGROUPS"]); G = length(edges) + 1
     TF.PARAMS[:meqn] >= 9 + 2G || error("MGROUPS: meqn = $(TF.PARAMS[:meqn]) < $(9 + 2G)")
     tcmb = parse(Float64, get(ENV, "TCMB", "0"))

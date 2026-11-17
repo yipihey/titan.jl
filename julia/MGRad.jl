@@ -166,11 +166,12 @@ struct MGWS{T}
     erb::Vector{Vector{T}}; ersn::Vector{Vector{T}}; qe::Vector{Vector{T}}; qeo::Vector{Vector{T}}
     frb::Vector{Vector{T}}; frsn::Vector{Vector{T}}; qF::Vector{Vector{T}}; qFo::Vector{Vector{T}}
     frc::Vector{T}                                  # Σ_g χ̄_g F_g at interfaces (radiation force)
+    xch::Vector{T}                                  # Σ_g x_cap,g (c κ_E,g E_g − 4π κ_P,g B_g) per zone (the GASROW gas row's exchange, per mass)
 end
 const MGWSC = Dict{DataType,Any}()
 mgws(::Type{T}, mgr) where {T} = get!(MGWSC, T) do
     G = MGN[]; z() = [zeros(T, mgr) for _ in 1:G]
-    MGWS{T}(z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), zeros(T, mgr))
+    MGWS{T}(z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), zeros(T, mgr), zeros(T, mgr))
 end::MGWS{T}
 
 "The group unknowns of the iterate (blocks k0 … ngre+2) into the workspace."
@@ -223,6 +224,12 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
         s = zero(T)
         for g in 1:MGN[]; s += M.avchi[g][k] * M.fg[g][k]; end
         fc[k] = s
+    end
+    xc = M.xch; cc = P.cc; dt = P.dt
+    @inbounds for k in ngrs:ngre
+        s = zero(T)
+        for g in 1:MGN[]; ke = M.xke[g][k]; s += excap(cc, ke, W.d[k], dt) * (cc * ke * M.eg[g][k] - M.emit[g][k]); end
+        xc[k] = s
     end
     nothing
 end
