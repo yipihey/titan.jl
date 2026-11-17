@@ -31,6 +31,7 @@ const MGQG = Ref(2)                             # the group that carries RAYQ/GA
 const MGBFLOOR = 1e-200                         # floor of a group's Planck fraction (energy 1e-200 aT⁴: none; keeps ln E_g finite)
 const MGCLAMP = Ref(1e3)                        # largest relative increase δ of E_g per Newton iteration (E_g ← E_g (1 + δ))
 const MGPOS = Ref(1e-6)                         # smallest factor 1 + δ of a decrease (positivity)
+const MGEMIN = 1e-150                           # floor of E_g/E_r after an update (a group that underflowed made the Newton matrix singular)
 const MGCFL = Ref(1e-12)                        # convergence weight floor: |δE_g/E_g| counts with E_g/(E_g + MGCFL·E_r)
 const MGEFL = Ref(1e-3)                         # TR-BDF2 error-norm floor: changes of a group below MGEFL·E_r do not limit Δt
 const MGTCMB = Ref(0.0)
@@ -134,9 +135,10 @@ E_g itself, as TITAN updates E_r, so the group rows, linear in E_g at fixed stat
 change by orders of magnitude; e^δ would move a falling group by at most ×e per iteration), F_g ← F_g + δ·nom.
 """
 function mg_update!(rhs, a, b)
+    er = v(:ern)
     @inbounds for g in 1:MGN[]
         E = MGEN[][g]; F = MGFN[][g]; nom = MGFNOM[][g]; iE = mgiE(g); iF = mgiF(g)
-        for k in a:b; E[k] *= 1 + rhs[iE, k]; end
+        for k in a:b; E[k] = max(E[k] * (1 + rhs[iE, k]), MGEMIN * er[k]); end
         for k in a+1:b+1; F[k] += rhs[iF, k] * nom[k]; end
         mg_ghosts!(E, F, a, b)
     end
