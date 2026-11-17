@@ -49,6 +49,13 @@ const ROUTINES = Dict{Symbol,Function}(
     s => (() -> fcall(Symbol(s, "_"))) for s in
     (:peq, :matgen, :matslv, :maxdel, :update, :timstp, :reset, :totnrg))
 r(s) = ROUTINES[s]()
+"""
+`KRYLOV[]` (NKRYLOV, NewtonKrylov.jl, docs/POPIII_NEWTON_KRYLOV.md; default `nothing` = plain Newton): a function called right after matslv in `newton_linear!` that replaces the
+band-Jacobian correction in `rhs` by the GMRES solution of the true Newton system, preconditioned by the band Jacobian. `nothing`: the two routine calls only (bit-identical).
+"""
+const KRYLOV = Ref{Any}(nothing)
+"The linear part of a Newton iteration: assemble the band Jacobian and residual, solve for the correction in `rhs` (and, with NKRYLOV, refine it on the true Jacobian)."
+newton_linear!() = (r(:matgen); r(:matslv); KRYLOV[] === nothing || KRYLOV[](); nothing)
 
 # scalar accessors (zero-copy 0-dim views, cached)
 const SV = Dict{Symbol,Array}()
@@ -171,7 +178,7 @@ function step!()
     FULL_DT[] = g(:dtime)
     s!(:iter, 1)
     @label three
-    r(:matgen); r(:matslv); r(:maxdel); r(:update)
+    newton_linear!(); r(:maxdel); r(:update)
     g(:dmax) <= g(:conv) && @goto seven
     s!(:iter, g(:iter) + 1)
     g(:iter) <= g(:niter) && @goto three
@@ -187,7 +194,7 @@ function step!()
     @goto two
     @label seven
     s!(:lboos, 1)
-    r(:matgen); r(:matslv); r(:maxdel); r(:update)
+    newton_linear!(); r(:maxdel); r(:update)
     s!(:lboos, 0)
     STAGE_HOOK[] === nothing || STAGE_HOOK[](:single, g(:dtime))
     FIX_ENERGY[] && r(:totnrg)              # book with the dt actually taken

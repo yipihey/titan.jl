@@ -109,17 +109,17 @@ function newton0!()
     s!(:iter, 1)
     try
         while true
-            r(:matgen); r(:matslv); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update)
+            TD.newton_linear!(); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update)
             g(:dmax) <= g(:conv) && break
             s!(:iter, g(:iter) + 1)
             g(:iter) > g(:niter) && return false
         end
-        s!(:lboos, 1); r(:matgen); r(:matslv); r(:maxdel); r(:update); s!(:lboos, 0)
+        s!(:lboos, 1); TD.newton_linear!(); r(:maxdel); r(:update); s!(:lboos, 0)
         if ERESTOL[] > 0
             e = eres(); ERES[:checks] += 1
             while e > ERESTOL[]
                 g(:iter) >= g(:niter) && (ERES[:niter] += 1; break)
-                s!(:iter, g(:iter) + 1); s!(:lboos, 1); r(:matgen); r(:matslv); r(:maxdel); r(:update); s!(:lboos, 0); ERES[:extra] += 1
+                s!(:iter, g(:iter) + 1); s!(:lboos, 1); TD.newton_linear!(); r(:maxdel); r(:update); s!(:lboos, 0); ERES[:extra] += 1
                 e1 = eres(); stall = !(e1 < 0.5e); e = e1
                 stall && break
             end

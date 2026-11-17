@@ -26,7 +26,7 @@ const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = 
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
 using ForwardDiff
 # INTEGRATOR=trbdf2 (default) | theta: second-order L-stable TR-BDF2 (Trbdf2.jl, G2) or TITAN's theta scheme
-include(joinpath(@__DIR__, "Trbdf2.jl"))
+include(joinpath(@__DIR__, "Trbdf2.jl")); include(joinpath(@__DIR__, "NewtonKrylov.jl"))
 # default since G2b: θ = 0.55 lets the z = 19 core oscillate at 1e11–1e13 (three-body heating phase) where TR-BDF2 is smooth
 get(ENV, "INTEGRATOR", "trbdf2") == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
 const Msun = 1.98847e33
@@ -1198,6 +1198,16 @@ const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended ru
 const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
 # Newton controls, applied after any restart: NITER (iterations per attempt), FAILTFAC (Δt factor after a failed attempt)
 haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
+# NKRYLOV=1[,<eta>[,<mmax>[,<eps>[,<central>]]]] (provisional, default off = bit-identical): each Newton correction solved by GMRES on the true Jacobian (finite-difference products of the residual after a
+# full update!), preconditioned by the band Jacobian; eta = linear tolerance relative to the band correction (1e-3), mmax = Krylov dimension (30), eps = size of the weighted perturbation (1e-5),
+# central = 1 central / 0 one-sided difference. NewtonKrylov.jl, docs/POPIII_NEWTON_KRYLOV.md.
+# With NWPROBE the Krylov solve is switched on at the probe state only (the steps before it run plain Newton, so the probe starts from the reference state).
+# NKCHECK=<iter> (diagnostic, with NWPROBE): finite-difference J v against the band Jacobian at Newton iteration <iter> of the first attempt, then exit.
+if get(ENV, "NKRYLOV", "0") != "0"
+    NewtonKrylov.configure!(ENV["NKRYLOV"], activate = !haskey(ENV, "NWPROBE")); haskey(ENV, "NKCHECK") && (NewtonKrylov.OPT.check = parse(Int, ENV["NKCHECK"]))
+    atexit(() -> println(NewtonKrylov.summary_text()))
+    pr("NKRYLOV: Newton corrections by GMRES on the true Jacobian (eta %g, Krylov dimension %d, eps %g), band Jacobian as preconditioner\n", NewtonKrylov.OPT.eta, NewtonKrylov.OPT.mmax, NewtonKrylov.OPT.eps)
+end
 haskey(ENV, "NWFREEZE") && (TC.NWFREEZE[] = String.(split(ENV["NWFREEZE"], ",")))     # (diagnostic, default off) see TitanCore.NWFREEZE
 haskey(ENV, "NWTRACE") && (Trbdf2.NWTRACE[] = open(ENV["NWTRACE"], "a"))      # (diagnostic, default off) Newton trace, see Trbdf2.NWTRACE
 haskey(ENV, "STOL") && TF.setscalar!(:stol, parse(Float64, ENV["STOL"]))
@@ -1754,7 +1764,7 @@ try
     if Trbdf2.ERRCTL[]                             # DTERR: coverage of the COUPLED zones and the line cap the heuristic would apply, on the trace lines
         Trbdf2.TRACE_EXTRA[] = function ()
             nnet = count(k -> !mat.eqzone[k], a:b); ncpl = count(k -> TX.cplz(k), a:b)
-            @sprintf(" | network zones %d, coupled %d | line cap %.3e", nnet, ncpl, LINECAPV[])
+            @sprintf(" | network zones %d, coupled %d | line cap %.3e", nnet, ncpl, LINECAPV[]) * (TD.KRYLOV[] === nothing ? "" : NewtonKrylov.trace_text(Trbdf2.ESTATS[:steps]))
         end
         @printf("DTERR: error-controlled TR-BDF2 (rtol %g, x floor %g, F floor %g cE, E floor %g aT^4, %s norm, PI %s, safety/facmin/facmax %g/%g/%g, Newton-failure factor %g, BE retry %s); TITAN's heuristic and caps are diagnostic only\n",
                 Trbdf2.EOPT.rtol, Trbdf2.EOPT.xfl, Trbdf2.EOPT.ffl, Trbdf2.EOPT.efl, Trbdf2.EOPT.maxnorm ? "max" : "rms", Trbdf2.EOPT.pi, Trbdf2.EOPT.safety, Trbdf2.EOPT.facmin, Trbdf2.EOPT.facmax, Trbdf2.EOPT.fail, Trbdf2.EOPT.be)
@@ -1792,7 +1802,7 @@ try
             end
         end
         let f0 = TD.STEPFN[], cnt = Ref(0), nat = parse(Int, get(ENV, "NWPROBEAT", "40"))
-            TD.STEPFN[] = () -> (cnt[] += 1; cnt[] == nat + 1 && (Trbdf2.NWPROBE[] = parse.(Float64, split(ENV["NWPROBE"], ","))); f0(); nothing)
+            TD.STEPFN[] = () -> (cnt[] += 1; cnt[] == nat + 1 && (Trbdf2.NWPROBE[] = parse.(Float64, split(ENV["NWPROBE"], ",")); get(ENV, "NKRYLOV", "0") != "0" && (TD.KRYLOV[] = NewtonKrylov.krylov!)); f0(); nothing)
         end
     end
     RUNEND[] = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
@@ -2024,5 +2034,6 @@ end
 PM.NLOIT && pr("NLOIT: %d opacity-ratio evaluations (%.1f s), %d slope refreshes; CK expansions %.1f s\n", PM.NLOITN[], PM.NLOITNS[] * 1e-9, PM.NLOITJN[], PM.NLOCNS[] * 1e-9)
 NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
+TD.KRYLOV[] === nothing || pr("%s\n", NewtonKrylov.summary_text())
 Trbdf2.ERRCTL[] && pr("DTERR statistics %s; limiting variable (accepted steps) %s; TR-BDF2 %s\n", string(Trbdf2.ESTATS), string(Trbdf2.LIMHIST), string(Trbdf2.STATS))
 close(io)
