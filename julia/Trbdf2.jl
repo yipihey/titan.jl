@@ -66,6 +66,24 @@ mg_save!() = (SAVEMG[1] = deepcopy(TX.MGEO[]); SAVEMG[2] = deepcopy(TX.MGFO[]); 
 mg_restore!() = (for g in 1:TX.MGN[]; copyto!(TX.MGEO[][g], SAVEMG[1][g]); copyto!(TX.MGFO[][g], SAVEMG[2][g]); end; nothing)
 mgkeys(g) = (Symbol(:EV, g), Symbol(:QF, g))
 
+"""
+ERESTOL[] (provisional, ENV ERESTOL [L_sun], default 0 = off): residual-based stopping test of the Newton iteration, in addition to
+the correction test (docs/POPIII_ENERGY.md §17). After the correction test has passed (and TITAN's closing full iteration), the energy
+the solve's own rows leave unbalanced, |Σ_k (gas energy row + radiation energy row)_k + Σ_j u_j (gas momentum row)_j| × 4π, is evaluated
+at the state reached (`eres`); while it exceeds ERESTOL, further full Newton iterations are taken, up to niter in all. The iteration
+ends without meeting the tolerance when an iteration does not halve the measure (round-off of the rows; counted in ERES[:unmet], the
+stage is accepted on the correction test as before). ERES counts the stages tested, the extra iterations and the stages left above the
+tolerance; ERESMAX the largest measure accepted.
+"""
+const ERESTOL = Ref(0.0); const ERES = Dict(:checks => 0, :extra => 0, :unmet => 0, :niter => 0); const ERESMAX = Ref(0.0)
+function eres()
+    c = TX.context(); R = zeros(c.neqn, c.nb); ws = TX.getws(Float64, c.mgr)
+    TX.residual!(R, ws, c, zeros(c.neqn * c.nb)); W = ws.a
+    iu, it, ie = c.ix[4], c.ix[5], c.ix[6]; kb(k) = k - c.k0 + 1; s = 0.0
+    for k in c.ngrs:c.ngre; s += R[it, kb(k)] + (c.lrad ? R[ie, kb(k)] : 0.0); end
+    for j in c.ngrs+1:c.ngre; s += W.u[j] * R[iu, kb(j)]; end
+    4π * abs(s) / 3.828e33
+end
 function newton!()
     s!(:iter, 1)
     try
@@ -76,6 +94,17 @@ function newton!()
             g(:iter) > g(:niter) && return false
         end
         s!(:lboos, 1); r(:matgen); r(:matslv); r(:maxdel); r(:update); s!(:lboos, 0)
+        if ERESTOL[] > 0
+            e = eres(); ERES[:checks] += 1
+            while e > ERESTOL[]
+                g(:iter) >= g(:niter) && (ERES[:niter] += 1; break)
+                s!(:iter, g(:iter) + 1); s!(:lboos, 1); r(:matgen); r(:matslv); r(:maxdel); r(:update); s!(:lboos, 0); ERES[:extra] += 1
+                e1 = eres(); stall = !(e1 < 0.5e); e = e1
+                stall && break
+            end
+            e > ERESTOL[] && (ERES[:unmet] += 1)
+            ERESMAX[] = max(ERESMAX[], e)
+        end
     catch e
         e isa InterruptException && rethrow()
         s!(:lboos, 0); return false

@@ -1601,17 +1601,20 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 rcm = (0.5 * (r[k-1] + r[k]))^mu; rcp = (0.5 * (r[k] + r[k+1]))^mu
                 # upwind (donor cell): outward light from the zone inside, inward from the zone outside, diluted as r^-2. The centred
                 # average ½(hE_(k−1) + hE_k) cannot see an odd–even E mode, which nothing damps in thin gas (E → 0 at zone 214, step 87126)
+                # TIEX (TitanDriver.TIEX): the closure is for the excess over the isotropic background, h_x (E − E_b)
+                tx = TD.TIEX[] && TD.VEF_BG[] && length(TD.HXEDD) >= ngre + 1 && length(TD.FXEDD) >= ngre + 1
+                HT = tx ? TD.HXEDD : TD.HEDD; Ebg = tx ? 4P.cpi * P.ximr / cc : 0.0; em = er[k-1] - Ebg; ep = er[k] - Ebg
                 if !SLABTIE[]
-                B = rmu[k] * fr[k] / cc - (rcm * max(TD.HEDD[k-1], 0.0) * er[k-1] + rcp * min(TD.HEDD[k], 0.0) * er[k])
+                B = rmu[k] * fr[k] / cc - (rcm * max(HT[k-1], 0.0) * em + rcp * min(HT[k], 0.0) * ep)
                 else                                 # SLABTIE: outward donor h from the slab depth of the donor's centre below the interface
-                    hd = st_hdonor(max(TD.HEDD[k-1], 0.0), fedd[k-1], chif[k-1], chif[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k])
-                    B = rmu[k] * fr[k] / cc - (rcm * hd * er[k-1] + rcp * min(TD.HEDD[k], 0.0) * er[k])
+                    hd = st_hdonor(max(HT[k-1], 0.0), tx ? TD.FXEDD[k-1] : fedd[k-1], chif[k-1], chif[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k])
+                    B = rmu[k] * fr[k] / cc - (rcm * hd * em + rcp * min(HT[k], 0.0) * ep)
                 end
                 if TIEFRAME[]                        # the unknown F is the comoving flux: F₀ = F_lab − (1 + f) u E + 2 h² u E (see TIEFRAME)
-                    ho = SLABTIE[] ? hd : max(TD.HEDD[k-1], 0.0); hi = min(TD.HEDD[k], 0.0)
+                    ho = SLABTIE[] ? hd : max(HT[k-1], 0.0); hi = min(HT[k], 0.0)
                     B += (-dmdt[k] * erb[k] + (rn[k]^(mu + 1) - c.ro[k]^(mu + 1)) / (xmup1 * dt) * 0.5 * (er[k-1] + er[k]) +
                           rmu[k] * u[k] * 0.5 * (fedd[k-1] * er[k-1] + fedd[k] * er[k]) -
-                          2u[k] * (rcm * ho^2 * er[k-1] + rcp * hi^2 * er[k])) / cc
+                          2u[k] * (rcm * ho^2 * em + rcp * hi^2 * ep)) / cc
                 end
                 R[iF, kb(k)] = (1 - wt) * R[iF, kb(k)] + wt * B
             end
@@ -1929,7 +1932,7 @@ function zone_diag(dt)
        F = copy(W.frn[a:b+1]), ρ = copy(W.dn[a:b]), θ, Gr, Er, uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old, Gc, Ec, cres, dKs, kst, ecg,
        mchk, rchk, Mrow, ub = copy(ub[a:b]), dmdt = copy(dm[a:b+1]), qf = copy(qf[a:b]), pg = copy(W.pgn[a:b]), eg = copy(W.egn[a:b]),
        un = copy(un[a:b+1]), uo = copy(uo[a:b+1]), mn = [mn(k) for k in a:b], mo = [mo(k) for k in a:b], fedd = copy(fedd[a:b]),
-       hedd = length(TD.HEDD) >= b ? copy(TD.HEDD[a:b]) : zeros(nz), urel = copy(W.urel[a:b+1]), db = copy(W.db[a:b+1]), xm = copy(W.xm[a:b+1]))
+       hedd = length(TD.HEDD) >= b ? copy(TD.HEDD[a:b]) : zeros(nz), hxedd = length(TD.HXEDD) >= b ? copy(TD.HXEDD[a:b]) : zeros(nz), urel = copy(W.urel[a:b+1]), db = copy(W.db[a:b+1]), xm = copy(W.xm[a:b+1]))
 end
 
 # ------------------------------------------------------------------ assembly

@@ -1338,6 +1338,17 @@ if parse(Int, get(ENV, "VEFBGCHK", "0")) > 0 && TD.VEF_BG[]
         end
     end
 end
+# TIEX=1 (provisional, default off): FLUXTIE on the excess over the isotropic background (TD.TIEX, docs/POPIII_ENERGY.md §15)
+if get(ENV, "TIEX", "0") == "1"
+    (TD.VEF_BG[] && TD.FLUXTIE[][2] > 0) || error("TIEX=1 needs VEFIMP=1 (VEF_BG) and FLUXTIE")
+    TD.TIEX[] = true; pr("TIEX: FLUXTIE closes F = h_x c (E - E_b) with the flux factor h_x = H_x/J_x of the excess over the isotropic background\n")
+end
+# ERESTOL=<L_sun> (provisional, default 0 = off): residual-based stopping test of the stage Newton iterations in addition to the correction
+# test (Trbdf2.ERESTOL, docs/POPIII_ENERGY.md §17)
+if (v = parse(Float64, get(ENV, "ERESTOL", "0"))) > 0
+    get(ENV, "INTEGRATOR", "trbdf2") == "trbdf2" || error("ERESTOL needs INTEGRATOR=trbdf2")
+    Trbdf2.ERESTOL[] = v; pr("ERESTOL: stage Newton iterations continue until |sum of the energy rows + u x momentum rows| <= %g L_sun (or it stalls)\n", v)
+end
 const RUNEND = Ref{Any}(nothing)
 """
 TABAUDIT=1 (diagnostic): for every table zone below the hot branch (and, with TABAUDIT=2, also every network zone) compare at the zone's (ρ, T)
@@ -1885,6 +1896,8 @@ catch e
     pr("stopped: %s\n", first(sprint(showerror, e), 400))
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
+Trbdf2.ERESTOL[] > 0 && pr("ERESTOL %g: %d stage solves tested, %d extra Newton iterations, %d left above the tolerance (%d of them at niter); largest accepted measure %.4g L_sun\n",
+                           Trbdf2.ERESTOL[], Trbdf2.ERES[:checks], Trbdf2.ERES[:extra], Trbdf2.ERES[:unmet], Trbdf2.ERES[:niter], Trbdf2.ERESMAX[])
 pr("run ended: %s; jstep %d jstepe %g timen %.6e tmax %.6e\n", string(RUNEND[]), Int(TF.getscalar(:jstep)), Float64(TF.getscalar(:jstepe)), TF.getscalar(:timen), TF.getscalar(:tmax))
 if haskey(ENV, "SAVE")      # never overwrite a checkpoint with a non-finite state (a NaN stop would otherwise be saved and restart as NaN)
     if all(v -> all(isfinite, TF.var(v)[a:b]), (:tn, :dn, :ern, :un))

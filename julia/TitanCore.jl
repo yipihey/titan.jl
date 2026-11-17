@@ -767,6 +767,10 @@ function eddfac!()
             k = a + (l - 1) ÷ 2
             xang[nj+1] = 0.0
             _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
+            if tie && bg && TD.TIEX[]      # h_x = H_x/J_x of the excess (xmom0 = −2J_x); no excess: no flux, whatever h_x
+                HX = TD.HXEDD; length(HX) < length(fedd) && resize!(HX, length(fedd))
+                hx = (HE[k] + _mom1(nj + 1, xang, xim)) / xmom0[k]; HX[k] = isfinite(hx) ? clamp(hx, -1.0, 1.0) : 0.0
+            end
             tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
             if bg      # excess moments; xmom0, xmom2 are −2J_x, −2K_x (μ decreases along the ray index), the background's −2I_b, −2I_b/3
                 FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : 1.0 / 3.0
