@@ -1456,14 +1456,11 @@ function mg_install!()
         Tcm_ = max(parse(Float64, get(ENV, "TCMB", "0")), 1.0)
         Ec_ = arad * parse(Float64, get(ENV, "TCMB", "0"))^4; tg = TF.var(:tn); rr = TF.var(:rn)
         lit(k) = Te > 0 && k > kph && k < length(rr) && (er[k] - Ec_) >= 0.5 * L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10)
-        # one star-lit region from the photosphere to the last zone where the excess is at least 0.1 of the free-streaming starlight (scanning
-        # from outside: a first failing zone near the photosphere, where f < 1, ended the region there and put the star's light at T_CMB: E_opt
-        # 1e-200 E next to 0.85 E, which the logarithmic update cannot repair in a step, t_mg40)
-        lit10(k) = Te > 0 && k > kph && k < length(rr) && (er[k] - Ec_) >= 0.1 * L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10)
-        kend = kph + 1; for k in b_:-1:kph+1; lit10(k) && (kend = k + 1; break); end
-        Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : (k > kph && k < kend) ? max(Te, (max(er[k], 1e-300) / arad)^0.25) : Tcm_
-              for k in eachindex(dn)]
-        TX.mg_init_from_grey!(Ts); src = @sprintf("the grey field (T_eff %.0f K outside zone %d)", Te, kph - a_ + 1)
+        # the star's light: the excess over the CMB up to the free-streaming energy density L/(4π r² c) at T_eff, the rest of the excess
+        # at T_CMB (the grey CMB solution's own residual in the far cloud, t_mg36), so the partition is continuous from zone to zone
+        us = [k > kph && k < length(rr) && Te > 0 ? L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10) : Inf for k in eachindex(dn)]
+        Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : max(Te, (max(er[k], 1e-300) / arad)^0.25) for k in eachindex(dn)]
+        TX.mg_init_from_grey!(Ts, us); src = @sprintf("the grey field (T_eff %.0f K outside zone %d)", Te, kph - a_ + 1)
     end
     PM.mg_ratios!(mat)
     pr("MGROUPS: %d groups, edges %s eV, unknowns 10..%d (neqn %d, meqn %d), q from group %d, chemistry energy from group %d, solver %s; fields from %s\n",
