@@ -511,3 +511,82 @@ cannot move a group by 200 decades in one step); kept the working partition (14a
 two wall-time lines only (`EP call 0.1 s`, the NLOIT timing summary); the NLOIT counters are equal (1 014 006 ratio evaluations, 88 779 slope
 refreshes). The step-14400 checkpoint used here and below is the copy kept in `runs/t_mg10/ck` (md5 aux 705f40fe…, tstate.gz f9ff2599…):
 z100mm's own `z19z100mmS5_auto0` rotates and was overwritten by the production run on 16 Nov 21:08.
+
+## 16. H(1s) Rayleigh and Raman scattering between Lyα and the Lyman limit (46fe7b4)
+
+**Source.** Kokubo 2024, MNRAS 529, 2131 (bibcode 2024MNRAS.529.2131K, refereed; found with `scix`, read in full): the Kramers–Heisenberg
+cross sections of H(1s) with analytic radial integrals over the bound and continuum intermediate p states — Rayleigh σ_1s(ν) and the Raman
+branches 1s → 2s, 3s, 3d, 4s, 4d. `julia/HScatter.jl` evaluates his sums (1000 bound states + the continuum integral, the tail of the bound
+series analytic), every resonance regularised with the radiative width of np → 1s (his footnote). Branches to n_B ≥ 5 (open above 13.05 eV)
+are not in the source and are left out. Checks in a limit (`hscatter_check`, scratchpad `mb/t1/hs1.jl`): the Thomas–Reiche–Kuhn sum of the
+oscillator strengths used is 1.0000000018; σ_1s/(σ_T ε⁴) → 1.26563 = (9/8)² for ε = hν/χ_H → 0 (static polarisability 9/2 a₀³).
+
+**What it shows for the LW band (11.2 eV … χ_H(1 − 1/1600)).**
+
+* The low-energy expansion in the code (ContinuumOpacity `σ_ray_H`, Z0Physics `σRay`; G2 holds it at its 1300 Å value below 1300 Å) is not
+  valid there: ratio to the exact σ_1s 0.855 at 1900 Å, 0.538 at 1520 Å, 0.124 at 1302 Å; between the Lyman lines σ_1s swings between
+  resonances and zeros (zeros at 11.682, 12.604, 12.986, 13.182, 13.297, 13.370 eV).
+* **There are no escape windows.** At the zeros of σ_1s the Raman cross section is 3–3.9e-25 cm²: where the atom does not scatter the photon
+  it destroys it (1s → 2s + an optical photon at ν − ν_Lyα; the atom returns by two-photon decay). Band minima: σ_1s + σ_Ram ≥ 2.4e-25 cm²,
+  effective (thermalisation) cross section k_eff = √(3σ_Ram(σ_Ram + σ_1s)) ≥ 2.3e-25 cm²; medians σ_Ram 2.8e-25, σ_1s 1.2e-24, k_eff 7.6e-25 cm².
+  Band-averaged transmission ⟨e^{−k_eff N}⟩: 0.36 at N_HI = 1e24, 6.0e-3 at 1e25, 3e-13 at 1e26 cm⁻².
+* On the checkpoint the H I column above the photosphere is 7e26–1e27 cm⁻², and every zone out to 3e4 R☉ has N_HI ≥ 1e25 cm⁻² on its own:
+  **no LW photon of the photosphere reaches the envelope**; each zone is LW-thick in the best window.
+
+**In G2 and the group rows** (the LW group only; the grey means are untouched — `group_fast` takes the sub-grid only when called with group
+edges):
+
+* flux mean χ_LW: harmonic mean of (smooth extinction of the G2 nodes, interpolated) + n_1s(σ_1s + σ_Ram) over a sub-grid of the band, weight
+  ∂B_ν/∂T at the colour temperature of the light. The sub-grid is 221 cells of 32 table cells each with the cell's harmonic H(1s) cross
+  section (its transmission) and Raman share; against the full 7044 cells the group means agree to 0.7 % where H(1s) dominates the extinction
+  (smooth part ≤ 1e-25 cm² per atom) and χ_LW to 2 % everywhere (`mb/t1/compress.jl`; per atom χ ≈ 7.0–9.3e-25 cm², κ_Ram ≈ 2.1–2.9e-25 cm²
+  for 3000–30 000 K);
+* energy mean: Raman is absorption in the LW group's energy row, κ_Ram = χ_LW ⟨σ_Ram n_1s/χ_ν⟩ (in-group spectrum ∝ B_ν/χ_ν of the harmonic
+  mean: photons sit where the gas is transparent, and the unresolved line cores, where they are trapped, do not count);
+* the destroyed LW photon's energy goes to the group of its Stokes partner (optical), and the inverse process (H(2s) + optical photon → LW
+  photon, anti-Stokes) is the LW group's source: per mass c κ_Ram (C E_opt − ω E_LW) into the LW group and the same out of the optical one
+  (`M.xfer`; energy moves between two groups, the gas row sees nothing). By detailed balance of the Kramers–Heisenberg rate (g_1s = g_2s)
+  the inverse-Raman source function is S_ν = (2hν³/c²)(n_2s/n_1s) n̄(ν − ν_Lyα), so C = (n_2s/n_1s) e^{E21/kT_w} b(pair)/b_opt(T_w) with the
+  three-level atom's n_2s = n_2/4. LTE check on the run: zones 18–25 (T 7500–37 000 K) have C E_opt/(ω E_LW) = 0.99–1.05 with
+  E_LW = (1.000 … 1.02) aT⁴ b_LW(T), and Σ_g of the transfer is zero by construction.
+
+**What LW field the photosphere really emits** (t_mb02, 60 steps from the checkpoint; scratchpad `mb/t1/ram.jl`, `n2var.jl`):
+
+* Out of r_ph: L⁺_LW/L = 1.7–2.4e-9, i.e. 0.86 × the Planck share b_LW(T_eff) = 9.8e-10 of the outgoing half flux (Q ≈ 2.0–2.6e39 s⁻¹). The
+  net LW flux through r_ph is 3e-11 L: the zone above takes it (Raman conversion time 1/(c κ_Ram ρ) = 0.1–0.4 s in zones 26–28).
+* Above that the LW field is not photospheric light at all: it is the local inverse-Raman source of the optical field on excited hydrogen,
+  E_LW/E_r ≈ 1e-13 in zones 29–37 (126–740 R☉), with the transfer in balance to 1e-3 (C E_opt/ω E_LW = 1.000). In units of the
+  undiluted photospheric Planck function, S_LW/B_LW(T_c) = 1.3e-4 (zone 29), 5.7e-6 (zone 36), 1e-5 (zones 40–41, 2000–3000 R☉),
+  1e-6 (zone 44), 3.6e-11 (zone 49, 2.8e4 R☉) — against the geometric dilution W = 0.47, 1.7e-2, 1e-3–5e-4, 9e-5, 6e-6 that STARLIGHT's
+  W B_LW(T_c) assumes: **lower by 3.6e3, 3e3, 50–100, 90 and 1.7e5.**
+* **Uncertainty.** The field is proportional to n_2s. (i) The three-level atom pumps 1s → 2s with Λ_2s n̄(Lyα), one power of the dilution;
+  two-photon absorption is quadratic in the occupation numbers (W² in the Wien limit). With W² the source drops by 1.7–3× in zones 29–36,
+  not at all in zones 38–45 (there recombination, α_B n_e n_p, feeds n = 2: 77–100 % of the rate) and by 50–160× in zones 46–49. With no
+  radiative pumping at all (collisions + recombination) the numbers are the same as with W² to 10 % outside zone 33 and 1.4–5× below the
+  code's inside. (ii) Where recombination feeds it, n_2s is linear in n_e n_p, so it carries the envelope's ionisation fraction (4e-5) with
+  it. (iii) The Sobolev escape factor of Lyα in the atom has no meaning at N_HI ≥ 1e25 (damping wings thick); the Lyα term is 1e-5 of the
+  pumping, so this does not matter for n_2 here. (iv) 2s : 2p is taken statistical. **So: photospheric LW is known to ~20 % (two codes) and
+  irrelevant beyond one zone; the envelope's LW field is 2–5 decades below the diluted Planck field, and uncertain by a factor ≤ 5 inside
+  1e4 R☉ and by two orders of magnitude beyond**, where it is too small to matter either way (S/B ≤ 1e-9). The grey stack's `n2_tl3` is not
+  changed in this round (it belongs to the chemistry); its one-power pumping term should become W n̄ when the three-level atom reads the
+  group fields.
+
+**IonFS with the same physics, and the gate redone.** `mb/ifs/ionfs_post_ram.jl` (a copy of tree 3499e3a's `ionfs_post.jl`): 440 extra
+frequencies on the HScatter cells in the LW group, exact σ_1s in place of the expansion, Raman as absorption with the LTE source (the layers
+inside r_ph, where the run's n_2 is within a factor 2–4 of LTE). Its LW photon rate out of r_ph falls from 1.1–1.7e40 s⁻¹ (control with
+the old opacity on the same frequencies, `IFSRAM=0`) to 2.0–2.6e39 s⁻¹. Gate on t_mb02's snapshots (MG outgoing L⁺_g of the group formal
+solution at r_ph over the net L):
+
+| step | IonFS L_LW/L | MG L⁺_LW/L | ratio | IonFS L_ion/L | MG L⁺_ion/L | ratio |
+|---|---|---|---|---|---|---|
+| 14430 | 1.99e-9 | 1.73e-9 | 0.87 | 7.5e-12 | 3.4e-12 | 0.45 |
+| 14440 | 2.25e-9 | 1.85e-9 | 0.82 | 8.9e-12 | 6.0e-12 | 0.67 |
+| 14450 | 2.94e-9 | 2.36e-9 | 0.80 | 1.34e-11 | 8.0e-12 | 0.59 |
+| 14460 | 2.15e-9 | 1.96e-9 | 0.91 | 8.3e-12 | 7.2e-12 | 0.87 |
+
+**LW: 0.80–0.91 of IonFS on all four snapshots (was ×20–104).** The whole previous discrepancy was the scattering opacity: with the exact
+cross sections and the Raman sink in both codes they agree to 20 %. Ionising: 0.45–0.87 (one snapshot 10 % outside a factor 2; §14's
+sensitivity argument applies). IonFS's carrier beyond r_ph has no H I scattering or Raman (its `Qesc_LW` ≈ 0.94 Q_em is therefore not an
+escape rate; with the band transmission above nothing escapes).
+
+Newton failures and Δt of t_mb02 are those of t_mg47 over the same 60 steps (37 against 38 rejected attempts in the restart transient).
