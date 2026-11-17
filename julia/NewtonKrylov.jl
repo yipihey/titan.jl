@@ -1,7 +1,7 @@
 """
     NewtonKrylov
 
-NKRYLOV (popiii_m2c `NKRYLOV=1[,η[,mmax[,ε]]]`, provisional, default off = bit-identical; docs/POPIII_NEWTON_KRYLOV.md).
+NKRYLOV (popiii_m2c `NKRYLOV=1[,η[,mmax[,ε[,central]]]]`, provisional, default off = bit-identical; docs/POPIII_NEWTON_KRYLOV.md).
 
 Newton's linear system J δ = −R(x) is solved on the TRUE Jacobian J of the residual after a full `update!`, not on the assembled band Jacobian J_b
 (which lacks ∂/∂x of everything `update!` refreshes outside `residual!`: the Eddington factor f, h, the flux-tie weight, ...). The band Jacobian is the
@@ -17,8 +17,8 @@ preconditioner: GMRES on A δ = δ0, A v = P J_b⁻¹ (J v), δ0 = P(−J_b⁻¹
   perturbed evaluations, as the assembled Jacobian differentiates the base state's branches.
 * Only the entries `update!` applies are unknowns (P projects onto them): interface unknowns r, m, u, F of zones ngrs..ngre+1, zone unknowns ρ, T, E_r of ngrs..ngre,
   species in coupled zones. The ghost entries are slaved to them by the boundary conditions inside `update!`.
-* GMRES without restart, modified Gram-Schmidt, Givens rotations; stops when the preconditioned residual is ≤ η ‖δ0‖ in the weighted 2-norm ‖W·‖₂, W the weights of the DTERR error norm (`weights`). If it does not get there in `mmax` iterations the last iterate (the best) is used and the event counted. Exact band Jacobian: δ0 is
-  an eigenvector with eigenvalue 1 and the solve ends after one product.
+* GMRES without restart, modified Gram-Schmidt, Givens rotations; stops when the preconditioned residual is ≤ η ‖Pδ0‖ in the weighted 2-norm ‖W·‖₂, W the weights of the DTERR error norm (`weights`).
+  If it does not get there in `mmax` iterations the last iterate (the best) is used and the event counted. With an exact band Jacobian Pδ0 is an eigenvector with eigenvalue 1 and the solve ends after one product.
 Then the unchanged `maxdel!`, `update!`.
 """
 module NewtonKrylov
@@ -204,7 +204,7 @@ function fdjv!(y, S::Sys, v, ε; realized = nothing)
     y
 end
 
-function setup(; need_lu = true)
+function setup()
     TF.BACKEND[] === :julia || error("NKRYLOV needs the Julia state backend")
     c = TX.context(); ne, nb, k0 = c.neqn, c.nb, c.k0
     act = activeset(c); snap = Snap(); take!(snap)
