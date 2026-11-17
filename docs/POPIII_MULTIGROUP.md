@@ -260,10 +260,91 @@ F_g = F_r b_g(T_s), renormalised to the exact sums.
 | Eddington factors f, g, h | formal solution of the grey field | grey (stage 1); per group (stage 2), P_r = Σ f_g E_g |
 | L_em, T_eff, photosphere | from E_r, F_r | the same sums; plus L_g per group (the emergent spectrum) |
 
-## 10. Stage 1: the first coupled prototype
+## 10. Stage 1: the first coupled prototype (`MGROUPS=4`)
 
-(filled in below with the measurements)
+**What is built** (commits c2c41e8 … a0cf74b on `multigroup`; every piece default off):
+
+* 4 groups (IR < 0.7551 eV | optical 0.7551–11.2 | LW 11.2–13.598 | ionising ≥ 13.598), E_g and F_g as Newton unknowns 10–17 (neqn 17,
+  meqn 17 set by TitanFortran when MGROUPS is set), the grey E_r, F_r rows as sums, the group energy and momentum rows of §3 with the grey
+  f, g, h for every group, SLABFLUX/SLABTIE per group, the outer boundary per group with the CMB at T_cmb = 54.5 K, the radiation force
+  Σ_g χ̄_g F_g/c, and the group exchange both in the group rows and in the GASROW gas row of the dual-energy zones (the stack's
+  internal-energy row has the exchange explicitly: it becomes Σ_g there).
+* group opacities = grey means at the iterate × lagged G2 group ratios (§4), table zones 1; H(1s) absorption added to the ionising group
+  of case-B network zones; in-group shape floor 3000 K.
+* photo-rates from group dilutions W_g (§6): H⁻ detachment (piecewise J_ν), three-level β and P12 (optical group), LW (LW group),
+  H(1s) photoionisation (new, ionising group); SLIMP's iterate factor from the optical group; RAYQ/GASQ from the optical group.
+* E_g updated in the logarithm (clamp ±3, floor 1e-150 E_r), convergence weight E_g/(E_g + 1e-3 E_r), TR-BDF2 y*/save/restore/error norm
+  for the groups; the pivoted banded LAPACK solver (JuliaSolver) for the 17-wide blocks; group fields in the checkpoint (.aux, MG only);
+  restart from a grey checkpoint partitions the grey field (§8). Records `mg_rec.jls` every SNAPEVERY steps (MG only).
+* Diagnostics: `EDIAG=1` (total-energy rows of every converged stage → ediag.csv), and `TIESMOOTH=ε` (§5 fix 1, not yet tested in a run).
+
+**Tests** (100 zones; restarts of copies of z100mm's checkpoint `z19z100mmS5_auto0`, step 14400, t = 237841.0 yr, M★ = 0.849 M☉,
+photosphere at zone 26, r_ph = 116 R☉, T_eff ≈ 4390 K; z100mm's own phaseB.env + run.env (SLABFLUX=1 SLABTIE=1 SUBZONE=0); 8 threads,
+cores 24–31 / 32–39):
+
+1. **Unit test** (julia/mg_test.jl): all passed — Σ_g b_g = 1 (≤ 1.1e-16), b_g against quadrature 2.2e-10, d b_g/dT AD vs 4th-order
+   difference 1.6e-10; grey identities of the group means 0.999–1.000 (κ_P, κ_E) and 1.000–1.007 (χ); grey totals of `group_fast` =
+   `means_fast` exactly.
+2. **Bit-identical off.** 30 steps, `t_mg10` (popiii-s6 43269f6) vs `t_mg11` (c2c41e8): 591/591 state arrays and the .aux identical
+   (audit/ckcmp.jl). Repeated for the final tree a0cf74b (with the GASROW, TIESMOOTH, EDIAG and photo-rate hooks): `t_mg20` vs `t_mg10`,
+   591/591 + .aux identical.
+3. **Grey vs multigroup over 400 steps** (`t_mg13` grey, `t_mg14` MGROUPS=4; steady window 14500–14800, the first 100 steps are the restart
+   transient of the group partition):
+
+| | grey `t_mg13` | MGROUPS=4 `t_mg14` |
+|---|---|---|
+| s/step (steady, 100-step rows) | 1.65–1.71 | 2.45–2.55 (×1.48) |
+| Newton failures (TR + BDF) /100 steps | 18–19 | 21–22 |
+| model time per 100 steps [yr] | 0.024–0.027 | 0.020–0.022 |
+| Δt median [s] | 1.15e4 | 9.5e3 |
+| L_em at 1.5 r_ph, median (rms ln) [L☉] | 6507 (0.7 %) | 6323 (1.3 %; one −9 % dip at 14510, after a 1.7e4 s step) |
+| L_ph, T_eff (median) | 4467 L☉, 4387 K | 4260 L☉, 4336 K |
+| photosphere | zone 26, 115.5–116.3 R☉ | the same |
+| max \|Σ_g E_g/E_r − 1\| | — | ≤ 2e-12 (5e-8 once) |
+| L through the outer boundary | −1.0e5 L☉ (CMB boundary artefact of the grey run, ~3e-7 of the CMB flux) | −1.0e5 L☉, all in the IR group |
+
+   Sum of the groups against the grey run: the same photosphere zone and radius, L_em 2.8 % and T_eff 1.2 % lower. The emergent spectrum
+   at 1.5 r_ph is IR 16.7 % | optical 83.3 % (a 4390 K blackbody has 18.1 % below 0.7551 eV); at r_ph IR 21 %.
+4. **Energy conservation** (`EDIAG=1`, 200 steps each, `t_mg15` grey, `t_mg16` MG; the trajectories are those of t_mg13/t_mg14 bit for bit:
+   the diagnostic is passive). The total-energy rows evaluated at every converged stage leave an imbalance of **3741 L☉ (grey; p10–p90
+   3737–3745) and 3754 L☉ (MG; 3739–3768)** as a luminosity. It is a property of the grey run (constant, ~3.7 % of the outer-boundary
+   flux artefact; the dual-energy / flux-tie zones), not of the groups: multigroup adds 13 L☉ (0.35 %) to it, with the gas–radiation
+   exchange carried entirely by the group rows.
+5. **Photo-rates against STARLIGHT/LOCALJ** (t_mg16, group W_g over the grey W of the same zone, median of 40 records): H⁻ detachment and
+   the three-level rates (optical group) **0.97–1.03 × grey** from the photosphere to 1e5 R☉, 1.05–1.40 at 1e5–4e5 R☉; the IR group 0.87
+   (not used by any rate); **LW 1.2 × at 116 R☉ rising to 1e3 × beyond 1e4 R☉** (the LW band is only Rayleigh-scattered in the molecular
+   envelope, κ_E,LW/κ_E ~ 1e-7, while the grey W falls as the optical light is absorbed by H⁻: the effect multigroup is for, but see 6);
+   H(1s) photoionisation (new) W_ion/W ≤ 4e-12 outside the photosphere: negligible at T_eff 4400 K.
+6. **Emergent spectrum against the IonFS formal solution** (branch ionfs-v2, julia/ionfs_post.jl, on the same snapshots 14600, 14700,
+   14795 of both runs): IonFS gives Qem_LW = 1.1–1.35e41 s⁻¹ and Qem_H = 0.9–1.3e38 s⁻¹ leaving r_ph, i.e. L_LW/L ≈ 1.5e-7 and
+   L_ion/L ≈ 1.5e-10 (×12.4 and ×14.6 eV); its T_eff 4332–4339 K (MG snapshots) and 4385–4395 K (grey) match the runs'. **MGROUPS=4 at
+   r_ph: L_LW/L = 1.1–1.5e-10 and L_ion/L ≈ 1e-19** — 1e3 and 1e9 below the formal solution. The major groups are right (the IR/optical
+   split and the luminosity), the minor groups are not: the LW and ionising photospheres lie elsewhere than the grey one (LW: Rayleigh-thick
+   where the grey field is thin; ionising: H(1s)-thick within ~1e3 cm above the photosphere), and these groups are closed with the grey
+   f and the grey flux-tie h, which fix their free-streaming geometry at the grey photosphere. Their luminosities, and with them the
+   LW and H(1s) rates, are not usable before stage 2a (per-group Eddington factors). Also tried (t_mg17, t_mg18): Newton in E_g instead of
+   ln E_g with every group converged above 1e-12 E_r — the ionising group then flip-flops between ~1e-22 and ~1e-49 of E_r at the
+   photosphere from step to step and Δt fell to 446–2228 s; reverted.
+7. **Cost** (CPLPROF, 50-step blocks after the restart): grey matgen 64.5 s per 50 steps (1514 Newton iterations, 42.6 ms each), matslv
+   (block pentadiagonal, static 9×9) 0.6 s; MG matgen 84.7 s (1588 iterations, 53.3 ms each: ×1.25 per iteration from the 102- instead of
+   54-partial Duals, ×1.05 more iterations) and ~16–18 s of banded LAPACK LU (n = 1768, bandwidth 50; not timed by CPLPROF since the
+   solver is replaced after the timers are installed: from the difference of the totals). The ×1.48 per step splits into ×1.31 Jacobian
+   assembly and ~0.17 for the wider linear solve; both have the remedies of §7/§11.
 
 ## 11. Plan of the remaining stages
 
-(filled in below)
+1. **Stage 2a — per-group Eddington factors (needed for the minor groups, test 6).** TitanCore.eddfac! on group arrays (χ_g, κ_P,g,
+   source with E_g and EDDSCAT, boundary I_cmb b_g), f_g, g_g, h_g at every iterate (VEFIMP), radiation pressure Σ f_g E_g in the total
+   rows and MLT, the tie with h_g. Test: L_g at r_ph against ionfs_post (LW 1.5e-7, H 1.5e-10 of L at this checkpoint); grey vs MG L_em.
+2. **Stage 2b — exact group opacities at the iterate** (group_fast generic in the number type inside NLOIT's material sweep; the lagged
+   ratio goes) and **lines per group** (the LTE line factor of NLOIT assigned to the groups that hold the lines).
+3. **Stage 2c — photo-rates fully from the groups**: one iterate factor per process (q_g of its group) instead of SLIMP's one per zone;
+   LOCALJ with the piecewise J_ν (direct integrals or per-group tables) so that 6–8 groups are exact; **photon-conserving LW** (§6:
+   σ_eff = −d ln f_sh/dN in the LW group's κ_E, the dissociation rate from E_LW at the iterate, the LW heat from the LW group); He I/He II
+   photoionisation from the He groups (6–8-group sets). This retires STARLIGHT's W, SLWFLUX, SLIMP and SLSHIELD for these processes.
+4. **Stage 3 — cost and Newton:** (a) the static block-pentadiagonal solver for neqn = 17 (or a block solver with plain 17×17 LU) instead
+   of banded LAPACK (−0.17 of the ×1.48); (b) two-pass colouring or an analytic Jacobian of the group rows so that the material sweep stays
+   at 54 partials (target ≤ ×1.2 over grey for 4 groups); (c) the two Newton fixes of §5: TIESMOOTH (built, run test pending on the grey
+   stack: failures/100 against 18–19) and JFNK with the banded Jacobian as preconditioner for exact f, g, h derivatives (grey first).
+5. **Stage 4 — validation and production tests:** 6- and 8-group runs; L_em steadiness over ≥ 1e4 steps; a from-IC 100-zone start through
+   protostar formation (IC=abn02red on the z100mm mesh) with MGROUPS from the first step; the IonFS comparison at the break-out phase.
