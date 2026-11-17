@@ -448,3 +448,57 @@ leaving the layers inside, as IonFS's vacuum-above formal solution — and the n
   (different photosphere structure).
 * Bit-identity off for the final tree 691cbfe (EDIAG=2, zone_diag, HPON, starlight_terms' a1, all stage-2a code): `t_mg39` vs `t_mg10`,
   30 steps, 591/591 state arrays + .aux identical.
+
+## 14. Stage 2a continued: the LW and ionising groups, the outer-cloud optical reservoir
+
+**H n = 2 populations by regime** (snapshot t_mg44 step 14500; three-level n₂ = the network's own atom, PopIIIMaterial.n2_tl3, recorded per zone;
+scratchpad mg/lwpop.jl):
+
+| zones | T [K] | n₂ three-level | n₂ Boltzmann (LTE to 1s) | n₂ Saha (LTE to the continuum, IonFS) |
+|---|---|---|---|---|
+| 18–25 (τ ≫ 1, below the photosphere) | 37 400–7 400 | 1.7e14 … 1.6e9 | 1.6e14 … 1.4e9 | 1.1e14 … 1.6e9 (all three within 1–30 %) |
+| 26–27 (photosphere) | 4 830–4 800 | 8.4e4, 3.0e4 | 9.2e4, 4.1e4 | 5.8e4, 1.1e4 |
+| 28–34 (envelope 120–260 R☉) | 3 320–1 825 | 6.1e2 … 7.4e-3 | 0.43 … 1.2e-15 | 1.1e4 … 52 |
+
+The three-level atom is LTE where it should be (the thick layers), between the two LTE limits in the photosphere, and in the irradiated,
+over-ionised envelope 10–1e4 × below IonFS's LTE-to-continuum value (the star's Balmer-continuum photoionisation β ≫ collisional and
+recombination rates empties n = 2; b₂ = 1 relative to the continuum ignores that) and 1e3–1e13 × above Boltzmann (recombination and Lyα
+pumping fill it). The three-level value is the physically right one in every regime; IonFS's assumption is not, above the photosphere.
+
+**But n₂ does not set the LW band.** The H n ≥ 2 bound–free at 11.2–13.6 eV is ≤ 1e-5 cm² g⁻¹ above the photosphere with *any* of the three
+n₂ (G2 group means, the same snapshot), against the band's Rayleigh extinction 0.36 cm² g⁻¹ — so the n ≥ 2 absorption, now added to the LW and
+ionising groups of case-B zones with the three-level n₂ (0998ca3, `MGN2BF`), changes nothing measurable (t_mg45 with it off is bit for bit
+t_mg36). What did set the LW band was a **numerical** absorber: the ground state's dissolved Lyman pseudo-continuum (G2Opacity's DIS window,
+q ≤ 1/1600, 13.590–13.598 eV) fell into the LW group, and in a Planck (arithmetic) mean that 6e-4-wide sliver of ground-state absorption raised
+κ_E,LW ×1e5 in the LTE zones below the photosphere (zone 25: 9.5e3 against 0.07 cm² g⁻¹), thermalising the whole band at 7400 K one zone
+deeper and 2500 K hotter than the front. The RADGROUPS trial met the same effect with the H(1s) continuum. Fix: the LW/ionising edge at the
+onset of the dissolved window, χ_H(1 − 1/1600) (34318f8); the sliver is ground-state absorption and belongs with the ionising group.
+
+**Gate after the fix** (t_mg47, IonFS on the same snapshots 14420–14450; MG outgoing L⁺ of the group formal solution at r_ph):
+
+| step | IonFS L_LW/L | MG L⁺_LW/L | MG net L_LW/L | IonFS L_ion/L | MG L⁺_ion/L |
+|---|---|---|---|---|---|
+| 14420 | 1.9e-8 | 1.6e-6 (×82) | 6.2e-8 | 6.2e-12 | 2.3e-11 (×3.7) |
+| 14430 | 2.8e-8 | 5.7e-7 (×20) | 1.2e-8 | 4.6e-11 | 2.5e-11 (×0.54) |
+| 14440 | 2.0e-8 | 2.1e-6 (×104) | 5.5e-8 | 6.4e-12 | 3.9e-12 (×0.61) |
+| 14450 | 2.0e-8 | 1.8e-6 (×91) | 5.6e-8 | 7.9e-12 | 6.6e-12 (×0.83) |
+
+* **Ionising group: within a factor 2 of IonFS in 3 of 4 snapshots** (0.54–0.83; ×3.7 in the fourth), from 1e-9 × before the Milne emission and
+  0.2–0.3 × before the edge fix. The quantity is exponentially sensitive (hν/kT ≈ 30 at the photosphere: a factor 2 is 2–3 % in the
+  temperature where τ_1s = 2/3), so this is as close as one zone across the photosphere allows. The net ionising flux at r_ph stays ~1e-20 L:
+  the first zone above absorbs it (IonFS's ray: Qesc_H = 0 as well).
+* **LW group: outgoing 20–100 × IonFS** (from 1e3–6e3 ×), net 0.4–3 × IonFS. Remaining difference identified, not settled: the band is
+  Rayleigh-scattering-dominated above the photosphere, and the two codes' Rayleigh cross sections differ there — G2 holds σ_Ray at its
+  1300 Å value at shorter wavelengths, IonFS (ContinuumOpacity.alpha) uses the λ⁻⁴…λ⁻⁸ fit, 4× larger at 1050 Å and diverging toward Lyα;
+  neither is valid between the Lyman lines (resonant scattering). More scattering above the front lowers the outgoing flux. IonFS used no
+  sub-zone points on these snapshots (its front-zone opacity scaling inactive, checked), and its own L_LW varies ×1.5–5 between snapshots.
+  The LW group is therefore fixed to within its scattering opacity; the dissociation rates need 2c's photon-conserving LW absorption anyway.
+
+**Outer-cloud optical reservoir: a restart transient, not a decoupling.** In t_mg36 the optical group's energy in zones 94–100 (1.1–143 pc),
+U = 7.5e49 erg, falls at dU/dt = −0.97 × its outflow through the outer boundary (4.0–4.8e5 L☉), while its emission − absorption there is
+−1.4e-4 L☉ (scratchpad mg/optout.jl): it is the initial partition draining at c over r/c ≈ 1e3 yr, decoupled from the gas. The grey field's
+excess over the CMB out there cannot be the cloud's own emission (1e-4 L☉): it is the grey CMB solution's residual. Re-partitioning it at
+T_CMB, or as starlight capped at L/(4πr²c) plus CMB, removes the reservoir but fails the first step (t_mg40–t_mg43: the logarithmic update
+cannot move a group by 200 decades in one step); kept the working partition (14a45a9). From the IC the reservoir does not arise.
+
+**Stage-2a state** (t_mg47, 34318f8, steps 14420–14480): L_em(1.5 r_ph) median 6987 L☉ (rms 4.4 %), T_eff 4502 K, Δt median 9.8e3 s.
