@@ -15,6 +15,8 @@ include(joinpath(@__DIR__, "PopIIIMaterial.jl")); include(joinpath(@__DIR__, "H2
 # environment with KernelAbstractions and CUDA or Metal. Off unless set.
 haskey(ENV, "LINEGPU") && include(joinpath(@__DIR__, "h2lines_gpu.jl"))
 include(joinpath(@__DIR__, "StellarOpacity.jl")); include(joinpath(@__DIR__, "IonRay.jl"))
+# MGROUPS (docs/POPIII_MULTIGROUP.md; default off): the pivoted banded solver for the wider block system
+haskey(ENV, "MGROUPS") && ENV["MGROUPS"] != "0" && include(joinpath(@__DIR__, "JuliaSolver.jl"))
 # S6-C1: HOT=1: stellar EOS, nuclear network and convective mixing in the hot core (T > HOTT1), see PopIIIMaterial.HOT
 const HOTON = get(ENV, "HOT", "0") == "1"
 if HOTON
@@ -718,10 +720,13 @@ matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzon
 function checkpoint(name, k)
     mkpath(CKDIR)
     TF.save_state(joinpath(CKDIR, "m2c_$(name).tstate.gz"))
-    serialize(joinpath(CKDIR, "m2c_$(name).aux"), (; k, mat = matstate(), ALIFAC = copy(ALIFAC[]), ALIFIX = copy(ALIFIX[]), ALILAST = ALILAST[], ALIINT = ALIINT[],
+    ax = (; k, mat = matstate(), ALIFAC = copy(ALIFAC[]), ALIFIX = copy(ALIFIX[]), ALILAST = ALILAST[], ALIINT = ALIINT[],
         NALICALL = NALICALL[], NIMP = NIMP[], LLINE = LLINE[], nextln = nextln[], SNAPNEXT = SNAPNEXT[], SNAPS,
-        trb = (; STATS = copy(Trbdf2.STATS), BE_LEFT = Trbdf2.BE_LEFT[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV)))
+        trb = (; STATS = copy(Trbdf2.STATS), BE_LEFT = Trbdf2.BE_LEFT[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV))
+    TX.MG[] && (ax = merge(ax, (; mg = (; edges = copy(TX.MGEDGE[]), E = deepcopy(TX.MGEN[]), F = deepcopy(TX.MGFN[])))))   # MGROUPS: the group fields
+    serialize(joinpath(CKDIR, "m2c_$(name).aux"), ax)
 end
+const MGAUX = Ref{Any}(nothing)       # (MGROUPS) the group fields of the checkpoint a run restarted from
 # settings that must agree between a run and its restart (the set-up and the physics); the rest may change
 const CKENV = ("IC", "TCMB", "AVZONE", "AVQL1", "AVCQ2", "CHEM", "NLTE", "NALI", "NBIN", "K5", "MCLOUD", "LRJOIN", "DLNJOIN", "DM", "PSWITCH",
                "INTEGRATOR", "THETA", "XE0", "RAD")   # (not CDYN: the accretion phase relaxes the dynamical Δt limit at a restart)
@@ -751,6 +756,7 @@ function restart!(name; allow = ())
     SNAPS === nothing || aux.SNAPS === nothing || (empty!(SNAPS); append!(SNAPS, aux.SNAPS))
     empty!(Trbdf2.STATS); merge!(Trbdf2.STATS, aux.trb.STATS); Trbdf2.BE_LEFT[] = aux.trb.BE_LEFT
     TX.PEXT[] = aux.PEXT; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
+    hasproperty(aux, :mg) && (MGAUX[] = aux.mg)
     TF.setscalar!(:tmax, 1e3tff)                   # a run stopped by TSTOP/NSTOP has tmax = its last time
     KOFF[] = aux.k
     pr("restarted from checkpoint %s at step %d, t = %.6e yr, log n_c = %.3f, T_c = %.1f K\n", name, aux.k, TF.getscalar(:timen) / 3.156e7,
@@ -1184,6 +1190,7 @@ if GRIDEQP !== nothing
     end
     pr("GRIDEQ: mode %d (%s), %d zones, weights rho,P,T,E,m,tau %s, gmax %.3g, alph %.3g, kappa %.3g, fv %.3g, fmove %.3g, tau %.3g..%.3g, ctol %.3g, kappa_f %.3g\n",
        GRIDEQP, GRIDEQP == 1 ? "implicit grid equation" : "prescribed target", nsh, join(GEQW, ","), GEQC[1:9]...)
+    GEQGP[1] > 0 && pr("GEQGP (provisional): monitor term w_g %g x (dln rho/dj)^2 x gravity power of the zone / %g L_sun (implicit grid equation only)\n", GEQGP...)
 end
 const CHEMDIAG = get(ENV, "CHEMDIAG", "0") == "1"; const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
@@ -1222,7 +1229,47 @@ if get(ENV, "SLABTIE", "0") == "1"
     (TX.SLABFLUX[] && isinf(TX.SFN[])) || error("SLABTIE=1 needs SLABFLUX=1 (n = Inf)")
     TX.SLABTIE[] = true
     pr("SLABTIE: FLUXTIE outward donor h = h_FS + f/(tau_i + 2f) - f/(a + 2f), tau_i the slab depth of the donor centre below the interface, a its half-zone depth\n")
+    if haskey(ENV, "TIESMOOTH") && ENV["TIESMOOTH"] != "0"      # (default off) Newton fix 1 of docs/POPIII_MULTIGROUP.md §5
+        TX.TIESM[] = parse(Float64, ENV["TIESMOOTH"])
+        pr("TIESMOOTH: SLABTIE's max(h, 0) replaced by the smooth ramp (h + sqrt(h^2 + eps^2))/2, eps = %g\n", TX.TIESM[])
+    end
 end
+# TIEFRAME=1 (provisional, default off): FLUXTIE and the outer boundary row in the frame of the unknowns (comoving), TX.TIEFRAME, docs/POPIII_ENERGY.md §3
+if get(ENV, "TIEFRAME", "0") == "1"
+    TX.TIEFRAME[] = true
+    pr("TIEFRAME: FLUXTIE closes the lab-frame flux, F_0 = [h c - (1 + f - 2 h^2) u] E_0 for the comoving unknowns; outer boundary row likewise\n")
+end
+# ECOMPAT=1 (provisional, default off): compatible energy rows in every zone, no row switching (TX.ECOMPAT, docs/POPIII_ENERGY.md §4); implies TIEFRAME
+if get(ENV, "ECOMPAT", "0") == "1"
+    TX.GASROW[] || error("ECOMPAT=1 needs the gas-alone row (GASROW)")
+    TX.ECOMPAT[] = true
+    TX.TIEFRAME[] || (TX.TIEFRAME[] = true; pr("ECOMPAT: TIEFRAME switched on\n"))
+    pr("ECOMPAT: first-law gas row adjoint to the momentum row in every zone (ETOTAL/ETASW* row switching unused), lab-frame radiation energy row\n")
+    # ECGRAV=1..4 (provisional, default 0): gravity term of the compatible gas row (TX.ECGRAV, docs/POPIII_ENERGY.md §14)
+    TX.ECGRAV[] = parse(Int, get(ENV, "ECGRAV", "0"))
+    TX.ECGRAV[] != 0 && pr("ECGRAV %d: compatible gas row with the gravity term (%s form, %s)\n", TX.ECGRAV[], TX.ECGRAV[] >= 3 ? "mass flux x potential difference" : "total row's",
+                           TX.ECGRAV[] in (2, 3) ? "every zone" : "zones the dual-energy stack gives the total row")
+end
+# ERLAB=1 (provisional, default off): ECOMPAT's lab-frame radiation energy row with the stack's gas rows (TX.ERLAB, docs/POPIII_ENERGY.md §18); implies TIEFRAME
+if get(ENV, "ERLAB", "0") == "1"
+    TX.GASROW[] || error("ERLAB=1 needs the gas-alone row (GASROW)")
+    TX.ECOMPAT[] && error("ERLAB=1: ECOMPAT=1 already has the lab-frame radiation row")
+    TX.ERLAB[] = true
+    TX.TIEFRAME[] || (TX.TIEFRAME[] = true; pr("ERLAB: TIEFRAME switched on\n"))
+    pr("ERLAB: lab-frame radiation energy row; gas rows of the stack (dual-energy)\n")
+end
+# GFV=1 (provisional, default off): finite-volume gravity weight in the gas momentum row (TX.GFV, docs/POPIII_ENERGY.md §19)
+if get(ENV, "GFV", "0") == "1"
+    TX.GFV[] = true
+    pr("GFV: gas momentum row with the finite-volume gravity weight 4 pi G M_j (rho_j-1 dr_j-1 + rho_j dr_j)/2\n")
+end
+# GVAR=1 (provisional, default off): gravity force of the gas momentum row = gradient of the exact binding energy of the piecewise-constant density (TX.GVAR, docs/POPIII_ENERGY.md §19)
+if get(ENV, "GVAR", "0") == "1"
+    TX.GFV[] && error("GVAR=1 and GFV=1 are alternatives")
+    TX.GVAR[] = true
+    pr("GVAR: gas momentum row with the gravity force dW/dr_j of the piecewise-constant density\n")
+end
+(TX.GFV[] || TX.GVAR[]) && TX.ECGRAV[] >= 3 && error("GFV/GVAR: ECGRAV 3 and 4 are written for the node-mass weight")
 const LINECAPV = Ref(NaN)
 const JACSAVE = Ref{Any}(nothing)
 # JACCHK="k,z,iter": at step k, Newton iteration iter, finite differences of the residual against the assembled Jacobian for the variables of absolute zone z (debugging)
@@ -1312,6 +1359,17 @@ if parse(Int, get(ENV, "VEFBGCHK", "0")) > 0 && TD.VEF_BG[]
         end
     end
 end
+# TIEX=1 (provisional, default off): FLUXTIE on the excess over the isotropic background (TD.TIEX, docs/POPIII_ENERGY.md §15)
+if get(ENV, "TIEX", "0") == "1"
+    (TD.VEF_BG[] && TD.FLUXTIE[][2] > 0) || error("TIEX=1 needs VEFIMP=1 (VEF_BG) and FLUXTIE")
+    TD.TIEX[] = true; pr("TIEX: FLUXTIE closes F = h_x c (E - E_b) with the flux factor h_x = H_x/J_x of the excess over the isotropic background\n")
+end
+# ERESTOL=<L_sun> (provisional, default 0 = off): residual-based stopping test of the stage Newton iterations in addition to the correction
+# test (Trbdf2.ERESTOL, docs/POPIII_ENERGY.md §17)
+if (v = parse(Float64, get(ENV, "ERESTOL", "0"))) > 0
+    get(ENV, "INTEGRATOR", "trbdf2") == "trbdf2" || error("ERESTOL needs INTEGRATOR=trbdf2")
+    Trbdf2.ERESTOL[] = v; pr("ERESTOL: stage Newton iterations continue until |sum of the energy rows + u x momentum rows| <= %g L_sun (or it stalls)\n", v)
+end
 const RUNEND = Ref{Any}(nothing)
 """
 TABAUDIT=1 (diagnostic): for every table zone below the hot branch (and, with TABAUDIT=2, also every network zone) compare at the zone's (ρ, T)
@@ -1398,6 +1456,129 @@ if CPLPROF
         end
     end
 end
+"""
+MGROUPS (docs/POPIII_MULTIGROUP.md): G radiation groups as Newton unknowns 10 … 9 + 2G (TitanResidFast MGRad.jl), group opacity ratios
+before every hydro step (PopIIIMaterial.mg_ratios!), the star-light rates from the group fields (starlight_setup), the pivoted banded
+solver. The group fields come from the checkpoint (MGAUX) or, the first time, from the grey field (CMB part at T_cmb, the excess at T_r
+inside the photosphere and at the star's T_eff outside it).
+"""
+function mg_install!()
+    COUPLED || error("MGROUPS needs COUPLED=1")
+    Int(TF.getscalar(:lrad)) == 1 || error("MGROUPS needs the radiation field (RAD=1)")
+    (TX.COMPTON[] || TX.INNER_SINK[] || !isnan(TX.PEXT[])) && error("MGROUPS: COMPTON, INNER_SINK, PEXT are not supported")
+    edges = PM.mg_edges(ENV["MGROUPS"]); G = length(edges) + 1
+    TF.PARAMS[:meqn] >= 9 + 2G || error("MGROUPS: meqn = $(TF.PARAMS[:meqn]) < $(9 + 2G)")
+    tcmb = parse(Float64, get(ENV, "TCMB", "0"))
+    TX.mg_setup!(edges, PM.EVERG / ChemNet.kB, tcmb, 9, length(TF.var(:dn)))
+    TF.setscalar!(:neqn, 9 + 2G)
+    PM.mg_roles!(); r_ = PM.MGROLE[]; TX.MGQG[] = r_.Lya; TX.MGSLG[] = r_.Hm
+    PM.SLIMP && (TX.MGSLQ[] = PM.sl_qt_mg)
+    get(ENV, "MGSOLVER", "band") == "band" && (TD.ROUTINES[:matslv] = JuliaSolver.matslv!)
+    if get(ENV, "MGVEF", "1") == "1"               # stage 2a: Eddington factors per group (mg_eddfac!)
+        TX.MGVEF[] = true
+        let f0 = TC.EDDFAC[]; TC.EDDFAC[] = () -> mg_eddfac!(f0) end
+    end
+    h0 = TC.CPLH[]
+    TC.CPLH[] = (; newstep = () -> (h0.newstep(); TX.mg_newstep!()), reset = () -> (h0.reset(); TX.mg_reset!()),
+                 update = (rhs, a_, b_) -> (h0.update(rhs, a_, b_); TX.mg_update!(rhs, a_, b_)),
+                 dmax = (rhs, a_, b_) -> max(h0.dmax(rhs, a_, b_), TX.mg_dmax!(rhs, a_, b_)))
+    let f0 = TD.STEPFN[]
+        TD.STEPFN[] = () -> (PM.mg_ratios!(mat); f0(); nothing)
+    end
+    a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
+    ax = MGAUX[]
+    if ax !== nothing && ax.edges == TX.MGEDGE[]
+        for g in 1:G; copyto!(TX.MGEN[][g], ax.E[g]); copyto!(TX.MGFN[][g], ax.F[g]); copyto!(TX.MGEO[][g], ax.E[g]); copyto!(TX.MGFO[][g], ax.F[g]); end
+        TX.mg_newstep!(); src = "the checkpoint"
+    else
+        dn, rn, chi, er, fr = TF.var(:dn), TF.var(:rn), TF.var(:chifn), TF.var(:ern), TF.var(:frn)
+        arad = 7.565723e-15; τ = zeros(length(dn)); t_ = 0.0
+        for k in b_:-1:a_; t_ += chi[k] * dn[k] * (rn[k+1] - rn[k]); τ[k] = t_; end
+        kph = a_; for k in b_:-1:a_; τ[k] >= 2 / 3 && (kph = k; break); end
+        L = 4π * rn[kph+1]^2 * fr[kph+1]; Te = L > 0 ? (L / (4π * rn[kph+1]^2 * 5.670374419e-5))^0.25 : 0.0
+        # the excess over the CMB has the star's colour only where it is the star's light (at least half the free-streaming estimate
+        # L/(4π r² c)); farther out it is the cloud's own emission: T_s = the gas temperature there. (The T_eff shape everywhere put
+        # 0.1–0.3 E_CMB of optical light into the 1–143 pc cloud, which per-group free streaming then drained at up to 5e8 L☉, t_mg28.)
+        # the excess over the CMB has the star's colour only where it is the star's light (at least half the free-streaming estimate
+        # L/(4π r² c)); farther out it is the cloud's own emission: T_s = the gas temperature there. (The T_eff shape everywhere put
+        # 0.1–0.3 E_CMB of optical light into the 1–143 pc cloud, which per-group free streaming then drained at up to 5e8 L☉, t_mg28.)
+        Ec_ = arad * parse(Float64, get(ENV, "TCMB", "0"))^4; tg = TF.var(:tn); rr = TF.var(:rn)
+        lit(k) = Te > 0 && k > kph && k < length(rr) && (er[k] - Ec_) >= 0.5 * L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10)
+        kend = kph + 1; while kend <= b_ && lit(kend); kend += 1; end          # one star-lit region from the photosphere out (no zone-to-zone switching)
+        Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : (k > kph && k < kend) ? max(Te, (max(er[k], 1e-300) / arad)^0.25) : max(tg[k], 1.0)
+              for k in eachindex(dn)]
+        TX.mg_init_from_grey!(Ts); src = @sprintf("the grey field (T_eff %.0f K outside zone %d)", Te, kph - a_ + 1)
+        # (Tried: the excess beyond the star-lit region at T_CMB, and a continuous starlight/CMB split capped at L/(4π r² c), e8d0b3b: both fail
+        #  the first step (t_mg40–t_mg43); this partition leaves a draining optical reservoir in the far cloud, docs §14.)
+    end
+    PM.mg_ratios!(mat)
+    pr("MGROUPS: %d groups, edges %s eV, unknowns 10..%d (neqn %d, meqn %d), q from group %d, chemistry energy from group %d, solver %s; fields from %s\n",
+       G, join((@sprintf("%.4g", e) for e in edges), ","), 9 + 2G, 9 + 2G, TF.PARAMS[:meqn], TX.MGSLG[], TX.MGQG[], get(ENV, "MGSOLVER", "band"), src)
+    nothing
+end
+"""
+(MGROUPS, MGVEF, stage 2a) Eddington factors per group: after the grey formal solution `f0`, the same formal solution (TitanCore.eddfac!,
+tangent rays, linear-in-τ source, VEF_BG background, EDDSCAT) once per group on the group's arrays, swapped into the state arrays it reads:
+χ → χ_g = max(χ r_R,g, κ_E,g), absorption κ_P → κ_E,g = κ_E r_E,g + κ_1s,g, B → κ_P,g B_g/κ_E,g (so that the source is
+(κ_P,g B_g + (χ_g − κ_E,g) J_g)/χ_g: emission κ_P,g B_g, absorption κ_E,g, the rest of χ_g scattering), E_r → E_g, F_r → F_g, I_cmb → I_cmb b_g(T_cmb).
+Out: f_g, h_g, the tie weights of the group's own depth, g_g. Then the grey state is restored and fedd := Σ f_g E_g / Σ E_g.
+"""
+function mg_eddfac!(f0)
+    f0()
+    TX.MGVEF[] || return nothing
+    a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); G = TX.MGN[]
+    ins = (:chifn, :xkpn, :plfn, :ern, :frn, :dtau); sv = Dict(s_ => copy(TF.var(s_)) for s_ in (ins..., :fedd))
+    hsv = copy(TD.HEDD); wsv = copy(TD.TIEW); fxsv = copy(TD.FXEDD); gxsv = TD.GXEDD[]
+    gr0, gl0, xi0 = TF.getscalar(:geddr), TF.getscalar(:geddl), TF.getscalar(:ximr)
+    chi, kp, pl, er, fr = (TF.var(s_) for s_ in (:chifn, :xkpn, :plfn, :ern, :frn)); xke = TF.var(:xken); tn = TF.var(:tn)
+    try
+        for g in 1:G
+            RE, RP, RR, K1 = TX.MGRE[][g], TX.MGRP[][g], TX.MGRR[][g], TX.MGK1[][g]
+            for k in a_-1:b_+1
+                kE = max(xke[k] * RE[k] + K1[k], 1e-300)
+                kP = sv[:xkpn][k] * RP[k] + TX.MGK1E[][g][k]; B = sv[:plfn][k] * TX.mg_bfrac(g, tn[k])
+                chi[k] = max(sv[:chifn][k] * RR[k], kE); kp[k] = kE; pl[k] = kP * B / kE
+            end
+            copyto!(er, TX.MGEN[][g]); copyto!(fr, TX.MGFN[][g]); TF.setscalar!(:ximr, xi0 * TX.MGBCMB_[g])
+            TC.HPON[] = true
+            try f0() finally TC.HPON[] = false end
+            hp = TX.MGHPLUS[][g]; @inbounds for k in eachindex(hp); hp[k] = k <= length(TC.HPLUS) ? TC.HPLUS[k] : 0.0; end
+            copyto!(TX.MGFEDD[][g], TF.var(:fedd))
+            length(TD.HEDD) >= b_ + 1 && (h = TX.MGHEDD[][g]; @inbounds for k in eachindex(h); h[k] = k <= length(TD.HEDD) ? TD.HEDD[k] : 0.0; end)
+            length(TD.TIEW) >= b_ + 1 && (w = TX.MGTIEW[][g]; @inbounds for k in eachindex(w); w[k] = k <= length(TD.TIEW) ? TD.TIEW[k] : 0.0; end)
+            TX.MGGEDDR[][g] = TF.getscalar(:geddr)
+        end
+    finally
+        for s_ in (ins..., :fedd); copyto!(TF.var(s_), sv[s_]); end
+        copyto!(TD.HEDD, hsv); copyto!(TD.TIEW, wsv); copyto!(TD.FXEDD, fxsv); TD.GXEDD[] = gxsv
+        TF.setscalar!(:geddr, gr0); TF.setscalar!(:geddl, gl0); TF.setscalar!(:ximr, xi0)
+    end
+    fe = TF.var(:fedd)
+    for k in a_-1:b_+2
+        sE = 0.0; sF = 0.0
+        for g in 1:G; e_ = TX.MGEN[][g][k]; sE += e_; sF += TX.MGFEDD[][g][k] * e_; end
+        sE > 0 && (fe[k] = sF / sE)
+    end
+    TX.MGVEFOK[] = true
+    nothing
+end
+"(MGROUPS) a record per snapshot in POPIII_OUT/mg_rec.jls: groups, grey field, state, ratios, star-light rates."
+function mg_record(k)
+    a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); rg = a_-1:b_+2; sd = PM.SLDIAG[]
+    rec = (; step = k, t = TF.getscalar(:timen), dt = TF.getscalar(:timen) - TF.getscalar(:timeo), r = TF.var(:rn)[rg], ρ = TF.var(:dn)[rg], T = TF.var(:tn)[rg],
+           E = TF.var(:ern)[rg], F = TF.var(:frn)[rg], chi = TF.var(:chifn)[rg], kE = TF.var(:xken)[rg], kP = TF.var(:xkpn)[rg], fedd = TF.var(:fedd)[rg],
+           Eg = [TX.MGEN[][g][rg] for g in 1:TX.MGN[]], Fg = [TX.MGFN[][g][rg] for g in 1:TX.MGN[]],
+           rE = [TX.MGRE[][g][rg] for g in 1:TX.MGN[]], rP = [TX.MGRP[][g][rg] for g in 1:TX.MGN[]], rR = [TX.MGRR[][g][rg] for g in 1:TX.MGN[]],
+           k1 = [TX.MGK1[][g][rg] for g in 1:TX.MGN[]], edges = copy(TX.MGEDGE[]),
+           fg = TX.MGVEFOK[] ? [TX.MGFEDD[][g][rg] for g in 1:TX.MGN[]] : nothing, gr = copy(TX.MGGEDDR[]),
+           hplus = TX.MGVEFOK[] ? [TX.MGHPLUS[][g][rg] for g in 1:TX.MGN[]] : nothing,
+           n2 = length(PM.MGN2[]) >= b_ + 2 ? PM.MGN2[][rg] : nothing,
+           sl = sd === nothing ? nothing : (; kph = sd.kph, Te = sd.Te, L = sd.L, kHm = sd.kHm[rg], kH = sd.kH[rg], kLW = sd.kLW[rg]),
+           xHp = [ChemNet.full(mat.x[z], mat.net)[:Hp] for z in a_:b_], xH2 = [ChemNet.full(mat.x[z], mat.net)[:H2] for z in a_:b_],
+           wrec = [z <= length(PM.MGWREC[]) ? PM.MGWREC[][z] : nothing for z in rg])
+    open(io -> serialize(io, rec), joinpath(get(ENV, "POPIII_OUT", "."), "mg_rec.jls"), "a")
+    nothing
+end
 const PROFSAMPLE = haskey(ENV, "CPLPROFILE") ? parse(Int, ENV["CPLPROFILE"]) : -1     # step at which a 200-step Profile sample starts
 const PROFSAMPLEN = parse(Int, get(ENV, "CPLPROFILEN", "200"))                       # (PERF512) its length in steps
 PROFSAMPLE >= 0 && @eval using Profile
@@ -1483,6 +1664,34 @@ try
     elseif Int(TF.getscalar(:neqn)) == 9
         TF.setscalar!(:neqn, 7)                    # (restart from a COUPLED checkpoint)
     end
+    COUPLED && !PM.MGON && Int(TF.getscalar(:neqn)) > 9 && TF.setscalar!(:neqn, 9)   # (restart from an MGROUPS checkpoint without groups)
+    PM.MGON && mg_install!()
+    if get(ENV, "EDIAG", "0") == "2"               # (diagnostic, default off) EDIAG=1 plus the per-zone breakdown (TX.zone_diag) to ediagz.jls
+        let f_ = joinpath(get(ENV, "POPIII_OUT", "."), "ediag.csv"), fz = joinpath(get(ENV, "POPIII_OUT", "."), "ediagz.jls")
+            isfile(f_) || open(io -> println(io, "jstep,kind,dt,imb,dE,fin,fout"), f_, "w")
+            TD.STAGE_HOOK[] = function (kind, dt)
+                d_ = TX.stage_diag(dt)
+                open(io -> @printf(io, "%d,%s,%.6e,%.6e,%.6e,%.6e,%.6e\n", Int(TF.getscalar(:jstep)), kind, dt, d_.imb, d_.dE, d_.fin, d_.fout), f_, "a")
+                z_ = TX.zone_diag(dt)
+                open(io -> serialize(io, merge((; jstep = Int(TF.getscalar(:jstep)), kind, dt), z_)), fz, "a")
+                nothing
+            end
+        end
+        pr("EDIAG=2: total-energy rows of every converged stage -> ediag.csv, per zone -> ediagz.jls\n")
+    end
+    if get(ENV, "EDIAG", "0") == "1"               # (diagnostic, default off) total-energy non-conservation of every converged implicit stage
+        # TitanResidFast.stage_diag: the conservative total-energy rows of all zones (ηsw = 0) at the converged state of the stage, summed × the stage's
+        # dt = ΔE_total + dt (Φ_out − Φ_in) − (what the rows of the solve actually conserved): one line per stage in POPIII_OUT/ediag.csv
+        let f_ = joinpath(get(ENV, "POPIII_OUT", "."), "ediag.csv")
+            isfile(f_) || open(io -> println(io, "jstep,kind,dt,imb,dE,fin,fout"), f_, "w")
+            TD.STAGE_HOOK[] = function (kind, dt)
+                d_ = TX.stage_diag(dt)
+                open(io -> @printf(io, "%d,%s,%.6e,%.6e,%.6e,%.6e,%.6e\n", Int(TF.getscalar(:jstep)), kind, dt, d_.imb, d_.dE, d_.fin, d_.fout), f_, "a")
+                nothing
+            end
+        end
+        pr("EDIAG: total-energy rows of every converged stage -> ediag.csv\n")
+    end
     Trbdf2.ERRCTL[] || error("DTERR must be set (the step control of the stack; TITAN's heuristic is diagnostic only)")
     if Trbdf2.ERRCTL[]                             # DTERR: coverage of the COUPLED zones and the line cap the heuristic would apply, on the trace lines
         Trbdf2.TRACE_EXTRA[] = function ()
@@ -1561,6 +1770,7 @@ try
         TCHEM[] += time() - tc0
         RAD && TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())   # T changed in chem!: Planck function, opacity, e_g + E_r/ρ
         REC.on && SNAPEVERY > 0 && k % SNAPEVERY == 0 && recsnap!(k)
+        PM.MGON && SNAPEVERY > 0 && k % SNAPEVERY == 0 && mg_record(k)
         if SNAPS !== nothing                         # profiles for post-processing: every 0.25 dex of n_c, and every SNAPEVERY steps
             lnc = log10(TF.var(:dn)[a] / PC.mH)
             if lnc >= SNAPNEXT[] || (SNAPEVERY > 0 && k % SNAPEVERY == 0)
@@ -1707,6 +1917,8 @@ catch e
     pr("stopped: %s\n", first(sprint(showerror, e), 400))
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
+Trbdf2.ERESTOL[] > 0 && pr("ERESTOL %g: %d stage solves tested, %d extra Newton iterations, %d left above the tolerance (%d of them at niter); largest accepted measure %.4g L_sun\n",
+                           Trbdf2.ERESTOL[], Trbdf2.ERES[:checks], Trbdf2.ERES[:extra], Trbdf2.ERES[:unmet], Trbdf2.ERES[:niter], Trbdf2.ERESMAX[])
 pr("run ended: %s; jstep %d jstepe %g timen %.6e tmax %.6e\n", string(RUNEND[]), Int(TF.getscalar(:jstep)), Float64(TF.getscalar(:jstepe)), TF.getscalar(:timen), TF.getscalar(:tmax))
 if haskey(ENV, "SAVE")      # never overwrite a checkpoint with a non-finite state (a NaN stop would otherwise be saved and restart as NaN)
     if all(v -> all(isfinite, TF.var(v)[a:b]), (:tn, :dn, :ern, :un))

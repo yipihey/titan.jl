@@ -585,6 +585,152 @@ No front (R = 1): h = h_FS exactly. Front (a ≫ τ_i): h ≈ h_FS + f/(τ_i + 2
 (Marshak). The inward term is unchanged. Local (zones k−1, k), smooth in χ±, ρ±, r (Duals) except the max at h = 0.
 """
 const SLABTIE = Ref(false)
+"""
+TIEFRAME (popiii_m2c `TIEFRAME=1`; provisional switch, default off = bit-identical; docs/POPIII_ENERGY.md §3): FLUXTIE and the outer
+boundary row in the frame of the unknowns. E and F of the rows are comoving-frame moments (the energy row carries ∇·(uE) and P:∇u); the
+formal solution that gives h = H/J, f = K/J and g is static, i.e. it describes the field of an observer at rest. To O(u/c)
+(Mihalas & Mihalas 1984 §91; Krumholz, Klein & McKee 2007, ApJ 667, 626, eqs. 31–33; Mihalas & Auer 2001, JQSRT 71, 61)
+    F_lab = F₀ + u (E₀ + P₀),   E_lab = E₀ + 2 u F₀/c²,
+so the closure F_lab = h c E_lab is, for the unknowns, F₀ = [h c − (1 + f − 2h²) u] E₀ (h = f = 1: F₀ = c E₀, a beam stays a beam;
+h = 0, f = 1/3: F₀ = −(4/3) u E₀, the flux a moving observer sees in an isotropic field). Without the u terms the row said F₀ = h c E₀:
+in the CMB-dominated cloud (h ~ 1e-6…1e-3) the energy row's ∇·(uE) + (E/3)∇·u was then balanced by nothing and the infall compressed the
+CMB like a trapped gas (E_r up to 6 E_CMB at 0.2 pc, −1e5 L☉ through the outer boundary, docs/POPIII_ENERGY.md §3).
+Discrete form at interface k (all at the θ-level of the row, nothing lagged), chosen so that a uniform isotropic field is a steady state of
+the energy row to round-off, also on a moving mesh (well-balanced):
+    r² F₀ = r_c² c (h E)_donor + ṁ_k (E/ρ)ᵇ_k − V̇_k ½(E₋ + E₊) − r² u ½(f₋E₋ + f₊E₊) + 2 u r_c² (h² E)_donor,
+ṁ_k (E/ρ)ᵇ_k the advective flux of the energy row itself (dmdt·erb, = −r² ρᵇ u_rel (E/ρ)ᵇ), V̇_k = (r_new³ − r_old³)/(3Δt) the volume the
+interface sweeps per unit time (the same radii as ΔV_new − ΔV_old of the row: geometric conservation); the two together are −r² u E.
+Outer boundary: F_lab = g c E_s − π(2g + 1) I_in becomes F₀ = [g c E_s − π(2g + 1) I_in](1 + 2 g u/c) − (1 + f) u E.
+"""
+const TIEFRAME = Ref(false)
+"""
+ECOMPAT[] (provisional, default false; lrad = 1, grey): compatible energy rows in EVERY zone, no row switching and no E − K subtraction
+(docs/POPIII_ENERGY.md §4). The gas row is the first law (GASROW's row) made the exact discrete adjoint of the momentum row, so that
+Σ_k (gas row + radiation row)_k + Σ_j u_j (momentum row)_j is the conservative total-energy row sum identically:
+  * viscous work q_k r̄_k^{3μ/2} (u_{k+1} r_{k+1}^{−μ/2} − u_k r_k^{−μ/2}), the adjoint of the momentum row's r^{−μ/2} Δ(r̄^{3μ/2} q);
+  * the kinetic energy the momentum row's discretisation does not keep, as cancellation-free products of differences, returned as heat:
+      time    −(2θ − 1) ¼ ½(m_n + m_o) Σ_faces (u_n − u_o)² / Δt + (θ² − θ + ½) ¼ (m_n − m_o) Σ_faces (u_n − u_o)² / Δt
+              (BDF stage of TR-BDF2: + D_k/Δt, D = K(y*) − (A K_γ − B K_n), `KSTAR`: the reference state's kinetic energy is not the BDF2
+              combination of the stage energies, and the step conserves only with the latter)
+      upwind  ½(ṁ_k + ṁ_k+1) (u_k+1 − u_k) (½(u_k + u_k+1) − û_k) − (G_k+1 − G_k)    û the van Leer value of the momentum flux,
+              G_j = ṁ_j (Δu)²_upwind/8 the flux of the sub-zone kinetic energy (zone kinetic energy ¼m(u_k² + u_k+1²) = ½m ū² + ⅛m(Δu)²)
+              with the relative mass flux (`ksflux`). The first term alone is not sign-definite (third order in Δu, it cools where the
+              velocity gradient steepens upstream); with the transport term the heating is ½|ṁ̄| [½(a − b)² + ¼(a − b)³/(a + b)] ≥ ⅛|ṁ̄|(a − b)²
+              for monotone data (a, b the velocity differences of the zone and of its upwind neighbour) and ⅜|ṁ̄|a² + ⅛|ṁ̄|b² at an extremum
+  * the old-level energy is the one the previous solve left, e_old = (e_g + E/ρ)_old − E_old/ρ_old, not a re-evaluation of the EOS
+    (COUPLED zones: `cpl_prepare!` re-evaluates e_g(ρ, T, x) with the new step's expansion terms);
+  * no gravity term: the work of gravity is what the momentum row's force does, Σ_j u_j g_j ½(m_j−1 + m_j).
+The radiation row is the conservation law of the lab-frame energy in the comoving unknowns to O(u/c),
+  Δ(E ΔV)/Δt + Δ(r² F₀) − Δ(ṁ (E/ρ)ᵇ) + Δ(r² u (fE)‾) + Σ_faces u_j χ̄_j F_j/c ½m_k = sources,
+i.e. the comoving row plus u × (radiation momentum equation): the comoving work f E Δ(r²u) + (1 − 3f) E u/r ΔV is the adjoint of the
+MOMENT equation's ∇·P, so the comoving row conserves only where that equation is the flux row; where FLUXTIE replaces it by a closure the
+difference u (∇·P + χρF/c) was created (3.3e3 L☉ in the outer cloud of the 100-zone run). Use with TIEFRAME.
+"""
+const ECOMPAT = Ref(false)
+"""
+KSTAR[] (ECOMPAT; set by Trbdf2.bdf_old!, emptied by its restore!): per zone D_k = K(y*) − (A K_γ − B K_n) [erg sr⁻¹], the kinetic energy
+¼m(u_k² + u_k+1²) of the BDF stage's reference state y* = A y_γ − B y_n (built on m and m u) minus the same combination of the stage
+kinetic energies, = A B ⅛ m Σ_faces (u_γ − u_n)² for equal masses. A stage row that differences against y* conserves E(y*), the step conserves
+A E_γ − B E_n; the gas row therefore takes D_k out of its old-level energy. Empty in every other stage.
+"""
+const KSTAR = Ref(Float64[])
+"ECOMPAT: flux G_j = ṁ_j (u_up+1 − u_up)²/8 of the sub-zone kinetic energy through interior interface j (upwind zone: j for ṁ_j ≥ 0, else j − 1); 0 at the boundaries."
+@inline function ksflux(j, u, dmdt, ngrs, ngre)
+    ngrs < j <= ngre || return zero(eltype(u))
+    up = val(dmdt[j]) >= 0 ? j : j - 1
+    dmdt[j] * 0.125 * (u[up+1] - u[up])^2
+end
+"""
+ECGRAV[] (provisional, ENV ECGRAV, default 0 = off; with ECOMPAT): a gravity term in the compatible gas row, taken from the gas as heat
+(docs/POPIII_ENERGY.md §14). The momentum row's power Σ_j u_j g_j ½(m_j−1 + m_j) is not the rate of change of a binding energy unless
+the mesh is Lagrangian: for W = Σ_j ½(m_j−1 + m_j) ψ_j (ψ_j = −4πG M_j/r_j with the enclosed mass M_j; + the external mass's potential)
+    dW/dt = Σ_j ½(m_j−1 + m_j) g_j ṙ_j + Σ_j F_j [½(ψ_j+1 − ψ_j−1) + 4πG ½(m_j−1 + m_j)/r_j],        F_j = −ṁ_j the relative mass flux,
+and the second sum is not Σ_j u_rel,j g_j ½(m_j−1 + m_j) where the advected density differs from the mean of the neighbours.
+  1  the total row's form (ETOT_GRAV: lab-frame mass flux r² u ρᵇ × g × ½Δr on each face; the diagnostic G5) minus the momentum row's
+     power, in the zones the dual-energy stack gives the total row (c.etotal && !useint): the controlled test of what that row does
+  2  the same in every zone
+  3  the exact difference above (zone k's half of each of its faces), in every zone: K + U + E_r + W conserved to the time discretisation
+  4  as 3, in the zones the dual-energy stack gives the total row
+"""
+const ECGRAV = Ref(0)
+"""
+ERLAB[] (provisional, ENV ERLAB=1, default false; lrad = 1, grey): ECOMPAT's radiation half alone (docs/POPIII_ENERGY.md §18). The radiation
+energy row is the lab-frame conservation law of ECOMPAT (comoving row + u × radiation momentum equation); the gas rows are the stack's
+(dual-energy: total row where c.etotal && !useint, the GASROW first-law row elsewhere). Use with TIEFRAME (the driver switches it on).
+"""
+const ERLAB = Ref(false)
+"""
+GFV[] (provisional, ENV GFV=1, default false; μ = 2 self-gravity): finite-volume weight in the gas momentum row (docs/POPIII_ENERGY.md §19).
+The row's gravity term is the node mass times the interface's acceleration, g_j ½(m_j−1 + m_j), exact where the interface moves with the gas.
+GFV replaces it by ∫ρ g dV between the centres of the two zones for piecewise constant density and r² g = 4πG M_j across the node,
+    4πG M_j ½[ρ_j−1 (r_j − r_j−1) + ρ_j (r_j+1 − r_j)],
+the weight that the flux form of the inertia (ṁ Δū between the zone centres) balances in steady flow through the mesh. Zone k's part of
+interface j's weight is `gwt(k, j, …)`; the uniform-field term (1 − μ/2) P.g keeps the node mass. Not applied to the PEXT free-surface row.
+"""
+const GFV = Ref(false)
+"Zone k's part of the mass that the gravity term of interface j's momentum row multiplies by g_j: ½ m_k, or with GFV ½ r_j^μ ρ_k (r_k+1 − r_k)."
+@inline gwt(k, j, d, dvol, r, rmu) = GFV[] ? 0.5 * rmu[j] * d[k] * (r[k+1] - r[k]) : 0.5 * d[k] * dvol[k]
+"""
+GVAR[] (provisional, ENV GVAR=1, default false; μ = 2 self-gravity): the gravity force of the gas momentum row as the gradient of the exact
+binding energy of the piecewise-constant density (docs/POPIII_ENERGY.md §19),
+    F_j = ∂W/∂r_j at fixed zone masses,   W = −4πG Σ_k ∫_zone k M(r) ρ_k r dr,   M(r) = M_j + ρ_k (r³ − r_j³)/3 on either side of interface j,
+which is ∫ρ g ξ_j dV with the displacement field ξ_j of interface j moving at uniform zone densities (r² ξ_j linear in r³ in both zones):
+    F_j = 4πG r_j² [ρ_j−1 ∫ M (r³ − r_j−1³)/(r² (r_j³ − r_j−1³)) dr + ρ_j ∫ M (r_j+1³ − r³)/(r² (r_j+1³ − r_j³)) dr]      (`gvar_in`, `gvar_out`).
+A state-only force with a binding energy when the interfaces move with the gas (the finite-volume weight GFV has none), and within a few
+per cent of the finite-volume weight where mass passes. The external mass (EXTMASS) and the uniform field P.g keep the node mass.
+Not applied to the PEXT free-surface row.
+"""
+const GVAR = Ref(false)
+"GVAR: r_b² ρ ∫_a^b M(r) (r³ − a³)/(r² (b³ − a³)) dr, M(r) = M − ρ (b³ − r³)/3: the zone below interface b (M the mass enclosed by b), per 4πG."
+@inline function gvar_in(a, b, ρ, M)
+    A = M - ρ * b^3 / 3
+    b^2 * ρ * (b - a) * (A * (b + 2a) / (2b) + ρ / 30 * (2b^3 + 4b^2 * a + 6b * a^2 + 3a^3)) / (b^2 + a * b + a^2)
+end
+"GVAR: r_a² ρ ∫_a^b M(r) (b³ − r³)/(r² (b³ − a³)) dr, M(r) = M + ρ (r³ − a³)/3: the zone above interface a (M the mass enclosed by a), per 4πG."
+@inline function gvar_out(a, b, ρ, M)
+    A = M - ρ * a^3 / 3
+    a^2 * ρ * (b - a) * (A * (2b + a) / (2a) + ρ / 30 * (3b^3 + 6b^2 * a + 4b * a^2 + 2a^3)) / (b^2 + a * b + a^2)
+end
+"""
+GFV/GVAR: zone k's part of the self-gravity force of interface j's momentum row (j = k: the zone above the interface, j = k + 1: below it);
+G4 = 4πG, xmj the enclosed mass of the row, xej its external part.
+"""
+@inline function gfz(k, j, d, dvol, r, rmu, G4, xmj, xej)
+    GVAR[] || return G4 * xmj / rmu[j] * gwt(k, j, d, dvol, r, rmu)
+    (j == k ? G4 * gvar_out(r[k], r[k+1], d[k], xmj - xej) : G4 * gvar_in(r[k], r[k+1], d[k], xmj - xej)) + G4 * xej / rmu[j] * 0.5 * d[k] * dvol[k]
+end
+@inline gxe(rj) = EXTMASS[] === nothing ? zero(rj) : EXTMASS[](rj)
+@inline function ecgrav(k, c, W, exact::Bool)
+    P = c.p; xmu = Float64(c.mu); a, b = c.ngrs, c.ngre; r = W.r
+    G4 = 2xmu * P.cpi * P.cgrav
+    g(j) = G4 * W.xm[j] / W.rmu[j] + (1 - 0.5xmu) * P.g
+    mh = 0.5 * W.d[k] * W.dvol[k]; Δr = 0.5 * (r[k+1] - r[k])
+    w = zero(W.u[k] * mh)
+    if !exact
+        uf(j) = gridmoves() ? W.u[j] : W.urel[j]
+        if GFV[] || GVAR[]                                              # the momentum row's force with GFV/GVAR
+            fz(j) = gfz(k, j, W.d, W.dvol, r, W.rmu, G4, W.xm[j], gxe(r[j])) + (1 - 0.5xmu) * P.g * mh
+            k > a && (w += g(k) * W.rmu[k] * uf(k) * W.db[k] * Δr - W.u[k] * fz(k))
+            k < b && (w += g(k + 1) * W.rmu[k+1] * uf(k + 1) * W.db[k+1] * Δr - W.u[k+1] * fz(k + 1))
+        else
+            k > a && (w += g(k) * (W.rmu[k] * uf(k) * W.db[k] * Δr - W.u[k] * mh))
+            k < b && (w += g(k + 1) * (W.rmu[k+1] * uf(k + 1) * W.db[k+1] * Δr - W.u[k+1] * mh))
+        end
+    else
+        xmu == 2 || error("ECGRAV 3/4: spherical geometry only")
+        xe(j) = EXTMASS[] === nothing ? zero(r[j]) : EXTMASS[](r[j])
+        # potential drop across zone k for mass entering through its lower face: ½[ψ_k+1 − ψ_k] + ½ 4πG m_k/r_k = ½ 4πG M_k+1 (1/r_k − 1/r_k+1);
+        # through its upper face ½ 4πG M_k (1/r_k − 1/r_k+1) (0 in the central zone); the external mass's part as g_ext ½Δr
+        if k > a
+            ir = 1 / r[k] - 1 / r[k+1]
+            w += -W.dmdt[k] * (0.5G4 * (W.xm[k+1] - xe(k + 1)) * ir + G4 * xe(k) / W.rmu[k] * Δr) - W.urel[k] * g(k) * mh
+            k < b && (w += -W.dmdt[k+1] * (0.5G4 * (W.xm[k] - xe(k)) * ir + G4 * xe(k + 1) / W.rmu[k+1] * Δr) - W.urel[k+1] * g(k + 1) * mh)
+        else
+            w += -W.dmdt[k+1] * G4 * xe(k + 1) / W.rmu[k+1] * Δr - W.urel[k+1] * g(k + 1) * mh
+        end
+    end
+    w
+end
 "SLABTIE: optical depth from the donor centre (χm, column Mm) to the interface in SLABFLUX's exponential-in-τ profile."
 @inline function st_tauint(χm, χp, Mm, Mp)
     ΔM = Mm + Mp; φ = Mm / ΔM; x = log(χm / χp)
@@ -592,15 +738,26 @@ const SLABTIE = Ref(false)
     abs(val(x)) < 1e-6 && return Δτ * (φ + 0.5 * φ * (1 - φ) * x)
     return Δτ * log1p(expm1(x) * φ) / x
 end
+"""
+TIESMOOTH (popiii_m2c `TIESMOOTH=ε`, with SLABTIE; default 0 = off, off = bit-identical; docs/POPIII_MULTIGROUP.md §5, Newton fix 1): the
+max(h, 0) of SLABTIE's donor factor replaced by the C∞ ramp s(h) = ½(h + √(h² + ε²)) (≥ 0, → h for h ≫ ε, s(0) = ε/2), so that the
+row's derivative is continuous where the slab correction drives h through 0.
+"""
+const TIESM = Ref(0.0)
+@inline sramp(x, ε) = 0.5 * (x + sqrt(x * x + ε * ε))
 "SLABTIE: the outward donor factor h (see SLABTIE)."
 @inline function st_hdonor(hfs, fm, χm, χp, Mm, Mp)
     τi = st_tauint(χm, χp, Mm, Mp)
+    TIESM[] > 0 && return sramp(hfs + fm / (τi + 2fm) - fm / (χm * Mm + 2fm), TIESM[])
     return max(hfs + fm / (τi + 2fm) - fm / (χm * Mm + 2fm), 0.0)
 end
 @inline function excap(cc, κ, ρ, dt)
     EXCAP[] > 0 || return 1.0
     return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
 end
+include(joinpath(@__DIR__, "MGRad.jl"))                 # MGROUPS (default off)
+"(MGROUPS with SLIMP) (q, t) of zone k at the iterate from the grey E_r and group MGSLG's E_g, F_g, F_g+1 (PopIIIMaterial.sl_qt_mg)."
+const MGSLQ = Ref{Any}(nothing); const MGSLG = Ref(2)
 
 "van Leer interpolation (advectc: centred=true, advecti: centred=false)."
 @inline function advect!(qb, qsn, qn, qo, qso, flow, θ, cadv, eps, ngrs, ngre, centred::Bool, id::Int = 0)
@@ -912,7 +1069,7 @@ end
 # ------------------------------------------------------------------ residual
 
 "Grid-equation rows of GRIDEQ (see there) for the interfaces k1+1 … k2−1."
-function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, chi = nothing)
+function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, chi = nothing; un = nothing, G4 = 0.0)
     k1, k2 = ge.k1, ge.k2; zl, zh = k1, k2 - 1                  # zones between the fixed interfaces
     α = ge.alph * (1 + ge.alph); wρ, wP, wT, wE, wm = ge.w
     zc(j) = clamp(j, zl, zh)
@@ -925,6 +1082,13 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
             wE * (h * log(er[jp] / er[jm]))^2 + wm * (h * (lm(jp) - lm(jm)))^2 + ge.sx[j]
         # (GEQW entry 8, wχ > 0: the extinction coefficient χρ of the Newton iterate, ln(χ_jp ρ_jp/χ_jm ρ_jm): the opacity cliff, local, not lagged)
         (hasproperty(ge, :wχ) && ge.wχ > 0 && chi !== nothing) && (S += ge.wχ * (h * log((chi[jp] * dn[jp]) / (chi[jm] * dn[jm])))^2)
+        # (GEQGP = w_g, L_ref; provisional, default off; docs/POPIII_ENERGY.md §14.6) the density jump weighted with the gravity power of the
+        # zone, w_g (∂ln ρ/∂j)² ½(|u_j| g_j + |u_j+1| g_j+1) m_j / L_ref, of the Newton iterate (local, not lagged): where the advected interface
+        # density differs from the mean density of the node AND gravity does work, i.e. where the two discrete gravity powers differ (G5)
+        if hasproperty(ge, :gp) && ge.gp[1] > 0 && un !== nothing
+            gq(i) = G4 * (xmtot - xmen[i] + (EXTMASS[] === nothing ? zero(rn[i]) : EXTMASS[](rn[i]))) / rn[i]^2
+            S += ge.gp[1] * (h * log(dn[jp] / dn[jm]))^2 * 0.5 * (abs(un[j]) * gq(j) + abs(un[j+1]) * gq(j + 1)) * (xmen[j] - xmen[j+1]) / ge.gp[2]
+        end
         G2 = ν(j)^2 * S; G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
         γ = ge.tauv[j] / dt
         ((1 + γ) * xnt - γ * xnto) / sqrt(1 + G2)
@@ -963,6 +1127,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             for bb in 1:nb; k = k0 + bb - 1; a[k] = c.base[k, cde] * exp(x[(bb-1)*neqn+j]); end
         end
     end
+    Mg = MG[] ? mgws(T, c.mgr) : nothing          # MGROUPS: the group unknowns of the iterate
+    MG[] && mg_iterate!(Mg, x, neqn, nb, k0, ngre)
     # EOS / opacity (TITAN built-in physics unless a material is installed, see TitanMaterials)
     Rg = P.ck / (P.cm0 * P.gmu); γ = P.gam
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
@@ -978,7 +1144,12 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             slq = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 1))::Vector{T}
             slt = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 2))::Vector{T}
             @inbounds for k in eachindex(slq); slq[k] = one(T); slt[k] = one(T); end
-            @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
+            if Mg === nothing
+                @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
+            else                                     # MGROUPS: the star-light dilution from group MGSLG (optical) at the iterate
+                gq = MGSLG[]
+                @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = MGSLQ[](k, ern[k], Mg.egn[gq][k], Mg.fgn[gq][k], Mg.fgn[gq][k+1])); end
+            end
             if SLIMPDBG[] > 0
                 fin(v) = isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v)))
                 for k in ngrs:ngre
@@ -1095,6 +1266,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         advect!(egb, egsn, egn, c.ego, c.egso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 6)
     end
     erb, frb = W.erb, W.frb
+    MG[] && mg_theta!(Mg, c, W, θ, ngrs, ngre, fle, flu)     # MGROUPS: θ-level group opacities, emission, χ̄_g, face values
     if COUPLED[]
         advect!(W.xb1, W.xsn1, W.xs1, XSO[][1], XSSO[][1], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 7)
         advect!(W.xb2, W.xsn2, W.xs2, XSO[][2], XSSO[][2], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 8)
@@ -1168,7 +1340,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         else
             @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k] - gv[k] * dt; end
         end
-        GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[], W.chifn)
+        GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[], W.chifn; un, G4 = 2 * Float64(c.mu) * P.cpi * P.cgrav)
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
     end
@@ -1227,13 +1399,19 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         mk = 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])
         r1 = r[k]^(-0.5xmu)
         r3k = ((r[k] + r[k+1]) / 2)^(1.5xmu); r3m = ((r[k-1] + r[k]) / 2)^(1.5xmu)
+        fgk = if GFV[] || GVAR[]                # gravity force with the finite-volume weight / as the gradient of the binding energy
+            xek = gxe(r[k]); G4_ = 2xmu * P.cpi * P.cgrav
+            gfz(k - 1, k, d, dvol, r, rmu, G4_, xm[k], xek) + gfz(k, k, d, dvol, r, rmu, G4_, xm[k], xek) + (1 - 0.5xmu) * P.g * mk
+        else
+            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk
+        end
         w = (un[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
              c.uo[k] * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2dt) -
             0.5 * ((dmdt[k] + dmdt[k+1]) * ub[k] - (dmdt[k-1] + dmdt[k]) * ub[k-1]) +
             rmu[k] * (pg[k] - pg[k-1]) +
-            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk +
+            fgk +
             r1 * (r3k * qf[k] - r3m * qf[k-1])
-        c.lrad && (w -= avchi[k] * fr[k] / cc * mk)
+        c.lrad && (w -= (Mg === nothing ? avchi[k] * fr[k] : Mg.frc[k]) / cc * mk)   # (MGROUPS: Σ_g χ̄_g F_g)
         R[iu, kb(k)] = w
     end
     R[iu, kb(ngrs)] = X(iu, ngrs); R[iu, kb(ngre+1)] = X(iu, ngre + 1); R[iu, 1] = X(iu, k0)
@@ -1282,7 +1460,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             # discretisation of the pressure difference that balances the momentum equation.
             lp = log(Pp / Pm)
             if MLT_HS[]
-                lph = MLT_HSDISC[] ? -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi) : -0.5 * (rn[k+1] - rn[k-1]) / HP
+                lph = MLT_HSDISC[] ? ((GFV[] || GVAR[]) ? -(gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
+                                                           gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
+                                                           (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
+                                      -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (rn[k+1] - rn[k-1]) / HP
                 q = clamp((ForwardDiff.value(lp / lph) - 0.25) / 0.5, 0.0, 1.0); sw = q * q * (3 - 2q)
                 sw < 1 && (lp = sw * lp + (1 - sw) * lph)
             end
@@ -1316,7 +1497,32 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         # S4: nuclear source ε ρ ΔV (erg s⁻¹ per steradian), θ-weighted new/old; subtracted in every variant below
         src = hassrc ? (θ * W.snuc[k] + (1 - θ) * srco[k]) * d[k] * dvol[k] : zero(T)
         hassrc && (W.srcw[k] = src)
-        if c.etotal && !c.useint[k]
+        if ECOMPAT[] && c.lrad                 # compatible first-law row in every zone (see ECOMPAT)
+            egbg = W.egbg
+            mn_ = dn[k] * dvoln[k]; mo_ = c.do_[k] * c.dvolo[k]
+            r3k = ((r[k] + r[k+1]) / 2)^(1.5xmu)
+            vlo = k == ngrs ? rmu[k] * u[k] : r3k * r[k]^(-0.5xmu) * u[k]
+            vhi = (k == ngre && isnan(PEXT[])) ? rmu[k+1] * u[k+1] : r3k * r[k+1]^(-0.5xmu) * u[k+1]
+            du2 = (un[k] - c.uo[k])^2 + (un[k+1] - c.uo[k+1])^2
+            w = (mn_ * egn[k] - mo_ * (c.egro[k] - c.ero[k] / c.do_[k])) / dt -
+                dfe[k+1] + dfe[k] + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
+                pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * (vhi - vlo) +
+                (-(2θ - 1) * 0.125 * (mn_ + mo_) + (θ^2 - θ + 0.5) * 0.25 * (mn_ - mo_)) * du2 / dt +
+                0.5 * (dmdt[k] + dmdt[k+1]) * (u[k+1] - u[k]) * (0.5 * (u[k] + u[k+1]) - W.ub[k]) -
+                (ksflux(k + 1, u, dmdt, ngrs, ngre) - ksflux(k, u, dmdt, ngrs, ngre)) + (isempty(KSTAR[]) ? 0.0 : KSTAR[][k] / dt) -
+                (Mg === nothing ? excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) : Mg.xch[k]) * d[k] * dvol[k] +
+                compton(k, W, P) * dvol[k] - src
+            ECGRAV[] != 0 && (ECGRAV[] == 2 || ECGRAV[] == 3 || (c.etotal && !c.useint[k])) && (w += ecgrav(k, c, W, ECGRAV[] >= 3))
+            isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
+            if k == ngrs
+                w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
+            elseif k == ngre
+                w += dmdt[k] * egbg[k]
+                w += P.leobc != 3 ? rmu[k+1] * P.phir2 : -dmdt[k+1] * egbg[k+1]
+            else
+                w += -dmdt[k+1] * egbg[k+1] + dmdt[k] * egbg[k]
+            end
+        elseif c.etotal && !c.useint[k]
             w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])     # the gas gets the ray's energy in chemistry: it leaves the total here (as the lrad total row)
         elseif c.lrad && GASROW[]
@@ -1324,7 +1530,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
                 dfe[k+1] + dfe[k] + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
                 pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * dudr[k] * dvol[k] -
-                excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] + compton(k, W, P) * dvol[k] - src
+                (Mg === nothing ? excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) : Mg.xch[k]) * d[k] * dvol[k] +
+                compton(k, W, P) * dvol[k] - src                   # (MGROUPS: Σ_g of the group exchange)
             isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
@@ -1401,10 +1608,20 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         # ------------------------------------------------------------ RADIATION ENERGY
         @inbounds for k in ngrs:ngre
             aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
+            if ECOMPAT[] || ERLAB[]            # lab-frame conservation law: flux of u P and the work on the gas (see ECOMPAT)
+                fEl = k == ngrs ? fedd[k] * er[k] : 0.5 * (fedd[k-1] * er[k-1] + fedd[k] * er[k])
+                fEu = k == ngre ? fedd[k] * er[k] : 0.5 * (fedd[k] * er[k] + fedd[k+1] * er[k+1])
+                wk = rmu[k+1] * u[k+1] * fEu - rmu[k] * u[k] * fEl
+                k > ngrs && (wk += u[k] * avchi[k] * fr[k] / cc * 0.5 * d[k] * dvol[k])
+                k < ngre && (wk += u[k+1] * avchi[k+1] * fr[k+1] / cc * 0.5 * d[k] * dvol[k])
+                w = (ern[k] * dvoln[k] - c.ero[k] * c.dvolo[k]) / dt + rmu[k+1] * fr[k+1] - rmu[k] * fr[k] + wk +
+                    excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
+            else
             w = (ern[k] * dvoln[k] - c.ero[k] * c.dvolo[k]) / dt + rmu[k+1] * fr[k+1] - rmu[k] * fr[k] +
                 fedd[k] * er[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] +
                 excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) * d[k] * dvol[k] - compton(k, W, P) * dvol[k]
+            end
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
             isempty(GASQ[]) || (w += GASQ[][k] * dvol[k])
             if k == ngrs
@@ -1453,11 +1670,20 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 rcm = (0.5 * (r[k-1] + r[k]))^mu; rcp = (0.5 * (r[k] + r[k+1]))^mu
                 # upwind (donor cell): outward light from the zone inside, inward from the zone outside, diluted as r^-2. The centred
                 # average ½(hE_(k−1) + hE_k) cannot see an odd–even E mode, which nothing damps in thin gas (E → 0 at zone 214, step 87126)
+                # TIEX (TitanDriver.TIEX): the closure is for the excess over the isotropic background, h_x (E − E_b)
+                tx = TD.TIEX[] && TD.VEF_BG[] && length(TD.HXEDD) >= ngre + 1 && length(TD.FXEDD) >= ngre + 1
+                HT = tx ? TD.HXEDD : TD.HEDD; Ebg = tx ? 4P.cpi * P.ximr / cc : 0.0; em = er[k-1] - Ebg; ep = er[k] - Ebg
                 if !SLABTIE[]
-                B = rmu[k] * fr[k] / cc - (rcm * max(TD.HEDD[k-1], 0.0) * er[k-1] + rcp * min(TD.HEDD[k], 0.0) * er[k])
+                B = rmu[k] * fr[k] / cc - (rcm * max(HT[k-1], 0.0) * em + rcp * min(HT[k], 0.0) * ep)
                 else                                 # SLABTIE: outward donor h from the slab depth of the donor's centre below the interface
-                    hd = st_hdonor(max(TD.HEDD[k-1], 0.0), fedd[k-1], chif[k-1], chif[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k])
-                    B = rmu[k] * fr[k] / cc - (rcm * hd * er[k-1] + rcp * min(TD.HEDD[k], 0.0) * er[k])
+                    hd = st_hdonor(max(HT[k-1], 0.0), tx ? TD.FXEDD[k-1] : fedd[k-1], chif[k-1], chif[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k])
+                    B = rmu[k] * fr[k] / cc - (rcm * hd * em + rcp * min(HT[k], 0.0) * ep)
+                end
+                if TIEFRAME[]                        # the unknown F is the comoving flux: F₀ = F_lab − (1 + f) u E + 2 h² u E (see TIEFRAME)
+                    ho = SLABTIE[] ? hd : max(HT[k-1], 0.0); hi = min(HT[k], 0.0)
+                    B += (-dmdt[k] * erb[k] + (rn[k]^(mu + 1) - c.ro[k]^(mu + 1)) / (xmup1 * dt) * 0.5 * (er[k-1] + er[k]) +
+                          rmu[k] * u[k] * 0.5 * (fedd[k-1] * er[k-1] + fedd[k] * er[k]) -
+                          2u[k] * (rcm * ho^2 * em + rcp * hi^2 * ep)) / cc
                 end
                 R[iF, kb(k)] = (1 - wt) * R[iF, kb(k)] + wt * B
             end
@@ -1465,10 +1691,15 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)
         R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
+        if TIEFRAME[]                                # the boundary condition holds for the lab-frame flux (see TIEFRAME)
+            ub_ = un[ngre+1]
+            R[iF, kb(ngre+1)] = (R[iF, kb(ngre+1)] - frn[ngre+1]) * (1 + 2P.geddr * ub_ / cc) + frn[ngre+1] + (1 + fedd[ngre]) * ub_ * ern[ngre]
+        end
         R[iF, 1] = X(iF, k0)
         k = ngrs - 1
         R[iF, kb(k)] = P.lribc == 2 ? frn[k+2] + frn[k] : rn[k+1]^mu * frn[k+1] - rn[k]^mu * frn[k]
         R[iF, kb(ngre+2)] = -frn[ngre+1] + frn[ngre+2]
+        Mg === nothing || mg_rows!(R, Mg, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie)   # MGROUPS: sum rows and the group rows
     end
     nothing
 end
@@ -1539,6 +1770,11 @@ end
 const ETOT_GRAV = Ref(false)
 "ETOT_GRAV_GRID[] (ENV ETOTGRAVGRID=1; default off): with ETOT_GRAV[], also the work of gravity on mass carried by moving faces. Without it the total-energy row of a Lagrangian zone has no gravity work at all, and the kinetic energy gravity gives the gas is taken from its thermal energy (cloud-phase test of 2026-11-09)."
 const ETOT_GRAV_GRID = Ref(false)
+"Run f with ECOMPAT off: the conservative total-energy rows and the plain internal rows of the diagnostics (the independent check of the compatible rows)."
+function nocompat(f)
+    e = ECOMPAT[]; l = ERLAB[]; ECOMPAT[] = false; ERLAB[] = false
+    try f() finally ECOMPAT[] = e; ERLAB[] = l end
+end
 "Conservative total-energy row of zone k: Δ[m(e_g [+E_r/ρ]) + m(u_k²+u_{k+1}²)/4]/dt + Φ_{k+1} − Φ_k."
 @inline function etot_row(k, c, W, ::Type{T}) where {T}
     dn, un, dvoln = W.dn, W.un, W.dvoln
@@ -1580,7 +1816,7 @@ function energy_imbalance(dt)
     c = context(; etotal = true, ηsw = 0.0, dt)
     nb = c.nb; neqn = c.neqn
     R = zeros(neqn, nb); ws = getws(Float64, c.mgr)
-    residual!(R, ws, c, zeros(neqn * nb))
+    nocompat(() -> residual!(R, ws, c, zeros(neqn * nb)))
     it = c.ix[5]; W = ws.a
     imb = sum(R[it, k - c.k0 + 1] for k in c.ngrs:c.ngre) * dt
     E(k) = W.dn[k] * W.dvoln[k] * ((c.lrad ? W.egrn[k] : W.egn[k]) + 0.25 * (W.un[k]^2 + W.un[k+1]^2))
@@ -1615,7 +1851,7 @@ function stage_diag(dt)
     c = context(; etotal = true, ηsw = 0.0, dt)
     nb = c.nb; neqn = c.neqn
     R = zeros(neqn, nb); ws = getws(Float64, c.mgr)
-    residual!(R, ws, c, zeros(neqn * nb)); W = ws.a
+    nocompat(() -> residual!(R, ws, c, zeros(neqn * nb))); W = ws.a
     it = c.ix[5]
     imb = sum(R[it, k - c.k0 + 1] for k in c.ngrs:c.ngre) * dt
     E(k) = W.dn[k] * W.dvoln[k] * ((c.lrad ? W.egrn[k] : W.egn[k]) + 0.25 * (W.un[k]^2 + W.un[k+1]^2))
@@ -1623,6 +1859,149 @@ function stage_diag(dt)
     dE = sum(E(k) - Eo(k) for k in c.ngrs:c.ngre)
     (; srcw = copy(W.srcw), fcv = copy(W.fcv), vcv = copy(W.vcv), lcv = copy(W.lcv), nab = copy(W.nabv), nad = copy(W.nadv), dE,
        fin = eflux(c.ngrs, c, W, Float64) * dt, fout = eflux(c.ngre + 1, c, W, Float64) * dt, imb)
+end
+
+"""
+    zone_diag(dt) -> NamedTuple of per-zone / per-interface vectors
+
+(Diagnostic, EDIAG=2; grey rows.) Right after a converged stage: the residual T_k of the conservative total-energy row of every zone (ηsw = 0)
+at the converged state [erg s⁻¹ sr⁻¹] (its sum × dt is `stage_diag`'s imb), split exactly into the terms by which the total row differs from
+the rows an internal-energy formulation solves (docs/POPIII_ENERGY.md §2). With G_k the gas internal-energy row (GASROW), E_k the radiation
+energy row, M_j the gas momentum row of interface j split into the parts that belong to the zone below and above it (M_j = M_j^U(j−1) + M_j^L(j):
+half the inertia and weight of each zone, the momentum flux Φ_k = ½(ṁ_k + ṁ_k+1) û_k of the zone against ṁ_j u_j of the face, the zone's pressure
+and viscous stress against the face means that `eflux` uses), and u the θ-level velocity:
+
+    T_k = G_k + E_k + ½(u_k M_k + u_k+1 M_k+1)                      rows of the solve (0 where the solve used them, to Newton tolerance)
+        + (Ψ_k − Ψ_k+1) + (Ψr_k − Ψr_k+1)                           a different energy flux, not a source: Ψ_j = ½ u_j (M_j^L − M_j^U)
+        + K2a + K2b + K3a (+ Kbnd)                                  kinetic energy: time discretisation, mass change, upwinded momentum flux
+        + prs + V4 + G5 + adv                                       pressure work (0), viscous work, gravity power, advection limiters
+        + R6a + R6b + R6c (+ Rbnd)                                  radiation: ½Σ u_j × (momentum row in moment form; VEF_SPH − TITAN static
+                                                                    terms; −its inertia terms)
+        + old                                                       the old arrays' e_gas+rad against e_gas + E/ρ (see below)
+        + rem                                                       round-off
+
+    K2a = −(2θ − 1) ¼ m̂_k Σ_j (u_j^new − u_j^old)²/dt              m̂ = ½(m_new + m_old), j = k, k+1
+    K2b = (θ² − θ + ½) ¼ (m_new − m_old)_k Σ_j (u_j^new − u_j^old)²/dt
+    K3a = ½(ṁ_k + ṁ_k+1) (u_k+1 − u_k) (½(u_k + u_k+1) − û_k)       û = `ub`, the van Leer face value of the momentum row
+    V4  = q_k [r̄_k^{3μ/2} (u_k+1 r_k+1^{−μ/2} − u_k r_k^{−μ/2}) − (du/dr)_k ΔV_k]
+    G5  = (ETOT_GRAV terms of the total row) − ½ m_k (u_k g_k + u_k+1 g_k+1)
+
+old = −m_old (egro − ego − ero/ρ_old)/dt: the total row differences `egro`, the gas row `ego`. They differ in COUPLED zones, where `ego` is
+re-evaluated between the steps with the species of the finished step (cpl_prepare!) and `egro` is the solve's own value (docs/POPIII_ENERGY.md §2.3).
+Kbnd, Rbnd: what is left in the boundary zones, whose outer faces have no momentum row (0 in interior zones: the check of the formulas).
+Also returned: `Kn`, `Ko` (zone kinetic energy ¼ m (u_k² + u_k+1²) of the new and of the old arrays; in a BDF stage the old arrays are y*, and
+K(y*) − (A K_γ − B K_n) is the part of the step's kinetic-energy budget no stage row sees), which zones the solve closed with the internal-energy
+row (`useint`), the FLUXTIE weights, and the radiation momentum row in moment form `rmom` (tie off).
+"""
+function zone_diag(dt)
+    c0 = context(; dt); ui = copy(c0.useint)
+    neqn, nb = c0.neqn, c0.nb; z = zeros(neqn * nb); ws = getws(Float64, c0.mgr)
+    cg = context(; etotal = false, dt); Rg = zeros(neqn, nb); residual!(Rg, ws, cg, z)          # internal-energy rows in every zone
+    Rc = Rg                                                                                     # (ECOMPAT: the compatible rows; the split below is of the plain ones)
+    (ECOMPAT[] || ERLAB[]) && (Rg = zeros(neqn, nb); nocompat(() -> residual!(Rg, ws, cg, z)))
+    c = context(; etotal = true, ηsw = 0.0, dt)
+    R = zeros(neqn, nb); nocompat(() -> residual!(R, ws, c, z)); W = ws.a
+    iu, it, ie, iF = c.ix[4], c.ix[5], c.ix[6], c.ix[7]; a, b = c.ngrs, c.ngre; kb(k) = k - c.k0 + 1
+    imb = [R[it, kb(k)] for k in a:b]; Gr = [Rg[it, kb(k)] for k in a:b]; Er = c.lrad ? [R[ie, kb(k)] for k in a:b] : zeros(b - a + 1)
+    Gc = [Rc[it, kb(k)] for k in a:b]; Ec = c.lrad ? [Rc[ie, kb(k)] for k in a:b] : zeros(b - a + 1)
+    dm = W.dmdt; fa(j) = c.lrad && GASROW[] ? val(dm[j] * (W.egb[j] - W.egbg[j] - W.erb[j])) : 0.0
+    adv = [(k > a ? fa(k) : 0.0) - (k < b ? fa(k + 1) : 0.0) for k in a:b]
+    kin = [val(0.25 * (W.dn[k] * W.dvoln[k] * (W.un[k]^2 + W.un[k+1]^2) - c.do_[k] * c.dvolo[k] * (c.uo[k]^2 + c.uo[k+1]^2)) / dt) for k in a:b]
+    tw = length(TD.TIEW) >= b + 1 ? copy(TD.TIEW[a:b+1]) : zeros(b - a + 2)
+    ft = TD.FLUXTIE[]; TD.FLUXTIE[] = (ft[1], 0.0)
+    rm = try
+        R2 = zeros(neqn, nb); nocompat(() -> residual!(R2, ws, c, z)); [R2[iF, kb(k)] for k in a:b+1]
+    finally
+        TD.FLUXTIE[] = ft
+    end
+    # ---- the split
+    P = c.p; θ = P.θ; xmu = Float64(c.mu); cc = P.cc; fedd = c.fedd; lrad = c.lrad
+    r, u, rmu, d, dvol, pg, er, qf, dudr, ub, fr, avchi = W.r, W.u, W.rmu, W.d, W.dvol, W.pg, W.er, W.qf, W.dudr, W.ub, W.fr, W.avchi
+    un, uo = W.un, c.uo
+    mn(k) = W.dn[k] * W.dvoln[k]; mo(k) = c.do_[k] * c.dvolo[k]; m(k) = d[k] * dvol[k]
+    int(j) = a < j <= b
+    g_(j) = 2xmu * P.cpi * P.cgrav * W.xm[j] / rmu[j] + (1 - 0.5xmu) * P.g
+    r1(j) = r[j]^(-0.5xmu); r3_(k) = r3(k, W, xmu); fE(k) = lrad ? fedd[k] * er[k] : 0.0
+    Φ(k) = 0.5 * (dm[k] + dm[k+1]) * ub[k]
+    kfl(j) = -dm[j] * 0.5 * u[j]^2
+    pfg(j) = rmu[j] * u[j] * (j == a ? pg[a] : j == b + 1 ? pg[b] : 0.5 * (pg[j-1] + pg[j]))
+    pfr(j) = rmu[j] * u[j] * (j == a ? fE(a) : j == b + 1 ? fE(b) : 0.5 * (fE(j - 1) + fE(j)))
+    vfl(j) = j == a ? rmu[j] * u[j] * qf[a] : j == b + 1 ? rmu[j] * u[j] * qf[b] : u[j] * r1(j) * 0.5 * (r3_(j - 1) * qf[j-1] + r3_(j) * qf[j])
+    # zone-k parts of the momentum row of interior face j (j = k: the zone above the face, j = k + 1: the zone below it)
+    function mp(k, j)
+        lo = j == k
+        ine = 0.5 * (un[j] * mn(k) - uo[j] * mo(k)) / dt
+        ad = lo ? -Φ(k) + dm[j] * u[j] : Φ(k) - dm[j] * u[j]
+        pt = 0.5 * (pg[j-1] + pg[j]); pr_ = lo ? rmu[j] * (pg[k] - pt) : rmu[j] * (pt - pg[k])
+        gr = (GFV[] || GVAR[]) ? gfz(k, j, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, W.xm[j], gxe(r[j])) + (1 - 0.5xmu) * P.g * 0.5 * m(k) : g_(j) * 0.5 * m(k)
+        sj =0.5 * (r3_(j - 1) * qf[j-1] + r3_(j) * qf[j]); vi = lo ? r1(j) * (r3_(k) * qf[k] - sj) : r1(j) * (sj - r3_(k) * qf[k])
+        ra = lrad ? -avchi[j] * fr[j] / cc * 0.5 * m(k) : 0.0
+        (ine, ad, pr_, gr, vi, ra)
+    end
+    nz = b - a + 1; nf = b - a + 2; o = 1 - a
+    Mrow = zeros(nf); Ψ = zeros(nf); Ψr = zeros(nf); mchk = zeros(nf); sns = zeros(nf); ssp = zeros(nf); dyn = zeros(nf); rchk = zeros(nf)
+    sph = TD.VEF_SPH[]
+    for j in a+1:b
+        Mrow[j+o] = R[iu, kb(j)]
+        L = sum(mp(j, j)); U = sum(mp(j - 1, j)); Ψ[j+o] = 0.5 * u[j] * (L - U); mchk[j+o] = L + U - Mrow[j+o]
+        if lrad
+            ft_ = 0.5 * (fE(j - 1) + fE(j)); gm(k) = (0.25xmu / r[j]) * (3fedd[k] - 1) * er[k] * dvol[k]; cf(k) = 0.5 * m(k) * avchi[j] * fr[j] / cc
+            RL = rmu[j] * (fE(j) - ft_) + gm(j) + cf(j); RU = rmu[j] * (ft_ - fE(j - 1)) + gm(j - 1) + cf(j - 1)
+            Ψr[j+o] = 0.5 * u[j] * (RL - RU)
+            sns[j+o] = rmu[j] * (fE(j) - fE(j - 1)) + gm(j) + gm(j - 1)
+            ssp[j+o] = sph ? (qs = vefq(fedd, r, xmu, j); rmu[j] * (qs * fE(j) - fE(j - 1) / qs)) : sns[j+o]
+            qFo = c.fro[j] * 2 / (c.do_[j] + c.do_[j-1])
+            dyn[j+o] = (W.qF[j] * (mn(j - 1) + mn(j)) - qFo * (mo(j - 1) + mo(j))) / (2cc^2 * dt) -
+                       ((dm[j] + dm[j+1]) * W.frb[j] - (dm[j-1] + dm[j]) * W.frb[j-1]) / (2cc^2) + 0.5 * rmu[j] * (fr[j] / cc^2) * (u[j+1] - u[j-1])
+            rchk[j+o] = rm[j+o] - (dyn[j+o] + ssp[j+o] + cf(j) + cf(j - 1))
+        end
+    end
+    v0() = zeros(nz)
+    uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old, cres = (v0() for _ in 1:19)
+    dKs = v0(); kst = v0(); ecg = v0()
+    eg0 = ETOT_GRAV[]
+    for k in a:b
+        i = k + o
+        Kn[i] = 0.25 * mn(k) * (un[k]^2 + un[k+1]^2); Ko[i] = 0.25 * mo(k) * (uo[k]^2 + uo[k+1]^2)
+        Kraw = (Kn[i] - Ko[i]) / dt + kfl(k + 1) - kfl(k)
+        Δru = rmu[k+1] * u[k+1] - rmu[k] * u[k]
+        p_ = pfg(k + 1) - pfg(k) - pg[k] * Δru
+        vi = vfl(k + 1) - vfl(k) - qf[k] * dudr[k] * dvol[k]
+        gr = 0.0
+        if eg0
+            wg = etot_row(k, c, W, Float64); ETOT_GRAV[] = false
+            try gr = wg - etot_row(k, c, W, Float64) finally ETOT_GRAV[] = eg0 end
+        end
+        aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, a))
+        ra = lrad ? pfr(k + 1) - pfr(k) - fE(k) * Δru - (1 - 3fedd[k]) * 0.5xmu * er[k] * aur * dvol[k] : 0.0
+        S = 0.0
+        for j in (k, k + 1)
+            int(j) || continue
+            q = mp(k, j); Kraw -= u[j] * (q[1] + q[2]); p_ -= u[j] * q[3]; gr -= u[j] * q[4]; vi -= u[j] * q[5]; ra -= u[j] * q[6]; S += u[j] * sum(q)
+            uM[i] += 0.5 * u[j] * Mrow[j+o]
+            R6a[i] += 0.5 * u[j] * rm[j+o]; R6b[i] += 0.5 * u[j] * (sns[j+o] - ssp[j+o]); R6c[i] -= 0.5 * u[j] * dyn[j+o]
+        end
+        dΨ[i] = Ψ[i] - Ψ[i+1]; dΨr[i] = Ψr[i] - Ψr[i+1]
+        du2 = (un[k] - uo[k])^2 + (un[k+1] - uo[k+1])^2
+        K2a[i] = -(2θ - 1) * 0.25 * 0.5 * (mn(k) + mo(k)) * du2 / dt
+        K2b[i] = (θ^2 - θ + 0.5) * 0.25 * (mn(k) - mo(k)) * du2 / dt
+        K3a[i] = 0.5 * (dm[k] + dm[k+1]) * (u[k+1] - u[k]) * (0.5 * (u[k] + u[k+1]) - ub[k])
+        Kbnd[i] = Kraw - K2a[i] - K2b[i] - K3a[i]
+        prs[i] = p_; V4[i] = vi; G5[i] = gr
+        Rbnd[i] = ra - (R6a[i] + R6b[i] + R6c[i] + dΨr[i])
+        lrad && (old[i] = (c.ero[k] * c.dvolo[k] - mo(k) * (c.egro[k] - c.ego[k]) + mn(k) * (W.egrn[k] - W.egn[k]) - W.ern[k] * W.dvoln[k]) / dt)
+        rem[i] = imb[i] - Gr[i] - Er[i] - (Kraw + p_ + vi + gr + ra + adv[i]) - S - old[i]
+        dKs[i] = ksflux(k + 1, u, dm, a, b) - ksflux(k, u, dm, a, b)           # sub-zone kinetic-energy flux of the compatible row (telescopes)
+        kst[i] = isempty(KSTAR[]) ? 0.0 : KSTAR[][k] / dt                      # BDF stage: K(y*) − (A K_γ − B K_n), taken out by the compatible row
+        # ECOMPAT: total row − (compatible rows + u × momentum rows), gravity and advection forms apart
+        (ECOMPAT[] && ECGRAV[] != 0 && (ECGRAV[] == 2 || ECGRAV[] == 3 || (c0.etotal && !ui[k]))) && (ecg[i] = ecgrav(k, c, W, ECGRAV[] >= 3))   # the row's gravity term (ECGRAV)
+        cres[i] = imb[i] - gr - adv[i] - p_ - S - Gc[i] - Ec[i] - (ECOMPAT[] ? dKs[i] - kst[i] - ecg[i] : 0.0)
+    end
+    (; imb, adv, kin, useint = ui[a:b], tiew = tw, rmom = rm, u = copy(W.u[a:b+1]), r = copy(W.rn[a:b+1]), E = copy(W.ern[a:b]), T = copy(W.tn[a:b]),
+       F = copy(W.frn[a:b+1]), ρ = copy(W.dn[a:b]), θ, Gr, Er, uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old, Gc, Ec, cres, dKs, kst, ecg,
+       mchk, rchk, Mrow, ub = copy(ub[a:b]), dmdt = copy(dm[a:b+1]), qf = copy(qf[a:b]), pg = copy(W.pgn[a:b]), eg = copy(W.egn[a:b]),
+       un = copy(un[a:b+1]), uo = copy(uo[a:b+1]), mn = [mn(k) for k in a:b], mo = [mo(k) for k in a:b], fedd = copy(fedd[a:b]),
+       hedd = length(TD.HEDD) >= b ? copy(TD.HEDD[a:b]) : zeros(nz), hxedd = length(TD.HXEDD) >= b ? copy(TD.HXEDD[a:b]) : zeros(nz), urel = copy(W.urel[a:b+1]), db = copy(W.db[a:b+1]), xm = copy(W.xm[a:b+1]))
 end
 
 # ------------------------------------------------------------------ assembly

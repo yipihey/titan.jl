@@ -137,6 +137,17 @@ const VEF_BG = Ref(false)
 const FXEDD = Float64[]
 const GXEDD = Ref(0.5)
 const HEDD = Float64[]          # h = H/J at zone centres (eddfac!, spherical)
+"""
+`TIEX[]` (provisional, ENV TIEX=1, default off; needs VEF_BG and FLUXTIE; grey rows): FLUXTIE closes the flux with the EXCESS over the
+isotropic background, F = h_x c (E − E_b), h_x = H_x/J_x of the rays' excess intensity (`HXEDD`; SLABTIE's slab term with f_x = K_x/J_x),
+E_b = 4π I_b/c, instead of F = h c E with h = H_x/(J_x + I_b) (docs/POPIII_ENERGY.md §15). h carries the AMPLITUDE of the formal
+solution's excess, i.e. its luminosity L_fs, which is not the conserved one: where E ≈ E_b the closure then sets r² F = L_fs E/E_fs whatever
+arrives from inside, the difference is taken from the bath's energy in the zones where the two fields are comparable (E/E_b − 1 = −0.49),
+and E relaxes only with the speed h c ≪ c. h_x is a ratio of moments of the excess alone (1 for a point source) and the bath, which
+carries no flux, is not transported: E − E_b moves with h_x c. Identical to FLUXTIE for I_b = 0.
+"""
+const TIEX = Ref(false)
+const HXEDD = Float64[]         # h_x = H_x/J_x at zone centres (eddfac! with VEF_BG)
 const TIEW = Float64[]          # weight of the tie at interface k
 bitwise!(on::Bool = true) = (FIX_CLOCK[] = !on; FIX_ENERGY[] = !on; nothing)
 get(ENV, "TITAN_BITWISE", "0") == "1" && bitwise!(true)
