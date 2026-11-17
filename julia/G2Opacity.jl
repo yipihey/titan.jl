@@ -248,10 +248,10 @@ function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, n
     for n in 1:NLEV; pHe[n] *= nHep / UHe; end
     x = clamp((log10(T) - FLT0) / FDLT, 0.0, FNT - 1 - 1e-9); j = floor(Int, x) + 1; a = clamp(x - (j - 1), 0.0, 1.0)
     cia = nH2 > 1e-3 * n1; wJ = Tw != T
-    N = length(F.ν); dis = zeros(N)
+    N = length(F.ν); dis = zeros(N); dis1 = zeros(N)
     for (i, n, ns, σe) in F.DIS
         d = 1 - Z0.occupation(ns, 1, Nion, Nneu) / max(wH[n], 1e-300)
-        d > 0 && (dis[i] += d * pH[n] * σe)
+        d > 0 && (dis[i] += d * pH[n] * σe; n == 1 && (dis1[i] += d * pH[n] * σe))
     end
     gE = zeros(G); gW = zeros(G); gP = zeros(G); gB = zeros(G); gR = zeros(G); gD = zeros(G); g1 = zeros(G); g1W = zeros(G); g2 = zeros(G)
     # the same with the floored shape temperature, used for a group whose actual weight underflows (cold gas, high groups): its Planck
@@ -266,7 +266,9 @@ function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, n
         B = 2h * ν^3 / COp.c^2 * em / stim; D = B * u / (T * stim)
         ab = dis[i]; a1 = pH[1] * F.SH[1, i]
         for n in 1:NLEV; s_ = F.SH[n, i]; s_ > 0 && (ab += pH[n] * s_); end
-        ab *= stim; a1 *= stim; a2 = ab - a1                                 # (a2: H n ≥ 2 bound–free and dissolved levels)
+        ab *= stim; a1 *= stim; a2 = ab - a1 - dis1[i] * stim               # (a2: H n ≥ 2 bound–free and their dissolved levels; the ground
+                                                                             #  state's dissolved Lyman pseudo-continuum, a sliver just below
+                                                                             #  13.6 eV, would dominate an arithmetic LW-band mean)
         ahe = nHe * F.σHeI[i]
         if nHep > 0
             for n in 1:NLEV; s_ = F.SHe[n, i]; s_ > 0 && (ahe += pHe[n] * s_); end
