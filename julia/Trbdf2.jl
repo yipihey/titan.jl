@@ -437,10 +437,95 @@ function etrace(kind, Δ, err, info)
     TRACE_EXTRA[] === nothing ? "" : TRACE_EXTRA[]()
 end
 
+# ================================================================== DTSCHEME: alternative one-step schemes under the DTERR controller
+"""
+DTSCHEME=trbdf2 (default; the scheme above, unchanged) | sdirk2 | be (ENV, only with DTERR; a test switch for the photospheric
+fluctuation study, branch photfluct). Both alternatives are L-stable and have no non-dissipative (θ = ½) stage:
+
+* `sdirk2`: Alexander's two-stage, second-order, stiffly accurate SDIRK (Alexander 1977, SIAM J. Numer. Anal. 14, 1006, γ = 1 − 1/√2;
+  Hairer & Wanner II §IV.6). Stage 1: backward Euler over γΔ from yₙ (Y₁). Stage 2: y_{n+1} = yₙ + (1−γ)Δ f(Y₁) + γΔ f(y_{n+1}),
+  i.e. backward Euler over γΔ from the "old" state y** = yₙ + (1−γ)/γ (Y₁ − yₙ) = Y₁ + √2 (Y₁ − yₙ), formed on the same conserved
+  combinations as TR-BDF2's y* (`old_from!`). Embedded first-order solution ŷ = yₙ + Δ f(Y₁): est = y_{n+1} − ŷ = γΔ (f₂ − f₁)
+  = (y_{n+1} − y**) − (Y₁ − yₙ) (no FSAL derivative needed), filtered with the stage-2 Newton matrix (I − γΔJ) as for TR-BDF2.
+* `be`: backward Euler, est = ½[(y_{n+1} − yₙ) − Δ f(yₙ)] (f(yₙ) = (yₙ − yₙ₋₁)/Δₙ₋₁ of the previous BE step, FSAL), filtered with (I − ΔJ).
+
+Both estimates are O(Δ²): the controller uses exponents 1/2 (PI: 0.7/2, 0.4/2) instead of 1/3. The stage hook books stage 1 as `:be`
+and stage 2 of sdirk2 as `:sd2` (weights 1, linear burn path): the nuclear-energy ledger is approximate for sdirk2 (no burning at the
+M* ≲ 1 M_sun states it is meant for).
+"""
+const SCHEME = Ref(Symbol(get(ENV, "DTSCHEME", "trbdf2")))
+const γS = 1 - 1 / sqrt(2); const BS = sqrt(2.0)
+combine(C1, C2_, f) = Dict(s_ => f(C1[s_], C2_[s_]) for s_ in keys(C1))
+
+"Filtered error estimate for DTSCHEME ≠ trbdf2: old arrays := Cs + est at the converged new state (θ = 1, the last stage's dtime)."
+function estimate_alt!(est, Cs)
+    Co = combine(Cs, est, (a_, e_) -> a_ .+ e_)
+    rhs = TF.var(:rhs)
+    s!(:iter, 1); r(:matgen); r(:matslv); δ0 = copy(rhs)
+    old_from!(Co) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
+    r(:matgen); r(:matslv); rhs .-= δ0
+    ERR0[] = wnorm(δ0)[1]
+    EOPT.filt >= 2 || return wnorm(rhs)
+    ERR1[] = wnorm(rhs)[1]
+    refilter!(copy(rhs), Cs, δ0) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
+    wnorm(rhs)
+end
+
+"One attempt of the step Δ from yₙ (in SAVE; combos Cn) with DTSCHEME sdirk2 or be: (ok, err, info, Dnew)."
+function attempt_alt!(Δ, t0, Cn)
+    err = NaN; info = ("", 0, NaN); Dnew = nothing
+    hook(k_, dt_) = TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](k_, dt_)
+    fin(ok_) = (ok_ && !finite_new()) ? (ESTATS[:nonfinite] += 1; false) : ok_
+    function est_of(est, Cs)
+        e_, v_, z_, w_ = try estimate_alt!(est, Cs) catch ex
+            ex isa InterruptException && rethrow()
+            (ESTATS[:nonfinite_est] += 1) <= 3 && println("DTERR: estimate failed: ", first(sprint(showerror, ex, catch_backtrace()), 1500))
+            (Inf, "estimate failed", 0, Inf)
+        end
+        isfinite(e_) || (e_ = Inf; ESTATS[:nonfinite_est] += 1)
+        (e_, (v_, z_, w_))
+    end
+    if SCHEME[] === :be
+        s!(:thet, 1.0); s!(:dtime, Δ); s!(:timen, t0 + Δ)
+        ok = fin(newton!())
+        ok || (STATS[:fail_tr] += 1; return (false, err, info, Dnew))
+        hook(:be, Δ)
+        C1 = combos_new(); Cs = combos_old()
+        Dnew = combine(C1, Cn, (a_, b_) -> (a_ .- b_) ./ Δ)
+        D = DSAL[]
+        if D === nothing
+            ESTATS[:nofsal] += 1
+        else
+            est = Dict(s_ => (C1[s_] .- Cn[s_] .- Δ .* (haskey(D, s_) && length(D[s_]) == length(C1[s_]) ? D[s_] : zero(C1[s_]))) ./ 2 for s_ in keys(C1))
+            err, info = est_of(est, Cs)
+        end
+        return (true, err, info, Dnew)
+    end
+    # sdirk2
+    s!(:thet, 1.0); s!(:dtime, γS * Δ); s!(:timen, t0 + γS * Δ)
+    ok = fin(newton!())
+    ok || (STATS[:fail_tr] += 1; return (false, err, info, Dnew))
+    hook(:be, γS * Δ)
+    Cg = combos_new()
+    Cs = combine(Cg, Cn, (y1, yn) -> y1 .+ BS .* (y1 .- yn))
+    old_from!(Cs) || (STATS[:fail_bdf] += 1; ESTATS[:neg_old] += 1; return (false, err, info, Dnew))
+    s!(:dtime, γS * Δ); s!(:timen, t0 + Δ)
+    TitanCore.predict!(; halve = false)
+    ok = fin(newton!())
+    ok || (STATS[:fail_bdf] += 1; return (false, err, info, Dnew))
+    hook(:sd2, γS * Δ)
+    C1 = combos_new()
+    Dnew = combine(C1, Cs, (a_, b_) -> (a_ .- b_) ./ (γS * Δ))
+    est = Dict(s_ => (C1[s_] .- Cs[s_]) .- (Cg[s_] .- Cn[s_]) for s_ in keys(C1))
+    err, info = est_of(est, Cs)
+    (true, err, info, Dnew)
+end
+
 "TR-BDF2 step with error control (DTERR): see the docstring of ERRCTL."
 function step_err!()
     Int(g(:lgrid)) in (2, 3) || error("Trbdf2: lgrid = 2 or 3 only")
     o = EOPT; BE_LEFT[] = 0
+    alt = SCHEME[] !== :trbdf2; γ1 = SCHEME[] === :be ? 1.0 : SCHEME[] === :sdirk2 ? γS : γ; qe = alt ? 2 : 3
     # A repeat of the same step (StarMaterial.solve_step!, HOT: the burn/hydro source iteration restores the snapshot and calls the
     # step again): same controller state as at the first call, and the Δt that call accepted
     key = (Int(g(:jstep)), g(:timen))
@@ -450,15 +535,18 @@ function step_err!()
         ENTRY[] = key; CSAVE[] = (HNEXT[], ERRPREV[], DSAL[])
         HNEXT[] > 0 && s!(:dtime, HNEXT[])
     end
-    Δ0 = g(:dtime); s!(:dtime, γ * Δ0)
+    Δ0 = g(:dtime); s!(:dtime, γ1 * Δ0)
     r(:peq)
-    s!(:dtime, g(:dtime) / γ); s!(:timen, g(:timeo) + g(:dtime))
+    s!(:dtime, g(:dtime) / γ1); s!(:timen, g(:timeo) + g(:dtime))
     θ0 = g(:thet); t0 = g(:timeo)
     save!(); Cn = combos_saved()
     s!(:jtry, 1); s!(:jback, 0)
     rejected = false; err = NaN; info = ("", 0, NaN); Dnew = nothing; nrej = 0
     while true
         Δ = g(:dtime); TD.FULL_DT[] = Δ; err = NaN; Dnew = nothing
+        if alt
+            ok, err, info, Dnew = attempt_alt!(Δ, t0, Cn)
+        else
         s!(:thet, 0.5); s!(:dtime, γ * Δ); s!(:timen, t0 + γ * Δ)
         ok = newton!()
         ok && !finite_new() && (ok = false; ESTATS[:nonfinite] += 1)        # a non-finite stage is a failed attempt
@@ -494,6 +582,7 @@ function step_err!()
                 ok = false; STATS[:fail_bdf] += 1
             end
         end
+        end   # (alt)
         restore!(); s!(:thet, θ0); s!(:dtime, Δ); s!(:timen, t0 + Δ)
         ok && !(err > 1) && break
         if !ok && o.be                    # (testing) the same Δ with backward Euler, accepted without an estimate, not sticky
@@ -506,7 +595,7 @@ function step_err!()
             end
         end
         if ok
-            ESTATS[:rej_err] += 1; fac = max(o.facmin, o.safety * err^(-1 / 3))
+            ESTATS[:rej_err] += 1; fac = max(o.facmin, o.safety * err^(-1 / qe))
         else
             ESTATS[:fail_newton] += 1; fac = o.fail; TD.msg(1)
         end
@@ -516,7 +605,7 @@ function step_err!()
             ok ? @sprintf("err %.3g (max %.3g: %s zone %d; resid %.2g, 1st filter %.3g)", err, info[3], info[1], info[2], ERR0[], ERR1[]) : "Newton failure", fac * Δ, etrace(:rej, Δ, err, info))
         s!(:tfac, fac); s!(:dtime, fac * Δ)
         s!(:jtry, g(:jtry) + 1); g(:jtry) > g(:ntry) && TD.msg(2)
-        r(:reset); s!(:timen, t0 + g(:dtime)); TitanCore.predict!(; halve = false, dtscale = γ)
+        r(:reset); s!(:timen, t0 + g(:dtime)); TitanCore.predict!(; halve = false, dtscale = γ1)
     end
     Δ = g(:dtime); LASTACC[] = Δ
     DSAL[] = Dnew
@@ -524,7 +613,7 @@ function step_err!()
         hn = Δ
     else
         e = max(err, 1e-10)
-        fac = o.pi ? o.safety * e^(-0.7 / 3) * (ERRPREV[] > 0 ? ERRPREV[]^(0.4 / 3) : 1.0) : o.safety * e^(-1 / 3)
+        fac = o.pi ? o.safety * e^(-0.7 / qe) * (ERRPREV[] > 0 ? ERRPREV[]^(0.4 / qe) : 1.0) : o.safety * e^(-1 / qe)
         fac = clamp(fac, o.facmin, rejected ? 1.0 : o.facmax)
         ERRPREV[] = e; hn = fac * Δ
         LIMHIST[info[1]] = get(LIMHIST, info[1], 0) + 1
