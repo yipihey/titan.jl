@@ -44,6 +44,7 @@ const MGESO = Ref(Vector{Vector{Float64}}()); const MGFSO = Ref(Vector{Vector{Fl
 const MGFNOM = Ref(Vector{Vector{Float64}}())   # nominal F_g scale per interface (correction F_g += δ·nom)
 const MGRE = Ref(Vector{Vector{Float64}}()); const MGRP = Ref(Vector{Vector{Float64}}()); const MGRR = Ref(Vector{Vector{Float64}}())
 const MGK1 = Ref(Vector{Vector{Float64}}())     # absolute H(1s) absorption [cm² g⁻¹] per group (ionizing groups of lit network zones)
+const MGK1E = Ref(Vector{Vector{Float64}}())    # its Kirchhoff–Milne emission coefficient: MGK1 × n_1s*/n_1s (n_1s* = Saha with the zone's n_e n_p)
 """
 MGVEF (stage 2a, popiii_m2c `MGVEF=1`, the default with MGROUPS): every group's own Eddington factors from a formal solution with the group's
 χ_g, κ_E,g, emission and background (popiii_m2c `mg_eddfac!`, run after the grey one wherever TITAN calls it: every Newton update with VEFIMP):
@@ -60,7 +61,7 @@ mgiE(g) = MGI0[] + 2g - 1; mgiF(g) = MGI0[] + 2g
 "Allocate the group arrays for mgr zones (values kept where present)."
 function mg_alloc!(mgr)
     G = MGN[]
-    for R_ in (MGEN, MGFN, MGEO, MGFO, MGESO, MGFSO, MGFNOM, MGK1)
+    for R_ in (MGEN, MGFN, MGEO, MGFO, MGESO, MGFSO, MGFNOM, MGK1, MGK1E)
         (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = vvec(G, mgr))
     end
     for R_ in (MGRE, MGRP, MGRR)
@@ -213,7 +214,7 @@ end
 function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
     P = c.p; tn = W.tn; to = v(:to); dn = W.dn; dO = c.do_
     @inbounds for g in 1:MGN[]
-        RE = MGRE[][g]; RP = MGRP[][g]; RR = MGRR[][g]; K1 = MGK1[][g]
+        RE = MGRE[][g]; RP = MGRP[][g]; RR = MGRR[][g]; K1 = MGK1[][g]; K1E = MGK1E[][g]
         eg, fg, en, fn = M.eg[g], M.fg[g], M.egn[g], M.fgn[g]; EO = MGEO[][g]; FO = MGFO[][g]
         for k in ngrs-1:ngre+2
             eg[k] = θ * en[k] + (1 - θ) * EO[k]; fg[k] = θ * fn[k] + (1 - θ) * FO[k]
@@ -225,7 +226,7 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
             chi[k] = max(W.chif[k] * RR[k], ke[k]); chn[k] = max(W.chifn[k] * RR[k], W.xken[k] * RE[k] + K1[k])
             # emission per unit mass: 4π κ_P,g B_g, B_g = b_g(T) σT⁴/π at each level, θ-weighted (κ_P at the θ level as the grey row)
             bn = mg_bfrac(g, tn[k]); bo = θ < 1 ? mg_bfrac(g, to[k]) : 0.0
-            em[k] = 4P.cpi * W.xkp[k] * RP[k] * (θ * W.plfn[k] * bn + (1 - θ) * c.plfo[k] * bo)
+            em[k] = 4P.cpi * (W.xkp[k] * RP[k] + K1E[k]) * (θ * W.plfn[k] * bn + (1 - θ) * c.plfo[k] * bo)
         end
         av = M.avchi[g]
         for k in ngrs:ngre+1; av[k] = 2 / (1 / chi[k-1] + 1 / chi[k]); end

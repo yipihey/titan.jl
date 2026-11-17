@@ -1119,6 +1119,8 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         else
             env = (Trad = Tc, J = mg_J(Wg, Tc))
             kHm = sl.pHm === nothing ? 0.0 : CNn.photorate(sl.pHm, tn[k], env); kH = kHon ? mg_kH(Wg, Tc) : 0.0
+            a1 = kHon ? dn[k] / CNn.μH() * (CNn.hP^2 / (2π * CNn.me * CNn.kB * tn[k]))^1.5 * exp(min(Z0Physics.χH / (CNn.kB * tn[k]), 700.0)) * mg_kH(ones(TX.MGN[]), tn[k]) : 0.0
+            k <= length(MGA1[]) && (MGA1[][k] = a1)
         end
         f = 1.0; kLW = 0.0
         if k > kph && sl.shield !== :off
@@ -1136,7 +1138,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
                          ρ = dn[k], T = tn[k], fsh = f, lw = k > kph && sl.shield !== :off))
             # MGROUPS: q follows the dilution of the H⁻-band group (TX.MGSLG); the record carries every group's W_g for the T_c refresh (cpl_tq)
             (MGON && SLSTAR[] && k <= length(SLW0[]) && SLW0[][k] !== nothing) &&
-                (SLW0[][k] = merge(SLW0[][k], (; W0 = max(Wg[TX.MGSLG[]], 1e-300), Wg, kHon)))
+                (SLW0[][k] = merge(SLW0[][k], (; W0 = max(Wg[TX.MGSLG[]], 1e-300), Wg, kHon, a1 = k <= length(MGA1[]) ? MGA1[][k] : 0.0)))
         end
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
             d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH(); n1 = nH * max(d[:H], 1e-30)
@@ -1157,13 +1159,14 @@ end
 include(joinpath(@__DIR__, "LyaTransfer.jl"))
 include(joinpath(@__DIR__, "MGOpac.jl"))                # MGROUPS (default off)
 "dx/dt of the star-light reactions (rates lagged) for ChemNet.step's `extra`. No heat here: the LW energy goes to TitanResidFast.GASQ (see `lwheat`)."
-function starlight_terms(m::NetGas, ρ, kHm, kH, kLW)
+function starlight_terms(m::NetGas, ρ, kHm, kH, kLW; a1 = 0.0)
     fr_ = m.net.free; iHp = findfirst(==(:Hp), fr_); iHm = findfirst(==(:Hm), fr_); iH2 = findfirst(==(:H2), fr_)
     nH = ρ / CNn.μH()
     extra = x -> begin
         f = zeros(eltype(x), length(x)); d = CNn.full(x, m.net)
         iHm === nothing || (f[iHm] -= kHm * x[iHm])
         f[iHp] += kH * max(d[:H], zero(d[:H]))
+        a1 == 0 || (f[iHp] -= a1 * max(d[:e], zero(d[:e])) * max(d[:Hp], zero(d[:Hp])))     # (MGROUPS) ground-state recombination, see MGA1
         iH2 === nothing || (f[iH2] -= kLW * x[iH2])
         f
     end
@@ -1236,7 +1239,7 @@ function chem_core!(m::NetGas)
         LOCALJ && ljon(SLDIAG[].tl3[k]) && (kHm = 0.0)
         all(isfinite, (kHm, kH, kLW)) || error("starlight: non-finite rates in zone $k: kHm $kHm kH $kH kLW $kLW, T $(tn[k]), ρ $(dn[k]), E_r $(TM.v(:ern)[k])")
         (kHm == 0 && kH == 0 && kLW == 0) && return extra0, cool0
-        ex = starlight_terms(m, dn[k], kHm, kH, kLW)
+        ex = MGON ? starlight_terms(m, dn[k], kHm, kH, kLW; a1 = k <= length(MGA1[]) ? MGA1[][k] : 0.0) : starlight_terms(m, dn[k], kHm, kH, kLW)
         ex2 = extra0 === nothing ? ex : (x -> extra0(x) .+ ex(x))
         ex2, cool0
     end
@@ -1620,7 +1623,7 @@ function cpl_tq(t, q, tc = 1.0; phc = t.phc, phc0 = t.slq.phc0)
             kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, r.T, e1)
             kH = mgr_ ? (r.kHon ? mg_kH(r.Wg, Tc) : 0.0) : sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, r.T, e1)
             kLW = r.lw ? 1.1e8 * 4π * (mgr_ ? r.Wg[MGROLE[].LW] : W0) * _bnu(12.87 * EVERG / CNn.hP, Tc) * r.fsh : 0.0
-            extrab = starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
+            extrab = mgr_ ? starlight_terms(s_.mm, r.ρ, kHm, kH, kLW; a1 = r.a1) : starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
         end
     end
     # (a rate that is exactly 0 stays a Float 0: q·0 is a Dual zero, and tl3_heat's E21 P12/(Q12 + P12 + 1e-300) then has 0/0 partials

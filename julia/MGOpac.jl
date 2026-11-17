@@ -38,7 +38,8 @@ function mg_ratios!(m::NetGas)
     MGROLE[] === nothing && mg_roles!()
     gH = MGROLE[].H
     length(MGWREC[]) == length(dn) || (MGWREC[] = Any[nothing for _ in dn])
-    for g in 1:G; fill!(TX.MGRE[][g], 1.0); fill!(TX.MGRP[][g], 1.0); fill!(TX.MGRR[][g], 1.0); fill!(TX.MGK1[][g], 0.0); end
+    for g in 1:G; fill!(TX.MGRE[][g], 1.0); fill!(TX.MGRP[][g], 1.0); fill!(TX.MGRR[][g], 1.0); fill!(TX.MGK1[][g], 0.0); fill!(TX.MGK1E[][g], 0.0); end
+    length(MGA1[]) == length(dn) || (MGA1[] = zeros(length(dn))); fill!(MGA1[], 0.0)
     st = NLOST[]
     for k in a:b
         (m.eqzone[k] || k > length(st) || st[k] === nothing) && continue
@@ -61,7 +62,7 @@ function mg_ratios!(m::NetGas)
             TX.MGRE[][g][k] = isfinite(rE) && rE > 0 ? rE : 1.0
             TX.MGRP[][g][k] = isfinite(rP) && rP > 0 ? rP : 1.0
             TX.MGRR[][g][k] = isfinite(rR) && rR > 0 ? rR : 1.0
-            (!hbf && g >= gH && isfinite(k1[g])) && (TX.MGK1[][g][k] = k1[g])
+            (!hbf && g >= gH && isfinite(k1[g])) && (TX.MGK1[][g][k] = k1[g]; TX.MGK1E[][g][k] = k1[g] * mg_saha1s(T, ne, np) / max(n1, 1e-300))
         end
     end
     nothing
@@ -71,6 +72,15 @@ end
 const MGWREC = Ref(Any[])
 # (sized by mg_ratios!, serially before the step: the chemistry's zones may run on CHEMTHREADS tasks)
 mg_wrec!(k, W, Wg, Tc) = (k <= length(MGWREC[]) && (MGWREC[][k] = (W, copy(Wg), Tc)); nothing)
+"LTE H(1s) density for n_e, n_p at T [cm⁻³]: n_e n_p λ_e³ e^{χ_H/kT} (g_1s = 2, g_p = 1, g_e = 2), χ_H of the G2 continuum (Z0Physics)."
+mg_saha1s(T, ne, np) = (λ3 = (CNn.hP^2 / (2π * CNn.me * CNn.kB * T))^1.5; x = Z0Physics.χH / (CNn.kB * T); x > 700 ? 0.0 : ne * np * λ3 * exp(x))
+"""
+(per zone, set in starlight_setup where the group H(1s) photoionisation is on) the matching ground-state recombination of the network:
+dx_H⁺/dt −= a1 x_e x_H⁺, a1 = n_H λ_e³ e^{χ_H/kT} × k_1s(B_ν(T)) (spontaneous Milne recombination: the photoionisation rate in J = B_ν(T) times the
+Saha population) — the network is case B (no recombination to 1s), the groups now carry those photons, so with k_1s from the groups the
+balance needs them (detailed balance: k_1s n_1s = a1 n_e n_p/n_H in LTE).
+"""
+const MGA1 = Ref(Float64[])
 "H(1s) photoionisation rate per atom of group g in J_ν = B_ν(T_c) (W = 1): 4π Σ σ_1s B_ν/(hν) w over the group's G2 nodes."
 function mg_kH1s(g, Tc)
     F = G2O.fastgrid(); s = 0.0; gi_ = MGGIDX[]

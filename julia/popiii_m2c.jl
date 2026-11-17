@@ -1476,7 +1476,7 @@ function mg_eddfac!(f0)
             RE, RP, RR, K1 = TX.MGRE[][g], TX.MGRP[][g], TX.MGRR[][g], TX.MGK1[][g]
             for k in a_-1:b_+1
                 kE = max(xke[k] * RE[k] + K1[k], 1e-300)
-                kP = sv[:xkpn][k] * RP[k]; B = sv[:plfn][k] * TX.mg_bfrac(g, tn[k])
+                kP = sv[:xkpn][k] * RP[k] + TX.MGK1E[][g][k]; B = sv[:plfn][k] * TX.mg_bfrac(g, tn[k])
                 chi[k] = max(sv[:chifn][k] * RR[k], kE); kp[k] = kE; pl[k] = kP * B / kE
             end
             copyto!(er, TX.MGEN[][g]); copyto!(fr, TX.MGFN[][g]); TF.setscalar!(:ximr, xi0 * TX.MGBCMB_[g])
