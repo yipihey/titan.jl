@@ -1647,36 +1647,133 @@ function stage_diag(dt)
 end
 
 """
-    zone_diag(dt) -> (; imb, useint, tiew, rmom, u, ...)
+    zone_diag(dt) -> NamedTuple of per-zone / per-interface vectors
 
-(Diagnostic, EDIAG=2.) Right after a converged stage: per zone the residual of the conservative total-energy row (all zones, ηsw = 0) at the
-converged state [erg s⁻¹ sr⁻¹] (its sum × dt is `stage_diag`'s imb), which zones the solve actually closed with the internal-energy row
-(`useint` of the run's own context), the FLUXTIE weight per interface, and the residual of the radiation-momentum row in its moment-equation
-form (FLUXTIE off) at every interface [dyn sr⁻¹]: where the solve used the tie, total row − kinetic − radiation row leaves −u × that residual
-on the gas (ETASW_TIE), so Σ u_k R_mom,k is the leak that bookkeeping predicts.
+(Diagnostic, EDIAG=2; grey rows.) Right after a converged stage: the residual T_k of the conservative total-energy row of every zone (ηsw = 0)
+at the converged state [erg s⁻¹ sr⁻¹] (its sum × dt is `stage_diag`'s imb), split exactly into the terms by which the total row differs from
+the rows an internal-energy formulation solves (docs/POPIII_ENERGY.md §2). With G_k the gas internal-energy row (GASROW), E_k the radiation
+energy row, M_j the gas momentum row of interface j split into the parts that belong to the zone below and above it (M_j = M_j^U(j−1) + M_j^L(j):
+half the inertia and weight of each zone, the momentum flux Φ_k = ½(ṁ_k + ṁ_k+1) û_k of the zone against ṁ_j u_j of the face, the zone's pressure
+and viscous stress against the face means that `eflux` uses), and u the θ-level velocity:
+
+    T_k = G_k + E_k + ½(u_k M_k + u_k+1 M_k+1)                      rows of the solve (0 where the solve used them, to Newton tolerance)
+        + (Ψ_k − Ψ_k+1) + (Ψr_k − Ψr_k+1)                           a different energy flux, not a source: Ψ_j = ½ u_j (M_j^L − M_j^U)
+        + K2a + K2b + K3a (+ Kbnd)                                  kinetic energy: time discretisation, mass change, upwinded momentum flux
+        + prs + V4 + G5 + adv                                       pressure work (0), viscous work, gravity power, advection limiters
+        + R6a + R6b + R6c (+ Rbnd)                                  radiation: ½Σ u_j × (momentum row in moment form; VEF_SPH − TITAN static
+                                                                    terms; −its inertia terms)
+        + rem                                                       round-off
+
+    K2a = −(2θ − 1) ¼ m̂_k Σ_j (u_j^new − u_j^old)²/dt              m̂ = ½(m_new + m_old), j = k, k+1
+    K2b = (θ² − θ + ½) ¼ (m_new − m_old)_k Σ_j (u_j^new − u_j^old)²/dt
+    K3a = ½(ṁ_k + ṁ_k+1) (u_k+1 − u_k) (½(u_k + u_k+1) − û_k)       û = `ub`, the van Leer face value of the momentum row
+    V4  = q_k [r̄_k^{3μ/2} (u_k+1 r_k+1^{−μ/2} − u_k r_k^{−μ/2}) − (du/dr)_k ΔV_k]
+    G5  = (ETOT_GRAV terms of the total row) − ½ m_k (u_k g_k + u_k+1 g_k+1)
+
+Kbnd, Rbnd: what is left in the boundary zones, whose outer faces have no momentum row (0 in interior zones: the check of the formulas).
+Also returned: `Kn`, `Ko` (zone kinetic energy ¼ m (u_k² + u_k+1²) of the new and of the old arrays; in a BDF stage the old arrays are y*, and
+K(y*) − (A K_γ − B K_n) is the part of the step's kinetic-energy budget no stage row sees), which zones the solve closed with the internal-energy
+row (`useint`), the FLUXTIE weights, and the radiation momentum row in moment form `rmom` (tie off).
 """
 function zone_diag(dt)
     c0 = context(; dt); ui = copy(c0.useint)
+    neqn, nb = c0.neqn, c0.nb; z = zeros(neqn * nb); ws = getws(Float64, c0.mgr)
+    cg = context(; etotal = false, dt); Rg = zeros(neqn, nb); residual!(Rg, ws, cg, z)          # internal-energy rows in every zone
     c = context(; etotal = true, ηsw = 0.0, dt)
-    nb = c.nb; neqn = c.neqn; R = zeros(neqn, nb); ws = getws(Float64, c.mgr)
-    residual!(R, ws, c, zeros(neqn * nb)); W = ws.a
-    it = c.ix[5]; iF = c.ix[7]; a, b = c.ngrs, c.ngre
-    imb = [R[it, k - c.k0 + 1] for k in a:b]
-    # the part of R_tot − R_gas − R_E that is the advection-limiter mismatch: the total row advects e_g + E/ρ with one van Leer limiter
-    # (egb), the gas row e_g (egbg) and the radiation row E/ρ (erb) with their own; face term −ṁ (egb − egbg − erb)
-    dm = W.dmdt; fa(j) = val(dm[j] * (W.egb[j] - W.egbg[j] - W.erb[j]))
+    R = zeros(neqn, nb); residual!(R, ws, c, z); W = ws.a
+    iu, it, ie, iF = c.ix[4], c.ix[5], c.ix[6], c.ix[7]; a, b = c.ngrs, c.ngre; kb(k) = k - c.k0 + 1
+    imb = [R[it, kb(k)] for k in a:b]; Gr = [Rg[it, kb(k)] for k in a:b]; Er = c.lrad ? [R[ie, kb(k)] for k in a:b] : zeros(b - a + 1)
+    dm = W.dmdt; fa(j) = c.lrad && GASROW[] ? val(dm[j] * (W.egb[j] - W.egbg[j] - W.erb[j])) : 0.0
     adv = [(k > a ? fa(k) : 0.0) - (k < b ? fa(k + 1) : 0.0) for k in a:b]
     kin = [val(0.25 * (W.dn[k] * W.dvoln[k] * (W.un[k]^2 + W.un[k+1]^2) - c.do_[k] * c.dvolo[k] * (c.uo[k]^2 + c.uo[k+1]^2)) / dt) for k in a:b]
     tw = length(TD.TIEW) >= b + 1 ? copy(TD.TIEW[a:b+1]) : zeros(b - a + 2)
     ft = TD.FLUXTIE[]; TD.FLUXTIE[] = (ft[1], 0.0)
     rm = try
-        R2 = zeros(neqn, nb); residual!(R2, ws, c, zeros(neqn * nb)); [R2[iF, k - c.k0 + 1] for k in a:b+1]
+        R2 = zeros(neqn, nb); residual!(R2, ws, c, z); [R2[iF, kb(k)] for k in a:b+1]
     finally
         TD.FLUXTIE[] = ft
     end
-    W2 = ws.a
-    (; imb, adv, kin, useint = ui[a:b], tiew = tw, rmom = rm, u = copy(W2.u[a:b+1]), r = copy(W2.rn[a:b+1]), E = copy(W2.ern[a:b]), T = copy(W2.tn[a:b]),
-       F = copy(W2.frn[a:b+1]), ρ = copy(W2.dn[a:b]))
+    # ---- the split
+    P = c.p; θ = P.θ; xmu = Float64(c.mu); cc = P.cc; fedd = c.fedd; lrad = c.lrad
+    r, u, rmu, d, dvol, pg, er, qf, dudr, ub, fr, avchi = W.r, W.u, W.rmu, W.d, W.dvol, W.pg, W.er, W.qf, W.dudr, W.ub, W.fr, W.avchi
+    un, uo = W.un, c.uo
+    mn(k) = W.dn[k] * W.dvoln[k]; mo(k) = c.do_[k] * c.dvolo[k]; m(k) = d[k] * dvol[k]
+    int(j) = a < j <= b
+    g_(j) = 2xmu * P.cpi * P.cgrav * W.xm[j] / rmu[j] + (1 - 0.5xmu) * P.g
+    r1(j) = r[j]^(-0.5xmu); r3_(k) = r3(k, W, xmu); fE(k) = lrad ? fedd[k] * er[k] : 0.0
+    Φ(k) = 0.5 * (dm[k] + dm[k+1]) * ub[k]
+    kfl(j) = -dm[j] * 0.5 * u[j]^2
+    pfg(j) = rmu[j] * u[j] * (j == a ? pg[a] : j == b + 1 ? pg[b] : 0.5 * (pg[j-1] + pg[j]))
+    pfr(j) = rmu[j] * u[j] * (j == a ? fE(a) : j == b + 1 ? fE(b) : 0.5 * (fE(j - 1) + fE(j)))
+    vfl(j) = j == a ? rmu[j] * u[j] * qf[a] : j == b + 1 ? rmu[j] * u[j] * qf[b] : u[j] * r1(j) * 0.5 * (r3_(j - 1) * qf[j-1] + r3_(j) * qf[j])
+    # zone-k parts of the momentum row of interior face j (j = k: the zone above the face, j = k + 1: the zone below it)
+    function mp(k, j)
+        lo = j == k
+        ine = 0.5 * (un[j] * mn(k) - uo[j] * mo(k)) / dt
+        ad = lo ? -Φ(k) + dm[j] * u[j] : Φ(k) - dm[j] * u[j]
+        pt = 0.5 * (pg[j-1] + pg[j]); pr_ = lo ? rmu[j] * (pg[k] - pt) : rmu[j] * (pt - pg[k])
+        gr = g_(j) * 0.5 * m(k)
+        sj = 0.5 * (r3_(j - 1) * qf[j-1] + r3_(j) * qf[j]); vi = lo ? r1(j) * (r3_(k) * qf[k] - sj) : r1(j) * (sj - r3_(k) * qf[k])
+        ra = lrad ? -avchi[j] * fr[j] / cc * 0.5 * m(k) : 0.0
+        (ine, ad, pr_, gr, vi, ra)
+    end
+    nz = b - a + 1; nf = b - a + 2; o = 1 - a
+    Mrow = zeros(nf); Ψ = zeros(nf); Ψr = zeros(nf); mchk = zeros(nf); sns = zeros(nf); ssp = zeros(nf); dyn = zeros(nf); rchk = zeros(nf)
+    sph = TD.VEF_SPH[]
+    for j in a+1:b
+        Mrow[j+o] = R[iu, kb(j)]
+        L = sum(mp(j, j)); U = sum(mp(j - 1, j)); Ψ[j+o] = 0.5 * u[j] * (L - U); mchk[j+o] = L + U - Mrow[j+o]
+        if lrad
+            ft_ = 0.5 * (fE(j - 1) + fE(j)); gm(k) = (0.25xmu / r[j]) * (3fedd[k] - 1) * er[k] * dvol[k]; cf(k) = 0.5 * m(k) * avchi[j] * fr[j] / cc
+            RL = rmu[j] * (fE(j) - ft_) + gm(j) + cf(j); RU = rmu[j] * (ft_ - fE(j - 1)) + gm(j - 1) + cf(j - 1)
+            Ψr[j+o] = 0.5 * u[j] * (RL - RU)
+            sns[j+o] = rmu[j] * (fE(j) - fE(j - 1)) + gm(j) + gm(j - 1)
+            ssp[j+o] = sph ? (qs = vefq(fedd, r, xmu, j); rmu[j] * (qs * fE(j) - fE(j - 1) / qs)) : sns[j+o]
+            qFo = c.fro[j] * 2 / (c.do_[j] + c.do_[j-1])
+            dyn[j+o] = (W.qF[j] * (mn(j - 1) + mn(j)) - qFo * (mo(j - 1) + mo(j))) / (2cc^2 * dt) -
+                       ((dm[j] + dm[j+1]) * W.frb[j] - (dm[j-1] + dm[j]) * W.frb[j-1]) / (2cc^2) + 0.5 * rmu[j] * (fr[j] / cc^2) * (u[j+1] - u[j-1])
+            rchk[j+o] = rm[j+o] - (dyn[j+o] + ssp[j+o] + cf(j) + cf(j - 1))
+        end
+    end
+    v0() = zeros(nz)
+    uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko = (v0() for _ in 1:17)
+    eg0 = ETOT_GRAV[]
+    for k in a:b
+        i = k + o
+        Kn[i] = 0.25 * mn(k) * (un[k]^2 + un[k+1]^2); Ko[i] = 0.25 * mo(k) * (uo[k]^2 + uo[k+1]^2)
+        Kraw = (Kn[i] - Ko[i]) / dt + kfl(k + 1) - kfl(k)
+        Δru = rmu[k+1] * u[k+1] - rmu[k] * u[k]
+        p_ = pfg(k + 1) - pfg(k) - pg[k] * Δru
+        vi = vfl(k + 1) - vfl(k) - qf[k] * dudr[k] * dvol[k]
+        gr = 0.0
+        if eg0
+            wg = etot_row(k, c, W, Float64); ETOT_GRAV[] = false
+            try gr = wg - etot_row(k, c, W, Float64) finally ETOT_GRAV[] = eg0 end
+        end
+        aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, a))
+        ra = lrad ? pfr(k + 1) - pfr(k) - fE(k) * Δru - (1 - 3fedd[k]) * 0.5xmu * er[k] * aur * dvol[k] : 0.0
+        S = 0.0
+        for j in (k, k + 1)
+            int(j) || continue
+            q = mp(k, j); Kraw -= u[j] * (q[1] + q[2]); p_ -= u[j] * q[3]; gr -= u[j] * q[4]; vi -= u[j] * q[5]; ra -= u[j] * q[6]; S += u[j] * sum(q)
+            uM[i] += 0.5 * u[j] * Mrow[j+o]
+            R6a[i] += 0.5 * u[j] * rm[j+o]; R6b[i] += 0.5 * u[j] * (sns[j+o] - ssp[j+o]); R6c[i] -= 0.5 * u[j] * dyn[j+o]
+        end
+        dΨ[i] = Ψ[i] - Ψ[i+1]; dΨr[i] = Ψr[i] - Ψr[i+1]
+        du2 = (un[k] - uo[k])^2 + (un[k+1] - uo[k+1])^2
+        K2a[i] = -(2θ - 1) * 0.25 * 0.5 * (mn(k) + mo(k)) * du2 / dt
+        K2b[i] = (θ^2 - θ + 0.5) * 0.25 * (mn(k) - mo(k)) * du2 / dt
+        K3a[i] = 0.5 * (dm[k] + dm[k+1]) * (u[k+1] - u[k]) * (0.5 * (u[k] + u[k+1]) - ub[k])
+        Kbnd[i] = Kraw - K2a[i] - K2b[i] - K3a[i]
+        prs[i] = p_; V4[i] = vi; G5[i] = gr
+        Rbnd[i] = ra - (R6a[i] + R6b[i] + R6c[i] + dΨr[i])
+        rem[i] = imb[i] - Gr[i] - Er[i] - (Kraw + p_ + vi + gr + ra + adv[i]) - S
+    end
+    (; imb, adv, kin, useint = ui[a:b], tiew = tw, rmom = rm, u = copy(W.u[a:b+1]), r = copy(W.rn[a:b+1]), E = copy(W.ern[a:b]), T = copy(W.tn[a:b]),
+       F = copy(W.frn[a:b+1]), ρ = copy(W.dn[a:b]), θ, Gr, Er, uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko,
+       mchk, rchk, Mrow, ub = copy(ub[a:b]), dmdt = copy(dm[a:b+1]), qf = copy(qf[a:b]), pg = copy(W.pgn[a:b]), eg = copy(W.egn[a:b]),
+       un = copy(un[a:b+1]), uo = copy(uo[a:b+1]), mn = [mn(k) for k in a:b], mo = [mo(k) for k in a:b], fedd = copy(fedd[a:b]),
+       hedd = length(TD.HEDD) >= b ? copy(TD.HEDD[a:b]) : zeros(nz), urel = copy(W.urel[a:b+1]), db = copy(W.db[a:b+1]), xm = copy(W.xm[a:b+1]))
 end
 
 # ------------------------------------------------------------------ assembly
