@@ -87,6 +87,7 @@ end
 # NWTRACE=<file> (diagnostic, default off = bit-identical): one line per Newton iteration of every attempt (iteration, dmax, the base measure
 # max(|dr|,|dm|,|drho|,|dT|,|dE|), the species' weighted measure with its equation and zone, and for each of the equations the largest
 # raw correction with its zone), a header per attempt and a result line.
+const NWDUMP = Ref{Any}(nothing)       # (diagnostic) state dump hook called at the start of the NWPROBE attempts
 const NWTRACE = Ref{Any}(nothing); const NWATT = Ref(0); const NWPROBE = Ref(Float64[])
 function nwtrace_it()
     io = NWTRACE[]; n = Int(g(:neqn)); kx = TF.var(:kx); dx = TF.var(:dx)
@@ -646,6 +647,7 @@ function step_err!()
     s!(:jtry, 1); s!(:jback, 0)
     rejected = false; err = NaN; info = ("", 0, NaN); Dnew = nothing; nrej = 0
     if !isempty(NWPROBE[])        # (NWPROBE, diagnostic, default off) one trapezoidal-stage attempt at each given step size from this state, as a retry after a failure would start it
+        NWDUMP[] === nothing || NWDUMP[]()
         for dtp in NWPROBE[]
             restore!(); s!(:thet, θ0); s!(:dtime, dtp); s!(:tfac, dtp / Δ0); r(:reset); s!(:timen, t0 + dtp)
             TitanCore.predict!(; halve = false, dtscale = γ1)

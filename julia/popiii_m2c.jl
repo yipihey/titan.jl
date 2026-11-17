@@ -1763,6 +1763,23 @@ try
     # of these step sizes from the live state (as a retry after a Newton failure starts, Trbdf2.step_err!), traced if NWTRACE is set; then the process ends.
     # NWFD=<zlo>,<zhi>,<iter>: with it, at Newton iteration <iter> of the first attempt, finite differences against the assembled Jacobian for the unknowns
     # of zones zlo..zhi (zone numbers as in the divergence message), see nwfd!.
+    if haskey(ENV, "NWPROBE") && haskey(ENV, "NWDUMP")      # NWDUMP=zlo,zhi: table of the photospheric zones at the probe state
+        Trbdf2.NWDUMP[] = function ()
+            zl, zh = parse.(Int, split(ENV["NWDUMP"], ",")); a_ = Int(TF.getscalar(:ngrs)); b_ = Int(TF.getscalar(:ngre))
+            rn = TF.var(:rn); dn = TF.var(:dn); tn = TF.var(:tn); ch = TF.var(:chifn); fe = TF.var(:fedd); er = TF.var(:ern); fr = TF.var(:frn)
+            ro = TF.var(:ro); dmdt = TF.var(:dmdt); un = TF.var(:un)
+            tau = zeros(length(rn)); for k in b_:-1:a_; tau[k] = (k < b_ ? tau[k+1] : 0.0) + ch[k] * dn[k] * (rn[k+1] - rn[k]); end
+            pr("NWDUMP step %d t %.9e dt(last) %.4e; geddr %.5f GXEDD %.5f; zones %d..%d (relative numbering)\n", Int(TF.getscalar(:jstep)), TF.getscalar(:timeo), TF.getscalar(:dtime), TF.getscalar(:geddr), TD.GXEDD[], zl, zh)
+            pr("  z   r/Rsun     T        rho       tau(z..out) chi*rho*dr  x_H+     x_H2    f        h(HEDD)  hx       fx       tiew(z) E_r/aT4  F/cE    u_km/s  urel_if_km/s dmdt_if  hmean/avchi eq\n")
+            for z in zl:zh
+                k = a_ + z - 1; y = ycomp(k); aT4 = 7.5657e-15 * tn[k]^4
+                hm = 2 / (1 / ch[k-1] + 1 / ch[k]); sfr = (isdefined(TX, :SFRATIO) && k <= length(TX.SFRATIO)) ? TX.SFRATIO[k] : NaN
+                pr("%3d %8.3f %8.1f %.3e %.3e %.3e %.3e %.3e %.5f %+.4f %+.4f %+.4f %.3f %.3e %.3f %+.2f %+.2f %+.3e %.4f %s\n", z, rn[k] / Rsun, tn[k], dn[k], tau[k], ch[k] * dn[k] * (rn[k+1] - rn[k]), y[1], y[3], fe[k],
+                   k <= length(TD.HEDD) ? TD.HEDD[k] : NaN, k <= length(TD.HXEDD) ? TD.HXEDD[k] : NaN, k <= length(TD.FXEDD) ? TD.FXEDD[k] : NaN, k <= length(TD.TIEW) ? TD.TIEW[k] : NaN,
+                   er[k] / aT4, fr[k] / (2.998e10 * er[k]), un[k] / 1e5, (un[k] - (rn[k] - ro[k]) / TF.getscalar(:dtime)) / 1e5, dmdt[k], sfr, mat.eqzone[k] ? "table" : "net")
+            end
+        end
+    end
     if haskey(ENV, "NWPROBE")
         if haskey(ENV, "NWFD")
             let w = parse.(Int, split(ENV["NWFD"], ",")), mg0 = TD.ROUTINES[:matgen], done = Ref(false)
