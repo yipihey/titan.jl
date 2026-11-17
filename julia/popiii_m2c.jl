@@ -1456,7 +1456,11 @@ function mg_install!()
         Tcm_ = max(parse(Float64, get(ENV, "TCMB", "0")), 1.0)
         Ec_ = arad * parse(Float64, get(ENV, "TCMB", "0"))^4; tg = TF.var(:tn); rr = TF.var(:rn)
         lit(k) = Te > 0 && k > kph && k < length(rr) && (er[k] - Ec_) >= 0.5 * L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10)
-        kend = kph + 1; while kend <= b_ && lit(kend); kend += 1; end          # one star-lit region from the photosphere out (no zone-to-zone switching)
+        # one star-lit region from the photosphere to the last zone where the excess is at least 0.1 of the free-streaming starlight (scanning
+        # from outside: a first failing zone near the photosphere, where f < 1, ended the region there and put the star's light at T_CMB: E_opt
+        # 1e-200 E next to 0.85 E, which the logarithmic update cannot repair in a step, t_mg40)
+        lit10(k) = Te > 0 && k > kph && k < length(rr) && (er[k] - Ec_) >= 0.1 * L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10)
+        kend = kph + 1; for k in b_:-1:kph+1; lit10(k) && (kend = k + 1; break); end
         Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : (k > kph && k < kend) ? max(Te, (max(er[k], 1e-300) / arad)^0.25) : Tcm_
               for k in eachindex(dn)]
         TX.mg_init_from_grey!(Ts); src = @sprintf("the grey field (T_eff %.0f K outside zone %d)", Te, kph - a_ + 1)
