@@ -5,7 +5,10 @@ const MGON = haskey(ENV, "MGROUPS") && ENV["MGROUPS"] != "0"
 lower end of the Lyman–Werner band (11.2 eV, as RADGROUPS; Draine & Bertoldi 1996), H, He I, He II ionisation (Z0Physics χ_H, χ_He1, χ_He2:
 the thresholds of the G2 continuum that supplies the group opacities)."
 mg_thresholds() = (Hm = COp.h * COp.c * (1e4 / 1.6419) / EVERG, Pa = Z0Physics.χH / 9 / EVERG, Ba = Z0Physics.χH / 4 / EVERG, LW = 11.2,
-                   H = Z0Physics.χH / EVERG, He1 = Z0Physics.χHe1 / EVERG, He2 = Z0Physics.χHe2 / EVERG)
+                   H = Z0Physics.χH * (1 - 1 / 1600) / EVERG, He1 = Z0Physics.χHe1 / EVERG, He2 = Z0Physics.χHe2 / EVERG)
+# (the H edge at the onset of the dissolved Lyman pseudo-continuum, q = 1/n² − ν/ν_H ≤ 1/1600 as G2Opacity's DIS window (Hubeny, Hummer &
+#  Lanz 1994): that 6e-4-wide sliver of ground-state absorption belongs with the ionising group; in the LW band's Planck mean it raised κ_E,LW
+#  ×1e5 in the LTE zones below the photosphere and thermalised the band there, one zone deeper and 2500 K hotter than the front)
 function mg_edges(s)
     t = mg_thresholds()
     (occursin(',', s) || occursin('.', s)) && return parse.(Float64, split(s, ','))
