@@ -394,3 +394,56 @@ used, the FLUXTIE weights, the radiation momentum row in its moment-equation for
   ledger, book u·R_mom of the tie zones explicitly (it accounts for 3391 of the 3740 L☉); (b) for the near-star 442 L☉, a dual-energy
   synchronisation that puts the kinetic-energy discretisation error into the gas row (e.g. the total-energy row's ΔE − ΔK − ΔE_r as a source
   of the internal-energy row where η is near the switch), to be tested for stability against t_mg25's failure.
+
+## 13. Stage 2a: Eddington factors per group (`MGVEF=1`, default with MGROUPS)
+
+**Built** (4cec045 … 691cbfe): after the grey formal solution, the same formal solution (TitanCore.eddfac!) once per group on the group's
+arrays swapped into the state it reads (χ_g ≥ κ_E,g; absorption κ_E,g; emission κ_P,g B_g; the rest of χ_g scattering; E_g, F_g; the
+background I_cmb b_g(T_cmb)) at every Newton update (VEFIMP): f_g, h_g, the tie weights of the group's own depth, g_g; the grey `fedd` then
+holds Σ f_g E_g/Σ E_g (radiation pressure of the total rows). Diagnostic H⁺ per interface (TitanCore.HPON/HPLUS) for the IonFS comparison.
+
+**Bugs found and fixed on the way** (each was in the stage-1 numbers of §10 as well, mostly invisible with the grey closure):
+* in-group shape floor 3000 K broke Σ b_g κ_P,g = κ_P below 3000 K (§4; cold cloud over-emitted into the optical group);
+* a group whose weight underflows (cold gas) fell back to the grey κ — the LW band then had the cold gas's H₂ CIA absorption and died within
+  a few zones; now the in-group shape at max(T, 3000 K) for that group only (550e139, 7dcc6ae);
+* restart partition: the grey excess over the CMB was given T_eff's shape out to 143 pc; now only in one star-lit region from the photosphere
+  (2498992, de0b1ae). A residual: the outer cloud's own excess at 450–1100 K puts ~1e-3 of E into the optical group there, which streams out
+  with f ≈ 1 (up to ~3e7 L☉ through the outer boundary; emission and absorption there are ~1e-5 L☉: a restart transient of the CMB-dominated
+  cloud, decoupled from the gas);
+* ionising group: H(1s) Kirchhoff–Milne recombination emission (K1 × n_1s*/n_1s, above 2500 K only — below, the floor of b_g broke the
+  e^{χ/kT} e^{−hν/kT} cancellation, t_mg32) and the matching ground-state recombination a1 x_e x_H⁺ in the network where the group
+  photoionisation is on (b1e0c5b, de0b1ae; `MGMILNE`).
+
+**Runs** (z100mm checkpoint, 4 groups): `t_mg36` (300 steps, EDIAG), `t_mg38` (120 steps, H⁺ diagnostic), against grey t_mg13/t_mg15.
+
+| | grey | stage 2a (t_mg36), steps 14500–14700 |
+|---|---|---|
+| s/step | 1.65–1.71 | 2.7–2.8 (×1.65: 5 formal solutions per update) |
+| Newton failures / 100 steps | 18–19 | 10 |
+| model time / 100 steps [yr] | 0.024–0.027 | 0.019–0.021 |
+| L_em at 1.5 r_ph, median (rms) | 6507 L☉ (0.7 %) | 6493 L☉ (7.5 %; 6221–7361) |
+| T_eff | 4387 K | 4498 K |
+| total-energy imbalance (EDIAG) | 3741 L☉ | 3801 L☉ |
+
+**Gate** (L_LW/L, L_ion/L at r_ph against ionfs_post.jl on the same snapshots 14450–14515 of t_mg38; IonFS's Qem × the band's mean photon
+energy in B_ν(T_eff), over its L_run; MG: the outgoing L⁺_g = 4π r² 4π H⁺_g of the group's formal solution at the same interface — the light
+leaving the layers inside, as IonFS's vacuum-above formal solution — and the net L_g):
+
+| step | IonFS L_LW/L | MG L⁺_LW/L (net) | IonFS L_ion/L | MG L⁺_ion/L (net) |
+|---|---|---|---|---|
+| 14450 | 9.7e-9 | 2.3e-5 (3.8e-8) | 2.1e-11 | 3.3e-20 (3.5e-20) |
+| 14475 | 1.5e-8 | 1.9e-5 (4.3e-8) | 8.2e-12 | 2.4e-12 (1.5e-20) |
+| 14500 | 3.0e-9 | 1.9e-5 (3.0e-8) | 2.5e-11 | 5.5e-12 (2.5e-20) |
+| 14515 | 3.6e-9 | 1.8e-5 (3.8e-8) | 2.1e-11 | 3.7e-12 (2.1e-20) |
+
+* **Ionising group: outgoing flux 0.18–0.29 × IonFS in 3 of 4 snapshots** (×3.5–5.5 low; 1.6e-9 × in the fourth): from 1e-9 × before the
+  Milne emission. The net flux at r_ph is ~1e-20 of L because the first zone above (neutral H, τ_1s ~ 1e9) absorbs and re-emits at nearly the
+  same T — IonFS's own ray finds Qesc_H = 0 as well. Gate (factor 2): not met, close.
+* **LW group: not met.** The outgoing LW at r_ph is 1e3–6e3 × IonFS's, the net 3–10 ×. The LW band above the photosphere is
+  Rayleigh-thick (χ_LW ≈ 0.36 cm² g⁻¹, f_LW = 1/3 out to ~1e3 R☉), so outgoing ≈ inward and the net is small; the outgoing excess means the
+  LW source function inside r_ph is far above IonFS's. Suspect: the H(n ≥ 2) bound–free absorption at 11–13.6 eV, which the G2 continuum
+  takes from the three-level atom's n = 2 while IonFS puts n ≥ 2 in LTE relative to the continuum (n_e n_p) — a lower n = 2 makes the
+  LW band thermalise deeper and hotter. To check next: the group's κ_E,LW/κ_P,LW profile against IonFS's coeffs3 on the same snapshot.
+  Also note IonFS's LW itself varies ×5 between snapshots 25 steps apart (9.7e-9 → 3.0e-9), and was 1.5e-7 on the stage-1 snapshots
+  (different photosphere structure).
+* Bit-identity off for the final tree: see §13 end.
