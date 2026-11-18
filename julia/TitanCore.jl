@@ -71,17 +71,15 @@ reset!, update! (x ← x e^δ) and maxdel! (clamp, convergence measure). `nothin
 const CPLH = Ref{Any}(nothing)
 function reset!()
     a, b = gi(:ngrs), gi(:ngre)
-    # A failed iterate that went non-finite: restore the state first, then rebuild the coupled species from it (the species reset
-    # evaluates the local chemistry, which must not see NaN T/ρ: InexactError in the photo-rate table, z100e step 32122, 14 Nov).
-    # A finite failed iterate keeps the original order (bit-identical for every run that never produces a NaN).
-    bad = CPLH[] !== nothing && !all(nm -> all(isfinite, view(vf(nm[1]), a-1:b+2)), RESET_PAIRS1)
-    CPLH[] === nothing || bad || CPLH[].reset()
+    # The state is restored first, then the coupled species are rebuilt from it: their reset evaluates the local chemistry (the initial guess of the retry) at the arrays' current
+    # T, ρ, which must be the OLD level and not the failed iterate (a finite but wild iterate, ln x_H⁺ corrections of 12-20 in zone 7, gave NaN species and a NaN retry in every later
+    # attempt: t_lag3 step 220; a NaN iterate was the case z100e step 32122 first handled).
     s!(:timen, gf(:timeo))
     for (n, o) in ((:tes, :teso), (:tew, :tewo), (:tel, :telo), (:teq, :teqo)); s!(n, gf(o)); end
     for (n, o) in RESET_PAIRS1; copyto!(view(vf(n), a-1:b+2), view(vf(o), a-1:b+2)); end
     for (n, o) in RESET_PAIRS2; copyto!(view(vf(n), a-1:b+1), view(vf(o), a-1:b+1)); end
     copyto!(view(vf(:avchin), a:b+1), view(vf(:avchio), a:b+1))
-    bad && CPLH[].reset()
+    CPLH[] === nothing || CPLH[].reset()
     nothing
 end
 
@@ -96,6 +94,11 @@ EDDG_MU0[]: the outer g integrates down to mu = 0, as f does. TITAN stops at the
 through the boundary condition E / aT^4 = (2g + 1) / 4g, E 12 % below the CMB. The F row carries that deficit inward with E ~ r^-2 where f ~ 1, as F/cE > 1.
 """
 const EDDG_MU0 = Ref(false)
+"""
+`GLOBAL_NEWTON[]` (set by NewtonKrylov when its globalisation is active): the Newton hook has already limited the step (trust region + merit line search), so `maxdel!` does not
+scale `rhs` or clamp the species, and measures convergence on the FULL Newton step `rhs / STEP_FRAC[]` (a step the globalisation cut is never "converged").
+"""
+const GLOBAL_NEWTON = Ref(false); const STEP_FRAC = Ref(1.0)
 function maxdel!()
     a, b = gi(:ngrs), gi(:ngre); meqn = TF.PARAMS[:meqn]
     lhydr, lrad, ltur = gi(:lhydr), gi(:lrad), gi(:ltur)
@@ -119,7 +122,6 @@ function maxdel!()
     else
         error("maxdel: unsupported lhydr/lrad")
     end
-    s!(:dmax, dmax)
     cmax = 1.0e-30
     if gi(:lgrid) == 1 || GRIDMOVE[]
         @inbounds for k in a:b
@@ -129,12 +131,14 @@ function maxdel!()
         cmax = abs(cx[a + kcx - 1]) + 1.0e-30
     end
     s!(:cmax, cmax)
-    CPLH[] === nothing || s!(:dmax, max(dmax, CPLH[].dmax(rhs, a, b)))     # species: clamped (also in the boost pass), convergence measure
+    CPLH[] === nothing || (dmax = max(dmax, CPLH[].dmax(rhs, a, b)))     # species: (clamped on the plain path, also in the boost pass), convergence measure
+    GLOBAL_NEWTON[] && (dmax /= STEP_FRAC[])
+    s!(:dmax, dmax)
     lboos = gi(:lboos)
     restore!() = (@inbounds for (j, k) in enumerate(thin); rhs[ie, k] = δthin[j]; end)
     lboos == 1 && (restore!(); return nothing)
     lboos > 1 && error("maxdel01")
-    sc = min(min(1.0, gf(:dtol) / dmax), min(1.0, gf(:ctol) / cmax))
+    sc = GLOBAL_NEWTON[] ? 1.0 : min(min(1.0, gf(:dtol) / dmax), min(1.0, gf(:ctol) / cmax))
     if sc < 1.0
         neqn = gi(:neqn)
         @inbounds for k in a:b+1, i in 1:neqn; rhs[i, k] *= sc; end
@@ -274,9 +278,9 @@ function update!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
         lrad && (frn[k] = frn[k] + rhs[iff, k] * frnom[k])
     end
     @inbounds for k in a:b
-        dn[k] = (1.0 + rhs[id, k]) * dn[k]
-        tn[k] = (1.0 + rhs[it, k]) * tn[k]
-        lrad && (ern[k] = (1.0 + rhs[ie, k]) * ern[k])
+        dn[k] *= exp(rhs[id, k])             # (ρ, T, E_r are positive: the relative correction δ is the step in ln x, so x stays positive whatever the step)
+        tn[k] *= exp(rhs[it, k])
+        lrad && (ern[k] *= exp(rhs[ie, k]))
     end
     CPLH[] === nothing || CPLH[].update(rhs, a, b)
     _ghost_and_derived!(:update, eos!, opac!)

@@ -28,6 +28,7 @@ import ..TitanDriver, ..TitanCore, ..TitanResidFast, ..Trbdf2
 const TD = TitanDriver; const TF = TD.TF; const TC = TitanCore; const TX = TitanResidFast
 vf(s) = TF.var(s)::Vector{Float64}
 gi(s) = Int(TD.g(s))
+gf(s) = Float64(TD.g(s))
 
 mutable struct Opts
     eta::Float64; mmax::Int; eps::Float64
@@ -77,10 +78,16 @@ function restore!(S::Snap)
 end
 
 # ---------------------------------------------------------------- the unknowns, residual, preconditioner
+const LOGCODES = (0, 3, 5, 6)       # equation codes of the unknowns applied as x e^δ: species, ρ, T, E_r
+"Lower bound of the trust-region weights of the unknowns that are not logarithmic (u, F_r, m, r): an entry the GMRES norm all but ignores (weight ~1e-6) is still limited."
+const TRFLOOR = 1e-2
+"A finite-difference step changes a logarithmic unknown by at most this (δ ln x): an entry of weight ~1e-12 (a trace species) otherwise gets ε v ~ 1e5, x → 0 and NaN in the EOS."
+const FDCLIP = 0.1
 struct Sys
     ne::Int; nb::Int; k0::Int; n::Int
     code::Vector{Int}; act::BitVector            # act[(kb-1)ne+i]: the entry update! applies
     wt::Vector{Float64}                         # weight of each entry in the GMRES norm (Trbdf2.wnorm's)
+    wtr::Vector{Float64}                        # weight in the trust-region measure: 1 for the log variables (ρ, T, E_r, species), max(wt, TRFLOOR) for the others
     R0::Vector{Float64}                         # residual at the base state (Float64 path)
     snap::Snap
     AB::Matrix{Float64}; ipiv::Vector{LinearAlgebra.BlasInt}; sc::Vector{Float64}; kl::Int; ku::Int
@@ -177,10 +184,10 @@ end
 Residual at x ⊕ s·v: s·v is written into `rhs`, `update!` applied (branch decisions replayed), a fresh context and the Float64 residual evaluated; the state is restored.
 `realized` (optional) receives the change the update actually made to every unknown including the ghost entries, per unit s.
 """
-function perturbed(S::Sys, v, s; realized = nothing, freeze = 2, inspect = nothing)
+function perturbed(S::Sys, v, s; realized = nothing, freeze = 2, inspect = nothing, clip = Inf)
     ne, nb, k0 = S.ne, S.nb, S.k0; rhs = TF.var(:rhs)
     base = realized === nothing ? nothing : (c = TX.context(); (copy(c.base), copy(vf(:unom)), copy(vf(:frnom))))
-    @inbounds for kb in 1:nb, i in 1:ne; rhs[i, k0+kb-1] = S.act[(kb-1)*ne+i] ? s * v[(kb-1)*ne+i] : 0.0; end
+    @inbounds for kb in 1:nb, i in 1:ne; rhs[i, k0+kb-1] = S.act[(kb-1)*ne+i] ? (S.code[i] in LOGCODES ? clamp(s * v[(kb-1)*ne+i], -clip, clip) : s * v[(kb-1)*ne+i]) : 0.0; end
     TX.FREEZE[] = freeze; updated = false
     try
         TD.r(:update); updated = true
@@ -244,9 +251,9 @@ end
 Directional derivative of the full residual, y = J v: central difference [R(x ⊕ εv) − R(x ⊖ εv)]/2ε (one-sided [R(x ⊕ εv) − R(x)]/ε if `OPT.central` is false). v is a vector over the active entries.
 """
 function fdjv!(y, S::Sys, v, ε; realized = nothing, freeze = 2)
-    R1 = perturbed(S, v, ε; realized, freeze)
+    R1 = perturbed(S, v, ε; realized, freeze, clip = FDCLIP)
     if OPT.central
-        R2 = perturbed(S, v, -ε; freeze)
+        R2 = perturbed(S, v, -ε; freeze, clip = FDCLIP)
         @inbounds for r in 1:S.n; y[r] = (R1[r] - R2[r]) / (2ε); end
     else
         @inbounds for r in 1:S.n; y[r] = (R1[r] - S.R0[r]) / ε; end
@@ -261,7 +268,9 @@ function setup()
     TX.FREEZE[] = 1
     R0 = try resid(ne, nb) finally TX.FREEZE[] = 0 end
     AB, ipiv, sc, kl, ku = bandlu(ne, nb, k0)
-    Sys(ne, nb, k0, ne * nb, copy(c.code), act, weights(c, act), R0, snap, AB, ipiv, sc, kl, ku)
+    wt = weights(c, act)
+    wtr = [c.code[(r-1)%ne+1] in LOGCODES ? 1.0 : max(wt[r], TRFLOOR) for r in 1:ne*nb]
+    Sys(ne, nb, k0, ne * nb, copy(c.code), act, wt, wtr, R0, snap, AB, ipiv, sc, kl, ku)
 end
 
 # ---------------------------------------------------------------- GMRES
@@ -276,7 +285,7 @@ function gmres(S::Sys, b)
     for j in 1:mmax
         v .= (@view V[:, j]) ./ wt; v[.!S.act] .= 0.0
         fdjv!(y, S, v, OPT.eps / maximum(abs, @view V[:, j])); CNT.mv += 1       # ε v: the largest weighted entry changes by OPT.eps
-        all(isfinite, y) || error("NKRYLOV: non-finite J v")
+        all(isfinite, y) || (rb = findfirst(!isfinite, y); error(@sprintf("NKRYLOV: non-finite J v (%d entries; first row %s; ε %.3g)", count(!isfinite, y), zname(S, rb), OPT.eps / maximum(abs, @view V[:, j]))))
         precond!(w, S, y); w[.!S.act] .= 0.0; w .*= wt
         for i in 1:j                                       # modified Gram-Schmidt
             h = dot(w, @view V[:, i]); H[i, j] = h; w .-= h .* @view V[:, i]
@@ -423,6 +432,90 @@ function scan!(S::Sys, b, x)
     nothing
 end
 
+# ---------------------------------------------------------------- globalisation: trust region + Armijo line search on the weighted true residual
+"""
+Newton globalisation (NKGLOB, default on with NKRYLOV; docs/POPIII_SWITCH_AUDIT2.md). One method for every unknown:
+
+* Positivity by construction: `update!` applies ρ, T, E_r (and the species) as x ← x e^δ with δ the relative Newton correction (the step in ln x), r and m as x(1 + δ);
+  a trial state that is non-finite, has x ≤ 0, or has interfaces that cross (r not increasing, m not decreasing) has merit Inf (`trial_ok`).
+* Merit function T(λ) = ‖W J_b⁻¹ R(x ⊕ λ s)‖₂ (J_b the band Jacobian of the iteration's base state, W the GMRES weights): the residual of all rows with the base state's branch
+  decisions (limiter, sign, upwind, viscosity) replayed, as in J v and J_b: the model the step solves. The residual with the decisions re-evaluated is discontinuous where one flips
+  (the regime switch of zone 1), and a step that is exact for the branch it differentiates then shows no decrease however small it is (tested: stall at |step| 2e-4 for 25 iterations);
+  a flip is resolved by the next iteration, whose base state records the new decisions. It is the residual in the units of the corrections, i.e. the size of the Newton step the base Jacobian would take from the trial state. s is the GMRES step.
+* Trust region: the largest weighted entry of the applied step, ‖W λ s‖∞ (δ ln x for ρ, T, E_r; species weighted x/(x + xfl); u against max(|u|, c_s); r against the smaller
+  adjacent zone width; ...), is limited to the radius Δ (start `delta0` = 0.5 of every Newton solve, at most `deltamax`): λ_cap = min(1, Δ/‖Ws‖∞).
+* Armijo backtracking from λ_cap: halve λ until T(λ) ≤ (1 − c λ) T(0) (c = 1e-4), at most down to smin·λ_cap (smin = 1e-3); no such λ is a Newton failure (the caller retries
+  with a smaller dt). A step whose weighted size is below the Newton tolerance `conv` is applied without the test (the iteration ends with it).
+* Radius update from the ratio ρ_TR of the actual to the predicted reduction (T(0) − T(λ))/(λ (1 − η_lin) T(0)), η_lin the GMRES relative residual: ρ_TR < 1/4 or a backtracked step
+  sets Δ to (1/2 of / the size of) the accepted step; ρ_TR > 3/4 with the step on the boundary doubles Δ.
+* `maxdel!` then measures convergence on the full step s (TitanCore.STEP_FRAC = λ): a cut step is never converged.
+"""
+mutable struct GlobOpts
+    on::Bool; delta0::Float64; deltamax::Float64; armijo::Float64; smin::Float64
+end
+const GLOB = GlobOpts(true, 0.5, 4.0, 1e-4, 1e-3)
+mutable struct GlobCount
+    solves::Int; capped::Int; backtracked::Int; fail::Int; evals::Int; rejected::Int
+end
+const GC = GlobCount(0, 0, 0, 0, 0, 0)
+const TRR = Ref(0.5)           # current trust radius (weighted ‖·‖∞)
+
+"The trial state in the arrays: finite, ρ, T, E_r and the species positive, r increasing and m decreasing across the interfaces."
+function trial_ok()
+    a, b = gi(:ngrs), gi(:ngre)
+    rn, xmen, un, frn, dn, tn, ern = (vf(s) for s in (:rn, :xmen, :un, :frn, :dn, :tn, :ern)); x1, x2 = TX.XSN[][1], TX.XSN[][2]
+    @inbounds for k in a:b+1
+        (isfinite(rn[k]) && isfinite(xmen[k]) && isfinite(un[k]) && isfinite(frn[k])) || return false
+    end
+    @inbounds for k in a:b
+        rn[k+1] > rn[k] && xmen[k+1] <= xmen[k] || return false
+        (isfinite(dn[k]) && dn[k] > 0 && isfinite(tn[k]) && tn[k] > 0 && isfinite(ern[k]) && ern[k] > 0) || return false
+        TX.cplz(k) && !(x1[k] > 0 && x2[k] > 0 && isfinite(x1[k]) && isfinite(x2[k])) && return false
+    end
+    true
+end
+
+"Merit T(λ) of the trial state x ⊕ λ s (Inf if the update fails, or the state is not acceptable)."
+function merit(S::Sys, s, λ)
+    GC.evals += 1; ok = true
+    try
+        R = perturbed(S, s, λ; freeze = 2, inspect = () -> (ok = trial_ok()))
+        ok || (GC.rejected += 1; return Inf)
+        T = levelT(S, R)[1]; isfinite(T) ? T : Inf
+    catch ex
+        ex isa InterruptException && rethrow()
+        GC.rejected += 1; Inf
+    end
+end
+
+"Fraction λ of the GMRES step s to apply (see `GlobOpts`); throws if no acceptable λ exists. `rel`: relative GMRES residual."
+function globalize(S::Sys, s, rel)
+    GC.solves += 1
+    wx = 0.0
+    @inbounds for r in 1:S.n; S.act[r] && (wx = max(wx, abs(s[r] * S.wtr[r]))); end
+    isfinite(wx) || error("NKRYLOV: non-finite Newton step")
+    wx <= gf(:conv) && return 1.0
+    T0 = levelT(S, S.R0)[1]
+    λcap = min(1.0, TRR[] / wx); λ = λcap; λcap < 1 && (GC.capped += 1)
+    while λ >= GLOB.smin * λcap * (1 - 1e-12)
+        T = merit(S, s, λ)
+        if T <= (1 - GLOB.armijo * λ) * T0
+            sz = λ * wx; ratio = (T0 - T) / (λ * (1 - min(rel, 0.99)) * T0)
+            if λ < λcap
+                GC.backtracked += 1; TRR[] = sz
+            elseif ratio < 0.25
+                TRR[] = 0.5 * sz
+            elseif ratio > 0.75 && sz >= 0.9 * TRR[]
+                TRR[] = min(2TRR[], GLOB.deltamax)
+            end
+            return λ
+        end
+        λ /= 2
+    end
+    GC.fail += 1; TRR[] = 0.5 * λ * wx
+    error(@sprintf("NKRYLOV: no decrease of the merit function along the Newton step (‖Ws‖∞ %.3g, λ from %.3g to %.3g)", wx, λcap, 2λ))
+end
+
 # ---------------------------------------------------------------- the hook (TD.KRYLOV[]), called after matslv
 function krylov!()
     t0 = time(); CNT.solves += 1
@@ -445,11 +538,16 @@ function krylov!()
             flush(stdout)
         end
         lsinfo = " ls off"; λ = 1.0
-        if LS.on && maximum(abs, x .* S.wt) > LS.trigger
+        if GLOB.on
+            gi(:iter) == 1 && (TRR[] = GLOB.delta0)
+            λ = globalize(S, x, rel)
+            lsinfo = @sprintf(" glob lambda %.6g radius %.4g", λ, TRR[])
+        elseif LS.on && maximum(abs, x .* S.wt) > LS.trigger
             LSC.engaged += 1
             λ, T0, Tl, ntr, sc0, scl, rel0, failed = linesearch(S, x, b)
             lsinfo = @sprintf(" ls lambda %.6g T0 %.6g T %.6g trials %d scnorm0 %.6g scnorm %.6g T0rel %.2e%s", λ, T0, Tl, ntr, sc0, scl, rel0, failed ? " lsfail" : "")
         end
+        TitanCore.STEP_FRAC[] = λ
         blk .= δ0           # (the perturbed updates used `rhs` as scratch); entries update! ignores keep the band solution
         @inbounds for r in 1:S.n; S.act[r] && (blk[(r-1)%ne+1, (r-1)÷ne+1] = λ * x[r]); end
         Rf = resid(ne, nb); d = maximum(abs, Rf .- S.R0) / (maximum(abs, S.R0) + 1e-300)       # drift of the restored state
@@ -458,7 +556,9 @@ function krylov!()
     catch ex
         ex isa InterruptException && rethrow()
         S === nothing || restore!(S.snap)
-        TX.FREEZE[] = 0; blk .= δ0; CNT.fallback += 1
+        TX.FREEZE[] = 0; blk .= δ0; TitanCore.STEP_FRAC[] = 1.0
+        GLOB.on && rethrow()          # a failed linear solve or globalisation is a Newton failure (the caller retries with a smaller dt)
+        CNT.fallback += 1
         CNT.fallback <= 5 && println("NKRYLOV: fallback to the band-Jacobian correction: ", first(sprint(showerror, ex), 300))
     end
     CNT.secs += time() - t0
@@ -537,6 +637,7 @@ function configure!(spec::AbstractString; activate = true)
     length(f) >= 3 && (OPT.mmax = parse(Int, f[3]))
     length(f) >= 4 && (OPT.eps = parse(Float64, f[4]))
     length(f) >= 5 && (OPT.central = f[5] != "0")
+    GLOB.on = get(ENV, "NKGLOB", "1") != "0"; TitanCore.GLOBAL_NEWTON[] = GLOB.on
     activate && (TD.KRYLOV[] = krylov!)
     nothing
 end
@@ -554,7 +655,8 @@ function trace_text(steps)
 end
 ls_text() = LS.on ? @sprintf(" | NKLS (trigger %g, lmin %g): %d line searches engaged, %d backtracked, %d failed, %d extra residual evaluations, max T(0) rel. diff %.2e",
                           LS.trigger, LS.lmin, LSC.engaged, LSC.backtracks, LSC.fail, LSC.evals, LSC.maxrel0) : ""
+glob_text() = GLOB.on ? @sprintf(" | NKGLOB: %d globalised steps, %d trust-region capped, %d backtracked, %d failed, %d merit evaluations (%d trial states rejected)", GC.solves, GC.capped, GC.backtracked, GC.fail, GC.evals, GC.rejected) : ""
 summary_text() = @sprintf("NKRYLOV (eta %g, mmax %d, eps %g): %d Newton linear solves, %d matrix-vector products (%.2f per solve), %d GMRES non-convergences, %d fallbacks, %d state-drift events (max %.2e), %.1f s",
-                          OPT.eta, OPT.mmax, OPT.eps, CNT.solves, CNT.mv, CNT.solves == 0 ? 0.0 : CNT.mv / CNT.solves, CNT.nonconv, CNT.fallback, CNT.ndrift, CNT.maxdrift, CNT.secs) * ls_text()
+                          OPT.eta, OPT.mmax, OPT.eps, CNT.solves, CNT.mv, CNT.solves == 0 ? 0.0 : CNT.mv / CNT.solves, CNT.nonconv, CNT.fallback, CNT.ndrift, CNT.maxdrift, CNT.secs) * ls_text() * glob_text()
 
 end # module
