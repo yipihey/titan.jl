@@ -1532,6 +1532,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                           compton(k, W, P) * dvol[k] : zero(T)) - src
             ECGRAV[] != 0 && (ECGRAV[] == 2 || ECGRAV[] == 3 || (c.etotal && !c.useint[k])) && (w += ecgrav(k, c, W, ECGRAV[] >= 3))
             isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
+            cplz(k) && (w -= W.cpY[k] * dvol[k])               # COUPLED: the cycle heat of the iterate (the lagged GASQ keeps the LW part only)
             if k == ngrs
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
@@ -1543,6 +1544,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         elseif c.etotal && !c.useint[k]
             w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])     # the gas gets the ray's energy in chemistry: it leaves the total here (as the lrad total row)
+            cplz(k) && (w += W.cpQ[k] * dvol[k])               # COUPLED: the chemistry heat of the iterate (inside cpL as heating of the gas)
         elseif c.lrad && GASROW[]
             egbg = W.egbg
             w = (dn[k] * egn[k] * dvoln[k] - c.do_[k] * c.ego[k] * c.dvolo[k]) / dt -
@@ -1551,6 +1553,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 (Mg === nothing ? excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) : Mg.xch[k]) * d[k] * dvol[k] +
                 compton(k, W, P) * dvol[k] - src                   # (MGROUPS: Σ_g of the group exchange)
             isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
+            cplz(k) && (w -= W.cpY[k] * dvol[k])               # COUPLED: the cycle heat of the iterate (the lagged GASQ keeps the LW part only)
             if k == ngrs
                 w += -dmdt[k+1] * egbg[k+1] - P.phil2 * rmu[k]
             elseif k == ngre
@@ -1566,6 +1569,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 (pg[k] + er[k] * fedd[k]) * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * er[k] * aur * dvol[k] + qf[k] * dudr[k] * dvol[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
+            cplz(k) && (w += W.cpQ[k] * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * egb[k+1] - (P.phil2 + er[k] * urel[k]) * rmu[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])
@@ -1642,6 +1646,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             end
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
             isempty(GASQ[]) || (w += GASQ[][k] * dvol[k])
+            cplz(k) && (w += (W.cpQ[k] + W.cpY[k]) * dvol[k])     # COUPLED: chemistry and cycle heat of the iterate
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * er[k]
                 INNER_SINK[] && (w -= rmu[k] * P.phil0 * (1 + fedd[k]) * er[k] / d[k])

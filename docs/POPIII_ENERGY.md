@@ -2852,3 +2852,13 @@ Compton terms are absent), selected by `ETOTAL=0` in `phase6_run.jl` and `popiii
 J·v replays the branch the Jacobian was built with — before this the T row of the shock zones disagreed with its band
 row by 8e-3 (zone 29) in `NKCHECK` (t_ie20 / t_ie22), after it by 4e-6 (t_ie23): the flux is continuous at ṁ = 0 but has a kink there,
 and the front zones have ṁ ≈ 0.
+
+### 23.2 Lagged heat inputs of coupled zones (audit A5)
+
+The three-level atom's chemistry heat cq (photon energy given to the gas; it is inside `cpL` as heating of the gas) and cycle heat yq
+were booked once per step from the end state of the previous step (`RAYQ`, `GASQ`). In coupled zones the hydro rows now take cq and yq of
+the iterate (`W.cpQ`, `W.cpY`, from `cpl_g`, already computed in every residual): radiation row +cpQ+cpY, gas rows −cpY, total /
+combined rows +cpQ; `chem_core!` no longer adds cq, yq to `RAYQ`/`GASQ` in the post pass of coupled zones (`GASQ` keeps the
+Lyman-Werner heating there). Zones that are not coupled are unchanged. Since the coupled set is fixed at the start of each step, a
+zone that is coupled in one step and not in the next (CPL_BAD decoupling) has its heat of that one step booked either not at all or
+twice; the decoupling is to be removed separately. Measured effect on the 300-step restart: see §23.3.
