@@ -389,7 +389,7 @@ Columns: default (code at 1782928); value in the z300mm stack (`–` = not set; 
 | GEQRAMP | unset | `1e-3,300,10,20` (g2: –; z100: 0) | grideq_driver.jl:40 | GRIDEQ: constants (gmax, α, κ, fv, fmove, τ, ctol …) / monitor weights / start-up ramp | KEEP-STACK |  |
 | GEQX | `[0.0, 1e-3]` | – | grideq_driver.jl:39 | GRIDEQ: lagged feature-tracking term (default off) | KEEP-STACK | default used |
 | GEQN | `string(nsh)` | – | popiii_m2c.jl:1576 | GRIDEQ at a remap: number of zones | UNCLEAR | only with a remap restart (stage 3) |
-| ICMLOG | unset | – | popiii_m2c.jl (iceulbuild!) | IC start mesh logarithmic in enclosed mass from m1 [Msun] (N = GEQN or nsh zones); replaces the rule's starting mesh; first interface as the default start (GRIDEQ keeps it fixed), interfaces 2..N log in mass from m1 to the cloud mass | KEEP-STACK | start from the IC only |
+| ICMLOG | unset | – | popiii_m2c.jl (iceulbuild!) | IC start mesh logarithmic in enclosed mass from m1 [Msun] (N = GEQN or nsh zones); replaces the rule's starting mesh; the N interfaces above the centre log in enclosed mass from m1 to the cloud mass (centre zone holds m1); the first interface is Lagrangian (its GRIDEQ grid row holds the enclosed mass instead of the radius, TitanResidFast.GEQ_LAGFIRST, set by the presence of ICMLOG; it is in the fmove limit) | KEEP-STACK | start from the IC only |
 | GEQREMAP | `"0"` | – | grideq_driver.jl:55 | GRIDEQ remap of the state ("kept but not recommended") | REMOVE-DEAD | never set; stage 2 |
 | GEQDBG | `"0"` | – | TitanResidFast.jl:965, TitanResidFast.jl:966 | GRIDEQ debug print of the monitor | KEEP-TOOL |  |
 | GRIDMAP | unset | – | popiii_m2c.jl:1154 | planned moving mesh (GridMap.jl) | REMOVE-DEAD | S1: removed (superseded by GRIDEQ) |

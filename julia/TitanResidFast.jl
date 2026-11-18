@@ -138,13 +138,19 @@ const GRIDVEL = Ref{Union{Nothing,Vector{Float64}}}(nothing)
 """
 GRIDEQ[] (lgrid = 2 only; `nothing` = off): TITAN's implicit grid equation over the whole mesh (GRIDEQ in popiii_m2c.jl). A
 NamedTuple (; k1, k2, w = (wρ, wP, wT, wE, wm), alph, gmax, tauv, sx): the interfaces k1 (the first above the regular centre) and
-k2 (the outer edge) stay; every interface in between obeys n̂_j = n̂_{j−1} with n̂_j = x̃_j / sqrt(1 + G_j²), x̃_j = ν_j −
+k2 (the outer edge) stay (with GEQ_LAGFIRST, ICMLOG, k1 is Lagrangian instead: it holds its enclosed mass, not its radius); every interface in between obeys n̂_j = n̂_{j−1} with n̂_j = x̃_j / sqrt(1 + G_j²), x̃_j = ν_j −
 α(1+α) Δ²ν (ν_j = r̄_j/Δr_j, the logarithmic baseline; α = alph), time-smoothed per zone, x̃ → (1 + γ_j) x̃ − γ_j x̃_old with
 γ_j = tauv[j]/Δt (tauv: a multiple of the zone's signal-crossing time, frozen for the step), and G_j² = ν_j² S_j capped smoothly at
 gmax², S_j = Σ_q w_q (½ Δ ln q)² over q = ρ, P, T, E_r and the interior mass m (centred differences of the zone values; one-sided
 at the ends) plus sx[j] (terms frozen for the step: the capped ln τ). All terms are logarithmic, so the rule has no scale.
 """
 const GRIDEQ = Ref{Any}(nothing)
+"""
+GEQ_LAGFIRST[] (lgrid = 2 with GRIDEQ or GRIDVEL; default false): the first interface above the regular centre, k1 = ngrs + 1, is Lagrangian: its grid row holds
+its enclosed mass fixed, (x_m,e,new − x_m,e,old) r_old / (zone mass of k1 − 1, old), instead of its radius (the other interface rows are unchanged). The
+row is a function of the iterate only (the scale factors are old-level constants; r_old/zone mass makes it a length like the radius rows). ICMLOG sets it.
+"""
+const GEQ_LAGFIRST = Ref(false)
 "A mesh with lgrid = 2 whose interfaces move (GRIDVEL or GRIDEQ)."
 @inline gridmoves() = GRIDVEL[] !== nothing || GRIDEQ[] !== nothing
 """
@@ -1358,6 +1364,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k] - gv[k] * dt; end
         end
         GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[], W.chifn; un, G4 = 2 * Float64(c.mu) * P.cpi * P.cgrav)
+        GEQ_LAGFIRST[] && gridmoves() && (R[ir, kb(ngrs+1)] = (xmen[ngrs+1] - c.xmeo[ngrs+1]) * (c.ro[ngrs+1] / (c.xmeo[ngrs] - c.xmeo[ngrs+1])))
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
     end
