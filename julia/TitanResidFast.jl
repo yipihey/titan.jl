@@ -44,8 +44,7 @@ struct Ctx
     nomu::Vector{Float64}; nomf::Vector{Float64}
     ro::Vector{Float64}; xmeo::Vector{Float64}; do_::Vector{Float64}; uo::Vector{Float64}
     ego::Vector{Float64}; ero::Vector{Float64}; fro::Vector{Float64}; egro::Vector{Float64}
-    egso::Vector{Float64}; egrso::Vector{Float64}; dso::Vector{Float64}; uso::Vector{Float64}
-    erso::Vector{Float64}; frso::Vector{Float64}; pgo::Vector{Float64}; aso::Vector{Float64}
+    pgo::Vector{Float64}; aso::Vector{Float64}   # (no stored old limiter slopes: `oldslope!` recomputes them from the old cell values)
     chifo::Vector{Float64}; xkeo::Vector{Float64}; xkpo::Vector{Float64}; plfo::Vector{Float64}
     dvolo::Vector{Float64}; xmo::Vector{Float64}; fedd::Vector{Float64}; bri::Vector{Float64}
     lady::Vector{Int}; wt::Vector{Float64}; yscl::Vector{Float64}
@@ -387,8 +386,8 @@ function context(; etotal::Bool = ETOTAL[], ηsw::Float64 = ETASW[], dt = nothin
     Ctx(ngrs, ngre, neqn, gi(:mu), lrad, ngrs - 2, ngre - ngrs + 5, mgr, ix, code, base,
         v(:unom), v(:frnom),
         v(:ro), v(:xmeo), v(:do), v(:uo), v(:ego), v(:ero),
-        v(:fro), v(:egro), v(:egso), v(:egrso), v(:dso), v(:uso),
-        v(:erso), v(:frso), v(:pgo), v(:aso), v(:chifo), v(:xkeo),
+        v(:fro), v(:egro),
+        v(:pgo), v(:aso), v(:chifo), v(:xkeo),
         v(:xkpo), v(:plfo), v(:dvolo), v(:xmo), v(:fedd), v(:bri),
         (la = v(:lady); lb = get!(() -> zeros(Int, length(la)), BUFS, :lady)::Vector{Int}; lb .= la; lb), v(:wt), v(:yscl), P, etotal, dualswitch(ngrs, ngre, lrad, ηsw),
         CONVECTION[], ALPHA_MLT[], convcoef(ngrs, ngre, base))
@@ -447,6 +446,7 @@ end
 const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn, :xken, :xkpn, :plfn,
     :egrn, :r, :u, :fr, :xm, :dmdt, :urel, :rmu, :rmup1, :d, :pg, :eg, :as, :er, :egr, :chif, :xke,
     :xkp, :plf, :dvol, :dvoln, :avchi, :qf, :dudr, :db, :dsn, :fl, :ub, :usn, :flu, :fle, :egb, :egsn,
+    :dso, :uso, :egrso, :egso, :erso, :frso, :xso1, :xso2,       # old-level limiter slopes (oldslope!)
     :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv,
     :mnad, :mcp, :mdl, :mkp,                # MLT coefficients of the threaded pre-pass (MATTHREADS)
     :xs1, :xs2, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL, :cpQ, :cpY)     # COUPLED: species iterate, face values, slopes, rates, cooling
@@ -761,6 +761,20 @@ end
 include(joinpath(@__DIR__, "MGRad.jl"))                 # MGROUPS (default off)
 "(MGROUPS with SLIMP) (q, t) of zone k at the iterate from the grey E_r and group MGSLG's E_g, F_g, F_g+1 (PopIIIMaterial.sl_qt_mg)."
 const MGSLQ = Ref{Any}(nothing); const MGSLG = Ref(2)
+
+"""
+Limiter slope of the OLD level, from the old cell values with exactly the formula of the first loop of `advect!` (plain Float64: the old level is a constant
+of the iteration, no branch decisions to record). Replaces the slopes TITAN stored in COMMON (dso, uso, egso, egrso, erso, frso, XSSO), which were the slopes of
+the penultimate Newton iterate (store_side! in assemble!), zero for the gas energy under GASROW (zeroed by update!/peq), and 0 at the outer face for u.
+"""
+@inline function oldslope!(so, qo, cadv, eps, ngrs, ngre)
+    @inbounds for k in ngrs:ngre+1
+        a = qo[k] - qo[k-1]; b = qo[k+1] - qo[k]; sdq = a + b
+        den = sdq + (sdq >= 0 ? eps : -eps)
+        so[k] = a * b >= 0 ? cadv * a * b / den : 0.0
+    end
+    so
+end
 
 "van Leer interpolation (advectc: centred=true, advecti: centred=false)."
 @inline function advect!(qb, qsn, qn, qo, qso, flow, θ, cadv, eps, ngrs, ngre, centred::Bool, id::Int = 0)
@@ -1251,28 +1265,28 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     # advection
     db, dsn, fl, ub, usn, flu, fle, egb, egsn = W.db, W.dsn, W.fl, W.ub, W.usn, W.flu, W.fle, W.egb, W.egsn
     @inbounds for k in ngrs+1:ngre+1; fl[k] = urel[k]; end
-    advect!(db, dsn, dn, c.do_, c.dso, fl, θ, P.cadv, P.eps, ngrs, ngre, true, 1)
+    advect!(db, dsn, dn, c.do_, oldslope!(W.dso, c.do_, P.cadv, P.eps, ngrs, ngre), fl, θ, P.cadv, P.eps, ngrs, ngre, true, 1)
     @inbounds for k in ngrs+1:ngre+1; fle[k] = -dmdt[k]; end
     @inbounds for k in ngrs:ngre; flu[k] = -(dmdt[k] + dmdt[k+1]); end
-    advect!(ub, usn, un, c.uo, c.uso, flu, θ, P.cadv, P.eps, ngrs, ngre, false, 2)
+    advect!(ub, usn, un, c.uo, oldslope!(W.uso, c.uo, P.cadv, P.eps, ngrs, ngre), flu, θ, P.cadv, P.eps, ngrs, ngre, false, 2)
     if c.lrad
-        advect!(egb, egsn, egrn, c.egro, c.egrso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 3)
-        GASROW[] && advect!(W.egbg, W.egsng, egn, c.ego, c.egso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 6)
+        advect!(egb, egsn, egrn, c.egro, oldslope!(W.egrso, c.egro, P.cadv, P.eps, ngrs, ngre), fle, θ, P.cadv, P.eps, ngrs, ngre, true, 3)
+        GASROW[] && advect!(W.egbg, W.egsng, egn, c.ego, oldslope!(W.egso, c.ego, P.cadv, P.eps, ngrs, ngre), fle, θ, P.cadv, P.eps, ngrs, ngre, true, 6)
         qe, qeo, qF, qFo = W.qe, W.qeo, W.qF, W.qFo
         @inbounds for k in ngrs-1:ngre+2
             qe[k] = ern[k] / dn[k]; qeo[k] = c.ero[k] / c.do_[k]
             qF[k] = frn[k] * 2 / (dn[k] + dn[k-1]); qFo[k] = c.fro[k] * 2 / (c.do_[k] + c.do_[k-1])
         end
-        advect!(W.erb, W.ersn, qe, qeo, c.erso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 4)
-        advect!(W.frb, W.frsn, qF, qFo, c.frso, flu, θ, P.cadv, P.eps, ngrs, ngre, false, 5)
+        advect!(W.erb, W.ersn, qe, qeo, oldslope!(W.erso, qeo, P.cadv, P.eps, ngrs, ngre), fle, θ, P.cadv, P.eps, ngrs, ngre, true, 4)
+        advect!(W.frb, W.frsn, qF, qFo, oldslope!(W.frso, qFo, P.cadv, P.eps, ngrs, ngre), flu, θ, P.cadv, P.eps, ngrs, ngre, false, 5)
     else
-        advect!(egb, egsn, egn, c.ego, c.egso, fle, θ, P.cadv, P.eps, ngrs, ngre, true, 6)
+        advect!(egb, egsn, egn, c.ego, oldslope!(W.egso, c.ego, P.cadv, P.eps, ngrs, ngre), fle, θ, P.cadv, P.eps, ngrs, ngre, true, 6)
     end
     erb, frb = W.erb, W.frb
     MG[] && mg_theta!(Mg, c, W, θ, ngrs, ngre, fle, flu)     # MGROUPS: θ-level group opacities, emission, χ̄_g, face values
     if COUPLED[]
-        advect!(W.xb1, W.xsn1, W.xs1, XSO[][1], XSSO[][1], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 7)
-        advect!(W.xb2, W.xsn2, W.xs2, XSO[][2], XSSO[][2], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 8)
+        advect!(W.xb1, W.xsn1, W.xs1, XSO[][1], oldslope!(W.xso1, XSO[][1], P.cadv, P.eps, ngrs, ngre), fle, θ, P.cadv, P.eps, ngrs, ngre, true, 7)
+        advect!(W.xb2, W.xsn2, W.xs2, XSO[][2], oldslope!(W.xso2, XSO[][2], P.cadv, P.eps, ngrs, ngre), fle, θ, P.cadv, P.eps, ngrs, ngre, true, 8)
     end
     # diffusion
     dfm, dfe = W.dfm, W.dfe

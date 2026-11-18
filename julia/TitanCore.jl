@@ -481,6 +481,7 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     lrad && for (o, n) in ((:ero, :ern), (:fro, :frn)); copyto!(view(vf(o), a-1:b+2), view(vf(n), a-1:b+2)); end
     for (o, n) in (lrad ? PEQ_OLD2_RH : PEQ_OLD2_H); copyto!(view(vf(o), a-1:b+1), view(vf(n), a-1:b+1)); end
     lrad && copyto!(view(vf(:avchio), a:b+1), view(vf(:avchin), a:b+1))
+    lrad && (vf(:egro)[b+2] = vf(:egrn)[b+2])      # (the old limiter slope at the last face reads egro[b+2], as the new level did when this state was new; TitanResidFast.oldslope!)
     CPLH[] === nothing || CPLH[].newstep()
     PEQ_HOOK[] === nothing || PEQ_HOOK[]()
     predict!(; eos!, opac!)
