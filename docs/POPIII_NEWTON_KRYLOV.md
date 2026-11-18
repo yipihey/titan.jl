@@ -226,7 +226,7 @@ and the 60 `DTERR jstep` lines (md5 a737fa41ef456b4a09a6db67f55ffe81 in both; `d
 
 ## 9. Open issues
 
-1. **The second inexactness is located, not removed.** With the closure held, the band Jacobian still lacks ∂F_r/∂x_H⁺ in zones 15–24 (a factor ~10 in the entries of zones k−1, k) and is 0.1–4 % off in the
+1. **(Found and fixed on branch `jacfix`, §10.) The second inexactness is located, not removed.** With the closure held, the band Jacobian still lacks ∂F_r/∂x_H⁺ in zones 15–24 (a factor ~10 in the entries of zones k−1, k) and is 0.1–4 % off in the
    T, u, E_r, x_H⁺, x_H₂ rows of zones 16–28 (T1). Candidates are the opacity of the coupled zones (NLOIT/NLOPAC slope refresh, `CPLJLAG` reuse); not tested which. Whether this is the dt-independent 0.61 rate
    is an inference from the location (the largest correction E_r, zone 22). The Krylov solve absorbs it (3–5 Newton iterations at every Δt) but it would be cheaper to fix the assembled entry.
 2. **Finite-difference noise.** `eddfac!` evaluates 1 − (1 + τ)e^{−τ}-type expressions in optically thin zones; f and h carry ~1e-6 round-off, so J v in the F_r rows of the outer zones needs ε ≳ 1e-5 (central)
@@ -240,4 +240,105 @@ and the 60 `DTERR jstep` lines (md5 a737fa41ef456b4a09a6db67f55ffe81 in both; `d
    `NITER` smaller than 25 with NKRYLOV; `eta`/`mmax` variations (defaults 1e-3 and 30: no non-convergence in 5952 + 30 + 17 solves of T2/T3, 0 in T4's trace lines; the Krylov iterations per solve are 2.6–5).
 7. For the production run (not changed by this work): with NKRYLOV the Newton failures per 100 steps fall from 25.8 to 2.8 and the mean accepted Δt rises from 5.6e3 to 2.6e6 s from the stuck state, so a restart of
    z100mm with `NKRYLOV=1` is the experiment to do; the step then runs to the error-estimate limit (x_H₂/x_H⁺ in the photosphere zones 27–31) and the accreted mass per wall-hour rises ~200 ×.
+
+
+## 10. Jacobian defect found by the matrix-vector check
+
+Branch `jacfix` (from `nkrylov` 0607bad). Runs `t_jf01`–`t_jf26` and `t_jb01`–`t_jb03` (`jb` = the unfixed tree, launcher `runs/t_nk_tools/jbrun.sh`; `jf` = this tree, `jfrun.sh`), plus `t_nk43`.
+`NKCHECK` gained `NKROW=eq,zone[;eq,zone…]` (diagnostic: the rows of the column-by-column probe; zone counted from the inner boundary as in the listing).
+
+### Cause
+
+Four quantities that enter the residual had no derivative, or a wrong one (all in the zones 15–28, the x_H⁺ ≈ 0.99–0.9990 photosphere/ionisation front; the dependence is local, within the ±2-zone band):
+
+1. **x_H⁺ column of the F_r row (the finding of T1).** The F_r row depends on x_H⁺ only through the opacity (avchi·F_r). The opacity of a coupled zone is `PopIIIMaterial.nlo_it`; its derivatives
+   in (ρ, T, x_H⁺, x_H₂) of the non-LTE ratios R were differences (`PopIIIMaterial.jl:622` and following, 0607bad): **one-sided, relative step 1e-2 in x_H⁺**. In these zones the neutral fraction
+   n_H/n = 1 − x_H⁺ is ~1e-3 (d[:H] = 0.0011 at x_H⁺ = 0.9989): a step of 1 % in x_H⁺ crosses x_H⁺ = 1, `max(d[:H], 0) = 0`, and the difference is a different, flat branch. The measured slope
+   d ln χ/d ln x_H⁺ was −6.2 (zone 15), −7.6 (16), −45 (17) against −67, −67, −174 for the central difference of the Float64 residual at h = 1e-6…1e-4 (and −33 at h = 1e-2, the same function seen
+   over the step: the dependence has a scale of 1e-3 in ln x_H⁺). Dual numbers have the same answer as the 1e-6 difference. The electron floor of χ (σ_T n_e/ρ) was also differentiated by hand
+   (`ned = nebase·x/x_v`, no T or ρ dependence; `PopIIIMaterial.jl:666`).
+2. **The gas–radiation exchange cap** `excap` (`TitanResidFast.jl:759`): `min(1, EXCAP/(c val(κ_E) val(ρ) Δt))`, `val` = no derivative ("a constant of the iteration"). Where it is below 1 (opaque zones; EXCAP = 1e8 in the
+   production settings) the energy rows' exchange term f·(cκ_E E − 4πκ_P B)ρ dV then lacked ∂f/∂κ_E: the product f·κ_E·E·ρ = EXCAP·E/(cΔt) does not depend on κ_E at all, the held factor made it depend on κ_E with the full c·E·ρ. This was the E_r row: the x_H⁺ column of E_r, zone 18 was +2.8e41 in the band against −4.8e45 (FD).
+3. **Photo-rate temperature dependence in the CK expansion** (`ChemNet.jl:745`): `ck_eval` took the photo-ionisation/recombination rates at `ForwardDiff.value(T)`, so every Jacobian through the CK expansion (the coupled zones' local
+   Jacobians `cpl_vj`, and the opacity slopes) lacked ∂(photo-rates)/∂T. For the composition in zone 17: d ln n_e/d ln T = 0.031 (Dual) against 0.117 (difference); with the rates frozen at the base T the difference gives 0.0307, so this is the whole defect.
+   This is what the 1e-3…4e-2 mismatch of the T, u, E_r, x_H⁺, x_H₂ rows of zones 16–28 was (T diagonal of the T row in zone 18: 30 % off).
+4. (not a defect of the old Jacobian, a prerequisite of the fix) `G2Opacity.jl:199` formed the ratio of two occupation probabilities as `occupation(ns)/max(occupation(n), 1e-300)`; in Duals the quotient rule squares the denominator, which underflows for
+   probabilities of 1e-100 (the dense zones): NaN partials. The ratio is now taken from the logarithms (`Z0Physics.ln_occupation`); the Float64 value is the same to round-off.
+
+### Fix
+
+* `PopIIIMaterial.nlo_slopes`: one ForwardDiff evaluation (JTag Duals, four partials in ln ρ, ln T, ln x_H⁺, ln x_H₂) through the same `nlo_comp` + `nlo_ratio` that give the value, at the iterate's star-light
+  factors (q, t); gives all slopes of R_E, R_P, R_R **and of n_e** exactly (the electron floor is now differentiated through the same expression). Replaces six extra evaluations of R by differences. (For `G2OPAC` ≠ 2 the
+  means are Float64-only and the old differences remain; the production setting is `G2OPAC=2`.) The slopes in ln q and ln t of SLIMP (differences, `PopIIIMaterial.jl` SLIMP block) are untouched.
+* `TitanResidFast.excap`: no `val`: the cap factor is differentiated with κ_E and ρ.
+* `ChemNet.ck_eval`: `phc(T)` with the Dual T; `PopIIIMaterial.photo_cache` caches the rates on the last Float64 T and evaluates a Dual T directly (the photo-rate tables are Catmull–Rom in ln T, differentiable).
+* `Z0Physics.ln_occupation`, `G2Opacity._means_fast` (above), and `n2_lte` without `Float64(T)`.
+
+Diff stat 0607bad..jacfix: 6 files, +86 −34 (ChemNet 1, G2Opacity 7, NewtonKrylov 34 (`NKROW`), PopIIIMaterial 67, TitanResidFast 4, z0/atomic 6).
+
+### Before / after
+
+Stuck state `nw0` (t_nk30 checkpoint), `ERLAB=1 NITER=60`. Before = tree nkrylov, after = this tree.
+
+a. `NKCHECK`, closure frozen (`NWFREEZE=f,g,h,hx,fx,gx,tie`, `NWPROBE=1.5e4 NKRYLOV=1`; iteration 2 as in T1):
+
+| | before (t_nk25) | after (t_jf18) | after, `CPLJLAG=0` (t_jf23, iteration 1 state, see below) |
+|---|---|---|---|
+| max row mismatch | 2.920 | 4.86e-3 | 4.9e-6 |
+| median | 1.61e-6 | 1.52e-6 | 1.38e-6 |
+| rows > 1e-4 / > 1e-2 | 63 / 18 | 18 / 0 | 0 / 0 |
+| F_r zone 16, x_H⁺ zone 15: FD / band | −2.4562e31 / −2.2803e30 | −4.8352e31 / −4.8352e31 (|Δ| 1.8e25, 3.7e-7) | |
+| F_r zone 16, x_H⁺ zone 16: FD / band | −2.4112e31 / −2.7153e30 | −3.4525e31 / −3.4525e31 (|Δ| 7.5e25, 2.2e-6) | |
+
+(The two columns are at slightly different states: the Newton step of iteration 1 differs with the Jacobian, so the FD values in the rows differ between the columns. `AD residual vs Float64 residual: 0` in all.) The 18 rows > 1e-4 of t_jf18 (largest x_H₂ zone 26, 4.9e-3; then x_H₂ zones 22, 24, x_H⁺ zones 29, 26, 22) are the **deliberate reuse of the local chemistry Jacobian** (`CPLJLAG`, default 3e-3,0.1:
+the Jacobian of a coupled zone is recomputed only when ρ or T moved by more than 3e-3 or x by more than 0.1; "the Newton becomes inexact, the converged state is unchanged", `PopIIIMaterial.jl` CPLJLAG): with `CPLJLAG=0` they are gone (t_jf23: 0 rows > 1e-4, max 4.9e-6 = the FD noise floor of eps 1e-5, median 1.4e-6 as before). Not changed (a design decision of the production settings).
+Contribution of each part (iteration-1 state, frozen closure, max / rows > 1e-4 / rows > 1e-2): t_jb01 (before) 2.92 / 57 / 22; + slopes and occupation (t_jf09) 0.277 / 60 / 12; + EXCAP (t_jf10) 3.5e-2 / 54 / 2; + photo-rates (t_jf16, `CPLJLAG` default) **4.9e-6 / 0 / 0**.
+(With the default `CPLJLAG` the iteration-1 matrix is presumably the freshly computed one, so the lag shows only from iteration 2; not checked.)
+
+b. `NKCHECK`, closure live (no `NWFREEZE`), iteration 2: before t_nk26 max 2.853, 92 rows > 1e-4, 20 > 1e-2; after t_jf19 max 0.326, 59, 5. The 5 rows > 1e-2 are F_r zones 27–33 (0.326, 0.305, 0.048, 0.032, 0.018: the closure rows 27–34 of the Eddington factors,
+expected to remain; the Krylov solver's job), then F_r zones 60, 64 (8.8e-3, 6.9e-3: the finite-difference noise of f, h in the thin outer zones, §Open issues 2).
+
+c. Plain Newton at the stuck state (`NWPROBE=3e3,1.5e4,4e4,1e5,1e6`), iterations (61 = no convergence in NITER = 60):
+
+| Δt [s] | 3e3 | 1.5e4 | 4e4 | 1e5 | 1e6 |
+|---|---|---|---|---|---|
+| plain, before (t_nk43) | 10 | 31 | 61 (dmax 3.3e-5) | 61 (4.4e-4) | 61 (1.9e-2) |
+| plain, after (t_jf20) | 11 | 35 | 61 (9.1e-5) | 61 (2.1e-3) | 61 (5.3e-2) |
+| NKRYLOV, before (t_nk27) | 3 | 4 | 4 | 4 | 4 |
+| NKRYLOV, after (t_jf21) | 3 | 3 | 4 | 3 | 4 |
+| plain, closure frozen, before (t_jb02) | 13 | 13 | 13 | 12 | 11 (final dmax ~5e-6) |
+| plain, closure frozen, after (t_jf22) | 9 | 8 | 9 | 9 | 9 (final dmax 3e-8…6e-8) |
+
+**The missing x_H⁺ dependence is not the cause of the dt-independent contraction rate of plain Newton: with it fixed, plain Newton converges no better (11, 35, fail, fail, fail).** With the closure frozen the exact band Jacobian
+gives the 8–9 iterations at every Δt (before 11–13), i.e. what stops plain Newton at Δt ≥ 4e4 s is the closure (`eddfac!` f, g, h, tie weights that `update!` rewrites: the F_r rows 27–34 of b), consistent with T1's attribution; the frozen problem is still
+not quadratic (8–9 iterations from the probe's first iterate; not investigated further).
+
+d. 400 steps from the stuck state (`nw0`), `ERLAB=1`:
+
+| | control t_nk31 (before) | t_jf25 (after) | t_nk30 NK (before) | t_jf26 NK (after) |
+|---|---|---|---|---|
+| Newton failures (`DTERR statistics`) | 103 | 103 | 11 | **51** |
+| error rejections | 0 | 0 | 12 | 5 |
+| mean step over steps 43550–43900 [s] | 5637 | 5592 | 2.58e6 | 3.52e6 |
+| simulated time of steps 43550–43900 [yr] | 0.0625 | 0.0620 | 28.57 | 39.08 |
+| wall [s] | 1239.4 | 1071.3 | 2916.8 | 3034.6 |
+| Krylov: solves / products | | | 5952 / 23487 | 6501 / 25858 |
+
+The plain run is unchanged in failures and step size (103, 5.6e3 s); its wall was 14 % shorter (not examined whether that is the cheaper opacity slopes — one 4-partial Dual evaluation instead of six differences — or run-to-run variation on the shared machine).
+**The NK run has more Newton failures after the fix (51 against 11).** The two NK trajectories separate (after 28.6 and 39.1 yr; M* 2.608 and 3.114 M☉; M* gain over steps 43550–43900 per year: 0.0341 and 0.0337 M☉/yr); the failures in t_jf26 cluster at the large steps (dt 5e6–8e7 s at steps 43552, 43650, 43705, 43749, 43768) and in one episode at step 43769 (dt 2.6e4 → 0.1 s in 12 halvings, then recovered).
+Why the corrected Jacobian does not reduce them, and whether the larger steps the controller takes are the cause, is **not diagnosed**; one 400-step trajectory each is no statistic.
+
+e. NKRYLOV unset: the code path does not touch `NewtonKrylov.jl` (only `check!`, run with `NKCHECK`, changed there). **The Jacobian fix does change the default path** (intended): the assembled band matrix and thereby the Newton iterates differ; the residual function is the same
+(its Float64 value changes only at round-off: the occupation ratio is taken from logarithms). Converged state after 50 steps from `nw0` (t_jf24 against t_jb03 = tree nkrylov, `export/track.csv`, step 43550; both runs have 12 Newton failures in the 50 steps): M* 1.37230817 / 1.37230810 (rel 4.9e-8), R* 107.510463 / 107.510458 (4.4e-8), r_ph 4.6e-8, T_c 3.3e-8,
+L_ph 5697.0226 / 5697.0154 (1.3e-6). After 350 further steps (t_jf25 against t_nk31, step 43900): M* 1.0e-5, R* 3.2e-4, L_ph 1.7e-2 (between steps 43600 and 43850: R* ≤ 9e-6, L_ph 2e-6…8.5e-4; the last output, at step 43900, is the one where the two runs differ most; not examined).
+
+### What remains
+
+* Closure rows: F_r zones 27–34 (and the closure's coupling into E_r, T) with the closure live: 5 rows > 1e-2 (§b). Unchanged by design (`update!` rewrites f, g, h, tie after the Newton correction); the Krylov solver handles it.
+* `CPLJLAG` (default 3e-3,0.1): 18 rows > 1e-4 (max 4.9e-3) at iteration ≥ 2; deliberate.
+* FD noise of f, h in the outer zones (F_r zones 60, 64: 7–9e-3 with the closure live; below 1e-4 with the closure frozen).
+* The SLIMP slopes in ln q, ln t are still differences (relative steps 1e-2, 1e-3, `PopIIIMaterial.jl` SLIMP block): the E_r and F_r columns of the opacity agree with FD to 2e-6 in the frozen test, so no defect was seen, but they are not exact Duals. `cpl_vjq`'s t-derivative is a central difference (ln t, 1e-3).
+* Plain Newton at Δt ≥ 4e4 s still does not converge (§c); the cause is not the Jacobian entries tested here.
+* NK with the fixed Jacobian: more failures in the one 400-step run (§d), not diagnosed.
+* Not run: T4 (from the initial condition) and the production restart.
 
