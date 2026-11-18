@@ -35,7 +35,7 @@ end
 tests = Test[
     # --- regression of the verified TITAN paths (PORTING_NOTES P6, M0.9) --------------------------------------
     Test("regress_SOD", env(julia(joinpath(J, "phase6_run.jl"), "pure", "SOD"), "Z0_TABLE" => "ext", "TITAN_NOLIB" => "1"), "quick",
-         o -> (n = num(r"steps = (\d+)", o); (n == 464, "steps $n (reference 464 on this machine)"))),
+         o -> (n = num(r"steps = (\d+)", o); (n == 397, "steps $n (reference 397 since the peq! :refresh, d2bea37; was 464)"))),
     Test("regress_SUBC", env(julia(joinpath(J, "phase6_run.jl"), "pure", "SUBC"), "Z0_TABLE" => "ext", "TITAN_NOLIB" => "1"), "quick",
          o -> (n = num(r"steps = (\d+)", o); (n == 587, "steps $n (587)"))),
     Test("regress_SUPC", env(julia(joinpath(J, "phase6_run.jl"), "pure", "SUPC"), "Z0_TABLE" => "ext", "TITAN_NOLIB" => "1"), "quick",

@@ -4,11 +4,18 @@
 # usage: julia --project=env popiii_regress.jl [SOD SUBC SUPC]   → prints a table; exit code 1 on any FAIL
 using Serialization, Printf
 include(joinpath(@__DIR__, "Metrics.jl")); using .Metrics
+include(joinpath(@__DIR__, "SodReference.jl")); using .SodReference
 const ROOT = normpath(joinpath(@__DIR__, ".."))
 const POS_FRAC = 5e-3; const TEMP_REL = 1e-2; const STEP_REL = 3e-2
 # acceptance times as in tierc.jl; other reference times (SOD 0.5: after the wall reflection) are printed as "info"
 const ACCEPT_T = Dict("SOD" => (0.1, 0.2), "SUBC" => (5.4e3, 1.7e4, 3.8e4, 6.0e4), "SUPC" => (4.0e3, 7.5e3, 1.3e4))
-const REFSTEPS = Dict("SOD" => 452, "SUBC" => 587, "SUPC" => 713)       # fixed Fortran reference (P4.1, P6)
+# steps = length(snaps)-1 (popiii_tests.jl's "steps = n" is one more). SUBC/SUPC: fixed Fortran reference (P4.1, P6).
+# SOD: new TITAN baseline 396 (= 397 steps), final t = 1.106993815, since the peq! :refresh of the end-of-step derived
+# arrays (2bb06eb/d2bea37; was 463 here = 464 steps, Fortran 452); it is also more accurate (L1 vs HLLC ref below).
+const REFSTEPS = Dict("SOD" => 396, "SUBC" => 587, "SUPC" => 713)
+# SOD accuracy vs the 4000-cell MUSCL-Hancock+HLLC reference at the run's final time (SodReference.jl), relative L1 per
+# cell: measured rho 8.20e-3, p 1.09e-2 (was 9.37e-3, 1.30e-2); limits ~4% above the new values. u is reported only.
+const SOD_L1_MAX = (rho = 8.5e-3, p = 1.15e-2); const SOD_TFINAL = 1.106993815
 const OBS = Dict("SOD" => (Metrics.sod_metrics, (:r_shock, :r_contact, :r_head, :r_tail)),
                  "SUBC" => (Metrics.shock_metrics, (:r_shock, :r_spike, :precursor, :width)),
                  "SUPC" => (Metrics.shock_metrics, (:r_shock, :r_spike, :precursor, :width)))
@@ -24,6 +31,14 @@ for name in (isempty(ARGS) ? ["SOD", "SUBC", "SUPC"] : ARGS)
     ns = length(S) - 1; dn = ns / REFSTEPS[name] - 1
     okn = abs(dn) <= STEP_REL; okn || (nfail += 1)
     @printf("=== %s: steps %d vs reference %d (%+.2f%%) %s\n", name, ns, REFSTEPS[name], 100dn, okn ? "ok" : "FAIL")
+    if name == "SOD"
+        s = S[end]; ref4k = sod_reference(4000, s.time); e = sod_l1(s.r, s.rho, s.u, s.p, ref4k)
+        okt = abs(s.time - SOD_TFINAL) <= 1e-8; okr = e.rho <= SOD_L1_MAX.rho; okp = e.p <= SOD_L1_MAX.p
+        nfail += !okt + !okr + !okp
+        @printf("  final t = %.9f (expect %.9f) %s\n", s.time, SOD_TFINAL, okt ? "ok" : "FAIL")
+        @printf("  L1 vs 4000-cell HLLC ref at t_final: rho %.3e (max %.2e) %s | p %.3e (max %.2e) %s | u %.3e (info)\n",
+                e.rho, SOD_L1_MAX.rho, okr ? "ok" : "FAIL", e.p, SOD_L1_MAX.p, okp ? "ok" : "FAIL", e.u)
+    end
     for t in sort(unique(k[2] for k in keys(ref) if k[1] == name))
         b = Metrics.at_time(ms, t); b === nothing && continue
         L = name == "SOD" ? 1.0 : ref[(name, t, :width)]
