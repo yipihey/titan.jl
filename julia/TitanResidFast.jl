@@ -607,7 +607,7 @@ Outer boundary: F_lab = g c E_s − π(2g + 1) I_in becomes F₀ = [g c E_s − 
 """
 const TIEFRAME = Ref(false)
 """
-ECOMPAT[] (provisional, default false; lrad = 1, grey): compatible energy rows in EVERY zone, no row switching and no E − K subtraction
+ECOMPAT[] (default false; selected by ETOTAL=0 in popiii_m2c and phase6_run, radiation grey or lrad = 0): compatible energy rows in EVERY zone, no row switching and no E − K subtraction
 (docs/POPIII_ENERGY.md §4). The gas row is the first law (GASROW's row) made the exact discrete adjoint of the momentum row, so that
 Σ_k (gas row + radiation row)_k + Σ_j u_j (momentum row)_j is the conservative total-energy row sum identically:
   * viscous work q_k r̄_k^{3μ/2} (u_{k+1} r_{k+1}^{−μ/2} − u_k r_k^{−μ/2}), the adjoint of the momentum row's r^{−μ/2} Δ(r̄^{3μ/2} q);
@@ -640,7 +640,7 @@ const KSTAR = Ref(Float64[])
 "ECOMPAT: flux G_j = ṁ_j (u_up+1 − u_up)²/8 of the sub-zone kinetic energy through interior interface j (upwind zone: j for ṁ_j ≥ 0, else j − 1); 0 at the boundaries."
 @inline function ksflux(j, u, dmdt, ngrs, ngre)
     ngrs < j <= ngre || return zero(eltype(u))
-    up = val(dmdt[j]) >= 0 ? j : j - 1
+    up = decide(:up, 20, j, val(dmdt[j]) >= 0) ? j : j - 1          # (branch recorded/replayed with the other upwind decisions of J v)
     dmdt[j] * 0.125 * (u[up+1] - u[up])^2
 end
 """
@@ -1514,21 +1514,22 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         # S4: nuclear source ε ρ ΔV (erg s⁻¹ per steradian), θ-weighted new/old; subtracted in every variant below
         src = hassrc ? (θ * W.snuc[k] + (1 - θ) * srco[k]) * d[k] * dvol[k] : zero(T)
         hassrc && (W.srcw[k] = src)
-        if ECOMPAT[] && c.lrad                 # compatible first-law row in every zone (see ECOMPAT)
-            egbg = W.egbg
+        if ECOMPAT[]                           # compatible first-law row in every zone (see ECOMPAT)
+            egbg = c.lrad ? W.egbg : W.egb        # advected gas energy (lrad = 0: the only energy)
+            eold = c.lrad ? c.egro[k] - c.ero[k] / c.do_[k] : c.ego[k]
             mn_ = dn[k] * dvoln[k]; mo_ = c.do_[k] * c.dvolo[k]
             r3k = ((r[k] + r[k+1]) / 2)^(1.5xmu)
             vlo = k == ngrs ? rmu[k] * u[k] : r3k * r[k]^(-0.5xmu) * u[k]
             vhi = (k == ngre && isnan(PEXT[])) ? rmu[k+1] * u[k+1] : r3k * r[k+1]^(-0.5xmu) * u[k+1]
             du2 = (un[k] - c.uo[k])^2 + (un[k+1] - c.uo[k+1])^2
-            w = (mn_ * egn[k] - mo_ * (c.egro[k] - c.ero[k] / c.do_[k])) / dt -
+            w = (mn_ * egn[k] - mo_ * eold) / dt -
                 dfe[k+1] + dfe[k] + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] +
                 pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + qf[k] * (vhi - vlo) +
                 (-(2θ - 1) * 0.125 * (mn_ + mo_) + (θ^2 - θ + 0.5) * 0.25 * (mn_ - mo_)) * du2 / dt +
                 0.5 * (dmdt[k] + dmdt[k+1]) * (u[k+1] - u[k]) * (0.5 * (u[k] + u[k+1]) - W.ub[k]) -
                 (ksflux(k + 1, u, dmdt, ngrs, ngre) - ksflux(k, u, dmdt, ngrs, ngre)) + (isempty(KSTAR[]) ? 0.0 : KSTAR[][k] / dt) -
-                (Mg === nothing ? excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) : Mg.xch[k]) * d[k] * dvol[k] +
-                compton(k, W, P) * dvol[k] - src
+                (c.lrad ? (Mg === nothing ? excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) : Mg.xch[k]) * d[k] * dvol[k] -
+                          compton(k, W, P) * dvol[k] : zero(T)) - src
             ECGRAV[] != 0 && (ECGRAV[] == 2 || ECGRAV[] == 3 || (c.etotal && !c.useint[k])) && (w += ecgrav(k, c, W, ECGRAV[] >= 3))
             isempty(GASQ[]) || (w -= GASQ[][k] * dvol[k])
             if k == ngrs

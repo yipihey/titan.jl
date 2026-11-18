@@ -2816,3 +2816,39 @@ residuals require fixing the discretisation" applies to G5, and §21.3 names the
 mass flux on the stretched moving mesh. With that density consistent, the momentum row's gravity, the mass flux and the
 energy transport would be the same to 0.7 % (200 zones) and 2.5 % (100 zones) of the release rate on the present states, and
 the question which energy row to prefer would be nearly decoupled from the gravity power. That is to be tested by a run.
+
+## 23. The internal-energy equation alone, compatible with the momentum row (branch `iecons`, ETOTAL=0)
+
+Decision (T. Abel, 18 Nov): one energy variable, the gas internal energy (plus the radiation energy), no dual-energy switching and
+no total-energy row; the total energy is only monitored (`ETOTMON`, `TX.etot_monitor`). For that the internal-energy row must be
+the exact discrete adjoint of the momentum row, so that Σ_k (gas row + radiation row)_k + Σ_j u_j (momentum row)_j is the
+conservative total-energy row sum identically. §4 derives this row (`ECOMPAT`); this section is the term-by-term check against
+the code (`julia/TitanResidFast.jl`, `residual!`; momentum row at "GAS MOMENTUM", energy row at "GAS ENERGY", branch `if ECOMPAT[]`).
+
+### 23.1 Discrete kinetic-energy equation of the momentum row, and what the gas row returns
+
+Momentum row of interface j (mass m_j = ½(m_{j-1} + m_j) of the two adjoining zones, θ-level velocity u):
+
+    [m_j^n u_j^n − m_j^o u_j^o]/Δt − ½[(ṁ_j + ṁ_{j+1}) û_j − (ṁ_{j-1} + ṁ_j) û_{j-1}] + r_j^μ (p_j − p_{j-1}) + g_j m_j + r_j^{−μ/2}(r̄_j^{3μ/2} q_j − r̄_{j-1}^{3μ/2} q_{j-1}) − (χ̄F/c) m_j = 0.
+
+Multiplying by u_j and distributing half to each adjoining zone gives, per zone k (faces k, k+1), the following pieces. Every
+one that is not already the first law's own term is a product of velocity *differences*, never K_new − K_old:
+
+| piece of u·(momentum row) | term of the gas row (all functions of the Newton iterate, type T) | size on the checkpoint (docs §5, ledger, L☉ time-weighted) |
+|---|---|---|
+| pressure work u_j r_j^μ (p_k − p_{k-1}) | p_k Δ(r^μ u): `pg*(rmu[k+1]*u[k+1]-rmu[k]*u[k])` (already so in the old row) | 0 |
+| viscous work u_j r_j^{−μ/2} Δ(r̄^{3μ/2} q) | q_k r̄_k^{3μ/2}(u_{k+1} r_{k+1}^{−μ/2} − u_k r_k^{−μ/2}): `qf*(vhi-vlo)`; the old row had q (du/dr) ΔV | 1.5 (V4) |
+| time: u_j Δ(½ m u)/Δt = Δ(¼ m Σu²)/Δt + (2θ−1)¼ m̂ Σδ²/Δt − (θ²−θ+½)¼(m_n−m_o)Σδ²/Δt | `(-(2θ-1)*0.125*(mn_+mo_) + (θ^2-θ+0.5)*0.25*(mn_-mo_))*du2/dt` (δ = u^n−u^o) | θ-step and TR stages: not measured separately; TR-BDF2: below |
+| BDF stage: K(y*) ≠ A K_γ − B K_n | `KSTAR[k]/dt` (Trbdf2.bdf_old!) | 0.13 (BDF stages) |
+| momentum advection û_j ≠ ½(u_j + u_{j+1}) (upwinded van Leer value): u_j ṁ-flux of the momentum = ṁ ½u² flux + K3a | `0.5(ṁ_k+ṁ_k+1)(u_k+1−u_k)(½(u_k+u_k+1)−ub[k])` | 189 together with the next line (62 in zones 1–26, 127 in 27–50) |
+| flux of the sub-zone kinetic energy ⅛m(Δu)², so that K3a is thermalised where the mass arrives and is sign-definite (§4.4) | `−(ksflux(k+1)−ksflux(k))`, G_j = ṁ_j (u_up+1−u_up)²/8 | (telescopes) |
+| gravity u_j g_j m_j | none in the row. The total-energy row (ETOT_GRAV) books ṁ×Δψ with the advected interface density; the two differ by G5 (§14), 1.0e3–1.9e3 L☉ in the star, 0.7e3–0.85e3 in zones 27–50. `ECGRAV=2/3` is the optional term that makes the row equal to the monitor's | G5 |
+| radiation force u_j (χ̄F/c)_j m_j | the lab-frame radiation row (comoving row + u × radiation momentum equation: `wk`, §3.3); gas–radiation exchange equal and opposite in both rows | 0 (zones 1–87), ≤ 4 L☉ round-off in 88–100 |
+| energy of the old level | e_old = (e_g + E/ρ)_old − E_old/ρ_old of the previous solve (`c.egro − c.ero/c.do_`), `c.ego` without radiation | — |
+
+Added in this branch: (i) the compatible row also for `lrad = 0` (pure hydrodynamics: the row used `egb`, `c.ego`; the exchange and
+Compton terms are absent), selected by `ETOTAL=0` in `phase6_run.jl` and `popiii_m2c.jl` (`TX.ECOMPAT[] = TX.GASROW[] = true`);
+(ii) the upwind branch of `ksflux` goes through `decide(:up, 20, …)` like every other upwind choice, so that the finite-difference
+J·v replays the branch the Jacobian was built with — before this the T row of the shock zones disagreed with its band
+row by 8e-3 (zone 29) in `NKCHECK` (t_ie20 / t_ie22), after it by 4e-6 (t_ie23): the flux is continuous at ṁ = 0 but has a kink there,
+and the front zones have ṁ ≈ 0.
