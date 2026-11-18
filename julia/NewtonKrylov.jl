@@ -490,6 +490,14 @@ function check!(S::Sys)
         kb = (r - 1) ÷ ne + 1; i = (r - 1) % ne + 1
         @printf("   row %-5s zone %3d: Jv %+.5e  J_b w %+.5e  rowscale %.3e  rel %.3e\n", i <= length(nm) ? nm[i] : string(i), k0 + kb - 1 - a + 1, y[r], z[r], sa[r], rel[r])
     end
+    # per equation: the largest mismatch over all zones and over zones NKZ1:NKZ2 (default 28:34, the shock / H2 front / photosphere / ionization front of the 100-zone Pop III run)
+    z1, z2 = parse.(Int, split(get(ENV, "NKZ", "28:34"), ":"))
+    for i in 1:ne
+        ri = [(kb - 1) * ne + i for kb in 1:nb]; zn(kb) = k0 + kb - 1 - a + 1
+        kall = argmax([rel[r] for r in ri]); ks = [kb for kb in 1:nb if z1 <= zn(kb) <= z2]
+        kz = isempty(ks) ? 0 : ks[argmax([rel[ri[kb]] for kb in ks])]
+        @printf("NKCHECK eq %-5s: max rel %.3e (zone %d) | zones %d..%d: max rel %.3e (zone %d)\n", i <= length(nm) ? nm[i] : string(i), rel[ri[kall]], zn(kall), z1, z2, kz == 0 ? NaN : rel[ri[kz]], kz == 0 ? 0 : zn(kz))
+    end
     for f in (1e-2, 1e-1, 10.0, 100.0)
         y2 = zeros(S.n); fdjv!(y2, S, v, ε * f); r2 = relof(y2); d2 = [ok[r] ? abs(y2[r] - y[r]) / sa[r] : 0.0 for r in 1:S.n]
         @printf("NKCHECK eps x%g (max|eps v| %.1e): vs J_b w: max %.3e median %.3e rows>1e-4 %d >1e-2 %d | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) %.3e, worst row (rel to rowscale) %.3e\n",
