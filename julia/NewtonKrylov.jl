@@ -39,6 +39,15 @@ mutable struct Count
     solves::Int; mv::Int; nonconv::Int; fallback::Int; ndrift::Int; maxdrift::Float64; secs::Float64
 end
 const CNT = Count(0, 0, 0, 0, 0, 0.0, 0.0)
+"NKLS=1[,trigger[,λmin]]: backtracking line search on T(λ) = ‖P M⁻¹ R(x ⊕ λ x_gmres)‖_W (true residual, branches re-evaluated); default off = bit-identical."
+mutable struct LSOpts
+    on::Bool; trigger::Float64; lmin::Float64
+end
+const LS = LSOpts(false, 1e-2, 1 / 64)
+mutable struct LSCount
+    engaged::Int; backtracks::Int; fail::Int; evals::Int; maxrel0::Float64
+end
+const LSC = LSCount(0, 0, 0, 0, 0.0)
 const MARK = Ref((0, 0, 0, 0, 0))        # counters and step count at the last trace line
 
 # ---------------------------------------------------------------- snapshot of everything update! writes
@@ -168,11 +177,11 @@ end
 Residual at x ⊕ s·v: s·v is written into `rhs`, `update!` applied (branch decisions replayed), a fresh context and the Float64 residual evaluated; the state is restored.
 `realized` (optional) receives the change the update actually made to every unknown including the ghost entries, per unit s.
 """
-function perturbed(S::Sys, v, s; realized = nothing)
+function perturbed(S::Sys, v, s; realized = nothing, freeze = 2)
     ne, nb, k0 = S.ne, S.nb, S.k0; rhs = TF.var(:rhs)
     base = realized === nothing ? nothing : (c = TX.context(); (copy(c.base), copy(vf(:unom)), copy(vf(:frnom))))
     @inbounds for kb in 1:nb, i in 1:ne; rhs[i, k0+kb-1] = S.act[(kb-1)*ne+i] ? s * v[(kb-1)*ne+i] : 0.0; end
-    TX.FREEZE[] = 2
+    TX.FREEZE[] = freeze
     try
         TD.r(:update)
         R1 = resid(ne, nb)
@@ -189,6 +198,42 @@ function perturbed(S::Sys, v, s; realized = nothing)
     finally
         restore!(S.snap); TX.FREEZE[] = 0
     end
+end
+"""
+Backtracking line search along the GMRES step x. T(λ) = ‖W · P M⁻¹ R(x_k ⊕ λx)‖₂ with the TRUE residual at the trial state (`freeze = 0`: branch decisions re-evaluated, not replayed).
+T(0) is computed from S.R0. Accept the first λ = 1, 1/2, … ≥ λmin with T ≤ (1 − λ/4) T(0); otherwise the finite trial of smallest T if < T(0), else λmin (counted as a failure).
+Returns (λ, T0, T(λ), trials, ‖sc R‖ at 0, ‖sc R‖ at λ, relative difference of T(0) from ‖W δ0‖, failed).
+"""
+function linesearch(S::Sys, x, b)
+    w = zeros(S.n)
+    function level(R)
+        precond!(w, S, R); w[.!S.act] .= 0.0; w .*= S.wt; norm(w)
+    end
+    scn(R) = norm(S.sc .* R)
+    T0 = level(S.R0); sc0 = scn(S.R0); nb0 = norm(b .* S.wt)
+    rel0 = abs(T0 - nb0) / max(nb0, 1e-300); LSC.maxrel0 = max(LSC.maxrel0, rel0)
+    λ = 1.0; ntr = 0; best = (Inf, 0.0, NaN); acc = nothing
+    while λ >= LS.lmin * (1 - 1e-12)
+        ntr += 1; LSC.evals += 1
+        T, scl = try
+            R = perturbed(S, x, λ; freeze = 0)
+            level(R), scn(R)
+        catch ex
+            ex isa InterruptException && rethrow()
+            Inf, NaN
+        end
+        isfinite(T) && T < best[1] && (best = (T, λ, scl))
+        if isfinite(T) && T <= (1 - λ / 4) * T0
+            acc = (λ, T, scl); break
+        end
+        λ /= 2
+    end
+    acc === nothing || (acc[1] < 1 && (LSC.backtracks += 1); return acc[1], T0, acc[2], ntr, sc0, acc[3], rel0, false)
+    LSC.fail += 1; LSC.backtracks += 1
+    if best[1] < T0
+        return best[2], T0, best[1], ntr, sc0, best[3], rel0, true
+    end
+    LS.lmin, T0, NaN, ntr, sc0, NaN, rel0, true
 end
 """
 Directional derivative of the full residual, y = J v: central difference [R(x ⊕ εv) − R(x ⊖ εv)]/2ε (one-sided [R(x ⊕ εv) − R(x)]/ε if `OPT.central` is false). v is a vector over the active entries.
@@ -267,11 +312,17 @@ function krylov!()
         @inbounds for r in 1:S.n; S.act[r] && (b[r] = δ0[(r-1)%ne+1, (r-1)÷ne+1]); end
         x, m, conv, rel = gmres(S, b)
         conv || (CNT.nonconv += 1)
+        lsinfo = " ls off"; λ = 1.0
+        if LS.on && maximum(abs, x .* S.wt) > LS.trigger
+            LSC.engaged += 1
+            λ, T0, Tl, ntr, sc0, scl, rel0, failed = linesearch(S, x, b)
+            lsinfo = @sprintf(" ls lambda %.6g T0 %.6g T %.6g trials %d scnorm0 %.6g scnorm %.6g T0rel %.2e%s", λ, T0, Tl, ntr, sc0, scl, rel0, failed ? " lsfail" : "")
+        end
         blk .= δ0           # (the perturbed updates used `rhs` as scratch); entries update! ignores keep the band solution
-        @inbounds for r in 1:S.n; S.act[r] && (blk[(r-1)%ne+1, (r-1)÷ne+1] = x[r]); end
+        @inbounds for r in 1:S.n; S.act[r] && (blk[(r-1)%ne+1, (r-1)÷ne+1] = λ * x[r]); end
         Rf = resid(ne, nb); d = maximum(abs, Rf .- S.R0) / (maximum(abs, S.R0) + 1e-300)       # drift of the restored state
         CNT.maxdrift = max(CNT.maxdrift, d); d > 1e-10 && (CNT.ndrift += 1)
-        Trbdf2.NWTRACE[] === nothing || println(Trbdf2.NWTRACE[], "NKR att ", Trbdf2.NWATT[], " it ", gi(:iter), " krylov its ", m, " converged ", conv, " rel residual ", rel, " |delta0|_W ", norm(b .* S.wt), " |delta|_W ", norm(x .* S.wt), " drift ", d, " largest weighted delta0 ", wtop(b, S, ne, k0), " largest weighted delta ", wtop(x, S, ne, k0))
+        Trbdf2.NWTRACE[] === nothing || println(Trbdf2.NWTRACE[], "NKR att ", Trbdf2.NWATT[], " it ", gi(:iter), " krylov its ", m, " converged ", conv, " rel residual ", rel, " |delta0|_W ", norm(b .* S.wt), " |delta|_W ", norm(x .* S.wt), " drift ", d, " largest weighted delta0 ", wtop(b, S, ne, k0), " largest weighted delta ", wtop(x, S, ne, k0), LS.on ? lsinfo : "")
     catch ex
         ex isa InterruptException && rethrow()
         S === nothing || restore!(S.snap)
@@ -357,13 +408,21 @@ function configure!(spec::AbstractString; activate = true)
     activate && (TD.KRYLOV[] = krylov!)
     nothing
 end
+function configure_ls!(spec::AbstractString)
+    f = split(spec, ","); LS.on = f[1] != "0"
+    length(f) >= 2 && (LS.trigger = parse(Float64, f[2]))
+    length(f) >= 3 && (LS.lmin = parse(Float64, f[3]))
+    nothing
+end
 "Counters since the last call (`steps`: accepted steps so far), for the DTERR trace line."
 function trace_text(steps)
     c = CNT; m = MARK[]; ds = c.solves - m[1]; dm = c.mv - m[2]; dn = c.nonconv - m[3]; df = c.fallback - m[4]; nsteps = steps - m[5]
     MARK[] = (c.solves, c.mv, c.nonconv, c.fallback, steps)
     @sprintf(" | NK %.2f Krylov its/Newton it, %.1f mv/step, nonconv %d, fallback %d", ds == 0 ? 0.0 : dm / ds, nsteps == 0 ? 0.0 : dm / nsteps, dn, df)
 end
+ls_text() = LS.on ? @sprintf(" | NKLS (trigger %g, lmin %g): %d line searches engaged, %d backtracked, %d failed, %d extra residual evaluations, max T(0) rel. diff %.2e",
+                          LS.trigger, LS.lmin, LSC.engaged, LSC.backtracks, LSC.fail, LSC.evals, LSC.maxrel0) : ""
 summary_text() = @sprintf("NKRYLOV (eta %g, mmax %d, eps %g): %d Newton linear solves, %d matrix-vector products (%.2f per solve), %d GMRES non-convergences, %d fallbacks, %d state-drift events (max %.2e), %.1f s",
-                          OPT.eta, OPT.mmax, OPT.eps, CNT.solves, CNT.mv, CNT.solves == 0 ? 0.0 : CNT.mv / CNT.solves, CNT.nonconv, CNT.fallback, CNT.ndrift, CNT.maxdrift, CNT.secs)
+                          OPT.eta, OPT.mmax, OPT.eps, CNT.solves, CNT.mv, CNT.solves == 0 ? 0.0 : CNT.mv / CNT.solves, CNT.nonconv, CNT.fallback, CNT.ndrift, CNT.maxdrift, CNT.secs) * ls_text()
 
 end # module
