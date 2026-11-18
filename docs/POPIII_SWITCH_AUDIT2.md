@@ -185,7 +185,7 @@ Columns: default (code at 1782928); value in the z300mm stack (`–` = not set; 
 | HDINIT | `"eq"` | – | PopIIIMaterial.jl:1685 | initial HD/D⁺ state | KEEP-TOOL |  |
 | COUPLED | `"0"` | `1` | TitanFortran.jl:104, popiii_m2c.jl:1265 | x_H⁺, x_H₂ as unknowns 8, 9 of the hydro Newton | MAKE-DEFAULT | stack 1 (all network zones: CPLBAND empty) |
 | CPLBAND | `""` | `(empty)` | PopIIIMaterial.jl:1805 | which zones are coupled (rest split) | REMOVE-SUPERSEDED | stack empty = all network zones; the split CHEMCK path stays only for table/hot zones; superseded by global COUPLED |
-| CPLCLAMP | `"1"` | `3` | TitanResidFast.jl:241 | clamp of the species correction per Newton iteration (ln x) | KEEP-STACK | stack 3 (G6 guard; keep until a globalised Newton exists) |
+| CPLCLAMP | `"1"` | `3` | TitanResidFast.jl:241 | clamp of the species correction per Newton iteration (ln x) | REMOVED (branch nkglob, §11) | replaced by the Newton globalisation: trust region + merit line search (NewtonKrylov.globalize); a plain-Newton species step is now limited by TITAN's dtol damping of the whole correction |
 | CPLBADDELTA | `"100"` | – | TitanResidFast.jl:297 | decouple a zone for the rest of a failed step if \|δ ln x\| > value | KEEP-STACK | default 100 is active in the stack (G6 guard) |
 | CPLXSTOL | `string(log(3.0))` | `3` | popiii_m2c.jl:1266 | Δt cap from the ln x_H⁺ change of coupled zones | REMOVE-SUPERSEDED | stack 3, but a DT_HOOK: with DTERR diagnostic only (Trbdf2.jl:198); superseded by DTERR |
 | CPLIMPQ | `"0"` | – | TitanResidFast.jl:239 | three-level heats of the iterate in the coupled rows (experimental) | REMOVE-DEAD | never adopted; stage 2 |
@@ -764,3 +764,31 @@ the cold gas.
 **Open question.** The longer test needed before G2BLEND can be called "faster" is whether its Δt recovers to the 1e5 s steps
 over a full segment (1000 steps). The from-IC run would have to be continued until the core forms (≈ 4000 steps for z100mm).
 Neither fits in this session's core budget. The adoption is in its own commit (ea2bd2a), so it can be reverted alone.
+
+## 11. Newton globalisation (branch `nkglob`, 18 Nov 2026): replaces CPLCLAMP, maxdel damping and the NK band fallback (consistency audit B7, B8, B19)
+
+**Diagnosis** (runs/t_diag1, t_lag2 step 200 restart): GMRES converged and J v matched the band Jacobian; the first Newton correction in zone 1 was O(1)–O(20) relative, applied as
+x(1 + δ) with no positivity (ρ, E_r < 0, DomainError, NaN); along the Krylov step the true residual rose beyond λ = 0.03; NKLS (trigger 1e-2) did not help (8 against 9 failures).
+
+**Method** (one rule for every unknown; no per-variable change cap):
+
+| Part | Where | What |
+|---|---|---|
+| positive unknowns | TitanCore.update! | ρ, T, E_r are applied as x ← x ψ(δ), ψ = 1 + δ (δ ≥ −½), ½e^{2δ+1} below (TitanCore.posfac; C¹, equal to TITAN's x(1 + δ) for all growth and for decreases up to 50 %, so Newton and the Jacobian are unchanged; the pure e^δ for δ < 0 changed SOD from 397 to 458 steps (strong rarefaction, δ ~ −0.3), and e^δ for growth turned the IC start into ln(1 + 9e3) steps), the species as x e^δ. r and m stay x(1 + δ) (ordered quantities, below) |
+| acceptability of a trial state | NewtonKrylov.trial_ok | finite; ρ, T, E_r, species > 0; r increasing and m decreasing across the interfaces. Otherwise the merit is Inf |
+| merit function | NewtonKrylov.merit | T(λ) = ‖W J_b⁻¹ R(x ⊕ λ s)‖₂, the residual of all rows (incl. u and F_r) with the base state's branch decisions replayed (FREEZE = 2, as in J v; with the decisions re-evaluated a flip makes the residual discontinuous and a step exact for the differentiated branch shows no decrease: stall at step 2e-4 for 25 iterations in t_ng1/h), mapped by the band LU into the units of the corrections and measured in the GMRES weights |
+| truncated Krylov | NewtonKrylov.gmres | after each GMRES iteration j the iterate x_j = V y_j (‖x_j‖_W = ‖y_j‖₂ is cheap, but the trust measure below is evaluated) is tested; the first iterate outside the radius ends the iteration and the one before it is kept (Steihaug). At the IC start the converged GMRES step was 1000× the band step b (near-null modes of P J_b⁻¹ J in the uniform core, 275 limiter/sign decisions flip under 1e-3 perturbations) and the merit rose ∝ λ along it; the early iterates are the smooth Newton step |
+| box | NewtonKrylov.boxclip! | the log unknowns (ρ, T, E_r, species) are truncated componentwise to ln ψ(δ) ≤ 4 / δ ≥ −4 before the radius scales the vector (a trace species asks for δ ln x ~ 1e12 and a uniform scale would freeze everything else; the merit ignores such entries by weight) |
+| trust region | NewtonKrylov.globalize | radius Δ on ‖s‖ with weight 1 for the log unknowns (δ ln x of ρ, T, E_r, species) and the GMRES weight W (DTERR norm: u against c_s, F_r against cE, m against the zone mass, r against the zone width) for u, F_r, m, r; Δ starts at 0.5 in every Newton solve (iteration 1), at most 4; λ_cap = min(1, Δ/‖s‖) |
+| line search | same | Armijo T(λ) ≤ (1 − 1e-4 λ) T(0), λ = λ_cap, λ_cap/2, … down to 1e-3 λ_cap; no such λ throws, i.e. a Newton failure. A step of size ≤ 1e-4 is applied as is (the merit cannot resolve a decrease below the round-off of the formal solution) |
+| radius update | same | ratio of the actual to the predicted reduction (T(0) − T)/(λ(1 − η_lin)T(0)); < 1/4: Δ ← ½ accepted step; backtracked: Δ ← accepted step; > 3/4 with the step on the boundary: Δ ← 2Δ |
+| convergence | TitanCore.maxdel! | dmax is measured on the FULL step s (rhs/λ, `STEP_FRAC`); no scaling or clamping of rhs (GLOBAL_NEWTON) |
+| finite-difference step | NewtonKrylov.perturbed | logarithmic unknowns are perturbed by at most 0.1 in ln x (FDCLIP): a trace species (weight 1e-12) got ε v ~ 1e5, x → 0, NaN in the EOS and "non-finite J v" (the 189 fallbacks of t_lag3) |
+| weights | NewtonKrylov.weights | floor 1e-60 (was 1e-12): at the IC F_r ≈ 0, frnom ~ 1e-30, weight ~1e-40 and the band step has δF ~ 1e28; the floor 1e-12 made that one entry the whole GMRES norm, J v = 0 and a singular Hessenberg matrix (SingularException at step 0) |
+| NK exceptions | NewtonKrylov.krylov! | rethrown: Newton failure (newton0! catches), no silent band solve. NWTRACE prints the exception |
+| dt coupling | Trbdf2.newton_quality!, step_err! | per Newton solve ϑ = (d_last/d_first)^(1/(n−1)) from `dmax` (full-step measure), ϑ_req = (conv/d_first)^(2/niter) (converges in niter/2 iterations); f = clamp(ϑ_req/ϑ, 0.1, 1). Accepted step: Δt_next ≤ min f · Δt; Newton failure: the retry uses min(DTERRFAIL, max(0.1, f)) · Δt instead of DTERRFAIL |
+| failed attempt | TitanCore.reset! | the arrays are restored first and the species rebuild their local-chemistry guess from the OLD state (before, a finite failed iterate was the input of that guess) |
+
+Removed: CPLCLAMP (cpl_dmax! clamp), the maxdel scaling on the NK path (kept for plain Newton: TITAN's dtol/ctol damping), NKLS and its line search, the NK fallback and its counter.
+Initial guess (item 3): `predict!` extrapolates only r and m with the grid velocities (+ ρ = ρ_old ΔV_old/ΔV_new with PRED_LAGRHO); the BDF stage starts from y_γ. Not changed.
+Gate results: see the commit message of the gate commit / the report (runs/t_ng*).

@@ -23,7 +23,7 @@ const POPIII_STACK = [
     "LOCALJ" => "1", "LOCALJWMIN" => "1e-3",
     # chemistry
     "COUPLED" => "1",   # (read by TitanFortran: meqn ≥ 9 for the two species rows; popiii_m2c always couples)
-    "CHEMCK" => "1", "CHEMCKHSS" => "100", "CHEMSUB" => "1.3,3", "CHEMFBNET" => "16", "CPLCLAMP" => "3",
+    "CHEMCK" => "1", "CHEMCKHSS" => "100", "CHEMSUB" => "1.3,3", "CHEMFBNET" => "16",
     "HDCHEM" => "1", "HECHEM" => "1", "CHEMTHREADS" => "1", "MATTHREADS" => "8",
     # H₂ lines
     "NLTE" => "hyb", "LINEINC" => "1", "LINECOLL" => "1", "LINESRC" => "zone", "LINEQUAD" => "p2",

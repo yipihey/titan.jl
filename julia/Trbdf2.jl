@@ -145,7 +145,7 @@ function newton0!()
         end
     catch e
         e isa InterruptException && rethrow()
-        NWTRACE[] === nothing || println(NWTRACE[], "NWT exception ", first(sprint(showerror, e), 300))
+        NWTRACE[] === nothing || println(NWTRACE[], "NWT exception ", first(sprint(showerror, e, catch_backtrace()), 700))
         s!(:lboos, 0); newton_quality!(dm); return false
     end
     newton_quality!(dm)

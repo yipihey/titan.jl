@@ -258,6 +258,14 @@ end
 
 # ------------------------------------------------------------------ update (updateh.f / updaterh.f)
 """
+Positivity map of the relative Newton correction δ of a strictly positive unknown: ψ(δ) = 1 + δ for δ ≥ −1/2 and ½ e^{2δ+1} below. It is C¹ at −1/2 (value ½, slope 1) and at 0 equals
+TITAN's x(1 + δ) exactly, so every iteration with corrections above −50 % (and all growth, however large: an equation linear in the unknown, such as E_r, is solved exactly by one step of any size)
+is unchanged, and ψ > 0 for every δ, where 1 + δ ≤ 0 gave the negative ρ, E_r and DomainErrors of the core-formation phase. (The pure e^δ for δ < 0 changed the step count of SOD by +15 %: strong
+rarefaction iterations with δ ~ −0.3.) `psiinv(y)`: the δ with ψ(δ) = y for y ≤ 1.
+"""
+@inline posfac(δ) = δ >= -0.5 ? 1.0 + δ : 0.5 * exp(2δ + 1)
+@inline psiinv(y) = y >= 0.5 ? y - 1 : (log(2y) - 1) / 2
+"""
 update!(; eos!, opac!): apply the Newton correction and refresh all derived and
 time-centred quantities. `eos!`/`opac!` default to the routines installed in the
 driver (Fortran via ccall, or the Julia hooks).
@@ -278,9 +286,9 @@ function update!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
         lrad && (frn[k] = frn[k] + rhs[iff, k] * frnom[k])
     end
     @inbounds for k in a:b
-        dn[k] *= exp(rhs[id, k])             # (ρ, T, E_r are positive: the relative correction δ is the step in ln x, so x stays positive whatever the step)
-        tn[k] *= exp(rhs[it, k])
-        lrad && (ern[k] *= exp(rhs[ie, k]))
+        dn[k] *= posfac(rhs[id, k])          # (ρ, T, E_r are positive: x ← x ψ(δ), see `posfac`)
+        tn[k] *= posfac(rhs[it, k])
+        lrad && (ern[k] *= posfac(rhs[ie, k]))
     end
     CPLH[] === nothing || CPLH[].update(rhs, a, b)
     _ghost_and_derived!(:update, eos!, opac!)

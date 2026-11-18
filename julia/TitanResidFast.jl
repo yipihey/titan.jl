@@ -212,7 +212,7 @@ const CPLQT = Ref{Any}(nothing)   # (SLIMP) t = T_c/T_c,start of the last residu
 const SLQBUF = Dict{Any,Any}()
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
 "Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
-const CPL_XFLOOR = Ref(1e-8); const CPL_CLAMP = Ref(parse(Float64, get(ENV, "CPLCLAMP", "1")))
+const CPL_XFLOOR = Ref(1e-8)
 """
 Time weight of the chemistry source and cooling in the coupled rows (default 1: backward Euler in every stage, also in TR-BDF2's
 trapezoidal stage; the residual's θ otherwise). A species relaxing in seconds within a step of 1e3–1e6 s has, under the trapezoidal
@@ -290,10 +290,10 @@ function cpl_update!(rhs, a, b)
     end
     nothing
 end
-"maxdel: clamp the species corrections to ±CPL_CLAMP and return their weighted maximum (convergence measure)."
+"maxdel: the species' weighted maximum correction (convergence measure; with it TITAN's dtol damping of the whole correction limits a species step like every other)."
 const CPLDM = Ref((0.0, 0, 0))     # (diagnostic, NWTRACE) the species' weighted convergence measure of the last cpl_dmax!, with its equation and zone
 function cpl_dmax!(rhs, a, b)
-    d = 0.0; cl = CPL_CLAMP[]; f = CPL_XFLOOR[]; kx = TF.var(:kx); dx = TF.var(:dx); wm_ = 0.0; wi_ = 0; wk_ = 0
+    d = 0.0; f = CPL_XFLOOR[]; kx = TF.var(:kx); dx = TF.var(:dx); wm_ = 0.0; wi_ = 0; wk_ = 0
     for i in 8:9; kx[i] = 0; dx[i] = 0.0; end
     @inbounds for k in a:b
         cplz(k) || continue
@@ -301,7 +301,6 @@ function cpl_dmax!(rhs, a, b)
             abs(rhs[i, k]) > abs(dx[i]) && (kx[i] = k - a + 1; dx[i] = rhs[i, k])     # (raw correction, for the divergence message)
             isfinite(rhs[i, k]) || (rhs[i, k] = 0.0; d = Inf)                        # a non-finite correction: no change, not converged
             abs(rhs[i, k]) > CPL_BADDELTA[] && push!(CPL_BAD, k)
-            rhs[i, k] = clamp(rhs[i, k], -cl, cl)
             # weight by the larger of the iterate and the old abundance: a species the iterate drove to the floor (x_H⁺ 1e-40 next to the
             # shock, from 1e-3) is not converged; only species that are trace at both ends are left out
             xm_ = max(q[k], XSO[][i - 7][k]); d = max(d, abs(rhs[i, k]) * xm_ / (xm_ + f))
