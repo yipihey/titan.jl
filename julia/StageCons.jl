@@ -80,10 +80,11 @@ end
 zl(v, a, Zs = ZS) = "[" * join((@sprintf("%.2e", v[a+Z-1]) for Z in Zs), " ") * "]"
 
 function item1(J, Δ, Cn, a)
-    γ = TR.γ; cases = ((0.5, γ * Δ), (1.0, γ * Δ), (1.0, TR.C2 * Δ), (0.5, 10γ * Δ)); ρ = Dict{Int,Any}()
+    γ = TR.γ; cases = ((0.5, γ * Δ), (1.0, γ * Δ), (1.0, TR.C2 * Δ), (0.5, 10γ * Δ)); ρ = Dict{Int,Any}(); xkn = Float64[]; dn_ = Float64[]
     for (i, (θ, dt)) in enumerate(cases)
         R, c, W = evalR(θ, dt); ρ[i] = rates(R, c, Cn)
         i == 1 && item4(J, c, W, Cn, a)
+        i == 2 && (xkn = copy(W.xken); dn_ = copy(W.dn))
     end
     for s in ROWS
         haskey(ρ[1], s) || continue
@@ -92,6 +93,12 @@ function item1(J, Δ, Cn, a)
         gate!(:item1, m1, s, z1); gate!(:item1dt, max(m2, m3), s, m2 >= m3 ? z2 : z3)
         @printf("STAGECONS jstep %d item1 %-4s max|R(½,γΔ)-R(1,γΔ)| %.3e zone %d | max|R(½,γΔ)-R(½,10γΔ)| %.3e zone %d | max|R(1,γΔ)-R(1,C2Δ)| %.3e zone %d | zones %d..%d R½ %s R1 %s diff %s\n",
                 J, s, m1, z1, m2, z2, m3, z3, ZS[1], ZS[end], zl(h, a), zl(o, a), zl(h .- o, a))
+    end
+    if TX.EXCAP[] > 0       # item 7: the explicit dt of the exchange factor `excap` (TitanResidFast.excap) at dt = γΔ and C2Δ, and the E_r-row difference it makes there
+        b = Int(TD.g(:ngre)); cc = Float64(TD.g(:cc)); ex(dt) = [TX.EXCAP[] > 0 ? min(1.0, TX.EXCAP[] / (cc * xkn[k] * dn_[k] * dt)) : 1.0 for k in a:b]
+        eg_, ec_ = ex(γ * Δ), ex(TR.C2 * Δ); Zs = [Z for Z in eachindex(eg_) if eg_[Z] < 1 || ec_[Z] < 1]; dEV = ρ[2][:EV] .- ρ[3][:EV]
+        @printf("STAGECONS jstep %d item7 excap<1 in %d zones (dt=gammaDelta) / %d zones (dt=C2Delta); zones %s; excap(gammaDelta) %s; excap(C2Delta) %s; E_r row rho(1,gammaDelta)-rho(1,C2Delta) %s\n", J, count(<(1), eg_), count(<(1), ec_),
+                join(Zs, ","), join((@sprintf("%.3g", eg_[Z]) for Z in Zs), ","), join((@sprintf("%.3g", ec_[Z]) for Z in Zs), ","), join((@sprintf("%.2e", dEV[a+Z-1]) for Z in Zs), ","))
     end
     ρ[2]
 end
@@ -184,7 +191,7 @@ end
 "Item 4: the old-level arrays of the residual's context `c` (and the closure) against the new-level ones the residual computes (workspace W) at the start state."
 function item4(J, c, W, Cn, a)
     b = c.ngre; r1 = a:b; r2 = a:b+1; P = c.p; lrad = c.lrad
-    L = Tuple{String,Any,Any,UnitRange{Int}}[("pgo/pgn", c.pgo, W.pgn, r1), ("ego/egn", c.ego, W.egn, r1), ("aso/asn", c.aso, W.asn, r1), ("dvolo/dvoln", c.dvolo, W.dvoln, r1),
+    L = Tuple{String,Any,Any,Any}[("pgo/pgn", c.pgo, W.pgn, r1), ("ego/egn", c.ego, W.egn, r1), ("aso/asn", c.aso, W.asn, r1), ("dvolo/dvoln", c.dvolo, W.dvoln, r1),
         ("do/dn", c.do_, W.dn, r1), ("ro/rn", c.ro, W.rn, r2), ("xmeo/xmen", c.xmeo, W.xmen, r2), ("uo/un", c.uo, W.un, r2),
         ("xmo/(xmtot-xmen)", c.xmo, P.xmtot .- W.xmen, r2), ("oldslope d/dsn", W.dso, W.dsn, r2), ("oldslope u/usn", W.uso, W.usn, r2)]
     if lrad
@@ -204,6 +211,9 @@ function item4(J, c, W, Cn, a)
         push!(L, ("XLAMO/cpL", TX.XLAMO[], W.cpL, r1))
     end
     TX.MATERIAL[] !== nothing && TX.has_source(TX.MATERIAL[]) && push!(L, ("SRCO/snuc", TX.SRCO[], W.snuc, r1))
+    gh = [a-1, b+1, b+2]       # ghost cells: the old-level slope at the outer faces reads the old ghost values
+    append!(L, [("ghost do/dn", c.do_, W.dn, gh), ("ghost uo/un", c.uo, W.un, gh), ("ghost ego/egn", c.ego, W.egn, gh), ("ghost ro/rn", c.ro, W.rn, gh)])
+    lrad && append!(L, [("ghost egro/egrn", c.egro, W.egrn, gh), ("ghost ero/ern", c.ero, W.ern, gh), ("ghost fro/frn", c.fro, W.frn, gh)])
     for (nm, o, n, rng) in L
         m, k = rel(o, n, rng)
         @printf("STAGECONS jstep %d item4 %-30s max rel diff %.3e zone %d | zones %d,%d,%d old %.6e %.6e %.6e new %.6e %.6e %.6e\n", J, nm, m, k - a + 1, ZV[1], ZV[2], ZV[3],
