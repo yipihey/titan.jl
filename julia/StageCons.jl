@@ -32,6 +32,8 @@ using Printf
 import ..TitanDriver, ..TitanResidFast, ..NewtonKrylov, ..Trbdf2
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const NK = NewtonKrylov; const TR = Trbdf2
 vf(s) = TF.var(s)::Vector{Float64}
+const GATE = Dict{Symbol,Tuple{Float64,Symbol,Int}}()      # per printed step: worst value, row, zone of item 1 / item 1dt / item 2b (summary line `gate`)
+gate!(k, v, row, z) = (!haskey(GATE, k) || v > GATE[k][1]) && (GATE[k] = (v, row, z))
 const EVERY = Ref(0); const ZS = 28:34; const ZV = 31:33
 const ENDCL = Ref{Any}(nothing)       # closure arrays at the end of the last converged BDF2 stage
 const ENDST = Ref{Any}(nothing)       # primary unknowns and species at the end of the last converged BDF2 stage
@@ -87,6 +89,7 @@ function item1(J, Δ, Cn, a)
         haskey(ρ[1], s) || continue
         h, o, o2, h10 = ρ[1][s], ρ[2][s], ρ[3][s], ρ[4][s]
         m1, z1 = maxabs(h .- o, a); m2, z2 = maxabs(h .- h10, a); m3, z3 = maxabs(o .- o2, a)
+        gate!(:item1, m1, s, z1); gate!(:item1dt, max(m2, m3), s, m2 >= m3 ? z2 : z3)
         @printf("STAGECONS jstep %d item1 %-4s max|R(½,γΔ)-R(1,γΔ)| %.3e zone %d | max|R(½,γΔ)-R(½,10γΔ)| %.3e zone %d | max|R(1,γΔ)-R(1,C2Δ)| %.3e zone %d | zones %d..%d R½ %s R1 %s diff %s\n",
                 J, s, m1, z1, m2, z2, m3, z3, ZS[1], ZS[end], zl(h, a), zl(o, a), zl(h .- o, a))
     end
@@ -120,21 +123,17 @@ function item2(J, Cn, a, Δ; mesh = :none, disp = nothing)
     end
     Ri, ci, Wi = evalR(1.0, dt; etotal = false); ρi = rates(Ri, ci, Cn; Cnew = Cnw, dt); ty = etypes(ci); TX.COUPLED[] && (LASTCHEM[] = chemrates(Wi))
     if mesh === :fsal       # item 1b: θ-independence at the displaced state (dmdt, u_rel ≠ 0 there, so the old-level face values enter): ρ(½) − ρ(1), same dt, same state
-        Rh, ch, Wh = evalR(0.5, dt; etotal = false); ρh = rates(Rh, ch, Cn); ρ1 = rates(Ri, ci, Cn)
+        Rh, ch, _ = evalR(0.5, dt; etotal = false); ρh = rates(Rh, ch, Cn); ρ1 = rates(Ri, ci, Cn)
         for nm in (:m, :P, :E, :EV, :QF, :x1, :x2)
             haskey(ρh, nm) || continue
             d = ρh[nm] .- ρ1[nm]; mx, z = maxabs(d, a)
             @printf("STAGECONS jstep %d item1b %-4s max|R(½)-R(1)| %.3e zone %d | zones %d..%d R½ %s R1 %s diff %s\n", J, nm, mx, z, ZS[1], ZS[end], zl(ρh[nm], a), zl(ρ1[nm], a), zl(d, a))
         end
     end
-    if mesh === :fsal && TX.GASROW[]      # experiment: the old gas-energy slope egso (0 in COMMON, never filled with GASROW) replaced by the slope the residual computes at this state, θ = ½ again
-        vf(:egso)[a:b+1] .= Wh.egsng[a:b+1]; Rg2, cg2, _ = evalR(0.5, dt; etotal = false); ρg2 = rates(Rg2, cg2, Cn); d = ρg2[:E] .- ρ1[:E]; mx, z = maxabs(d, a)
-        @printf("STAGECONS jstep %d item1b E(with egso := new slope) max|R(½)-R(1)| %.3e zone %d | zones %d..%d diff %s\n", J, mx, z, ZS[1], ZS[end], zl(d, a))
-    end
     Fs = fieldset(ρi, ty, Cn, mesh === :none); pairs = [(nm, nm, Fs[nm]) for nm in FIELDS if haskey(Fs, nm) && haskey(D, nm)]
     for (nm, key, f) in pairs
         d = [ (k <= length(D[key]) && Cn[key][k] != 0) ? f[k] - D[key][k] / Cn[key][k] : NaN for k in eachindex(f)]
-        mx, z = maxabs(d, a)
+        mx, z = maxabs(d, a); mesh === :fsal && gate!(:item2b, mx, nm, z)
         @printf("STAGECONS jstep %d %s %-4s max|f-D|/C %.3e zone %d | zones %d..%d f/C %s D/C %s (f-D)/C %s\n", J, tag, nm, mx, z, ZS[1], ZS[end], zl(f, a),
                 zl([k <= length(D[key]) && Cn[key][k] != 0 ? D[key][k] / Cn[key][k] : NaN for k in eachindex(f)], a), zl(d, a))
     end
@@ -187,17 +186,19 @@ function item4(J, c, W, Cn, a)
     b = c.ngre; r1 = a:b; r2 = a:b+1; P = c.p; lrad = c.lrad
     L = Tuple{String,Any,Any,UnitRange{Int}}[("pgo/pgn", c.pgo, W.pgn, r1), ("ego/egn", c.ego, W.egn, r1), ("aso/asn", c.aso, W.asn, r1), ("dvolo/dvoln", c.dvolo, W.dvoln, r1),
         ("do/dn", c.do_, W.dn, r1), ("ro/rn", c.ro, W.rn, r2), ("xmeo/xmen", c.xmeo, W.xmen, r2), ("uo/un", c.uo, W.un, r2),
-        ("xmo/(xmtot-xmen)", c.xmo, P.xmtot .- W.xmen, r2), ("dso/dsn", c.dso, W.dsn, r2), ("uso/usn", c.uso, W.usn, r2)]
+        ("xmo/(xmtot-xmen)", c.xmo, P.xmtot .- W.xmen, r2), ("oldslope d/dsn", W.dso, W.dsn, r2), ("oldslope u/usn", W.uso, W.usn, r2)]
     if lrad
         append!(L, [("chifo/chifn", c.chifo, W.chifn, r1), ("xkeo/xken", c.xkeo, W.xken, r1), ("xkpo/xkpn", c.xkpo, W.xkpn, r1), ("plfo/plfn", c.plfo, W.plfn, r1),
             ("egro/egrn", c.egro, W.egrn, r1), ("egro/(ego+ero/do) [old only]", c.egro, c.ego .+ c.ero ./ c.do_, r1), ("ero/ern", c.ero, W.ern, r1), ("fro/frn", c.fro, W.frn, r2),
             ("avchio/harm(chifn)", vf(:avchio), [k > a ? 2 / (1 / W.chifn[k-1] + 1 / W.chifn[k]) : 0.0 for k in eachindex(W.chifn)], a+1:b),
-            ("avchio/avchin(COMMON)", vf(:avchio), vf(:avchin), a+1:b), ("egrso/egsn", c.egrso, W.egsn, r2), ("erso/ersn", c.erso, W.ersn, r2), ("frso/frsn", c.frso, W.frsn, r2)])
-        TX.GASROW[] && push!(L, ("egso/egsng", c.egso, W.egsng, r2))
+            ("avchio/avchin(COMMON)", vf(:avchio), vf(:avchin), a+1:b), ("oldslope egr/egsn", W.egrso, W.egsn, r2), ("oldslope er/ersn", W.erso, W.ersn, r2), ("oldslope fr/frsn", W.frso, W.frsn, r2)])
+        TX.GASROW[] && push!(L, ("oldslope eg/egsng", W.egso, W.egsng, r2))
+    else
+        push!(L, ("oldslope eg/egsn", W.egso, W.egsn, r2))
     end
     if TX.COUPLED[]
         for i in 1:2
-            push!(L, ("XSO$i/xs$i", TX.XSO[][i], i == 1 ? W.xs1 : W.xs2, r1), ("XSSO$i/xsn$i", TX.XSSO[][i], i == 1 ? W.xsn1 : W.xsn2, r2),
+            push!(L, ("XSO$i/xs$i", TX.XSO[][i], i == 1 ? W.xs1 : W.xs2, r1), ("oldslope x$i/xsn$i", i == 1 ? W.xso1 : W.xso2, i == 1 ? W.xsn1 : W.xsn2, r2),
                      ("XSRCO$i/cpS$i", TX.XSRCO[][i], i == 1 ? W.cpS1 : W.cpS2, r1))
         end
         push!(L, ("XLAMO/cpL", TX.XLAMO[], W.cpL, r1))
@@ -253,7 +254,9 @@ function hook(what, Δ, Cn)
             mx = vcat(mx, [maximum(abs(TX.XSN[][i][k] - TX.XSO[][i][k]) for k in a:b) for i in 1:2])
             @printf("STAGECONS jstep %d start Delta %.4e (try %d): new := old, max|new-old| over zones a..b+1 for r m rho u T E_r F_r x1 x2: %s\n", J, Δ, Int(TD.g(:jtry)), join((@sprintf("%.1e", x) for x in mx), " "))
             ce = TX.context(); @printf("STAGECONS jstep %d Etype zones %d..%d: %s; FLUXTIE weights TIEW: %s\n", J, ZS[1], ZS[end], join((etypes(ce)[a+Z-1] for Z in ZS), " "), length(TD.TIEW) > b ? zl(TD.TIEW, a) : "n/a")
-            item1(J, Δ, Cn, a); item2(J, Cn, a, Δ); item2(J, Cn, a, Δ; mesh = :fsal)
+            empty!(GATE); item1(J, Δ, Cn, a); item2(J, Cn, a, Δ); item2(J, Cn, a, Δ; mesh = :fsal)
+            gt(k) = get(GATE, k, (NaN, :none, 0))
+            @printf("STAGECONS jstep %d gate: item1 max %.3e (%s zone %d) | item1dt max %.3e (%s zone %d) | item2b max %.3e (%s zone %d)\n", J, gt(:item1)..., gt(:item1dt)..., gt(:item2b)...)
         else
             item3(J, what === :tr ? "TR" : "BDF2", Cn, a)
             if what === :tr                # item 2c: the start state with the TR stage's own mesh displacement
