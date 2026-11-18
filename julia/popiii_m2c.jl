@@ -26,7 +26,7 @@ const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = 
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
 using ForwardDiff
 # INTEGRATOR=trbdf2 (default) | theta: second-order L-stable TR-BDF2 (Trbdf2.jl, G2) or TITAN's theta scheme
-include(joinpath(@__DIR__, "Trbdf2.jl")); include(joinpath(@__DIR__, "NewtonKrylov.jl"))
+include(joinpath(@__DIR__, "Trbdf2.jl")); include(joinpath(@__DIR__, "NewtonKrylov.jl")); include(joinpath(@__DIR__, "StageCons.jl"))
 # default since G2b: θ = 0.55 lets the z = 19 core oscillate at 1e11–1e13 (three-body heating phase) where TR-BDF2 is smooth
 get(ENV, "INTEGRATOR", "trbdf2") == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
 const Msun = 1.98847e33
@@ -1210,6 +1210,9 @@ if get(ENV, "NKRYLOV", "0") != "0"
     atexit(() -> println(NewtonKrylov.summary_text()))
     pr("NKRYLOV: Newton corrections by GMRES on the true Jacobian (eta %g, Krylov dimension %d, eps %g), band Jacobian as preconditioner\n", NewtonKrylov.OPT.eta, NewtonKrylov.OPT.mmax, NewtonKrylov.OPT.eps)
 end
+# STAGECONS=n (diagnostic, default off = bit-identical): every n-th accepted step print `STAGECONS` lines testing stage consistency (start state with new := old: residual independent of θ, dt?; against the FSAL
+# derivative; leftover residual of each converged stage; old-level vs new-level arrays), all as normalized rates [1/s] comparable with DTERRDIAG's (z2 - z1)/(y_n Δ). StageCons.jl. Run with DTERRDIAG=n DTERRTRACE=n.
+haskey(ENV, "STAGECONS") && ENV["STAGECONS"] != "0" && (StageCons.configure!(parse(Int, ENV["STAGECONS"])); pr("STAGECONS: stage-consistency diagnostic every %d steps (StageCons.jl)\n", StageCons.EVERY[]))
 haskey(ENV, "NWFREEZE") && (TC.NWFREEZE[] = String.(split(ENV["NWFREEZE"], ",")))     # (diagnostic, default off) see TitanCore.NWFREEZE
 haskey(ENV, "NWTRACE") && (Trbdf2.NWTRACE[] = open(ENV["NWTRACE"], "a"))      # (diagnostic, default off) Newton trace, see Trbdf2.NWTRACE
 haskey(ENV, "STOL") && TF.setscalar!(:stol, parse(Float64, ENV["STOL"]))

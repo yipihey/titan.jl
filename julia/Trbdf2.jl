@@ -89,6 +89,8 @@ end
 # raw correction with its zone), a header per attempt and a result line.
 const NWDUMP = Ref{Any}(nothing)       # (diagnostic) state dump hook called at the start of the NWPROBE attempts
 const NWTRACE = Ref{Any}(nothing); const NWATT = Ref(0); const NWPROBE = Ref(Float64[])
+"STAGECONS=n (diagnostic, default off = bit-identical; StageCons.jl): `(what, Δ, Cn)` called with what = :start (after peq/save!, before the first attempt), :tr, :bdf (after a converged stage); it restores everything it touches."
+const STAGECONS_HOOK = Ref{Any}(nothing)
 function nwtrace_it()
     io = NWTRACE[]; n = Int(g(:neqn)); kx = TF.var(:kx); dx = TF.var(:dx)
     base = max(abs(dx[Int(g(:ir))]), abs(dx[Int(g(:im))]), abs(dx[Int(g(:id))]), abs(dx[Int(g(:it))]), abs(dx[Int(g(:ie))])) + 1.0e-30
@@ -658,6 +660,7 @@ function step_err!()
         NWTRACE[] === nothing || close(NWTRACE[])
         flush(stdout); exit(0)
     end
+    STAGECONS_HOOK[] === nothing || alt || STAGECONS_HOOK[](:start, g(:dtime), Cn)
     while true
         Δ = g(:dtime); TD.FULL_DT[] = Δ; err = NaN; Dnew = nothing
         if alt
@@ -670,6 +673,7 @@ function step_err!()
             STATS[:fail_tr] += 1
         else
             TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:tr, γ * Δ)
+            STAGECONS_HOOK[] === nothing || STAGECONS_HOOK[](:tr, Δ, Cn)
             Cg = combos_new()
             if bdf_old!()
                 s!(:thet, 1.0); s!(:dtime, C2 * Δ); s!(:timen, t0 + Δ)
@@ -678,6 +682,7 @@ function step_err!()
                 ok && !finite_new() && (ok = false; ESTATS[:nonfinite] += 1)
                 if ok
                     TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:bdf, C2 * Δ)
+                    STAGECONS_HOOK[] === nothing || STAGECONS_HOOK[](:bdf, Δ, Cn)
                     C1 = combos_new(); Cs = combos_old()
                     Dnew = Dict(s_ => (C1[s_] .- Cs[s_]) ./ (dW * Δ) for s_ in keys(C1))
                     if DSAL[] === nothing
