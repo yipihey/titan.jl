@@ -39,7 +39,7 @@ elseif mode == "pure"
     snaps = Metrics.Snap[]; tstep = Float64[]
     # ETOTMON=1 (diagnostic, default off; no influence on the solution): TX.etot_monitor after every converged implicit solve, summary below
     mon = Any[]
-    get(ENV, "ETOTMON", "0") != "0" && (TD.STAGE_HOOK[] = (kind, dt) -> (push!(mon, TX.etot_monitor(dt)); nothing))
+    get(ENV, "ETOTMON", "0") != "0" && (TD.STAGE_HOOK[] = (kind, dt) -> (push!(mon, merge((; dt, kind), TX.etot_monitor(dt))); nothing))
     t0 = time(); tl = Ref(time())
     n, why = TD.run_julia!(output = function (k)
         push!(snaps, Metrics.snap(TF)); push!(tstep, time() - tl[]); tl[] = time()
@@ -50,6 +50,12 @@ elseif mode == "pure"
     steady = sum(tstep[3:end]) / max(1, length(tstep) - 2)
     @printf("%s/pure: steps = %d (%s), t = %.10g, wall = %.2f s, steady state %.3f ms/step, libtitan loaded: %s\n",
             name, n, why, TF.getscalar(:timen), wall, 1e3 * steady, TF.HANDLE[] != C_NULL)
+    if !isempty(mon) && haskey(ENV, "ETOTMON_OUT")      # one row per solve: the monitor's numbers
+        open(ENV["ETOTMON_OUT"], "w") do io
+            println(io, "solve,kind,dt,imb,thr,G,gnet,zmax,vmax,zshare,vshare,dE,fin,fout")
+            for (i, m) in enumerate(mon); @printf(io, "%d,%s,%.6e,%.6e,%.6e,%.6e,%.6e,%d,%.6e,%d,%.6e,%.6e,%.6e,%.6e\n", i, m.kind, m.dt, m.imb, m.thr, m.G, m.gnet, m.zmax, m.vmax, m.zshare, m.vshare, m.dE, m.fin, m.fout); end
+        end
+    end
     if !isempty(mon)
         Gs = abs.([m.G for m in mon]); vm = [m.vmax for m in mon]; im = argmax(vm)
         @printf("ETOTMON %s: %d solves; G = (total-energy residual)/(energy throughput): median |G| %.3e, mean |G| %.3e, max |G| %.3e; sum imb / sum thr %.3e; |gnet| max %.3e; worst zone/own throughput %.3e (zone %d, solve %d)\n",
