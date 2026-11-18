@@ -767,10 +767,11 @@ function checkpoint(name, k; jinc = 0)
         ctl = (; HNEXT = Trbdf2.HNEXT[], ERRPREV = Trbdf2.ERRPREV[], HEUR = Trbdf2.HEUR[], LASTACC = Trbdf2.LASTACC[], DSAL = deepcopy(Trbdf2.DSAL[]),
                ESTATS = copy(Trbdf2.ESTATS), LIMHIST = copy(Trbdf2.LIMHIST)),
         edd = (; HEDD = copy(TD.HEDD), HXEDD = copy(TD.HXEDD), FXEDD = copy(TD.FXEDD), TIEW = copy(TD.TIEW), HPLUS = copy(TC.HPLUS), GXEDD = TD.GXEDD[]),   # Eddington closure arrays held between steps
-        geq = (; J0 = GEQJ0[], PREV = deepcopy(GEQPREV0[])), pswramp = (; J0 = PM.RAMPJ0[], K0 = PM.RAMPK0[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV))
+        geq = (; J0 = GEQJ0[], PREV = deepcopy(GEQPREV[]), HELD = deepcopy(TX.GRIDEQ[])), pswramp = (; J0 = PM.RAMPJ0[], K0 = PM.RAMPK0[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV))
     TX.MG[] && (ax = merge(ax, (; mg = (; edges = copy(TX.MGEDGE[]), E = deepcopy(TX.MGEN[]), F = deepcopy(TX.MGFN[])))))   # MGROUPS: the group fields
     serialize(joinpath(CKDIR, "m2c_$(name).aux"), ax)
 end
+const GEQHELD = Ref{Any}(nothing)
 const JNEXT = Ref(-1); const CKAUX = Ref{Any}(nothing)
 function edd_restore!(e)
     for (dst, src) in ((TD.HEDD, e.HEDD), (TD.HXEDD, e.HXEDD), (TD.FXEDD, e.FXEDD), (TD.TIEW, e.TIEW), (TC.HPLUS, e.HPLUS))
@@ -822,7 +823,9 @@ function restart!(name; allow = ())
         pr("WARNING: checkpoint %s has no solver-controller state (written by older code): the first step after the restart has no TR-BDF2 error estimate and the controller history is empty\n", name)
     end
     if hasproperty(aux, :geq)
-        GEQJ0[] = aux.geq.J0; GEQPREV[] = deepcopy(aux.geq.PREV);   # (the grideq_step! after the restart repeats the one at the end of the checkpointed step)
+        GEQJ0[] = aux.geq.J0; GEQPREV[] = deepcopy(aux.geq.PREV)
+        # the grid equation's held monitor (tauv, sx) was computed in the checkpointed step before chem!'s EOS/opacity refresh: not reproducible from the final state
+        GEQHELD[] = aux.geq.HELD
          PM.RAMPJ0[] = aux.pswramp.J0; PM.RAMPK0[] = aux.pswramp.K0
     else
         pr("WARNING: checkpoint %s has no grid-equation / PSWRAMP state (older code): the mesh feature tracking restarts empty and the ramps restart\n", name)
@@ -1257,7 +1260,7 @@ if GRIDEQP !== nothing
     if GRIDEQP == 0
         TX.GRIDVEL[] = zeros(length(TF.var(:rn)))
     else
-        grideq_step!()
+        GEQHELD[] === nothing ? grideq_step!() : (TX.GRIDEQ[] = GEQHELD[])       # (a restart from a new-format checkpoint continues with the monitor the run had)
         let fmv = GEQC[5]
             fmcap = function ()        # no interface moves more than fmove × its smaller neighbouring zone per step
                 rn_ = TF.var(:rn); ro_ = TF.var(:ro); f = 0.0

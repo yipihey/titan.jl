@@ -49,7 +49,6 @@ function geq_quality(s)
     (; ratio = maximum(q) / qs[(length(qs) + 1) ÷ 2], k = argmax(q) + 1)
 end
 const GEQPREV = Ref{Any}(nothing)      # (t, x, M) of the last step: the monitor function's own motion (feature tracking)
-const GEQPREV0 = Ref{Any}(nothing)     # the GEQPREV that the last grideq_step! used (checkpoint: a restart repeats that call and must find the same one)
 const GEQLAST = Ref{Any}(nothing)
 "State on the present mesh (interfaces centre first; m per steradian)."
 function geq_state()
@@ -110,7 +109,7 @@ function grideq_step!()
     tfe = fill(Inf, n); nfast = 0                                 # feature-crossing time of each zone (feature tracking)
     if κf > 0
         D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0)
-        t = TF.getscalar(:timen); pv = GEQPREV[]; GEQPREV0[] = pv
+        t = TF.getscalar(:timen); pv = GEQPREV[]
         if pv !== nothing && t > pv[1]
             Mp = [GridEq.lin(pv[2], pv[3], x) for x in D.x]; nd = length(D.x); v = zeros(nd)
             for i in 1:nd
