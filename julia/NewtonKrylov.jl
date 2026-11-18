@@ -531,6 +531,17 @@ function check!(S::Sys)
             @printf("   column %-5s zone %3d (offset %+d): FD %+.4e  band %+.4e  |diff| %.3e\n", jc <= length(nm) ? nm[jc] : string(jc), k0 + kc - 1 - a + 1, kc - kbs, fd, jb, d)
         end
     end
+    if haskey(ENV, "NKLINE")             # NKLINE=smax,n,z1:z2: continuity of the residual along ln ρ → ln ρ + s on the zones z1:z2 (zone counted from the inner boundary), s ∈ [−smax, smax]
+        f = split(ENV["NKLINE"], ","); smax = parse(Float64, f[1]); nl = parse(Int, f[2]); zz = parse.(Int, split(f[3], ":"))
+        vl = zeros(S.n); for kb in clamp(zz[1] + a - k0, 1, nb):clamp(zz[2] + a - k0, 1, nb); S.act[(kb-1)*ne+3] && (vl[(kb-1)*ne+3] = 1.0); end
+        scan(n) = [perturbed(S, vl, smax * (2i / n - 1)) for i in 0:n]
+        Rc = scan(nl); Rf = scan(2nl); sc = [maximum(abs(R[r]) for R in Rf) + 1e-300 for r in 1:S.n]
+        jump(Rs) = (m = 0.0; at = (0, 0); for i in 1:length(Rs)-1, r in 1:S.n; d = abs(Rs[i+1][r] - Rs[i][r]) / sc[r]; d > m && (m = d; at = (r, i)); end; (m, at))
+        (jc, ac), (jf, af) = jump(Rc), jump(Rf)
+        row(r) = (i = (r - 1) % ne + 1; kb = (r - 1) ÷ ne + 1; "$(i <= length(nm) ? nm[i] : i) zone $(k0 + kb - 1 - a + 1)")
+        @printf("NKCHECK line scan s in [-%g, %g] (ln rho on zones %d:%d): largest row jump between neighbours, n %d: %.3e (%s, step %d); n %d: %.3e (%s, step %d); ratio %.3f (2 = Lipschitz, 1 = jump)\n",
+                smax, smax, zz[1], zz[2], nl, jc, row(ac[1]), ac[2], 2nl, jf, row(af[1]), af[2], jc / jf)
+    end
     TD.r(:matgen)                        # AD pass at the same state: its residual against the Float64 one
     rad = vec(TF.var(:rhs)[1:ne, k0:k0+nb-1])
     @printf("NKCHECK AD residual vs Float64 residual: max |diff| / max |R| = %.3e\n", maximum(abs, rad .- S.R0) / maximum(abs, S.R0))

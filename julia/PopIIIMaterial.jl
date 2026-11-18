@@ -1081,27 +1081,106 @@ const SLSTAR = Ref(false)
 "The angle-mean velocity gradient of the Lyα escape (|∂u/∂r| + 2|u|/r)/3 of the zone between r1 and r2 with edge velocities u1, u2."
 sl_grad(r1, r2, u1, u2) = (abs(u2 - u1) / (r2 - r1) + 2abs(0.5(u1 + u2)) / (0.5(r1 + r2))) / 3
 """
-(SLIMP) the star-light state S = (q, t, fs, g, ts, wq) of every coupled zone a..b (`cplz(k)`) at the iterate (arrays of any number type): the
-dilution and colour temperature relative to the prepare pass (q = W/W0, t = T_c/T_c0), the Lyman-Werner factor fs (held at the prepare pass's
-value) and the velocity gradient g of the iterate. SLBLEND: T_c = T_src^(1−wq) T_r^wq (T_r = (max(E, E_cmb)/a)^¼, T_src and wq of the prepare
-pass), W = 1 (wq ≥ 1) or min(c u/(4σT_c⁴), 1). `mgqt` (MGROUPS): zone k's (q, t) from the group fields instead.
+Window of the band Jacobian: the colour-coded Duals of the residual carry the derivatives of blocks k-2..k+2 only (TitanResidFast.assemble!;
+blocks 3 or more apart share a seed slot). A non-local quantity of zone k is therefore built from the Duals of zones j with |j − k| ≤ 2 and the
+values of all others; the rest of its dependence on the iterate is seen by the Jacobian-vector products of the Newton–Krylov solve.
+"""
+@inline winv(x::ForwardDiff.Dual, j, k) = abs(j - k) <= 2 ? x : ForwardDiff.value(x)
+@inline winv(x, j, k) = x
+@inline _val(x) = x isa ForwardDiff.Dual ? ForwardDiff.value(x) : x
+"On-weight of the Lyman-Werner shielding column of a zone at optical depth τ: 1 outside, 0 inside the photosphere, smooth in ln τ between τ = 0.5 and 0.9 (the smooth form of the zone index k > k_ph, τ_k < 2/3)."
+sl_lwon(τ) = (x = clamp(log(max(τ, 1e-30) / 0.5) / log(0.9 / 0.5), 0, 1); 1 - x * x * (3 - 2x))
+"""
+(SLIMP) the star-light state S = (q, t, fs, g, ts, wq) of every coupled zone a..b (`cplz(k)`) at the iterate (arrays of any number type), all
+from the iterate's r, ρ, T, u, E_r, F_r and species (the opacity χ of the iterate's last `update!` enters the optical depth as a Float):
+- optical depth τ_j = Σ_{i≥j} χ_i ρ_i Δr_i from the outer boundary to the inner interface of zone j (τ_{b+1} = 0);
+- colour temperature (SLBLEND) T_c = T_src^(1−wq) T_r^wq, T_r = (max(E, E_cmb)/a)^¼, wq = smoothstep(log10(τ/0.3)), T_src = T_r at optical
+  depth τ + 2/3 (SLEB: log E_r–log τ interpolation between the bracketing interfaces) or T_eff (not SLEB), and dilution W = 1 (wq ≥ 1) or
+  min(c u/(4σT_c⁴), 1), c u = max(c(E − E_cmb), ½(F_k + F_k+1)) (SLWFLUX); q = W/W0, t = T_c/T_c0 against the prepare pass;
+- T_eff = (F/σ)^¼ at τ = 2/3, linear in τ between the two interfaces that bracket it (the smooth form of the photosphere zone k_ph);
+- Lyman-Werner factor fs = on-weight(τ_k) f_sh(N_H2, T) f_sh(N_HI), the columns N = Σ_{j<k} w_j n_j Δr_j + ½ w_k n_k Δr_k over the zones
+  outside the photosphere (weight w_j = sl_lwon(τ_j)), n_H2 = n_H x_H₂, n_HI = n_H (1 − x_H⁺ − 2x_H₂); `shield = :sobolev`: N_H2 ≤ n_H2 v_th/(√2 |∂u/∂r|);
+- g, the velocity gradient of Lyα escape (`sl_grad`).
+Non-local sums keep the Duals of the zones in the band window of the consumer zone (`winv`); the sums over all other zones enter as values.
+`mgqt` (MGROUPS): zone k's (q, t) from the group fields, the prepare pass's T_src, wq and f_sh.
 """
 function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = nothing)
-    arad = 7.565723e-15
-    @inbounds for k in a:b
+    sl = STARLIGHT[]; arad = 7.565723e-15; σ = 5.670374419e-5; chi = TM.v(:chifn); isD = eltype(dn) <: ForwardDiff.Dual; CMBE = arad * sl.tcmb^4
+    T = eltype(dn); inv_mu = 1 / CNn.μH()
+    # optical depth: τ[j] by values, and the Dual corrections (zero value) that a consumer zone k picks up from the zones i that depend on
+    # blocks inside its window (zone i = k−3 reaches block k−2 through r_{i+1}; the partials of block k−3 land in a seed slot the band never reads)
+    τv = zeros(b + 2)
+    for j in b:-1:a; τv[j] = τv[j+1] + chi[j] * _val(dn[j]) * _val(rn[j+1] - rn[j]); end
+    corτ(i, k) = (c_ = chi[i] * winv(dn[i], i, k) * (winv(rn[i+1], i + 1, k) - winv(rn[i], i, k)); c_ - _val(c_))
+    τwin(j, k) = j > b ? zero(T) : isD ? τv[j] + sum((corτ(i, k) for i in max(j, k - 3):min(b, k + 2)); init = zero(T)) : τv[j]
+    ph = τv[a] >= 2 / 3                                               # (a photosphere inside the grid)
+    jph = ph ? findlast(j -> τv[j] >= 2 / 3, a:b) + a - 1 : a         # bracketing interfaces jph, jph+1: τ ≥ 2/3 > τ
+    # Lyman-Werner columns: contributions of the zones outside the photosphere, with the Duals of the window and of the transition zones
+    lw = sl !== nothing && sl.shield !== :off
+    lwcols = lw && sl.shield !== :none
+    trans = [j for j in a:b if 0 < sl_lwon(τv[j]) < 1]               # zones whose weight depends on τ
+    nH(j) = dn[j] * inv_mu
+    c2(j, k, w) = w * winv(nH(j), j, k) * max(winv(xs2[j], j, k), 0) * (winv(rn[j+1], j + 1, k) - winv(rn[j], j, k))
+    c1(j, k, w) = w * winv(nH(j), j, k) * max(1 - winv(xs1[j], j, k) - 2winv(xs2[j], j, k), 0) * (winv(rn[j+1], j + 1, k) - winv(rn[j], j, k))
+    P2 = zeros(b + 2); P1 = zeros(b + 2)                              # value prefix sums of the weighted column integrands over the zones below k
+    if lwcols
+        for j in a:b
+            w = sl_lwon(τv[j]); P2[j+1] = P2[j] + _val(w * nH(j) * max(xs2[j], 0) * (rn[j+1] - rn[j])); P1[j+1] = P1[j] + _val(w * nH(j) * max(1 - xs1[j] - 2xs2[j], 0) * (rn[j+1] - rn[j]))
+        end
+    end
+    function interp_tr(τp, k)                                         # T_r at optical depth τp: log E_r–log τ between the bracketing interfaces
+        τ_a = τwin(a, k)
+        τp >= τ_a && return (max(winv(ern[a], a, k), CMBE) / arad)^0.25
+        τpv = _val(τp)
+        for j in a:b-1
+            if τv[j] >= τpv > τv[j+1]
+                t1, t2 = log(max(τwin(j, k), 1e-30)), log(max(τwin(j + 1, k), 1e-30)); w = t1 > t2 ? (log(τp) - t2) / (t1 - t2) : zero(t1)
+                l1, l2 = log(max(winv(ern[j], j, k), CMBE)), log(max(winv(ern[j+1], j + 1, k), CMBE))
+                return (exp(l2 + w * (l1 - l2)) / arad)^0.25
+            end
+        end
+        (max(winv(ern[b], b, k), CMBE) / arad)^0.25
+    end
+    teff(i, k) = (max(winv(frn[i], i, k), zero(frn[i])) / σ)^0.25
+    for k in a:b
         cplz(k) || continue
         S.g[k] = sl_grad(rn[k], rn[k+1], un[k], un[k+1])
         (k <= length(SLW0[]) && (r = SLW0[][k]) !== nothing) || continue
-        S.fs[k] = r.lw ? r.fsh : 0.0
         if mgqt !== nothing
+            S.fs[k] = r.lw ? r.fsh : 0.0
             S.q[k], S.t[k] = mgqt(k)
-        elseif r.mode === :blend
-            E = ern[k]; Fk = frn[k]; Fk1 = frn[k+1]
-            cu = SLWFLUX ? max(CNn.c * (E - r.Ecmb), 0.5 * (max(Fk, zero(Fk)) + max(Fk1, zero(Fk1)))) : CNn.c * (E - r.Ecmb)
-            Tr = (max(E, r.Ecmb + zero(E)) / arad)^0.25
-            Tc = r.Tsrc^(1 - r.wq) * Tr^r.wq
-            W = r.wq >= 1 ? one(cu) : min(max(cu, zero(cu)) / (4 * 5.670374419e-5 * Tc^4), one(cu))
-            S.q[k] = max(W / r.W0, 1e-6); S.t[k] = Tc / r.Tc0
+            continue
+        end
+        E = ern[k]; Fk = frn[k]; Fk1 = frn[k+1]; τk = τwin(k, k)
+        Tsrc = if SLEB[]
+            interp_tr(τk + 2 / 3, k)
+        else                                                              # T_eff at τ = 2/3
+            w = (τwin(jph, k) - 2 / 3) / (τwin(jph, k) - τwin(jph + 1, k)); (1 - w) * teff(jph, k) + w * teff(jph + 1, k)
+        end
+        wq = clamp((log10(max(τk, 1e-30)) + log10(1 / 0.3)) / 1.0, 0, 1); wq = wq * wq * (3 - 2wq)
+        cu = SLWFLUX ? max(CNn.c * (E - CMBE), 0.5 * (max(Fk, zero(Fk)) + max(Fk1, zero(Fk1)))) : CNn.c * (E - CMBE)
+        Tr = (max(E, CMBE + zero(E)) / arad)^0.25
+        Tc = Tsrc^(1 - wq) * Tr^wq
+        W = wq >= 1 ? one(cu) : min(max(cu, zero(cu)) / (4σ * Tc^4), one(cu))
+        S.q[k] = max(W / r.W0, 1e-6); S.t[k] = Tc / r.Tc0; S.ts[k] = Tsrc; S.wq[k] = wq
+        if lw
+            on = sl_lwon(τk)
+            f = one(on) + zero(on)
+            if lwcols
+                N2 = P2[k] + 0.5 * c2(k, k, on); N1 = P1[k] + 0.5 * c1(k, k, on)
+                if isD                                                   # the Duals inside the window and of the transition zones
+                    for j in vcat(collect(max(a, k - 3):k - 1), [j for j in trans if j < k - 3])
+                        wj = sl_lwon(τwin(j, k))
+                        N2 += c2(j, k, wj) - _val(c2(j, k, wj)); N1 += c1(j, k, wj) - _val(c1(j, k, wj))
+                    end
+                end
+                if sl.shield === :sobolev
+                    dudr = abs(un[k+1] - un[k]) / (rn[k+1] - rn[k])
+                    dudr > 0 && (N2 = min(N2, nH(k) * max(xs2[k], 0) * sqrt(2CNn.kB * tn[k] / 1.6735575e-24) / sqrt(2) / dudr))
+                end
+                f = fsh_h2(N2, tn[k]) * fsh_hi(N1)
+            end
+            S.fs[k] = on * f
         end
     end
     S
@@ -1794,8 +1873,8 @@ function cpl_zone(m::NetGas, k, ρ, T, a, b)
     needJ ? cpl_lift(c[2], c[4], ρ, T, a, b) : Tuple(c[2])
 end
 const CPLCACHEQ = Ref(Any[])
-@inline cpl_closeq(vJ, v) = cpl_close(vJ, v) && abs(log(v[5] / vJ[5])) < CPLJLAG[2] && abs(log(v[6] / vJ[6])) < CPLJLAG[2] &&
-                            abs(v[7] - vJ[7]) <= CPLJLAG[2] * max(v[7], vJ[7], 1e-3) && abs(log(v[8] / vJ[8])) < CPLJLAG[2]
+@inline cpl_closeq(vJ, v) = cpl_close(vJ, v) && abs(log(v[5] / vJ[5])) < CPLJLAG[1] && abs(log(v[6] / vJ[6])) < CPLJLAG[1] &&     # (the star-light state moves the rates steeply: the
+                            abs(v[7] - vJ[7]) <= CPLJLAG[1] * max(v[7], vJ[7], 1e-3) && abs(log(v[8] / vJ[8])) < CPLJLAG[1]       #  tolerance of ρ, T, not that of the species)
 "(SLIMP) local values and Jacobian at v = (ρ, T, x1, x2, q, t, fs, g): AD in all but t, central differences (ln t, 1e-3) in t (a Float in the photo-rate tables)."
 function cpl_vjq(m, k, v)
     y, J = cpl_vj(m, k, v)
@@ -1868,6 +1947,18 @@ function cpl_prepare!(m::NetGas)
     end
     nothing
 end
+"(diagnostic, SLSIZE=z1:z2) per zone of the range, the star-light inputs at the start of the step (prepare pass) and at the solved state: T_src, w_q, T_c, W, f_sh × on-weight, R_Lyα, k_LW."
+const SLSIZE = Ref{Union{Nothing,UnitRange{Int}}}(haskey(ENV, "SLSIZE") ? (z = parse.(Int, split(ENV["SLSIZE"], ":")); z[1]:z[2]) : nothing)
+function sl_size_report(S, dn)
+    a = Int(TF.getscalar(:ngrs)); νLW = 12.87 * EVERG / CNn.hP; kLW(W, Tc, fs) = 1.1e8 * 4π * W * _bnu(νLW, Tc) * fs
+    for z in SLSIZE[]
+        k = a + z - 1; t = CPLTERMS[][k]
+        (k <= length(SLW0[]) && (r = SLW0[][k]) !== nothing && t !== nothing) || continue
+        RL0 = t.slq.p3.RL; fs0 = r.lw ? r.fsh : 0.0; RL1 = lya_escape(dn[k], TX.XSN[][1][k], TX.XSN[][2][k], S.g[k]); Tc1 = r.Tc0 * S.t[k]; W1 = r.W0 * S.q[k]
+        @printf("SLSIZE step %d zone %d: T_src %.1f -> %.1f | w_q %.4f -> %.4f | T_c %.1f -> %.1f | W %.4e -> %.4e | fs %.4e -> %.4e | R_Lya %.4e -> %.4e | k_LW %.4e -> %.4e\n",
+                Int(TF.getscalar(:jstep)), z, r.Tsrc, S.ts[k], r.wq, S.wq[k], r.Tc0, Tc1, r.W0, W1, fs0, S.fs[k], RL0, RL1, kLW(r.W0, r.Tc0, fs0), kLW(W1, Tc1, S.fs[k]))
+    end
+end
 "After the hydro step (and advect_species!, which moved the HD tail): the coupled zones' free species := CK expansion of the solution."
 function cpl_finish!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); nf = length(m.net.free); dn, tn = TM.v(:dn), TM.v(:tn)
@@ -1876,6 +1967,7 @@ function cpl_finish!(m::NetGas)
         S = (; q = ones(n), t = ones(n), fs = zeros(n), g = ones(n), ts = zeros(n), wq = zeros(n)); er_, fr_ = TM.v(:ern), TM.v(:frn)
         mgqt = MGON ? (k -> (g_ = TX.MGSLG[]; sl_qt_mg(k, er_[k], TX.MGEN[][g_][k], TX.MGFN[][g_][k], TX.MGFN[][g_][k+1]))) : nothing
         sl_sweep!(S, a, b, TM.v(:rn), dn, tn, TM.v(:un), er_, fr_, TX.XSN[][1], TX.XSN[][2], TX.cplz; mgqt)
+        SLSIZE[] === nothing || sl_size_report(S, dn)
     end
     for k in a:b
         TX.cplz(k) || continue
