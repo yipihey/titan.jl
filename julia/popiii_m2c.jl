@@ -1730,10 +1730,10 @@ try
         TF.PARAMS[:meqn] >= 9 || error("COUPLED=1: meqn = $(TF.PARAMS[:meqn]) < 9")
         ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
         TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
-        if PM.SLIMP                                # SLIMP=1: the star-light dilution of the coupled zones at the Newton iterate (PM.sl_q, cpl_zone_q)
-            TX.SLIMP[] = true; TX.SLQ_FN[] = PM.sl_qt; TX.SLON_FN[] = PM.sl_on; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t)
-            pr("SLIMP=%d: star light of the coupled zones at the Newton iterate: dilution W%s (local variables of the zone's chemistry and NLOIT opacity)\n",
-               PM.SLIMPN, PM.SLIMPN >= 2 ? " and the local part of T_c (T_r^wq)" : " (T_c held)")
+        if PM.SLIMP                                # SLIMP>0: the star light of the coupled zones at the Newton iterate (PM.sl_sweep!, cpl_zone_q)
+            PM.SLBLEND[] || error("SLIMP needs SLBLEND=1 (the colour temperature and dilution of the iterate are the blend of PM.sl_sweep!)")
+            TX.SLIMP[] = true; TX.SL_SWEEP[] = PM.sl_sweep!; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t, fs, g) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t, fs, g)
+            pr("SLIMP: star light of the coupled zones at the Newton iterate: dilution W, colour temperature, Lyman-Werner shielding, Lyα escape (local variables of the zone's chemistry and NLOIT opacity)\n")
         end
         get(ENV, "CPLLOCAL", "1") == "1" && (TX.CPL_LOCAL[] = (k, dt) -> PM.cpl_local!(mat, k, dt))
         TC.CPLH[] = (; newstep = TX.cpl_newstep!, reset = TX.cpl_reset!, update = TX.cpl_update!, dmax = TX.cpl_dmax!)
