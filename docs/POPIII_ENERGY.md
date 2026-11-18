@@ -2862,3 +2862,51 @@ combined rows +cpQ; `chem_core!` no longer adds cq, yq to `RAYQ`/`GASQ` in the p
 Lyman-Werner heating there). Zones that are not coupled are unchanged. Since the coupled set is fixed at the start of each step, a
 zone that is coupled in one step and not in the next (CPL_BAD decoupling) has its heat of that one step booked either not at all or
 twice; the decoupling is to be removed separately. Measured effect on the 300-step restart: see §23.3.
+
+### 23.3 Gates (18 Nov; runs in `/zpool/nvme/data/tabel_scratch/titan_popiii/runs/`)
+
+**(a) ETOTMON, `phase6_run.jl pure NAME` with `ETOTAL=0 ETOTMON=1` (`t_ie_reg/ec2_*.log`, `ec2s_SUBC.log`, per-solve CSV `ec2_*.csv`)**; G = total-energy residual / energy throughput.
+
+| test | solves | old ETOTAL=0 (median / max) | compatible rows (median / max) | ETOTAL=1 (ETASW=0) |
+|---|---|---|---|---|
+| SOD | 433 | 1.4e-6 / 3.9e-4 (397 solves) | **1.6e-16 / 6.5e-13** (worst zone 99, solve 73, 2e-2 of that zone's own throughput) | 1.8e-16 / 2.6e-12 |
+| SUBC | 722 | 1.6e-5 / 8.6e-2 | 2.9e-11 / 1.5e-1 (solves 54–89, 165–205: dt 1e-25…1e-11 s start-up of the benchmark, worst zones 2, 55, 71, 88) | 1.2e-14 / 4.5e-2 |
+| SUBC, `stol=1e-6`, 999 solves | 999 | — | 7.6e-10 / 3.2e-9 | — |
+| SUPC | 999 | 1.0e-5 / 3.7e-1 (713 solves) | 2.3e-9 / 3.1e-1 (worst zone 11, solve 153) | 4.1e-9 / 9.2e-2 |
+
+The SOD residual is round-off. In the radiative shocks the median is 3–5 orders better than before, equal to the total-energy row's (SUPC) or
+within 3 orders of it (SUBC); the maxima are the start-up solves, where the converged rows are not converged to the monitor's precision: tightening the
+Newton stopping test (`stol` 1e-6) takes SUBC's maximum to 3e-9, i.e. what is left is the solver tolerance, not a term of the row.
+
+**(b) Noh problem, spherical, γ = 5/3, 200 zones, Mach 85, e_kin/e_th = 4009 (`noh_test.jl`; `t_ie_noh/*.log`)**; T_RH = 4009 K, ρ_RH = 64 ρ₀, shock at |u₀|t/3.
+
+| rows | shock radius / exact | T/T_RH in 0.3–0.8 r_s (median, min, max) | ρ/ρ_RH (median, min, max) |
+|---|---|---|---|
+| ETOTAL=0, compatible | 0.978 | 1.020, 0.914, 1.090 | 1.019, 0.906, 1.158 |
+| ETOTAL=1, ETASW=0.1 | 0.853 | 0.904, 0.757, 0.995 | 1.314, 1.117, 1.699 |
+| ETOTAL=1, ETASW=0.6 | 0.755 | 0.767, 0.002, 0.919 | 1.783, 0.379, 2.573 |
+| ETOTAL=1, ETASW=0 | fails to converge at t = 1504 s (step 686) | | |
+| TITAN's rows (unset) | 0.681 | 0.653, 0.002, 0.791 | 2.236, 0.368, 3.277 |
+
+**(c) NKCHECK=2 on the Pop III checkpoint (`t_ie23`, with `ksflux` branch replayed, A5 included); `|Jv − J_b w|/Σ|J_b w|`, maximum over the zones (zones 28–34):** T 4.3e-6 (1.6e-6), u 1.3e-4 (3.2e-6), E_r 1.5e-5, ρ 4.6e-6, m 3.6e-6. Before the fix (t_ie20, t_ie22) T was 8.0e-3 (zone 29; the m column, 1 %).
+The old ETOTAL=0 row had 4.3e-6 / 7.3e-5 (t_ie10). F_r (8.5e-2) and x_H₂ are as before.
+
+**(d) 300 steps from the checkpoint, ETOTMON=1 (all with `NKRYLOV=1 DTERR=0.03`):**
+
+| run | rows | t reached (timen − 7.50846e12) | rejections (Newton failures) | min dt after failure / traced | limiters | ETOTMON |G(last bdf)| median / max, worst zones |
+|---|---|---|---|---|---|---|
+| t_ie04 | ETOTAL=1 + ERLAB | 4.64e8 s | 12 (12) | 142 s | T@30 | — |
+| t_ie05 | old ETOTAL=0 + ERLAB | 5.26e8 s | 15 (14) | 1723 s | rho@28, rho@29 | 4.9e-4 / 9.0e-4 (window max 1.3e-3); z29, z34 |
+| t_ie26 | compatible, A5 off (experiment, HEAD~1 code) | 5.29e8 s | 23 (22) | 1157 s | T@30, rho@27 | 6.9e-4 / 1.6e-3; z29, z28 |
+| t_ie24 | compatible + A5 (HEAD) | 0.94e8 s | 33 (29) | 1215 s | E_r@21, T@30 | 6.6e-4 / 8.9e-4; z28, z34 |
+| t_ie25 | compatible + A5 + `ECGRAV=2` | −0.16e8 s (7.508299e12) | 45 (25 Newton + 20 error) | 460 s | T@25, T@30, T@35 | **1.3e-7 / 2.5e-6**; z28, z33, z23 |
+
+(`t_ie21`, compatible without A5 and without the J·v fix, was stopped by me at step 65757 after one rejection and dt 2.9e6 s: the first 60 steps were
+the best of all variants; it was not continued because the A5 edit was to go in.)
+
+What this says. The internal-energy row is compatible with the momentum row (SOD to 1e-16, the cold-infall Noh test within 2 %), but on the Pop III
+checkpoint the monitor's G stays at the old 5e-4…7e-4 because the monitor's total row books gravity as ṁ Δψ (ETOT_GRAV) and the momentum row's force does
+not (G5, §14): with `ECGRAV=2` (the monitor's own gravity form put into the gas row) G falls to 1e-7, so the whole defect is the gravity term and the rest of the row is
+exact. That variant, however, as §14.5 found, costs convergence (45 rejections). The 300-step runs do not meet "at least as good as ETOTAL=1 / old ETOTAL=0":
+the compatible row alone has more Newton failures than both (22 against 12 and 14) at the same time covered as the old ETOTAL=0; A5 (iterate-dependent
+cq, yq) makes it worse (29 failures, a fifth of the time covered). The dual-energy switches were therefore not removed.
