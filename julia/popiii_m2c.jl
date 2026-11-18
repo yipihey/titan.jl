@@ -1206,6 +1206,7 @@ haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
 if get(ENV, "NKRYLOV", "0") != "0"
     NewtonKrylov.configure!(ENV["NKRYLOV"], activate = !haskey(ENV, "NWPROBE")); haskey(ENV, "NKCHECK") && (NewtonKrylov.OPT.check = parse(Int, ENV["NKCHECK"]))
     haskey(ENV, "NKLS") && ENV["NKLS"] != "0" && NewtonKrylov.configure_ls!(ENV["NKLS"])      # NKLS=1[,trigger[,lmin]]: backtracking line search on the preconditioned residual (default off)
+    haskey(ENV, "NKSCAN") && (f_ = parse.(Int, split(ENV["NKSCAN"], ",")); NewtonKrylov.SCAN[] = (f_[1], f_[2:end]))      # NKSCAN=<att>,<it>[,<it>...]: diagnostic scan along the Krylov step (needs NWTRACE)
     atexit(() -> println(NewtonKrylov.summary_text()))
     pr("NKRYLOV: Newton corrections by GMRES on the true Jacobian (eta %g, Krylov dimension %d, eps %g), band Jacobian as preconditioner\n", NewtonKrylov.OPT.eta, NewtonKrylov.OPT.mmax, NewtonKrylov.OPT.eps)
 end

@@ -177,13 +177,14 @@ end
 Residual at x ⊕ s·v: s·v is written into `rhs`, `update!` applied (branch decisions replayed), a fresh context and the Float64 residual evaluated; the state is restored.
 `realized` (optional) receives the change the update actually made to every unknown including the ghost entries, per unit s.
 """
-function perturbed(S::Sys, v, s; realized = nothing, freeze = 2)
+function perturbed(S::Sys, v, s; realized = nothing, freeze = 2, inspect = nothing)
     ne, nb, k0 = S.ne, S.nb, S.k0; rhs = TF.var(:rhs)
     base = realized === nothing ? nothing : (c = TX.context(); (copy(c.base), copy(vf(:unom)), copy(vf(:frnom))))
     @inbounds for kb in 1:nb, i in 1:ne; rhs[i, k0+kb-1] = S.act[(kb-1)*ne+i] ? s * v[(kb-1)*ne+i] : 0.0; end
-    TX.FREEZE[] = freeze
+    TX.FREEZE[] = freeze; updated = false
     try
-        TD.r(:update)
+        TD.r(:update); updated = true
+        inspect === nothing || inspect()          # (NKSCAN: the state after the trial update, before the restore)
         R1 = resid(ne, nb)
         if realized !== nothing
             cnew = TX.context()
@@ -195,6 +196,9 @@ function perturbed(S::Sys, v, s; realized = nothing, freeze = 2)
             end
         end
         R1
+    catch
+        (inspect === nothing || updated) || inspect()
+        rethrow()
     finally
         restore!(S.snap); TX.FREEZE[] = 0
     end
@@ -238,10 +242,10 @@ end
 """
 Directional derivative of the full residual, y = J v: central difference [R(x ⊕ εv) − R(x ⊖ εv)]/2ε (one-sided [R(x ⊕ εv) − R(x)]/ε if `OPT.central` is false). v is a vector over the active entries.
 """
-function fdjv!(y, S::Sys, v, ε; realized = nothing)
-    R1 = perturbed(S, v, ε; realized)
+function fdjv!(y, S::Sys, v, ε; realized = nothing, freeze = 2)
+    R1 = perturbed(S, v, ε; realized, freeze)
     if OPT.central
-        R2 = perturbed(S, v, -ε)
+        R2 = perturbed(S, v, -ε; freeze)
         @inbounds for r in 1:S.n; y[r] = (R1[r] - R2[r]) / (2ε); end
     else
         @inbounds for r in 1:S.n; y[r] = (R1[r] - S.R0[r]) / ε; end
@@ -299,6 +303,125 @@ function wtop(b, S::Sys, ne, k0)
     r = argmax(abs.(b .* S.wt)); kb = (r - 1) ÷ ne + 1; i = (r - 1) % ne + 1
     @sprintf("%d@%d:%.3g(w %.2g)", i, k0 + kb - 1 - gi(:ngrs) + 1, b[r], S.wt[r])
 end
+
+# ---------------------------------------------------------------- NKSCAN (diagnostic, default off): what the true residual does along the GMRES step
+"NKSCAN=<att>,<it>[,<it>...]: at Newton iteration(s) <it> of attempt <att> (needs NWTRACE for the attempt counter) print the line scan, column probes and state; no effect on the solve."
+const SCAN = Ref((0, Int[]))
+const NMS = ("r", "m", "rho", "u", "T", "E_r", "F_r", "x_H+", "x_H2")
+zname(S::Sys, r) = @sprintf("%d@%d", (r - 1) % S.ne + 1, (r - 1) ÷ S.ne + 1 + S.k0 - 1 - gi(:ngrs) + 1)
+toplist(S::Sys, v, n) = join((@sprintf("%s:%.4g", zname(S, r), v[r]) for r in sortperm(abs.(v); rev = true)[1:min(n, length(v))]), " ")
+function levelT(S::Sys, R)
+    w = zeros(S.n); precond!(w, S, R); w[.!S.act] .= 0.0; w .*= S.wt
+    norm(w), w
+end
+"Unknowns of the current (trial) state that are non-finite or non-positive where they must be positive."
+function badstate(S::Sys)
+    a, b = gi(:ngrs), gi(:ngre); out = String[]
+    rn, xmen, un, frn, dn, tn, ern = (vf(s) for s in (:rn, :xmen, :un, :frn, :dn, :tn, :ern)); x1, x2 = TX.XSN[][1], TX.XSN[][2]
+    for k in a:b+1, (nm, v, pos) in (("r", rn, true), ("m", xmen, true), ("u", un, false), ("F_r", frn, false))
+        q = v[k]; (!isfinite(q) || (pos && q <= 0)) && push!(out, @sprintf("%s@%d=%.5g", nm, k - a + 1, q))
+    end
+    for k in a:b, (nm, v) in (("rho", dn), ("T", tn), ("E_r", ern), ("x_H+", x1), ("x_H2", x2))
+        q = v[k]; (!isfinite(q) || q <= 0) && push!(out, @sprintf("%s@%d=%.5g", nm, k - a + 1, q))
+    end
+    out
+end
+function scantrial(S::Sys, x, λ, fr)
+    bad = String[]; exc = nothing; R = nothing
+    try R = perturbed(S, x, λ; freeze = fr, inspect = () -> (bad = badstate(S)))
+    catch ex
+        ex isa InterruptException && rethrow()
+        exc = ex
+    end
+    R, exc, bad
+end
+"Number of branch decisions of the trial state (recorded with FREEZE = 1, the values are those of FREEZE = 0) that differ from the base record; the base record is restored."
+function decdiff(S::Sys, x, λ)
+    base = Dict(k => copy(v) for (k, v) in TX.DEC); a = gi(:ngrs)
+    try perturbed(S, x, λ; freeze = 1)
+    catch ex; ex isa InterruptException && rethrow(); end
+    nd = 0; parts = String[]
+    for (k, v) in TX.DEC
+        haskey(base, k) || (push!(parts, "newkey $(k[1])/$(k[2])"); continue)
+        d = findall(v .!= base[k]); nd += length(d)
+        isempty(d) || push!(parts, @sprintf("%s/%d:%d[k %s]", k[1], k[2], length(d), join(first(d, 4) .- a .+ 1, ",")))
+    end
+    for k in collect(keys(TX.DEC)); haskey(base, k) ? copyto!(TX.DEC[k], base[k]) : delete!(TX.DEC, k); end
+    nd, join(parts, " ")
+end
+function scan!(S::Sys, b, x)
+    ne, nb, k0 = S.ne, S.nb, S.k0; a = gi(:ngrs); wb = b .* S.wt; wx = x .* S.wt; pre = "NKSCAN "
+    @printf("%sA att %d it %d jstep %d dtime %.6g theta %g |b|_W %.6g |x|_W %.6g\n", pre, Trbdf2.NWATT[], gi(:iter), gi(:jstep), TD.g(:dtime), TD.g(:thet), norm(wb), norm(wx))
+    println(pre, "A largest weighted x (eq@zone:value): ", toplist(S, wx, 8)); println(pre, "A largest weighted b: ", toplist(S, wb, 8))
+    rn, dn, tn, ern, frn, un = (vf(s) for s in (:rn, :dn, :tn, :ern, :frn, :un)); x1, x2 = TX.XSN[][1], TX.XSN[][2]
+    println(pre, "B state (zone: r rho T E_r F_r x_H+ x_H2 u)")
+    for z in 26:33
+        k = a + z - 1; k > gi(:ngre) + 1 && continue
+        @printf("%sB zone %d: r %.6e rho %.6e T %.6e E_r %.6e F_r %.6e x_H+ %.6e x_H2 %.6e u %.6e\n", pre, z, rn[k], k <= gi(:ngre) ? dn[k] : NaN, k <= gi(:ngre) ? tn[k] : NaN, k <= gi(:ngre) ? ern[k] : NaN, frn[k], k <= gi(:ngre) ? x1[k] : NaN, k <= gi(:ngre) ? x2[k] : NaN, un[k])
+    end
+    for z in (29, 30)
+        kb = a + z - 1 - k0 + 1
+        println(pre, "B weights zone ", z, ": ", join((@sprintf("%s %.4g", NMS[i], S.wt[(kb-1)*ne+i]) for i in 1:min(ne, 9)), " "))
+    end
+    println(pre, "B raw x (r m rho u T E_r F_r x_H+ x_H2)")
+    for z in 27:32
+        kb = a + z - 1 - k0 + 1
+        println(pre, "B raw x zone ", z, ": ", join((@sprintf("%.4e", x[(kb-1)*ne+i]) for i in 1:min(ne, 9)), " "))
+    end
+    # C: line scan
+    T0, _ = levelT(S, S.R0); @printf("%sC T0 %.6g (norm(b W) %.6g), |sc R0| %.6g\n", pre, T0, norm(wb), norm(S.sc .* S.R0))
+    lams = [1e-6, 1e-5, 1e-4, 1e-3, 1/256, 1/128, 1/64, 1/32, 1/16, 1/8, 1/4, 1/2, 1.0]
+    for sg in (-1, 1), l in lams
+        λ = sg * l; line = ""
+        for fr in (0, 2)
+            R, exc, bad = scantrial(S, x, λ, fr)
+            if exc !== nothing
+                println(pre, "C lambda ", λ, " freeze ", fr, " EXCEPTION ", typeof(exc), ": ", first(split(sprint(showerror, exc), '\n')))
+            else
+                T, w = levelT(S, R)
+                if isfinite(T)
+                    @printf("%sC lambda %+.6g freeze %d T %.6g T/T0 %.6g linear |1-l| %.6g |sc R| %.6g worst row %s\n", pre, λ, fr, T, T / T0, abs(1 - λ), norm(S.sc .* R), zname(S, argmax(abs.(w))))
+                else
+                    nf = findall(!isfinite, R)
+                    @printf("%sC lambda %+.6g freeze %d T non-finite (%d non-finite residual rows): %s\n", pre, λ, fr, length(nf), join((zname(S, r) * "=" * string(R[r]) for r in first(nf, 10)), " "))
+                end
+            end
+            isempty(bad) || println(pre, "C   state after update (lambda ", λ, " freeze ", fr, "): ", length(bad), " flagged: ", join(first(bad, 12), " "))
+        end
+        nd, parts = decdiff(S, x, λ)
+        println(pre, "C   lambda ", λ, " branch decisions differing from the base record: ", nd, " ", parts)
+    end
+    # D: column probes
+    r1 = argmax(abs.(wx)); e = zeros(S.n); e[r1] = 1.0; xn = norm(wx); v = x ./ xn
+    y = zeros(S.n); out = zeros(S.n)
+    function Aop(vv, eps, fr)
+        fdjv!(y, S, vv, eps / maximum(abs, vv .* S.wt); freeze = fr)
+        precond!(out, S, y); out[.!S.act] .= 0.0; copy(out)
+    end
+    println(pre, "D unit entry e = ", zname(S, r1), " (weight ", S.wt[r1], "); v = x/|x|_W")
+    for (fr, epss) in ((2, (1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7)), (0, (1e-5,)))
+        for eps in epss
+            for (nmv, vv) in (("e", e), ("v", v))
+                try
+                    o = Aop(vv, eps, fr); d = nmv == "e" ? o .- e : o
+                    @printf("%sD freeze %d eps %.0e %s: |Av|_W %.6g |Av - %s|_W %.6g  top W*(Av%s): %s\n", pre, fr, eps, nmv, norm(o .* S.wt), nmv == "e" ? "e" : "0", norm(d .* S.wt), nmv == "e" ? "-e" : "", toplist(S, d .* S.wt, 10))
+                catch ex
+                    ex isa InterruptException && rethrow()
+                    println(pre, "D freeze ", fr, " eps ", eps, " ", nmv, " EXCEPTION ", typeof(ex), ": ", first(split(sprint(showerror, ex), '\n')))
+                end
+            end
+        end
+    end
+    # E: raw column against the band column
+    fdjv!(y, S, e, 1e-5 / maximum(abs, e .* S.wt)); z, _ = bandmul(S, e)
+    d = abs.(y .- z) .* S.sc
+    println(pre, "E rows with the largest row-scaled |J e - J_b e| (e = ", zname(S, r1), "; values times S.sc): row, J e, J_b e, diff")
+    for r in sortperm(d; rev = true)[1:12]
+        @printf("%sE %s: Je %+.5e Jb e %+.5e diff %+.5e (sc %.3e)\n", pre, zname(S, r), y[r] * S.sc[r], z[r] * S.sc[r], (y[r] - z[r]) * S.sc[r], S.sc[r])
+    end
+    nothing
+end
+
 # ---------------------------------------------------------------- the hook (TD.KRYLOV[]), called after matslv
 function krylov!()
     t0 = time(); CNT.solves += 1
@@ -312,6 +435,14 @@ function krylov!()
         @inbounds for r in 1:S.n; S.act[r] && (b[r] = δ0[(r-1)%ne+1, (r-1)÷ne+1]); end
         x, m, conv, rel = gmres(S, b)
         conv || (CNT.nonconv += 1)
+        if SCAN[][1] == Trbdf2.NWATT[] && gi(:iter) in SCAN[][2]
+            try scan!(S, b, x)
+            catch ex
+                ex isa InterruptException && rethrow()
+                println("NKSCAN: diagnostic failed: ", first(sprint(showerror, ex), 300))
+            end
+            flush(stdout)
+        end
         lsinfo = " ls off"; λ = 1.0
         if LS.on && maximum(abs, x .* S.wt) > LS.trigger
             LSC.engaged += 1
