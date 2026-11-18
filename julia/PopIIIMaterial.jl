@@ -99,8 +99,8 @@ function zone_cooling(m, k)
     f = ext_cooling(m, k)
     c = f === nothing ? m.cooling : m.cooling === nothing ? ((ρ, T, y) -> f(T)) : ((ρ, T, y) -> m.cooling(ρ, T, y) + f(T))
     end
-    (HDCHEM[] && k <= length(HDX[]) && HDX[][k] > 0) || return c
-    xhd = HDX[][k]                                   # HDCHEM=1: HD cooling with the x_HD of the start of the step
+    (HDCHEM[] && !CPLPREP[] && k <= length(HDX[]) && HDX[][k] > 0) || return c      # (the coupled zones' HD cooling is that of the iterate: cpl_g)
+    xhd = HDX[][k]                                   # HDCHEM=1: HD cooling with the x_HD of the start of the step (operator-split chemistry)
     c === nothing ? ((ρ, T, y) -> hd_cool(ρ, T, y, xhd)) : ((ρ, T, y) -> c(ρ, T, y) + hd_cool(ρ, T, y, xhd))
 end
 
@@ -1611,7 +1611,9 @@ D + H⁻), D ionisation and recombination with the H rates, HD photodissociation
 as the stationary state of the chain with a restart at rate 1/Δt to the old state: sums of positive products only, exact for any
 rate × Δt, and y_D is conserved. Table and hot zones: the stationary state.
 Cooling: n_HD [W(T) − W(T_CMB)], W = Λ_LTE/(1 + Λ_LTE/(n_HI Λ_low)) (Coppola et al. 2011; Wrathmall, Gusdorf & Flower 2007: HD–H
-collisions only), inside the implicit chemistry–temperature step, with the x_HD of the start of the step.
+collisions only), inside the implicit chemistry–temperature step, with the x_HD of the start of the step. The coupled zones of the hydro Newton
+have the x_HD of the iterate instead (`cpl_g`): the backward-Euler step of the chain from the start-of-step state over the time elapsed in the stage, at the
+iterate's T, ρ, composition and Lyman–Werner rate (local, exact derivatives).
 Zones without the two entries (restart from a run without HD, a rebuilt mesh): table zones get the stationary state; network zones
 the stationary state with `HDINIT=eq` (default), or with `HDINIT=<x_HD>` that HD abundance and D⁺/D = H⁺/H.
 Not included: HD in the EOS (binding energy, particle number: 2.5e-5 of H), HD–H₂ and HD–He collisions, HD line optical depths,
@@ -1647,8 +1649,8 @@ function hd_cool(ρ, T, d, xHD)
 end
 "Transition rates [1/s] between the states (D, D⁺, HD): (D→D⁺, D⁺→D, D⁺→HD, HD→D⁺, D→HD, HD→D)."
 function hd_rates(T, nH, d, kLW)
-    t = min(max(Float64(T), 10.0), 1e6)
-    g(s) = max(Float64(get(d, s, 0.0)), 0.0)
+    t = min(max(T, 10.0), 1e6)
+    g(s) = max(get(d, s, zero(t)), 0.0)
     xH, xp, xe, xH2, xm = g(:H), g(:Hp), g(:e), g(:H2), g(:Hm)
     (nH * (PC.k1_aazn(t) * xe + hd_k50(t) * xp), nH * (PC.k2_aazn(t) * xe + hd_k51(t) * xH), nH * hd_k52(t) * xH2,
      nH * hd_k53(t) * xp, nH * (hd_k54(t) * xH2 + hd_k56(t) * xm), nH * hd_k55(t) * xH + kLW)
@@ -1670,6 +1672,12 @@ function hd_step(q, p0, idt)
     (isfinite(s) && s > 0) || return p0
     (w1 / s, w2 / s, w3 / s)
 end
+"""
+The (D, D⁺, HD) fractions of the coupled zone at the iterate (HDCHEM): the backward-Euler step of the three-state chain (`hd_step`) from the start-of-step
+fractions p0 over the time elapsed since the start of the step (stage: γΔt, Δt) at the iterate's T, ρ, composition d and Lyman–Werner rate kLW; at the end of the
+step it is the step the operator-split chemistry (`chem!`) takes from the same state. Generic in the number type.
+"""
+hd_x(ρ, T, d, kLW, p0) = (te = TF.getscalar(:timen) - TF.getscalar(:timeo); hd_step(hd_rates(T, ρ / CNn.μH(), d, kLW), p0, te > 0 ? 1 / te : Inf))
 hd_fracs(xDp, xHD) = (yD = HDYD[]; p2 = clamp(xDp / yD, 0.0, 1.0); p3 = clamp(xHD / yD, 0.0, 1.0 - p2); (1.0 - p2 - p3, p2, p3))
 function hd_default(m, k, x)
     dn, tn = TM.v(:dn), TM.v(:tn); yD = HDYD[]
@@ -1735,6 +1743,8 @@ Not coupled: the IonRay path (a ray zone is not prepared), CHEMB (BALSPLIT) — 
 const CPLPREP = Ref(false); const CPLPOST = Ref(false)
 const CPLDBGZ = Ref(parse(Int, get(ENV, "CPLDBGZ", "0"))); const CPLDBGN = Ref(parse(Int, get(ENV, "CPLDBGN", "20")))
 const CPLTERMS = Ref(Any[]); const CPLCACHE = Ref(Any[])
+"(HDCHEM) per zone the start-of-step fractions (D, D⁺, HD) of the coupled zones' HD chain (hd_fracs), the old state of `hd_x`."
+const CPLHD0 = Ref(Any[])
 """
 The zone's photo-rates as a function of T: cached on the last Float64 T (`cache = Ref((T, rates))`); a Dual T (the local Jacobian sweeps of
 `cpl_vj`, `nlo_slopes`) is evaluated directly and carries ∂(rates)/∂T (ChemNet.ck_eval used to take the rates at the value of T: the Jacobian then lacked
@@ -1764,6 +1774,7 @@ R_Lyα is still the iterate's. `phc`, `phc0` may be given uncached (NLOIT's path
 function cpl_tq(t, ρ, x1, x2, q, tc, fs, g; phc = t.phc, phc0 = t.slq.phc0)
     s_ = t.slq; p3b = s_.p3; envb = t.env; extrab = t.extra; r = s_.rec
     RL = g === nothing ? p3b.RL : lya_escape(ρ, x1, x2, g)             # (g = nothing: the prepared R_Lyα, for the opacity's base value)
+    kLW = 0.0
     if r !== nothing                             # the terms at the iterate's colour temperature (Float) and dilution (q: below)
         Tc = r.Tc0 * tc; W0 = r.W0; sl = STARLIGHT[]
         mgr_ = hasproperty(r, :Wg)                   # MGROUPS: each process with its group's dilution
@@ -1793,7 +1804,7 @@ function cpl_tq(t, ρ, x1, x2, q, tc, fs, g; phc = t.phc, phc0 = t.slq.phc0)
     ex = extrab === nothing ? nothing : (x -> q .* extrab(x))
     c0 = s_.c0
     cooling = (ρ_, T, d) -> (c0 === nothing ? zero(T) : c0(ρ_, T, d)) - tl3_heat(ρ_, T, d, merge(p3q, (; ne = ρ_ / CNn.μH() * max(d[:Hp], zero(d[:Hp])))))[1]
-    (; env, phc = phq, cooling, extra = ex)
+    (; env, phc = phq, cooling, extra = ex, kLW)
 end
 function cpl_g(m::NetGas, k, z)
     t = CPLTERMS[][k]; ρ = z[1]; T = z[2]
@@ -1802,6 +1813,8 @@ function cpl_g(m::NetGas, k, z)
     u, p = CNn.eos(ρ, T, x, m.net)
     dfull = CNn.full(x, m.net)
     Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, dfull)
+    hd0 = HDCHEM[] && k <= length(CPLHD0[]) ? CPLHD0[][k] : nothing
+    hd0 === nothing || (Λ += hd_cool(ρ, T, dfull, HDYD[] * hd_x(ρ, T, dfull, hasproperty(t, :kLW) ? t.kLW : 0.0, hd0)[3]))      # HD cooling of the iterate (HDCHEM)
     # three-level heats of the iterate (chemistry heat cq, cycle heat yq; n_e self-consistent as in the cooling closure): the hydro solve
     # takes them from the gray field implicitly (TitanResidFast cpQ, cpY) instead of the lagged RAYQ/GASQ bookkeeping
     p3_ = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
@@ -1914,7 +1927,7 @@ end
 function cpl_prepare!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); nf = length(m.net.free)
     dn, tn = TM.v(:dn), TM.v(:tn); mgr = length(dn); TX.cpl_alloc!(mgr)
-    HDCHEM[] && (HDX[] = [length(x) > nf ? max(x[nf+2], 0.0) : 0.0 for x in m.x])
+    CPLHD0[] = HDCHEM[] ? Any[length(x) > nf ? hd_fracs(x[nf+1], x[nf+2]) : nothing for x in m.x] : Any[]
     length(CPLTERMS[]) == mgr || (CPLTERMS[] = Any[nothing for _ in 1:mgr]); fill!(CPLTERMS[], nothing)
     length(CPLCACHE[]) == mgr || (CPLCACHE[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHE[], nothing)
     SLIMP && (length(CPLCACHEQ[]) == mgr || (CPLCACHEQ[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHEQ[], nothing);
