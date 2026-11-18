@@ -1733,7 +1733,7 @@ try
         TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
         if PM.SLIMP                                # SLIMP>0: the star light of the coupled zones at the Newton iterate (PM.sl_sweep!, cpl_zone_q)
             PM.SLBLEND[] || error("SLIMP needs SLBLEND=1 (the colour temperature and dilution of the iterate are the blend of PM.sl_sweep!)")
-            TX.SLIMP[] = true; TX.SL_SWEEP[] = PM.sl_sweep!; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t, fs, g) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t, fs, g)
+            TX.SLIMP[] = true; TX.SL_SWEEP[] = PM.sl_sweep!; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t, fs, g, dp) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t, fs, g, dp)
             pr("SLIMP: star light of the coupled zones at the Newton iterate: dilution W, colour temperature, Lyman-Werner shielding, Lyα escape (local variables of the zone's chemistry and NLOIT opacity)\n")
         end
         get(ENV, "CPLLOCAL", "1") == "1" && (TX.CPL_LOCAL[] = (k, dt) -> PM.cpl_local!(mat, k, dt))

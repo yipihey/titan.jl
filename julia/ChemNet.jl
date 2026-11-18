@@ -345,7 +345,12 @@ const PHTAB = CowCache{Any}(); const PHLOCK = PHTAB.lk
 "(HM88) the Milne inverse of H photoionization × φ (see HM88); otherwise `_photorates_t`."
 photorates_t(p::Photo, T, env) = (HM88 && p.R === :H && hasproperty(env, :hm)) ? (r = _photorates_t(p, T, env); (r[1], r[2] * hm_phi(T, env))) : _photorates_t(p, T, env)
 function _photorates_t(p::Photo, T, env)
-    hasproperty(env, :ljW) && return photorates_lj(p, T, env)
+    if hasproperty(env, :ljW)                          # J = J_static + W B(T_c): the table of the diluted blackbody plus the static field's rates (the spontaneous α once)
+        r = photorates_lj(p, T, env)
+        hasproperty(env, :ljs) || return r
+        s_ = _photorates_t(p, T, env.ljs); a0 = photorates_lj(p, T, merge(env, (; ljW = 0.0)))[2]
+        return (r[1] + s_[1], r[2] + s_[2] - a0)
+    end
     (hasproperty(env, :static) && env.static) || return photorates(p, T, env)
     # env.tabkey: a per-zone env (extra fields for reactions) that shares the static J of `tabkey`, and so its table
     key = (p, hasproperty(env, :tabkey) ? env.tabkey : env)

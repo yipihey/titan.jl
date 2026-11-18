@@ -195,7 +195,7 @@ const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's i
 const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
 """
 SLIMP (popiii_m2c `SLIMP=1`, with COUPLED): the star light of a coupled zone at the Newton iterate. `SL_SWEEP[](S, ...)` fills, from the
-iterate's arrays, the state S = (q, t, fs, g) of every coupled zone: q = W/W_start (dilution), t = T_c/T_c,start (colour temperature), fs
+iterate's arrays, the state S = (q, t, fs, g, dp) of every coupled zone: q = W/W_start (dilution), t = T_c/T_c,start (colour temperature), fs
 (the Lyman-Werner factor f_sh × its on-weight) and g (the angle-mean velocity gradient of Lyα escape); `CPL_ZONEQ[](k, ρ, T, x1, x2, q, t, fs, g)`
 gives the zone's terms at that star light (PopIIIMaterial.cpl_zone_q) and `CPLSL[]` carries S (Duals) to the NLOIT opacity during the material sweep.
 """
@@ -1158,8 +1158,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         slst = nothing
         if SLIMP[]                                   # SLIMP: the star-light state of the iterate (new-level r, ρ, T, u, E_r, F_r, species)
             slst = get!(() -> (; q = Vector{T}(undef, length(xs1)), t = Vector{T}(undef, length(xs1)), fs = Vector{T}(undef, length(xs1)),
-                               g = Vector{T}(undef, length(xs1)), ts = Vector{T}(undef, length(xs1)), wq = Vector{T}(undef, length(xs1))), SLQBUF, (T, length(xs1)))
-            @inbounds for k in eachindex(slst.q); slst.q[k] = one(T); slst.t[k] = one(T); slst.fs[k] = zero(T); slst.g[k] = one(T); slst.ts[k] = zero(T); slst.wq[k] = zero(T); end
+                               g = Vector{T}(undef, length(xs1)), ts = Vector{T}(undef, length(xs1)), wq = Vector{T}(undef, length(xs1)), dp = Vector{T}(undef, length(xs1))), SLQBUF, (T, length(xs1)))
+            @inbounds for k in eachindex(slst.q); slst.q[k] = one(T); slst.t[k] = one(T); slst.fs[k] = zero(T); slst.g[k] = one(T); slst.ts[k] = zero(T); slst.wq[k] = zero(T); slst.dp[k] = zero(T); end
             SL_SWEEP[](slst, ngrs, ngre, rn, dn, tn, un, ern, frn, xs1, xs2, cplz;
                          mgqt = Mg === nothing ? nothing : (k -> (gq = MGSLG[]; MGSLQ[](k, ern[k], Mg.egn[gq][k], Mg.fgn[gq][k], Mg.fgn[gq][k+1]))))
             if SLIMPDBG[] > 0
@@ -1182,7 +1182,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             try zone_sweep!(ngrs:ngre, k -> true) do k
                 @inbounds if cplz(k)
                     y = slst === nothing ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) :
-                        CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slst.q[k], slst.t[k], slst.fs[k], slst.g[k])
+                        CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slst.q[k], slst.t[k], slst.fs[k], slst.g[k], slst.dp[k])
                     W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
                     if SLIMPDBG[] > 0 && !all(v -> isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v))), y)
                         SLIMPDBG[] -= 1; println("SLIMPDBG cpl zone $(k - ngrs + 1) non-finite: y ", y, " state ", slst === nothing ? 1 : (slst.q[k], slst.t[k], slst.fs[k], slst.g[k]))
