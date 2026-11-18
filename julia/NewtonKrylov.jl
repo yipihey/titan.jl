@@ -420,16 +420,16 @@ Newton globalisation (always on with NKRYLOV; docs/POPIII_SWITCH_AUDIT2.md). One
   max(|u|, c_s), F_r against cE, m against the zone mass, r against the zone width), is limited to the radius Δ (start `delta0` = 0.5 in every Newton solve, at most `deltamax`):
   λ_cap = min(1, largest λ with size ≤ Δ) (`capfraction`).
 * The step is first truncated componentwise to the box |δ ln x| ≤ `deltamax` for the logarithmic unknowns (`boxclip!`).
-* Armijo backtracking from λ_cap: halve λ until T(λ) ≤ (1 − c λ) T(0) (c = 1e-4), at most down to smin·λ_cap (smin = 1e-3); no such λ is a Newton failure (the caller retries
+* Armijo backtracking from λ_cap: halve λ until T(λ) ≤ (1 − c λ + ν) T(0) (c = 1e-4; ν = 1e-6 the round-off of the residual: a step that changes only entries the weights all but ignore leaves T(λ) = T(0) to 9 digits and must not be a failure), at most down to smin·λ_cap (smin = 1e-3); no such λ is a Newton failure (the caller retries
   with a smaller dt). A step of size ≤ `tol` = 1e-4 is applied without the test: the merit cannot resolve a decrease there (round-off of the formal solution is 1e-6 in R and is amplified by J_b⁻¹; with the test every step of 1e-5 backtracked and shrank the radius), and it is the quadratic regime.
 * Radius update from the ratio ρ_TR of the actual to the predicted reduction (T(0) − T(λ))/(λ (1 − η_lin) T(0)), η_lin the GMRES relative residual: ρ_TR < 1/4 or a backtracked step
-  sets Δ to (1/2 of / the size of) the accepted step; ρ_TR > 3/4 with the step on the boundary doubles Δ.
+  sets Δ to (1/2 of / the size of) the accepted step; ρ_TR > 1/2 with the step on the boundary doubles Δ.
 * `maxdel!` then measures convergence on the full step s (TitanCore.STEP_FRAC = λ): a cut step is never converged.
 """
 mutable struct GlobOpts
-    delta0::Float64; deltamax::Float64; armijo::Float64; smin::Float64; tol::Float64
+    delta0::Float64; deltamax::Float64; armijo::Float64; smin::Float64; tol::Float64; noise::Float64; rmin::Float64
 end
-const GLOB = GlobOpts(0.5, 4.0, 1e-4, 1e-3, 1e-4)
+const GLOB = GlobOpts(0.5, 4.0, 1e-4, 1e-3, 1e-4, 1e-6, 0.05)
 mutable struct GlobCount
     solves::Int; capped::Int; backtracked::Int; fail::Int; evals::Int; rejected::Int; truncated::Int
 end
@@ -512,15 +512,16 @@ function globalize(S::Sys, s, rel)
     hist = Tuple{Float64,Float64}[]
     while λ >= GLOB.smin * λcap * (1 - 1e-12)
         T = merit(S, s, λ); push!(hist, (λ, T / T0))
-        if T <= (1 - GLOB.armijo * λ) * T0
+        if T <= (1 - GLOB.armijo * λ + GLOB.noise) * T0
             sz = stepsize(S, s, λ); ratio = (T0 - T) / (λ * (1 - min(rel, 0.99)) * T0)
             if λ < λcap
                 GC.backtracked += 1; TRR[] = sz
             elseif ratio < 0.25
                 TRR[] = 0.5 * sz
-            elseif ratio > 0.75 && sz >= 0.9 * TRR[]
+            elseif ratio > 0.5 && sz >= 0.9 * TRR[]
                 TRR[] = min(2TRR[], GLOB.deltamax)
             end
+            TRR[] = max(TRR[], GLOB.rmin)       # (a radius below the resolution of the merit is noise: it halved to 1e-9 over 15 iterations and froze the solve; at 1e-3 the truncated GMRES iterate was cut each iteration and the contraction was 0.97)
             return λ
         end
         λ /= 2
