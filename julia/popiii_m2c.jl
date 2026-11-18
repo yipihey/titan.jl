@@ -1139,8 +1139,8 @@ function envlr(rout)
     lr[1] .+ (lr .- lr[1]) .* (log(rout) - lr[1]) / (lr[end] - lr[1])
 end
 # ICMLOG=m1 (default unset = unchanged): the IC mesh is logarithmic in enclosed mass instead of envlr's / the rule's (GRIDEQ) mesh:
-# N = GEQN (default nsh) zones, interfaces at m_k = m1 (M_cloud/m1)^((k-1)/(N-1)), k = 1..N (m1 in Msun; the first zone is the sphere 0 … r(m1)),
-# r(m) the exact inverse of the IC's M(r) interpolation. Only for the start from the IC. NB: GRIDEQ keeps the first interface (r(m1)) fixed.
+# N = GEQN (default nsh) zones: first interface as the default start (envlr's; GRIDEQ keeps it fixed), interfaces k = 2..N at m_k = m1 (M_cloud/m1)^((k-2)/(N-2)) (m1 in Msun; error if r(m1) <= r_1),
+# r(m) the exact inverse of the IC's M(r) interpolation. Only for the start from the IC.
 # The start (every run without RESTART/STARFROM; formerly ICEUL=1): the initial condition directly on the fixed log mesh of
 # ENVEUL/ENVCORE (lgrid = 2, regular centre), at t = 0. The mesh is `envlr`'s, from ENVCORE's first interface to the outer radius of the IC. Mass-conserving: the interior mass at
 # every interface is that of the IC's tabulated M(r) (piecewise-uniform density between its nodes, so the zone masses add up to the
@@ -1181,23 +1181,25 @@ function iceulbuild!(; rIset = nothing, icmlog = nothing)     # rIset: the inter
               Mg[j] + (r^3 - rg3[j]) / (rg3[j+1] - rg3[j]) * (Mg[j+1] - Mg[j]))
     # exact inverse of Mof (r^3 linear in m between the table nodes)
     rofM(m) = (j = clamp(searchsortedlast(Mg, m), 1, length(Mg) - 1); cbrt(rg3[j] + (m - Mg[j]) / (Mg[j+1] - Mg[j]) * (rg3[j+1] - rg3[j])))
-    if icmlog !== nothing       # ICMLOG: interfaces at m_k = m1 (Mtot/m1)^((k-1)/(N-1)), k = 1..N, plus the centre
+    if icmlog !== nothing       # ICMLOG: first interface as the default start (envlr's, pinned by GRIDEQ), interfaces 2..N at log-uniform enclosed mass from m1 to Mtot
         m1_, N_ = icmlog[1] * Msun, icmlog[2]
-        mk_ = [m1_ * (Mtot / m1_)^((k - 1) / (N_ - 1)) for k in 1:N_]
+        r1_ = (r_ = exp.(envlr(rout)); r_[end] = rout; vcat([r_[1] * i / ENVLIN for i in 0:ENVLIN-1], r_))[2]
+        mk_ = [m1_ * (Mtot / m1_)^((k - 2) / (N_ - 2)) for k in 2:N_]
         rk_ = [rofM(m) for m in mk_]; rk_[end] = rout
-        all(>(0), diff(rk_)) && rk_[1] > 0 || error("ICMLOG: the interfaces are not monotone")
-        for k in 1:N_-1; abs(Mof(rk_[k]) - mk_[k]) <= 1e-10 * mk_[k] || error("ICMLOG: Mof(r(m)) does not reproduce m at interface $k"); end
-        rIset = vcat(0.0, rk_)
+        rk_[1] > r1_ || error("ICMLOG: r(m1) = $(rk_[1]) <= the first interface $(r1_)")
+        all(>(0), diff(rk_)) || error("ICMLOG: the interfaces are not monotone")
+        for k in 1:N_-2; abs(Mof(rk_[k]) - mk_[k]) <= 1e-10 * mk_[k] || error("ICMLOG: Mof(r(m)) does not reproduce m at interface $(k+1)"); end
+        rIset = vcat(0.0, r1_, rk_)
     end
     rI_ = rIset === nothing ? (r_ = exp.(envlr(rout)); r_[end] = rout; vcat([r_[1] * i / ENVLIN for i in 0:ENVLIN-1], r_)) : copy(rIset); n = length(rI_) - 1
     mI_ = [Mof(r) for r in rI_]; mI_[end] = Mtot
     all(>(0), diff(mI_)) || error("ICEUL: a zone without mass")
     if icmlog !== nothing
-        dl_ = diff(log.(rI_[2:end])); i2_ = searchsortedfirst(mI_, 1e-2Msun) - 1       # (zone j spans interfaces j, j+1 of rI_; i2_ = the zone containing 1e-2 Msun)
-        pr("ICMLOG: IC starting mesh, %d zones log in enclosed mass from %.3g Msun (r %.4g R_sun) to %.4g Msun (r %.4g R_sun), dln r %.3f .. %.3f, dln m %.4f\n",
-           n, mI_[2] / Msun, rI_[2] / Rsun, Mtot / Msun, rI_[end] / Rsun, minimum(dl_), maximum(dl_), log(Mtot / mI_[2]) / (n - 1))
-        pr("ICMLOG: 1e-2 Msun at r %.4g R_sun, in zone %d (of %d); first interfaces r [R_sun] %s, m [Msun] %s\n", rofM(1e-2Msun) / Rsun, i2_, n,
-           join((@sprintf("%.4g", rI_[k] / Rsun) for k in 2:4), " "), join((@sprintf("%.4g", mI_[k] / Msun) for k in 2:4), " "))
+        dl_ = diff(log.(rI_[3:end])); i2_ = searchsortedfirst(mI_, 1e-2Msun) - 1       # (zone j spans interfaces j, j+1 of rI_; i2_ = the zone containing 1e-2 Msun)
+        pr("ICMLOG: IC starting mesh, %d zones: first interface fixed at r %.4g R_sun (m %.3g Msun), then log in enclosed mass from %.3g Msun (r %.4g R_sun) to %.4g Msun (r %.4g R_sun), dln r %.3f .. %.3f, dln m %.4f\n",
+           n, rI_[2] / Rsun, mI_[2] / Msun, mI_[3] / Msun, rI_[3] / Rsun, Mtot / Msun, rI_[end] / Rsun, minimum(dl_), maximum(dl_), log(Mtot / mI_[3]) / (n - 2))
+        pr("ICMLOG: 1e-2 Msun at r %.4g R_sun, in zone %d (of %d); interfaces 1,2,3,4 r [R_sun] %s\n", rofM(1e-2Msun) / Rsun, i2_, n,
+           join((@sprintf("%.4g", rI_[k] / Rsun) for k in 2:5), " "))
     end
     ρz = [(mI_[j+1] - mI_[j]) / (4π / 3 * (rI_[j+1]^3 - rI_[j]^3)) for j in 1:n]
     # mass-weighted zone means of T(M), f_H2(M) (64 midpoints in m per zone; the IC tables are in log M [M☉], constant below their first node)
