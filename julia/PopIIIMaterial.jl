@@ -581,7 +581,7 @@ function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0, g = nothing)
     ph_, en_ = t.phraw; phc = Tq -> Any[(p_, CNn.photorates_t(p_, Tq, en_)...) for p_ in ph_]
     if (q != 1 || tc != 1 || g !== nothing) && hasproperty(t, :slq)          # SLIMP: the composition at the iterate's star light (f_sh does not enter the fast species)
         e0 = t.slq.envc0; phc0 = e0 === nothing ? nothing : (Tq -> Any[(p_, CNn.photorates_t(p_, Tq, e0)...) for p_ in ph_])
-        tq = cpl_tq(t, ρ, x1, x2, q, tc, 0.0, g; phc, phc0)
+        tq = cpl_tq(t, ρ, T, x1, x2, q, tc, 0.0, g; phc, phc0)
         x, _ = CNn.ck_eval([x1, x2], ρ, T, m.net; env = tq.env, phc = tq.phc, extra = tq.extra)
         Threads.atomic_add!(NLOCNS, Int(time_ns() - t0_))
         return CNn.full(x, m.net), tq.env.tl3
@@ -1760,12 +1760,12 @@ end
 (SLIMP) the prepared terms of a zone at the star light of the iterate: (q, tc, fs, g) = (W/W_start, T_c/T_c,start, the LW factor
 f_sh × (smooth on-weight of τ) of `sl_sweep!`, the velocity gradient g of the zone). Everything that follows from them is recomputed here
 exactly: the photo-rates of J = W B(T_c) (R ∝ W; the Milne inverse α = α_spont + W α_stim), kLW = 1.1e8 · 4π W B_ν(T_c) fs (kHm, kH at the
-value of T), the three-level β = W β_2s(T_c), R_Lyα(ρ, x_H⁺, x_H₂, g), P12 = (R_Lyα + Λ_2s) W/(e^{E21/kT_c} − 1) and ⟨hν⟩(T_c). The
+value of T of the iterate), the three-level β = W β_2s(T_c), R_Lyα(ρ, x_H⁺, x_H₂, g), P12 = (R_Lyα + Λ_2s) W/(e^{E21/kT_c} − 1) and ⟨hν⟩(T_c). The
 colour temperature enters as a Float (the photo-rate tables are Float in T_c; its slope is a central difference in `cpl_vjq`); q, fs, g and
 (ρ, x) are Duals. A zone without a star-light record (no star at the prepare pass) has q = tc = 1 and keeps the prepared W and T_c; its
 R_Lyα is still the iterate's. `phc`, `phc0` may be given uncached (NLOIT's path).
 """
-function cpl_tq(t, ρ, x1, x2, q, tc, fs, g; phc = t.phc, phc0 = t.slq.phc0)
+function cpl_tq(t, ρ, T, x1, x2, q, tc, fs, g; phc = t.phc, phc0 = t.slq.phc0)
     s_ = t.slq; p3b = s_.p3; envb = t.env; extrab = t.extra; r = s_.rec
     RL = g === nothing ? p3b.RL : lya_escape(ρ, x1, x2, g)             # (g = nothing: the prepared R_Lyα, for the opacity's base value)
     kLW = 0.0
@@ -1780,9 +1780,9 @@ function cpl_tq(t, ρ, x1, x2, q, tc, fs, g; phc = t.phc, phc0 = t.slq.phc0)
                                                    merge(t.env, (; Trad = Tc, J = Jb, tl3 = p3b))) : merge(t.env, (; tl3 = p3b))
         ph_ = s_.ph; phc = Tv -> Any[(p_, CNn.photorates_t(p_, Tv, envb)...) for p_ in ph_]
         if t.extra !== nothing
-            e1 = (Trad = Tc, J = Jb)
-            kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, r.T, e1)
-            kH = mgr_ ? (r.kHon ? mg_kH(r.Wg, Tc) : 0.0) : sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, r.T, e1)
+            e1 = (Trad = Tc, J = Jb); Tv = Float64(ForwardDiff.value(T))
+            kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, Tv, e1)
+            kH = mgr_ ? (r.kHon ? mg_kH(r.Wg, Tc) : 0.0) : sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, Tv, e1)
             kLW = 1.1e8 * 4π * (mgr_ ? r.Wg[MGROLE[].LW] : W0) * _bnu(12.87 * EVERG / CNn.hP, Tc) * fs
             extrab = mgr_ ? starlight_terms(s_.mm, r.ρ, kHm, kH, kLW; a1 = r.a1) : starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
         end
@@ -1802,7 +1802,7 @@ function cpl_tq(t, ρ, x1, x2, q, tc, fs, g; phc = t.phc, phc0 = t.slq.phc0)
 end
 function cpl_g(m::NetGas, k, z)
     t = CPLTERMS[][k]; ρ = z[1]; T = z[2]
-    length(z) >= 8 && hasproperty(t, :slq) && (t = cpl_tq(t, ρ, z[3], z[4], z[5], Float64(ForwardDiff.value(z[6])), z[7], z[8]))
+    length(z) >= 8 && hasproperty(t, :slq) && (t = cpl_tq(t, ρ, T, z[3], z[4], z[5], Float64(ForwardDiff.value(z[6])), z[7], z[8]))
     x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
     u, p = CNn.eos(ρ, T, x, m.net)
     dfull = CNn.full(x, m.net)
@@ -1979,7 +1979,7 @@ function cpl_finish!(m::NetGas)
     for k in a:b
         TX.cplz(k) || continue
         t = CPLTERMS[][k]
-        SLIMP && hasproperty(t, :slq) && (t = cpl_tq(t, dn[k], TX.XSN[][1][k], TX.XSN[][2][k], S.q[k], S.t[k], S.fs[k], S.g[k]))
+        SLIMP && hasproperty(t, :slq) && (t = cpl_tq(t, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k], S.q[k], S.t[k], S.fs[k], S.g[k]))
         x, _ = CNn.ck_eval([TX.XSN[][1][k], TX.XSN[][2][k]], dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)
         old = m.x[k]; m.x[k] = length(old) > nf ? vcat(x, old[nf+1:end]) : x
     end

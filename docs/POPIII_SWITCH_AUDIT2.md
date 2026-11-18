@@ -285,7 +285,7 @@ Columns: default (code at 1782928); value in the z300mm stack (`–` = not set; 
 | SLBLEND | `"0"` | `1` | popiii_m2c.jl:532 | star-light colour temperature blended in τ / Eddington–Barbier / dilution from max(c(E_r−E_cmb), F_r) | KEEP-STACK | stack 1; patches of the J_ν closure until a per-zone spectrum exists (G4): keep for now |
 | SLEB | `"0"` | `1` | popiii_m2c.jl:535 | star-light colour temperature blended in τ / Eddington–Barbier / dilution from max(c(E_r−E_cmb), F_r) | KEEP-STACK | stack 1; patches of the J_ν closure until a per-zone spectrum exists (G4): keep for now |
 | SLWFLUX | `"0"` | `1` | PopIIIMaterial.jl:749 | star-light colour temperature blended in τ / Eddington–Barbier / dilution from max(c(E_r−E_cmb), F_r) | KEEP-STACK | stack 1; patches of the J_ν closure until a per-zone spectrum exists (G4): keep for now |
-| SLIMP | `"0"` | `2` | PopIIIMaterial.jl:1117 | star light at the Newton iterate (2) | KEEP-STACK | stack 2; MAKE-DEFAULT |
+| SLIMP | `"0"` | `2` | PopIIIMaterial.jl | star light at the Newton iterate (any value > 0; the former levels 1 and 2 are one: W, T_c, T_src, w_q, f_sh, R_Lyα all from the iterate, §11) | KEEP-STACK | stack 2; MAKE-DEFAULT; needs SLBLEND=1 |
 | SLFREEZE | `"0"` | – | PopIIIMaterial.jl:1147 | freeze the star-light parameters (test) | REMOVE-DEAD | never set; stage 2 |
 | SUBZONE | `"0"` | `1,2` | popiii_m2c.jl:1972, popiii_m2c.jl:1973 | interface optical depth across an unresolved front (two-layer sub-zone form) | KEEP-STACK | stack 1,2; MAKE-DEFAULT |
 
@@ -293,7 +293,7 @@ Columns: default (code at 1782928); value in the z300mm stack (`–` = not set; 
 
 | Switch | Default | z300mm | Where | What | Verdict | Note |
 |---|---|---|---|---|---|---|
-| LINEIMP | `"0"` | `1` | popiii_m2c.jl:580 | line cooling of each zone at the iterate (lag removed) | MAKE-DEFAULT | stack 1 |
+| LINEIMP | `"0"` | `1` | popiii_m2c.jl:580 | line cooling of each zone at the iterate (T, colliders and n_H₂ of the iterate; exact ∂/∂T, ∂/∂ρ, ∂/∂x by ForwardDiff, §11; β, J̄, f still from the last transfer call) | MAKE-DEFAULT | stack 1 |
 | LIFMAX | `"10"` | – | popiii_m2c.jl:580 | LINEIMP: bound of the ALI/EP factor (10) | KEEP-STACK |  |
 | IMPCOOL | `"1"` | – | popiii_m2c.jl:342, popiii_m2c.jl:344 | line-cooling slope from a second transfer call | REMOVE-SUPERSEDED | unset (default IMPCOOL=1), not used with LINEIMP (popiii_m2c LINEIMP docstring); superseded by LINEIMP. IMPCOOL in CKENV: translate |
 | IMPALWAYS | `"0"` | – | popiii_m2c.jl:344 | line-cooling slope from a second transfer call | REMOVE-SUPERSEDED | unset (default IMPCOOL=1), not used with LINEIMP (popiii_m2c LINEIMP docstring); superseded by LINEIMP. IMPCOOL in CKENV: translate |
@@ -763,3 +763,20 @@ the cold gas.
 **Open question.** The longer test needed before G2BLEND can be called "faster" is whether its Δt recovers to the 1e5 s steps
 over a full segment (1000 steps). The from-IC run would have to be continued until the core forms (≈ 4000 steps for z100mm).
 Neither fits in this session's core budget. The adoption is in its own commit (ea2bd2a), so it can be reverted alone.
+
+## 11. Lagged inputs of the implicit Newton–Krylov solve removed (branch `lagfix`, 18 Nov 2026)
+
+Principle (PI): every quantity in the residual is a function of the Newton iterate; non-local quantities are computed from the iterate inside the
+residual evaluation, so that the finite-difference J·v of the Newton–Krylov solve sees the full dependence, and the AD band Jacobian (the
+preconditioner) sees at least the part inside the band. Audit rows A3, A4, A6 of `titan_popiii/consistency_audit.md`.
+
+| Row | Was (held at the start of the step) | Now | Derivative |
+|---|---|---|---|
+| A3 local | R_Lyα (n_1s, ∂u/∂r), n_H of the three-level cooling heat | `lya_escape(ρ, x_H⁺, x_H₂, g)` with g of the iterate's r, u (`sl_grad`); ρ of the iterate in the cooling closure; P12 follows | band AD (cpl_g Jacobian, AD in ρ, T, x, q, f_sh, g) |
+| A3 non-local | T_src, w_q (τ integral, E_r profile), photosphere zone k_ph, T_eff, H₂/HI columns, f_sh, k_LW | `sl_sweep!`: τ from the iterate (ρ, r; χ of the iterate's last `update!` as a Float), T_src = T_r at τ+2/3 (log E_r–log τ between the bracketing interfaces), w_q, T_c, W, T_eff at τ = 2/3 by linear interpolation in τ (not SLEB), smooth on-weight of τ (0.5 < τ < 0.9) in place of the discrete k_ph for the columns and k_LW | band AD for the zones inside the colour-coded window (`winv`: blocks k−2..k+2; zone k−3 reaches block k−2 through r_{k−2}); the rest through J·v only |
+| A4 | Λ_lines(T) with the colliders of the transfer call, one-sided FD ∂Λ/∂T (LIEPS) | populations at the iterate's T and n_H, n_H₂, n_He, n_H⁺ of the iterate's composition; ForwardDiff through the (generic) statistical-equilibrium solve | exact in the band (T, ρ, x_H⁺, x_H₂); β, J̄ (EP/ALI transfer), f (ALI/EP) remain those of the last transfer call |
+| A6 | x_HD at the start of the step (HDX) | `hd_x`: backward-Euler step of the D/D⁺/HD chain from the start-of-step fractions over the time elapsed in the stage, at the iterate's T, ρ, composition, k_LW | band AD, no new unknown |
+
+New diagnostics: `SLSIZE=z1:z2` (start vs solved star-light inputs per step), `NKLINE=smax,n,z1:z2` (with NKCHECK: continuity of the residual along ln ρ → ln ρ + s).
+Left lagged on purpose: MGROUPS' star-light state (T_src, w_q, f_sh of the prepare pass), the LOCALJWMIN switch, the TL3DEEP flag (τ ≥ 3 at the start),
+the HM88 perturber densities of the three-level env, and the line transfer's β, J̄, f (see the report).
