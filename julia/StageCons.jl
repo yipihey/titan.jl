@@ -249,12 +249,25 @@ function new_eq_old!(a, b)
     for i in 1:2; copyto!(TX.XSN[][i], TX.XSO[][i]); end
     TF.var(:rhs) .= 0.0; TD.r(:update)
 end
+"STAGEDUMP=zlo,zhi (with STAGECONS): the old state of zones zlo..zhi at every printed step start (T, rho, E_r, x_H+, x_H2, chi_f, kappa_E, f); STAGEONLY=1: nothing else is evaluated."
+function stagedump(J, a)
+    zl_, zh_ = parse.(Int, split(ENV["STAGEDUMP"], ","))
+    @printf("STAGEDUMP jstep %d dt %.4e: Z  T  rho  E_r  x_H+  x_H2  chif  kappaE  fedd (old level)\n", J, TD.g(:dtime))
+    for Z in zl_:zh_
+        k = a + Z - 1
+        @printf("STAGEDUMP jstep %d Z %d T %.6e rho %.6e Er %.6e xHp %.6e xH2 %.6e chif %.6e kE %.6e f %.6e\n", J, Z, vf(:to)[k], vf(:do)[k], vf(:ero)[k], TX.XSO[][1][k], TX.XSO[][2][k], vf(:chifo)[k], vf(:xkeo)[k], vf(:fedd)[k])
+    end
+end
 const ACTIVE = Ref(false)
 function hook(what, Δ, Cn)
     what === :bdf && (ENDCL[] = closure(); ENDST[] = endstate())
     what === :start && (ACTIVE[] = TR.ESTATS[:steps] % EVERY[] == 0)
     ACTIVE[] || return nothing
+    (what !== :start && get(ENV, "STAGEONLY", "0") == "1") && return nothing
     J = Int(TD.g(:jstep)); a = Int(TD.g(:ngrs)); b = Int(TD.g(:ngre))
+    if what === :start && haskey(ENV, "STAGEDUMP")
+        stagedump(Int(TD.g(:jstep)), a); get(ENV, "STAGEONLY", "0") == "1" && return nothing
+    end
     S = NK.Snap(); NK.take!(S); rhs0 = copy(TF.var(:rhs)); θ0 = TD.g(:thet); dt0 = TD.g(:dtime)
     try
         if what === :start
