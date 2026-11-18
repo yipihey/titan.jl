@@ -301,7 +301,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
             if qg
                 isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
                 isempty(GASQ[]) || (w += GASQ[][k] * dvol[k])
-                cplz(k) && (w += (W.cpQ[k] + W.cpY[k]) * dvol[k])
+                w += (cqheat(k, W) + yqheat(k, W)) * dvol[k]
             end
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * eg[k]

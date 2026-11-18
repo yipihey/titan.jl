@@ -1301,6 +1301,7 @@ function chem_core!(m::NetGas)
         (TX.GASQ[][k] = SLDIAG[].kLW[k] * max(CNn.full(x1, m.net)[:H2], 0.0) * dn[k] / CNn.μH() * (4.48 + 0.4) * EVERG; nothing)
     # (COUPLED prepare pass: the hydro step about to run reads these from the last chemistry; they must not be cleared here)
     CPLPREP[] || slrates === nothing || isempty(TX.GASQ[]) || fill!(TX.GASQ[], 0.0)
+    CPLPREP[] || isempty(TX.CQB[]) || (fill!(TX.CQB[], 0.0); fill!(TX.YQB[], 0.0))
     CPLPREP[] || ray !== nothing || isempty(TX.RAYQ[]) || fill!(TX.RAYQ[], 0.0)            # (RAYQ also carries the three-level H's photon energy)
     CPLPREP[] || isempty(TX.CHEMB[]) || fill!(TX.CHEMBON[], false)
     ph3 = filter(p -> p.R !== :H, m.photos)                                 # three-level zones: no Boltzmann-level H photo pair
@@ -1467,11 +1468,8 @@ function chem_core!(m::NetGas)
             m.eqzone[k] || lwheat!(k, x1)
             if p3 !== nothing && !m.eqzone[k] && !fb
                 cq, yq = tl3_heat(dn[k], T1, CNn.full(x1, m.net), p3e)
-                # (COUPLED zones: the hydro solve takes cq and yq of its own iterate, TitanResidFast cpQ/cpY; not booked here)
-                if !(CPLPOST[] && TX.cplz(k))                    # (coupled zones: the iterate's cq, yq in the hydro rows)
-                    isempty(TX.RAYQ[]) || (TX.RAYQ[][k] += cq)       # the photon energy the chemistry gave the gas leaves the gray field
-                    isempty(TX.GASQ[]) || (TX.GASQ[][k] += yq)
-                end
+                isempty(TX.CQB[]) || (TX.CQB[][k] = cq)          # booked for the next step's rows of a zone that is not coupled there (TX.CQB)
+                isempty(TX.YQB[]) || (TX.YQB[][k] = yq)
                 SLDIAG[].tl3[k] = merge(p3e, (; chemq = cq, cycq = yq, qbb = lya_bb(dn[k], T1, CNn.full(x1, m.net), p3e)))
                 NLOPAC[] && NLOIT && (NLOST[][k] = (; d = CNn.full(x1, m.net), p = p3e))
                 if TL3DBG[] > 0 && TF.getscalar(:jstep) % TL3DBG[] == 0 && k % 6 == 0

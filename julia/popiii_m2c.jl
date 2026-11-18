@@ -489,6 +489,7 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
     end
     (PM.STARLIGHT[].shield !== :off || PM.STARLIGHT[].tl3) && (TX.GASQ[] = zeros(length(mat.x)))
     PM.STARLIGHT[].tl3 && isempty(TX.RAYQ[]) && (TX.RAYQ[] = zeros(length(mat.x)))
+    PM.STARLIGHT[].tl3 && (TX.CQB[] = zeros(length(mat.x)); TX.YQB[] = zeros(length(mat.x)))
     if get(ENV, "BALSPLIT", "0") == "1"
         TX.CHEMB[] = zeros(length(mat.x)); TX.CHEMBON[] = fill(false, length(mat.x))
         pr("BALSPLIT: balanced splitting of the gas energy between hydro and network chemistry (lagged mean chemistry heating in both)\n")
@@ -730,7 +731,7 @@ const KOFF = Ref(0); const SG = Ref{Any}(nothing)
 matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope), Y = HOTON ? copy(SG[].Y) : nothing,
                                      star = HOTON ? (; fscale = copy(SG[].fscale), fslope = copy(SG[].fslope), fcur = copy(SG[].fcur), Dmix = copy(SG[].Dmix), dtcap = SG[].dtcap, capE = SG[].capE, ledger = SG[].ledger, Yprev = copy(SG[].Yprev)) : nothing,
                                      # lagged over one step (set in chemistry, used by the next hydro step): without them a restart is not exact
-                                     lag = (; NLOPC = deepcopy(PM.NLOPC[]), GASQ = copy(TX.GASQ[]), RAYQ = copy(TX.RAYQ[]), SLDIAG = deepcopy(PM.SLDIAG[]), CHEMB = copy(TX.CHEMB[]))) :
+                                     lag = (; NLOPC = deepcopy(PM.NLOPC[]), GASQ = copy(TX.GASQ[]), RAYQ = copy(TX.RAYQ[]), CQB = copy(TX.CQB[]), YQB = copy(TX.YQB[]), SLDIAG = deepcopy(PM.SLDIAG[]), CHEMB = copy(TX.CHEMB[]))) :
              error("checkpoint: only the NetGas material (CHEM=net*) is supported")
 function checkpoint(name, k)
     mkpath(CKDIR)
@@ -764,6 +765,7 @@ function restart!(name; allow = ())
         l_ = s.lag; PM.NLOPC[] = deepcopy(l_.NLOPC); PM.SLDIAG[] = deepcopy(l_.SLDIAG)
         PM.NLOIT && PM.nlost_restart!(mat)       # (NLOIT: the zones that had non-LTE factors get their composition and three-level parameters back)
         length(l_.GASQ) == length(TX.GASQ[]) && (TX.GASQ[] .= l_.GASQ); length(l_.RAYQ) == length(TX.RAYQ[]) && (TX.RAYQ[] .= l_.RAYQ)
+        hasproperty(l_, :CQB) && length(l_.CQB) == length(TX.CQB[]) && (TX.CQB[] .= l_.CQB; TX.YQB[] .= l_.YQB)
         hasproperty(l_, :CHEMB) && length(l_.CHEMB) == length(TX.CHEMB[]) && (TX.CHEMB[] .= l_.CHEMB)
     end
     ALIFAC[] = copy(aux.ALIFAC); ALIFIX[] = hasproperty(aux, :ALIFIX) ? copy(aux.ALIFIX) : Float64[]; ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
@@ -1277,10 +1279,6 @@ if get(ENV, "ECOMPAT", "0") == "1" || get(ENV, "ETOTAL", "") == "0"
     TX.ECOMPAT[] = true
     TX.TIEFRAME[] || (TX.TIEFRAME[] = true; pr("ECOMPAT: TIEFRAME switched on\n"))
     pr("ECOMPAT: first-law gas row adjoint to the momentum row in every zone (ETOTAL/ETASW* row switching unused), lab-frame radiation energy row\n")
-    # ECGRAV=1..4 (provisional, default 0): gravity term of the compatible gas row (TX.ECGRAV, docs/POPIII_ENERGY.md §14)
-    TX.ECGRAV[] = parse(Int, get(ENV, "ECGRAV", "0"))
-    TX.ECGRAV[] != 0 && pr("ECGRAV %d: compatible gas row with the gravity term (%s form, %s)\n", TX.ECGRAV[], TX.ECGRAV[] >= 3 ? "mass flux x potential difference" : "total row's",
-                           TX.ECGRAV[] in (2, 3) ? "every zone" : "zones the dual-energy stack gives the total row")
 end
 # ERLAB=1 (provisional, default off): ECOMPAT's lab-frame radiation energy row with the stack's gas rows (TX.ERLAB, docs/POPIII_ENERGY.md §18); implies TIEFRAME
 if get(ENV, "ERLAB", "0") == "1"
@@ -1301,7 +1299,7 @@ if get(ENV, "GVAR", "0") == "1"
     TX.GVAR[] = true
     pr("GVAR: gas momentum row with the gravity force dW/dr_j of the piecewise-constant density\n")
 end
-(TX.GFV[] || TX.GVAR[]) && TX.ECGRAV[] >= 3 && error("GFV/GVAR: ECGRAV 3 and 4 are written for the node-mass weight")
+TX.ECOMPAT[] && (TX.GFV[] || TX.GVAR[]) && error("ETOTAL=0 / ECOMPAT=1: the gravity force is the total-energy row's work (TX.gravcons); GFV/GVAR are alternatives")
 
 # NWFD (diagnostic): for the unknowns j of every zone z in zlo:zhi, the central difference (h = 1e-5) of (a) the residual with the Newton context frozen (what
 # JACCHK does: everything the iterate's update! refreshes outside residual! -- EOS/opacity fills, Eddington factors f, g, h, the flux-tie weights -- held),

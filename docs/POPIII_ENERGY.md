@@ -2853,15 +2853,17 @@ J·v replays the branch the Jacobian was built with — before this the T row of
 row by 8e-3 (zone 29) in `NKCHECK` (t_ie20 / t_ie22), after it by 4e-6 (t_ie23): the flux is continuous at ṁ = 0 but has a kink there,
 and the front zones have ṁ ≈ 0.
 
-### 23.2 Lagged heat inputs of coupled zones (audit A5)
+### 23.2 Heat inputs of the three-level atom (audit A5)
 
-The three-level atom's chemistry heat cq (photon energy given to the gas; it is inside `cpL` as heating of the gas) and cycle heat yq
-were booked once per step from the end state of the previous step (`RAYQ`, `GASQ`). In coupled zones the hydro rows now take cq and yq of
-the iterate (`W.cpQ`, `W.cpY`, from `cpl_g`, already computed in every residual): radiation row +cpQ+cpY, gas rows −cpY, total /
-combined rows +cpQ; `chem_core!` no longer adds cq, yq to `RAYQ`/`GASQ` in the post pass of coupled zones (`GASQ` keeps the
-Lyman-Werner heating there). Zones that are not coupled are unchanged. Since the coupled set is fixed at the start of each step, a
-zone that is coupled in one step and not in the next (CPL_BAD decoupling) has its heat of that one step booked either not at all or
-twice; the decoupling is to be removed separately. Measured effect on the 300-step restart: see §23.3.
+The chemistry heat cq (photon energy given to the gas; inside `cpL` as heating of the gas in coupled zones) and the cycle heat yq were booked once per step
+from the end state of the previous step (`RAYQ`, `GASQ`). Now the hydro rows take them as functions of the Newton iterate in a coupled zone
+(`W.cpQ`, `W.cpY`, from `cpl_g`, already computed in every residual) and from the booking of the last chemistry otherwise (`CQB`, `YQB`, set by
+`chem_core!` in every zone, unconditionally; `cqheat`, `yqheat` choose by `cplz(k)`, the flag the residual uses for the whole attempt). Each attempt
+therefore applies the heat of each zone from exactly one source, whatever the zone's status in the neighbouring steps (the first version skipped the booking
+in the post pass of coupled zones, which lost the heat of a zone that was decoupled in the next step and doubled that of a zone that became coupled).
+Radiation row +cq+yq, gas rows −yq, total/combined rows +cq. `RAYQ` keeps the ray source, `GASQ` the Lyman-Werner heating. The decoupling message
+(`CPL_BAD`) prints the booked cq, yq the zone now uses. Old checkpoints carry cq, yq inside `RAYQ`/`GASQ` and no `CQB`, `YQB`: in the first step after such a restart the
+coupled zones count them twice.
 
 ### 23.3 Gates (18 Nov; runs in `/zpool/nvme/data/tabel_scratch/titan_popiii/runs/`)
 
@@ -2910,3 +2912,36 @@ not (G5, §14): with `ECGRAV=2` (the monitor's own gravity form put into the gas
 exact. That variant, however, as §14.5 found, costs convergence (45 rejections). The 300-step runs do not meet "at least as good as ETOTAL=1 / old ETOTAL=0":
 the compatible row alone has more Newton failures than both (22 against 12 and 14) at the same time covered as the old ETOTAL=0; A5 (iterate-dependent
 cq, yq) makes it worse (29 failures, a fifth of the time covered). The dual-energy switches were therefore not removed.
+
+### 23.4 Gravity of the momentum row equal to the total-energy row's work (ECOMPAT)
+
+*Total-energy row* (`etot_row`, `ETOT_GRAV`): the work of gravity on the mass that crosses each interior face j, booked over half a zone on each side,
+
+    W_j = r_j^μ ρᵇ_j u_j g_j (Δr_{j-1} + Δr_j) = g_j · [r_j^μ ρᵇ_j ½(r_{j+1} − r_{j-1})] · u_j,   Δr_k = ½(r_{k+1} − r_k),   g_j = 4πG·2 xm_j/r_j^μ + (1 − μ/2) g_0,
+
+with ρᵇ the advected interface density of the continuity row (`W.db`) and u_j the θ-level velocity (the mesh velocity enters through the mass flux of the moving
+mesh: `uf(j) = u_j` with `gridmoves()`, `u_rel,j` = `u_j` on a fixed mesh). The sum of the zone rows is the change of Σ m Φ (§14.2: it follows an explicit binding energy to 0.02–0.8 %).
+
+*Momentum row* (before): force g_j m_j with the node mass m_j = ½(ρ_{j-1}ΔV_{j-1} + ρ_jΔV_j), so u_j g_j m_j ≠ W_j wherever ρᵇ_j r_j^μ ½(r_{j+1} − r_{j-1}) ≠ m_j: this is G5 (§14.4, §21.3).
+
+*Change* (`gravcons`, `gravmass` in `TitanResidFast.jl`): with ECOMPAT the force at interface j is g_j m*_j, m*_j = r_j^μ ρᵇ_j ½(r_{j+1} − r_{j-1}), a function of the iterate (ρᵇ is
+the van Leer value of the iterate's densities and of the mass flux). Then Σ_j u_j F_j equals Σ_j W_j face by face, the gas row needs no gravity term (it never had one), and
+the total-energy row of the monitor is the sum of the solved rows and u × momentum rows up to Newton tolerance. Not used for a Lagrangian mass grid without grid motion
+(`lgrid = 3`: no mass flux, the node mass is exact there; the dust-collapse and Bonnor–Ebert tests of `popiii_m1.jl` are unchanged). The MLT hydrostatic-gradient blend uses the same mass.
+`ECGRAV` (all four variants, which put the difference G5 into the gas row) and its zone_diag term are removed; `GFV`/`GVAR` are alternatives to this force and are refused with ETOTAL=0.
+The consistency does not make the force a better approximation of gravity: ρᵇ is the advected density, 7–29 % below the smooth distribution's on the star's stretched centre mesh
+at 100 zones (§21.3); the star's structure changes accordingly (§23.5).
+
+### 23.5 Gates of §23.2 and §23.4 (18 Nov)
+
+* ETOTMON on SOD / SUBC / SUPC with ETOTAL=0 unchanged from §23.3 (`t_ie_reg/ec3_*.log`); Noh test unchanged (shock 0.978, T/T_RH 1.020, ρ/ρ_RH 1.019; `t_ie_noh/etot0_v2.log`).
+* Self-gravitating test (`julia/selfgrav_energy_test.jl`, cold uniform 100 M☉ sphere on the fixed mesh, 100 zones, to 0.9 t_ff, 57 steps; `t_ie_noh/sg_etotal0.log`, `sg_etotal.log`): ETOTMON
+  G with the consistent gravity force: median 2.0e-16, max 5.6e-12; with TITAN's rows (node-mass force, total row's gravity form in the monitor): median 4.9e-6, max 4.7e-5.
+  On a fixed mesh the gravity gap is closed to round-off.
+* NKCHECK=2 (`t_ie28`): T 4.3e-6 (zones 28–34: 1.6e-6), u 1.8e-4 (3.3e-6), E_r 4.3e-6, ρ 4.6e-6, r 4.2e-6 (was 3e-3), F_r 1.1e-1 as before.
+* 300-step restart (`t_ie27`): **does not run**. 118 Newton failures, accepted Δt 6–80 s, the run stays at the start time; the failing equation is the momentum row of the innermost
+  interface (corrections of u of order 1). ETOTMON G of the windows: median 6.3e-6, max 3.1e-4 (the gap G5 is closed by two orders; the rest is not yet at Newton tolerance
+  because Δt is tiny). Reason: m*_j uses the advected interface density, which the van Leer scheme takes from the upwind side (the sign of the mass flux, ≈ 0 in the hydrostatic star) and which on the star's
+  stretched mesh is 7–29 % below the node mass (§21.3): the force is a discontinuous function of the sign of a tiny flux and the star is no longer in hydrostatic balance
+  with the pressure force. So the exact discrete compatibility of momentum row and total row is obtained at the price of a gravity force that is not a good approximation of gravity at 100 zones; it
+  works where the mesh is fixed and the flow is not close to rest (Noh, free fall), not in the star. `gravcons(P) = false` restores the node-mass force.
