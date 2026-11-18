@@ -1381,9 +1381,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         mk = 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])
         r1 = r[k]^(-0.5xmu)
         r3k = ((r[k] + r[k+1]) / 2)^(1.5xmu); r3m = ((r[k-1] + r[k]) / 2)^(1.5xmu)
-        fgk = if gravcons(P)                    # ECOMPAT: the mass of the total-energy row's gravity work (see gravcons)
-            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * gravmass(k, rmu, db, r)
-        elseif GFV[] || GVAR[]                # gravity force with the finite-volume weight / as the gradient of the binding energy
+        fgk = if GFV[] || GVAR[]                # gravity force with the finite-volume weight / as the gradient of the binding energy
             xek = gxe(r[k]); G4_ = 2xmu * P.cpi * P.cgrav
             gfz(k - 1, k, d, dvol, r, rmu, G4_, xm[k], xek) + gfz(k, k, d, dvol, r, rmu, G4_, xm[k], xek) + (1 - 0.5xmu) * P.g * mk
         else
@@ -1447,7 +1445,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 lph = MLT_HSDISC[] ? ((GFV[] || GVAR[]) ? -(gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
                                                            gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
                                                            (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
-                                      -gk * (gravcons(P) ? gravmass(k, rmu, db, r) : 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi)) : -0.5 * (rn[k+1] - rn[k-1]) / HP
+                                      -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (rn[k+1] - rn[k-1]) / HP
                 q = clamp((ForwardDiff.value(lp / lph) - 0.25) / 0.5, 0.0, 1.0); sw = q * q * (3 - 2q)
                 sw < 1 && (lp = sw * lp + (1 - sw) * lph)
             end
@@ -1757,19 +1755,30 @@ kinetic-energy, work and viscous pieces of the adjacent zone.
 end
 "ETOT_GRAV[]: the total-energy row includes the work of gravity (self-gravity or P.g). Default false, as in the tests and ledgers that book the potential energy themselves."
 const ETOT_GRAV = Ref(false)
-"""
-gravcons(P): with ECOMPAT the gravity force of the momentum row at interface j is g_j m*_j, m*_j = r_j^μ ρᵇ_j ½(r_j+1 − r_j−1) (`gravmass`) with ρᵇ the advected
-interface density of the continuity row, so that u_j g_j m*_j is exactly the work the total-energy row books on the face (mass flux r^μ u ρᵇ, times g, times the half
-widths of the two zones; docs/POPIII_ENERGY.md §23.4). Not for a Lagrangian mass grid (lgrid = 3 without grid motion: the total row has no flux there, and the node mass ½(m_j−1 + m_j) is exact).
-"""
-@inline gravcons(P) = ECOMPAT[] && (gridmoves() || P.lgrid != 3)
-@inline gravmass(k, rmu, db, r) = rmu[k] * db[k] * 0.5 * (r[k+1] - r[k-1])
-"ETOT_GRAV_GRID[] (ENV ETOTGRAVGRID=1; default off): with ETOT_GRAV[], also the work of gravity on mass carried by moving faces. Without it the total-energy row of a Lagrangian zone has no gravity work at all, and the kinetic energy gravity gives the gas is taken from its thermal energy (cloud-phase test of 2026-11-09)."
-const ETOT_GRAV_GRID = Ref(false)
 "Run f with ECOMPAT off: the conservative total-energy rows and the plain internal rows of the diagnostics (the independent check of the compatible rows)."
 function nocompat(f)
     e = ECOMPAT[]; l = ERLAB[]; ECOMPAT[] = false; ERLAB[] = false
     try f() finally ECOMPAT[] = e; ERLAB[] = l end
+end
+"""
+Gravity term of the total-energy row at interior face j, the share of the zone above (lower = false) or below (lower = true) the face. With the potential at the interfaces
+φ_j = −G4 (xm_j − xe_j)/r_j + (1 − μ/2) g₀ r_j (G4 = 4πG for μ = 2; xe the external mass) the exact rate of change of the binding energy W = Σ_j m̄_j φ_j of the node masses
+m̄_j = ½(m_{j-1} + m_j), with the masses changing by the mass fluxes, is  Σ_j [ g_j m̄_j ṙ_j + f_j Δ_j ]  with  ṙ_j = u_j − u_rel,j,  f_j = r_j^μ ρᵇ_j u_rel,j  (the continuity row's flux) and
+Δ_j = ½(φ_{j+1} − φ_{j-1}) + G4 m̄_j/r_j + g_ext,j ½(r_{j+1} − r_{j-1}); the middle term is the change of the enclosed mass M_j when mass crosses the face (docs/POPIII_ENERGY.md §23.4).
+Spherical geometry, or no self-gravity.
+"""
+@inline function gravface(j, c, W, lower::Bool = false)
+    P = c.p; xmu = Float64(c.mu); r = W.r; xm = W.xm; G4 = 2xmu * P.cpi * P.cgrav
+    xe(i) = EXTMASS[] === nothing ? zero(r[i]) : EXTMASS[](r[i])
+    xmu == 2 || P.cgrav == 0 || error("gravity of the total-energy row: spherical geometry (or no self-gravity) only")
+    φ(i) = (P.cgrav == 0 || val(r[i]) <= 0 ? zero(r[i]) : -G4 * (xm[i] - xe(i)) / r[i]) + (1 - 0.5xmu) * P.g * r[i]      # (regular centre: M/r → 0)
+    mb = 0.5 * (W.d[j-1] * W.dvol[j-1] + W.d[j] * W.dvol[j])
+    gj = G4 * xm[j] / W.rmu[j] + (1 - 0.5xmu) * P.g
+    gext = P.cgrav == 0 ? zero(r[j]) : G4 * xe(j) / W.rmu[j]
+    Δ = 0.5 * (φ(j + 1) - φ(j - 1)) + (P.cgrav == 0 ? zero(r[j]) : G4 * mb / r[j]) + gext * 0.5 * (r[j+1] - r[j-1])
+    f = W.rmu[j] * W.db[j] * W.urel[j]
+    wl = (r[j] - r[j-1]) / (r[j+1] - r[j-1])          # half-width weights: the zone below gets (r_j − r_j-1)/(r_j+1 − r_j-1)
+    (gj * mb * (W.u[j] - W.urel[j]) + f * Δ) * (lower ? wl : 1 - wl)
 end
 "Conservative total-energy row of zone k: Δ[m(e_g [+E_r/ρ]) + m(u_k²+u_{k+1}²)/4]/dt + Φ_{k+1} − Φ_k."
 @inline function etot_row(k, c, W, ::Type{T}) where {T}
@@ -1779,22 +1788,15 @@ end
          c.do_[k] * c.dvolo[k] * (eo + 0.25 * (c.uo[k]^2 + c.uo[k+1]^2))) / c.p.dt +
         eflux(k + 1, c, W, T) - eflux(k, c, W, T)
     if ETOT_GRAV[]
-        # Work of gravity on the mass that actually crosses each face (the continuity row's flux r² u ρ_b), over half a zone on each side: the rows sum to
-        # Σ_faces (mass flux) g Δr, the change of Σ m Φ, so gas + kinetic + potential energy is conserved. The momentum row's force g m_k with m_k the mean of the
-        # neighbouring zones differs from this where ρ is steep across a face (the accretion shock on a fixed mesh), and that difference must not create energy.
-        xmu = Float64(c.mu); P = c.p
-        gi_(j) = 2xmu * P.cpi * P.cgrav * W.xm[j] / W.rmu[j] + (1 - 0.5xmu) * P.g
-        Δr = 0.5 * (W.r[k+1] - W.r[k])
-        # (moving interfaces on lgrid = 2, GRIDVEL or GRIDEQ: the lab-frame mass flux r² u ρ_b; zones carried by the grid also change Σ m Φ)
-        uf(j) = gridmoves() ? W.u[j] : W.urel[j]
-        k > c.ngrs && (w += W.rmu[k] * uf(k) * W.db[k] * gi_(k) * Δr)
-        k < c.ngre && (w += W.rmu[k+1] * uf(k + 1) * W.db[k+1] * gi_(k + 1) * Δr)
-        if ETOT_GRAV_GRID[] && !gridmoves()
-            # Mass carried by moving faces (Lagrangian zones: urel = 0, so the term above vanishes): the momentum row's force g_j (m_{j-1} + m_j)/2 does the work
-            # u_grid,j g_j (m_{j-1} + m_j)/2 at face j, half of it in each neighbouring zone, matching the zone's kinetic energy m(u_k² + u_{k+1}²)/4. Zero on a fixed mesh.
-            mh = 0.5 * W.d[k] * W.dvol[k]
-            k > c.ngrs && (w += mh * (W.u[k] - W.urel[k]) * gi_(k))
-            w += mh * (W.u[k+1] - W.urel[k+1]) * gi_(k + 1)
+        # Gravity of the monitor and of the dual-energy stack's total rows: the exact rate of change of the discrete binding energy W = Σ_j m̄_j φ_j of the node masses
+        # m̄_j = ½(m_{j-1} + m_j) at the interface potentials φ_j (docs/POPIII_ENERGY.md §23.4), whose gradient at fixed masses is the momentum row's force g_j m̄_j.
+        # Face j contributes g_j m̄_j (u_j − u_rel,j) [the mesh moves through the gas] + f_j Δ_j [the mass flux f_j = r_j^μ ρᵇ_j u_rel,j carries the potential drop Δ_j], shared
+        # between the two zones in proportion to their half widths.
+        k > c.ngrs && (w += gravface(k, c, W))
+        k < c.ngre && (w += gravface(k + 1, c, W, true))
+        if k == c.ngre && !isnan(PEXT[])          # free surface (the momentum row of the last interface has the gas of zone ngre alone): the mesh carries half of its mass
+            xmu = Float64(c.mu); P = c.p; j = k + 1
+            w += (2xmu * P.cpi * P.cgrav * W.xm[j] / W.rmu[j] + (1 - 0.5xmu) * P.g) * 0.5 * W.d[k] * W.dvol[k] * (W.u[j] - W.urel[j])
         end
     end
     w

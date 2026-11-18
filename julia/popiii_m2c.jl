@@ -766,6 +766,14 @@ function restart!(name; allow = ())
         PM.NLOIT && PM.nlost_restart!(mat)       # (NLOIT: the zones that had non-LTE factors get their composition and three-level parameters back)
         length(l_.GASQ) == length(TX.GASQ[]) && (TX.GASQ[] .= l_.GASQ); length(l_.RAYQ) == length(TX.RAYQ[]) && (TX.RAYQ[] .= l_.RAYQ)
         hasproperty(l_, :CQB) && length(l_.CQB) == length(TX.CQB[]) && (TX.CQB[] .= l_.CQB; TX.YQB[] .= l_.YQB)
+        if !hasproperty(l_, :CQB) && !isempty(TX.CQB[]) && PM.SLDIAG[] !== nothing      # checkpoint from before CQB/YQB: cq, yq were booked inside RAYQ/GASQ; separate them (SLDIAG keeps them per zone)
+            nconv = 0
+            for (k_, t_) in enumerate(PM.SLDIAG[].tl3)
+                t_ === nothing && continue
+                TX.CQB[][k_] = t_.chemq; TX.YQB[][k_] = t_.cycq; TX.RAYQ[][k_] -= t_.chemq; TX.GASQ[][k_] -= t_.cycq; nconv += 1
+            end
+            pr("restart: checkpoint without CQB/YQB; chemistry and cycle heat of %d zones taken out of RAYQ/GASQ and booked as CQB/YQB\n", nconv)
+        end
         hasproperty(l_, :CHEMB) && length(l_.CHEMB) == length(TX.CHEMB[]) && (TX.CHEMB[] .= l_.CHEMB)
     end
     ALIFAC[] = copy(aux.ALIFAC); ALIFIX[] = hasproperty(aux, :ALIFIX) ? copy(aux.ALIFIX) : Float64[]; ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
@@ -1239,7 +1247,6 @@ haskey(ENV, "ERTHICK") && (TC.ER_THICK[] = parse(Float64, ENV["ERTHICK"]))
 # ETOTAL=1: TITAN's conservative total-energy row (P4.2); the gas row stays where e/(e + KE) < ETASW, in the cold hypersonic infall, where T is a small difference
 haskey(ENV, "ETASWTH") && (TX.ETASW_TH[] = parse(Float64, ENV["ETASWTH"]))     # internal-energy row also where 3p/2ρ < ETASWTH × (3p/2ρ + E_r/ρ + K/m) (off: as before)
 haskey(ENV, "ETASWTIE") && (TX.ETASW_TIE[] = parse(Float64, ENV["ETASWTIE"]))   # internal-energy row also where the FLUXTIE weight at the zone's inner interface >= ETASWTIE (off: as before)
-get(ENV, "ETOTGRAVGRID", "0") == "1" && (TX.ETOT_GRAV_GRID[] = true)     # gravity work on Lagrangian zones in the total-energy row (off: as before)
 get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW_EOFF[] = PC.UOFF_TH; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
 # SUBZONE=1[,τ_f] (default off): interface optical depth across an unresolved front from the two-layer sub-zone form (TX.SUBZONE)
@@ -1299,7 +1306,6 @@ if get(ENV, "GVAR", "0") == "1"
     TX.GVAR[] = true
     pr("GVAR: gas momentum row with the gravity force dW/dr_j of the piecewise-constant density\n")
 end
-TX.ECOMPAT[] && (TX.GFV[] || TX.GVAR[]) && error("ETOTAL=0 / ECOMPAT=1: the gravity force is the total-energy row's work (TX.gravcons); GFV/GVAR are alternatives")
 
 # NWFD (diagnostic): for the unknowns j of every zone z in zlo:zhi, the central difference (h = 1e-5) of (a) the residual with the Newton context frozen (what
 # JACCHK does: everything the iterate's update! refreshes outside residual! -- EOS/opacity fills, Eddington factors f, g, h, the flux-tie weights -- held),

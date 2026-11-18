@@ -2913,38 +2913,53 @@ exact. That variant, however, as §14.5 found, costs convergence (45 rejections)
 the compatible row alone has more Newton failures than both (22 against 12 and 14) at the same time covered as the old ETOTAL=0; A5 (iterate-dependent
 cq, yq) makes it worse (29 failures, a fifth of the time covered). The dual-energy switches were therefore not removed.
 
-### 23.4 Gravity of the momentum row equal to the total-energy row's work (ECOMPAT)
+### 23.4 Gravity: the momentum row's force is variational, the total row books the exact rate of change of W
 
-*Total-energy row* (`etot_row`, `ETOT_GRAV`): the work of gravity on the mass that crosses each interior face j, booked over half a zone on each side,
+*Energy.* For node masses m̄_j = ½(m_{j-1} + m_j) (m_k = ρ_k ΔV_k), enclosed masses M_j (`xm_j`, per steradian × 4π) and the interface potentials φ_j = −G M_j / r_j (+ the external mass's and a uniform field's),
 
-    W_j = r_j^μ ρᵇ_j u_j g_j (Δr_{j-1} + Δr_j) = g_j · [r_j^μ ρᵇ_j ½(r_{j+1} − r_{j-1})] · u_j,   Δr_k = ½(r_{k+1} − r_k),   g_j = 4πG·2 xm_j/r_j^μ + (1 − μ/2) g_0,
+    W = Σ_j m̄_j φ_j = −G Σ_j M_j m̄_j / r_j          (the ledger of `popiii_m1.jl`).
 
-with ρᵇ the advected interface density of the continuity row (`W.db`) and u_j the θ-level velocity (the mesh velocity enters through the mass flux of the moving
-mesh: `uf(j) = u_j` with `gridmoves()`, `u_rel,j` = `u_j` on a fixed mesh). The sum of the zone rows is the change of Σ m Φ (§14.2: it follows an explicit binding energy to 0.02–0.8 %).
+*Force.* At fixed masses −∂W/∂r_j = −G M_j m̄_j / r_j² = −g_j m̄_j, which is exactly the momentum row's gravity force (`fgk`, node mass). So the stack's force is already
+the exact derivative of a discrete energy; no change of the force is needed and the hydrostatic balance is untouched. The check asked for: the force of the other candidate,
+the zone-centred energy W_c = −G Σ_k m_k M_k^c / r_k^c (M_k^c = M_k + ½ m_k, r_k^c = ½(r_k + r_k+1)), whose force is F_c,j = −½(m_{j-1} g^c_{j-1} + m_j g^c_j), against the node-mass force on the
+checkpoint's 100 zones (`gravity_ratio_check.jl`): F_c/F_node median 0.991; star (zones 2–26) 0.964…1.026 except one interface at 1.54 (the first, regular centre), zones 27–50 0.886…1.030 (0.949 in
+zone 35, 0.888 in zone 40). The two energies are consistent to truncation; the node-mass one was kept because it is the existing force.
 
-*Momentum row* (before): force g_j m_j with the node mass m_j = ½(ρ_{j-1}ΔV_{j-1} + ρ_jΔV_j), so u_j g_j m_j ≠ W_j wherever ρᵇ_j r_j^μ ½(r_{j+1} − r_{j-1}) ≠ m_j: this is G5 (§14.4, §21.3).
+*Mass crossing the faces.* W also changes when mass crosses an interface: with f_j the mass flux (outward) through face j, ṁ_k = f_k − f_{k+1}, dM_j/dt = −f_j, dm̄_j/dt = ½(f_{j-1} − f_{j+1}). Then
 
-*Change* (`gravcons`, `gravmass` in `TitanResidFast.jl`): with ECOMPAT the force at interface j is g_j m*_j, m*_j = r_j^μ ρᵇ_j ½(r_{j+1} − r_{j-1}), a function of the iterate (ρᵇ is
-the van Leer value of the iterate's densities and of the mass flux). Then Σ_j u_j F_j equals Σ_j W_j face by face, the gas row needs no gravity term (it never had one), and
-the total-energy row of the monitor is the sum of the solved rows and u × momentum rows up to Newton tolerance. Not used for a Lagrangian mass grid without grid motion
-(`lgrid = 3`: no mass flux, the node mass is exact there; the dust-collapse and Bonnor–Ebert tests of `popiii_m1.jl` are unchanged). The MLT hydrostatic-gradient blend uses the same mass.
-`ECGRAV` (all four variants, which put the difference G5 into the gas row) and its zone_diag term are removed; `GFV`/`GVAR` are alternatives to this force and are refused with ETOTAL=0.
-The consistency does not make the force a better approximation of gravity: ρᵇ is the advected density, 7–29 % below the smooth distribution's on the star's stretched centre mesh
-at 100 zones (§21.3); the star's structure changes accordingly (§23.5).
+    dW/dt = −Σ_j F_j ṙ_j + Σ_j φ_j ½(f_{j-1} − f_{j+1}) + Σ_j m̄_j (−G/r_j)(−f_j)
+          = Σ_j [ g_j m̄_j ṙ_j + f_j Δ_j ],     Δ_j = ½(φ_{j+1} − φ_{j-1}) + G m̄_j / r_j,
 
-### 23.5 Gates of §23.2 and §23.4 (18 Nov)
+(summation by parts of the middle term; interior faces, the boundary faces carry the boundary values). Δ_j is the potential drop carried by the mass flux of face j, each flux f_j = r_j^μ ρᵇ_j u_rel,j being
+the continuity row's own interface flux, ρᵇ the advected interface density. `etot_row` (`gravface`) books exactly this, half of each face's term to each neighbouring zone in proportion to the half widths:
+the sum over zones telescopes to the right-hand side above, so the monitor's total energy IE + KE + W changes by that and nothing else. (The previous form, ρᵇ g Δr per face, is the first term of the
+expansion of Δ_j; it differed in O(h²) and, on the moving mesh, booked the mesh motion through ρᵇ instead of the node mass.)
 
-* ETOTMON on SOD / SUBC / SUPC with ETOTAL=0 unchanged from §23.3 (`t_ie_reg/ec3_*.log`); Noh test unchanged (shock 0.978, T/T_RH 1.020, ρ/ρ_RH 1.019; `t_ie_noh/etot0_v2.log`).
-* Self-gravitating test (`julia/selfgrav_energy_test.jl`, cold uniform 100 M☉ sphere on the fixed mesh, 100 zones, to 0.9 t_ff, 57 steps; `t_ie_noh/sg_etotal0.log`, `sg_etotal.log`): ETOTMON
-  G with the consistent gravity force: median 2.0e-16, max 5.6e-12; with TITAN's rows (node-mass force, total row's gravity form in the monitor): median 4.9e-6, max 4.7e-5.
-  On a fixed mesh the gravity gap is closed to round-off.
-* NKCHECK=2 (`t_ie28`): T 4.3e-6 (zones 28–34: 1.6e-6), u 1.8e-4 (3.3e-6), E_r 4.3e-6, ρ 4.6e-6, r 4.2e-6 (was 3e-3), F_r 1.1e-1 as before.
-* 300-step restart (`t_ie27`): **does not run**. 118 Newton failures, accepted Δt 6–80 s, the run stays at the start time; the failing equation is the momentum row of the innermost
-  interface (corrections of u of order 1). ETOTMON G of the windows: median 6.3e-6, max 3.1e-4 (the gap G5 is closed by two orders; the rest is not yet at Newton tolerance
-  because Δt is tiny). Reason: m*_j uses the advected interface density, which the van Leer scheme takes from the upwind side (the sign of the mass flux, ≈ 0 in the hydrostatic star) and which on the star's
-  stretched mesh is 7–29 % below the node mass (§21.3): the force is a discontinuous function of the sign of a tiny flux and the star is no longer in hydrostatic balance
-  with the pressure force. So the exact discrete compatibility of momentum row and total row is obtained at the price of a gravity force that is not a good approximation of gravity at 100 zones; it
-  works where the mesh is fixed and the flow is not close to rest (Noh, free fall), not in the star. `gravcons(P) = false` restores the node-mass force.
-* Heat booking with the force of the node mass (gravcons switched off by a temporary local edit, not committed), 300 steps, `t_ie29`: identical to `t_ie24` (33 rejections, 29 Newton failures, same time reached 7.508554e12 s, same G 6.6e-4): the
-  CQB/YQB booking changes nothing when no zone changes status (`CPLBADDELTA=Inf`). With the default `CPLBADDELTA=100` (`t_ie30`, 150 steps) two zones were decoupled for a step; the message prints the booked heat the zone uses from then on:
-  zone 32 cq 3.2e-8, yq 9.9e-8 erg cm⁻³ s⁻¹ (the heat of the previous end state, applied once, in place of the iterate's), zone 30 cq = yq = 0 (the zone had no three-level booking).
+*What is and is not exact.* The solved rows contain the force work Σ_j u_j(−g_j m̄_j) on the gas, the monitor books Σ_j [g_j m̄_j ṙ_j + f_j Δ_j] on W; the balance is therefore
+
+    R = Σ_j u_rel,j ( rmu_j ρᵇ_j Δ_j − g_j m̄_j ),
+
+zero for u_rel = 0 (Lagrangian mesh) and otherwise a truncation-level difference between the mass the flux carries (ρᵇ_j r_j^μ ½(r_{j+1} − r_{j-1}), with the advected interface density) and the node mass: this is G5
+(§14, §21.3) in its exact form. It cannot be removed by the choice of W alone: R = 0 face by face requires F_j = −f_j Δ_j / u_rel,j, i.e. a force weighted with the *advected* ρᵇ. That was tried (previous
+version of this section: momentum force g_j r_j^μ ρᵇ_j ½(r_{j+1} − r_{j-1})): the balance is exact (self-gravity test 2e-16) but the van Leer ρᵇ takes the value of the upwind side, the sign of a mass flux that is about zero in the
+star, and is 7–29 % below the node mass on the stretched centre mesh, so the star leaves hydrostatic balance (300-step restart: 118 Newton failures, Δt ≈ 10 s). Exact conservation of IE + KE + W with an
+internal-energy equation alone and an upwinded mass flux thus needs an interface density that is both smooth and the one the transport uses; the stack has one for the transport only.
+`gravcons`, `ECGRAV` (all variants) and `ETOT_GRAV_GRID` are removed; `GFV`/`GVAR` remain alternatives to the node-mass force.
+
+### 23.5 Gates of §23.2 and §23.4 (18 Nov; final state: node-mass force, exact W booking in the monitor, CQB/YQB)
+
+* ETOTMON on SOD / SUBC / SUPC with ETOTAL=0 as in §23.3 (`t_ie_reg/ec4_*.log`: SOD 1.6e-16 / 6.5e-13, SUBC 2.9e-11 / 1.5e-1).
+* Self-gravitating test, fixed mesh, 100 zones to 0.9 t_ff (`julia/selfgrav_energy_test.jl`; `t_ie_noh/sg2_etotal0.log`, `sg2_etotal.log`): G median 6.3e-8, max 1.1e-7 with the compatible rows
+  (node-mass force, monitor with the exact W) against 5.0e-6 / 4.7e-5 for TITAN's rows. Not round-off: the remainder is R of §23.4, truncation level for a smooth collapse.
+  With the Lagrangian mass grid (`LAG=1`, free surface at the gas pressure) G is 4e-4, all of it in the surface zone (the monitor's boundary work uses the gas pressure while the surface moves under
+  PEXT); the legacy rows give the same large G there, so the interior mesh term of §23.4 is only checked up to that boundary term.
+* Noh, production AV, TR-BDF2, 200 zones (`INTEGRATOR=trbdf2 DTERR=0.03 STOL=0.3 AV=prod ETOTAL=0 ETOTMON=1`, `t_ie_noh/etot0_prod.log`): shock radius 0.9937, T/T_RH 1.062 (1.048–1.095), ρ/ρ_RH 0.995,
+  the reference values; ETOTMON median 1.4e-9, max 3.6e-5 (Newton tolerance, stol 0.3).
+* NKCHECK=2 (`t_ie32`): T 4.3e-6 (zones 28–34: 1.6e-6), u 8.9e-5 (3.2e-6), E_r 4.8e-6, ρ 4.6e-6, r 4.2e-6, F_r 8.9e-2 (as before).
+* Restart conversion (`popiii_m2c.jl`): from the checkpoint without CQB/YQB the log prints `restart: checkpoint without CQB/YQB; chemistry and cycle heat of 85 zones taken out of RAYQ/GASQ and booked as CQB/YQB`
+  (cq, yq from `SLDIAG.tl3[k].chemq/cycq`, which the chemistry stored per zone).
+* 300-step restart (`t_ie31`, ETOTMON repeated with the regular-centre fix as `t_ie33`; same solves): 27 rejections (25 Newton failures), time reached timen 7.508556e12 s, min dt 888 s;
+  t_ie26 (A5 off, old gravity) 22 failures, t_ie29/t_ie24 (A5 on) 29. The restart conversion alone moved A5's 29 failures to 25.
+  ETOTMON G of the windows: median 8.8e-3, max 1.1e-2 (zones 28 and 34): with the exact dW/dt the gap is *larger* than the 6.6e-4 the old form of the monitor showed. The old form booked the
+  mesh motion with the advected-density mass r^μ ρᵇ ½Δr; the exact form books it with the node mass the momentum row uses, so what is left is the genuine R = Σ u_rel (r^μ ρᵇ Δ − g m̄) of the
+  mass flux at the density jump of the shock (zones 27–34), which the old form partly cancelled against the mesh term. The target G ≲ 1e-6 is not reached with an upwinded ρᵇ and the node-mass force.
