@@ -327,6 +327,16 @@ function netrad(L::Levels, pops, n_H2, β, J)
     n_H2 * s
 end
 
+"""
+    linekappa(L, pops, n_H2) -> κ0 per line
+
+Line-centre opacity coefficient hν/(4π) n_H2 (n_l B_lu − n_u B_ul) [cm⁻¹ Hz, the profile factor excluded] of populations `pops` (as H2Lines.cooling_nlte's opac).
+"""
+linekappa(L::Levels, P, n_H2) = [h * L.ν[i] / (4π) * n_H2 * (P[L.il[i]] * L.Blu[i] - P[L.iu[i]] * L.Bul[i]) for i in eachindex(L.A)]
+
+"Line source function n_u A/(n_l B_lu − n_u B_ul) of populations `pops` (B_ν(T) where the line is inverted), per line."
+linesource(L::Levels, P, T) = [(den = P[L.il[i]] * L.Blu[i] - P[L.iu[i]] * L.Bul[i]; den > 0 ? P[L.iu[i]] * L.A[i] / den : HL.Bν(L.ν[i], T)) for i in eachindex(L.A)]
+
 "LTE (Boltzmann) fractions over the 63 levels."
 function lte(L::Levels, T)
     w = L.g .* exp.(-(L.E .- L.E[1]) ./ (kB * T)); w ./ sum(w)

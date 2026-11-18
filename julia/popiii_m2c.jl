@@ -545,7 +545,7 @@ end
 # call), not Λ held from the last call. Retires as devices: the IMPCOOL slope (second transfer call) and its [−10, 30] clamp, the
 # Δt ≤ 0.1 (or DTCOOL) t_cool cap, TCOOLTH (only the cap used it). LINEFRAC still skips transfer calls (the model is then kept).
 # Hybrid NLTE: on an ALI step the zone takes the ALI rates (β = 1 − Λ*, J̄ = J̄_fs − Λ* S); in between the EP rates of the step × the
-# last ALI/EP factor, bounded to [1/LIFMAX, LIFMAX] (default 10); where LINECOLL holds the ALI collisional rate (ALIFIX: EP and ALI differ
+# last ALI/EP factor (the EP rates themselves follow the iterate's populations, velocity gradient and incident field: PopIIIMaterial.li_ep), bounded to [1/LIFMAX, LIFMAX] (default 10); where LINECOLL holds the ALI collisional rate (ALIFIX: EP and ALI differ
 # in sign), the zone holds the last ALI call's RATES instead, so its cooling still follows its T. Needs NLTE = ep | ali | hyb.
 const LINEIMP = true; const LIFMAX = parse(Float64, get(ENV, "LIFMAX", "10"))
 LINEIMP && !(NLTE in ("ep", "ali", "hyb")) && error("LINEIMP=1 needs NLTE=ep, ali or hyb")
@@ -573,7 +573,7 @@ end
 "(LINEIMP) zones remapped: drop the line models (the held Λext of the remap is used until the next transfer call)."
 li_inval!() = (PM.li_invalidate!(); fill!(LIALI[], nothing); nothing)
 "(LINEIMP) per TITAN zone, the line model from the transfer call `Lc` (H2Lines.LAST[]) on the reduced grid (see LINEIMP above)."
-function li_store!(Lc, fac, dd, nh2, nl, zk, ncz, nz_; ali = false, held = nothing)
+function li_store!(Lc, fac, dd, nh2, nl, zk, ncz, nz_; ali = false, held = nothing, ep = nothing)
     hasproperty(Lc, :β) || return nothing
     nk = length(mat.x); length(PM.LIMODEL[]) == nk || (PM.LIMODEL[] = Any[nothing for _ in 1:nk]); length(LIALI[]) == nk || (LIALI[] = Any[nothing for _ in 1:nk])
     for kk in a:b; PM.LIMODEL[][kk] = nothing; end
@@ -589,7 +589,8 @@ function li_store!(Lc, fac, dd, nh2, nl, zk, ncz, nz_; ali = false, held = nothi
         end
         β_ = Lc.β[:, j]; J_ = max.(Lc.Jeff[:, j], β_ .* jc_)
         f_ = fac(j); fc = clamp(f_, 1 / LIFMAX, LIFMAX); fc != f_ && (LISTAT[4] += 1)
-        PM.li_set!(kk, HLV, β_, J_, nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j], dd[j], fc)
+        PM.li_set!(kk, HLV, β_, J_, nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j], dd[j], fc;
+                   ep = ep === nothing ? nothing : (; jc = jc_, P = Lc.pops[:, j], T = ep.T[j], g0 = PM.sl_grad(ep.r[j], ep.r[j+1], ep.u[j], ep.u[j+1])))
         LISTAT[ali ? 2 : 1] += 1
         ali && (LIALI[][kk] = PM.LIMODEL[][kk])
     end
@@ -635,7 +636,7 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
         inc = lineinc()
         if NLTE != "hyb"
             out_ = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep, inc)
-            LINEIMP && k >= 0 && li_store!(H2Lines.LAST[], j -> 1.0, dd, nh2, nl, zk, ncz, nz_)
+            LINEIMP && k >= 0 && li_store!(H2Lines.LAST[], j -> 1.0, dd, nh2, nl, zk, ncz, nz_; ep = NLTE == "ep" ? (; T = tt, r = rr, u = uu) : nothing)
             return out_
         end
         tq = time(); Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep, inc)
@@ -704,7 +705,7 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
         end
         if LEP !== nothing                  # LINEIMP: EP rates × the ALI/EP factor; zones that hold the ALI collisional rate (ALIFIX) hold the ALI rates instead
             hf = length(ALIFAC[]) == nz_
-            li_store!(LEP, j -> hf ? ALIFAC[][j] : 1.0, dd, nh2, nl, zk, ncz, nz_;
+            li_store!(LEP, j -> hf ? ALIFAC[][j] : 1.0, dd, nh2, nl, zk, ncz, nz_; ep = (; T = tt, r = rr, u = uu),
                       held = (LINECOLL && hf && length(ALIFIX[]) == nz_) ? (j -> !isnan(ALIFIX[][j])) : nothing)
         end
         length(ALIFAC[]) == nz_ || return Λe, Lr, x                        # (perturbed call right after the reduced grid changed: EP)

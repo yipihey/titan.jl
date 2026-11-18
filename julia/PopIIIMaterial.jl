@@ -52,41 +52,76 @@ are generic in the number type). The non-local part (β, J̄ from the other zone
 at T = T_r) and is heating below that, so no held rate can take a zone below the radiation temperature; J̄ ≥ β B_ν(T_CMB) per line.
 """
 const LINEIMP = Ref(false)
-const LIMODEL = Ref{Vector{Any}}(Any[])          # per zone k: nothing or (; LV, β, J, nH, nH2, nHe, nHp, ρ, f, ws): the rates and, for composition-less callers, the state of the call
+const LIMODEL = Ref{Vector{Any}}(Any[])          # per zone k: nothing or (; LV, β, J, nH, nH2, nHe, nHp, ρ, f, ws, ep): the rates and the state of the call, ep: EP-type extras
 li_model(k) = (LINEIMP[] && k <= length(LIMODEL[])) ? LIMODEL[][k] : nothing
 li_invalidate!() = (fill!(LIMODEL[], nothing); nothing)
-"(LINEIMP) the zone's line model from the radiative rates of a transfer call (see LINEIMP)."
-function li_set!(k, LV, β, J, nH, nH2, nHe, nHp, ρ, f)
+"Escape probability (1 − e^{−τ})/τ of a Sobolev slab and its inverse in τ (β < 1)."
+li_esc(τ) = τ < 1e-6 ? 1 - τ / 2 : -expm1(-τ) / τ
+function li_esc_inv(β)
+    lo, hi = -18.0, 18.0                                      # bisection in ln τ
+    for _ in 1:80; mid = 0.5(lo + hi); li_esc(exp(mid)) > β ? (lo = mid) : (hi = mid); end
+    exp(0.5(lo + hi))
+end
+"""
+(LINEIMP) the escape-probability model at the iterate. An EP transfer call (β of the line depths, J̄ = (1 − β) S + β J_bg) leaves per line
+its β, J̄ and, per zone, the populations. The model keeps from it, per line, the Sobolev length ℓ_i = τ_i/κ0_i (τ_i = the optical depth of the Sobolev form
+(1 − e^{−τ})/τ that gives the call's β, κ0_i the call's line opacity), the incident part J_bg,i = (J̄_i − (1 − β_i) S_i)/β_i and the zone's velocity gradient g0
+(`sl_grad`). At the iterate the lines are re-evaluated from the iterate's populations: κ0_i(iterate), τ_i = ℓ_i κ0_i g0/g, β_i = (1 − e^{−τ_i})/τ_i
+(1 where κ0_i ≤ 0), J̄_i = (1 − β_i) S_i + β_i J_bg,i ≥ β_i B_ν(T_CMB) (S_i the iterate's source function). At the state of the call this
+reproduces the call's β and J̄. Lines of an ALI call (β = 1 − Λ*, J̄ = J̄_fs − Λ* S) and lines with β = 1 at the call keep their rates.
+"""
+function li_ep(LV, β, J, jc, P, T, nH2, g0)
+    HV = Main.H2Levels; κ0 = HV.linekappa(LV, P, nH2); S = HV.linesource(LV, P, T)
+    ℓ = [(κ0[i] > 0 && β[i] < 1 - 1e-12 && β[i] > 0) ? li_esc_inv(β[i]) / κ0[i] : 0.0 for i in eachindex(β)]
+    Jbg = [β[i] > 0 ? max((J[i] - (1 - β[i]) * S[i]) / β[i], 0.0) : 0.0 for i in eachindex(β)]
+    (; ℓ, Jbg, jc, g0)
+end
+"(LINEIMP) the zone's line model from the radiative rates of a transfer call (see LINEIMP); ep = (; jc, P, T, g0) for an escape-probability call: the CMB intensity per line, the call's populations of the zone, its T and velocity gradient."
+function li_set!(k, LV, β, J, nH, nH2, nHe, nHp, ρ, f; ep = nothing)
     length(LIMODEL[]) < k && append!(LIMODEL[], Any[nothing for _ in length(LIMODEL[])+1:k])
     LIMODEL[][k] = (nH2 > 0 && isfinite(f)) ? (; LV, β, J, nH = max(Float64(nH), 0.0), nH2 = Float64(nH2), nHe = max(Float64(nHe), 0.0), nHp = max(Float64(nHp), 0.0), ρ = Float64(ρ), f = Float64(f),
-                                              ws = Main.H2Levels.PopWS(LV)) : nothing
+                                              ws = Main.H2Levels.PopWS(LV), ep = ep === nothing ? nothing : li_ep(LV, β, J, ep.jc, ep.P, ep.T, nH2, ep.g0)) : nothing
     nothing
 end
 const LIBAD = Ref(0)
-"(LINEIMP) the line cooling [erg cm⁻³ s⁻¹] of the model md at temperature T and colliders (n_H, n_H₂, n_He, n_H⁺); any of them may be a Dual (no work arrays then)."
-function li_lam(md, T, nH, nH2, nHe, nHp)
-    HV = Main.H2Levels; Tm = max(T, 1.0)
-    dual = any(x -> x isa ForwardDiff.Dual, (Tm, nH, nH2, nHe, nHp))
-    P = HV.populations(md.LV, Tm, nH, nH2, nHe, nHp; β = md.β, Jbar = md.J, ws = dual ? nothing : md.ws)
-    λ = md.f * HV.netrad(md.LV, P, nH2, md.β, md.J)
+"""
+(LINEIMP) the line cooling [erg cm⁻³ s⁻¹] of the model md at temperature T and colliders (n_H, n_H₂, n_He, n_H⁺); gr = g/g0, the iterate's velocity gradient over that of
+the call. Any of the arguments may be a Dual (no work arrays then). EP-type models: the lines' β and J̄ are those of the iterate's populations (see `li_ep`),
+the populations of the cooling then solved with them.
+"""
+function li_lam(md, T, nH, nH2, nHe, nHp, gr = 1.0)
+    HV = Main.H2Levels; Tm = max(T, 1.0); LV = md.LV
+    dual = any(x -> x isa ForwardDiff.Dual, (Tm, nH, nH2, nHe, nHp, gr))
+    ws = dual ? nothing : md.ws
+    β, J = md.β, md.J
+    if md.ep !== nothing
+        P0 = HV.populations(LV, Tm, nH, nH2, nHe, nHp; β, Jbar = J, ws)
+        κ0 = HV.linekappa(LV, P0, nH2); S = HV.linesource(LV, P0, Tm); e = md.ep
+        β = [e.ℓ[i] > 0 ? (κ0[i] > 0 ? li_esc(e.ℓ[i] * κ0[i] / gr) : one(κ0[i])) : md.β[i] + zero(κ0[i]) for i in eachindex(md.β)]
+        J = [e.ℓ[i] > 0 ? max((1 - β[i]) * S[i] + β[i] * e.Jbg[i], β[i] * e.jc[i]) : md.J[i] + zero(κ0[i]) for i in eachindex(md.β)]
+    end
+    P = HV.populations(LV, Tm, nH, nH2, nHe, nHp; β, Jbar = J, ws)
+    λ = md.f * HV.netrad(LV, P, nH2, β, J)
     if !isfinite(ForwardDiff.value(λ)) && LIBAD[] < 20
         LIBAD[] += 1
         @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e f %.3g; β %s, J̄ %s, pops %s)\n", string(λ), ForwardDiff.value(Tm), ForwardDiff.value(nH), ForwardDiff.value(nH2),
-                ForwardDiff.value(nHe), ForwardDiff.value(nHp), md.f, all(isfinite, md.β) ? "finite" : "NON-FINITE", all(isfinite, md.J) ? "finite" : "NON-FINITE",
+                ForwardDiff.value(nHe), ForwardDiff.value(nHp), md.f, all(isfinite, ForwardDiff.value.(β)) ? "finite" : "NON-FINITE", all(isfinite, ForwardDiff.value.(J)) ? "finite" : "NON-FINITE",
                 all(isfinite, ForwardDiff.value.(P)) ? "finite" : "NON-FINITE"); flush(stdout)
     end
     λ
 end
-"(LINEIMP) the line cooling of the zone with model md at (ρ, T, composition y | nothing): colliders of the iterate's composition; without one (table zone) those of the call scaled by ρ."
-function li_cool(md, ρ, T, y)
+"(LINEIMP) the line cooling of the zone with model md at (ρ, T, composition y | nothing, velocity-gradient ratio gr): colliders of the iterate's composition; without one (table zone) those of the call scaled by ρ."
+function li_cool(md, ρ, T, y, gr = 1.0)
     y === nothing && return li_lam(md, T, md.nH, md.nH2, md.nHe, md.nHp) * (ρ / md.ρ)
     nHt = ρ / CNn.μH(); comp(s_) = nHt * max(y[s_], zero(nHt))
-    li_lam(md, T, comp(:H), comp(:H2), comp(:He), comp(:Hp))
+    li_lam(md, T, comp(:H), comp(:H2), comp(:He), comp(:Hp), gr)
 end
 "Cooling function for zone k: the material's own plus the transfer term."
 function zone_cooling(m, k)
     md = li_model(k)
-    if md !== nothing                                # LINEIMP: the line cooling of the iterate (see LINEIMP)
+    if md !== nothing && CPLPREP[]                   # the coupled zones' line cooling is that of the iterate's velocity gradient too: cpl_g adds it
+        c = m.cooling
+    elseif md !== nothing                            # LINEIMP: the line cooling of the iterate (see LINEIMP)
         g = (ρ, T, y) -> li_cool(md, ρ, T, y)
         c = m.cooling === nothing ? g : ((ρ, T, y) -> m.cooling(ρ, T, y) + g(ρ, T, y))
     else
@@ -1807,6 +1842,8 @@ function cpl_g(m::NetGas, k, z)
     u, p = CNn.eos(ρ, T, x, m.net)
     dfull = CNn.full(x, m.net)
     Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, dfull)
+    md = li_model(k)
+    md === nothing || (Λ += li_cool(md, ρ, T, dfull, md.ep !== nothing && length(z) >= 8 ? z[8] / md.ep.g0 : 1.0))      # H2 line cooling of the iterate (LINEIMP)
     hd0 = HDCHEM[] && k <= length(CPLHD0[]) ? CPLHD0[][k] : nothing
     hd0 === nothing || (Λ += hd_cool(ρ, T, dfull, HDYD[] * hd_x(ρ, T, dfull, hasproperty(t, :kLW) ? t.kLW : 0.0, hd0)[3]))      # HD cooling of the iterate (HDCHEM)
     # three-level heats of the iterate (chemistry heat cq, cycle heat yq; n_e self-consistent as in the cooling closure): the hydro solve
