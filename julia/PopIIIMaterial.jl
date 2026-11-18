@@ -614,6 +614,9 @@ function nlo_slopes(m, k, s, ρ, T, x1, x2, q, tc)
     (ntuple(i -> sl(R[i], 2), 3), ntuple(i -> sl(R[i], 3), 3), ntuple(i -> sl(R[i], 4), 3), ntuple(i -> sl(R[i], 1), 3),
      (sl(ne, 2), sl(ne, 3), sl(ne, 4), sl(ne, 1)))
 end
+"(XNEITER, default on; XNEITER=0: as before) per zone n_e [cm⁻³] of the iterate as `nlo_it` last computed it (NaN: not computed in this fill). `fill_opac!` hands it to the formal solution as `xnen`."
+const NLONED = Ref(Float64[])
+const XNEITER = get(ENV, "XNEITER", "1") != "0"
 "(NLOIT) (χ, κ_E, κ_P) of network zone k at the iterate (see NLOIT)."
 function nlo_it(m::NetGas, k, ρ, T, s)
     κR0, κP0 = OPAC[](ρ, T)
@@ -690,6 +693,7 @@ function nlo_it(m::NetGas, k, ρ, T, s)
         RR = RR * exp(c.qT[3] * lt + c.qx[3] * lx + c.qr[3] * lr + c.qx2[3] * lx2)
     end
     ned = needJ ? nebase * exp(c.qn[1] * lt + c.qn[2] * lx + c.qn[3] * lx2 + c.qn[4] * lr) : nebase
+    k <= length(NLONED[]) && (NLONED[][k] = Float64(ForwardDiff.value(ned)))     # (XNEITER) n_e of the iterate, for fill_opac!'s xnen (the scattering share of the formal solution)
     return chicap(max(κR0 * RR, COp.σT * ned / ρ), T), κP0 * RE, κP0 * RP
 end
 "(diagnostic, NLOITDIAG=n: n sweeps of fill_opac!) per network zone the NLOIT opacities against those the lagged NLOPAC ratio would give at the same state."
@@ -743,6 +747,10 @@ function TM.fill_opac!(m::NetGas)
     OPAC[] === nothing && return nothing
     dn, tn = TM.v(:dn), TM.v(:tn)
     chifn, xken, xkpn, xnen = TM.v(:chifn), TM.v(:xken), TM.v(:xkpn), TM.v(:xnen)
+    if XNEITER && TX.COUPLED[]      # per-zone n_e of this fill, written by nlo_it (read below only for coupled network zones)
+        length(NLONED[]) < length(dn) && (NLONED[] = zeros(length(dn)))
+        fill!(NLONED[], NaN)
+    end
     # (PERF512) zones independent: threaded as fill_eos! (NLOITDIAG prints per zone, so it keeps the serial order)
     sweep! = (NLOIT && NLOITDIAG[] > 0) ? ((f, ks, ok) -> (for k in ks; ok(k) || continue; TX.ZONE[] = k; f(k); end)) : TX.zone_sweep!
     sweep!(TM.krange(), k -> @inbounds(dn[k] > 0 && tn[k] > 0)) do k
@@ -754,6 +762,11 @@ function TM.fill_opac!(m::NetGas)
         xnen[k] = (CNn.HECHEM ? (m.eqzone[k] ? (Tq = min(tn[k], 1e6); z = EQ.composition_he(dn[k], Tq); EQ.composition(dn[k], Tq)[1] + z[1] + 2z[2]) :
                                  CNn.full(m.x[k], m.net)[:e]) :
                    (m.eqzone[k] ? EQ.composition(dn[k], min(tn[k], 1e6))[1] : CNn.full(m.x[k], m.net)[:Hp])) * dn[k] / CNn.μH()
+        # (XNEITER) coupled network zone: the electrons of the iterate (x_H⁺, x_H₂ of the Newton vector, via nlo_it's CK expansion), the same n_e that
+        # chifn's Thomson floor uses, not the composition of the last chemistry
+        if XNEITER && TX.COUPLED[] && !m.eqzone[k] && TX.cplz(k) && k <= length(NLONED[]) && isfinite(NLONED[][k])
+            xnen[k] = NLONED[][k]
+        end
       end
     end
     nothing
