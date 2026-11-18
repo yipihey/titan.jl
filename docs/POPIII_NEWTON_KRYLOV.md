@@ -363,5 +363,6 @@ Measured (restart at step 62,300 of z100nk_ep, ERLAB=1 NKRYLOV=1 DTERR=0.03, 80 
 * NKLS=1 (t_ls02): 9 Newton failures (dt 5.0e3, 1.75e4, 3.07e4, 2.98e4, 2.4e4, 3.18e4, 3.28e4, 3.39e4, 6.18e4 s) against 11 without (t_jf27); 457 line searches engaged,
   189 backtracked, 81 failed, 1271 extra residual evaluations; 12.5 min wall incl. start-up.
 * NKLS=1 NITER=60 (t_ls03): the same 9 failures; 769 engaged, 469 backtracked, 194 failed; 16.0 min wall.
-* In the failing attempt 26 (jstep 62310, 1.027e4 s) |delta0|_W stays at 2.3e-3 to 2.6e-3 while |x|_W is 0.1 to 3.4; lambda ends at lmin in 15 of 25 iterations and every trial is non-finite
-  (T NaN) in 11 of them; T does not fall below 2.2e-3: no descent along the GMRES direction.
+* In the failing attempt 26 (jstep 62310, 1.027e4 s) |delta0|_W stays at 2.3e-3 to 2.6e-3 while |x|_W is 0.1 to 3.4; lambda ends at lmin in 15 of 25 iterations because no
+  trial lowered T(0). (The first version printed "T NaN" for that case: that was the sentinel for "no finite trial below T(0)", not a non-finite residual; the NKSCAN runs
+  t_ls04/t_ls05 found no non-finite residual and no exception at any lambda in -1..1.)

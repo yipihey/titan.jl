@@ -216,7 +216,7 @@ function linesearch(S::Sys, x, b)
     scn(R) = norm(S.sc .* R)
     T0 = level(S.R0); sc0 = scn(S.R0); nb0 = norm(b .* S.wt)
     rel0 = abs(T0 - nb0) / max(nb0, 1e-300); LSC.maxrel0 = max(LSC.maxrel0, rel0)
-    λ = 1.0; ntr = 0; best = (Inf, 0.0, NaN); acc = nothing
+    λ = 1.0; ntr = 0; best = (Inf, 0.0, NaN); acc = nothing; Tlast = NaN; sclast = NaN
     while λ >= LS.lmin * (1 - 1e-12)
         ntr += 1; LSC.evals += 1
         T, scl = try
@@ -226,6 +226,7 @@ function linesearch(S::Sys, x, b)
             ex isa InterruptException && rethrow()
             Inf, NaN
         end
+        Tlast = T; sclast = scl
         isfinite(T) && T < best[1] && (best = (T, λ, scl))
         if isfinite(T) && T <= (1 - λ / 4) * T0
             acc = (λ, T, scl); break
@@ -237,7 +238,7 @@ function linesearch(S::Sys, x, b)
     if best[1] < T0
         return best[2], T0, best[1], ntr, sc0, best[3], rel0, true
     end
-    LS.lmin, T0, NaN, ntr, sc0, NaN, rel0, true
+    LS.lmin, T0, Tlast, ntr, sc0, sclast, rel0, true          # (no finite trial below T(0): lmin; the printed T is that of the last (smallest-lambda) trial)
 end
 """
 Directional derivative of the full residual, y = J v: central difference [R(x ⊕ εv) − R(x ⊖ εv)]/2ε (one-sided [R(x ⊕ εv) − R(x)]/ε if `OPT.central` is false). v is a vector over the active entries.
