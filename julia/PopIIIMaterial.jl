@@ -47,7 +47,9 @@ composition) and the H₂ density of the iterate:
     Λ(ρ, T, x) = f · n_H₂ Σ_lines hν [n_u(T, n) (A β + B_ul J̄) − n_l(T, n) B_lu J̄]     (H2Levels.netrad = collcool in s.e.)
 with f the ALI/EP factor of the hybrid scheme. So the optically thin and the escape-probability part of the cooling are implicit and exact
 in T, ρ and the composition, and the derivatives are those of this function (ForwardDiff through the population solve: the populations
-are generic in the number type). The non-local part (β, J̄ from the other zones, f) is lagged.
+are generic in the number type). The radiative rates of an escape-probability call follow the iterate too (`li_ep`: β from the line depths of the iterate's populations,
+density and velocity gradient, J̄ from the iterate's source function and the call's incident field); what stays as the transfer call left it is the static slab
+geometry inside β (through the call's Sobolev length), the incident field J_bg, the rates of an ALI call and the ALI/EP factor f.
 Λ is the net exchange with the zone's radiation field: it vanishes where the levels are in equilibrium with J̄ (for J̄ = β B_ν(T_r):
 at T = T_r) and is heating below that, so no held rate can take a zone below the radiation temperature; J̄ ≥ β B_ν(T_CMB) per line.
 """
