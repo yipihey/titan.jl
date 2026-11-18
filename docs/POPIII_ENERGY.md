@@ -2945,3 +2945,6 @@ at 100 zones (§21.3); the star's structure changes accordingly (§23.5).
   stretched mesh is 7–29 % below the node mass (§21.3): the force is a discontinuous function of the sign of a tiny flux and the star is no longer in hydrostatic balance
   with the pressure force. So the exact discrete compatibility of momentum row and total row is obtained at the price of a gravity force that is not a good approximation of gravity at 100 zones; it
   works where the mesh is fixed and the flow is not close to rest (Noh, free fall), not in the star. `gravcons(P) = false` restores the node-mass force.
+* Heat booking with the force of the node mass (gravcons switched off by a temporary local edit, not committed), 300 steps, `t_ie29`: identical to `t_ie24` (33 rejections, 29 Newton failures, same time reached 7.508554e12 s, same G 6.6e-4): the
+  CQB/YQB booking changes nothing when no zone changes status (`CPLBADDELTA=Inf`). With the default `CPLBADDELTA=100` (`t_ie30`, 150 steps) two zones were decoupled for a step; the message prints the booked heat the zone uses from then on:
+  zone 32 cq 3.2e-8, yq 9.9e-8 erg cm⁻³ s⁻¹ (the heat of the previous end state, applied once, in place of the iterate's), zone 30 cq = yq = 0 (the zone had no three-level booking).
