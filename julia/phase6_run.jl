@@ -37,6 +37,9 @@ elseif mode == "pure"
     TM.use!(TM.Builtin()); TC.EDDFAC[] = TC.eddfac!       # benchmarks: TITAN's own ideal gas + opacities
     TD.MSGIO[] = devnull
     snaps = Metrics.Snap[]; tstep = Float64[]
+    # ETOTMON=1 (diagnostic, default off; no influence on the solution): TX.etot_monitor after every converged implicit solve, summary below
+    mon = Any[]
+    get(ENV, "ETOTMON", "0") != "0" && (TD.STAGE_HOOK[] = (kind, dt) -> (push!(mon, TX.etot_monitor(dt)); nothing))
     t0 = time(); tl = Ref(time())
     n, why = TD.run_julia!(output = function (k)
         push!(snaps, Metrics.snap(TF)); push!(tstep, time() - tl[]); tl[] = time()
@@ -47,6 +50,11 @@ elseif mode == "pure"
     steady = sum(tstep[3:end]) / max(1, length(tstep) - 2)
     @printf("%s/pure: steps = %d (%s), t = %.10g, wall = %.2f s, steady state %.3f ms/step, libtitan loaded: %s\n",
             name, n, why, TF.getscalar(:timen), wall, 1e3 * steady, TF.HANDLE[] != C_NULL)
+    if !isempty(mon)
+        Gs = abs.([m.G for m in mon]); vm = [m.vmax for m in mon]; im = argmax(vm)
+        @printf("ETOTMON %s: %d solves; G = (total-energy residual)/(energy throughput): median |G| %.3e, mean |G| %.3e, max |G| %.3e; sum imb / sum thr %.3e; |gnet| max %.3e; worst zone/own throughput %.3e (zone %d, solve %d)\n",
+                name, length(mon), sort(Gs)[(length(Gs)+1)÷2], sum(Gs) / length(Gs), maximum(Gs), sum(m.imb for m in mon) / sum(m.thr for m in mon), maximum(abs(m.gnet) for m in mon), vm[im], mon[im].zmax, im)
+    end
 else
     error("mode must be capture or pure")
 end

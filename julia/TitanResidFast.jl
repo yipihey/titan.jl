@@ -1844,6 +1844,44 @@ function energy_imbalance(dt)
 end
 
 """
+    etot_monitor(dt) -> (; imb, thr, G, gnet, zmax, vmax, zshare, vshare, dE, fin, fout)
+
+(ETOTMON, diagnostic; no influence on the solution.) Right after a converged implicit solve (`TitanDriver.STAGE_HOOK`, old arrays = the solve's start,
+`dt` = the solve's step): one Float64 residual evaluation of the CONSERVATIVE total-energy rows of every zone (ηsw = 0, ETOT_GRAV on, whatever
+formulation produced the solve): row_k = Δ[m(e_g + E_r/ρ + K)]_k/dt + Φ_k+1 − Φ_k (`etot_row`: the fluxes Φ are `eflux`, including the boundary fluxes at the
+first and last interface; the nuclear source, the star-light/ray heating RAYQ and the chemistry cooling are in the row as in the solve). The sum over the
+zones × dt is therefore the global budget  ΔE_tot + dt (Φ_out − Φ_in) − ∫(sources),  `imb`  [erg sr⁻¹], the interior fluxes telescoping.
+Scales: `thr` = Σ_k (|ΔE_k| + dt (|Φ_k| + |Φ_k+1|)), the solve's energy throughput, so  G = imb/thr; `gnet` = imb/(|ΔE_tot| + dt(|Φ_in| + |Φ_out|)).
+Per zone: v_k = |row_k| dt/thr_k with thr_k = |ΔE_k| + dt (|Φ_k| + |Φ_k+1|) (`zmax`, `vmax`: the worst, relative to its own throughput) and
+s_k = |row_k| dt/thr (`zshare`, `vshare`: the zone that contributes most to the global budget). Zone numbers count from the first zone (1).
+"""
+function etot_monitor(dt)
+    eg0 = ETOT_GRAV[]; ETOT_GRAV[] = true
+    # (context() fills reused buffers in place: the solver's row-switch flags and base state are restored, the monitor has no influence on the solve)
+    us = haskey(BUFS, :useint) ? copy(BUFS[:useint]::Vector{Bool}) : nothing; bs = haskey(BUFS, :base) ? copy(BUFS[:base]::Matrix{Float64}) : nothing
+    try
+        c = context(; etotal = true, ηsw = 0.0, dt)
+        nb, neqn = c.nb, c.neqn
+        R = zeros(neqn, nb); ws = getws(Float64, c.mgr)
+        nocompat(() -> residual!(R, ws, c, zeros(neqn * nb))); W = ws.a
+        it = c.ix[5]; a, b = c.ngrs, c.ngre
+        E(k) = W.dn[k] * W.dvoln[k] * ((c.lrad ? W.egrn[k] : W.egn[k]) + 0.25 * (W.un[k]^2 + W.un[k+1]^2))
+        Eo(k) = c.do_[k] * c.dvolo[k] * ((c.lrad ? c.egro[k] : c.ego[k]) + 0.25 * (c.uo[k]^2 + c.uo[k+1]^2))
+        Φ = [eflux(k, c, W, Float64) for k in a:b+1]
+        res = [R[it, k - c.k0 + 1] * dt for k in a:b]
+        thrk = [abs(E(k) - Eo(k)) + dt * (abs(Φ[k-a+1]) + abs(Φ[k-a+2])) for k in a:b]
+        thr = sum(thrk); imb = sum(res); dE = sum(E(k) - Eo(k) for k in a:b)
+        fin, fout = Φ[1] * dt, Φ[end] * dt
+        v = abs.(res) ./ max.(thrk, 1e-300); zm = argmax(v)
+        s = abs.(res) ./ max(thr, 1e-300); zs = argmax(s)
+        (; imb, thr, G = imb / max(thr, 1e-300), gnet = imb / max(abs(dE) + abs(fin) + abs(fout), 1e-300), zmax = zm, vmax = v[zm], zshare = zs, vshare = s[zs], dE, fin, fout)
+    finally
+        ETOT_GRAV[] = eg0
+        us === nothing || copyto!(BUFS[:useint]::Vector{Bool}, us); bs === nothing || copyto!(BUFS[:base]::Matrix{Float64}, bs)
+    end
+end
+
+"""
     step_diag(dt) -> (; srcw, fcv, vcv, lcv)
 
 Right after a converged step (old arrays = start of step): one Float64 residual evaluation at the converged state (as

@@ -399,7 +399,7 @@ function recopen!(k)
     end
     pf = joinpath(RUNREC, "perf.csv")
     isfile(pf) || open(pf, "w") do io
-        println(io, "step,t_yr,dt_s,wall_s,pid,nsteps,t_step,t_chem,t_lines,t_other,gc_s,alloc_GB,ndiv,nrepeat,tr_steps,fail_tr,fail_bdf,be_fallback,nali,nchemfb,nthreads,nz,log_nc,Tc,mstar,rstar,umin_kms,dtlim")
+        println(io, "step,t_yr,dt_s,wall_s,pid,nsteps,t_step,t_chem,t_lines,t_other,gc_s,alloc_GB,ndiv,nrepeat,tr_steps,fail_tr,fail_bdf,be_fallback,nali,nchemfb,nthreads,nz,log_nc,Tc,mstar,rstar,umin_kms,dtlim,etot_Gmax,etot_vmax,etot_zone")
     end
 end
 "One snapshot into the RUNREC stream: everything needed to redraw any profile panel offline."
@@ -420,6 +420,20 @@ function recsnap!(k)
     mat isa PM.NetGas && PM.HDCHEM[] && (snap = merge(snap, (; hd = PM.hd_snap(mat, a, b))))     # HDCHEM=1: x_D+, x_HD, HD cooling
     serialize(REC.io[], snap); flush(REC.io[])
 end
+# ETOTMON=1 (diagnostic, default off; no influence on the solution): the total-energy monitor of every converged implicit solve, TX.etot_monitor, via TD.STAGE_HOOK.
+# `buf`: the stages since the last trace line (DTERRTRACE), `pG/pv/pz`: the largest |G|, the largest per-zone value and its zone since the last perf.csv row.
+mutable struct EtotMon; on::Bool; buf::Vector{Any}; pG::Float64; pv::Float64; pz::Int; end
+const EM = EtotMon(false, Any[], 0.0, 0.0, 0)
+"The ETOT text of the DTERR trace line: the stages since the last line (G = global total-energy residual / energy throughput of a solve, see TX.etot_monitor)."
+function etot_text()
+    isempty(EM.buf) && return ""
+    b_ = EM.buf; EM.buf = Any[]
+    Gl = b_[end][4].G; Σi = sum(x[4].imb for x in b_); Σt = sum(x[4].thr for x in b_)
+    iG = argmax([abs(x[4].G) for x in b_]); iv = argmax([x[4].vmax for x in b_]); is = argmax([x[4].vshare for x in b_])
+    @sprintf(" | ETOT %d solves: G(last %s) %+.2e, sum %+.2e, max|G| %.2e (step %d %s); worst zone/own throughput z%d %.2e (step %d %s), largest share z%d %.2e (step %d %s)",
+             length(b_), b_[end][2], Gl, Σi / max(Σt, 1e-300), abs(b_[iG][4].G), b_[iG][1], b_[iG][2], b_[iv][4].zmax, b_[iv][4].vmax, b_[iv][1], b_[iv][2],
+             b_[is][4].zshare, b_[is][4].vshare, b_[is][1], b_[is][2])
+end
 "One perf.csv row (called at the TIMING report, before the accumulators are reset)."
 function recperf!(k, tnow)
     REC.io[] === nothing && recopen!(k)
@@ -428,12 +442,13 @@ function recperf!(k, tnow)
     oth = time() - tnow + TOTH[] - TCHEM[] - TLINE[]
     ns = REC.klast[] < 0 ? 0 : k - REC.klast[]
     open(joinpath(RUNREC, "perf.csv"), "a") do io
-        @printf(io, "%d,%.8e,%.4e,%.1f,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%.6e,%.6g,%.6g,%.3f,%s\n",
+        @printf(io, "%d,%.8e,%.4e,%.1f,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%.6e,%.6g,%.6g,%.3f,%s,%.3e,%.3e,%d\n",
                 k, TF.getscalar(:timen) / 3.156e7, TF.getscalar(:dtime), time() - REC.wall0, getpid(), ns, TSTEP[], TCHEM[], TLINE[], oth,
                 (gct - REC.gct[]) / 1e9, (gcb - REC.gcb[]) / 2^30, TD.NDIV[], TD.NREP[], get(st, :steps, 0), get(st, :fail_tr, 0), get(st, :fail_bdf, 0),
                 get(st, :be_fallback, 0), NALICALL[], PM.NCHEMFB[], Threads.nthreads(), b - a + 1, log10(TF.var(:dn)[a] / PC.mH), TF.var(:tn)[a],
-                REC.mstar[], REC.rstar[], minimum(un_) / 1e5, REC.dtlim[])
+                REC.mstar[], REC.rstar[], minimum(un_) / 1e5, REC.dtlim[], EM.pG, EM.pv, EM.pz)
     end
+    EM.pG = 0.0; EM.pv = 0.0; EM.pz = 0
     REC.klast[] = k; REC.gct[] = gct; REC.gcb[] = gcb
 end
 # M3: the star's ionizing light (IonRay). RAY=1: spectrum from the photosphere (τ_R = 2/3), a blackbody at T_eff from L and r there; no source below RAYTMIN.
@@ -1765,11 +1780,22 @@ try
         end
         pr("EDIAG: total-energy rows of every converged stage -> ediag.csv\n")
     end
+    if get(ENV, "ETOTMON", "0") != "0"              # (diagnostic, default off) total-energy monitor of every converged implicit solve, on the DTERR trace line and in perf.csv
+        EM.on = true; prev_ = TD.STAGE_HOOK[]
+        TD.STAGE_HOOK[] = function (kind, dt)
+            prev_ === nothing || prev_(kind, dt)
+            m_ = TX.etot_monitor(dt)
+            push!(EM.buf, (Int(TF.getscalar(:jstep)), kind, dt, m_))
+            abs(m_.G) > EM.pG && (EM.pG = abs(m_.G)); m_.vmax > EM.pv && (EM.pv = m_.vmax; EM.pz = m_.zmax)
+            nothing
+        end
+        pr("ETOTMON: total-energy rows of every converged solve (TX.etot_monitor) -> ETOT text on the DTERR trace lines, etot_* columns of perf.csv\n")
+    end
     Trbdf2.ERRCTL[] || error("DTERR must be set (the step control of the stack; TITAN's heuristic is diagnostic only)")
     if Trbdf2.ERRCTL[]                             # DTERR: coverage of the COUPLED zones and the line cap the heuristic would apply, on the trace lines
         Trbdf2.TRACE_EXTRA[] = function ()
             nnet = count(k -> !mat.eqzone[k], a:b); ncpl = count(k -> TX.cplz(k), a:b)
-            @sprintf(" | network zones %d, coupled %d | line cap %.3e", nnet, ncpl, LINECAPV[]) * (TD.KRYLOV[] === nothing ? "" : NewtonKrylov.trace_text(Trbdf2.ESTATS[:steps]))
+            @sprintf(" | network zones %d, coupled %d | line cap %.3e", nnet, ncpl, LINECAPV[]) * (TD.KRYLOV[] === nothing ? "" : NewtonKrylov.trace_text(Trbdf2.ESTATS[:steps])) * (EM.on ? etot_text() : "")
         end
         @printf("DTERR: error-controlled TR-BDF2 (rtol %g, x floor %g, F floor %g cE, E floor %g aT^4, %s norm, PI %s, safety/facmin/facmax %g/%g/%g, Newton-failure factor %g, BE retry %s); TITAN's heuristic and caps are diagnostic only\n",
                 Trbdf2.EOPT.rtol, Trbdf2.EOPT.xfl, Trbdf2.EOPT.ffl, Trbdf2.EOPT.efl, Trbdf2.EOPT.maxnorm ? "max" : "rms", Trbdf2.EOPT.pi, Trbdf2.EOPT.safety, Trbdf2.EOPT.facmin, Trbdf2.EOPT.facmax, Trbdf2.EOPT.fail, Trbdf2.EOPT.be)
