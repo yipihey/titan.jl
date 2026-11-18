@@ -474,6 +474,10 @@ const PRED_LAGRHO = Ref(false)
 function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     a, b = gi(:ngrs), gi(:ngre); lrad = gi(:lrad) == 1
     gi(:lhydr) == 1 && gi(:ltur) == 0 || error("peq!: only lhydr=1, ltur=0 ported")
+    # ---- refresh the derived arrays of the end-of-step state with THIS step's held inputs (material composition, non-LTE factors NLOST, species, closure), so that the old level
+    #      copied below is what the residual's own functions give for the old state: the post-step chemistry (PopIIIMaterial.chem_core!, cpl_prepare!) changes those inputs between
+    #      the last update! of a step and the first residual of the next, and the stored opacities were up to 40 % off (STAGECONS item 8). Idempotent where nothing is held.
+    _ghost_and_derived!(:peq, eos!, opac!)
     # ---- replace old by new
     s!(:timeo, gf(:timen)); s!(:timen, gf(:timeo) + gf(:dtime))
     for (o, n) in ((:teso, :tes), (:tewo, :tew), (:telo, :tel), (:teqo, :teq)); s!(o, gf(n)); end

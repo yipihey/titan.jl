@@ -29,8 +29,8 @@ Zones are numbered from the inner boundary (zone Z = array index ngrs + Z − 1,
 module StageCons
 
 using Printf
-import ..TitanDriver, ..TitanResidFast, ..NewtonKrylov, ..Trbdf2
-const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const NK = NewtonKrylov; const TR = Trbdf2
+import ..TitanDriver, ..TitanCore, ..TitanResidFast, ..NewtonKrylov, ..Trbdf2
+const TC = TitanCore; const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const NK = NewtonKrylov; const TR = Trbdf2
 vf(s) = TF.var(s)::Vector{Float64}
 const GATE = Dict{Symbol,Tuple{Float64,Symbol,Int}}()      # per printed step: worst value, row, zone of item 1 / item 1dt / item 2b (summary line `gate`)
 gate!(k, v, row, z) = (!haskey(GATE, k) || v > GATE[k][1]) && (GATE[k] = (v, row, z))
@@ -219,6 +219,11 @@ function item4(J, c, W, Cn, a)
         @printf("STAGECONS jstep %d item4 %-30s max rel diff %.3e zone %d | zones %d,%d,%d old %.6e %.6e %.6e new %.6e %.6e %.6e\n", J, nm, m, k - a + 1, ZV[1], ZV[2], ZV[3],
                 o[a+ZV[1]-1], o[a+ZV[2]-1], o[a+ZV[3]-1], n[a+ZV[1]-1], n[a+ZV[2]-1], n[a+ZV[3]-1])
     end
+    let k = b       # slope debug at the last zone: old/new gas-energy slope and the values they are made from
+        gq = TX.GASROW[] ? W.egsng : W.egsn
+        @printf("STAGECONS jstep %d item4 slope@k=b(zone %d): ego[k-1,k,k+1,k+2] %.9e %.9e %.9e %.9e | egn %.9e %.9e %.9e %.9e | a_old %.3e b_old %.3e a_new %.3e b_new %.3e | oldslope %.6e newslope %.6e\n", J, k - a + 1,
+                c.ego[k-1], c.ego[k], c.ego[k+1], c.ego[k+2], W.egn[k-1], W.egn[k], W.egn[k+1], W.egn[k+2], c.ego[k] - c.ego[k-1], c.ego[k+1] - c.ego[k], W.egn[k] - W.egn[k-1], W.egn[k+1] - W.egn[k], W.egso[k], gq[k])
+    end
     # closure arrays: the start state (new = old, after update!) against the end of the previous step
     E = ENDCL[]; now = closure()
     if E !== nothing
@@ -293,9 +298,41 @@ function hook(what, Δ, Cn)
     flush(stdout); nothing
 end
 
+"""
+Item 8 (STAGEPEQ=1, with STAGECONS): at the step start, inside `peq!` after new → old and before `predict!` moves the new level, the derived arrays are recomputed at the unmoved state
+with the step's held inputs (TitanCore._ghost_and_derived!(:peq), EOS, opacity, Eddington closure) and compared with what was just copied to the old level (pgo, ego, aso, chifo, xkeo,
+xkpo, plfo, egro, avchio, xneo) and with the stored closure (fedd, hedd, hxedd, fxedd, tiew). Everything is restored afterwards.
+"""
+function peqcheck()
+    TR.ESTATS[:steps] % EVERY[] == 0 || return nothing
+    a = Int(TD.g(:ngrs)); b = Int(TD.g(:ngre)); J = Int(TD.g(:jstep))
+    S = NK.Snap(); NK.take!(S); rhs0 = copy(TF.var(:rhs)); cl0 = closure()
+    try
+        L = ((:pgo, :pgn), (:ego, :egn), (:aso, :asn), (:chifo, :chifn), (:xkeo, :xken), (:xkpo, :xkpn), (:plfo, :plfn), (:egro, :egrn), (:avchio, :avchin), (:xneo, :xnen))
+        old = Dict(o => copy(vf(o)) for (o, _) in L)
+        for i in 1:2; copyto!(TX.XSN[][i], TX.XSO[][i]); end      # (cpl_newstep! has just replaced XSN by the local-chemistry guess of the new step; the old state's species are XSO)
+        TF.var(:rhs) .= 0.0; TC._ghost_and_derived!(:peq, () -> TD.EOS[](), () -> TD.OPAC[]())
+        cl1 = closure()
+        for (o, n) in L
+            m, k = rel(old[o], vf(n), a:b)
+            @printf("STAGECONS jstep %d item8 %-8s stored/recomputed: max rel diff %.3e zone %d | zones 31,32,33 stored %.6e %.6e %.6e recomputed %.6e %.6e %.6e\n", J, string(o), m, k - a + 1, [old[o][a+Z-1] for Z in ZV]..., [vf(n)[a+Z-1] for Z in ZV]...)
+        end
+        for nm in (:fedd, :hedd, :hxedd, :fxedd, :tiew)
+            o_, n_ = getfield(cl0, nm), getfield(cl1, nm); (length(o_) > b + 1 && length(n_) == length(o_)) || continue
+            m, k = rel(o_, n_, a:b)
+            @printf("STAGECONS jstep %d item8 %-8s stored/recomputed: max rel diff %.3e zone %d | zones 31,32,33 stored %.6e %.6e %.6e recomputed %.6e %.6e %.6e\n", J, string(nm), m, k - a + 1, [o_[a+Z-1] for Z in ZV]..., [n_[a+Z-1] for Z in ZV]...)
+        end
+    finally
+        NK.restore!(S); TF.var(:rhs) .= rhs0
+    end
+    nothing
+end
+
 "STAGECONS=n: install the hook (every n-th accepted step)."
 function configure!(n::Int)
-    EVERY[] = n; TR.STAGECONS_HOOK[] = hook; nothing
+    EVERY[] = n; TR.STAGECONS_HOOK[] = hook
+    if get(ENV, "STAGEPEQ", "0") == "1"; TC.PEQ_HOOK[] === nothing || error("STAGEPEQ: TitanCore.PEQ_HOOK already in use"); TC.PEQ_HOOK[] = peqcheck; end
+    nothing
 end
 
 end # module
