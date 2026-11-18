@@ -380,7 +380,7 @@ function _ghost_and_derived!(mode::Symbol, eos!, opac!)
             dplf[k] = 4.0 * plfn[k]
         end
         @inbounds for k in a:b+1; avchin[k] = 2.0 / (1.0 / chifn[k-1] + 1.0 / chifn[k]); end
-        if mode === :peq || gi(:ltran) == 0 || TD.VEF_ITER[]
+        if mode !== :update || gi(:ltran) == 0 || TD.VEF_ITER[]
             if mode === :update && !isempty(NWFREEZE[])          # (NWFREEZE, diagnostic, default off) the named closure quantities keep the values they had before this update
                 sv_ = nw_freeze_save()
                 EDDFAC[]()
@@ -390,6 +390,7 @@ function _ghost_and_derived!(mode::Symbol, eos!, opac!)
             end
         end
     end
+    mode === :refresh && return nothing        # (peq!'s refresh of the end-of-step state: no time-centred quantities, drdt/dmdt/urel stay those of the last step for predict!)
     # ---- time-centred quantities
     θ = gf(:thet); dt = gf(:dtime)
     r, u, xm, xme, drdt, dmdt, urel, rmu, rmup1, rmum1 =
@@ -477,7 +478,7 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     # ---- refresh the derived arrays of the end-of-step state with THIS step's held inputs (material composition, non-LTE factors NLOST, species, closure), so that the old level
     #      copied below is what the residual's own functions give for the old state: the post-step chemistry (PopIIIMaterial.chem_core!, cpl_prepare!) changes those inputs between
     #      the last update! of a step and the first residual of the next, and the stored opacities were up to 40 % off (STAGECONS item 8). Idempotent where nothing is held.
-    _ghost_and_derived!(:peq, eos!, opac!)
+    _ghost_and_derived!(:refresh, eos!, opac!)
     # ---- replace old by new
     s!(:timeo, gf(:timen)); s!(:timen, gf(:timeo) + gf(:dtime))
     for (o, n) in ((:teso, :tes), (:tewo, :tew), (:telo, :tel), (:teqo, :teq)); s!(o, gf(n)); end
