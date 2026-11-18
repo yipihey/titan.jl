@@ -38,56 +38,50 @@ linearised in ln T) instead of explicit with Δt ≤ 0.1 uρ/Λ.
 ext_cooling(m, k) = (Λx = m.Λext[k]; Λx == 0 ? nothing :
                      m.slope[k] == 0 ? ((T) -> Λx + zero(T)) : (Tr = m.Tref[k]; s = m.slope[k]; (T) -> Λx * (T / Tr)^s))
 """
-LINEIMP=1 (popiii_m2c; default off, off = bit-identical): the H₂ line cooling of a zone is a function of the zone's current state, not
-a number held from the last transfer call (`Λext`, with the IMPCOOL power-law slope from a second transfer call). Each transfer call
-(popiii_m2c `linecool`) leaves per zone the radiative rates of its last population solve: escape probability β and mean intensity J̄
-per line (escape-probability call: β of the local optical depths, J̄ = β J_bg of the incident CMB + star light; ALI call: β = 1 − Λ*,
-J̄ = J̄_fs − Λ* S, the accelerated-Λ-iteration split). Between transfer calls those rates are frozen and the level populations are
-re-solved in statistical equilibrium at the gas temperature of the iterate:
-    Λ(ρ, T, x) = f · (n_H₂/n_H₂⁰) · n_H₂⁰ Σ_lines hν [n_u(T) (A β + B_ul J̄) − n_l(T) B_lu J̄]     (H2Levels.netrad = collcool in s.e.)
-with the colliders of the transfer call (n_H₂/n_H₂⁰ carries ρ and, in coupled zones, x_H₂ of the iterate). So the optically thin and
-the escape-probability part of the cooling are implicit and exact in T; the non-local part (J̄ from the other zones, the ALI/EP ratio f
-of the hybrid scheme) is lagged. ∂Λ/∂T from the same model (one-sided difference, relative step LIEPS) wherever Newton asks for it.
+LINEIMP (popiii_m2c; always on): the H₂ line cooling of a zone is a function of the zone's current state, not a number held from the last
+transfer call. Each transfer call (popiii_m2c `linecool`) leaves per zone the radiative rates of its last population solve: escape
+probability β and mean intensity J̄ per line (escape-probability call: β of the local optical depths, J̄ = β J_bg of the incident CMB + star
+light; ALI call: β = 1 − Λ*, J̄ = J̄_fs − Λ* S, the accelerated-Λ-iteration split). Between transfer calls those rates are frozen and the level
+populations are re-solved in statistical equilibrium at the temperature, the collider densities (n_H, n_H₂, n_He, n_H⁺ of the iterate's
+composition) and the H₂ density of the iterate:
+    Λ(ρ, T, x) = f · n_H₂ Σ_lines hν [n_u(T, n) (A β + B_ul J̄) − n_l(T, n) B_lu J̄]     (H2Levels.netrad = collcool in s.e.)
+with f the ALI/EP factor of the hybrid scheme. So the optically thin and the escape-probability part of the cooling are implicit and exact
+in T, ρ and the composition, and the derivatives are those of this function (ForwardDiff through the population solve: the populations
+are generic in the number type). The non-local part (β, J̄ from the other zones, f) is lagged.
 Λ is the net exchange with the zone's radiation field: it vanishes where the levels are in equilibrium with J̄ (for J̄ = β B_ν(T_r):
 at T = T_r) and is heating below that, so no held rate can take a zone below the radiation temperature; J̄ ≥ β B_ν(T_CMB) per line.
 """
 const LINEIMP = Ref(false)
-const LIMODEL = Ref{Vector{Any}}(Any[])          # per zone k: nothing or (; LV, β, J, nH, nH2, nHe, nHp, ρ, f, c)
-const LIEPS = 1e-4
-mutable struct LiCache; T::Float64; λ::Float64; dλ::Float64; hasd::Bool; ws::Any; end
+const LIMODEL = Ref{Vector{Any}}(Any[])          # per zone k: nothing or (; LV, β, J, nH, nH2, nHe, nHp, ρ, f, ws): the rates and, for composition-less callers, the state of the call
 li_model(k) = (LINEIMP[] && k <= length(LIMODEL[])) ? LIMODEL[][k] : nothing
 li_invalidate!() = (fill!(LIMODEL[], nothing); nothing)
 "(LINEIMP) the zone's line model from the radiative rates of a transfer call (see LINEIMP)."
 function li_set!(k, LV, β, J, nH, nH2, nHe, nHp, ρ, f)
     length(LIMODEL[]) < k && append!(LIMODEL[], Any[nothing for _ in length(LIMODEL[])+1:k])
     LIMODEL[][k] = (nH2 > 0 && isfinite(f)) ? (; LV, β, J, nH = max(Float64(nH), 0.0), nH2 = Float64(nH2), nHe = max(Float64(nHe), 0.0), nHp = max(Float64(nHp), 0.0), ρ = Float64(ρ), f = Float64(f),
-                                              c = LiCache(NaN, 0.0, 0.0, false, Main.H2Levels.PopWS(LV))) : nothing
+                                              ws = Main.H2Levels.PopWS(LV)) : nothing
     nothing
 end
-function li_lam(md, Tv, ws)
-    HV = Main.H2Levels
-    P = HV.populations(md.LV, Tv, md.nH, md.nH2, md.nHe, md.nHp; β = md.β, Jbar = md.J, ws)
-    λ = md.f * HV.netrad(md.LV, P, md.nH2, md.β, md.J)
-    if !isfinite(λ) && LIBAD[] < 20
+const LIBAD = Ref(0)
+"(LINEIMP) the line cooling [erg cm⁻³ s⁻¹] of the model md at temperature T and colliders (n_H, n_H₂, n_He, n_H⁺); any of them may be a Dual (no work arrays then)."
+function li_lam(md, T, nH, nH2, nHe, nHp)
+    HV = Main.H2Levels; Tm = max(T, 1.0)
+    dual = any(x -> x isa ForwardDiff.Dual, (Tm, nH, nH2, nHe, nHp))
+    P = HV.populations(md.LV, Tm, nH, nH2, nHe, nHp; β = md.β, Jbar = md.J, ws = dual ? nothing : md.ws)
+    λ = md.f * HV.netrad(md.LV, P, nH2, md.β, md.J)
+    if !isfinite(ForwardDiff.value(λ)) && LIBAD[] < 20
         LIBAD[] += 1
-        @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e f %.3g; β %s, J̄ %s, pops %s)\n", string(λ), Tv, md.nH, md.nH2, md.nHe, md.nHp, md.f,
-                all(isfinite, md.β) ? "finite" : "NON-FINITE", all(isfinite, md.J) ? "finite" : "NON-FINITE", all(isfinite, P) ? "finite" : "NON-FINITE"); flush(stdout)
+        @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e f %.3g; β %s, J̄ %s, pops %s)\n", string(λ), ForwardDiff.value(Tm), ForwardDiff.value(nH), ForwardDiff.value(nH2),
+                ForwardDiff.value(nHe), ForwardDiff.value(nHp), md.f, all(isfinite, md.β) ? "finite" : "NON-FINITE", all(isfinite, md.J) ? "finite" : "NON-FINITE",
+                all(isfinite, ForwardDiff.value.(P)) ? "finite" : "NON-FINITE"); flush(stdout)
     end
     λ
 end
-const LIBAD = Ref(0)
-"(LINEIMP) the line cooling [erg cm⁻³ s⁻¹] of the zone with model md at (ρ, T, composition y | nothing); Duals carry ∂/∂T, ∂/∂ρ, ∂/∂x_H₂."
+"(LINEIMP) the line cooling of the zone with model md at (ρ, T, composition y | nothing): colliders of the iterate's composition; without one (table zone) those of the call scaled by ρ."
 function li_cool(md, ρ, T, y)
-    Tv = max(Float64(ForwardDiff.value(T)), 1.0); c = md.c
-    if c.T != Tv
-        c.T = Tv; c.λ = li_lam(md, Tv, c.ws); c.hasd = false
-    end
-    s = y === nothing ? ρ / md.ρ : (ρ / CNn.μH()) * max(y[:H2], zero(y[:H2])) / md.nH2
-    T isa ForwardDiff.Dual || return c.λ * s
-    if !c.hasd
-        c.dλ = (li_lam(md, Tv * (1 + LIEPS), c.ws) - c.λ) / (Tv * LIEPS); c.hasd = true
-    end
-    (c.λ + c.dλ * (T - Tv)) * s
+    y === nothing && return li_lam(md, T, md.nH, md.nH2, md.nHe, md.nHp) * (ρ / md.ρ)
+    nHt = ρ / CNn.μH(); comp(s_) = nHt * max(y[s_], zero(nHt))
+    li_lam(md, T, comp(:H), comp(:H2), comp(:He), comp(:Hp))
 end
 "Cooling function for zone k: the material's own plus the transfer term."
 function zone_cooling(m, k)
