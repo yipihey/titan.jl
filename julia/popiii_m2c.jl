@@ -728,19 +728,72 @@ Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(EN
 # checkpoint's, so the continuation is the uninterrupted run (checked bit for bit). Files: CKDIR [lib/popiii/ck].
 const CKDIR = get(ENV, "CKDIR", joinpath(TF.ROOT, "lib", "popiii", "ck"))
 const KOFF = Ref(0); const SG = Ref{Any}(nothing)
+# LINEIMP line models as plain data (the level data LV is the constant HLV, the LiCache is rebuilt empty): a checkpoint stays readable without the modules
+lim_plain(m) = m === nothing ? nothing : (; β = copy(m.β), J = copy(m.J), nH = m.nH, nH2 = m.nH2, nHe = m.nHe, nHp = m.nHp, ρ = m.ρ, f = m.f)
+lim_make(p) = p === nothing ? nothing : (; LV = HLV, β = copy(p.β), J = copy(p.J), nH = p.nH, nH2 = p.nH2, nHe = p.nHe, nHp = p.nHp, ρ = p.ρ, f = p.f,
+                                         c = PM.LiCache(NaN, 0.0, 0.0, false, H2Levels.PopWS(HLV)))
 matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope), Y = HOTON ? copy(SG[].Y) : nothing,
                                      star = HOTON ? (; fscale = copy(SG[].fscale), fslope = copy(SG[].fslope), fcur = copy(SG[].fcur), Dmix = copy(SG[].Dmix), dtcap = SG[].dtcap, capE = SG[].capE, ledger = SG[].ledger, Yprev = copy(SG[].Yprev)) : nothing,
                                      # lagged over one step (set in chemistry, used by the next hydro step): without them a restart is not exact
-                                     lag = (; NLOPC = deepcopy(PM.NLOPC[]), GASQ = copy(TX.GASQ[]), RAYQ = copy(TX.RAYQ[]), CQB = copy(TX.CQB[]), YQB = copy(TX.YQB[]), SLDIAG = deepcopy(PM.SLDIAG[]), CHEMB = copy(TX.CHEMB[]))) :
+                                     lag = (; NLOPC = deepcopy(PM.NLOPC[]), GASQ = copy(TX.GASQ[]), RAYQ = copy(TX.RAYQ[]), CQB = copy(TX.CQB[]), YQB = copy(TX.YQB[]), SLDIAG = deepcopy(PM.SLDIAG[]), CHEMB = copy(TX.CHEMB[]),
+                                                 LIMODEL = [lim_plain(m_) for m_ in PM.LIMODEL[]], LIALI = [lim_plain(m_) for m_ in LIALI[]], NLOST = deepcopy(PM.NLOST[]))) :   # (lag.LIMODEL/LIALI: LINEIMP's H2 line models / held ALI rates, set by the last transfer call, used by the next hydro step)
              error("checkpoint: only the NetGas material (CHEM=net*) is supported")
-function checkpoint(name, k)
+# jinc: 1 for a checkpoint written inside the step loop's output callback, where TITAN's step counter jstep has not yet been advanced for the
+# step just done (run_julia! increments it after output()); the restart then continues with jstep + 1, as the uninterrupted run would
+# HELDDUMP=1 (diagnostic, default off): with every checkpoint also write <name>.held, the numeric content of every global (arrays, Refs, tuples, dicts) of the
+# solver modules and of this driver, to find the Julia-side state that a restart does not reproduce (tools/ckheld.jl compares two such files)
+function held_flat!(out, name, v, depth = 0)
+    depth > 6 && return
+    if v isa Number; v isa Bool || v isa Integer || v isa AbstractFloat ? push!(out, name => Float64[v]) : nothing
+    elseif v isa AbstractArray{<:Number}; length(v) <= 20_000_000 && push!(out, name => Float64.(vec(collect(v))))
+    elseif v isa Ref; isassigned(v) && held_flat!(out, name, v[], depth + 1)
+    elseif v isa AbstractArray; length(v) <= 200_000 && for (i, e) in enumerate(v); held_flat!(out, "$name[$i]", e, depth + 1); end
+    elseif v isa Union{Tuple,NamedTuple}; for (i, e) in enumerate(v); held_flat!(out, "$name.$i", e, depth + 1); end
+    elseif v isa AbstractDict; length(v) <= 10_000 && for kk in sort(collect(keys(v)); by = string); held_flat!(out, "$name{$kk}", v[kk], depth + 1); end
+    end
+    nothing
+end
+function held_dump(path)
+    out = Pair{String,Vector{Float64}}[]
+    mods = Pair{String,Module}["Main" => Main]      # Main itself and every module that was include()d into it (not the registered packages)
+    for nm in names(Main; all = true)
+        isdefined(Main, nm) || continue; v = getfield(Main, nm)
+        v isa Module && v !== Main && v !== Base && v !== Core && pathof(v) === nothing && push!(mods, string(nm) => v)
+    end
+    for (mn, m) in mods
+        for nm in names(m; all = true)
+            s_ = string(nm); (startswith(s_, "#") || nm in (:ans, :ARGS, :Core, :Base, :Main, :ENV, :TF)) && continue
+            isdefined(m, nm) && !isconst(m, nm) && m === Main && continue
+            v = try getfield(m, nm) catch; continue end
+            (v isa Module || v isa Function || v isa Type) && continue
+            try held_flat!(out, "$mn.$s_", v) catch; end
+        end
+    end
+    serialize(path, Dict(out))
+end
+function checkpoint(name, k; jinc = 0)
+    get(ENV, "HELDDUMP", "0") == "1" && held_dump(joinpath(CKDIR, "m2c_$(name).held"))
     mkpath(CKDIR)
     TF.save_state(joinpath(CKDIR, "m2c_$(name).tstate.gz"))
-    ax = (; k, mat = matstate(), ALIFAC = copy(ALIFAC[]), ALIFIX = copy(ALIFIX[]), ALILAST = ALILAST[], ALIINT = ALIINT[],
+    ax = (; k, jnext = Int(TF.getscalar(:jstep)) + jinc, mat = matstate(), ALIFAC = copy(ALIFAC[]), ALIFIX = copy(ALIFIX[]), ALILAST = ALILAST[], ALIINT = ALIINT[],
         NALICALL = NALICALL[], NIMP = NIMP[], LLINE = LLINE[], nextln = nextln[], SNAPNEXT = SNAPNEXT[], SNAPS,
-        trb = (; STATS = copy(Trbdf2.STATS), BE_LEFT = Trbdf2.BE_LEFT[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV))
+        trb = (; STATS = copy(Trbdf2.STATS), BE_LEFT = Trbdf2.BE_LEFT[]),
+        # solver / controller / held-input state that is not in the TITAN COMMON (without it the first steps after a restart differ: no FSAL error estimate,
+        # no PI history, no mesh feature tracking, a restarting table-to-network ramp)
+        ctl = (; HNEXT = Trbdf2.HNEXT[], ERRPREV = Trbdf2.ERRPREV[], HEUR = Trbdf2.HEUR[], LASTACC = Trbdf2.LASTACC[], DSAL = deepcopy(Trbdf2.DSAL[]),
+               ESTATS = copy(Trbdf2.ESTATS), LIMHIST = copy(Trbdf2.LIMHIST)),
+        edd = (; HEDD = copy(TD.HEDD), HXEDD = copy(TD.HXEDD), FXEDD = copy(TD.FXEDD), TIEW = copy(TD.TIEW), HPLUS = copy(TC.HPLUS), GXEDD = TD.GXEDD[]),   # Eddington closure arrays held between steps
+        geq = (; J0 = GEQJ0[], PREV = deepcopy(GEQPREV[]), HELD = deepcopy(TX.GRIDEQ[])), pswramp = (; J0 = PM.RAMPJ0[], K0 = PM.RAMPK0[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV))
     TX.MG[] && (ax = merge(ax, (; mg = (; edges = copy(TX.MGEDGE[]), E = deepcopy(TX.MGEN[]), F = deepcopy(TX.MGFN[])))))   # MGROUPS: the group fields
     serialize(joinpath(CKDIR, "m2c_$(name).aux"), ax)
+end
+const GEQHELD = Ref{Any}(nothing)
+const JNEXT = Ref(-1); const CKAUX = Ref{Any}(nothing)
+function edd_restore!(e)
+    for (dst, src) in ((TD.HEDD, e.HEDD), (TD.HXEDD, e.HXEDD), (TD.FXEDD, e.FXEDD), (TD.TIEW, e.TIEW), (TC.HPLUS, e.HPLUS))
+        resize!(dst, length(src)); copyto!(dst, src)
+    end
+    TD.GXEDD[] = e.GXEDD
 end
 const MGAUX = Ref{Any}(nothing)       # (MGROUPS) the group fields of the checkpoint a run restarted from
 # settings that must agree between a run and its restart (the set-up and the physics); the rest may change
@@ -763,7 +816,10 @@ function restart!(name; allow = ())
     end
     if hasproperty(s, :lag)                        # (older checkpoints: these start empty, so the first step after a restart differs)
         l_ = s.lag; PM.NLOPC[] = deepcopy(l_.NLOPC); PM.SLDIAG[] = deepcopy(l_.SLDIAG)
-        PM.NLOIT && PM.nlost_restart!(mat)       # (NLOIT: the zones that had non-LTE factors get their composition and three-level parameters back)
+        PM.NLOIT && PM.nlost_restart!(mat)       # (older checkpoints: only the zones with non-LTE factors (NLOPC) get their composition and three-level parameters back)
+        # NLOST (composition and three-level parameters at the end of the last chemistry = the populations of the next step's iterate-based opacity): the
+        # rebuild above misses every zone when NLOPC is empty (NLOIT runs), so the first step after a restart had the plain table opacity in all network zones
+        hasproperty(l_, :NLOST) && (PM.NLOST[] = Any[deepcopy(e_) for e_ in l_.NLOST])
         length(l_.GASQ) == length(TX.GASQ[]) && (TX.GASQ[] .= l_.GASQ); length(l_.RAYQ) == length(TX.RAYQ[]) && (TX.RAYQ[] .= l_.RAYQ)
         hasproperty(l_, :CQB) && length(l_.CQB) == length(TX.CQB[]) && (TX.CQB[] .= l_.CQB; TX.YQB[] .= l_.YQB)
         if !hasproperty(l_, :CQB) && !isempty(TX.CQB[]) && PM.SLDIAG[] !== nothing      # checkpoint from before CQB/YQB: cq, yq were booked inside RAYQ/GASQ; separate them (SLDIAG keeps them per zone)
@@ -774,15 +830,36 @@ function restart!(name; allow = ())
             end
             pr("restart: checkpoint without CQB/YQB; chemistry and cycle heat of %d zones taken out of RAYQ/GASQ and booked as CQB/YQB\n", nconv)
         end
+        if hasproperty(l_, :LIMODEL)
+            PM.LIMODEL[] = Any[lim_make(m_) for m_ in l_.LIMODEL]; LIALI[] = Any[lim_make(m_) for m_ in l_.LIALI]
+        else
+            pr("WARNING: checkpoint %s has no H2 line models (older code): the first step after the restart has no line cooling until the first transfer call\n", name)
+        end
         hasproperty(l_, :CHEMB) && length(l_.CHEMB) == length(TX.CHEMB[]) && (TX.CHEMB[] .= l_.CHEMB)
     end
     ALIFAC[] = copy(aux.ALIFAC); ALIFIX[] = hasproperty(aux, :ALIFIX) ? copy(aux.ALIFIX) : Float64[]; ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
     LLINE[] = aux.LLINE; nextln[] = aux.nextln; SNAPNEXT[] = aux.SNAPNEXT
     SNAPS === nothing || aux.SNAPS === nothing || (empty!(SNAPS); append!(SNAPS, aux.SNAPS))
     empty!(Trbdf2.STATS); merge!(Trbdf2.STATS, aux.trb.STATS); Trbdf2.BE_LEFT[] = aux.trb.BE_LEFT
+    if hasproperty(aux, :ctl)
+        c_ = aux.ctl; Trbdf2.HNEXT[] = c_.HNEXT; Trbdf2.ERRPREV[] = c_.ERRPREV; Trbdf2.HEUR[] = c_.HEUR; Trbdf2.LASTACC[] = c_.LASTACC; Trbdf2.DSAL[] = deepcopy(c_.DSAL)
+        empty!(Trbdf2.ESTATS); merge!(Trbdf2.ESTATS, c_.ESTATS); empty!(Trbdf2.LIMHIST); merge!(Trbdf2.LIMHIST, c_.LIMHIST)
+    else
+        pr("WARNING: checkpoint %s has no solver-controller state (written by older code): the first step after the restart has no TR-BDF2 error estimate and the controller history is empty\n", name)
+    end
+    if hasproperty(aux, :geq)
+        GEQJ0[] = aux.geq.J0; GEQPREV[] = deepcopy(aux.geq.PREV)
+        # the grid equation's held monitor (tauv, sx) was computed in the checkpointed step before chem!'s EOS/opacity refresh: not reproducible from the final state
+        GEQHELD[] = aux.geq.HELD
+         PM.RAMPJ0[] = aux.pswramp.J0; PM.RAMPK0[] = aux.pswramp.K0
+    else
+        pr("WARNING: checkpoint %s has no grid-equation / PSWRAMP state (older code): the mesh feature tracking restarts empty and the ramps restart\n", name)
+    end
     TX.PEXT[] = aux.PEXT; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
     hasproperty(aux, :mg) && (MGAUX[] = aux.mg)
     TF.setscalar!(:tmax, 1e3tff)                   # a run stopped by TSTOP/NSTOP has tmax = its last time
+    CKAUX[] = aux
+    JNEXT[] = hasproperty(aux, :jnext) ? aux.jnext : -1     # (set after the grideq_step! below; older checkpoints: jstep stays that of the last step, one behind the uninterrupted run)
     KOFF[] = aux.k
     pr("restarted from checkpoint %s at step %d, t = %.6e yr, log n_c = %.3f, T_c = %.1f K\n", name, aux.k, TF.getscalar(:timen) / 3.156e7,
        log10(TF.var(:dn)[a] / PC.mH), TF.var(:tn)[a])
@@ -1086,6 +1163,10 @@ function envlr(rout)
     (length(lr) + (ENVCENTRE ? ENVLIN : 0)) % 2 == 0 && pop!(lr)                    # (an even zone count: an odd number of interfaces)
     lr[1] .+ (lr .- lr[1]) .* (log(rout) - lr[1]) / (lr[end] - lr[1])
 end
+# ICMLOG=m1 (default unset = unchanged): the IC mesh is logarithmic in enclosed mass instead of envlr's / the rule's (GRIDEQ) mesh:
+# N = GEQN (default nsh) zones: the N interfaces above the centre at m_k = m1 (M_cloud/m1)^((k-1)/(N-1)), k = 1..N (m1 in Msun; the centre zone holds m1),
+# r(m) the exact inverse of the IC's M(r) interpolation. Only for the start from the IC. The first interface is Lagrangian under GRIDEQ
+# (TitanResidFast.GEQ_LAGFIRST, set from the presence of ICMLOG in the environment: restarts of the run follow).
 # The start (every run without RESTART/STARFROM; formerly ICEUL=1): the initial condition directly on the fixed log mesh of
 # ENVEUL/ENVCORE (lgrid = 2, regular centre), at t = 0. The mesh is `envlr`'s, from ENVCORE's first interface to the outer radius of the IC. Mass-conserving: the interior mass at
 # every interface is that of the IC's tabulated M(r) (piecewise-uniform density between its nodes, so the zone masses add up to the
@@ -1116,17 +1197,35 @@ function xmzero!()
        join((@sprintf("%.4e", xmen[k]) for k in a-1:a+2), " "), 4π * m[b+1] / Msun)
     nothing
 end
-function iceulbuild!(; rIset = nothing)     # rIset: the interfaces (centre 0 … outer edge) in place of envlr's mesh (GRIDEQ's starting mesh)
+function iceulbuild!(; rIset = nothing, icmlog = nothing)     # rIset: the interfaces (centre 0 … outer edge) in place of envlr's mesh (GRIDEQ's starting mesh); icmlog = (m1 [Msun], N): ICMLOG's mass mesh
     (RAD && ENVCENTRE) || error("the start needs RAD=1 and ENVEUL=0,... (regular centre, ENVCORE)")
     radsettings!()
     rout = TF.var(:rn)[b+1]; Mtot = M                                          # the IC's outer radius and cloud mass
     ctrl = Dict(s_ => TF.getscalar(s_) for s_ in (:niter, :ntry, :omega, :sigd, :sige, :stol, :conv, :thet))
-    rI_ = rIset === nothing ? (r_ = exp.(envlr(rout)); r_[end] = rout; vcat([r_[1] * i / ENVLIN for i in 0:ENVLIN-1], r_)) : copy(rIset); n = length(rI_) - 1
     rg3 = rg .^ 3
     Mof(r) = (r <= 0 && return 0.0; r >= rg[end] && return Mg[end]; j = clamp(searchsortedlast(rg, r), 1, length(rg) - 1);
               Mg[j] + (r^3 - rg3[j]) / (rg3[j+1] - rg3[j]) * (Mg[j+1] - Mg[j]))
+    # exact inverse of Mof (r^3 linear in m between the table nodes)
+    rofM(m) = (j = clamp(searchsortedlast(Mg, m), 1, length(Mg) - 1); cbrt(rg3[j] + (m - Mg[j]) / (Mg[j+1] - Mg[j]) * (rg3[j+1] - rg3[j])))
+    if icmlog !== nothing       # ICMLOG: the N interfaces above the centre at log-uniform enclosed mass from m1 to Mtot (N - 1 zones above the centre zone, which holds m1)
+        m1_, N_ = icmlog[1] * Msun, icmlog[2]
+        mk_ = [m1_ * (Mtot / m1_)^((k - 1) / (N_ - 1)) for k in 1:N_]
+        rk_ = [rofM(m) for m in mk_]; rk_[end] = rout
+        rk_[1] > 0 || error("ICMLOG: r(m1) <= 0")
+        all(>(0), diff(rk_)) || error("ICMLOG: the interfaces are not monotone")
+        for k in 1:N_-1; abs(Mof(rk_[k]) - mk_[k]) <= 1e-10 * mk_[k] || error("ICMLOG: Mof(r(m)) does not reproduce m at interface $(k+1)"); end
+        rIset = vcat(0.0, rk_)
+    end
+    rI_ = rIset === nothing ? (r_ = exp.(envlr(rout)); r_[end] = rout; vcat([r_[1] * i / ENVLIN for i in 0:ENVLIN-1], r_)) : copy(rIset); n = length(rI_) - 1
     mI_ = [Mof(r) for r in rI_]; mI_[end] = Mtot
     all(>(0), diff(mI_)) || error("ICEUL: a zone without mass")
+    if icmlog !== nothing
+        dl_ = diff(log.(rI_[2:end])); i2_ = searchsortedfirst(mI_, 1e-2Msun) - 1       # (zone j spans interfaces j, j+1 of rI_; i2_ = the zone containing 1e-2 Msun)
+        pr("ICMLOG: IC starting mesh, %d zones: first interface (Lagrangian) at m %.3g Msun, r %.4g R_sun, then log in enclosed mass to %.4g Msun (r %.4g R_sun), dln r %.3f .. %.3f, dln m %.4f\n",
+           n, mI_[2] / Msun, rI_[2] / Rsun, Mtot / Msun, rI_[end] / Rsun, minimum(dl_), maximum(dl_), log(Mtot / mI_[2]) / (n - 1))
+        pr("ICMLOG: 1e-2 Msun at r %.4g R_sun, in zone %d (of %d); interfaces 1,2,3,4 r [R_sun] %s\n", rofM(1e-2Msun) / Rsun, i2_, n,
+           join((@sprintf("%.4g", rI_[k] / Rsun) for k in 2:5), " "))
+    end
     ρz = [(mI_[j+1] - mI_[j]) / (4π / 3 * (rI_[j+1]^3 - rI_[j]^3)) for j in 1:n]
     # mass-weighted zone means of T(M), f_H2(M) (64 midpoints in m per zone; the IC tables are in log M [M☉], constant below their first node)
     zmean(f, j) = (ms = range(mI_[j], mI_[j+1], length = 65); sum(f(0.5 * (ms[i] + ms[i+1]) / Msun) for i in 1:64) / 64)
@@ -1178,11 +1277,21 @@ if haskey(ENV, "STARFROM")
 elseif haskey(ENV, "RESTART")
     restart!(ENV["RESTART"]; allow = ENVEUL === nothing ? () : ("PSWITCH",))
     Int(TF.getscalar(:lrad)) == 1 || error("checkpoint $(ENV["RESTART"]) has no radiation field (a stage-chain checkpoint): not supported")
-    RAD && (radsettings!(); TD.EOS[](); TD.OPAC[]())
+    if RAD
+        # The checkpoint holds the converged step's complete COMMON; the EOS/opacity routines rebuild their internal tables but, run here on the
+        # restored composition, give different opacities (xkpn/xken/chifn differ by up to 100 % in some zones: the in-step values come from the Newton
+        # iterate's populations) and e (1e-5): a new-format checkpoint keeps its own arrays. Older checkpoints: the refresh as before.
+        snap_ = JNEXT[] >= 0 ? TD.snapshot() : nothing
+        radsettings!(); TD.EOS[](); TD.OPAC[]()
+        snap_ === nothing || TD.restore!(snap_)
+        hasproperty(CKAUX[], :edd) && edd_restore!(CKAUX[].edd)
+    end
     if ENVEUL !== nothing
         Int(TF.getscalar(:lgrid)) == 3 && error("checkpoint $(ENV["RESTART"]) is on the Lagrangian mesh (stage chain): not supported")
         (envflags!(); ENVMS0[] = (ENVCENTRE && !haskey(ENV, "ENVMS0") ? 0.0 : parse(Float64, ENV["ENVMS0"])) * Msun / 4π)   # (regular centre: no sink, ENVMS0 unused)
     end
+elseif haskey(ENV, "ICMLOG")      # ICMLOG=m1 [Msun]: the IC on a mesh logarithmic in enclosed mass (replaces the rule's starting mesh)
+    iceulbuild!(; icmlog = (parse(Float64, ENV["ICMLOG"]), parse(Int, get(ENV, "GEQN", string(nsh)))))
 else
     iceulbuild!()
     if GRIDEQP !== nothing           # GRIDEQ: build the IC again on the rule's mesh of the IC (planned on envlr's mesh), same first interface and edge
@@ -1197,14 +1306,15 @@ if GRIDEQP !== nothing
     (ENVEUL !== nothing && ENVCENTRE && Int(TF.getscalar(:lgrid)) == 2) || error("GRIDEQ needs the fixed-mesh envelope with a regular centre (ENVEUL=0,..., lgrid = 2)")
     GRIDEQP in (0, 1) || error("GRIDEQ=0 (prescribed target) or 1 (implicit grid equation)")
     TC.GRIDMOVE[] = true; TF.setscalar!(:ctol, GEQC[8])
+    TX.GEQ_LAGFIRST[] = haskey(ENV, "ICMLOG")       # ICMLOG: the first interface holds its enclosed mass (Lagrangian) instead of its radius; restarts read the same run.env
     if GRIDEQP == 0
         TX.GRIDVEL[] = zeros(length(TF.var(:rn)))
     else
-        grideq_step!()
+        GEQHELD[] === nothing ? grideq_step!() : (TX.GRIDEQ[] = GEQHELD[])       # (a restart from a new-format checkpoint continues with the monitor the run had)
         let fmv = GEQC[5]
             fmcap = function ()        # no interface moves more than fmove × its smaller neighbouring zone per step
                 rn_ = TF.var(:rn); ro_ = TF.var(:ro); f = 0.0
-                for k in a+2:b
+                for k in (TX.GEQ_LAGFIRST[] ? a+1 : a+2):b          # (ICMLOG: the Lagrangian first interface moves too)
                     wd = min(ro_[k] - ro_[k-1], ro_[k+1] - ro_[k]); f = max(f, abs(rn_[k] - ro_[k]) / wd)
                 end
                 f > 0 ? fmv / f * TF.getscalar(:dtime) : Inf
@@ -1217,6 +1327,7 @@ if GRIDEQP !== nothing
        GRIDEQP, GRIDEQP == 1 ? "implicit grid equation" : "prescribed target", nsh, join(GEQW, ","), GEQC[1:9]...)
     GEQGP[1] > 0 && pr("GEQGP (provisional): monitor term w_g %g x (dln rho/dj)^2 x gravity power of the zone / %g L_sun (implicit grid equation only)\n", GEQGP...)
 end
+JNEXT[] >= 0 && TF.setscalar!(:jstep, JNEXT[])      # restart: the step counter of the uninterrupted run (after the repeated grideq_step!, which ran at the checkpointed step's jstep)
 const CHEMDIAG = get(ENV, "CHEMDIAG", "0") == "1"; const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
 const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended run whose Δt has collapsed, before the checkpoints are overwritten
@@ -2050,7 +2161,9 @@ try
             TOTH[] += time() - tnow
         end
         TMARK[] = time()
-        haskey(ENV, "SAVE") && CKEVERY > 0 && k % CKEVERY == 0 && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ CKEVERY) % 2), k)
+        # CKDUMP=k1:k2[,k3:k4…] (diagnostic, default off): also write a full checkpoint <SAVE>_k<step> at each listed step (restart A/B tests)
+        haskey(ENV, "CKDUMP") && haskey(ENV, "SAVE") && any(r_ -> (p_ = parse.(Int, split(r_, ":")); p_[1] <= k <= p_[end]), split(ENV["CKDUMP"], ",")) && checkpoint(ENV["SAVE"] * "_k" * string(k), k; jinc = 1)
+        haskey(ENV, "SAVE") && CKEVERY > 0 && k % CKEVERY == 0 && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ CKEVERY) % 2), k; jinc = 1)
     end)
 catch e
     pr("stopped: %s\n", first(sprint(showerror, e), 400))
@@ -2061,7 +2174,7 @@ Trbdf2.ERESTOL[] > 0 && pr("ERESTOL %g: %d stage solves tested, %d extra Newton 
 pr("run ended: %s; jstep %d jstepe %g timen %.6e tmax %.6e\n", string(RUNEND[]), Int(TF.getscalar(:jstep)), Float64(TF.getscalar(:jstepe)), TF.getscalar(:timen), TF.getscalar(:tmax))
 if haskey(ENV, "SAVE")      # never overwrite a checkpoint with a non-finite state (a NaN stop would otherwise be saved and restart as NaN)
     if all(v -> all(isfinite, TF.var(v)[a:b]), (:tn, :dn, :ern, :un))
-        checkpoint(ENV["SAVE"], KLAST[]); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[])
+        checkpoint(ENV["SAVE"], KLAST[]; jinc = RUNEND[] isa Tuple && RUNEND[][2] === :tmax ? 1 : 0); pr("checkpoint %s at step %d\n", ENV["SAVE"], KLAST[])
     else
         pr("checkpoint %s NOT written: the state at step %d is not finite (restart from the last _auto checkpoint)\n", ENV["SAVE"], KLAST[])
     end

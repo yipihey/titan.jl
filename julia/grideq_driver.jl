@@ -2,7 +2,8 @@
 include(joinpath(@__DIR__, "GridEq.jl"))
 """
 GRIDEQ=mode (with ENVEUL=0,… (regular centre), lgrid = 2; default off): one global, scale-free equidistribution rule for the whole
-mesh (GridEq.jl): every zone between the first interface above the centre and the outer edge (both fixed) covers the same
+mesh (GridEq.jl): every zone between the first interface above the centre and the outer edge (both fixed in radius; with ICMLOG the first interface
+is instead Lagrangian, its grid row holds its enclosed mass: TitanResidFast.GEQ_LAGFIRST, and it counts in the fmove limit) covers the same
 ∫ M d ln r, M = sqrt(1 + Σ_q w_q (∂ln q/∂ln r)²) over q = ρ, P, T, E_r, m and τ (clamped to [τlo, τhi]), with a smooth gradient cap
 gmax and Dorfi–Drury smoothing α (neighbours within (1 + α)/α). No markers, thresholds or zone budgets.
 
