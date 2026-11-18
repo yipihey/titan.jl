@@ -342,3 +342,26 @@ L_ph 5697.0226 / 5697.0154 (1.3e-6). After 350 further steps (t_jf25 against t_n
 * NK with the fixed Jacobian: more failures in the one 400-step run (§d), not diagnosed.
 * Not run: T4 (from the initial condition) and the production restart.
 
+
+## 11. NKLS: backtracking line search on the preconditioned residual (switch, default off)
+
+What: `NKLS=1[,trigger[,lmin]]` (popiii_m2c.jl, next to NKRYLOV; defaults trigger 1e-2, lmin 1/64). After GMRES returned the step x, the level function
+T(lambda) = || W P M^-1 R(x_k + lambda x) ||_2 (same weighted norm and band-LU preconditioner as GMRES) is evaluated with the TRUE residual at the trial state
+(`perturbed(...; freeze = 0)`: update! applied, branch decisions re-evaluated, state restored in a `finally`). lambda = 1, 1/2, ... >= lmin; the first lambda with
+T(lambda) <= (1 - lambda/4) T(0) and T finite is taken; a non-finite residual or an exception counts as a rejected trial. If none is accepted the finite trial of smallest T
+is used if T < T(0), else lmin (counted as lsfail). It engages only if max|W x| > trigger. `blk` receives lambda*x on the active entries. maxdel (including its clamp
+for dmax > dtol) and update are unchanged and act on lambda*x.
+Why: the trace of t_jf29 attempt 26 shows the full Newton step raising ||M^-1 R||_W by a factor 30 with nothing to stop it.
+FREEZE semantics (TitanResidFast.decide): 0 returns the branch condition and touches no record; 1 records, 2 replays; so freeze = 0 neither records nor consumes.
+T(0) is computed from S.R0 and agrees with ||W delta0|| to a relative 1.5e-10 at most over all engaged iterations (printed per line as T0rel; summary line).
+Trace: the "NKR att" line ends with ` ls lambda .. T0 .. T .. trials .. scnorm0 .. scnorm .. T0rel ..` (or ` ls off`); summary_text() adds the counters.
+conv (Newton tolerance on dmax) is 1e-3 in these runs (run.env). dmax is an unweighted measure, so a damped step is not excluded from satisfying dmax <= conv by the
+trigger alone: at lambda = 1/64 and max|Wx| = 1e-2 the raw correction is 1.6e-4 if the weights are 1. Not observed to matter, not guarded.
+
+Measured (restart at step 62,300 of z100nk_ep, ERLAB=1 NKRYLOV=1 DTERR=0.03, 80 steps, 4 cores; output /zpool/nvme/data/tabel_scratch/titan_popiii/runs/t_ls0N):
+* NKLS unset, 20 steps: identical DTERR lines to t_jf27 (the same code path before the change).
+* NKLS=1 (t_ls02): 9 Newton failures (dt 5.0e3, 1.75e4, 3.07e4, 2.98e4, 2.4e4, 3.18e4, 3.28e4, 3.39e4, 6.18e4 s) against 11 without (t_jf27); 457 line searches engaged,
+  189 backtracked, 81 failed, 1271 extra residual evaluations; 12.5 min wall incl. start-up.
+* NKLS=1 NITER=60 (t_ls03): the same 9 failures; 769 engaged, 469 backtracked, 194 failed; 16.0 min wall.
+* In the failing attempt 26 (jstep 62310, 1.027e4 s) |delta0|_W stays at 2.3e-3 to 2.6e-3 while |x|_W is 0.1 to 3.4; lambda goes to lmin or all trials are non-finite
+  (T NaN) in 13 of 25 iterations, and T does not fall below 2.2e-3: no descent along the GMRES direction.
