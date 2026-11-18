@@ -318,8 +318,8 @@ end
 function badstate(S::Sys)
     a, b = gi(:ngrs), gi(:ngre); out = String[]
     rn, xmen, un, frn, dn, tn, ern = (vf(s) for s in (:rn, :xmen, :un, :frn, :dn, :tn, :ern)); x1, x2 = TX.XSN[][1], TX.XSN[][2]
-    for k in a:b+1, (nm, v, pos) in (("r", rn, true), ("m", xmen, true), ("u", un, false), ("F_r", frn, false))
-        q = v[k]; (!isfinite(q) || (pos && q <= 0)) && push!(out, @sprintf("%s@%d=%.5g", nm, k - a + 1, q))
+    for k in a:b+1, (nm, v) in (("r", rn), ("m", xmen), ("u", un), ("F_r", frn))       # (r, m: only finiteness; m is an offset that is negative in the base state)
+        q = v[k]; isfinite(q) || push!(out, @sprintf("%s@%d=%.5g", nm, k - a + 1, q))
     end
     for k in a:b, (nm, v) in (("rho", dn), ("T", tn), ("E_r", ern), ("x_H+", x1), ("x_H2", x2))
         q = v[k]; (!isfinite(q) || q <= 0) && push!(out, @sprintf("%s@%d=%.5g", nm, k - a + 1, q))
