@@ -617,6 +617,7 @@ end
 "(XNEITER, default on; XNEITER=0: as before) per zone n_e [cm⁻³] of the iterate as `nlo_it` last computed it (NaN: not computed in this fill). `fill_opac!` hands it to the formal solution as `xnen`."
 const NLONED = Ref(Float64[])
 const XNEITER = get(ENV, "XNEITER", "1") != "0"
+const XNEDIAG = Ref(parse(Int, get(ENV, "XNEDIAG", "0"))); const XNEOLD = Ref(Float64[])
 "(NLOIT) (χ, κ_E, κ_P) of network zone k at the iterate (see NLOIT)."
 function nlo_it(m::NetGas, k, ρ, T, s)
     κR0, κP0 = OPAC[](ρ, T)
@@ -750,6 +751,7 @@ function TM.fill_opac!(m::NetGas)
     if XNEITER && TX.COUPLED[]      # per-zone n_e of this fill, written by nlo_it (read below only for coupled network zones)
         length(NLONED[]) < length(dn) && (NLONED[] = zeros(length(dn)))
         fill!(NLONED[], NaN)
+        XNEDIAG[] > 0 && (length(XNEOLD[]) < length(dn) && (XNEOLD[] = zeros(length(dn))); fill!(XNEOLD[], NaN))
     end
     # (PERF512) zones independent: threaded as fill_eos! (NLOITDIAG prints per zone, so it keeps the serial order)
     sweep! = (NLOIT && NLOITDIAG[] > 0) ? ((f, ks, ok) -> (for k in ks; ok(k) || continue; TX.ZONE[] = k; f(k); end)) : TX.zone_sweep!
@@ -765,9 +767,21 @@ function TM.fill_opac!(m::NetGas)
         # (XNEITER) coupled network zone: the electrons of the iterate (x_H⁺, x_H₂ of the Newton vector, via nlo_it's CK expansion), the same n_e that
         # chifn's Thomson floor uses, not the composition of the last chemistry
         if XNEITER && TX.COUPLED[] && !m.eqzone[k] && TX.cplz(k) && k <= length(NLONED[]) && isfinite(NLONED[][k])
+            XNEDIAG[] > 0 && k <= length(XNEOLD[]) && (XNEOLD[][k] = xnen[k])
             xnen[k] = NLONED[][k]
         end
       end
+    end
+    if XNEDIAG[] > 0 && XNEITER && TX.COUPLED[]            # (XNEDIAG=n, diagnostic: the first n fills print the iterate's n_e against the last chemistry's)
+        XNEDIAG[] -= 1; rs = Tuple{Float64,Int}[]
+        for k in TM.krange()
+            (k <= length(XNEOLD[]) && isfinite(XNEOLD[][k]) && XNEOLD[][k] > 0 && xnen[k] > 0 && !m.eqzone[k] && TX.cplz(k)) && push!(rs, (log(xnen[k] / XNEOLD[][k]), k))
+        end
+        if !isempty(rs)
+            lo, hi = extrema(rs); a_ = Int(TF.getscalar(:ngrs))
+            @printf("XNEDIAG jstep %d: %d coupled zones, n_e(iterate)/n_e(last chemistry): min %.4g (zone %d) max %.4g (zone %d); zones with |ln| > 0.1: %d, > 1: %d\n", TF.getscalar(:jstep),
+                    length(rs), exp(lo[1]), lo[2] - a_ + 1, exp(hi[1]), hi[2] - a_ + 1, count(r -> abs(r[1]) > 0.1, rs), count(r -> abs(r[1]) > 1, rs))
+        end
     end
     nothing
 end
