@@ -120,12 +120,16 @@ function item2(J, Cn, a, Δ; mesh = :none, disp = nothing)
     end
     Ri, ci, Wi = evalR(1.0, dt; etotal = false); ρi = rates(Ri, ci, Cn; Cnew = Cnw, dt); ty = etypes(ci); TX.COUPLED[] && (LASTCHEM[] = chemrates(Wi))
     if mesh === :fsal       # item 1b: θ-independence at the displaced state (dmdt, u_rel ≠ 0 there, so the old-level face values enter): ρ(½) − ρ(1), same dt, same state
-        Rh, ch, _ = evalR(0.5, dt; etotal = false); ρh = rates(Rh, ch, Cn); ρ1 = rates(Ri, ci, Cn)
+        Rh, ch, Wh = evalR(0.5, dt; etotal = false); ρh = rates(Rh, ch, Cn); ρ1 = rates(Ri, ci, Cn)
         for nm in (:m, :P, :E, :EV, :QF, :x1, :x2)
             haskey(ρh, nm) || continue
             d = ρh[nm] .- ρ1[nm]; mx, z = maxabs(d, a)
             @printf("STAGECONS jstep %d item1b %-4s max|R(½)-R(1)| %.3e zone %d | zones %d..%d R½ %s R1 %s diff %s\n", J, nm, mx, z, ZS[1], ZS[end], zl(ρh[nm], a), zl(ρ1[nm], a), zl(d, a))
         end
+    end
+    if mesh === :fsal && TX.GASROW[]      # experiment: the old gas-energy slope egso (0 in COMMON, never filled with GASROW) replaced by the slope the residual computes at this state, θ = ½ again
+        vf(:egso)[a:b+1] .= Wh.egsng[a:b+1]; Rg2, cg2, _ = evalR(0.5, dt; etotal = false); ρg2 = rates(Rg2, cg2, Cn); d = ρg2[:E] .- ρ1[:E]; mx, z = maxabs(d, a)
+        @printf("STAGECONS jstep %d item1b E(with egso := new slope) max|R(½)-R(1)| %.3e zone %d | zones %d..%d diff %s\n", J, mx, z, ZS[1], ZS[end], zl(d, a))
     end
     Fs = fieldset(ρi, ty, Cn, mesh === :none); pairs = [(nm, nm, Fs[nm]) for nm in FIELDS if haskey(Fs, nm) && haskey(D, nm)]
     for (nm, key, f) in pairs
