@@ -475,7 +475,7 @@ end
 
 """
 EXCAP[] > 0: factor on the gas-radiation exchange of the two energy rows, so that c κ_E ρ Δt never exceeds EXCAP[]. In an opaque zone that product can be
-1e20 and the rows carry it as round-off; E = aT⁴ there holds to about 1/EXCAP anyway. The same factor in both rows keeps energy conserved. A constant of the iteration (no derivative).
+1e20 and the rows carry it as round-off; E = aT⁴ there holds to about 1/EXCAP anyway. The same factor in both rows keeps energy conserved. Differentiated with κ_E and ρ (it was a constant of the iteration: in the zones where it is below 1 the Jacobian then lacked the dependence of the exchange on κ_E; the product factor × κ_E E ρ = EXCAP E/(c Δt) does not depend on κ_E at all).
 """
 const EXCAP = Ref(0.0)
 """
@@ -756,7 +756,7 @@ const TIESM = Ref(0.0)
 end
 @inline function excap(cc, κ, ρ, dt)
     EXCAP[] > 0 || return 1.0
-    return min(1.0, EXCAP[] / (cc * val(κ) * val(ρ) * val(dt)))
+    return min(1.0, EXCAP[] / (cc * κ * ρ * dt))
 end
 include(joinpath(@__DIR__, "MGRad.jl"))                 # MGROUPS (default off)
 "(MGROUPS with SLIMP) (q, t) of zone k at the iterate from the grey E_r and group MGSLG's E_g, F_g, F_g+1 (PopIIIMaterial.sl_qt_mg)."

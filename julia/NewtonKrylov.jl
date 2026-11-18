@@ -312,19 +312,33 @@ function check!(S::Sys)
         @printf("NKCHECK eps x%g (max|eps v| %.1e): vs J_b w: max %.3e median %.3e rows>1e-4 %d >1e-2 %d | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) %.3e, worst row (rel to rowscale) %.3e\n",
                 f, OPT.eps * f, maximum(r2), median(r2[ok]), count(>(1e-4), r2), count(>(1e-2), r2), norm(y2 .- y) / norm(y), maximum(d2))
     end
-    rstar = argmax(rel); kbs = (rstar - 1) ÷ ne + 1; is = (rstar - 1) % ne + 1
-    @printf("NKCHECK row probe: finite-difference row %s of zone %d against the band row, one unit vector per active column (%d products)\n", is <= length(nm) ? nm[is] : string(is), k0 + kbs - 1 - a + 1, count(S.act))
-    E = (vf2(:em2), vf2(:em1), vf2(:e00), vf2(:ep1), vf2(:ep2)); cols = Tuple{Float64,Int,Float64,Float64}[]
+    rows = [argmax(rel)]
+    if haskey(ENV, "NKROW")           # NKROW=eq,zone[;eq,zone...] (eq: name or number; zone counted from the inner boundary as in the listing): probe these rows instead of the worst one
+        rows = Int[]
+        for spec in split(ENV["NKROW"], ";")
+            f = split(spec, ","); ie = something(findfirst(==(f[1]), nm), tryparse(Int, f[1]), 0); zs = parse(Int, f[2]); kbs = zs + a - k0
+            (1 <= ie <= ne && 1 <= kbs <= nb) || error("NKROW=$(ENV["NKROW"]): no such row $spec")
+            push!(rows, (kbs - 1) * ne + ie)
+        end
+    end
+    @printf("NKCHECK row probe: finite-difference rows against the band rows, one unit vector per active column (%d products)\n", count(S.act))
+    E = (vf2(:em2), vf2(:em1), vf2(:e00), vf2(:ep1), vf2(:ep2)); fdcols = Dict(r => Tuple{Float64,Int,Float64,Float64}[] for r in rows)
     for c in findall(S.act)
         e = zeros(S.n); e[c] = 1.0; yy = zeros(S.n); fdjv!(yy, S, e, OPT.eps)
-        kc = (c - 1) ÷ ne + 1; jc = (c - 1) % ne + 1; o = kc - kbs
-        jb = abs(o) <= 2 ? E[o+3][is, jc, k0 + kbs - 1] : 0.0         # (the band row: offset kb - kc, column jc)
-        push!(cols, (abs(yy[rstar] - jb), c, yy[rstar], jb))
-    end
-    sort!(cols; rev = true)
-    for (d, c, fd, jb) in cols[1:min(12, length(cols))]
         kc = (c - 1) ÷ ne + 1; jc = (c - 1) % ne + 1
-        @printf("   column %-5s zone %3d (offset %+d): FD %+.4e  band %+.4e  |diff| %.3e\n", jc <= length(nm) ? nm[jc] : string(jc), k0 + kc - 1 - a + 1, kc - kbs, fd, jb, d)
+        for rstar in rows
+            kbs = (rstar - 1) ÷ ne + 1; is = (rstar - 1) % ne + 1; o = kc - kbs
+            jb = abs(o) <= 2 ? E[o+3][is, jc, k0 + kbs - 1] : 0.0         # (the band row: offset kb - kc, column jc)
+            push!(fdcols[rstar], (abs(yy[rstar] - jb), c, yy[rstar], jb))
+        end
+    end
+    for rstar in rows
+        kbs = (rstar - 1) ÷ ne + 1; is = (rstar - 1) % ne + 1; cols = sort!(fdcols[rstar]; rev = true)
+        @printf("NKCHECK row probe: row %s of zone %d\n", is <= length(nm) ? nm[is] : string(is), k0 + kbs - 1 - a + 1)
+        for (d, c, fd, jb) in cols[1:min(12, length(cols))]
+            kc = (c - 1) ÷ ne + 1; jc = (c - 1) % ne + 1
+            @printf("   column %-5s zone %3d (offset %+d): FD %+.4e  band %+.4e  |diff| %.3e\n", jc <= length(nm) ? nm[jc] : string(jc), k0 + kc - 1 - a + 1, kc - kbs, fd, jb, d)
+        end
     end
     TD.r(:matgen)                        # AD pass at the same state: its residual against the Float64 one
     rad = vec(TF.var(:rhs)[1:ne, k0:k0+nb-1])

@@ -742,7 +742,7 @@ function ck_eval(xs, ρ, T, net; env, phc, extra)
     kHp = findfirst(==(:Hp), net.free[sl])
     tl3 = kHp !== nothing && hasproperty(env, :tl3) && env.tl3 !== nothing
     ev = tl3 ? merge(env, (; tl3 = merge(env.tl3, (; ne = nH * xs[kHp])))) : env
-    ph = phc(ForwardDiff.value(T))
+    ph = phc(T)                                   # (a Dual T: the photo-rates carry ∂/∂T, see PopIIIMaterial.photo_cache)
     ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
     x = ck_expand(xs, T, nH, net, ph, ks, extra)
     f = dxdt_k(x, nH, net, ph, ks); extra === nothing || (f = f .+ extra(x))

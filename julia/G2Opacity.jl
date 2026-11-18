@@ -116,7 +116,7 @@ LTE population of H n = 2 [cm⁻³] for `nH0` neutral H atoms (all levels): Bolt
 (Nion, Nneu as in `means`).
 """
 function n2_lte(T, nH0, Nion, Nneu)
-    kT = COp.kB * Float64(T); χH = Z0.χH
+    kT = COp.kB * T; χH = Z0.χH
     w = ntuple(n -> Z0.occupation(n, 1, Nion, Nneu), NLEV)
     U = sum(n^2 * exp(-χH * (1 - 1 / n^2) / kT) * w[n] / w[1] for n in 1:NLEV)
     nH0 * 4 * exp(-χH * 0.75 / kT) * w[2] / w[1] / U
@@ -182,7 +182,8 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS
     χH = Z0.χH; χ2 = Z0.χHe2
     Tp = typeof(one(n1) * one(n2) * one(nHep) * one(Nion) * one(Nneu) * one(T))
     wH = Vector{Tp}(undef, NLEV); wHe = Vector{Tp}(undef, NLEV); pH = Vector{Tp}(undef, NLEV); pHe = Vector{Tp}(undef, NLEV)
-    for n in 1:NLEV; wH[n] = Z0.occupation(n, 1, Nion, Nneu); wHe[n] = Z0.occupation(n, 2, Nion, Nneu); end
+    lwH = ntuple(n -> Z0.ln_occupation(n, 1, Nion, Nneu), NLEV)
+    for n in 1:NLEV; wH[n] = exp(lwH[n]); wHe[n] = Z0.occupation(n, 2, Nion, Nneu); end
     sx = zero(Tp)
     for n in 2:NLEV; pH[n] = n2 * (n^2 / 4) * exp(-χH * (0.25 - 1 / n^2) / kT) * wH[n] / max(wH[2], 1e-300); sx += pH[n]; end
     ng = max(n1 - sx, zero(Tp)); pH[1] = ng
@@ -196,7 +197,7 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS
     # dissolved-level contributions per node (sparse)
     dis = zeros(Tp, N)
     for (i, n, ns, σe) in F.DIS
-        d = 1 - Z0.occupation(ns, 1, Nion, Nneu) / max(wH[n], 1e-300)
+        d = 1 - exp(Z0.ln_occupation(ns, 1, Nion, Nneu) - lwH[n])         # (the ratio of two occupation probabilities, from their logarithms: both can be 1e-100)
         d > 0 && (dis[i] += d * pH[n] * σe)
     end
     z = zero(n1 * T * ρ); sE = z; sP = z; sB = z; sR = z; sD = z; sW = z

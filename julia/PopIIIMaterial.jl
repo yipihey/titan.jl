@@ -483,7 +483,7 @@ const NLOITJ = let s_ = split(get(ENV, "NLOITJ", "0,0"), ","); (parse(Float64, s
 const NLOST = Ref{Vector{Any}}(Any[])        # per zone: (; d, p) at the end of the last chemistry, or nothing
 mutable struct NloC
     v::NTuple{4,Float64}; R::NTuple{3,Float64}; ne::Float64
-    vJ::NTuple{4,Float64}; qT::NTuple{3,Float64}; qx::NTuple{3,Float64}; qr::NTuple{3,Float64}; qx2::NTuple{3,Float64}; hasJ::Bool
+    vJ::NTuple{4,Float64}; qT::NTuple{3,Float64}; qx::NTuple{3,Float64}; qr::NTuple{3,Float64}; qx2::NTuple{3,Float64}; qn::NTuple{4,Float64}; hasJ::Bool
 end
 const NLOC = Ref{Vector{Any}}(Any[])          # per zone cache
 const NLOITN = Threads.Atomic{Int}(0); const NLOITNS = Threads.Atomic{Int}(0); const NLOCNS = Threads.Atomic{Int}(0); const NLOITJN = Threads.Atomic{Int}(0)     # (evaluations of R, of its slopes)
@@ -596,6 +596,24 @@ function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0)
     Threads.atomic_add!(NLOCNS, Int(time_ns() - t0_))
     CNn.full(x, m.net), (hasproperty(t.env, :tl3) ? t.env.tl3 : s.p)
 end
+"""
+(NLOIT) exact slopes of the ratios (R_E, R_P, R_R) and of n_e at (ρ, T, x_H⁺, x_H₂) and the star-light factors (q, t): ForwardDiff Duals with four
+partials (ln ρ, ln T, ln x_H⁺, ln x_H₂) through the same `nlo_comp` (CK expansion) and `nlo_ratio` (means_fast) that give the values. Returns
+(d ln R/d ln T, d ln R/d ln x_H⁺, d ln R/d ln x_H₂, d ln R/d ln ρ) as 3-tuples and d ln n_e/d (ln T, ln x_H⁺, ln x_H₂, ln ρ). They replaced
+one-sided differences of relative step 1e-2 in x_H⁺ (1e-3 in ρ, central 1e-3 in T): the neutral fraction of the ionised gas, n_H/n = 1 − x_H⁺ ~ 1e-3,
+changes by 100 % for 0.1 % in x_H⁺, so a 1 % step crossed x_H⁺ = 1 (max(n_H, 0) = 0) and returned a slope 10× too small (d ln χ/d ln x_H⁺ = −6 against
+−67 in zones 15–17 of the stuck state t_nk30).
+"""
+function nlo_slopes(m, k, s, ρ, T, x1, x2, q, tc)
+    D = ForwardDiff.Dual{TX.JTag,Float64,4}
+    sd(v_, i) = D(v_, ForwardDiff.Partials(ntuple(j -> j == i ? v_ : 0.0, Val(4))))      # seed in the logarithm of the variable
+    ρd, Td, x1d, x2d = sd(ρ, 1), sd(T, 2), sd(x1, 3), sd(x2, 4)
+    d, p = nlo_comp(m, k, s, ρd, Td, x1d, x2d, q, tc)
+    R, ne = nlo_ratio(ρd, Td, d, p)
+    sl(y, i) = ForwardDiff.partials(y, i) / ForwardDiff.value(y)
+    (ntuple(i -> sl(R[i], 2), 3), ntuple(i -> sl(R[i], 3), 3), ntuple(i -> sl(R[i], 4), 3), ntuple(i -> sl(R[i], 1), 3),
+     (sl(ne, 2), sl(ne, 3), sl(ne, 4), sl(ne, 1)))
+end
 "(NLOIT) (χ, κ_E, κ_P) of network zone k at the iterate (see NLOIT)."
 function nlo_it(m::NetGas, k, ρ, T, s)
     κR0, κP0 = OPAC[](ρ, T)
@@ -611,27 +629,35 @@ function nlo_it(m::NetGas, k, ρ, T, s)
     if c === nothing || c.v != v
         d, p = nlo_comp(m, k, s, ρv, Tv, xv, xv2)
         R, ne = nlo_ratio(ρv, Tv, d, p)
-        c === nothing ? (c = NloC(v, R, ne, (NaN, NaN, NaN, NaN), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), false); keep && (NLOC[][k] = c)) : (c.v = v; c.R = R; c.ne = ne)
+        c === nothing ? (c = NloC(v, R, ne, (NaN, NaN, NaN, NaN), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0), false); keep && (NLOC[][k] = c)) : (c.v = v; c.R = R; c.ne = ne)
     end
     needJ = T isa ForwardDiff.Dual || xd isa ForwardDiff.Dual || ρ isa ForwardDiff.Dual
+    slon = SLIMP && cz && TX.CPLQ[] !== nothing && sl_on(k)       # SLIMP: the ratio at the iterate's star-light factors (below)
+    qv = slon ? Float64(ForwardDiff.value(TX.CPLQ[][1][k])) : 1.0; tv = slon ? Float64(ForwardDiff.value(TX.CPLQ[][2][k])) : 1.0
     if needJ && !(c.hasJ && abs(log(Tv / c.vJ[2])) < NLOITJ[1] && abs(log(ρv / c.vJ[1])) < NLOITJ[1] && (!cz || (abs(log(xv / c.vJ[3])) < NLOITJ[2] && abs(log(xv2 / c.vJ[4])) < NLOITJ[2])))
-        εT = 1e-3; d1, p1 = nlo_comp(m, k, s, ρv, Tv * (1 + εT), xv, xv2); R1, _ = nlo_ratio(ρv, Tv * (1 + εT), d1, p1)
-        d0, p0 = nlo_comp(m, k, s, ρv, Tv / (1 + εT), xv, xv2); R0, _ = nlo_ratio(ρv, Tv / (1 + εT), d0, p0)
-        c.qT = ntuple(i -> log(R1[i] / R0[i]) / (2log1p(εT)), 3)          # (central: the ratio is steep in T, q ~ 10-20)
-        if cz
-            εx = 1e-2; d2, p2 = nlo_comp(m, k, s, ρv, Tv, xv * (1 + εx), xv2); R2, _ = nlo_ratio(ρv, Tv, d2, p2)
-            c.qx = ntuple(i -> log(R2[i] / c.R[i]) / log1p(εx), 3)
-            d4, p4 = nlo_comp(m, k, s, ρv, Tv, xv, xv2 * (1 + εx)); R4, _ = nlo_ratio(ρv, Tv, d4, p4)
-            c.qx2 = ntuple(i -> log(R4[i] / c.R[i]) / log1p(εx), 3)
+        if G2O.FASTON         # exact slopes (the Duals pass through means_fast)
+            c.qT, c.qx, c.qx2, c.qr, c.qn = nlo_slopes(m, k, s, ρv, Tv, xv, xv2, qv, tv)
+            cz || (c.qx = (0.0, 0.0, 0.0); c.qx2 = (0.0, 0.0, 0.0))
+        else                  # (G2OPAC ≠ 2: the means are Float64 only; differences of R, relative steps 1e-3 and 1e-2)
+            εT = 1e-3; d1, p1 = nlo_comp(m, k, s, ρv, Tv * (1 + εT), xv, xv2); R1, _ = nlo_ratio(ρv, Tv * (1 + εT), d1, p1)
+            d0, p0 = nlo_comp(m, k, s, ρv, Tv / (1 + εT), xv, xv2); R0, _ = nlo_ratio(ρv, Tv / (1 + εT), d0, p0)
+            c.qT = ntuple(i -> log(R1[i] / R0[i]) / (2log1p(εT)), 3)          # (central: the ratio is steep in T, q ~ 10-20)
+            if cz
+                εx = 1e-2; d2, p2 = nlo_comp(m, k, s, ρv, Tv, xv * (1 + εx), xv2); R2, _ = nlo_ratio(ρv, Tv, d2, p2)
+                c.qx = ntuple(i -> log(R2[i] / c.R[i]) / log1p(εx), 3)
+                d4, p4 = nlo_comp(m, k, s, ρv, Tv, xv, xv2 * (1 + εx)); R4, _ = nlo_ratio(ρv, Tv, d4, p4)
+                c.qx2 = ntuple(i -> log(R4[i] / c.R[i]) / log1p(εx), 3)
+            end
+            εr = 1e-3; d3, p3 = nlo_comp(m, k, s, ρv * (1 + εr), Tv, xv, xv2); R3, _ = nlo_ratio(ρv * (1 + εr), Tv, d3, p3)
+            c.qr = ntuple(i -> log(R3[i] / c.R[i]) / log1p(εr), 3)
+            c.qn = (0.0, cz ? 1.0 : 0.0, 0.0, 0.0)          # (n_e ∝ x_H⁺)
         end
-        εr = 1e-3; d3, p3 = nlo_comp(m, k, s, ρv * (1 + εr), Tv, xv, xv2); R3, _ = nlo_ratio(ρv * (1 + εr), Tv, d3, p3)
-        c.qr = ntuple(i -> log(R3[i] / c.R[i]) / log1p(εr), 3)
         c.vJ = v; c.hasJ = true; Threads.atomic_add!(NLOITJN, 1)
     end
     RE, RP, RR = c.R
     nebase = c.ne
-    if SLIMP && cz && TX.CPLQ[] !== nothing && sl_on(k)      # SLIMP: the ratio at the iterate's star-light factors (value exact, slopes in ln q, ln t by differences)
-        qd = TX.CPLQ[][1][k]; td = TX.CPLQ[][2][k]; qv = Float64(ForwardDiff.value(qd)); tv = Float64(ForwardDiff.value(td))
+    if slon      # SLIMP: the ratio at the iterate's star-light factors (value exact, slopes in ln q, ln t by differences; those in ρ, T, x_H⁺, x_H₂ above, at q, t)
+        qd = TX.CPLQ[][1][k]; td = TX.CPLQ[][2][k]
         length(NLOQC[]) < k && (NLOQC[] = vcat(NLOQC[], Any[nothing for _ in length(NLOQC[])+1:k]))
         e_ = NLOQC[][k]; key = (v..., qv, tv)
         if e_ === nothing || e_[1] != key
@@ -663,7 +689,7 @@ function nlo_it(m::NetGas, k, ρ, T, s)
         RE = RE * exp(c.qT[1] * lt + c.qx[1] * lx + c.qr[1] * lr + c.qx2[1] * lx2); RP = RP * exp(c.qT[2] * lt + c.qx[2] * lx + c.qr[2] * lr + c.qx2[2] * lx2)
         RR = RR * exp(c.qT[3] * lt + c.qx[3] * lx + c.qr[3] * lr + c.qx2[3] * lx2)
     end
-    ned = cz ? nebase * (xd / xv) : nebase
+    ned = needJ ? nebase * exp(c.qn[1] * lt + c.qn[2] * lx + c.qn[3] * lx2 + c.qn[4] * lr) : nebase
     return chicap(max(κR0 * RR, COp.σT * ned / ρ), T), κP0 * RE, κP0 * RP
 end
 "(diagnostic, NLOITDIAG=n: n sweeps of fill_opac!) per network zone the NLOIT opacities against those the lagged NLOPAC ratio would give at the same state."
@@ -1346,13 +1372,13 @@ function chem_core!(m::NetGas)
             end
             if CPLPREP[]                             # COUPLED prepare: the zone's terms for the hydro solve
                 envc = envk; phc_ = phk; cache = Ref((NaN, Any[]))
-                phc = Tv -> (Tv == cache[][1] || (cache[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, envc)...) for p_ in phc_])); cache[][2])
+                phc = photo_cache(cache, phc_, envc)
                 if SLIMP && p3 !== nothing && isempty(TX.CHEMB[])   # SLIMP: what scales with W (see sl_q, cpl_tq)
                     lj = hasproperty(envk, :ljW) || (ljon(p3) && hasproperty(envk, :J))
                     envc0 = !lj ? nothing : hasproperty(envk, :ljW) ? merge(envk, (; J = ν -> 0.0, ljW = 0.0)) : merge(envk, (; J = ν -> 0.0))
                     cache0 = Ref((NaN, Any[]))
                     phc0 = envc0 === nothing ? nothing :
-                        (Tv -> (Tv == cache0[][1] || (cache0[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, envc0)...) for p_ in phc_])); cache0[][2]))
+                        photo_cache(cache0, phc_, envc0)
                     slq = (; p3, lj, envc0, phc0, c0 = cools0, nHs = dn[k] / CNn.μH(), ph = phc_, net = m.net, mm = m,
                            rec = (k <= length(SLW0[]) ? SLW0[][k] : nothing))
                     CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs, phraw = (phc_, envc), slq)
@@ -1601,6 +1627,13 @@ Not coupled: the IonRay path (a ray zone is not prepared), CHEMB (BALSPLIT) — 
 const CPLPREP = Ref(false); const CPLPOST = Ref(false)
 const CPLDBGZ = Ref(parse(Int, get(ENV, "CPLDBGZ", "0"))); const CPLDBGN = Ref(parse(Int, get(ENV, "CPLDBGN", "20")))
 const CPLTERMS = Ref(Any[]); const CPLCACHE = Ref(Any[])
+"""
+The zone's photo-rates as a function of T: cached on the last Float64 T (`cache = Ref((T, rates))`); a Dual T (the local Jacobian sweeps of
+`cpl_vj`, `nlo_slopes`) is evaluated directly and carries ∂(rates)/∂T (ChemNet.ck_eval used to take the rates at the value of T: the Jacobian then lacked
+the T dependence of the photo-ionisation/recombination coefficients, e.g. 0.03 instead of 0.12 for d ln n_e/d ln T of the He ions in zones 17–19 of the stuck state).
+"""
+photo_cache(cache, ph_, env) = Tv -> Tv isa ForwardDiff.Dual ? Any[(p_, CNn.photorates_t(p_, Tv, env)...) for p_ in ph_] :
+    (Tv == cache[][1] || (cache[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, env)...) for p_ in ph_])); cache[][2])
 """
 (SLIMP) the prepared terms of a zone with every star-light rate scaled by q = W/W_start (exact: all are linear in W at fixed T_c): the
 three-level β, P12 (reactions, C, heats), the network photo-rates of J = W B(T_c) (R → qR, α → α_0 + q(α − α_0), α_0 at W = 0), the

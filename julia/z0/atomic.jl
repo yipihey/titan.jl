@@ -125,11 +125,15 @@ Hummer & Mihalas 1988 occupation probability of hydrogenic level n of nuclear ch
 with charges folded in by the caller as Σ n_i) and neutral perturbers (density Nneu, radius r₁ = a0).
 """
 function occupation(n::Real, Z::Int, Nion, Nneu)
+    exp(ln_occupation(n, Z, Nion, Nneu))
+end
+"ln of `occupation` (for ratios of occupation probabilities that underflow: a quotient of two Duals squares the denominator)."
+function ln_occupation(n::Real, Z::Int, Nion, Nneu)
     χn = Z^2 * Ry∞ / n^2
     K = n <= 3 ? 1.0 : (16 / 3) * n / (n + 1)^2
     q = sqrt(Float64(Z)) * ecgs^2 / (sqrt(K) * χn)      # H&M 4.71 (Z_p = 1)
     rn = n^2 * a0cm / Z
-    exp(-(4π / 3) * (16 * Nion * q^3 + Nneu * (rn + a0cm)^3))
+    -(4π / 3) * (16 * Nion * q^3 + Nneu * (rn + a0cm)^3)
 end
 
 # ---- He I multiplets -------------------------------------------------------------------------------------------------------
