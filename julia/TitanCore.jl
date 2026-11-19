@@ -745,101 +745,105 @@ function eddfac!()
     # nothing incoming; the positivity clamps act on the total, I_x ≥ −I_b
     bg = TD.VEF_BG[] && lrobc == 1; Ib = bg ? gf(:ximr) : 0.0; ep = edpos(); lo = bg ? -Ib : 0.0
     bg && (@inbounds for k in a:b; sf[k] -= Ib; end)
-    slopes!(false)
-    @inbounds for k in a:b
-        l = 2 * (k - a) + 1
-        rp[l] = rn[k]; rp[l+1] = 0.5 * (rn[k] + rn[k+1])
-        sl[l] = sf[k] + 0.5 * dtau[k] * bsf[k]; sr[l] = sf[k]
-        sl[l+1] = sf[k]; sr[l+1] = sf[k] - 0.5 * dtau[k] * bsf[k]
-        if ep     # a source function reconstructed linearly in τ must not go negative
-            sl[l] = max(sl[l], lo); sr[l+1] = max(sr[l+1], lo)
-        end
-    end
-    lmax = 2 * (b - a + 1) + 1
-    rp[lmax] = rn[b+1]
-    tie = TD.FLUXTIE[][2] > 0; HE = TD.HEDD
-    tie && (length(HE) < length(fedd) && resize!(HE, length(fedd)); fill!(HE, 0.0))
-    for j in 1:ncor; p[j] = Float64(j - 1) * rp[1] / Float64(ncor); end
-    nray = (ncor + 1) + 2 * (b + 1 - a)
-    for j in ncor+1:nray; p[j] = rp[j - ncor]; end
-    lrobc == 1 && (xim[1:nray] .= bg ? 0.0 : gf(:ximr))
-    FX = TD.FXEDD; bg && length(FX) < length(fedd) && resize!(FX, length(fedd))
-    # inward sweep along tangent rays
-    for l in lmax-1:-1:1
-        k = a + (l - 1) ÷ 2; nj = ncor + l
-        @inbounds for j in 1:nj
-            xjl = sqrt(rp[l]^2 - p[j]^2); xjlp1 = sqrt(rp[l+1]^2 - p[j]^2)
-            dtjl = dn[k] * chifn[k] * (xjlp1 - xjl); ex = exp(-dtjl)
-            xip[j] = (1.0 - ex) * sl[l] + (1.0 - (1.0 + dtjl) * ex) * (sr[l] - sl[l]) / dtjl + ex * xim[j]
-            ep && (xip[j] = max(xip[j], lo))
-            xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
-        end
-        for j in 1:nj; xim[j] = xip[j]; end
-        if iseven(l)
-            k = a + (l - 1) ÷ 2
-            xmom0[k] = 0.0; xmom2[k] = 0.0
-            _eddf!(nj, xang, xip, xmom0, xmom2, k)
-            tie && (HE[k] = -_mom1(nj, xang, xip))          # inward-moving rays: −∫ I |μ| dμ
-        end
-        l == 1 && s!(:geddl, _eddg(nj, xang, xip))
-    end
-    if lribc == 1
-        for j in 1:ncor+1; xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2); xim[j] = gf(:xipl) - Ib; end
-    end
-    if lribc == 3                                    # (uses the planar quadrature ang(j), as in TITAN 1.2)
-        for j in 1:ncor+1
-            xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2)
-            xim[j] = (cc * ern[a] + 1.5 * frn[a] * dtau[a]) / (4.0 * cpi) + 3.0 * ang[j] * frn[a] / (4.0 * cpi) - Ib
-        end
-    end
-    # outward sweep
-    for l in 2:lmax
-        k = a + (l - 2) ÷ 2; nj = ncor + l - 1
-        @inbounds for j in 1:nj
-            xjl = sqrt(rp[l]^2 - p[j]^2); xjlm1 = sqrt(rp[l-1]^2 - p[j]^2)
-            dtjl = dn[k] * chifn[k] * (xjl - xjlm1); ex = exp(-dtjl)
-            xip[j] = (1.0 - ex) * sr[l-1] + (1.0 - (1.0 + dtjl) * ex) * (sl[l-1] - sr[l-1]) / dtjl + ex * xim[j]
-            ep && (xip[j] = max(xip[j], lo))
-            xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
-        end
-        for j in 1:nj; xim[j] = xip[j]; end
-        if HPON[] && isodd(l)
-            length(HPLUS) < length(fedd) && resize!(HPLUS, length(fedd))
-            HPLUS[a + (l - 1) ÷ 2] = -0.5 * _mom1(nj, xang, xim)
-        end
-        if iseven(l)
-            k = a + (l - 1) ÷ 2
-            xang[nj+1] = 0.0
-            _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
-            if tie && bg && TD.TIEX[]      # h_x = H_x/J_x of the excess (xmom0 = −2J_x); no excess: no flux, whatever h_x
-                HX = TD.HXEDD; length(HX) < length(fedd) && resize!(HX, length(fedd))
-                hx = (HE[k] + _mom1(nj + 1, xang, xim)) / xmom0[k]; HX[k] = isfinite(hx) ? clamp(hx, -1.0, 1.0) : 0.0
-            end
-            tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
-            if bg      # excess moments; xmom0, xmom2 are −2J_x, −2K_x (μ decreases along the ray index), the background's −2I_b, −2I_b/3
-                FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : 1.0 / 3.0
-                fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
-            else
-            fedd[k] = edpos() && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 :
-                      max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+    function sweep2!()
+        slopes!(false)
+        @inbounds for k in a:b
+            l = 2 * (k - a) + 1
+            rp[l] = rn[k]; rp[l+1] = 0.5 * (rn[k] + rn[k+1])
+            sl[l] = sf[k] + 0.5 * dtau[k] * bsf[k]; sr[l] = sf[k]
+            sl[l+1] = sf[k]; sr[l+1] = sf[k] - 0.5 * dtau[k] * bsf[k]
+            if ep     # a source function reconstructed linearly in τ must not go negative
+                sl[l] = max(sl[l], lo); sr[l+1] = max(sr[l+1], lo)
             end
         end
-        if l == lmax
-            EDDG_MU0[] && (xang[nj+1] = 0.0; xip[nj+1] = xip[nj])
-            if bg      # outgoing excess only: g_x = H_x+/J_x+ (TD.GXEDD); TITAN's g of the total field for the rest of the code
-                n_ = EDDG_MU0[] ? nj + 1 : nj; s0 = 0.0
-                @inbounds for i in 1:n_-1; s0 += 0.5 * (xip[i] + xip[i+1]) * (xang[i+1] - xang[i]); end
-                s1 = _mom1(n_, xang, xip)
-                # (μ = xang decreases along the ray index, so ∫_0^1 I dμ = −s0 and ∫_0^1 I μ dμ = −s1; the background gives I_b, I_b/2)
-                TD.GXEDD[] = abs(s0) > 1e-10 * Ib && isfinite(s1 / s0) ? clamp(s1 / s0, 0.0, 1.0) : 0.5
-                s!(:geddr, (-s1 + 0.5 * Ib) / (-s0 + Ib))
-            else
-            s!(:geddr, _eddg(EDDG_MU0[] ? nj + 1 : nj, xang, xip))
+        lmax = 2 * (b - a + 1) + 1
+        rp[lmax] = rn[b+1]
+        tie = TD.FLUXTIE[][2] > 0; HE = TD.HEDD
+        tie && (length(HE) < length(fedd) && resize!(HE, length(fedd)); fill!(HE, 0.0))
+        for j in 1:ncor; p[j] = Float64(j - 1) * rp[1] / Float64(ncor); end
+        nray = (ncor + 1) + 2 * (b + 1 - a)
+        for j in ncor+1:nray; p[j] = rp[j - ncor]; end
+        lrobc == 1 && (xim[1:nray] .= bg ? 0.0 : gf(:ximr))
+        FX = TD.FXEDD; bg && length(FX) < length(fedd) && resize!(FX, length(fedd))
+        # inward sweep along tangent rays
+        for l in lmax-1:-1:1
+            k = a + (l - 1) ÷ 2; nj = ncor + l
+            @inbounds for j in 1:nj
+                xjl = sqrt(rp[l]^2 - p[j]^2); xjlp1 = sqrt(rp[l+1]^2 - p[j]^2)
+                dtjl = dn[k] * chifn[k] * (xjlp1 - xjl); ex = exp(-dtjl)
+                xip[j] = (1.0 - ex) * sl[l] + (1.0 - (1.0 + dtjl) * ex) * (sr[l] - sl[l]) / dtjl + ex * xim[j]
+                ep && (xip[j] = max(xip[j], lo))
+                xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
+            end
+            for j in 1:nj; xim[j] = xip[j]; end
+            if iseven(l)
+                k = a + (l - 1) ÷ 2
+                xmom0[k] = 0.0; xmom2[k] = 0.0
+                _eddf!(nj, xang, xip, xmom0, xmom2, k)
+                tie && (HE[k] = -_mom1(nj, xang, xip))          # inward-moving rays: −∫ I |μ| dμ
+            end
+            l == 1 && s!(:geddl, _eddg(nj, xang, xip))
+        end
+        if lribc == 1
+            for j in 1:ncor+1; xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2); xim[j] = gf(:xipl) - Ib; end
+        end
+        if lribc == 3                                    # (uses the planar quadrature ang(j), as in TITAN 1.2)
+            for j in 1:ncor+1
+                xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2)
+                xim[j] = (cc * ern[a] + 1.5 * frn[a] * dtau[a]) / (4.0 * cpi) + 3.0 * ang[j] * frn[a] / (4.0 * cpi) - Ib
             end
         end
-        s!(:geddr, max(0.5, min(gf(:geddr), 1.0)))
+        # outward sweep
+        for l in 2:lmax
+            k = a + (l - 2) ÷ 2; nj = ncor + l - 1
+            @inbounds for j in 1:nj
+                xjl = sqrt(rp[l]^2 - p[j]^2); xjlm1 = sqrt(rp[l-1]^2 - p[j]^2)
+                dtjl = dn[k] * chifn[k] * (xjl - xjlm1); ex = exp(-dtjl)
+                xip[j] = (1.0 - ex) * sr[l-1] + (1.0 - (1.0 + dtjl) * ex) * (sl[l-1] - sr[l-1]) / dtjl + ex * xim[j]
+                ep && (xip[j] = max(xip[j], lo))
+                xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
+            end
+            for j in 1:nj; xim[j] = xip[j]; end
+            if HPON[] && isodd(l)
+                length(HPLUS) < length(fedd) && resize!(HPLUS, length(fedd))
+                HPLUS[a + (l - 1) ÷ 2] = -0.5 * _mom1(nj, xang, xim)
+            end
+            if iseven(l)
+                k = a + (l - 1) ÷ 2
+                xang[nj+1] = 0.0
+                _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
+                if tie && bg && TD.TIEX[]      # h_x = H_x/J_x of the excess (xmom0 = −2J_x); no excess: no flux, whatever h_x
+                    HX = TD.HXEDD; length(HX) < length(fedd) && resize!(HX, length(fedd))
+                    hx = (HE[k] + _mom1(nj + 1, xang, xim)) / xmom0[k]; HX[k] = isfinite(hx) ? clamp(hx, -1.0, 1.0) : 0.0
+                end
+                tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
+                if bg      # excess moments; xmom0, xmom2 are −2J_x, −2K_x (μ decreases along the ray index), the background's −2I_b, −2I_b/3
+                    FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : 1.0 / 3.0
+                    fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+                else
+                fedd[k] = edpos() && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 :
+                          max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+                end
+            end
+            if l == lmax
+                EDDG_MU0[] && (xang[nj+1] = 0.0; xip[nj+1] = xip[nj])
+                if bg      # outgoing excess only: g_x = H_x+/J_x+ (TD.GXEDD); TITAN's g of the total field for the rest of the code
+                    n_ = EDDG_MU0[] ? nj + 1 : nj; s0 = 0.0
+                    @inbounds for i in 1:n_-1; s0 += 0.5 * (xip[i] + xip[i+1]) * (xang[i+1] - xang[i]); end
+                    s1 = _mom1(n_, xang, xip)
+                    # (μ = xang decreases along the ray index, so ∫_0^1 I dμ = −s0 and ∫_0^1 I μ dμ = −s1; the background gives I_b, I_b/2)
+                    TD.GXEDD[] = abs(s0) > 1e-10 * Ib && isfinite(s1 / s0) ? clamp(s1 / s0, 0.0, 1.0) : 0.5
+                    s!(:geddr, (-s1 + 0.5 * Ib) / (-s0 + Ib))
+                else
+                s!(:geddr, _eddg(EDDG_MU0[] ? nj + 1 : nj, xang, xip))
+                end
+            end
+            s!(:geddr, max(0.5, min(gf(:geddr), 1.0)))
+        end
+        tie && tiew!(a, b, dtau)
     end
-    tie && tiew!(a, b, dtau)
+    sweep2!()
+    CSENS_REQ[] && closure_sens!(sweep2!, a, b, sf, dtau, matsrc)
     nothing
 end
 "FLUXTIE weights per interface from the flux-mean optical depth measured from the outer boundary (TD.FLUXTIE)."
@@ -851,6 +855,41 @@ function tiew!(a, b, dtau)
         τ += dtau[k]
         W[k] = τ <= τ1 ? 1.0 : τ >= τ2 ? 0.0 : (q = log(τ2 / τ) / log(τ2 / τ1); q * q * (3 - 2q))
     end
+    nothing
+end
+
+const CSENS_REQ = Ref(false)
+TD.CSENS_HOOK[] = () -> (CSENS_REQ[] = true; try eddfac!() finally CSENS_REQ[] = false end)
+"""
+CLOSJ: sensitivities of the formal-solution outputs (f, h, h_x, f_x, tie weight, g) with respect to the source function S_i and the optical depth increment
+dtau_i of the zones i = m-1..m+1 (central differences of the sweep, relative step 1e-3). See TitanDriver.CSENS.
+"""
+function closure_sens!(sweep!, a, b, sf, dtau, matsrc)
+    cs = TD.CSENS; mgr = TF.MGR; tie = TD.FLUXTIE[][2] > 0
+    arrs = Pair{Symbol,Any}[:f => vf(:fedd)]
+    tie && length(TD.HEDD) >= b + 1 && push!(arrs, :h => TD.HEDD, :w => TD.TIEW)
+    tie && length(TD.HXEDD) >= b + 1 && push!(arrs, :hx => TD.HXEDD)
+    tie && length(TD.FXEDD) >= b + 1 && push!(arrs, :fx => TD.FXEDD)
+    snap() = (Dict(n => copy(a_) for (n, a_) in arrs), gf(:geddr))
+    for (n, _) in arrs
+        haskey(cs.S, n) && size(cs.S[n], 1) == mgr || (cs.S[n] = zeros(mgr, 3); cs.T[n] = zeros(mgr, 3))
+        fill!(cs.S[n], 0.0); fill!(cs.T[n], 0.0)
+    end
+    fill!(cs.gS, 0.0); fill!(cs.gT, 0.0)
+    g0 = gf(:geddr); gl0 = gf(:geddl)
+    for i in a:b, typ in (:S, :T)
+        arr = typ === :S ? sf : dtau; x0 = arr[i]; δ = 1e-3 * abs(x0) + 1e-300
+        arr[i] = x0 + δ; sweep!(); (sp, gp) = snap()
+        arr[i] = x0 - δ; sweep!(); (sm, gm) = snap()
+        arr[i] = x0
+        for (n, _) in arrs
+            M = typ === :S ? cs.S[n] : cs.T[n]
+            for m in max(a, i - 1):min(b, i + 1); M[m, i - m + 2] = (sp[n][m] - sm[n][m]) / (2δ); end
+        end
+        i >= b - 1 && ((typ === :S ? cs.gS : cs.gT)[i - (b - 1) + 1] = (gp - gm) / (2δ))
+    end
+    sweep!(); s!(:geddr, g0); s!(:geddl, gl0)          # (outputs back at the base state)
+    cs.a = a; cs.b = b; cs.msrc = matsrc; cs.scat = EDD_SCATTER[]; cs.valid = true
     nothing
 end
 

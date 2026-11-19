@@ -143,6 +143,22 @@ there K_x/J_x is meaningless, t_g4_te1x collapsed E at zone 55).
 const VEF_BG = Ref(false)
 const FXEDD = Float64[]
 const GXEDD = Ref(0.5)
+"""
+CLOSJ (ENV, default off): closure Jacobian. The Eddington factors f (fedd), the tie's h (HEDD, HXEDD, FXEDD), the tie weight (TIEW) and the outer-boundary
+factor g (geddr) are functionals of the formal solution, which depends on the iterate only through the per-zone source function S_i and
+optical-depth increment dtau_i. `TitanCore.closure_sens!` (at every matgen) finite-differences the formal-solution sweep with respect to S_i, dtau_i
+and stores d(output_m)/d(S_i, dtau_i) for the band window i = m-1..m+1 (g: the last two zones); `TitanResidFast.closure_lift` rebuilds the closure arrays
+as Duals, value + sum of sensitivity x (the Dual part of S_i, dtau_i computed from the iterate in the residual), so that the band Jacobian carries
+the closure's dependence inside the window (the rest is left to the Krylov J v).
+"""
+mutable struct CSens
+    valid::Bool; msrc::Bool; scat::Bool; a::Int; b::Int
+    S::Dict{Symbol,Matrix{Float64}}; T::Dict{Symbol,Matrix{Float64}}
+    gS::Vector{Float64}; gT::Vector{Float64}
+end
+const CSENS = CSens(false, false, false, 0, 0, Dict{Symbol,Matrix{Float64}}(), Dict{Symbol,Matrix{Float64}}(), zeros(2), zeros(2))
+const CSENS_HOOK = Ref{Any}(nothing)
+const CLOSJ = Ref(get(ENV, "CLOSJ", "0") == "1")
 const HEDD = Float64[]          # h = H/J at zone centres (eddfac!, spherical)
 """
 `TIEX[]` (provisional, ENV TIEX=1, default off; needs VEF_BG and FLUXTIE; grey rows): FLUXTIE closes the flux with the EXCESS over the

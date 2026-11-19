@@ -1312,7 +1312,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         dfm[k] = P.sigd == 0 ? zero(T) : 2P.sigd * rmu[k] * (d[k] - d[k-1]) / (r[k+1] - r[k-1])
         dfe[k] = P.sige == 0 ? zero(T) : P.sige * rmu[k] * (d[k] + d[k-1]) * (eg[k] - eg[k-1]) / (r[k+1] - r[k-1])
     end
-    fedd = c.fedd
+    fedd = c.fedd; HEl = TD.HEDD; HXl = TD.HXEDD; FXl = TD.FXEDD; TWl = TD.TIEW; gedr = P.geddr
+    if TD.CLOSJ[] && c.lrad && TD.CSENS.valid && TD.CSENS.a == ngrs && T <: ForwardDiff.Dual
+        fedd, HEl, HXl, FXl, TWl, gedr = closure_lift(c, P, ngrs, ngre, chifn, xkpn, plfn, dn, ern, rn, T)
+    end
     fill!(R, zero(T))
     # ---------------------------------------------------------------- GRID
     kb(k) = k - k0 + 1
@@ -1706,7 +1709,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                     0.5 * rmu[k] * (fr[k] / cc^2) * (u[k+1] - u[k-1]) +
                     0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
             end
-            wt = tie ? TD.TIEW[k] : 0.0
+            wt = tie ? TWl[k] : 0.0
             SDW[1] > 0 && SDW[1] <= k - ngrs + 1 <= SDW[2] && tie && (wt = SDW[3])      # stalldiag (SDW=lo:hi:w): tie weight forced at interfaces lo..hi (zone numbers)
             if wt > 0                                # FLUXTIE: F = h c E (TitanDriver.FLUXTIE)
                 rcm = (0.5 * (r[k-1] + r[k]))^mu; rcp = (0.5 * (r[k] + r[k+1]))^mu
@@ -1714,13 +1717,13 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 # average ½(hE_(k−1) + hE_k) cannot see an odd–even E mode, which nothing damps in thin gas (E → 0 at zone 214, step 87126)
                 # TIEX (TitanDriver.TIEX): the closure is for the excess over the isotropic background, h_x (E − E_b)
                 tx = TD.TIEX[] && TD.VEF_BG[] && length(TD.HXEDD) >= ngre + 1 && length(TD.FXEDD) >= ngre + 1
-                HT = tx ? TD.HXEDD : TD.HEDD; Ebg = tx ? 4P.cpi * P.ximr / cc : 0.0; em = er[k-1] - Ebg; ep = er[k] - Ebg
+                HT = tx ? HXl : HEl; Ebg = tx ? 4P.cpi * P.ximr / cc : 0.0; em = er[k-1] - Ebg; ep = er[k] - Ebg
                 if !SLABTIE[]
                 B = rmu[k] * fr[k] / cc - (rcm * max(HT[k-1], 0.0) * em + rcp * min(HT[k], 0.0) * ep)
                 else                                 # SLABTIE: outward donor h from the slab depth of the donor's centre below the interface
-                    hd = st_hdonor(max(HT[k-1], 0.0), SDTIEF > 0 ? SDTIEF : (tx ? TD.FXEDD[k-1] : fedd[k-1]), chif[k-1], chif[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k])
+                    hd = st_hdonor(max(HT[k-1], 0.0), SDTIEF > 0 ? SDTIEF : (tx ? FXl[k-1] : fedd[k-1]), chif[k-1], chif[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k])
                     if SDFRZ    # stalldiag (test only): the slab correction h_slab(tau_i) - h_slab(a) frozen at its first value (no feedback through chi, rho, dV)
-                        _fm = tx ? TD.FXEDD[k-1] : fedd[k-1]; _Mm = 0.5 * d[k-1] * dvol[k-1] / rmu[k]; _Mp = 0.5 * d[k] * dvol[k] / rmu[k]
+                        _fm = tx ? FXl[k-1] : fedd[k-1]; _Mm = 0.5 * d[k-1] * dvol[k-1] / rmu[k]; _Mp = 0.5 * d[k] * dvol[k] / rmu[k]
                         _ti = st_tauint(chif[k-1], chif[k], _Mm, _Mp)
                         length(SDFRZV) < TF.MGR && (resize!(SDFRZV, TF.MGR); fill!(SDFRZV, NaN))
                         isnan(SDFRZV[k]) && (SDFRZV[k] = val(_fm / (_ti + 2_fm) - _fm / (chif[k-1] * _Mm + 2_fm)))
@@ -1728,7 +1731,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                     end
                     B = rmu[k] * fr[k] / cc - (rcm * hd * em + rcp * min(HT[k], 0.0) * ep)
                     if SDHD    # stalldiag: the argument of SLABTIE's max(h, 0) (raw h), h_FS, h_slab terms at the last residual evaluation
-                        _fm = tx ? TD.FXEDD[k-1] : fedd[k-1]; _Mm = 0.5 * d[k-1] * dvol[k-1] / rmu[k]; _Mp = 0.5 * d[k] * dvol[k] / rmu[k]
+                        _fm = tx ? FXl[k-1] : fedd[k-1]; _Mm = 0.5 * d[k-1] * dvol[k-1] / rmu[k]; _Mp = 0.5 * d[k] * dvol[k] / rmu[k]
                         _ti = st_tauint(chif[k-1], chif[k], _Mm, _Mp)
                         SDHRAW[k] = (val(max(HT[k-1], 0.0) + _fm / (_ti + 2_fm) - _fm / (chif[k-1] * _Mm + 2_fm)), val(HT[k-1]), val(_ti), val(chif[k-1] * _Mm))
                     end
@@ -1748,10 +1751,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)
-        R[iF, kb(ngre+1)] = P.cpi * (2P.geddr + 1) * P.ximr + frn[ngre+1] - cc * P.geddr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
+        R[iF, kb(ngre+1)] = P.cpi * (2gedr + 1) * P.ximr + frn[ngre+1] - cc * gedr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
         if TIEFRAME[]                                # the boundary condition holds for the lab-frame flux (see TIEFRAME)
             ub_ = un[ngre+1]
-            R[iF, kb(ngre+1)] = (R[iF, kb(ngre+1)] - frn[ngre+1]) * (1 + 2P.geddr * ub_ / cc) + frn[ngre+1] + (1 + fedd[ngre]) * ub_ * ern[ngre]
+            R[iF, kb(ngre+1)] = (R[iF, kb(ngre+1)] - frn[ngre+1]) * (1 + 2gedr * ub_ / cc) + frn[ngre+1] + (1 + fedd[ngre]) * ub_ * ern[ngre]
         end
         R[iF, 1] = X(iF, k0)
         k = ngrs - 1
@@ -2190,7 +2193,42 @@ function store_side!(c::Ctx, ws::WS{D}) where {D}
     nothing
 end
 
-matgen!(; ncol = 6) = (assemble!(context(); ncol); nothing)
+
+"""
+CLOSJ: the closure arrays of the formal solution as Duals: value + sum over i = m-1..m+1 of d(out_m)/dS_i (S_i^Dual - S_i) + d(out_m)/d(dtau_i)(dtau_i^Dual - dtau_i)
+(TitanDriver.CSENS; S_i, dtau_i built from the iterate exactly as TitanCore.eddfac! builds them). Returns (fedd, HEDD, HXEDD, FXEDD, TIEW, geddr).
+"""
+function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, ern, rn, ::Type{T}) where {T}
+    cs = TD.CSENS; xnen = v(:xnen); csige = P.csige; cc = P.cc; cpi = P.cpi
+    Sd = zeros(T, b + 2); Td = zeros(T, b + 2)
+    @inbounds for i in a:b
+        chi = chifn[i]; kp = xkpn[i]; pl = plfn[i]; ρ = dn[i]; E = ern[i]; ne = xnen[i]
+        S = if cs.msrc
+            (cs.scat && chi * ρ > kp * ρ + csige * ne) ? (kp * pl + (chi - kp) * E * cc / (4cpi)) / chi :
+                                                          (kp * ρ * pl + csige * ne * E * cc / (4cpi)) / (kp * ρ + csige * ne)
+        else
+            ((chi * ρ - csige * ne) * pl + csige * ne * E * cc / (4cpi)) / (chi * ρ)
+        end
+        τ = chi * ρ * (rn[i+1] - rn[i])
+        Sd[i] = S - val(S); Td[i] = τ - val(τ)
+    end
+    function lift(name::Symbol, base::AbstractVector)
+        out = Vector{T}(undef, length(base)); @inbounds for k in eachindex(base); out[k] = T(base[k]); end
+        haskey(cs.S, name) || return out
+        MS = cs.S[name]; MT = cs.T[name]
+        @inbounds for m in a:min(b, length(base))
+            acc = zero(T)
+            for i in max(a, m - 1):min(b, m + 1); acc += MS[m, i - m + 2] * Sd[i] + MT[m, i - m + 2] * Td[i]; end
+            out[m] += acc
+        end
+        out
+    end
+    g = T(P.geddr)
+    @inbounds for i in max(a, b - 1):b; g += cs.gS[i - (b - 1) + 1] * Sd[i] + cs.gT[i - (b - 1) + 1] * Td[i]; end
+    (lift(:f, c.fedd), lift(:h, TD.HEDD), lift(:hx, TD.HXEDD), lift(:fx, TD.FXEDD), lift(:w, TD.TIEW), g)
+end
+
+matgen!(; ncol = 6) = (TD.CLOSJ[] && TD.CSENS_HOOK[] !== nothing && gi(:lrad) == 1 && TD.CSENS_HOOK[](); assemble!(context(); ncol); nothing)
 
 """
 COUPLED test (popiii_m2c CPLJCHECK=n1,n2,…: zone numbers from the inner boundary, at the first Newton iteration of the first step): the
