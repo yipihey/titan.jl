@@ -1161,9 +1161,9 @@ function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = not
     τv = zeros(b + 2)
     for j in b:-1:a; τv[j] = τv[j+1] + chi[j] * _val(dn[j]) * _val(rn[j+1] - rn[j]); end
     chiD = if isD && TX.MATERIAL[] !== nothing
-        z0_ = TX.ZONE[]
+        z0_ = TX.ZONE[]; sl0_ = TX.CPLSL[]; TX.CPLSL[] = nothing
         try [i < a ? zero(T) : (TX.ZONE[] = i; cd_ = TX.material_opac(TX.MATERIAL[], dn[i], tn[i])[1]; vc_ = _val(cd_); vc_ > 0 ? chi[i] * (cd_ / vc_) : T(chi[i])) for i in 1:b]
-        finally TX.ZONE[] = z0_ end
+        finally TX.ZONE[] = z0_; TX.CPLSL[] = sl0_ end
     else nothing end
     corτ(i, k) = (c_ = (chiD === nothing ? chi[i] : winv(chiD[i], i, k)) * winv(dn[i], i, k) * (winv(rn[i+1], i + 1, k) - winv(rn[i], i, k)); c_ - _val(c_))
     τwin(j, k) = j > b ? zero(T) : isD ? τv[j] + sum((corτ(i, k) for i in max(j, k - 3):min(b, k + 2)); init = zero(T)) : τv[j]
@@ -1860,12 +1860,12 @@ function cpl_tq(t, ρ, T, x1, x2, q, tc, fs, g, dp = nothing; phc = t.phc, phc0 
             extrab = mgr_ ? starlight_terms(s_.mm, r.ρ, kHm, kH, kLW; a1 = r.a1) : starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
         end
     else
-        p3b = merge(p3b, (; RL, P12 = (RL + LAM2S) * p3b.P12 / (s_.p3.RL + LAM2S)))
+        p3b = merge(p3b, (; RL, P12 = iszero(p3b.P12) ? p3b.P12 : (RL + LAM2S) * p3b.P12 / (s_.p3.RL + LAM2S)))
         envb = merge(envb, (; tl3 = p3b))
     end
     # (a rate that is exactly 0 stays a Float 0: q·0 is a Dual zero, and tl3_heat's E21 P12/(Q12 + P12 + 1e-300) then has 0/0 partials
     #  where Q12 underflows (cold gas, T_c ~ T_CMB); the derivative of q·0 is 0 anyway)
-    p3q = merge(p3b, (; β = iszero(p3b.β) ? p3b.β : q * p3b.β, P12 = iszero(p3b.P12) ? p3b.P12 : q * p3b.P12))
+    p3q = merge(p3b, (; β = iszero(_val(p3b.β)) ? _val(p3b.β) : q * p3b.β, P12 = iszero(_val(p3b.P12)) ? _val(p3b.P12) : q * p3b.P12))
     env = merge(envb, (; tl3 = p3q))
     phq = (s_.lj && phc0 !== nothing) ? (Tv -> [(a_[1], b_[2] + q * (a_[2] - b_[2]), b_[3] + q * (a_[3] - b_[3])) for (a_, b_) in zip(phc(Tv), phc0(Tv))]) : phc      # (b: W = 0, the static field)
     ex = extrab === nothing ? nothing : (x -> q .* extrab(x))

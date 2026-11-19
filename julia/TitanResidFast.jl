@@ -2200,12 +2200,12 @@ CLOSJ: the closure arrays of the formal solution as Duals: value + sum over i = 
 function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, rn, xs1, xs2, ::Type{T}) where {T}
     cs = TD.CSENS; xnen = v(:xnen); csige = P.csige; cc = P.cc; cpi = P.cpi
     Sd = zeros(T, b + 2); Td = zeros(T, b + 2)
-    z0_ = ZONE[]; w0_ = CPLW[]; sl0_ = CPLSL[]
+    z0_ = ZONE0[]; w0_ = CPLW[]; sl0_ = CPLSL[]
     COUPLED[] && (CPLW[] = (xs1, xs2)); CPLSL[] = nothing
     try
         @inbounds for i in a:b
             chi, kp = if MATERIAL[] !== nothing && SLIMP[]
-                ZONE[] = i; ch_, _, kp_ = material_opac(MATERIAL[], dn[i], tn[i]); (ch_, kp_)
+                ZONE0[] = i; ch_, _, kp_ = material_opac(MATERIAL[], dn[i], tn[i]); (ch_, kp_)
             else
                 (chifn[i], xkpn[i])
             end
@@ -2221,7 +2221,7 @@ function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, rn, xs1, xs2, 
             Sd[i] = S - val(S); Td[i] = τ - val(τ)
         end
     finally
-        ZONE[] = z0_; CPLW[] = w0_; CPLSL[] = sl0_
+        ZONE0[] = z0_; CPLW[] = w0_; CPLSL[] = sl0_
     end
     function lift(name::Symbol, base::AbstractVector)
         out = Vector{T}(undef, length(base)); @inbounds for k in eachindex(base); out[k] = T(base[k]); end

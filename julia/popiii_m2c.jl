@@ -2067,11 +2067,11 @@ try
         HOTON && (LNUC[] = hotburn!(TF.getscalar(:timen) - TF.getscalar(:timeo)))
         TCHEM[] += time() - tc0
         RAD && TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())   # T changed in chem!: Planck function, opacity, e_g + E_r/ρ
-        REC.on && SNAPEVERY > 0 && k % SNAPEVERY == 0 && recsnap!(k)
-        PM.MGON && SNAPEVERY > 0 && k % SNAPEVERY == 0 && mg_record(k)
+        REC.on && SNAPEVERY > 0 && (k <= 2 || k % SNAPEVERY == 0) && recsnap!(k)
+        PM.MGON && SNAPEVERY > 0 && (k <= 2 || k % SNAPEVERY == 0) && mg_record(k)
         if SNAPS !== nothing                         # profiles for post-processing: every 0.25 dex of n_c, and every SNAPEVERY steps
             lnc = log10(TF.var(:dn)[a] / PC.mH)
-            if lnc >= SNAPNEXT[] || (SNAPEVERY > 0 && k % SNAPEVERY == 0)
+            if lnc >= SNAPNEXT[] || (SNAPEVERY > 0 && (k <= 2 || k % SNAPEVERY == 0))
                 push!(SNAPS, (; step = k, t = TF.getscalar(:timen), r = TF.var(:rn)[a:b+1], u = TF.var(:un)[a:b+1],
                     ρ = TF.var(:dn)[a:b], T = TF.var(:tn)[a:b], e = TF.var(:egn)[a:b], y = [ycomp(a + j - 1) for j in 1:nsh],
                     m = 4π .* (ENVEUL === nothing ? TX.XMINT[][a:b+1] : envmenc()), Λext = copy(mat.Λext[a:b]), eq = [eqflag(a + j - 1) for j in 1:nsh],
