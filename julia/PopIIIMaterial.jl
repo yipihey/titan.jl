@@ -1029,6 +1029,9 @@ cycle heat leaves (⟨hν⟩(T_c) − χ_2 − 0.75 kT) ≈ a few % of kT per cy
 zone that left the table by ~2000 K per step (zone 73, 2.6e4 K, cycle heat −2.65e-3 erg cm⁻³ s⁻¹ lagged over 1.3e8 s against ρe ≈ 6 erg cm⁻³).
 """
 const TL3DEEP = get(ENV, "TL3DEEP", "0") == "1"
+# stalldiag (SDDEEP=lo:hi:v, zone numbers from the inner boundary, v = 0/1; default off): the `deep` flag of those zones forced instead of tau >= 3
+const SDDEEP = let s_ = get(ENV, "SDDEEP", ""); isempty(s_) ? nothing : (f_ = split(s_, ":"); (parse(Int, f_[1]), parse(Int, f_[2]), parse(Int, f_[3]) != 0)) end
+SDDEEPF(k, v) = SDDEEP === nothing ? v : (z_ = k - Int(TF.getscalar(:ngrs)) + 1; SDDEEP[1] <= z_ <= SDDEEP[2] ? SDDEEP[3] : v)
 "Energy terms of the three-level atom per volume: (chemistry heat, cycle heat for GASQ) at (ρ, T, full composition d)."
 function tl3_heat(ρ, T, d, p)
     TL3DEEP && hasproperty(p, :deep) && p.deep && return (zero(T), zero(T))
@@ -1200,7 +1203,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             RL = 3A21LYA * (τS < 1e-6 ? 1.0 : -expm1(-τS) / τS)
             nb = (Wg === nothing ? W : Wg[MGROLE[].Lya]) / expm1(E21 / (CNn.kB * Tc))
             diag.tl3[k] = (; β = (Wg === nothing ? W : Wg[MGROLE[].Ba]) * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
-            TL3DEEP && (diag.tl3[k] = merge(diag.tl3[k], (; deep = tauz_[k] >= 3.0)))
+            TL3DEEP && (diag.tl3[k] = merge(diag.tl3[k], (; deep = SDDEEPF(k, tauz_[k] >= 3.0))))
             ov_ = LYAOVR[]; (k <= length(ov_) && ov_[k] !== nothing) && (diag.tl3[k] = merge(diag.tl3[k], ov_[k]))   # LYART: transferred Lyα
         end
         (kHm, kH, kLW, f)
