@@ -375,6 +375,7 @@ function dualswitch(ngrs, ngre, lrad, ηsw)
 end
 # stalldiag (SDDSW=lo:hi, default off): print the dual-energy row choice (ui = internal-energy row) of the zones lo:hi whenever it differs from the previous call
 const SDTIEF = parse(Float64, get(ENV, "SDTIEF", "0"))   # (stalldiag, test) f of the SLABTIE correction replaced by this constant
+const SDFIN = Ref(parse(Float64, get(ENV, "SDFIN", "1")))   # (stalldiag, test only) factor on the radiation-momentum inertia term (1/c^2) dF/dt of the F_r row
 const SDHD = get(ENV, "SDHD", "0") == "1"; const SDHRAW = Dict{Int,NTuple{4,Float64}}()   # (SDHD=1) per interface: (raw h before max, h_FS, tau_i, a)
 const SDDSW = Ref{Any}(let s = get(ENV, "SDDSW", ""); isempty(s) ? nothing : (parse(Int, split(s, ":")[1]):parse(Int, split(s, ":")[2])) end)
 const SDDSWLAST = Ref("")
@@ -1689,7 +1690,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             qFo = c.fro[k] * 2 / (c.do_[k] + c.do_[k-1])
             if !sph
             R[iF, kb(k)] =
-                (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
+                SDFIN[] * (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
                  qFo * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
                 ((dmdt[k] + dmdt[k+1]) * frb[k] - (dmdt[k-1] + dmdt[k]) * frb[k-1]) / (2cc^2) +
                 rmu[k] * (fedd[k] * er[k] - fedd[k-1] * er[k-1]) +
@@ -1699,7 +1700,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             else                                     # VEF_SPH: static terms in the sphericality-factor form (TitanDriver.VEF_SPH)
                 qs = vefq(fedd, r, xmu, k)
                 R[iF, kb(k)] =
-                    (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
+                    SDFIN[] * (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
                      qFo * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
                     ((dmdt[k] + dmdt[k+1]) * frb[k] - (dmdt[k-1] + dmdt[k]) * frb[k-1]) / (2cc^2) +
                     rmu[k] * (qs * fedd[k] * er[k] - fedd[k-1] * er[k-1] / qs) +
