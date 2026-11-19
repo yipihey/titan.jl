@@ -479,9 +479,40 @@ evaluation, 2 replay the recorded decisions.  Default 0 = TITAN's scheme.
 """
 const FREEZE = Ref(0)
 const DEC = Dict{Tuple{Symbol,Int},Vector{Bool}}()
+# stalldiag (SDDEC=1, default off): count, per (kind, id, zone), how often decide() returns a different value than at its previous call
+# (successive residual evaluations: Newton iterates, stages, steps); SDLAST/SDFLIP indexed by the zone array index
+const SDDEC = Ref(get(ENV, "SDDEC", "0") == "1"); const SDLOCK = ReentrantLock()
+const SDLAST = Dict{Tuple{Symbol,Int},Vector{Int8}}(); const SDFLIP = Dict{Tuple{Symbol,Int},Vector{Int32}}()
+function sd_dec(kind::Symbol, id::Int, k::Int, x::Bool)
+    key = (kind, id); v = get(SDLAST, key, nothing)
+    if v === nothing
+        lock(SDLOCK) do
+            haskey(SDLAST, key) || (SDLAST[key] = zeros(Int8, TF.MGR); SDFLIP[key] = zeros(Int32, TF.MGR))
+        end
+        v = SDLAST[key]
+    end
+    @inbounds begin
+        o = v[k]; n = x ? Int8(1) : Int8(2)
+        o != 0 && o != n && (SDFLIP[key][k] += 1)
+        v[k] = n
+    end
+    nothing
+end
+const SDPREV = Dict{Tuple{Symbol,Int},Vector{Int32}}()
+"flips of decide() in the zones ks since the last call, as text"
+function sd_dec_text(ks)
+    io = IOBuffer()
+    for (key, f) in SDFLIP
+        p = get!(() -> zeros(Int32, length(f)), SDPREV, key)
+        d = [(k, f[k] - p[k]) for k in ks if f[k] != p[k]]
+        isempty(d) || print(io, " ", key[1], ":", key[2], "{", join(("$(k - first(ks) + 1)x$n" for (k, n) in d), ","), "}")
+        p .= f
+    end
+    String(take!(io))
+end
 @inline function decide(kind::Symbol, id::Int, k::Int, x::Bool)
     m = FREEZE[]
-    m == 0 && return x
+    m == 0 && (SDDEC[] && sd_dec(kind, id, k, x); return x)
     v = get!(() -> fill(false, TF.MGR), DEC, (kind, id))
     m == 1 && (@inbounds v[k] = x; return x)
     @inbounds return v[k]

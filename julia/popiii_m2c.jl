@@ -1906,6 +1906,7 @@ try
         pr("ETOTMON: total-energy rows of every converged solve (TX.etot_monitor) -> ETOT text on the DTERR trace lines, etot_* columns of perf.csv\n")
     end
     Trbdf2.ERRCTL[] || error("DTERR must be set (the step control of the stack; TITAN's heuristic is diagnostic only)")
+    Trbdf2.SDON && (Trbdf2.SD_FLAGS[] = k -> @sprintf("eq %d cpl %d", mat.eqzone[k], TX.cplz(k)))      # (stalldiag: SDZONES)
     if Trbdf2.ERRCTL[]                             # DTERR: coverage of the COUPLED zones and the line cap the heuristic would apply, on the trace lines
         Trbdf2.TRACE_EXTRA[] = function ()
             nnet = count(k -> !mat.eqzone[k], a:b); ncpl = count(k -> TX.cplz(k), a:b)

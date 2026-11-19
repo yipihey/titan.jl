@@ -91,6 +91,15 @@ const NWDUMP = Ref{Any}(nothing)       # (diagnostic) state dump hook called at 
 const NWTRACE = Ref{Any}(nothing); const NWATT = Ref(0); const NWPROBE = Ref(Float64[])
 "STAGECONS=n (diagnostic, default off = bit-identical; StageCons.jl): `(what, Δ, Cn)` called with what = :start (after peq/save!, before the first attempt), :tr, :bdf (after a converged stage); it restores everything it touches."
 const STAGECONS_HOOK = Ref{Any}(nothing)
+# ---- stalldiag diagnostics (all default off; SDZONES=lo:hi turns the per-zone prints on) -----------------------------------------------
+# SDZONES=lo:hi  zones (numbered from the inner boundary) printed: SDSTATE (state of each accepted step), SDEST (the weighted DTERR estimate of
+#                every attempt, first filter f1 and second filter f2), SDFLAG (regime flags via SD_FLAGS[]), SDDEC (decide() flips, with SDDEC=1)
+# SDFIXDT=<s>   fixed step size, never rejected for the error estimate (a Newton failure still cuts it): convergence/Richardson tests of the true error
+const SDZ = let s = get(ENV, "SDZONES", ""); isempty(s) ? Int[] : collect(parse(Int, split(s, ":")[1]):parse(Int, split(s, ":")[2])) end
+const SDON = !isempty(SDZ)
+const SDFIXDT = parse(Float64, get(ENV, "SDFIXDT", "0"))
+const SD_FLAGS = Ref{Any}(nothing)          # (popiii_m2c) k -> String: regime flags of zone k (table/network, coupled)
+const SDACC = Dict{Tuple{Symbol,Int,Int},Float64}(); const SDTAG = Ref(:e0)
 function nwtrace_it()
     io = NWTRACE[]; n = Int(g(:neqn)); kx = TF.var(:kx); dx = TF.var(:dx)
     base = max(abs(dx[Int(g(:ir))]), abs(dx[Int(g(:im))]), abs(dx[Int(g(:id))]), abs(dx[Int(g(:it))]), abs(dx[Int(g(:ie))])) + 1.0e-30
@@ -433,6 +442,37 @@ function old_from!(C)
     true
 end
 
+
+"(SDZONES) per zone: weighted estimate entries (units of the tolerance: 1 = rtol) of E_r, x_H+, x_H2, T, rho, F_r for the first (f1) and second (f2) filter, and the three stage increments z1,z2,z3 of the zone's E_r*dV, x_H+ mass."
+function sd_est_print(Δ, C1, Cs, Cg, Cn, D)
+    a = Int(g(:ngrs)); ie, it, id, iff = Int(g(:ie)), Int(g(:it)), Int(g(:id)), Int(g(:if))
+    for zk in SDZ
+        k = a + zk - 1
+        e(t, i) = get(SDACC, (t, zk, i), NaN)
+        zs = ""
+        for s_ in (:EV, :x1)
+            haskey(C1, s_) || continue
+            z1 = D === nothing ? NaN : Δ * get(D, s_, zeros(k))[k]; z3 = (C1[s_][k] - Cs[s_][k]) / dW; z2 = (Cg[s_][k] - Cn[s_][k]) / dW - z1
+            zs *= @sprintf(" %s[y_n %.4e z1 %.3e z2 %.3e z3 %.3e]", s_, Cn[s_][k], z1, z2, z3)
+        end
+        @printf("SDEST jstep %d dt %.4e zone %d | f2: Er %.3e xHp %.3e xH2 %.3e T %.3e rho %.3e F %.3e | f1: Er %.3e xHp %.3e xH2 %.3e T %.3e rho %.3e |%s\n", Int(g(:jstep)), Δ, zk,
+                e(:f2, ie), e(:f2, 8), e(:f2, 9), e(:f2, it), e(:f2, id), e(:f2, iff), e(:f1, ie), e(:f1, 8), e(:f1, 9), e(:f1, it), e(:f1, id), zs)
+    end
+end
+"(SDZONES) state of the accepted step's zones: E_r, T, x_H+, x_H2, rho, u, F_r, and the regime flags (SD_FLAGS)."
+function sd_state_print(Δ)
+    a = Int(g(:ngrs))
+    TitanResidFast.SDDEC[] && println("SDDEC jstep ", Int(g(:jstep)), " flips since last print (zone x count):", TitanResidFast.sd_dec_text(a-1 .+ SDZ), "  CPL_BAD=", sort!(collect(TitanResidFast.CPL_BAD)))
+     er, tn, dn, un, fr = vf(:ern), vf(:tn), vf(:dn), vf(:un), vf(:frn)
+    rn, chi, asn, pg, b_ = vf(:rn), vf(:chifn), vf(:asn), vf(:pgn), Int(g(:ngre))
+    tau = zeros(length(dn)); tt = 0.0; for k in b_:-1:a; tt += chi[k] * dn[k] * (rn[k+1] - rn[k]); tau[k] = tt; end     # optical depth from the outer boundary to the zone's inner face
+    for zk in SDZ
+        k = a + zk - 1
+        x1 = TX.COUPLED[] ? TX.XSN[][1][k] : NaN; x2 = TX.COUPLED[] ? TX.XSN[][2][k] : NaN
+        @printf("SDSTATE jstep %d t %.9e yr dt %.4e zone %d Er %.9e T %.9e xHp %.9e xH2 %.9e rho %.9e u %.6e F %.6e r %.6e dr %.4e chi %.4e tau %.4e cs %.4e p %.4e %s\n", Int(g(:jstep)), g(:timen) / 3.156e7, Δ, zk, er[k], tn[k], x1, x2, dn[k], un[k], fr[k], rn[k], rn[k+1] - rn[k], chi[k], tau[k], asn[k], pg[k],
+                SD_FLAGS[] === nothing ? "" : SD_FLAGS[](k))
+    end
+end
 """
 Filtered error estimate of the step just solved (BDF stage converged: new = yₙ₊₁, old = y*, θ = 1, dtime = dΔ). Returns
 (err, variable name, zone from the inner boundary); the old arrays are left at y* + est (the caller restores yₙ).
@@ -455,11 +495,14 @@ function estimate!(Cn, Cg, C1, Cs, Δ)
     s!(:iter, 1); r(:matgen); r(:matslv); δ0 = copy(rhs)
     old_from!(Co) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
     r(:matgen); r(:matslv); rhs .-= δ0
-    e0 = wnorm(δ0); ERR0[] = e0[1]
+    SDTAG[] = :e0; e0 = wnorm(δ0); ERR0[] = e0[1]
+    SDTAG[] = :f1
     EOPT.filt >= 2 || return wnorm(rhs)
     ERR1[] = wnorm(rhs)[1]
     refilter!(copy(rhs), Cs, δ0) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
+    SDTAG[] = :f2
     res = wnorm(rhs)
+    SDON && sd_est_print(Δ, C1, Cs, Cg, Cn, D)
     if DIAG[] > 0 && ESTATS[:steps] % DIAG[] == 0 && res[3] > 0       # stage derivatives of the limiting zone: smooth flow has z1 ≈ z2 ≈ z3
         for zd in unique(vcat(res[3], DIAGZ[]))      # (DTERRDIAGZ=z1,z2,..: these zones too, in addition to the limiting one)
           k = Int(g(:ngrs)) + zd - 1
@@ -506,7 +549,7 @@ function wnorm(rhs)
     rn, xmen, dn, un, tn, unom, asn = vf(:rn), vf(:xmen), vf(:dn), vf(:un), vf(:tn), vf(:unom), vf(:asn)
     dvn = vf(:dvoln)
     o = EOPT; rt = o.rtol; ssq = 0.0; nn = 0; worst = 0.0; wv = 0; wk = 0
-    acc(v, i, k) = (isfinite(v) || (v = Inf); a2 = abs(v); ssq += a2^2; nn += 1; a2 > worst && (worst = a2; wv = i; wk = k - a + 1))
+    acc(v, i, k) = (SDON && (k - a + 1) in SDZ && (SDACC[(SDTAG[], k - a + 1, i)] = v); isfinite(v) || (v = Inf); a2 = abs(v); ssq += a2^2; nn += 1; a2 > worst && (worst = a2; wv = i; wk = k - a + 1))
     @inbounds for k in a:b
         acc(rhs[id, k] / rt, id, k)
         acc(rhs[it, k] / rt, it, k)
@@ -661,6 +704,7 @@ function step_err!()
         ENTRY[] = key; CSAVE[] = (HNEXT[], ERRPREV[], DSAL[])
         HNEXT[] > 0 && s!(:dtime, HNEXT[])
     end
+    SDFIXDT > 0 && s!(:dtime, SDFIXDT)
     Δ0 = g(:dtime); s!(:dtime, γ1 * Δ0)
     r(:peq)
     s!(:dtime, g(:dtime) / γ1); s!(:timen, g(:timeo) + g(:dtime))
@@ -725,7 +769,7 @@ function step_err!()
         end
         end   # (alt)
         restore!(); s!(:thet, θ0); s!(:dtime, Δ); s!(:timen, t0 + Δ)
-        ok && !(err > 1) && break
+        ok && (SDFIXDT > 0 || !(err > 1)) && break
         if !ok && o.be                    # (testing) the same Δ with backward Euler, accepted without an estimate, not sticky
             r(:reset); s!(:thet, 1.0); s!(:timen, t0 + Δ); TitanCore.predict!(; halve = false)
             okb = newton!() && finite_new()
@@ -765,11 +809,13 @@ function step_err!()
     for f_ in DT_BOUNDS                   # hard bounds (mesh motion): see DT_BOUNDS
         hb = f_(); hb < hn && (hn = hb; ESTATS[:bound] = get(ESTATS, :bound, 0) + 1)
     end
+    SDFIXDT > 0 && (hn = SDFIXDT)
     HNEXT[] = hn
     STATS[:steps] += 1; ESTATS[:steps] += 1
     r(:totnrg)
     r(:timstp)                            # (TITAN's rule and caps: diagnostic only)
     HEUR[] = g(:dtime); s!(:dtime, hn); s!(:tfac, hn / Δ)
+    SDON && sd_state_print(Δ)
     if o.trace > 0 && ESTATS[:steps] % o.trace == 0
         @printf("DTERR jstep %d t %.6e yr: dt %.3e err %.3g (max %.3g: %s zone %d; resid %.2g, 1st filter %.3g) next %.3e | heuristic %.3e | steps %d rej %d fail %d%s\n",
             Int(g(:jstep)), g(:timen) / 3.156e7, Δ, err, info[3], info[1], info[2], ERR0[], ERR1[], hn, HEUR[], ESTATS[:steps], ESTATS[:rej_err], ESTATS[:fail_newton], etrace(:acc, Δ, err, info))
