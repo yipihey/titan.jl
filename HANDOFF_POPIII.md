@@ -54,11 +54,11 @@ All three runs are stopped.
 What has been established, with runs t_sd01–t_sd89 on the old machine:
 1. **Cause 1, found and fixed.** The hard flag `deep = τ ≥ 3` was set from the previous step's state, and zone 30 sat at τ ≈ 3. The flag switched off the three-level heat and the H bound-free opacity, which feeds back on τ. The result was a dt-independent 4-step limit cycle in E_r, T and x_H+ of zones 30–33. With `sl_deepw` the cycle is gone.
 2. **Cause 2, partly fixed.** The Eddington/tie closures (f, h, g, tie weight) were refreshed every iterate but not differentiated in the band Jacobian, so P·J_b⁻¹·J was far from I and GMRES stalled. With `CLOSJ`, the stalled state runs 300 steps with 8 Newton failures instead of 28, and dt grows to 4e5 s.
-3. **Still open.** From the pre-stall checkpoint (S6, production settings) the run collapses at step 85,638 (30 Newton failures in 190 steps). The largest corrections are in the **F_r rows of the outer envelope, zones 90–101**.
-   - NKCHECK row F_r(101) has mismatch 0.144 in its E_r(100) column (FD −984 vs band −855).
-   - The outer-boundary Eddington ratio g (`P.geddr`, from `eddfac!` in TitanCore.jl, used with `vef_esurf` in the F_r row at ngre+1 in TitanResidFast.jl) **sits at a clamp, 0.50000101**.
-   - **Next task:** find the clamp and the missing E_r(100) term, and replace them with a smooth, differentiable closure (a Dual, see `closure_lift`). Then rerun S6 past t = 2.379230e5 yr.
-   - A local agent was doing exactly this on branch `stalldiag` when this note was written. Its uncommitted work is not in this commit, so redo the task here.
+3. **Cause 3, fixed (671f535).** The outer-boundary closure clamped a reconstructed f_x = (f_N·E_N − E_b/3)/E_x to [1/3, 1]. That clamp was active (raw value 2.2), so row F_r(101) lost its E_r(100) column. f_x now comes from the formal solution of the excess (`FXEDD` Dual via `closure_lift`).
+   - The NKCHECK mismatch of F_r(101) fell from 0.144 to below 2.7e-4. The worst row is now eq r at zone 100 (2.5e-3), not yet examined.
+   - From S6 with production settings: 24 Newton failures in ~160 steps (30 in 190 before). The collapse at step 85,638 did not happen: dt is still 3–6e5 s at 85,660. The run was stopped at ~85,660 (t 237,918.5 yr), **before** t = 2.379230e5 yr.
+   - **Next task:** rerun S6 well past t = 2.379230e5 yr. Then go after the remaining Newton failures and the eq r(100) mismatch.
+   - `mg_esurf` in MGRad.jl has the same value-only clamp (MGROUPS only); remove it the same way.
 4. Other hard flags held from the start-of-step state are listed in `PopIIIMaterial.jl`. They did not change in the stall runs, so they are not urgent:
    - the photosphere index `kph` and `SLSTAR`;
    - `ph`/`jph`;
@@ -91,7 +91,7 @@ What has been established, with runs t_sd01–t_sd89 on the old machine:
   - Delete SUBZONE and make SLABFLUX/SLABTIE the default.
   - Remove the dual-energy switches (step 4) once convergence is at least as good.
   - Possibly add a Noh regression.
-- **Known:** the F_r(101) Jacobian mismatch, now the current task. With `CLOSJ`, about 2.7e-4 remains in the photosphere F_r rows, from the undifferentiated r dependence of the sweep geometry and from columns outside the ±1 window.
+- **Known:** with `CLOSJ`, about 2.7e-4 remains in the photosphere F_r rows, from the undifferentiated r dependence of the sweep geometry and from columns outside the ±1 window.
 
 ## Explorer
 The Tom-facing run explorer is the artifact https://claude.ai/artifact/EiGp93oWTQ9KAkhwKRAMsZ. Its build scripts lived in the old session's scratchpad and are not in the repo.
