@@ -1751,7 +1751,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
         P.lribc in (2, 3) || error("lribc must be 2 or 3")
         R[iF, kb(ngrs)] = X(iF, ngrs)
-        R[iF, kb(ngre+1)] = P.cpi * (2gedr + 1) * P.ximr + frn[ngre+1] - cc * gedr * (sph ? vef_esurf(W, fedd, ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
+        R[iF, kb(ngre+1)] = P.cpi * (2gedr + 1) * P.ximr + frn[ngre+1] - cc * gedr * (sph ? vef_esurf(W, (length(FXl) >= ngre + 1 ? FXl[ngre] : fedd[ngre]), ngre, xmu, cc, 4P.cpi * P.ximr / cc) : ern[ngre])
         if TIEFRAME[]                                # the boundary condition holds for the lab-frame flux (see TIEFRAME)
             ub_ = un[ngre+1]
             R[iF, kb(ngre+1)] = (R[iF, kb(ngre+1)] - frn[ngre+1]) * (1 + 2gedr * ub_ / cc) + frn[ngre+1] + (1 + fedd[ngre]) * ub_ * ern[ngre]
@@ -1779,15 +1779,13 @@ end
 VEF_SPH: energy density at the outer boundary radius r_N+1 from the outer zone's centre value (new time level, as TITAN's boundary
 row). The incoming background (the CMB, intensity I_in = ximr, E_b = 4π I_in/c) is isotropic, K_b = E_b/3, and carried unchanged
 to r_N+1; only the excess E_x = E_N − E_b is carried by the static momentum equation d(q f_x E_x)/dr = −q χρ F/c over the half zone
-r_c,N → r_N+1 with its own Eddington factor f_x = (f_N E_N − E_b/3)/E_x (K = K_x + K_b), held over the half zone and clamped to
-[1/3, 1] (where E_x ≪ E_b, f_x is the difference of two nearly equal numbers; the clamp bounds the correction to the dilution of a
-beam, e^{−2Δ}, so that the quadrature error of f, ~1e-3, is not multiplied by E_b/E_x ~ 1e5 in the boundary flux):
+r_c,N → r_N+1 with its own Eddington factor f_x = K_x/J_x of the excess, taken from the formal solution of the excess (TD.FXEDD, a Dual through closure_lift;
+fedd[N] without the background tie), held over the half zone. (It is not reconstructed as (f_N E_N − E_b/3)/E_x: where E_x ≪ E_b that is a
+difference of two nearly equal numbers, ~2.2 at the quadrature error of f, and any clamp of it removes the E_r(N) column of the boundary row.)
 E_s = E_b + e^{−s} E_x − e^{−s/2} χ_N ρ_N F_N+1 (r_N+1 − r_c,N)/(c f_x), s = (μ/2)(3 − 1/f_x) ln(r_N+1/r_c,N).
 """
-@inline function vef_esurf(W, fedd, N, xmu, cc, Eb)
+@inline function vef_esurf(W, fx, N, xmu, cc, Eb)
     rn = W.rn; rc = 0.5 * (rn[N] + rn[N+1]); Ex = W.ern[N] - Eb
-    fxr = ForwardDiff.value(Ex) != 0 ? (fedd[N] * W.ern[N] - Eb / 3) / Ex : zero(Ex) + 1 / 3      # (differentiated: f_x of the excess at the surface, clamped to [1/3, 1])
-    fx = fxr < 1 / 3 ? zero(fxr) + 1 / 3 : fxr > 1.0 ? zero(fxr) + 1.0 : fxr
     s = 0.5xmu * (3 - 1 / fx) * log(rn[N+1] / rc)
     Eb + exp(-s) * Ex - exp(-0.5s) * W.chifn[N] * W.dn[N] * W.frn[N+1] * (rn[N+1] - rc) / (cc * fx)
 end
