@@ -104,6 +104,8 @@ function sd_clo()
     io = IOBuffer()
     for zk in SDZ
         k = a + zk - 1
+        ds = vf(:dsf); sfv = vf(:sf); bs = vf(:bsf)
+        @printf(io, " z%d[S %.5e dsf- %.3e dsf+ %.3e bsf %.3e]", zk, sfv[k], ds[k-1], ds[k], bs[k])
         @printf(io, " z%d[h %.6f f %.6f w %.4f chi %.5e E %.5f T %.2f]", zk, k <= length(hE) ? hE[k] : NaN, fe[k], k <= length(tw) ? tw[k] : NaN, ch[k], er[k], tn[k])
     end
     println("SDCLO jstep ", Int(g(:jstep)), " thet ", g(:thet), " dt ", g(:dtime), " it ", Int(g(:iter)), " dmax ", g(:dmax), String(take!(io)))
