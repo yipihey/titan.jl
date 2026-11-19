@@ -71,8 +71,8 @@ What has been established, with runs t_sd01–t_sd89 on the old machine:
 | `m2c_z19z100nkS6` | 85,500 | 237,916.4 | ~3e4 | before the stall |
 | `m2c_z19z100nkSTALL` | ~88,900 | | ~70 | stalled, in the 4-cycle on the old code |
 
-- `production.env` holds the production settings of z100nk; machine paths are removed.
-- `run.env` holds the mesh and run settings.
+- `z100nk.env` holds the complete z100nk settings, one `KEY=VAL` per line, in the order applied (later duplicates win, e.g. `IC=abn02red`, `NKRYLOV=1`). Machine paths are removed; pass them with `env $(cat z100nk.env) ...`.
+- `RESTART` takes the checkpoint name without the `m2c_` prefix.
 - These checkpoints have no controller state, so every restart logs "no solver-controller state", and its first step fails once. That is expected.
 - To restart, run `julia -t 4 --project=<env> julia/popiii_m2c.jl lines 128` with the env vars `RESTART=m2c_z19z100nkS6`, `CKDIR=<dir with the files>`, `RUNREC`/`POPIII_OUT=<run dir>` and `EQEOS_CACHE=<file>`. Launchers: `scripts/popiii_run/iceulrun.sh`.
 
