@@ -242,7 +242,7 @@ function gmres(S::Sys, b, radius)
     β == 0 && return x, 0, true, 0.0, false
     V = zeros(n, mmax + 1); H = zeros(mmax + 1, mmax); cs = zeros(mmax); sn = zeros(mmax); gv = zeros(mmax + 1)
     V[:, 1] = bs ./ β; gv[1] = β
-    y = zeros(n); w = zeros(n); v = zeros(n); m = 0; conv = false; res = β; trunc = false; mgood = 1; ygood = Float64[0.0]
+    y = zeros(n); w = zeros(n); v = zeros(n); m = 0; conv = false; res = β; trunc = false; mgood = 1; ygood = Float64[0.0]; xprev = zeros(n); xcut = zeros(n)
     for j in 1:mmax
         v .= (@view V[:, j]) ./ wt; v[.!S.act] .= 0.0
         fdjv!(y, S, v, OPT.eps / maximum(abs, @view V[:, j])); CNT.mv += 1       # ε v: the largest weighted entry changes by OPT.eps
@@ -266,20 +266,33 @@ function gmres(S::Sys, b, radius)
         # (the first iterate is kept and scaled by the line search): the later iterates amplify the near-null modes of A = P J_b⁻¹ J that the band step b does not contain
         if radius < Inf
             yj = UpperTriangular(H[1:j, 1:j]) \ gv[1:j]; xt = (@view V[:, 1:j]) * yj; xt ./= wt; xt[.!S.act] .= 0.0
-            if j >= 2 && (!all(isfinite, xt) || stepsize(S, boxclip!(S, xt), 1.0) > radius)
-                trunc = true; break
+            if j >= 2 && (!all(isfinite, xt) || stepsize(S, boxclip!(S, copy(xt)), 1.0) > radius)
+                trunc = true
+                # Steihaug–Toint (Steihaug 1983; Nocedal & Wright, Alg. 7.2): the first iterate that leaves the trust region is replaced by the point where the segment
+                # from the last iterate inside it crosses the boundary (bisection on the step measure), not by the last iterate itself
+                if all(isfinite, xt)
+                    lo_, hi_ = 0.0, 1.0
+                    for _ in 1:40
+                        mid_ = 0.5 * (lo_ + hi_)
+                        stepsize(S, boxclip!(S, xprev .+ mid_ .* (xt .- xprev)), 1.0) > radius ? (hi_ = mid_) : (lo_ = mid_)
+                    end
+                    xcut = xprev .+ lo_ .* (xt .- xprev)
+                else
+                    xcut = copy(xprev)
+                end
+                break
             end
-            mgood = j; ygood = yj
+            mgood = j; ygood = yj; xprev = copy(xt)
         end
         V[:, j+1] = w ./ hn
     end
     if trunc
-        m = mgood; yk = ygood
+        m = mgood; x .= xcut; x[.!S.act] .= 0.0
     else
         yk = UpperTriangular(H[1:m, 1:m]) \ gv[1:m]
+        for j in 1:m; x .+= yk[j] .* @view V[:, j]; end
+        x ./= wt; x[.!S.act] .= 0.0
     end
-    for j in 1:m; x .+= yk[j] .* @view V[:, j]; end
-    x ./= wt; x[.!S.act] .= 0.0
     x, m, trunc ? false : conv, (trunc ? abs(gv[m+1]) : res) / β, trunc
 end
 
