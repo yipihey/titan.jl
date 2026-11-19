@@ -1958,6 +1958,41 @@ try
             TD.STEPFN[] = () -> (cnt[] += 1; cnt[] == nat + 1 && (Trbdf2.NWPROBE[] = parse.(Float64, split(ENV["NWPROBE"], ",")); get(ENV, "NKRYLOV", "0") != "0" && (TD.KRYLOV[] = NewtonKrylov.krylov!)); f0(); nothing)
         end
     end
+    if Trbdf2.SDON && (get(ENV, "SDLAG", "0") == "1" || haskey(ENV, "SDFRZG"))     # stalldiag: log / freeze the quantities lagged over one step (the checkpoint's `lag` tuple)
+        let f0 = TD.STEPFN[], cnt = Ref(0), saved = Ref{Any}(nothing), grp = split(get(ENV, "SDFRZG", ""), ","), fj = parse(Int, get(ENV, "SDFRZJ", "0"))
+            nums(p) = p === nothing ? "-" : join((@sprintf("%s=%.4g", f_, Float64(getfield(p, f_))) for f_ in propertynames(p) if getfield(p, f_) isa Real), ",")
+            vecs() = (("GASQ", TX.GASQ[]), ("RAYQ", TX.RAYQ[]), ("CQB", TX.CQB[]), ("YQB", TX.YQB[]), ("CHEMB", TX.CHEMB[]))
+            TD.STEPFN[] = function ()
+                cnt[] += 1; a_ = Int(TF.getscalar(:ngrs))
+                zk_ = collect(Trbdf2.SDZ); ks = [a_ + z - 1 for z in zk_]
+                if haskey(ENV, "SDFRZG") && cnt[] == fj       # capture
+                    sv = Dict{String,Any}()
+                    ("gasq" in grp) && for (nm, v) in vecs()[1:4]; sv[nm] = isempty(v) ? nothing : [v[k] for k in ks]; end
+                    ("nlo" in grp) && (sv["NLOPC"] = [k <= length(PM.NLOPC[]) ? deepcopy(PM.NLOPC[][k]) : nothing for k in ks]; sv["NLOST"] = [k <= length(PM.NLOST[]) ? deepcopy(PM.NLOST[][k]) : nothing for k in ks])
+                    ("sl" in grp) && (sv["CHEMB"] = isempty(TX.CHEMB[]) ? nothing : [TX.CHEMB[][k] for k in ks]; sv["SLD"] = PM.SLDIAG[] === nothing ? nothing : [(; kHm = PM.SLDIAG[].kHm[k], kH = PM.SLDIAG[].kH[k], kLW = PM.SLDIAG[].kLW[k], fsh = PM.SLDIAG[].fsh[k], tl3 = deepcopy(PM.SLDIAG[].tl3[k])) for k in ks])
+                    saved[] = sv; pr("SDFRZ: captured groups %s at step %d of this process\n", join(grp, ","), cnt[])
+                elseif haskey(ENV, "SDFRZG") && saved[] !== nothing && cnt[] > fj       # restore
+                    sv = saved[]
+                    for (nm, v) in vecs(); haskey(sv, nm) && sv[nm] !== nothing && for (i, k) in enumerate(ks); v[k] = sv[nm][i]; end; end
+                    haskey(sv, "NLOPC") && for (i, k) in enumerate(ks); PM.NLOPC[][k] = deepcopy(sv["NLOPC"][i]); PM.NLOST[][k] = deepcopy(sv["NLOST"][i]); end
+                    if haskey(sv, "SLD") && sv["SLD"] !== nothing
+                        d_ = PM.SLDIAG[]; for (i, k) in enumerate(ks); d_.kHm[k] = sv["SLD"][i].kHm; d_.kH[k] = sv["SLD"][i].kH; d_.kLW[k] = sv["SLD"][i].kLW; d_.fsh[k] = sv["SLD"][i].fsh; d_.tl3[k] = deepcopy(sv["SLD"][i].tl3); end
+                    end
+                end
+                if get(ENV, "SDLAG", "0") == "1"
+                    er_, tn_ = TF.var(:ern), TF.var(:tn)
+                    for (i, k) in enumerate(ks)
+                        g_(v) = isempty(v) ? NaN : v[k]
+                        pc = k <= length(PM.NLOPC[]) ? PM.NLOPC[][k] : nothing; ps = k <= length(PM.NLOST[]) ? PM.NLOST[][k] : nothing
+                        sd_ = PM.SLDIAG[]
+                        @printf("SDLAG n %d zone %d | E %.5f T %.2f | GASQ %.4e RAYQ %.4e CQB %.4e YQB %.4e CHEMB %.4e | NLOPC %s | NLOST.p %s | SLD kHm %.4e kH %.4e kLW %.4e\n", cnt[], zk_[i], er_[k], tn_[k], g_(TX.GASQ[]), g_(TX.RAYQ[]), g_(TX.CQB[]), g_(TX.YQB[]), g_(TX.CHEMB[]),
+                                pc === nothing ? "-" : nums(pc), ps === nothing ? "-" : nums(ps.p), sd_ === nothing ? NaN : sd_.kHm[k], sd_ === nothing ? NaN : sd_.kH[k], sd_ === nothing ? NaN : sd_.kLW[k])
+                    end
+                end
+                f0(); nothing
+            end
+        end
+    end
     RUNEND[] = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "200000")), output = function (k0)
         k = k0 + KOFF[]; KLAST[] = k
         tnow = time(); TSTEP[] += tnow - TMARK[] - TOUT[]; TOUT[] = 0.0
