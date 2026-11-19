@@ -98,6 +98,7 @@ const STAGECONS_HOOK = Ref{Any}(nothing)
 const SDZ = let s = get(ENV, "SDZONES", ""); isempty(s) ? Int[] : collect(parse(Int, split(s, ":")[1]):parse(Int, split(s, ":")[2])) end
 const SDON = !isempty(SDZ)
 const SDFIXDT = parse(Float64, get(ENV, "SDFIXDT", "0"))
+const SDESTNK = get(ENV, "SDESTNK", "0") == "1"   # the estimate's linear solves also get the Krylov refinement (exact J v), as the Newton solves do; default: band J_b only
 const SD_FLAGS = Ref{Any}(nothing)          # (popiii_m2c) k -> String: regime flags of zone k (table/network, coupled)
 const SDACC = Dict{Tuple{Symbol,Int,Int},Float64}(); const SDTAG = Ref(:e0)
 function nwtrace_it()
@@ -492,9 +493,9 @@ function estimate!(Cn, Cg, C1, Cs, Δ)
     # the converged state's own remaining Newton correction (at old = y*; F_r is not in TITAN's convergence measure, so it need not
     # be small) is subtracted: Est = δ(y* + est) − δ(y*), the same matrix (linear in the old state)
     rhs = TF.var(:rhs)
-    s!(:iter, 1); r(:matgen); r(:matslv); δ0 = copy(rhs)
+    s!(:iter, 1); r(:matgen); r(:matslv); SDESTNK && TD.KRYLOV[] !== nothing && TD.KRYLOV[](); δ0 = copy(rhs)
     old_from!(Co) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
-    r(:matgen); r(:matslv); rhs .-= δ0
+    r(:matgen); r(:matslv); SDESTNK && TD.KRYLOV[] !== nothing && TD.KRYLOV[](); rhs .-= δ0
     SDTAG[] = :e0; e0 = wnorm(δ0); ERR0[] = e0[1]
     SDTAG[] = :f1
     EOPT.filt >= 2 || return wnorm(rhs)
@@ -538,7 +539,7 @@ function refilter!(E1, Cs, δ0)
         Co[s_] = o
     end
     old_from!(Co) || return false
-    rhs = TF.var(:rhs); r(:matgen); r(:matslv); rhs .-= δ0
+    rhs = TF.var(:rhs); r(:matgen); r(:matslv); SDESTNK && TD.KRYLOV[] !== nothing && TD.KRYLOV[](); rhs .-= δ0
     true
 end
 
