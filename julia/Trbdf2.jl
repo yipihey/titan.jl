@@ -33,7 +33,7 @@ Use: `TitanDriver.STEPFN[] = Trbdf2.step!`.
 """
 module Trbdf2
 
-import ..TitanDriver, ..TitanCore, ..TitanResidFast
+import ..TitanDriver, ..TitanCore, ..TitanResidFast, ..BlockSolver
 using Printf
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast
 g(s) = TD.g(s); s!(s, x) = TD.s!(s, x); r(s) = TD.r(s)
@@ -507,14 +507,20 @@ function estimate!(Cn, Cg, C1, Cs, Δ)
     # the converged state's own remaining Newton correction (at old = y*; F_r is not in TITAN's convergence measure, so it need not
     # be small) is subtracted: Est = δ(y* + est) − δ(y*), the same matrix (linear in the old state)
     rhs = TF.var(:rhs)
-    s!(:iter, 1); r(:matgen); r(:matslv); SDESTNK && TD.KRYLOV[] !== nothing && TD.KRYLOV[](); δ0 = copy(rhs)
-    old_from!(Co) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
-    r(:matgen); r(:matslv); SDESTNK && TD.KRYLOV[] !== nothing && TD.KRYLOV[](); rhs .-= δ0
-    SDTAG[] = :e0; e0 = wnorm(δ0); ERR0[] = e0[1]
-    SDTAG[] = :f1
-    EOPT.filt >= 2 || return wnorm(rhs)
-    ERR1[] = wnorm(rhs)[1]
-    refilter!(copy(rhs), Cs, δ0) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
+    TitanCore.CSENS_SKIP[] = TD.CSENS.valid
+    try
+        s!(:iter, 1); r(:matgen); r(:matslv); SDESTNK && TD.KRYLOV[] !== nothing && TD.KRYLOV[](); δ0 = copy(rhs)
+        old_from!(Co) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
+        TX.RESID_ONLY[] = true; BlockSolver.Penta.REUSE_LU[] = true
+        r(:matgen); r(:matslv); SDESTNK && TD.KRYLOV[] !== nothing && TD.KRYLOV[](); rhs .-= δ0
+        SDTAG[] = :e0; e0 = wnorm(δ0); ERR0[] = e0[1]
+        SDTAG[] = :f1
+        EOPT.filt >= 2 || return wnorm(rhs)
+        ERR1[] = wnorm(rhs)[1]
+        refilter!(copy(rhs), Cs, δ0) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
+    finally
+        TitanCore.CSENS_SKIP[] = false; TX.RESID_ONLY[] = false; BlockSolver.Penta.REUSE_LU[] = false
+    end
     SDTAG[] = :f2
     res = wnorm(rhs)
     SDON && sd_est_print(Δ, C1, Cs, Cg, Cn, D)
@@ -645,14 +651,20 @@ combine(C1, C2_, f) = Dict(s_ => f(C1[s_], C2_[s_]) for s_ in keys(C1))
 function estimate_alt!(est, Cs)
     Co = combine(Cs, est, (a_, e_) -> a_ .+ e_)
     rhs = TF.var(:rhs)
-    s!(:iter, 1); r(:matgen); r(:matslv); δ0 = copy(rhs)
-    old_from!(Co) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
-    r(:matgen); r(:matslv); rhs .-= δ0
-    ERR0[] = wnorm(δ0)[1]
-    EOPT.filt >= 2 || return wnorm(rhs)
-    ERR1[] = wnorm(rhs)[1]
-    refilter!(copy(rhs), Cs, δ0) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
-    wnorm(rhs)
+    TitanCore.CSENS_SKIP[] = TD.CSENS.valid
+    try
+        s!(:iter, 1); r(:matgen); r(:matslv); δ0 = copy(rhs)
+        old_from!(Co) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
+        TX.RESID_ONLY[] = true; BlockSolver.Penta.REUSE_LU[] = true
+        r(:matgen); r(:matslv); rhs .-= δ0
+        ERR0[] = wnorm(δ0)[1]
+        EOPT.filt >= 2 || return wnorm(rhs)
+        ERR1[] = wnorm(rhs)[1]
+        refilter!(copy(rhs), Cs, δ0) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
+        return wnorm(rhs)
+    finally
+        TitanCore.CSENS_SKIP[] = false; TX.RESID_ONLY[] = false; BlockSolver.Penta.REUSE_LU[] = false
+    end
 end
 
 "One attempt of the step Δ from yₙ (in SAVE; combos Cn) with DTSCHEME sdirk2 or be: (ok, err, info, Dnew)."

@@ -499,6 +499,7 @@ function peq!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[]())
     for (o, n) in (lrad ? PEQ_OLD2_RH : PEQ_OLD2_H); copyto!(view(vf(o), a-1:b+1), view(vf(n), a-1:b+1)); end
     lrad && copyto!(view(vf(:avchio), a:b+1), view(vf(:avchin), a:b+1))
     lrad && (vf(:egro)[b+2] = vf(:egrn)[b+2])      # (the old limiter slope at the last face reads egro[b+2], as the new level did when this state was new; TitanResidFast.oldslope!)
+    TD.CSENS.valid = false                         # refresh closure sensitivities once per step at the first matgen!
     CPLH[] === nothing || CPLH[].newstep()
     PEQ_HOOK[] === nothing || PEQ_HOOK[]()
     predict!(; eos!, opac!)
@@ -868,8 +869,8 @@ function tiew!(a, b, dtau)
     nothing
 end
 
-const CSENS_REQ = Ref(false)
-TD.CSENS_HOOK[] = () -> (CSENS_REQ[] = true; try eddfac!() finally CSENS_REQ[] = false end)
+const CSENS_REQ = Ref(false); const CSENS_SKIP = Ref(false)
+TD.CSENS_HOOK[] = () -> (CSENS_SKIP[] && return nothing; CSENS_REQ[] = true; try eddfac!() finally CSENS_REQ[] = false end)
 """
 CLOSJ: sensitivities of the formal-solution outputs (f, h, h_x, f_x, tie weight, g) with respect to the source function S_i and the optical depth increment
 dtau_i of the zones i = m-1..m+1 (central differences of the sweep, relative step 1e-3). See TitanDriver.CSENS.
@@ -888,22 +889,153 @@ function closure_sens!(sweep!, a, b, sf, dtau, matsrc)
     fill!(cs.gS, 0.0); fill!(cs.gT, 0.0)
     g0 = gf(:geddr); gl0 = gf(:geddl); (base, base_g) = snap()
     chif = vf(:chifn)
-    for i in a:b, typ in (:S, :T)
-        # (the ray optical depths of the sweep are built from dn*chifn, not from the dtau array: perturb both consistently)
-        x0 = typ === :S ? sf[i] : dtau[i]; c0 = chif[i]; d0 = dtau[i]; δ = 1e-4 * abs(x0) + 1e-300; rel = δ / (typ === :S ? 1.0 : x0)
-        function setx!(sgn)
-            if typ === :S; sf[i] = x0 + sgn * δ; else; dtau[i] = d0 * (1 + sgn * 1e-4); chif[i] = c0 * (1 + sgn * 1e-4); end
+    nt = Threads.nthreads()
+    if nt > 1 && gi(:mu) == 2 && (b - a + 1) >= 2nt
+        closure_sens_mt!(a, b, sf, dtau, chif, base, base_g, arrs, cs, nt)
+    else
+        for i in a:b, typ in (:S, :T)
+            # (the ray optical depths of the sweep are built from dn*chifn, not from the dtau array: perturb both consistently)
+            x0 = typ === :S ? sf[i] : dtau[i]; c0 = chif[i]; d0 = dtau[i]; δ = 1e-4 * abs(x0) + 1e-300
+            function setx!(sgn)
+                if typ === :S; sf[i] = x0 + sgn * δ; else; dtau[i] = d0 * (1 + sgn * 1e-4); chif[i] = c0 * (1 + sgn * 1e-4); end
+            end
+            setx!(+1); sweep!(); (sp, gp) = snap()
+            sf[i] = typ === :S ? x0 : sf[i]; dtau[i] = d0; chif[i] = c0
+            for (n, _) in arrs
+                M = typ === :S ? cs.S[n] : cs.T[n]
+                for m in max(a, i - 1):min(b, i + 1); M[m, i - m + 2] = (sp[n][m] - base[n][m]) / δ; end
+            end
+            i >= b - 1 && ((typ === :S ? cs.gS : cs.gT)[i - (b - 1) + 1] = (gp - base_g) / δ)
         end
-        setx!(+1); sweep!(); (sp, gp) = snap()
-        sf[i] = typ === :S ? x0 : sf[i]; dtau[i] = d0; chif[i] = c0
-        for (n, _) in arrs
-            M = typ === :S ? cs.S[n] : cs.T[n]
-            for m in max(a, i - 1):min(b, i + 1); M[m, i - m + 2] = (sp[n][m] - base[n][m]) / δ; end
-        end
-        i >= b - 1 && ((typ === :S ? cs.gS : cs.gT)[i - (b - 1) + 1] = (gp - base_g) / δ)
+        sweep!()
     end
-    sweep!(); s!(:geddr, g0); s!(:geddl, gl0)          # (outputs back at the base state)
+    s!(:geddr, g0); s!(:geddl, gl0)          # (outputs back at the base state)
     cs.a = a; cs.b = b; cs.msrc = matsrc; cs.scat = EDD_SCATTER[]; cs.valid = true
+    nothing
+end
+
+function closure_sens_mt!(a, b, sf0, dtau0, chif0, base, base_g, arrs, cs, nt)
+    rn, dn, ern, frn, ang = vf(:rn), vf(:dn), vf(:ern), vf(:frn), vf(:ang)
+    ncor = gi(:ncor); lribc, lrobc = gi(:lribc), gi(:lrobc)
+    cc, cpi, eps = gf(:cc), gf(:cpi), gf(:epsedf); xipl, ximr = gf(:xipl), gf(:ximr)
+    bg = TD.VEF_BG[] && lrobc == 1; Ib = bg ? ximr : 0.0; ep = edpos(); lo = bg ? -Ib : 0.0
+    tie = TD.FLUXTIE[][2] > 0; tiex = tie && bg && TD.TIEX[]; mu0 = EDDG_MU0[]
+    lmax = 2 * (b - a + 1) + 1; nray = (ncor + 1) + 2 * (b + 1 - a); mgr = length(sf0)
+    rp = zeros(lmax); p = zeros(nray)
+    @inbounds for k in a:b; l = 2 * (k - a) + 1; rp[l] = rn[k]; rp[l+1] = 0.5 * (rn[k] + rn[k+1]); end
+    rp[lmax] = rn[b+1]
+    @inbounds for j in 1:ncor; p[j] = Float64(j - 1) * rp[1] / Float64(ncor); end
+    @inbounds for j in ncor+1:nray; p[j] = rp[j - ncor]; end
+    next = Threads.Atomic{Int}(a)
+    @sync for _ in 1:nt
+        Threads.@spawn begin
+            sf = copy(sf0); dtau = copy(dtau0); chif = copy(chif0)
+            dsf = zeros(mgr); bsf = zeros(mgr); sl = zeros(lmax); sr = zeros(lmax)
+            xim = zeros(nray + 2); xip = zeros(nray + 2); xang = zeros(nray + 2)
+            xmom0 = zeros(mgr); xmom2 = zeros(mgr)
+            fedd = zeros(mgr); HE = zeros(mgr); HX = zeros(mgr); FX = zeros(mgr); TW = zeros(mgr)
+            sp = Dict{Symbol,Vector{Float64}}(:f => fedd, :h => HE, :w => TW, :hx => HX, :fx => FX)
+            while true
+                i = Threads.atomic_add!(next, 1)
+                i > b && break
+                for typ in (:S, :T)
+                    x0 = typ === :S ? sf0[i] : dtau0[i]; c0 = chif0[i]; d0 = dtau0[i]; δ = 1e-4 * abs(x0) + 1e-300
+                    if typ === :S; sf[i] = x0 + δ; else; dtau[i] = d0 * (1 + 1e-4); chif[i] = c0 * (1 + 1e-4); end
+                    @inbounds for k in a:b-1; dsf[k] = sf[k] - sf[k+1]; end
+                    @inbounds for k in a+1:b-1
+                        dxm = 0.5 * (dtau[k-1] + dtau[k]); dxp = 0.5 * (dtau[k] + dtau[k+1])
+                        sm = dxm * dsf[k] + dxp * dsf[k-1]; prod = dsf[k-1] * dsf[k]
+                        denom = cvmgm(sm - eps, sm + eps, sm)
+                        bsf[k] = cvmgp(2.0 * prod / denom, 0.0, prod)
+                    end
+                    bsf[a] = bsf[a+1]; bsf[b] = bsf[b-1]
+                    @inbounds for k in a:b
+                        l = 2 * (k - a) + 1
+                        sl[l] = sf[k] + 0.5 * dtau[k] * bsf[k]; sr[l] = sf[k]
+                        sl[l+1] = sf[k]; sr[l+1] = sf[k] - 0.5 * dtau[k] * bsf[k]
+                        if ep; sl[l] = max(sl[l], lo); sr[l+1] = max(sr[l+1], lo); end
+                    end
+                    tie && fill!(HE, 0.0)
+                    lrobc == 1 && (xim[1:nray] .= bg ? 0.0 : ximr)
+                    for l in lmax-1:-1:1
+                        k = a + (l - 1) ÷ 2; nj = ncor + l
+                        @inbounds for j in 1:nj
+                            xjl = sqrt(rp[l]^2 - p[j]^2); xjlp1 = sqrt(rp[l+1]^2 - p[j]^2)
+                            dtjl = dn[k] * chif[k] * (xjlp1 - xjl); ex = exp(-dtjl)
+                            xip[j] = -expm1(-dtjl) * sl[l] + omde_over(dtjl) * (sr[l] - sl[l]) + ex * xim[j]
+                            ep && (xip[j] = max(xip[j], lo))
+                            xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
+                        end
+                        @inbounds for j in 1:nj; xim[j] = xip[j]; end
+                        if iseven(l)
+                            k = a + (l - 1) ÷ 2; xmom0[k] = 0.0; xmom2[k] = 0.0
+                            _eddf!(nj, xang, xip, xmom0, xmom2, k)
+                            tie && (HE[k] = -_mom1(nj, xang, xip))
+                        end
+                    end
+                    if lribc == 1
+                        @inbounds for j in 1:ncor+1; xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2); xim[j] = xipl - Ib; end
+                    elseif lribc == 3
+                        @inbounds for j in 1:ncor+1
+                            xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2)
+                            xim[j] = (cc * ern[a] + 1.5 * frn[a] * dtau[a]) / (4.0 * cpi) + 3.0 * ang[j] * frn[a] / (4.0 * cpi) - Ib
+                        end
+                    end
+                    gp = base_g
+                    for l in 2:lmax
+                        k = a + (l - 2) ÷ 2; nj = ncor + l - 1
+                        @inbounds for j in 1:nj
+                            xjl = sqrt(rp[l]^2 - p[j]^2); xjlm1 = sqrt(rp[l-1]^2 - p[j]^2)
+                            dtjl = dn[k] * chif[k] * (xjl - xjlm1); ex = exp(-dtjl)
+                            xip[j] = -expm1(-dtjl) * sr[l-1] + omde_over(dtjl) * (sl[l-1] - sr[l-1]) + ex * xim[j]
+                            ep && (xip[j] = max(xip[j], lo))
+                            xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
+                        end
+                        @inbounds for j in 1:nj; xim[j] = xip[j]; end
+                        if iseven(l)
+                            k = a + (l - 1) ÷ 2; xang[nj+1] = 0.0
+                            _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
+                            if tiex
+                                hx = (HE[k] + _mom1(nj + 1, xang, xim)) / xmom0[k]; HX[k] = isfinite(hx) ? clamp(hx, -1.0, 1.0) : 0.0
+                            end
+                            tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
+                            if bg
+                                FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : 1.0 / 3.0
+                                fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+                            else
+                                fedd[k] = ep && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 : max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+                            end
+                        end
+                        if l == lmax
+                            mu0 && (xang[nj+1] = 0.0; xip[nj+1] = xip[nj])
+                            if bg
+                                n_ = mu0 ? nj + 1 : nj; s0 = 0.0
+                                @inbounds for j in 1:n_-1; s0 += 0.5 * (xip[j] + xip[j+1]) * (xang[j+1] - xang[j]); end
+                                s1 = _mom1(n_, xang, xip)
+                                gp = (-s1 + 0.5 * Ib) / (-s0 + Ib)
+                            else
+                                gp = _eddg(mu0 ? nj + 1 : nj, xang, xip)
+                            end
+                            gp = max(0.5, min(gp, 1.0))
+                        end
+                    end
+                    if tie
+                        τ1, τ2 = TD.FLUXTIE[]; fill!(TW, 0.0); τ = 0.0
+                        @inbounds for k in b:-1:a+1
+                            τ += dtau[k]
+                            TW[k] = τ <= τ1 ? 1.0 : τ >= τ2 ? 0.0 : (q = log(τ2 / τ) / log(τ2 / τ1); q * q * (3 - 2q))
+                        end
+                    end
+                    sf[i] = sf0[i]; dtau[i] = dtau0[i]; chif[i] = chif0[i]
+                    for (n, _) in arrs
+                        M = typ === :S ? cs.S[n] : cs.T[n]
+                        @inbounds for m in max(a, i - 1):min(b, i + 1); M[m, i - m + 2] = (sp[n][m] - base[n][m]) / δ; end
+                    end
+                    i >= b - 1 && ((typ === :S ? cs.gS : cs.gT)[i - (b - 1) + 1] = (gp - base_g) / δ)
+                end
+            end
+        end
+    end
     nothing
 end
 

@@ -173,6 +173,7 @@ using StaticArrays, LinearAlgebra
 import ...TitanDriver
 const TF = TitanDriver.TF
 const CACHE = Dict{Any,Any}()
+const REUSE_LU = Ref(false)
 
 function matslv!()
     neqn = Int(TF.getscalar(:neqn)); ngrs = Int(TF.getscalar(:ngrs)); ngre = Int(TF.getscalar(:ngre))
@@ -191,39 +192,52 @@ function _solve!(::Val{N}, E, rhs, k0, nb) where {N}
     em2, em1, e00, ep1, ep2 = E
     bufs = get!(CACHE, (N, nb)) do
         (Vector{SM}(undef, nb), Vector{SM}(undef, nb), Vector{SM}(undef, nb), Vector{SM}(undef, nb),
-         Vector{SM}(undef, nb), Vector{SV}(undef, nb))
-    end::Tuple{Vector{SM},Vector{SM},Vector{SM},Vector{SM},Vector{SM},Vector{SV}}
-    L2, L1, D, U1, U2, y = bufs
+         Vector{SM}(undef, nb), Vector{SV}(undef, nb), Vector{SV}(undef, nb), Vector{Any}(undef, nb))
+    end::Tuple{Vector{SM},Vector{SM},Vector{SM},Vector{SM},Vector{SM},Vector{SV},Vector{SV},Vector{Any}}
+    L2, L1, D, U1, U2, y, scv, Fv = bufs
     Z = zero(SM)
-    @inbounds for kb in 1:nb
-        k = k0 + kb - 1
-        sc = SV(ntuple(i -> begin
-            s = 0.0
-            for o in -2:2
-                (1 <= kb + o <= nb) || continue
-                M = E[o+3]
-                for j in 1:N; s = max(s, abs(M[i, j, k])); end
-            end
-            s > 0 ? inv(s) : 1.0
-        end, Val(N)))
-        L2[kb] = kb > 2 ? loadblk(Val(N), em2, k, sc) : Z
-        L1[kb] = kb > 1 ? loadblk(Val(N), em1, k, sc) : Z
-        D[kb] = loadblk(Val(N), e00, k, sc)
-        U1[kb] = kb < nb ? loadblk(Val(N), ep1, k, sc) : Z
-        U2[kb] = kb < nb - 1 ? loadblk(Val(N), ep2, k, sc) : Z
-        y[kb] = SV(ntuple(i -> -rhs[i, k] * sc[i], Val(N)))
-    end
-    @inbounds for kb in 1:nb
-        F = lu(D[kb])
-        u1 = F \ U1[kb]; u2 = F \ U2[kb]; yy = F \ y[kb]
-        U1[kb] = u1; U2[kb] = u2; y[kb] = yy
-        if kb + 1 <= nb
-            L = L1[kb+1]
-            D[kb+1] -= L * u1; U1[kb+1] -= L * u2; y[kb+1] -= L * yy
+    if REUSE_LU[] && isassigned(Fv, 1)
+        @inbounds for kb in 1:nb
+            k = k0 + kb - 1; sc = scv[kb]
+            y[kb] = SV(ntuple(i -> -rhs[i, k] * sc[i], Val(N)))
         end
-        if kb + 2 <= nb
-            L = L2[kb+2]
-            L1[kb+2] -= L * u1; D[kb+2] -= L * u2; y[kb+2] -= L * yy
+        @inbounds for kb in 1:nb
+            yy = Fv[kb] \ y[kb]; y[kb] = yy
+            kb + 1 <= nb && (y[kb+1] -= L1[kb+1] * yy)
+            kb + 2 <= nb && (y[kb+2] -= L2[kb+2] * yy)
+        end
+    else
+        @inbounds for kb in 1:nb
+            k = k0 + kb - 1
+            sc = SV(ntuple(i -> begin
+                s = 0.0
+                for o in -2:2
+                    (1 <= kb + o <= nb) || continue
+                    M = E[o+3]
+                    for j in 1:N; s = max(s, abs(M[i, j, k])); end
+                end
+                s > 0 ? inv(s) : 1.0
+            end, Val(N)))
+            scv[kb] = sc
+            L2[kb] = kb > 2 ? loadblk(Val(N), em2, k, sc) : Z
+            L1[kb] = kb > 1 ? loadblk(Val(N), em1, k, sc) : Z
+            D[kb] = loadblk(Val(N), e00, k, sc)
+            U1[kb] = kb < nb ? loadblk(Val(N), ep1, k, sc) : Z
+            U2[kb] = kb < nb - 1 ? loadblk(Val(N), ep2, k, sc) : Z
+            y[kb] = SV(ntuple(i -> -rhs[i, k] * sc[i], Val(N)))
+        end
+        @inbounds for kb in 1:nb
+            F = lu(D[kb]); Fv[kb] = F
+            u1 = F \ U1[kb]; u2 = F \ U2[kb]; yy = F \ y[kb]
+            U1[kb] = u1; U2[kb] = u2; y[kb] = yy
+            if kb + 1 <= nb
+                L = L1[kb+1]
+                D[kb+1] -= L * u1; U1[kb+1] -= L * u2; y[kb+1] -= L * yy
+            end
+            if kb + 2 <= nb
+                L = L2[kb+2]
+                L1[kb+2] -= L * u1; D[kb+2] -= L * u2; y[kb+2] -= L * yy
+            end
         end
     end
     @inbounds for kb in nb:-1:1

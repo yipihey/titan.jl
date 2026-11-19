@@ -2203,12 +2203,20 @@ function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, rn, xs1, xs2, 
     z0_ = ZONE0[]; w0_ = CPLW[]; sl0_ = CPLSL[]
     COUPLED[] && (CPLW[] = (xs1, xs2)); CPLSL[] = nothing
     try
-        @inbounds for i in a:b
-            chi, kp = if MATERIAL[] !== nothing && SLIMP[]
-                ZONE0[] = i; ch_, _, kp_ = material_opac(MATERIAL[], dn[i], tn[i]); (ch_, kp_)
+        if MATERIAL[] !== nothing && SLIMP[]
+            loc = get(SLQBUF, (:locop, T, length(xs1)), nothing)
+            if loc !== nothing && length(loc[1]) >= b
+                chiL, kpL = loc
             else
-                (chifn[i], xkpn[i])
+                chiL = zeros(T, b + 2); kpL = zeros(T, b + 2)
+                zone_sweep!(a:b, _ -> true) do i
+                    ch_, _, kp_ = material_opac(MATERIAL[], dn[i], tn[i])
+                    @inbounds chiL[i] = ch_; @inbounds kpL[i] = kp_
+                end
             end
+        end
+        @inbounds for i in a:b
+            chi, kp = (MATERIAL[] !== nothing && SLIMP[]) ? (chiL[i], kpL[i]) : (chifn[i], xkpn[i])
             pl = plfn[i]; ρ = dn[i]; E = ern[i]
             ne = xnen[i] * (ρ / val(ρ)) * (cplz(i) && val(xs1[i]) > 0 ? xs1[i] / val(xs1[i]) : one(T))
             S = if cs.msrc
@@ -2239,7 +2247,19 @@ function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, rn, xs1, xs2, 
     (lift(:f, c.fedd), lift(:h, TD.HEDD), lift(:hx, TD.HXEDD), lift(:fx, TD.FXEDD), lift(:w, TD.TIEW), g)
 end
 
-matgen!(; ncol = 6) = (TD.CLOSJ[] && TD.CSENS_HOOK[] !== nothing && gi(:lrad) == 1 && TD.CSENS_HOOK[](); assemble!(context(); ncol); nothing)
+const RESID_ONLY = Ref(false)
+function matgen!(; ncol = 6)
+    if RESID_ONLY[]
+        c = context(); neqn, nb, k0 = c.neqn, c.nb, c.k0
+        ws = getws(Float64, c.mgr); R = get!(() -> zeros(neqn, nb), DBUF, (:Rf, neqn, nb))::Matrix{Float64}
+        xz = get!(() -> zeros(neqn * nb), DBUF, (:xzf, neqn * nb))::Vector{Float64}
+        residual!(R, ws, c, xz); copyto!(view(v(:rhs), 1:neqn, k0:k0+nb-1), R)
+        return nothing
+    end
+    TD.CLOSJ[] && TD.CSENS_HOOK[] !== nothing && gi(:lrad) == 1 && (!TD.CSENS.valid || haskey(ENV, "NKCHECK")) && TD.CSENS_HOOK[]()
+    assemble!(context(); ncol)
+    nothing
+end
 
 """
 COUPLED test (popiii_m2c CPLJCHECK=n1,n2,…: zone numbers from the inner boundary, at the first Newton iteration of the first step): the

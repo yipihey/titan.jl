@@ -1161,9 +1161,18 @@ function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = not
     τv = zeros(b + 2)
     for j in b:-1:a; τv[j] = τv[j+1] + chi[j] * _val(dn[j]) * _val(rn[j+1] - rn[j]); end
     chiD = if isD && TX.MATERIAL[] !== nothing
-        z0_ = TX.ZONE[]; sl0_ = TX.CPLSL[]; TX.CPLSL[] = nothing
-        try [i < a ? zero(T) : (TX.ZONE[] = i; cd_ = TX.material_opac(TX.MATERIAL[], dn[i], tn[i])[1]; vc_ = _val(cd_); vc_ > 0 ? chi[i] * (cd_ / vc_) : T(chi[i])) for i in 1:b]
-        finally TX.ZONE[] = z0_; TX.CPLSL[] = sl0_ end
+        z0_ = TX.ZONE0[]; sl0_ = TX.CPLSL[]; TX.CPLSL[] = nothing
+        loc = get!(() -> (Vector{T}(undef, length(xs1)), Vector{T}(undef, length(xs1))), TX.SLQBUF, (:locop, T, length(xs1)))
+        chiL, kpL = loc; cdv = Vector{T}(undef, b)
+        try
+            TX.zone_sweep!(a:b, _ -> true) do i
+                ch_, _, kp_ = TX.material_opac(TX.MATERIAL[], dn[i], tn[i])
+                @inbounds chiL[i] = ch_; @inbounds kpL[i] = kp_
+                vc_ = _val(ch_); @inbounds cdv[i] = vc_ > 0 ? chi[i] * (ch_ / vc_) : T(chi[i])
+            end
+            for i in 1:a-1; @inbounds cdv[i] = zero(T); end
+            cdv
+        finally TX.ZONE0[] = z0_; TX.CPLSL[] = sl0_ end
     else nothing end
     corτ(i, k) = (c_ = (chiD === nothing ? chi[i] : winv(chiD[i], i, k)) * winv(dn[i], i, k) * (winv(rn[i+1], i + 1, k) - winv(rn[i], i, k)); c_ - _val(c_))
     τwin(j, k) = j > b ? zero(T) : isD ? τv[j] + sum((corτ(i, k) for i in max(j, k - 3):min(b, k + 2)); init = zero(T)) : τv[j]
@@ -1225,9 +1234,16 @@ function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = not
             if lwcols
                 N2 = P2[k] + 0.5 * c2(k, k, on); N1 = P1[k] + 0.5 * c1(k, k, on)
                 if isD                                                   # the Duals inside the window and of the transition zones
-                    for j in vcat(collect(max(a, k - 3):k - 1), [j for j in trans if j < k - 3])
+                    @inbounds for j in max(a, k - 3):k - 1
                         wj = sl_lwon(τwin(j, k))
-                        N2 += c2(j, k, wj) - _val(c2(j, k, wj)); N1 += c1(j, k, wj) - _val(c1(j, k, wj))
+                        c2j = c2(j, k, wj); c1j = c1(j, k, wj)
+                        N2 += c2j - _val(c2j); N1 += c1j - _val(c1j)
+                    end
+                    @inbounds for j in trans
+                        j < k - 3 || continue
+                        wj = sl_lwon(τwin(j, k))
+                        c2j = c2(j, k, wj); c1j = c1(j, k, wj)
+                        N2 += c2j - _val(c2j); N1 += c1j - _val(c1j)
                     end
                 end
                 if sl.shield === :sobolev
