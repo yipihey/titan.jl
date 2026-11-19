@@ -376,6 +376,7 @@ end
 # stalldiag (SDDSW=lo:hi, default off): print the dual-energy row choice (ui = internal-energy row) of the zones lo:hi whenever it differs from the previous call
 const SDTIEF = parse(Float64, get(ENV, "SDTIEF", "0"))   # (stalldiag, test) f of the SLABTIE correction replaced by this constant
 const SDFIN = Ref(parse(Float64, get(ENV, "SDFIN", "1")))   # (stalldiag, test only) factor on the radiation-momentum inertia term (1/c^2) dF/dt of the F_r row
+const SDFRZ = get(ENV, "SDFRZ", "0") == "1"; const SDFRZV = Float64[]
 const SDHD = get(ENV, "SDHD", "0") == "1"; const SDHRAW = Dict{Int,NTuple{4,Float64}}()   # (SDHD=1) per interface: (raw h before max, h_FS, tau_i, a)
 const SDDSW = Ref{Any}(let s = get(ENV, "SDDSW", ""); isempty(s) ? nothing : (parse(Int, split(s, ":")[1]):parse(Int, split(s, ":")[2])) end)
 const SDDSWLAST = Ref("")
@@ -1719,6 +1720,13 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 B = rmu[k] * fr[k] / cc - (rcm * max(HT[k-1], 0.0) * em + rcp * min(HT[k], 0.0) * ep)
                 else                                 # SLABTIE: outward donor h from the slab depth of the donor's centre below the interface
                     hd = st_hdonor(max(HT[k-1], 0.0), SDTIEF > 0 ? SDTIEF : (tx ? TD.FXEDD[k-1] : fedd[k-1]), chif[k-1], chif[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k])
+                    if SDFRZ    # stalldiag (test only): the slab correction h_slab(tau_i) - h_slab(a) frozen at its first value (no feedback through chi, rho, dV)
+                        _fm = tx ? TD.FXEDD[k-1] : fedd[k-1]; _Mm = 0.5 * d[k-1] * dvol[k-1] / rmu[k]; _Mp = 0.5 * d[k] * dvol[k] / rmu[k]
+                        _ti = st_tauint(chif[k-1], chif[k], _Mm, _Mp)
+                        length(SDFRZV) < TF.MGR && (resize!(SDFRZV, TF.MGR); fill!(SDFRZV, NaN))
+                        isnan(SDFRZV[k]) && (SDFRZV[k] = val(_fm / (_ti + 2_fm) - _fm / (chif[k-1] * _Mm + 2_fm)))
+                        hd = max(max(HT[k-1], 0.0) + SDFRZV[k], 0.0)
+                    end
                     B = rmu[k] * fr[k] / cc - (rcm * hd * em + rcp * min(HT[k], 0.0) * ep)
                     if SDHD    # stalldiag: the argument of SLABTIE's max(h, 0) (raw h), h_FS, h_slab terms at the last residual evaluation
                         _fm = tx ? TD.FXEDD[k-1] : fedd[k-1]; _Mm = 0.5 * d[k-1] * dvol[k-1] / rmu[k]; _Mp = 0.5 * d[k] * dvol[k] / rmu[k]
