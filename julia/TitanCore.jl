@@ -877,11 +877,16 @@ function closure_sens!(sweep!, a, b, sf, dtau, matsrc)
     end
     fill!(cs.gS, 0.0); fill!(cs.gT, 0.0)
     g0 = gf(:geddr); gl0 = gf(:geddl)
+    chif = vf(:chifn)
     for i in a:b, typ in (:S, :T)
-        arr = typ === :S ? sf : dtau; x0 = arr[i]; δ = 1e-3 * abs(x0) + 1e-300
-        arr[i] = x0 + δ; sweep!(); (sp, gp) = snap()
-        arr[i] = x0 - δ; sweep!(); (sm, gm) = snap()
-        arr[i] = x0
+        # (the ray optical depths of the sweep are built from dn*chifn, not from the dtau array: perturb both consistently)
+        x0 = typ === :S ? sf[i] : dtau[i]; c0 = chif[i]; d0 = dtau[i]; δ = 1e-3 * abs(x0) + 1e-300; rel = δ / (typ === :S ? 1.0 : x0)
+        function setx!(sgn)
+            if typ === :S; sf[i] = x0 + sgn * δ; else; dtau[i] = d0 * (1 + sgn * 1e-3); chif[i] = c0 * (1 + sgn * 1e-3); end
+        end
+        setx!(+1); sweep!(); (sp, gp) = snap()
+        setx!(-1); sweep!(); (sm, gm) = snap()
+        sf[i] = typ === :S ? x0 : sf[i]; dtau[i] = d0; chif[i] = c0
         for (n, _) in arrs
             M = typ === :S ? cs.S[n] : cs.T[n]
             for m in max(a, i - 1):min(b, i + 1); M[m, i - m + 2] = (sp[n][m] - sm[n][m]) / (2δ); end
