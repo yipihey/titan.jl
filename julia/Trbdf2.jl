@@ -107,14 +107,29 @@ function newton!()
     println(NWTRACE[], "NWT end att ", NWATT[], " ok ", ok, " iter ", Int(g(:iter))); flush(NWTRACE[])
     ok
 end
+"""
+Newton difficulty in the step-size control (all schemes with DTERR): `NQ[]` is the smallest, over the Newton solves since it was last reset to 1, of
+f = clamp(ϑ_req/ϑ, 0.1, 1) with ϑ = (d_last/d_first)^(1/(n−1)) the geometric-mean contraction of the convergence measure `dmax` (of the FULL Newton step, also when the
+globalisation cut it) over the n iterations of the solve, and ϑ_req = (conv/d_first)^(2/niter) the contraction that would converge in niter/2 iterations. A solve that
+converges at least that fast has f = 1. `step_err!` bounds the next Δt by NQ·Δt after an accepted step and a failed attempt's retry by min(DTERRFAIL, max(0.1, NQ))·Δt.
+"""
+const NQ = Ref(1.0)
+function newton_quality!(dm)
+    n = length(dm); n < 2 && return
+    d1, dl = dm[1], dm[end]; cv = g(:conv)
+    d1 > cv || return
+    ϑ = (dl / d1)^(1 / (n - 1)); ϑreq = (cv / d1)^(2 / g(:niter))
+    f = isfinite(ϑ) && ϑ > 0 ? clamp(ϑreq / ϑ, 0.1, 1.0) : (isfinite(ϑ) ? 1.0 : 0.1)
+    NQ[] = min(NQ[], f)
+end
 function newton0!()
-    s!(:iter, 1)
+    s!(:iter, 1); dm = Float64[]
     try
         while true
-            TD.newton_linear!(); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update)
+            TD.newton_linear!(); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update); push!(dm, g(:dmax))
             g(:dmax) <= g(:conv) && break
             s!(:iter, g(:iter) + 1)
-            g(:iter) > g(:niter) && return false
+            g(:iter) > g(:niter) && (newton_quality!(dm); return false)
         end
         s!(:lboos, 1); TD.newton_linear!(); r(:maxdel); r(:update); s!(:lboos, 0)
         if ERESTOL[] > 0
@@ -130,8 +145,10 @@ function newton0!()
         end
     catch e
         e isa InterruptException && rethrow()
-        s!(:lboos, 0); return false
+        NWTRACE[] === nothing || println(NWTRACE[], "NWT exception ", first(sprint(showerror, e, catch_backtrace()), 700))
+        s!(:lboos, 0); newton_quality!(dm); return false
     end
+    newton_quality!(dm)
     all(isfinite, vf(:dn)) && all(isfinite, vf(:tn))
 end
 
@@ -665,7 +682,7 @@ function step_err!()
     end
     STAGECONS_HOOK[] === nothing || alt || STAGECONS_HOOK[](:start, g(:dtime), Cn)
     while true
-        Δ = g(:dtime); TD.FULL_DT[] = Δ; err = NaN; Dnew = nothing
+        Δ = g(:dtime); TD.FULL_DT[] = Δ; err = NaN; Dnew = nothing; NQ[] = 1.0
         if alt
             ok, err, info, Dnew = attempt_alt!(Δ, t0, Cn)
         else
@@ -721,7 +738,7 @@ function step_err!()
         if ok
             ESTATS[:rej_err] += 1; fac = max(o.facmin, o.safety * err^(-1 / qe))
         else
-            ESTATS[:fail_newton] += 1; fac = o.fail; TD.msg(1)
+            ESTATS[:fail_newton] += 1; fac = min(o.fail, max(0.1, NQ[])); TD.msg(1)
         end
         nrej += 1; rejected = true
         nr = ESTATS[:rej_err] + ESTATS[:fail_newton]
@@ -743,6 +760,7 @@ function step_err!()
         LIMHIST[info[1]] = get(LIMHIST, info[1], 0) + 1
     end
     LASTERR[] = (err, info[1], info[2])
+    NQ[] < 1 && (hn = min(hn, NQ[] * Δ))    # Newton difficulty of the accepted attempt (NQ): no growth beyond NQ·Δ
     hn = min(hn, o.hmax)                  # (DTERRMAX, a test bound only: default none)
     for f_ in DT_BOUNDS                   # hard bounds (mesh motion): see DT_BOUNDS
         hb = f_(); hb < hn && (hn = hb; ESTATS[:bound] = get(ESTATS, :bound, 0) + 1)

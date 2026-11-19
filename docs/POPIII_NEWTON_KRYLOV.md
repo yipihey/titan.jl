@@ -60,7 +60,7 @@ then the unchanged `maxdel!`, `update!` follow (clamps, convergence measure, clo
   (the opaque-interior F corrections are relative changes of 1e2 of a flux 1e-4 cE). Stop when the preconditioned residual is ≤ η ‖Pδ0‖_W; if `mmax` is reached the last iterate
   (the best) is used and counted as a non-convergence.
 * **ε**: see §4 (a deviation from "max|εv| = 1e-7").
-* Fallback: if anything in the Krylov solve throws or is non-finite, the band correction stays and the event is counted (`fallback`).
+* No fallback (since nkglob): anything in the Krylov solve that throws or is non-finite is a Newton failure and the step is retried with a smaller dt (docs/POPIII_SWITCH_AUDIT2.md §11).
 
 ## 3. T1: matrix-vector check
 
@@ -343,7 +343,7 @@ L_ph 5697.0226 / 5697.0154 (1.3e-6). After 350 further steps (t_jf25 against t_n
 * Not run: T4 (from the initial condition) and the production restart.
 
 
-## 11. NKLS: backtracking line search on the preconditioned residual (switch, default off)
+## 11. NKLS: backtracking line search on the preconditioned residual (REMOVED in nkglob; replaced by the globalisation of POPIII_SWITCH_AUDIT2.md §11)
 
 What: `NKLS=1[,trigger[,lmin]]` (popiii_m2c.jl, next to NKRYLOV; defaults trigger 1e-2, lmin 1/64). After GMRES returned the step x, the level function
 T(lambda) = || W P M^-1 R(x_k + lambda x) ||_2 (same weighted norm and band-LU preconditioner as GMRES) is evaluated with the TRUE residual at the trial state
