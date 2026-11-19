@@ -369,7 +369,21 @@ function dualswitch(ngrs, ngre, lrad, ηsw)
             ui[k] || (ui[k] = W[k] >= wtie)
         end
     end
+    SDDSW[] === nothing || sd_dsw(ui, ngrs, dO, dv, uo, eo)
     ui
+end
+# stalldiag (SDDSW=lo:hi, default off): print the dual-energy row choice (ui = internal-energy row) of the zones lo:hi whenever it differs from the previous call
+const SDDSW = Ref{Any}(let s = get(ENV, "SDDSW", ""); isempty(s) ? nothing : (parse(Int, split(s, ":")[1]):parse(Int, split(s, ":")[2])) end)
+const SDDSWLAST = Ref("")
+function sd_dsw(ui, ngrs, dO, dv, uo, eo)
+    zs = SDDSW[]; bits = join((ui[ngrs+z-1] ? '1' : '0' for z in zs))
+    if bits != SDDSWLAST[]
+        etas = join((@sprintf("%d:%.3f/W%.2f", z, (m = dO[ngrs+z-1] * dv[ngrs+z-1]; ein = m * max(eo[ngrs+z-1], 0.0); ein / (ein + 0.25m * (uo[ngrs+z-1]^2 + uo[ngrs+z]^2))),
+                      length(TD.TIEW) >= ngrs + z - 1 ? TD.TIEW[ngrs+z-1] : NaN) for z in zs), " ")
+        println("SDDSW jstep ", Int(TF.getscalar(:jstep)), " thet ", TF.getscalar(:thet), " dtime ", TF.getscalar(:dtime), " ui[", first(zs), ":", last(zs), "] ", bits, "  eta/Wtie ", etas)
+        SDDSWLAST[] = bits
+    end
+    nothing
 end
 v(s) = TF.var(s)
 function context(; etotal::Bool = ETOTAL[], ηsw::Float64 = ETASW[], dt = nothing)
