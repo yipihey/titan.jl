@@ -374,6 +374,7 @@ function dualswitch(ngrs, ngre, lrad, ηsw)
     ui
 end
 # stalldiag (SDDSW=lo:hi, default off): print the dual-energy row choice (ui = internal-energy row) of the zones lo:hi whenever it differs from the previous call
+const SDHD = get(ENV, "SDHD", "0") == "1"; const SDHRAW = Dict{Int,NTuple{4,Float64}}()   # (SDHD=1) per interface: (raw h before max, h_FS, tau_i, a)
 const SDDSW = Ref{Any}(let s = get(ENV, "SDDSW", ""); isempty(s) ? nothing : (parse(Int, split(s, ":")[1]):parse(Int, split(s, ":")[2])) end)
 const SDDSWLAST = Ref("")
 function sd_dsw(ui, ngrs, dO, dv, uo, eo)
@@ -1717,6 +1718,11 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 else                                 # SLABTIE: outward donor h from the slab depth of the donor's centre below the interface
                     hd = st_hdonor(max(HT[k-1], 0.0), tx ? TD.FXEDD[k-1] : fedd[k-1], chif[k-1], chif[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k])
                     B = rmu[k] * fr[k] / cc - (rcm * hd * em + rcp * min(HT[k], 0.0) * ep)
+                    if SDHD    # stalldiag: the argument of SLABTIE's max(h, 0) (raw h), h_FS, h_slab terms at the last residual evaluation
+                        _fm = tx ? TD.FXEDD[k-1] : fedd[k-1]; _Mm = 0.5 * d[k-1] * dvol[k-1] / rmu[k]; _Mp = 0.5 * d[k] * dvol[k] / rmu[k]
+                        _ti = st_tauint(chif[k-1], chif[k], _Mm, _Mp)
+                        SDHRAW[k] = (val(max(HT[k-1], 0.0) + _fm / (_ti + 2_fm) - _fm / (chif[k-1] * _Mm + 2_fm)), val(HT[k-1]), val(_ti), val(chif[k-1] * _Mm))
+                    end
                 end
                 if TIEFRAME[]                        # the unknown F is the comoving flux: F₀ = F_lab − (1 + f) u E + 2 h² u E (see TIEFRAME)
                     ho = SLABTIE[] ? hd : max(HT[k-1], 0.0); hi = min(HT[k], 0.0)
