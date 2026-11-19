@@ -1123,6 +1123,7 @@ const SLIMP = parse(Int, get(ENV, "SLIMP", "0")) > 0
 const SLW0 = Ref(Any[])
 "(SLIMP) a star exists at the last prepare pass (a zone at τ ≥ 2/3 and T_eff > 0)."
 const SLSTAR = Ref(false)
+const SDPH = get(ENV, "SDPH", "0") == "1"; const SDPHJ = Ref(0); a_sd() = Int(TF.getscalar(:ngrs))   # (stalldiag) photosphere index log
 "The angle-mean velocity gradient of the Lyα escape (|∂u/∂r| + 2|u|/r)/3 of the zone between r1 and r2 with edge velocities u1, u2."
 sl_grad(r1, r2, u1, u2) = (abs(u2 - u1) / (r2 - r1) + 2abs(0.5(u1 + u2)) / (0.5(r1 + r2))) / 3
 """
@@ -1160,6 +1161,7 @@ function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = not
     τwin(j, k) = j > b ? zero(T) : isD ? τv[j] + sum((corτ(i, k) for i in max(j, k - 3):min(b, k + 2)); init = zero(T)) : τv[j]
     ph = τv[a] >= 2 / 3                                               # (a photosphere inside the grid)
     jph = ph ? findlast(j -> τv[j] >= 2 / 3, a:b) + a - 1 : a         # bracketing interfaces jph, jph+1: τ ≥ 2/3 > τ
+    SDPH && (SDPHJ[] != jph && println("SDPH sweep jstep ", Int(TF.getscalar(:jstep)), " thet ", TF.getscalar(:thet), ": iterate jph ", jph - a + 1, " (was ", SDPHJ[] - a + 1, ")"); SDPHJ[] = jph)
     # Lyman-Werner columns: contributions of the zones outside the photosphere, with the Duals of the window and of the transition zones
     lw = sl !== nothing && sl.shield !== :off
     lwcols = lw && sl.shield !== :none
@@ -1237,6 +1239,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
     kph = a; for k in b:-1:a; tauz_[k] >= 2 / 3 && (kph = k; break); end
     L = 4π * rn[kph+1]^2 * fr[kph+1]; Te = L > 0 ? (L / (4π * rn[kph+1]^2 * 5.670374419e-5))^0.25 : 0.0
     SLIMP && CPLPREP[] && (SLSTAR[] = tauz_[kph] >= 2 / 3 && Te > 0)
+    SDPH && CPLPREP[] && println("SDPH prep jstep ", Int(TF.getscalar(:jstep)), ": kph ", kph - a_sd() + 1, " SLSTAR ", SLSTAR[], " Te ", round(Te, digits = 1), " tau(z28-34) ", join((@sprintf("%.3f", tauz_[a_sd() + z - 1]) for z in 28:34), " "))
     arad = 7.565723e-15; Ecmb = arad * sl.tcmb^4
     nz = length(dn); NH2 = zeros(nz); NHI = zeros(nz)
     s2 = 0.0; s1 = 0.0
