@@ -98,6 +98,16 @@ const STAGECONS_HOOK = Ref{Any}(nothing)
 const SDZ = let s = get(ENV, "SDZONES", ""); isempty(s) ? Int[] : collect(parse(Int, split(s, ":")[1]):parse(Int, split(s, ":")[2])) end
 const SDON = !isempty(SDZ)
 const SDFIXDT = parse(Float64, get(ENV, "SDFIXDT", "0"))
+const SDCLO = SDON && get(ENV, "SDCLO", "0") == "1"   # per Newton iterate: closure arrays (h, f, tie weight, chi) of the zones in SDZONES
+function sd_clo()
+    a = Int(g(:ngrs)); fe, ch, er, tn = vf(:fedd), vf(:chifn), vf(:ern), vf(:tn); hE = TD.HEDD; tw = TD.TIEW
+    io = IOBuffer()
+    for zk in SDZ
+        k = a + zk - 1
+        @printf(io, " z%d[h %.6f f %.6f w %.4f chi %.5e E %.5f T %.2f]", zk, k <= length(hE) ? hE[k] : NaN, fe[k], k <= length(tw) ? tw[k] : NaN, ch[k], er[k], tn[k])
+    end
+    println("SDCLO jstep ", Int(g(:jstep)), " thet ", g(:thet), " dt ", g(:dtime), " it ", Int(g(:iter)), " dmax ", g(:dmax), String(take!(io)))
+end
 const SDESTNK = get(ENV, "SDESTNK", "0") == "1"   # the estimate's linear solves also get the Krylov refinement (exact J v), as the Newton solves do; default: band J_b only
 const SD_FLAGS = Ref{Any}(nothing)          # (popiii_m2c) k -> String: regime flags of zone k (table/network, coupled)
 const SDACC = Dict{Tuple{Symbol,Int,Int},Float64}(); const SDTAG = Ref(:e0)
@@ -136,7 +146,7 @@ function newton0!()
     s!(:iter, 1); dm = Float64[]
     try
         while true
-            TD.newton_linear!(); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update); push!(dm, g(:dmax))
+            TD.newton_linear!(); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update); SDCLO && sd_clo(); push!(dm, g(:dmax))
             g(:dmax) <= g(:conv) && break
             s!(:iter, g(:iter) + 1)
             g(:iter) > g(:niter) && (newton_quality!(dm); return false)
