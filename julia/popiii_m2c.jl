@@ -1359,6 +1359,7 @@ haskey(ENV, "STAGECONS") && ENV["STAGECONS"] != "0" && (StageCons.configure!(par
 haskey(ENV, "NWFREEZE") && (TC.NWFREEZE[] = String.(split(ENV["NWFREEZE"], ",")))     # (diagnostic, default off) see TitanCore.NWFREEZE
 haskey(ENV, "NWTRACE") && (Trbdf2.NWTRACE[] = open(ENV["NWTRACE"], "a"))      # (diagnostic, default off) Newton trace, see Trbdf2.NWTRACE
 haskey(ENV, "STOL") && TF.setscalar!(:stol, parse(Float64, ENV["STOL"]))
+haskey(ENV, "CONV") && TF.setscalar!(:conv, parse(Float64, ENV["CONV"]))
 haskey(ENV, "NTRY") && TF.setscalar!(:ntry, parse(Float64, ENV["NTRY"]))
 if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Trbdf2.TFAC[] = TD.FAIL_TFAC[]; end
 haskey(ENV, "ERTHICK") && (TC.ER_THICK[] = parse(Float64, ENV["ERTHICK"]))
@@ -1920,8 +1921,12 @@ try
             nnet = count(k -> !mat.eqzone[k], a:b); ncpl = count(k -> TX.cplz(k), a:b)
             @sprintf(" | network zones %d, coupled %d | line cap %.3e", nnet, ncpl, LINECAPV[]) * (TD.KRYLOV[] === nothing ? "" : NewtonKrylov.trace_text(Trbdf2.ESTATS[:steps])) * (EM.on ? etot_text() : "")
         end
-        @printf("DTERR: error-controlled TR-BDF2 (rtol %g, x floor %g, F floor %g cE, E floor %g aT^4, %s norm, PI %s, safety/facmin/facmax %g/%g/%g, Newton-failure factor %g, BE retry %s); TITAN's heuristic and caps are diagnostic only\n",
-                Trbdf2.EOPT.rtol, Trbdf2.EOPT.xfl, Trbdf2.EOPT.ffl, Trbdf2.EOPT.efl, Trbdf2.EOPT.maxnorm ? "max" : "rms", Trbdf2.EOPT.pi, Trbdf2.EOPT.safety, Trbdf2.EOPT.facmin, Trbdf2.EOPT.facmax, Trbdf2.EOPT.fail, Trbdf2.EOPT.be)
+        @printf("DTERR: error-controlled TR-BDF2 (rtol %g, conv %g, x floor %g, F floor %g cE, E floor %g aT^4, %s norm, PI %s, safety/facmin/facmax %g/%g/%g, Newton-failure factor %g, BE retry %s); TITAN's heuristic and caps are diagnostic only\n",
+                Trbdf2.EOPT.rtol, TF.getscalar(:conv), Trbdf2.EOPT.xfl, Trbdf2.EOPT.ffl, Trbdf2.EOPT.efl, Trbdf2.EOPT.maxnorm ? "max" : "rms", Trbdf2.EOPT.pi, Trbdf2.EOPT.safety, Trbdf2.EOPT.facmin, Trbdf2.EOPT.facmax, Trbdf2.EOPT.fail, Trbdf2.EOPT.be)
+        let cv = TF.getscalar(:conv), rt = Trbdf2.EOPT.rtol, nk = get(ENV, "NKRYLOV", "0") != "0"
+            (cv > rt || cv < 1e-3 * rt) && error(@sprintf("inconsistent tolerances: Newton CONV = %g vs DTERR rtol = %g (require 1e-3 * rtol <= CONV <= rtol)", cv, rt))
+            nk && cv < 0.1 * NewtonKrylov.OPT.eta && error(@sprintf("inconsistent tolerances: Newton CONV = %g is tighter than 0.1 * NKRYLOV eta = %g", cv, NewtonKrylov.OPT.eta))
+        end
     end
     # NWPROBE=<dt1>,<dt2>,... (diagnostic, default off): at step NWPROBEAT+1 [41] of this process, instead of the step, one trapezoidal-stage attempt at each
     # of these step sizes from the live state (as a retry after a Newton failure starts, Trbdf2.step_err!), traced if NWTRACE is set; then the process ends.

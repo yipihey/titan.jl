@@ -879,7 +879,7 @@ function closure_sens!(sweep!, a, b, sf, dtau, matsrc)
     arrs = Pair{Symbol,Any}[:f => vf(:fedd)]
     tie && length(TD.HEDD) >= b + 1 && push!(arrs, :h => TD.HEDD, :w => TD.TIEW)
     tie && length(TD.HXEDD) >= b + 1 && push!(arrs, :hx => TD.HXEDD)
-    tie && length(TD.FXEDD) >= b + 1 && push!(arrs, :fx => TD.FXEDD)
+    length(TD.FXEDD) >= b && push!(arrs, :fx => TD.FXEDD)
     snap() = (Dict(n => copy(a_) for (n, a_) in arrs), gf(:geddr))
     for (n, _) in arrs
         haskey(cs.S, n) && size(cs.S[n], 1) == mgr || (cs.S[n] = zeros(mgr, 3); cs.T[n] = zeros(mgr, 3))

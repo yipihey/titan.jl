@@ -41,7 +41,7 @@ const POPIII_STACK = [
     "ENVEUL" => "0,0.0793995,0.0793995,1e30", "ENVCORE" => "0.1,0.0793995,1e30", "ENVLIN" => "1", "ENVCONS" => "1",
     "GRIDEQ" => "1", "GEQRAMP" => "1e-3,300,10,20", "GEQC" => "100,1.5,30,0.5,0.5,0.1,1e4,0.3,0.3", "GEQW" => "1,1,1,1,1,0,0,3",
     # step control: TR-BDF2 embedded error estimate (TITAN's rule below is then diagnostic only)
-    "DTERR" => "0.1", "NITER" => "25", "NTRY" => "60", "CDYN" => "3e5", "STOL" => "0.3", "FAILTFAC" => "0.5",
+    "DTERR" => "0.1", "CONV" => "1e-3", "NITER" => "25", "NTRY" => "60", "CDYN" => "3e5", "STOL" => "0.3", "FAILTFAC" => "0.5",
     # run control
     "TSTOP" => "2e8", "NSTOP" => "1e27", "DTSTOP" => "1e-9", "CKEVERY" => "100", "SNAPEVERY" => "50", "PRINTEVERY" => "100",
     "MSG" => "1", "FLUSHOUT" => "1",
