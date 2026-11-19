@@ -140,7 +140,7 @@ function kde(t::CollTable, T)
 end
 
 "Collisional rate matrix Q[i, j] (rate i→j [s⁻¹]) for the colliders with densities `dens` (name => n [cm⁻³], H2 handled by the caller)."
-function collrates!(Q, L::Levels, T, dens::Vector{Pair{Symbol,Float64}}; reactive = true)
+function collrates!(Q, L::Levels, T, dens::AbstractVector{<:Pair{Symbol,<:Real}}; reactive = true)
     for (key, n) in dens
         n > 0 || continue
         t = L.colls[key]; k = kde(t, T)
@@ -198,10 +198,10 @@ function collrates!(Q, L::Levels, T, ns::NTuple{5,Float64}, ws::PopWS; reactive 
 end
 
 "Stationary distribution of the Markov generator with off-diagonal rates Q[i,j] (i→j), by GTH state reduction."
-gth(Q0::AbstractMatrix) = gth!(Matrix{Float64}(Q0), zeros(size(Q0, 1)))
+gth(Q0::AbstractMatrix) = gth!(Matrix{eltype(Q0)}(Q0), zeros(eltype(Q0), size(Q0, 1)))
 "`gth` on work arrays: P is overwritten with Q0 and reduced, s is scratch (same arithmetic as `gth(Q0)`)."
 gth(Q0::AbstractMatrix, P::Matrix{Float64}, s::Vector{Float64}) = gth!(copyto!(P, Q0), fill!(s, 0.0))
-function gth!(P::Matrix{Float64}, s::Vector{Float64})
+function gth!(P::Matrix{T}, s::Vector{T}) where {T<:Real}
     n = size(P, 1)
     for i in 1:n; P[i, i] = 0.0; end
     for k in n:-1:2
@@ -213,9 +213,9 @@ function gth!(P::Matrix{Float64}, s::Vector{Float64})
             for j in 1:k-1; P[i, j] += pik * P[k, j] / sk; end
         end
     end
-    π = zeros(n); π[1] = 1.0
+    π = zeros(T, n); π[1] = 1.0
     for k in 2:n
-        a = 0.0; for i in 1:k-1; a += π[i] * P[i, k]; end
+        a = zero(T); for i in 1:k-1; a += π[i] * P[i, k]; end
         π[k] = a / s[k]
     end
     π ./ sum(π)
@@ -240,7 +240,7 @@ function solve_Q(L::Levels, Q, opr, ws = nothing)
         return ws === nothing ? gth(Q) : gth(Q, ws.P, ws.s)
     end
     xo = opr === nothing ? 0.75 : opr / (1 + opr)
-    π = zeros(n)
+    π = zeros(eltype(Q), n)
     π[o] .= xo .* gth(Q[o, o]); π[p] .= (1 - xo) .* gth(Q[p, p])
     π
 end
@@ -258,9 +258,10 @@ function populations(L::Levels, T, n_H, n_H2, n_He, n_Hp; β = nothing, Jbar = n
     ws === nothing || fill!(ws.have, false)
     function solve_for(xo)
         if ws === nothing
-            Q = zeros(n, n)
-            collrates!(Q, L, T, [:H => Float64(n_H), :He => Float64(n_He), :Hp => Float64(n_Hp),
-                                 :H2o => n_H2 * xo, :H2p => n_H2 * (1 - xo)]; reactive = opr === nothing)
+            ET = promote_type(typeof(T), typeof(n_H), typeof(n_H2), typeof(n_He), typeof(n_Hp), typeof(xo))     # (Duals: the populations carry the derivatives of T and the colliders)
+            Q = zeros(ET, n, n)
+            ns = promote(n_H, n_He, n_Hp, n_H2 * xo, n_H2 * (1 - xo))
+            collrates!(Q, L, T, [key => ns[i] for (i, key) in enumerate(COLLKEYS)]; reactive = opr === nothing)
         else                                         # work arrays of the task (PopWS): no allocation, coefficients kept over the iteration
             Q = fill!(ws.Q, 0.0)
             collrates!(Q, L, Float64(T), (Float64(n_H), Float64(n_He), Float64(n_Hp), Float64(n_H2 * xo), Float64(n_H2 * (1 - xo))), ws; reactive = opr === nothing)
@@ -325,6 +326,16 @@ function netrad(L::Levels, pops, n_H2, β, J)
     end
     n_H2 * s
 end
+
+"""
+    linekappa(L, pops, n_H2) -> κ0 per line
+
+Line-centre opacity coefficient hν/(4π) n_H2 (n_l B_lu − n_u B_ul) [cm⁻¹ Hz, the profile factor excluded] of populations `pops` (as H2Lines.cooling_nlte's opac).
+"""
+linekappa(L::Levels, P, n_H2) = [h * L.ν[i] / (4π) * n_H2 * (P[L.il[i]] * L.Blu[i] - P[L.iu[i]] * L.Bul[i]) for i in eachindex(L.A)]
+
+"Line source function n_u A/(n_l B_lu − n_u B_ul) of populations `pops` (B_ν(T) where the line is inverted), per line."
+linesource(L::Levels, P, T) = [(den = P[L.il[i]] * L.Blu[i] - P[L.iu[i]] * L.Bul[i]; den > 0 ? P[L.iu[i]] * L.A[i] / den : HL.Bν(L.ν[i], T)) for i in eachindex(L.A)]
 
 "LTE (Boltzmann) fractions over the 63 levels."
 function lte(L::Levels, T)

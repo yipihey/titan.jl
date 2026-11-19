@@ -210,15 +210,14 @@ const XSRCO = Ref([Float64[], Float64[]]); const XLAMO = Ref(Float64[]); const C
 const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's iterate while the material is evaluated
 const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
 """
-SLIMP (popiii_m2c `SLIMP=1`, with COUPLED; default off, off = bit-identical): the star-light dilution of a coupled zone at the Newton
-iterate. `SLQ_FN[](k, E_k, F_k, F_k+1)` gives (q_k, t_k) = (W_k, T_c,k at the iterate)/(their start-of-step values) (local: zone k's E_r and its
-two interface fluxes), `CPL_ZONEQ[](k, ρ, T, x1, x2, q, t)` the zone's terms at that star light (PopIIIMaterial.cpl_zone_q), and `CPLQ[]`
-carries (q, t) (Duals) to the NLOIT opacity during the material sweep. SLIMP=1: W only (t ≡ 1); SLIMP=2: also the local part of T_c.
+SLIMP (popiii_m2c `SLIMP=1`, with COUPLED): the star light of a coupled zone at the Newton iterate. `SL_SWEEP[](S, ...)` fills, from the
+iterate's arrays, the state S = (q, t, fs, g, dp) of every coupled zone: q = W/W_start (dilution), t = T_c/T_c,start (colour temperature), fs
+(the Lyman-Werner factor f_sh × its on-weight) and g (the angle-mean velocity gradient of Lyα escape); `CPL_ZONEQ[](k, ρ, T, x1, x2, q, t, fs, g)`
+gives the zone's terms at that star light (PopIIIMaterial.cpl_zone_q) and `CPLSL[]` carries S (Duals) to the NLOIT opacity during the material sweep.
 """
-const SLON_FN = Ref{Any}(k -> true)   # (SLIMP) zone k's star light follows the iterate (else the SLIMP=0 path)
-const SLIMP = Ref(false); const SLQ_FN = Ref{Any}(nothing); const CPL_ZONEQ = Ref{Any}(nothing); const CPLQ = Ref{Any}(nothing)
+const SL_SWEEP = Ref{Any}(nothing)
+const SLIMP = Ref(false); const CPL_ZONEQ = Ref{Any}(nothing); const CPLSL = Ref{Any}(nothing)
 const SLIMPDBG = Ref(parse(Int, get(ENV, "SLIMPDBG", "0")))   # (diagnostic) report the first n non-finite SLIMP values in the residual
-const CPLQT = Ref{Any}(nothing)   # (SLIMP) t = T_c/T_c,start of the last residual's material sweep, for the coupled-zone sweep that follows
 const SLQBUF = Dict{Any,Any}()
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
 "Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
@@ -1179,41 +1178,37 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             k = k0 + bb - 1; xs1[k] = xn1[k] * exp(x[(bb-1)*neqn+8]); xs2[k] = xn2[k] * exp(x[(bb-1)*neqn+9])
         end
         CPLW[] = (xs1, xs2)
-        slq = nothing
-        if SLIMP[]                                   # SLIMP: q_k of the iterate (new-level E_r, F_r)
-            slq = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 1))::Vector{T}
-            slt = get!(() -> Vector{T}(undef, length(xs1)), SLQBUF, (T, length(xs1), 2))::Vector{T}
-            @inbounds for k in eachindex(slq); slq[k] = one(T); slt[k] = one(T); end
-            if Mg === nothing
-                @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = SLQ_FN[](k, ern[k], frn[k], frn[k+1])); end
-            else                                     # MGROUPS: the star-light dilution from group MGSLG (optical) at the iterate
-                gq = MGSLG[]
-                @inbounds for k in ngrs:ngre; (cplz(k) && SLON_FN[](k)) && ((slq[k], slt[k]) = MGSLQ[](k, ern[k], Mg.egn[gq][k], Mg.fgn[gq][k], Mg.fgn[gq][k+1])); end
-            end
+        slst = nothing
+        if SLIMP[]                                   # SLIMP: the star-light state of the iterate (new-level r, ρ, T, u, E_r, F_r, species)
+            slst = get!(() -> (; q = Vector{T}(undef, length(xs1)), t = Vector{T}(undef, length(xs1)), fs = Vector{T}(undef, length(xs1)),
+                               g = Vector{T}(undef, length(xs1)), ts = Vector{T}(undef, length(xs1)), wq = Vector{T}(undef, length(xs1)), dp = Vector{T}(undef, length(xs1))), SLQBUF, (T, length(xs1)))
+            @inbounds for k in eachindex(slst.q); slst.q[k] = one(T); slst.t[k] = one(T); slst.fs[k] = zero(T); slst.g[k] = one(T); slst.ts[k] = zero(T); slst.wq[k] = zero(T); slst.dp[k] = zero(T); end
+            SL_SWEEP[](slst, ngrs, ngre, rn, dn, tn, un, ern, frn, xs1, xs2, cplz;
+                         mgqt = Mg === nothing ? nothing : (k -> (gq = MGSLG[]; MGSLQ[](k, ern[k], Mg.egn[gq][k], Mg.fgn[gq][k], Mg.fgn[gq][k+1]))))
             if SLIMPDBG[] > 0
                 fin(v) = isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v)))
                 for k in ngrs:ngre
-                    (fin(slq[k]) && fin(slt[k])) && continue
-                    SLIMPDBG[] -= 1; println("SLIMPDBG q/t non-finite zone $(k - ngrs + 1): q $(slq[k]) t $(slt[k]) E $(ern[k]) F $(frn[k]) $(frn[k+1])"); break
+                    (fin(slst.q[k]) && fin(slst.t[k]) && fin(slst.fs[k]) && fin(slst.g[k])) && continue
+                    SLIMPDBG[] -= 1; println("SLIMPDBG star-light state non-finite zone $(k - ngrs + 1): q $(slst.q[k]) t $(slst.t[k]) fs $(slst.fs[k]) g $(slst.g[k]) E $(ern[k]) F $(frn[k]) $(frn[k+1])"); break
                 end
             end
-            CPLQ[] = (slq, slt)
+            CPLSL[] = slst
         end
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
         finally
-            CPLW[] = nothing; slq === nothing || (CPLQT[] = CPLQ[][2]); CPLQ[] = nothing
+            CPLW[] = nothing; CPLSL[] = nothing
         end
         # (PERF512) the coupled zones' rates in the Jacobian's Dual numbers on MATTHREADS tasks (zones independent; the material sweep above
         # left their values and local Jacobians in the zones' cache entries); bit-identical. ZONE[] is not used here and is kept.
         let z0 = ZONE0[]
             try zone_sweep!(ngrs:ngre, k -> true) do k
                 @inbounds if cplz(k)
-                    y = (slq === nothing || !SLON_FN[](k)) ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) :
-                        CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slq[k], CPLQT[][k])
+                    y = slst === nothing ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) :
+                        CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slst.q[k], slst.t[k], slst.fs[k], slst.g[k], slst.dp[k])
                     W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
                     if SLIMPDBG[] > 0 && !all(v -> isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v))), y)
-                        SLIMPDBG[] -= 1; println("SLIMPDBG cpl zone $(k - ngrs + 1) non-finite: y ", y, " q ", slq === nothing ? 1 : slq[k], " t ", slq === nothing ? 1 : CPLQT[][k])
+                        SLIMPDBG[] -= 1; println("SLIMPDBG cpl zone $(k - ngrs + 1) non-finite: y ", y, " state ", slst === nothing ? 1 : (slst.q[k], slst.t[k], slst.fs[k], slst.g[k]))
                     end
                     W.cpQ[k] = y[6]; W.cpY[k] = y[7]
                 else

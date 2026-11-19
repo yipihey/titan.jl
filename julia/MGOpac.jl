@@ -131,8 +131,8 @@ mg_J(Wg, Tc) = ν -> Wg[searchsortedlast(TX.MGEDGE[], CNn.hP * ν / EVERG) + 1] 
 mg_kH(Wg, Tc) = (gH = MGROLE[].H; s = 0.0; for g in gH:TX.MGN[]; Wg[g] > 0 && (s += Wg[g] * mg_kH1s(g, Tc)); end; s)
 
 """
-(SLIMP with MGROUPS) (q, t) of zone k at the iterate: as `sl_qt` with the dilution of group MGSLG (the H⁻ band) from its E_g, F_g, F_g+1,
-and T_r (the local part of T_c, SLIMP=2) from the grey E_r.
+(SLIMP with MGROUPS) (q, t) of zone k at the iterate: as `sl_sweep!` (SLBLEND) with the dilution of group MGSLG (the H⁻ band) from its E_g, F_g,
+F_g+1, and T_r (the local part of T_c) from the grey E_r; T_src and wq are those of the prepare pass.
 """
 function sl_qt_mg(k, E, Eg, Fk, Fk1)
     o = one(E) + zero(Eg) + zero(Fk) + zero(Fk1)
@@ -140,13 +140,7 @@ function sl_qt_mg(k, E, Eg, Fk, Fk1)
     arad = 7.565723e-15; g = TX.MGSLG[]; Ec = r.Ecmb * TX.MGBCMB_[g]
     cu = SLWFLUX ? max(CNn.c * (Eg - Ec), 0.5 * (max(Fk, zero(Fk)) + max(Fk1, zero(Fk1)))) : CNn.c * (Eg - Ec) + zero(Fk) + zero(Fk1)
     Tr = (max(E, r.Ecmb + zero(E)) / arad)^0.25 + zero(Fk) + zero(Fk1) + zero(Eg)
-    if r.mode === :blend
-        Tc = SLIMPN >= 2 ? r.Tsrc^(1 - r.wq) * Tr^r.wq : r.Tc0 + zero(Tr)
-        W = r.wq >= 1 ? o : min(max(cu, zero(cu)) / (4 * 5.670374419e-5 * Tc^4 * TX.mg_bfrac(g, Tc)), one(cu))
-    elseif r.mode === :te
-        Tc = r.Tc0 + zero(Tr); W = max(cu, zero(cu)) / (4 * 5.670374419e-5 * r.Tc0^4 * TX.mg_bfrac(g, r.Tc0))
-    else
-        Tc = SLIMPN >= 2 ? Tr : r.Tc0 + zero(Tr); W = o
-    end
+    Tc = r.Tsrc^(1 - r.wq) * Tr^r.wq
+    W = r.wq >= 1 ? o : min(max(cu, zero(cu)) / (4 * 5.670374419e-5 * Tc^4 * TX.mg_bfrac(g, Tc)), one(cu))
     (max(W / r.W0, 1e-6 + zero(W)), Tc / r.Tc0)
 end

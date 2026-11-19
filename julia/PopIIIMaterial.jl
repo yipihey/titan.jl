@@ -38,69 +38,100 @@ linearised in ln T) instead of explicit with Δt ≤ 0.1 uρ/Λ.
 ext_cooling(m, k) = (Λx = m.Λext[k]; Λx == 0 ? nothing :
                      m.slope[k] == 0 ? ((T) -> Λx + zero(T)) : (Tr = m.Tref[k]; s = m.slope[k]; (T) -> Λx * (T / Tr)^s))
 """
-LINEIMP=1 (popiii_m2c; default off, off = bit-identical): the H₂ line cooling of a zone is a function of the zone's current state, not
-a number held from the last transfer call (`Λext`, with the IMPCOOL power-law slope from a second transfer call). Each transfer call
-(popiii_m2c `linecool`) leaves per zone the radiative rates of its last population solve: escape probability β and mean intensity J̄
-per line (escape-probability call: β of the local optical depths, J̄ = β J_bg of the incident CMB + star light; ALI call: β = 1 − Λ*,
-J̄ = J̄_fs − Λ* S, the accelerated-Λ-iteration split). Between transfer calls those rates are frozen and the level populations are
-re-solved in statistical equilibrium at the gas temperature of the iterate:
-    Λ(ρ, T, x) = f · (n_H₂/n_H₂⁰) · n_H₂⁰ Σ_lines hν [n_u(T) (A β + B_ul J̄) − n_l(T) B_lu J̄]     (H2Levels.netrad = collcool in s.e.)
-with the colliders of the transfer call (n_H₂/n_H₂⁰ carries ρ and, in coupled zones, x_H₂ of the iterate). So the optically thin and
-the escape-probability part of the cooling are implicit and exact in T; the non-local part (J̄ from the other zones, the ALI/EP ratio f
-of the hybrid scheme) is lagged. ∂Λ/∂T from the same model (one-sided difference, relative step LIEPS) wherever Newton asks for it.
+LINEIMP (popiii_m2c; always on): the H₂ line cooling of a zone is a function of the zone's current state, not a number held from the last
+transfer call. Each transfer call (popiii_m2c `linecool`) leaves per zone the radiative rates of its last population solve: escape
+probability β and mean intensity J̄ per line (escape-probability call: β of the local optical depths, J̄ = β J_bg of the incident CMB + star
+light; ALI call: β = 1 − Λ*, J̄ = J̄_fs − Λ* S, the accelerated-Λ-iteration split). Between transfer calls those rates are frozen and the level
+populations are re-solved in statistical equilibrium at the temperature, the collider densities (n_H, n_H₂, n_He, n_H⁺ of the iterate's
+composition) and the H₂ density of the iterate:
+    Λ(ρ, T, x) = f · n_H₂ Σ_lines hν [n_u(T, n) (A β + B_ul J̄) − n_l(T, n) B_lu J̄]     (H2Levels.netrad = collcool in s.e.)
+with f the ALI/EP factor of the hybrid scheme. So the optically thin and the escape-probability part of the cooling are implicit and exact
+in T, ρ and the composition, and the derivatives are those of this function (ForwardDiff through the population solve: the populations
+are generic in the number type). The radiative rates of an escape-probability call follow the iterate too (`li_ep`: β from the line depths of the iterate's populations,
+density and velocity gradient, J̄ from the iterate's source function and the call's incident field); what stays as the transfer call left it is the static slab
+geometry inside β (through the call's Sobolev length), the incident field J_bg, the rates of an ALI call and the ALI/EP factor f.
 Λ is the net exchange with the zone's radiation field: it vanishes where the levels are in equilibrium with J̄ (for J̄ = β B_ν(T_r):
 at T = T_r) and is heating below that, so no held rate can take a zone below the radiation temperature; J̄ ≥ β B_ν(T_CMB) per line.
 """
 const LINEIMP = Ref(false)
-const LIMODEL = Ref{Vector{Any}}(Any[])          # per zone k: nothing or (; LV, β, J, nH, nH2, nHe, nHp, ρ, f, c)
-const LIEPS = 1e-4
-mutable struct LiCache; T::Float64; λ::Float64; dλ::Float64; hasd::Bool; ws::Any; end
+const LIMODEL = Ref{Vector{Any}}(Any[])          # per zone k: nothing or (; LV, β, J, nH, nH2, nHe, nHp, ρ, f, ws, ep): the rates and the state of the call, ep: EP-type extras
 li_model(k) = (LINEIMP[] && k <= length(LIMODEL[])) ? LIMODEL[][k] : nothing
 li_invalidate!() = (fill!(LIMODEL[], nothing); nothing)
-"(LINEIMP) the zone's line model from the radiative rates of a transfer call (see LINEIMP)."
-function li_set!(k, LV, β, J, nH, nH2, nHe, nHp, ρ, f)
+"Escape probability (1 − e^{−τ})/τ of a Sobolev slab and its inverse in τ (β < 1)."
+li_esc(τ) = τ < 1e-6 ? 1 - τ / 2 : -expm1(-τ) / τ
+function li_esc_inv(β)
+    lo, hi = -18.0, 18.0                                      # bisection in ln τ
+    for _ in 1:80; mid = 0.5(lo + hi); li_esc(exp(mid)) > β ? (lo = mid) : (hi = mid); end
+    exp(0.5(lo + hi))
+end
+"""
+(LINEIMP) the escape-probability model at the iterate. An EP transfer call (β of the line depths, J̄ = (1 − β) S + β J_bg) leaves per line
+its β, J̄ and, per zone, the populations. The model keeps from it, per line, the Sobolev length ℓ_i = τ_i/κ0_i (τ_i = the optical depth of the Sobolev form
+(1 − e^{−τ})/τ that gives the call's β, κ0_i the call's line opacity), the incident part J_bg,i = (J̄_i − (1 − β_i) S_i)/β_i and the zone's velocity gradient g0
+(`sl_grad`). At the iterate the lines are re-evaluated from the iterate's populations: κ0_i(iterate), τ_i = ℓ_i κ0_i g0/g, β_i = (1 − e^{−τ_i})/τ_i
+(1 where κ0_i ≤ 0), J̄_i = (1 − β_i) S_i + β_i J_bg,i ≥ β_i B_ν(T_CMB) (S_i the iterate's source function). At the state of the call this
+reproduces the call's β and J̄. Lines of an ALI call (β = 1 − Λ*, J̄ = J̄_fs − Λ* S) and lines with β = 1 at the call keep their rates.
+"""
+function li_ep(LV, β, J, jc, P, T, nH2, g0)
+    HV = Main.H2Levels; κ0 = HV.linekappa(LV, P, nH2); S = HV.linesource(LV, P, T)
+    ℓ = [(κ0[i] > 0 && β[i] < 1 - 1e-12 && β[i] > 0) ? li_esc_inv(β[i]) / κ0[i] : 0.0 for i in eachindex(β)]
+    Jbg = [β[i] > 0 ? max((J[i] - (1 - β[i]) * S[i]) / β[i], 0.0) : 0.0 for i in eachindex(β)]
+    (; ℓ, Jbg, jc, g0)
+end
+"(LINEIMP) the zone's line model from the radiative rates of a transfer call (see LINEIMP); ep = (; jc, P, T, g0) for an escape-probability call: the CMB intensity per line, the call's populations of the zone, its T and velocity gradient."
+function li_set!(k, LV, β, J, nH, nH2, nHe, nHp, ρ, f; ep = nothing)
     length(LIMODEL[]) < k && append!(LIMODEL[], Any[nothing for _ in length(LIMODEL[])+1:k])
     LIMODEL[][k] = (nH2 > 0 && isfinite(f)) ? (; LV, β, J, nH = max(Float64(nH), 0.0), nH2 = Float64(nH2), nHe = max(Float64(nHe), 0.0), nHp = max(Float64(nHp), 0.0), ρ = Float64(ρ), f = Float64(f),
-                                              c = LiCache(NaN, 0.0, 0.0, false, Main.H2Levels.PopWS(LV))) : nothing
+                                              ws = Main.H2Levels.PopWS(LV), ep = ep === nothing ? nothing : li_ep(LV, β, J, ep.jc, ep.P, ep.T, nH2, ep.g0)) : nothing
     nothing
 end
-function li_lam(md, Tv, ws)
-    HV = Main.H2Levels
-    P = HV.populations(md.LV, Tv, md.nH, md.nH2, md.nHe, md.nHp; β = md.β, Jbar = md.J, ws)
-    λ = md.f * HV.netrad(md.LV, P, md.nH2, md.β, md.J)
-    if !isfinite(λ) && LIBAD[] < 20
+const LIBAD = Ref(0)
+"""
+(LINEIMP) the line cooling [erg cm⁻³ s⁻¹] of the model md at temperature T and colliders (n_H, n_H₂, n_He, n_H⁺); gr = g/g0, the iterate's velocity gradient over that of
+the call. Any of the arguments may be a Dual (no work arrays then). EP-type models: the lines' β and J̄ are those of the iterate's populations (see `li_ep`),
+the populations of the cooling then solved with them.
+"""
+function li_lam(md, T, nH, nH2, nHe, nHp, gr = 1.0)
+    HV = Main.H2Levels; Tm = max(T, 1.0); LV = md.LV
+    dual = any(x -> x isa ForwardDiff.Dual, (Tm, nH, nH2, nHe, nHp, gr))
+    ws = dual ? nothing : md.ws
+    β, J = md.β, md.J
+    if md.ep !== nothing
+        P0 = HV.populations(LV, Tm, nH, nH2, nHe, nHp; β, Jbar = J, ws)
+        κ0 = HV.linekappa(LV, P0, nH2); S = HV.linesource(LV, P0, Tm); e = md.ep
+        β = [e.ℓ[i] > 0 ? (κ0[i] > 0 ? li_esc(e.ℓ[i] * κ0[i] / gr) : one(κ0[i])) : md.β[i] + zero(κ0[i]) for i in eachindex(md.β)]
+        J = [e.ℓ[i] > 0 ? max((1 - β[i]) * S[i] + β[i] * e.Jbg[i], β[i] * e.jc[i]) : md.J[i] + zero(κ0[i]) for i in eachindex(md.β)]
+    end
+    P = HV.populations(LV, Tm, nH, nH2, nHe, nHp; β, Jbar = J, ws)
+    λ = md.f * HV.netrad(LV, P, nH2, β, J)
+    if !isfinite(ForwardDiff.value(λ)) && LIBAD[] < 20
         LIBAD[] += 1
-        @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e f %.3g; β %s, J̄ %s, pops %s)\n", string(λ), Tv, md.nH, md.nH2, md.nHe, md.nHp, md.f,
-                all(isfinite, md.β) ? "finite" : "NON-FINITE", all(isfinite, md.J) ? "finite" : "NON-FINITE", all(isfinite, P) ? "finite" : "NON-FINITE"); flush(stdout)
+        @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e f %.3g; β %s, J̄ %s, pops %s)\n", string(λ), ForwardDiff.value(Tm), ForwardDiff.value(nH), ForwardDiff.value(nH2),
+                ForwardDiff.value(nHe), ForwardDiff.value(nHp), md.f, all(isfinite, ForwardDiff.value.(β)) ? "finite" : "NON-FINITE", all(isfinite, ForwardDiff.value.(J)) ? "finite" : "NON-FINITE",
+                all(isfinite, ForwardDiff.value.(P)) ? "finite" : "NON-FINITE"); flush(stdout)
     end
     λ
 end
-const LIBAD = Ref(0)
-"(LINEIMP) the line cooling [erg cm⁻³ s⁻¹] of the zone with model md at (ρ, T, composition y | nothing); Duals carry ∂/∂T, ∂/∂ρ, ∂/∂x_H₂."
-function li_cool(md, ρ, T, y)
-    Tv = max(Float64(ForwardDiff.value(T)), 1.0); c = md.c
-    if c.T != Tv
-        c.T = Tv; c.λ = li_lam(md, Tv, c.ws); c.hasd = false
-    end
-    s = y === nothing ? ρ / md.ρ : (ρ / CNn.μH()) * max(y[:H2], zero(y[:H2])) / md.nH2
-    T isa ForwardDiff.Dual || return c.λ * s
-    if !c.hasd
-        c.dλ = (li_lam(md, Tv * (1 + LIEPS), c.ws) - c.λ) / (Tv * LIEPS); c.hasd = true
-    end
-    (c.λ + c.dλ * (T - Tv)) * s
+"(LINEIMP) the line cooling of the zone with model md at (ρ, T, composition y | nothing, velocity-gradient ratio gr): colliders of the iterate's composition; without one (table zone) those of the call scaled by ρ."
+function li_cool(md, ρ, T, y, gr = 1.0)
+    y === nothing && return li_lam(md, T, md.nH, md.nH2, md.nHe, md.nHp) * (ρ / md.ρ)
+    nHt = ρ / CNn.μH(); comp(s_) = nHt * max(y[s_], zero(nHt))
+    li_lam(md, T, comp(:H), comp(:H2), comp(:He), comp(:Hp), gr)
 end
 "Cooling function for zone k: the material's own plus the transfer term."
 function zone_cooling(m, k)
     md = li_model(k)
-    if md !== nothing                                # LINEIMP: the line cooling of the iterate (see LINEIMP)
+    if md !== nothing && CPLPREP[]                   # the coupled zones' line cooling is that of the iterate's velocity gradient too: cpl_g adds it
+        c = m.cooling
+    elseif md !== nothing                            # LINEIMP: the line cooling of the iterate (see LINEIMP)
         g = (ρ, T, y) -> li_cool(md, ρ, T, y)
         c = m.cooling === nothing ? g : ((ρ, T, y) -> m.cooling(ρ, T, y) + g(ρ, T, y))
     else
     f = ext_cooling(m, k)
     c = f === nothing ? m.cooling : m.cooling === nothing ? ((ρ, T, y) -> f(T)) : ((ρ, T, y) -> m.cooling(ρ, T, y) + f(T))
     end
-    (HDCHEM[] && k <= length(HDX[]) && HDX[][k] > 0) || return c
-    xhd = HDX[][k]                                   # HDCHEM=1: HD cooling with the x_HD of the start of the step
+    (HDCHEM[] && !CPLPREP[] && k <= length(HDX[]) && HDX[][k] > 0) || return c      # (the coupled zones' HD cooling is that of the iterate: cpl_g)
+    xhd = HDX[][k]                                   # HDCHEM=1: HD cooling with the x_HD of the start of the step (operator-split chemistry)
     c === nothing ? ((ρ, T, y) -> hd_cool(ρ, T, y, xhd)) : ((ρ, T, y) -> c(ρ, T, y) + hd_cool(ρ, T, y, xhd))
 end
 
@@ -389,9 +420,9 @@ function nlte_kappas(ρ, T, d, p)
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
-    G2O.ON && return nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hbf_deep(p), Tw,
-                                nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0))
-    nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hbf_deep(p), Tw)
+    G2O.ON && return hbf_blend(hb -> nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hb, Tw,
+                                nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0)), p)
+    hbf_blend(hb -> nlte_means(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hb, Tw), p)
 end
 """
 `NLOHBFDEEP=1` (with TL3DEEP=1; default off, off = bit-identical): in network zones flagged `deep` (τ ≥ 3, TL3DEEP) the H bound–free
@@ -400,7 +431,14 @@ n = 2 photo-exchange is carried by the grey radiation coupling c κ_E E − 4π 
 chemistry heat. For network zones deep in the thick layers (G2: the network through the photosphere front, docs/POPIII_G2_MATERIAL.md §6.4).
 """
 const NLOHBFDEEP = get(ENV, "NLOHBFDEEP", "0") == "1"
-hbf_deep(p) = NLOHBFDEEP && p !== nothing && hasproperty(p, :deep) && p.deep
+hbf_w(p) = NLOHBFDEEP && p !== nothing && hasproperty(p, :deep) ? p.deep : 0.0
+"The means f(hbfP) with the H bound–free absorption weighted by the deep weight of p (linear blend of the two means in the transition)."
+function hbf_blend(f, p)
+    w = hbf_w(p)
+    w <= 0 && return f(false)
+    w >= 1 && return f(true)
+    map((a, b) -> (1 - w) * a + w * b, f(false), f(true))
+end
 """
 `G2BLEND=Γ0,D0,P0` (or `G2BLEND=1` for 0.3,0.1,0.01; default off, off = bit-identical): the network material everywhere outside the stellar
 interior, the table only where the gas is non-ideal, by a smooth weight of the state at the Newton iterate instead of the switch rules
@@ -569,25 +607,25 @@ function nlo_ratio(ρ, T, d, p)
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
-    E, P, R = G2O.ON ? nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hbf_deep(p), Tw,
-                                       nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0)) :
-                nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hbf_deep(p), Tw)
+    E, P, R = G2O.ON ? hbf_blend(hb -> nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hb, Tw,
+                                       nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0)), p) :
+                hbf_blend(hb -> nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hb, Tw), p)
     Threads.atomic_add!(NLOITN, 1); Threads.atomic_add!(NLOITNS, Int(time_ns() - t0_))
     (E / bP, P / bP, R / bR), ne
 end
 "(NLOIT) weight of the table calibration: smooth step in ln T from 0 at NLOITW[1] to 1 at NLOITW[2]."
 nlo_w(T) = (x = clamp((log(T) - log(NLOITW[1])) / (log(NLOITW[2]) - log(NLOITW[1])), 0.0, 1.0); x * x * (3 - 2x))
 "(NLOIT) composition of zone k at (ρ, T) and x_H⁺, x_H₂ (coupled zones: CK expansion with the step's terms; else the chemistry's)."
-function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0)
+function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0, g = nothing, dp = nothing)
     t = (TX.cplz(k) && k <= length(CPLTERMS[])) ? CPLTERMS[][k] : nothing
     t === nothing && return s.d, s.p
     t0_ = time_ns()
     # (not t.phc: its one-entry cache is shared with the residual's dual evaluation, which would then take this call's Float rates
     # at the same T and lose ∂(photo-rates)/∂T from the coupled zone's Jacobian)
     ph_, en_ = t.phraw; phc = Tq -> Any[(p_, CNn.photorates_t(p_, Tq, en_)...) for p_ in ph_]
-    if (q != 1 || tc != 1) && hasproperty(t, :slq)          # SLIMP: the composition at the iterate's star light
+    if (q != 1 || tc != 1 || g !== nothing || dp !== nothing) && hasproperty(t, :slq)          # SLIMP: the composition at the iterate's star light (f_sh does not enter the fast species)
         e0 = t.slq.envc0; phc0 = e0 === nothing ? nothing : (Tq -> Any[(p_, CNn.photorates_t(p_, Tq, e0)...) for p_ in ph_])
-        tq = cpl_tq(t, q, tc; phc, phc0)
+        tq = cpl_tq(t, ρ, T, x1, x2, q, tc, 0.0, g, dp; phc, phc0)
         x, _ = CNn.ck_eval([x1, x2], ρ, T, m.net; env = tq.env, phc = tq.phc, extra = tq.extra)
         Threads.atomic_add!(NLOCNS, Int(time_ns() - t0_))
         return CNn.full(x, m.net), tq.env.tl3
@@ -604,11 +642,11 @@ one-sided differences of relative step 1e-2 in x_H⁺ (1e-3 in ρ, central 1e-3 
 changes by 100 % for 0.1 % in x_H⁺, so a 1 % step crossed x_H⁺ = 1 (max(n_H, 0) = 0) and returned a slope 10× too small (d ln χ/d ln x_H⁺ = −6 against
 −67 in zones 15–17 of the stuck state t_nk30).
 """
-function nlo_slopes(m, k, s, ρ, T, x1, x2, q, tc)
+function nlo_slopes(m, k, s, ρ, T, x1, x2, q, tc, g, dp)
     D = ForwardDiff.Dual{TX.JTag,Float64,4}
     sd(v_, i) = D(v_, ForwardDiff.Partials(ntuple(j -> j == i ? v_ : 0.0, Val(4))))      # seed in the logarithm of the variable
     ρd, Td, x1d, x2d = sd(ρ, 1), sd(T, 2), sd(x1, 3), sd(x2, 4)
-    d, p = nlo_comp(m, k, s, ρd, Td, x1d, x2d, q, tc)
+    d, p = nlo_comp(m, k, s, ρd, Td, x1d, x2d, q, tc, g, dp)
     R, ne = nlo_ratio(ρd, Td, d, p)
     sl(y, i) = ForwardDiff.partials(y, i) / ForwardDiff.value(y)
     (ntuple(i -> sl(R[i], 2), 3), ntuple(i -> sl(R[i], 3), 3), ntuple(i -> sl(R[i], 4), 3), ntuple(i -> sl(R[i], 1), 3),
@@ -635,11 +673,12 @@ function nlo_it(m::NetGas, k, ρ, T, s)
         c === nothing ? (c = NloC(v, R, ne, (NaN, NaN, NaN, NaN), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0), false); keep && (NLOC[][k] = c)) : (c.v = v; c.R = R; c.ne = ne)
     end
     needJ = T isa ForwardDiff.Dual || xd isa ForwardDiff.Dual || ρ isa ForwardDiff.Dual
-    slon = SLIMP && cz && TX.CPLQ[] !== nothing && sl_on(k)       # SLIMP: the ratio at the iterate's star-light factors (below)
-    qv = slon ? Float64(ForwardDiff.value(TX.CPLQ[][1][k])) : 1.0; tv = slon ? Float64(ForwardDiff.value(TX.CPLQ[][2][k])) : 1.0
+    slon = SLIMP && cz && TX.CPLSL[] !== nothing       # SLIMP: the ratio at the iterate's star-light state (below)
+    qv = slon ? Float64(ForwardDiff.value(TX.CPLSL[].q[k])) : 1.0; tv = slon ? Float64(ForwardDiff.value(TX.CPLSL[].t[k])) : 1.0
+    gv = slon ? Float64(ForwardDiff.value(TX.CPLSL[].g[k])) : nothing; dv = slon ? Float64(ForwardDiff.value(TX.CPLSL[].dp[k])) : nothing
     if needJ && !(c.hasJ && abs(log(Tv / c.vJ[2])) < NLOITJ[1] && abs(log(ρv / c.vJ[1])) < NLOITJ[1] && (!cz || (abs(log(xv / c.vJ[3])) < NLOITJ[2] && abs(log(xv2 / c.vJ[4])) < NLOITJ[2])))
         if G2O.FASTON         # exact slopes (the Duals pass through means_fast)
-            c.qT, c.qx, c.qx2, c.qr, c.qn = nlo_slopes(m, k, s, ρv, Tv, xv, xv2, qv, tv)
+            c.qT, c.qx, c.qx2, c.qr, c.qn = nlo_slopes(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dv)
             cz || (c.qx = (0.0, 0.0, 0.0); c.qx2 = (0.0, 0.0, 0.0))
         else                  # (G2OPAC ≠ 2: the means are Float64 only; differences of R, relative steps 1e-3 and 1e-2)
             εT = 1e-3; d1, p1 = nlo_comp(m, k, s, ρv, Tv * (1 + εT), xv, xv2); R1, _ = nlo_ratio(ρv, Tv * (1 + εT), d1, p1)
@@ -659,32 +698,38 @@ function nlo_it(m::NetGas, k, ρ, T, s)
     end
     RE, RP, RR = c.R
     nebase = c.ne
-    if slon      # SLIMP: the ratio at the iterate's star-light factors (value exact, slopes in ln q, ln t by differences; those in ρ, T, x_H⁺, x_H₂ above, at q, t)
-        qd = TX.CPLQ[][1][k]; td = TX.CPLQ[][2][k]
+    if slon      # SLIMP: the ratio at the iterate's star-light state (value exact, slopes in ln q, ln t, ln g by differences; those in ρ, T, x_H⁺, x_H₂ above, at q, t, g)
+        qd = TX.CPLSL[].q[k]; td = TX.CPLSL[].t[k]; gd = TX.CPLSL[].g[k]; dd = TX.CPLSL[].dp[k]
         length(NLOQC[]) < k && (NLOQC[] = vcat(NLOQC[], Any[nothing for _ in length(NLOQC[])+1:k]))
-        e_ = NLOQC[][k]; key = (v..., qv, tv)
+        e_ = NLOQC[][k]; key = (v..., qv, tv, gv, dv)
         if e_ === nothing || e_[1] != key
-            Rq, neq = (qv == 1 && tv == 1) ? (c.R, c.ne) : nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv)...)
-            e_ = (key, Rq, neq, e_ === nothing ? nothing : e_[4], e_ === nothing ? ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)) : e_[5])
+            Rq, neq = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dv)...)
+            e_ = (key, Rq, neq, e_ === nothing ? nothing : e_[4], e_ === nothing ? ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)) : e_[5])
         end
-        dual = qd isa ForwardDiff.Dual || td isa ForwardDiff.Dual
-        if dual && !(e_[4] !== nothing && all(abs(log(key[i] / e_[4][i])) < NLOITJ[i <= 2 ? 1 : 2] for i in 1:6))
-            ε = 1e-2; Rp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv * (1 + ε), tv)...)
-            Rm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv / (1 + ε), tv)...)
+        dual = qd isa ForwardDiff.Dual || td isa ForwardDiff.Dual || gd isa ForwardDiff.Dual || dd isa ForwardDiff.Dual
+        if dual && !(e_[4] !== nothing && all((i == 8 ? abs(key[i] - e_[4][i]) : abs(log(key[i] / e_[4][i]))) < NLOITJ[i <= 2 ? 1 : 2] for i in 1:8))
+            ε = 1e-2; Rp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv * (1 + ε), tv, gv)...)
+            Rm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv / (1 + ε), tv, gv)...)
             sq = ntuple(i -> log(Rp[i] / Rm[i]) / (2log1p(ε)), 3)
-            st = (0.0, 0.0, 0.0)
-            if SLIMPN >= 2
-                εt = 1e-3; Tp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv * (1 + εt))...)
-                Tm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv / (1 + εt))...)
-                st = ntuple(i -> log(Tp[i] / Tm[i]) / (2log1p(εt)), 3)
+            εt = 1e-3; Tp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv * (1 + εt), gv)...)
+            Tm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv / (1 + εt), gv)...)
+            st = ntuple(i -> log(Tp[i] / Tm[i]) / (2log1p(εt)), 3)
+            Gp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv * (1 + ε))...)
+            Gm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv / (1 + ε))...)
+            sg = ntuple(i -> log(Gp[i] / Gm[i]) / (2log1p(ε)), 3)
+            sdp = (0.0, 0.0, 0.0)
+            if NLOHBFDEEP                                                  # the deep weight of the bound–free blend: additive slope (per unit weight)
+                εd = 0.02; Dp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dv + εd)...)
+                Dm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dv - εd)...)
+                sdp = ntuple(i -> log(Dp[i] / Dm[i]) / (2εd), 3)
             end
-            e_ = (e_[1], e_[2], e_[3], key, (sq, st))
+            e_ = (e_[1], e_[2], e_[3], key, (sq, st, sg, sdp))
         end
         NLOQC[][k] = e_
         RE, RP, RR = e_[2]; nebase = e_[3]
         if dual
-            lq = log(qd / qv); lτ = log(td / tv); sq, st = e_[5]
-            RE = RE * exp(sq[1] * lq + st[1] * lτ); RP = RP * exp(sq[2] * lq + st[2] * lτ); RR = RR * exp(sq[3] * lq + st[3] * lτ)
+            lq = log(qd / qv); lτ = log(td / tv); lg = log(gd / gv); ld = dd - dv; sq, st, sg, sdp = e_[5]
+            RE = RE * exp(sq[1] * lq + st[1] * lτ + sg[1] * lg + sdp[1] * ld); RP = RP * exp(sq[2] * lq + st[2] * lτ + sg[2] * lg + sdp[2] * ld); RR = RR * exp(sq[3] * lq + st[3] * lτ + sg[3] * lg + sdp[3] * ld)
         end
     end
     if needJ
@@ -987,14 +1032,13 @@ W is recovered from the parameters' β = W β_2s(T_c). The rates are then comput
 const LOCALJ = get(ENV, "LOCALJ", "0") == "1"
 # LOCALJTAB (with LOCALJ=1, default 1): the rates from ChemNet.photorates_lj's tables (W a factor, T_c and T tabulated); 0: direct integrals
 const LOCALJTAB = get(ENV, "LOCALJTAB", "1") == "1"
-# LOCALJWMIN=w (with LOCALJ=1; default 0): zones whose star-light dilution W is below w keep the static env (as LOCALJ=0): the far thin
-# cloud (W ~ 1e-10, T ~ 200–900 K) failed in ChemNet.step_ck with LOCALJ's env (t_tau3), and its photo-rates there are negligible
-const LOCALJWMIN = parse(Float64, get(ENV, "LOCALJWMIN", "0"))
-ljon(p) = LOCALJ && p !== nothing && hasproperty(p, :Tc) && p.Tc > 0 && (LOCALJWMIN == 0 || p.β / beta2s_bb(p.Tc) >= LOCALJWMIN)
+# The field is the static one (CMB) plus the diluted blackbody, J = J_static + W B(T_c) (`ljs` = the static env: its rates are added to the table's, ChemNet._photorates_t).
+# The former LOCALJWMIN switch (static env alone where W < w, the far thin cloud of t_tau3) is gone: there W B(T_c) ≪ J_static and the sum is the static env.
+ljon(p) = LOCALJ && p !== nothing && hasproperty(p, :Tc) && p.Tc > 0
 tl3env(m, p) = ljon(p) ?
-    (W_ = p.β / beta2s_bb(p.Tc); Tc_ = p.Tc;
-     LOCALJTAB ? merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, ljW = W_, tl3 = p)) :
-                 merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, tl3 = p))) :
+    (W_ = p.β / beta2s_bb(p.Tc); Tc_ = p.Tc; Js = m.env.J;
+     LOCALJTAB ? merge(m.env, (; Trad = Tc_, J = ν -> W_ * _bnu(ν, Tc_), static = false, ljW = W_, ljs = m.env, tl3 = p)) :
+                 merge(m.env, (; Trad = Tc_, J = ν -> Js(ν) + W_ * _bnu(ν, Tc_), static = false, ljs = m.env, tl3 = p))) :
     merge(m.env, (; tabkey = m.env, tl3 = p))
 """
 CHEMFBNET=n (default 0 = off): the chemistry fallback of a network zone below the equilibrium table's density (PopIIIEqEOS.rho_min, where
@@ -1029,19 +1073,19 @@ cycle heat leaves (⟨hν⟩(T_c) − χ_2 − 0.75 kT) ≈ a few % of kT per cy
 zone that left the table by ~2000 K per step (zone 73, 2.6e4 K, cycle heat −2.65e-3 erg cm⁻³ s⁻¹ lagged over 1.3e8 s against ρe ≈ 6 erg cm⁻³).
 """
 const TL3DEEP = get(ENV, "TL3DEEP", "0") == "1"
-# stalldiag (SDDEEP=lo:hi:v, zone numbers from the inner boundary, v = 0/1; default off): the `deep` flag of those zones forced instead of tau >= 3
-const SDDEEP = let s_ = get(ENV, "SDDEEP", ""); isempty(s_) ? nothing : (f_ = split(s_, ":"); (parse(Int, f_[1]), parse(Int, f_[2]), parse(Int, f_[3]) != 0)) end
-SDDEEPF(k, v) = SDDEEP === nothing ? v : (z_ = k - Int(TF.getscalar(:ngrs)) + 1; SDDEEP[1] <= z_ <= SDDEEP[2] ? SDDEEP[3] : v)
-"Energy terms of the three-level atom per volume: (chemistry heat, cycle heat for GASQ) at (ρ, T, full composition d)."
+"Weight of the thermalised-zone treatment (TL3DEEP) at optical depth τ: smooth step in ln τ from 0 at τ = 2 to 1 at τ = 4.5 (centre 3, the former discrete flag τ ≥ 3)."
+sl_deepw(τ) = (x = clamp(log(max(τ, 1e-30) / 2) / log(2.25), 0, 1); x * x * (3 - 2x))
+"Energy terms of the three-level atom per volume: (chemistry heat, cycle heat for GASQ) at (ρ, T, full composition d); × (1 − `p.deep`) with TL3DEEP."
 function tl3_heat(ρ, T, d, p)
-    TL3DEEP && hasproperty(p, :deep) && p.deep && return (zero(T), zero(T))
+    wd = TL3DEEP && hasproperty(p, :deep) ? p.deep : 0.0
+    wd >= 1 && return (zero(T), zero(T))
     nH = ρ / CNn.μH(); C = tl3_C(T, p); xH = max(d[:H], zero(T)); xe = max(d[:e], zero(T)); xp = max(d[:Hp], zero(T))
     Q12 = nH * xe * q12_H(T); I = (1 - C) * xH * (Q12 + p.P12); rec = alphaB_recfast(T) * nH * xe * xp
     Ein = p.hν + E21 * p.P12 / (Q12 + p.P12 + 1e-300)
     chemq = nH * (I * Ein - C * rec * (CNn.χH + 0.75CNn.kB * T))
     cycq = nH * (1 - C) * rec * (p.hν - CHI2 - 0.75CNn.kB * T)
     LYABB[] && (chemq += lya_bb(ρ, T, d, p))
-    chemq, cycq
+    (1 - wd) * chemq, (1 - wd) * cycq
 end
 "Bound–bound n = 1 ↔ 2 heat of the three-level atom per volume [erg cm⁻³ s⁻¹] (see LYABB)."
 function lya_bb(ρ, T, d, p)
@@ -1065,44 +1109,127 @@ with the rest of chemq, implicit in T in the chemistry. Left out: H–H (Drawin)
 """
 const LYABB = Ref(get(ENV, "LYABB", "0") == "1")
 """
-`SLIMP=1` (with COUPLED; default off, off = bit-identical): the star-light dilution W of a coupled zone at the Newton iterate. W depends
-on the zone's own E_r and its two interface fluxes (SLWFLUX: c u = max(c(E_r − E_cmb), ½(F_k + F_k+1)), W = c u/(4σT_c⁴), capped at 1
-in the SLBLEND form), and every star-light rate is linear in W at fixed T_c: the photo-rates of J = W B_ν(T_c) (R ∝ W; the Milne inverse
-α = α_spont + W α_stim), kHm, kH, kLW (∝ W), the three-level β = W β_2s(T_c) and P12 = (R_Lyα + Λ_2s) W/(e^{E21/kT_c} − 1). So with
-q = W(iterate)/W(start of step) (TitanResidFast.SLQ_FN, `sl_q`) the prepared terms are scaled exactly (`cpl_tq`) and q is a fifth local
-variable of the coupled zone (`cpl_zone_q`, local 7×5 Jacobian), of the NLOIT opacity composition (`nlo_comp` with q, slope in ln q)
-and of the post-step species (`cpl_finish!`). T_c (T_eff at the τ = 2/3 zone, T_r at τ + 2/3: non-local) stays at the start of step.
+`SLIMP>0` (with COUPLED, SLBLEND=1; default off, off = bit-identical): the star light of a coupled zone at the Newton iterate. Every
+star-light quantity of the zone's chemistry follows the iterate: the dilution W (the zone's own E_r and its two interface fluxes, SLWFLUX:
+c u = max(c(E_r − E_cmb), ½(F_k + F_k+1)), W = c u/(4σT_c⁴) capped at 1), the colour temperature T_c = T_src^(1−wq) T_r^wq, the Lyman-Werner
+factor and Lyα escape. Every star-light rate is linear in W at fixed T_c: the photo-rates of J = W B_ν(T_c) (R ∝ W; the Milne inverse
+α = α_spont + W α_stim), kHm, kH, kLW (∝ W), the three-level β = W β_2s(T_c) and P12 = (R_Lyα + Λ_2s) W/(e^{E21/kT_c} − 1). So with the state
+S = (q, t, fs, g) of `sl_sweep!` (q = W(iterate)/W(start of step), t = T_c(iterate)/T_c(start), fs, g) the prepared terms are rebuilt exactly
+(`cpl_tq`), and S is a local variable of the coupled zone (`cpl_zone_q`, local 7×8 Jacobian), of the NLOIT opacity composition (`nlo_comp`,
+slopes in ln q, ln t, ln g) and of the post-step species (`cpl_finish!`).
 """
-const SLIMPN = parse(Int, get(ENV, "SLIMP", "0")); const SLIMP = SLIMPN > 0
+const SLIMP = parse(Int, get(ENV, "SLIMP", "0")) > 0
 "(SLIMP) per zone the star-light record of the prepare pass (W0, T_c0, wq, T_src, mode, E_cmb, ρ, T, fsh, LW on); nothing: no star light."
 const SLW0 = Ref(Any[])
 "(SLIMP) a star exists at the last prepare pass (a zone at τ ≥ 2/3 and T_eff > 0)."
 const SLSTAR = Ref(false)
+"The angle-mean velocity gradient of the Lyα escape (|∂u/∂r| + 2|u|/r)/3 of the zone between r1 and r2 with edge velocities u1, u2."
+sl_grad(r1, r2, u1, u2) = (abs(u2 - u1) / (r2 - r1) + 2abs(0.5(u1 + u2)) / (0.5(r1 + r2))) / 3
 """
-(SLIMP) true if the coupled zones take the SLIMP path (`cpl_zone_q`, NLOIT and post-step species at the iterate's star light): whenever a
-star exists (zones without a record then have q = t = 1); before there is one, every zone takes the SLIMP=0 path (bit-identical to it).
+Window of the band Jacobian: the colour-coded Duals of the residual carry the derivatives of blocks k-2..k+2 only (TitanResidFast.assemble!;
+blocks 3 or more apart share a seed slot). A non-local quantity of zone k is therefore built from the Duals of zones j with |j − k| ≤ 2 and the
+values of all others; the rest of its dependence on the iterate is seen by the Jacobian-vector products of the Newton–Krylov solve.
 """
-sl_on(k) = SLSTAR[]
+@inline winv(x::ForwardDiff.Dual, j, k) = abs(j - k) <= 2 ? x : ForwardDiff.value(x)
+@inline winv(x, j, k) = x
+@inline _val(x) = x isa ForwardDiff.Dual ? ForwardDiff.value(x) : x
+"On-weight of the Lyman-Werner shielding column of a zone at optical depth τ: 1 outside, 0 inside the photosphere, smooth in ln τ between τ = 0.5 and 0.9 (the smooth form of the zone index k > k_ph, τ_k < 2/3)."
+sl_lwon(τ) = (x = clamp(log(max(τ, 1e-30) / 0.5) / log(0.9 / 0.5), 0, 1); 1 - x * x * (3 - 2x))
 """
-(SLIMP) (q, t) = (W(iterate)/W_start, T_c(iterate)/T_c,start) of zone k from its E_r and interface fluxes (generic in the number type).
-SLBLEND: T_c = T_src^(1−wq) T_r^wq (T_r = (max(E, E_cmb)/a)^¼ local, T_src and wq held), W = 1 (wq ≥ 1) or min(c u/(4σT_c⁴), 1);
-beyond the photosphere without SLBLEND: T_c = T_eff (held), W = c u/(4σT_eff⁴); else T_c = T_r, W = 1. With SLIMP=1 t ≡ 1 (W only).
+(SLIMP) the star-light state S = (q, t, fs, g, ts, wq) of every coupled zone a..b (`cplz(k)`) at the iterate (arrays of any number type), all
+from the iterate's r, ρ, T, u, E_r, F_r and species (the opacity χ of the iterate's last `update!` enters the optical depth as a Float):
+- optical depth τ_j = Σ_{i≥j} χ_i ρ_i Δr_i from the outer boundary to the inner interface of zone j (τ_{b+1} = 0);
+- colour temperature (SLBLEND) T_c = T_src^(1−wq) T_r^wq, T_r = (max(E, E_cmb)/a)^¼, wq = smoothstep(log10(τ/0.3)), T_src = T_r at optical
+  depth τ + 2/3 (SLEB: log E_r–log τ interpolation between the bracketing interfaces) or T_eff (not SLEB), and dilution W = 1 (wq ≥ 1) or
+  min(c u/(4σT_c⁴), 1), c u = max(c(E − E_cmb), ½(F_k + F_k+1)) (SLWFLUX); q = W/W0, t = T_c/T_c0 against the prepare pass;
+- T_eff = (F/σ)^¼ at τ = 2/3, linear in τ between the two interfaces that bracket it (the smooth form of the photosphere zone k_ph);
+- Lyman-Werner factor fs = on-weight(τ_k) f_sh(N_H2, T) f_sh(N_HI), the columns N = Σ_{j<k} w_j n_j Δr_j + ½ w_k n_k Δr_k over the zones
+  outside the photosphere (weight w_j = sl_lwon(τ_j)), n_H2 = n_H x_H₂, n_HI = n_H (1 − x_H⁺ − 2x_H₂); `shield = :sobolev`: N_H2 ≤ n_H2 v_th/(√2 |∂u/∂r|);
+- g, the velocity gradient of Lyα escape (`sl_grad`).
+Non-local sums keep the Duals of the zones in the band window of the consumer zone (`winv`); the sums over all other zones enter as values.
+`mgqt` (MGROUPS): zone k's (q, t) from the group fields, the prepare pass's T_src, wq and f_sh.
 """
-function sl_qt(k, E, Fk, Fk1)
-    o = one(E) + zero(Fk) + zero(Fk1)
-    (k <= length(SLW0[]) && (r = SLW0[][k]) !== nothing) || return (o, o)
-    arad = 7.565723e-15
-    cu = SLWFLUX ? max(CNn.c * (E - r.Ecmb), 0.5 * (max(Fk, zero(Fk)) + max(Fk1, zero(Fk1)))) : CNn.c * (E - r.Ecmb) + zero(Fk) + zero(Fk1)
-    Tr = (max(E, r.Ecmb + zero(E)) / arad)^0.25 + zero(Fk) + zero(Fk1)
-    if r.mode === :blend
-        Tc = SLIMPN >= 2 ? r.Tsrc^(1 - r.wq) * Tr^r.wq : r.Tc0 + zero(Tr)
-        W = r.wq >= 1 ? o : min(max(cu, zero(cu)) / (4 * 5.670374419e-5 * Tc^4), one(cu))
-    elseif r.mode === :te
-        Tc = r.Tc0 + zero(Tr); W = max(cu, zero(cu)) / (4 * 5.670374419e-5 * r.Tc0^4)
-    else
-        Tc = SLIMPN >= 2 ? Tr : r.Tc0 + zero(Tr); W = o
+function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = nothing)
+    sl = STARLIGHT[]; arad = 7.565723e-15; σ = 5.670374419e-5; chi = TM.v(:chifn); isD = eltype(dn) <: ForwardDiff.Dual; CMBE = arad * sl.tcmb^4
+    T = eltype(dn); inv_mu = 1 / CNn.μH()
+    # optical depth: τ[j] by values, and the Dual corrections (zero value) that a consumer zone k picks up from the zones i that depend on
+    # blocks inside its window (zone i = k−3 reaches block k−2 through r_{i+1}; the partials of block k−3 land in a seed slot the band never reads)
+    τv = zeros(b + 2)
+    for j in b:-1:a; τv[j] = τv[j+1] + chi[j] * _val(dn[j]) * _val(rn[j+1] - rn[j]); end
+    corτ(i, k) = (c_ = chi[i] * winv(dn[i], i, k) * (winv(rn[i+1], i + 1, k) - winv(rn[i], i, k)); c_ - _val(c_))
+    τwin(j, k) = j > b ? zero(T) : isD ? τv[j] + sum((corτ(i, k) for i in max(j, k - 3):min(b, k + 2)); init = zero(T)) : τv[j]
+    ph = τv[a] >= 2 / 3                                               # (a photosphere inside the grid)
+    jph = ph ? findlast(j -> τv[j] >= 2 / 3, a:b) + a - 1 : a         # bracketing interfaces jph, jph+1: τ ≥ 2/3 > τ
+    # Lyman-Werner columns: contributions of the zones outside the photosphere, with the Duals of the window and of the transition zones
+    lw = sl !== nothing && sl.shield !== :off
+    lwcols = lw && sl.shield !== :none
+    trans = [j for j in a:b if 0 < sl_lwon(τv[j]) < 1]               # zones whose weight depends on τ
+    nH(j) = dn[j] * inv_mu
+    c2(j, k, w) = w * winv(nH(j), j, k) * max(winv(xs2[j], j, k), 0) * (winv(rn[j+1], j + 1, k) - winv(rn[j], j, k))
+    c1(j, k, w) = w * winv(nH(j), j, k) * max(1 - winv(xs1[j], j, k) - 2winv(xs2[j], j, k), 0) * (winv(rn[j+1], j + 1, k) - winv(rn[j], j, k))
+    P2 = zeros(b + 2); P1 = zeros(b + 2)                              # value prefix sums of the weighted column integrands over the zones below k
+    if lwcols
+        for j in a:b
+            w = sl_lwon(τv[j]); P2[j+1] = P2[j] + _val(w * nH(j) * max(xs2[j], 0) * (rn[j+1] - rn[j])); P1[j+1] = P1[j] + _val(w * nH(j) * max(1 - xs1[j] - 2xs2[j], 0) * (rn[j+1] - rn[j]))
+        end
     end
-    (max(W / r.W0, 1e-6 + zero(W)), Tc / r.Tc0)
+    function interp_tr(τp, k)                                         # T_r at optical depth τp: log E_r–log τ between the bracketing interfaces
+        τ_a = τwin(a, k)
+        τp >= τ_a && return (max(winv(ern[a], a, k), CMBE) / arad)^0.25
+        τpv = _val(τp)
+        for j in a:b-1
+            if τv[j] >= τpv > τv[j+1]
+                t1, t2 = log(max(τwin(j, k), 1e-30)), log(max(τwin(j + 1, k), 1e-30)); w = t1 > t2 ? (log(τp) - t2) / (t1 - t2) : zero(t1)
+                l1, l2 = log(max(winv(ern[j], j, k), CMBE)), log(max(winv(ern[j+1], j + 1, k), CMBE))
+                return (exp(l2 + w * (l1 - l2)) / arad)^0.25
+            end
+        end
+        (max(winv(ern[b], b, k), CMBE) / arad)^0.25
+    end
+    teff(i, k) = (max(winv(frn[i], i, k), zero(frn[i])) / σ)^0.25
+    for k in a:b
+        cplz(k) || continue
+        S.g[k] = sl_grad(rn[k], rn[k+1], un[k], un[k+1])
+        TL3DEEP && (S.dp[k] = sl_deepw(τwin(k, k)))
+        (k <= length(SLW0[]) && (r = SLW0[][k]) !== nothing) || continue
+        if mgqt !== nothing
+            S.fs[k] = r.lw ? r.fsh : 0.0
+            S.q[k], S.t[k] = mgqt(k)
+            continue
+        end
+        E = ern[k]; Fk = frn[k]; Fk1 = frn[k+1]; τk = τwin(k, k)
+        Tsrc = if SLEB[]
+            interp_tr(τk + 2 / 3, k)
+        else                                                              # T_eff at τ = 2/3
+            w = (τwin(jph, k) - 2 / 3) / (τwin(jph, k) - τwin(jph + 1, k)); (1 - w) * teff(jph, k) + w * teff(jph + 1, k)
+        end
+        wq = clamp((log10(max(τk, 1e-30)) + log10(1 / 0.3)) / 1.0, 0, 1); wq = wq * wq * (3 - 2wq)
+        cu = SLWFLUX ? max(CNn.c * (E - CMBE), 0.5 * (max(Fk, zero(Fk)) + max(Fk1, zero(Fk1)))) : CNn.c * (E - CMBE)
+        Tr = (max(E, CMBE + zero(E)) / arad)^0.25
+        Tc = Tsrc^(1 - wq) * Tr^wq
+        W = wq >= 1 ? one(cu) : min(max(cu, zero(cu)) / (4σ * Tc^4), one(cu))
+        S.q[k] = max(W / r.W0, 1e-6); S.t[k] = Tc / r.Tc0; S.ts[k] = Tsrc; S.wq[k] = wq
+        if lw
+            on = sl_lwon(τk)
+            f = one(on) + zero(on)
+            if lwcols
+                N2 = P2[k] + 0.5 * c2(k, k, on); N1 = P1[k] + 0.5 * c1(k, k, on)
+                if isD                                                   # the Duals inside the window and of the transition zones
+                    for j in vcat(collect(max(a, k - 3):k - 1), [j for j in trans if j < k - 3])
+                        wj = sl_lwon(τwin(j, k))
+                        N2 += c2(j, k, wj) - _val(c2(j, k, wj)); N1 += c1(j, k, wj) - _val(c1(j, k, wj))
+                    end
+                end
+                if sl.shield === :sobolev
+                    dudr = abs(un[k+1] - un[k]) / (rn[k+1] - rn[k])
+                    dudr > 0 && (N2 = min(N2, nH(k) * max(xs2[k], 0) * sqrt(2CNn.kB * tn[k] / 1.6735575e-24) / sqrt(2) / dudr))
+                end
+                f = fsh_h2(N2, tn[k]) * fsh_hi(N1)
+            end
+            S.fs[k] = on * f
+        end
+    end
+    S
 end
 "Per-step star-light setup: photosphere, T_eff, and the LW columns; returns a function k -> (kHm, kH, kLW, fsh) for a network zone k."
 function starlight_setup(m::NetGas, a, b, tauz_)
@@ -1183,7 +1310,7 @@ function starlight_setup(m::NetGas, a, b, tauz_)
             kLW = 1.1e8 * 4π * (Wg === nothing ? W : Wg[MGROLE[].LW]) * _bnu(νLW, Tc) * f
         end
         diag.kHm[k] = kHm; diag.kH[k] = kH; diag.kLW[k] = kLW; diag.fsh[k] = f
-        if SLIMP && CPLPREP[]                            # SLIMP: how this zone's star light follows its E_r, F_r (sl_qt)
+        if SLIMP && CPLPREP[]                            # SLIMP: the zone's star light at the prepare pass (reference of sl_sweep!)
             md = (SLBLEND[] && Te > 0) ? :blend : (k > kph && Te > 0) ? :te : :local
             # no star yet — no zone at τ ≥ 2/3 (the cloud before the first core: kph defaults to the centre zone and T_eff is that of the
             # centre's flux, ~T_CMB) or T_eff = 0: no record, q = t = 1 exactly and the zone takes the SLIMP=0 path (the ICEUL start failed
@@ -1197,13 +1324,12 @@ function starlight_setup(m::NetGas, a, b, tauz_)
         end
         if tl3on                                        # three-level H parameters (start-of-step state), see tl3_reactions
             d = CNn.full(m.x[k], m.net); nH = dn[k] / CNn.μH(); n1 = nH * max(d[:H], 1e-30)
-            rc = 0.5(rn[k] + rn[k+1]); ub = 0.5(un[k] + un[k+1])
-            g = (abs(un[k+1] - un[k]) / (rn[k+1] - rn[k]) + 2abs(ub) / rc) / 3
+            g = sl_grad(rn[k], rn[k+1], un[k], un[k+1])
             τS = 3A21LYA * LYA_LAM^3 * n1 / (8π * max(g, 1e-30))
             RL = 3A21LYA * (τS < 1e-6 ? 1.0 : -expm1(-τS) / τS)
             nb = (Wg === nothing ? W : Wg[MGROLE[].Lya]) / expm1(E21 / (CNn.kB * Tc))
             diag.tl3[k] = (; β = (Wg === nothing ? W : Wg[MGROLE[].Ba]) * beta2s_bb(Tc), RL, ne = nH * max(d[:e], 0.0), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc)
-            TL3DEEP && (diag.tl3[k] = merge(diag.tl3[k], (; deep = SDDEEPF(k, tauz_[k] >= 3.0))))
+            TL3DEEP && (diag.tl3[k] = merge(diag.tl3[k], (; deep = sl_deepw(tauz_[k]))))      # (the start-of-step weight: the operator-split chemistry; the Newton's is the iterate's, sl_sweep!)
             ov_ = LYAOVR[]; (k <= length(ov_) && ov_[k] !== nothing) && (diag.tl3[k] = merge(diag.tl3[k], ov_[k]))   # LYART: transferred Lyα
         end
         (kHm, kH, kLW, f)
@@ -1377,8 +1503,7 @@ function chem_core!(m::NetGas)
                 cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, p3)[1]
                 # CHEMCKHSS: n_e of the three-level heat from the current composition, as in ChemNet.step_ck's C
                 if (CNn.CK[] && CNn.CKHSS[] > 0) || TX.COUPLED[]
-                    nHs = dn[k] / CNn.μH()
-                    cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3, (; ne = nHs * max(d[:Hp], zero(d[:Hp])))))[1]
+                    cools = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3, (; ne = ρ / CNn.μH() * max(d[:Hp], zero(d[:Hp])))))[1]
                 end
             end
             if CNn.HM88                              # HM88: perturber densities of the zone (composition at the start of the step) for φ
@@ -1405,11 +1530,14 @@ function chem_core!(m::NetGas)
                 phc = photo_cache(cache, phc_, envc)
                 if SLIMP && p3 !== nothing && isempty(TX.CHEMB[])   # SLIMP: what scales with W (see sl_q, cpl_tq)
                     lj = hasproperty(envk, :ljW) || (ljon(p3) && hasproperty(envk, :J))
-                    envc0 = !lj ? nothing : hasproperty(envk, :ljW) ? merge(envk, (; J = ν -> 0.0, ljW = 0.0)) : merge(envk, (; J = ν -> 0.0))
+                    envc0 = !lj ? nothing : hasproperty(envk, :ljW) ? merge(envk, (; J = ν -> 0.0, ljW = 0.0)) : merge(envk, (; J = envk.ljs.J))      # (W = 0: the static field alone)
                     cache0 = Ref((NaN, Any[]))
                     phc0 = envc0 === nothing ? nothing :
                         photo_cache(cache0, phc_, envc0)
-                    slq = (; p3, lj, envc0, phc0, c0 = cools0, nHs = dn[k] / CNn.μH(), ph = phc_, net = m.net, mm = m,
+                    hm0 = if CNn.HM88                        # He and the He-ion electrons of the start of the step: the part of the perturber densities the slow species do not carry
+                        dh0 = CNn.full(m.x[k], m.net); (max(dh0[:He], 0.0), max(dh0[:e] - dh0[:Hp], 0.0))
+                    else nothing end
+                    slq = (; p3, lj, envc0, phc0, hm0, c0 = cools0, ph = phc_, net = m.net, mm = m,
                            rec = (k <= length(SLW0[]) ? SLW0[][k] : nothing))
                     CPLTERMS[][k] = (; env = envk, phc, cooling = cools, extra = exs, phraw = (phc_, envc), slq)
                     return nothing
@@ -1532,7 +1660,9 @@ D + H⁻), D ionisation and recombination with the H rates, HD photodissociation
 as the stationary state of the chain with a restart at rate 1/Δt to the old state: sums of positive products only, exact for any
 rate × Δt, and y_D is conserved. Table and hot zones: the stationary state.
 Cooling: n_HD [W(T) − W(T_CMB)], W = Λ_LTE/(1 + Λ_LTE/(n_HI Λ_low)) (Coppola et al. 2011; Wrathmall, Gusdorf & Flower 2007: HD–H
-collisions only), inside the implicit chemistry–temperature step, with the x_HD of the start of the step.
+collisions only), inside the implicit chemistry–temperature step, with the x_HD of the start of the step. The coupled zones of the hydro Newton
+have the x_HD of the iterate instead (`cpl_g`): the backward-Euler step of the chain from the start-of-step state over the time elapsed in the stage, at the
+iterate's T, ρ, composition and Lyman–Werner rate (local, exact derivatives).
 Zones without the two entries (restart from a run without HD, a rebuilt mesh): table zones get the stationary state; network zones
 the stationary state with `HDINIT=eq` (default), or with `HDINIT=<x_HD>` that HD abundance and D⁺/D = H⁺/H.
 Not included: HD in the EOS (binding energy, particle number: 2.5e-5 of H), HD–H₂ and HD–He collisions, HD line optical depths,
@@ -1568,8 +1698,8 @@ function hd_cool(ρ, T, d, xHD)
 end
 "Transition rates [1/s] between the states (D, D⁺, HD): (D→D⁺, D⁺→D, D⁺→HD, HD→D⁺, D→HD, HD→D)."
 function hd_rates(T, nH, d, kLW)
-    t = min(max(Float64(T), 10.0), 1e6)
-    g(s) = max(Float64(get(d, s, 0.0)), 0.0)
+    t = min(max(T, 10.0), 1e6)
+    g(s) = max(get(d, s, zero(t)), 0.0)
     xH, xp, xe, xH2, xm = g(:H), g(:Hp), g(:e), g(:H2), g(:Hm)
     (nH * (PC.k1_aazn(t) * xe + hd_k50(t) * xp), nH * (PC.k2_aazn(t) * xe + hd_k51(t) * xH), nH * hd_k52(t) * xH2,
      nH * hd_k53(t) * xp, nH * (hd_k54(t) * xH2 + hd_k56(t) * xm), nH * hd_k55(t) * xH + kLW)
@@ -1591,6 +1721,12 @@ function hd_step(q, p0, idt)
     (isfinite(s) && s > 0) || return p0
     (w1 / s, w2 / s, w3 / s)
 end
+"""
+The (D, D⁺, HD) fractions of the coupled zone at the iterate (HDCHEM): the backward-Euler step of the three-state chain (`hd_step`) from the start-of-step
+fractions p0 over the time elapsed since the start of the step (stage: γΔt, Δt) at the iterate's T, ρ, composition d and Lyman–Werner rate kLW; at the end of the
+step it is the step the operator-split chemistry (`chem!`) takes from the same state. Generic in the number type.
+"""
+hd_x(ρ, T, d, kLW, p0) = (te = TF.getscalar(:timen) - TF.getscalar(:timeo); hd_step(hd_rates(T, ρ / CNn.μH(), d, kLW), p0, te > 0 ? 1 / te : Inf))
 hd_fracs(xDp, xHD) = (yD = HDYD[]; p2 = clamp(xDp / yD, 0.0, 1.0); p3 = clamp(xHD / yD, 0.0, 1.0 - p2); (1.0 - p2 - p3, p2, p3))
 function hd_default(m, k, x)
     dn, tn = TM.v(:dn), TM.v(:tn); yD = HDYD[]
@@ -1656,6 +1792,8 @@ Not coupled: the IonRay path (a ray zone is not prepared), CHEMB (BALSPLIT) — 
 const CPLPREP = Ref(false); const CPLPOST = Ref(false)
 const CPLDBGZ = Ref(parse(Int, get(ENV, "CPLDBGZ", "0"))); const CPLDBGN = Ref(parse(Int, get(ENV, "CPLDBGN", "20")))
 const CPLTERMS = Ref(Any[]); const CPLCACHE = Ref(Any[])
+"(HDCHEM) per zone the start-of-step fractions (D, D⁺, HD) of the coupled zones' HD chain (hd_fracs), the old state of `hd_x`."
+const CPLHD0 = Ref(Any[])
 """
 The zone's photo-rates as a function of T: cached on the last Float64 T (`cache = Ref((T, rates))`); a Dual T (the local Jacobian sweeps of
 `cpl_vj`, `nlo_slopes`) is evaluated directly and carries ∂(rates)/∂T (ChemNet.ck_eval used to take the rates at the value of T: the Jacobian then lacked
@@ -1664,47 +1802,77 @@ the T dependence of the photo-ionisation/recombination coefficients, e.g. 0.03 i
 photo_cache(cache, ph_, env) = Tv -> Tv isa ForwardDiff.Dual ? Any[(p_, CNn.photorates_t(p_, Tv, env)...) for p_ in ph_] :
     (Tv == cache[][1] || (cache[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, env)...) for p_ in ph_])); cache[][2])
 """
-(SLIMP) the prepared terms of a zone with every star-light rate scaled by q = W/W_start (exact: all are linear in W at fixed T_c): the
-three-level β, P12 (reactions, C, heats), the network photo-rates of J = W B(T_c) (R → qR, α → α_0 + q(α − α_0), α_0 at W = 0), the
-star-light `extra` (kHm, kH, kLW), and the cooling closure's three-level heat. `phc`, `phc0` may be given uncached (NLOIT's path).
+Lyα escape rate R_Lyα [s⁻¹] per 2p atom of the three-level model at the iterate: τ_S = 3A_21 λ_α³ n_1s / (8π g), n_1s = n_H x_H with
+x_H = 1 − x_H⁺ − 2x_H₂ (the slow species of the iterate; the fast ones are ≤ 1e-6), g the angle-mean velocity gradient
+(|∂u/∂r| + 2|u|/r)/3 of the iterate (`sl_grad`).
 """
-function cpl_tq(t, q, tc = 1.0; phc = t.phc, phc0 = t.slq.phc0)
-    s_ = t.slq; p3b = s_.p3; envb = t.env; extrab = t.extra; r = s_.rec
-    if tc != 1 && r !== nothing                  # SLIMP=2: the terms at the iterate's colour temperature (Float; W at its start value W0)
+function lya_escape(ρ, x1, x2, g)
+    n1 = ρ / CNn.μH() * max(1 - x1 - 2x2, 1e-30)
+    τS = 3A21LYA * LYA_LAM^3 * n1 / (8π * max(g, 1e-30))
+    3A21LYA * (τS < 1e-6 ? one(τS) : -expm1(-τS) / τS)
+end
+"""
+(SLIMP) the prepared terms of a zone at the star light of the iterate: (q, tc, fs, g) = (W/W_start, T_c/T_c,start, the LW factor
+f_sh × (smooth on-weight of τ) of `sl_sweep!`, the velocity gradient g of the zone). Everything that follows from them is recomputed here
+exactly: the photo-rates of J = W B(T_c) (R ∝ W; the Milne inverse α = α_spont + W α_stim), kLW = 1.1e8 · 4π W B_ν(T_c) fs (kHm, kH at the
+value of T of the iterate), the three-level β = W β_2s(T_c), R_Lyα(ρ, x_H⁺, x_H₂, g), P12 = (R_Lyα + Λ_2s) W/(e^{E21/kT_c} − 1) and ⟨hν⟩(T_c). The
+colour temperature enters as a Float (the photo-rate tables are Float in T_c; its slope is a central difference in `cpl_vjq`); q, fs, g and
+(ρ, x) are Duals. A zone without a star-light record (no star at the prepare pass) has q = tc = 1 and keeps the prepared W and T_c; its
+R_Lyα is still the iterate's. `phc`, `phc0` may be given uncached (NLOIT's path).
+"""
+function cpl_tq(t, ρ, T, x1, x2, q, tc, fs, g, dp = nothing; phc = t.phc, phc0 = t.slq.phc0)
+    s_ = t.slq; p3b = s_.p3; extrab = t.extra; r = s_.rec
+    tenv = t.env
+    if CNn.HM88 && hasproperty(tenv, :hm) && s_.hm0 !== nothing       # HM88: the perturber densities of the iterate (H, H₂, H⁺ from the slow species; the He part of the start)
+        nHt = ρ / CNn.μH(); tenv = merge(tenv, (; hm = (nHt * (max(1 - x1 - 2x2, 0) + s_.hm0[1] + x2), nHt * (x1 + s_.hm0[2]))))
+    end
+    envb = tenv
+    dp === nothing || (p3b = merge(p3b, (; deep = dp)))                # TL3DEEP: the iterate's deep weight
+    RL = g === nothing ? p3b.RL : lya_escape(ρ, x1, x2, g)             # (g = nothing: the prepared R_Lyα, for the opacity's base value)
+    kLW = 0.0
+    if r !== nothing                             # the terms at the iterate's colour temperature (Float) and dilution (q: below)
         Tc = r.Tc0 * tc; W0 = r.W0; sl = STARLIGHT[]
         mgr_ = hasproperty(r, :Wg)                   # MGROUPS: each process with its group's dilution
         WBa = mgr_ ? r.Wg[MGROLE[].Ba] : W0; WLy = mgr_ ? r.Wg[MGROLE[].Lya] : W0
         nb = WLy / expm1(E21 / (CNn.kB * Tc))
-        p3b = merge(s_.p3, (; β = WBa * beta2s_bb(Tc), P12 = (s_.p3.RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc))
-        Jb = mgr_ ? mg_J(r.Wg, Tc) : (ν -> W0 * _bnu(ν, Tc))
-        envb = s_.lj ? (hasproperty(t.env, :ljW) ? merge(t.env, (; Trad = Tc, J = Jb, ljW = WBa, tl3 = p3b)) :
-                                                   merge(t.env, (; Trad = Tc, J = Jb, tl3 = p3b))) : merge(t.env, (; tl3 = p3b))
+        p3b = merge(p3b, (; β = WBa * beta2s_bb(Tc), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc, RL))
+        Jb0 = mgr_ ? mg_J(r.Wg, Tc) : (ν -> W0 * _bnu(ν, Tc))
+        Jb = s_.lj && !hasproperty(tenv, :ljW) ? (Js = tenv.ljs.J; ν -> Js(ν) + Jb0(ν)) : Jb0          # (J = J_static + W B(T_c))
+        envb = s_.lj ? (hasproperty(tenv, :ljW) ? merge(tenv, (; Trad = Tc, J = Jb, ljW = WBa, tl3 = p3b)) :
+                                                   merge(tenv, (; Trad = Tc, J = Jb, tl3 = p3b))) : merge(tenv, (; tl3 = p3b))
         ph_ = s_.ph; phc = Tv -> Any[(p_, CNn.photorates_t(p_, Tv, envb)...) for p_ in ph_]
         if t.extra !== nothing
-            e1 = (Trad = Tc, J = Jb)
-            kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, r.T, e1)
-            kH = mgr_ ? (r.kHon ? mg_kH(r.Wg, Tc) : 0.0) : sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, r.T, e1)
-            kLW = r.lw ? 1.1e8 * 4π * (mgr_ ? r.Wg[MGROLE[].LW] : W0) * _bnu(12.87 * EVERG / CNn.hP, Tc) * r.fsh : 0.0
+            e1 = (Trad = Tc, J = Jb); Tv = Float64(ForwardDiff.value(T))
+            kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, Tv, e1)
+            kH = mgr_ ? (r.kHon ? mg_kH(r.Wg, Tc) : 0.0) : sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, Tv, e1)
+            kLW = 1.1e8 * 4π * (mgr_ ? r.Wg[MGROLE[].LW] : W0) * _bnu(12.87 * EVERG / CNn.hP, Tc) * fs
             extrab = mgr_ ? starlight_terms(s_.mm, r.ρ, kHm, kH, kLW; a1 = r.a1) : starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
         end
+    else
+        p3b = merge(p3b, (; RL, P12 = (RL + LAM2S) * p3b.P12 / (s_.p3.RL + LAM2S)))
+        envb = merge(envb, (; tl3 = p3b))
     end
     # (a rate that is exactly 0 stays a Float 0: q·0 is a Dual zero, and tl3_heat's E21 P12/(Q12 + P12 + 1e-300) then has 0/0 partials
     #  where Q12 underflows (cold gas, T_c ~ T_CMB); the derivative of q·0 is 0 anyway)
     p3q = merge(p3b, (; β = iszero(p3b.β) ? p3b.β : q * p3b.β, P12 = iszero(p3b.P12) ? p3b.P12 : q * p3b.P12))
     env = merge(envb, (; tl3 = p3q))
-    phq = (s_.lj && phc0 !== nothing) ? (Tv -> [(a_[1], q * a_[2], b_[3] + q * (a_[3] - b_[3])) for (a_, b_) in zip(phc(Tv), phc0(Tv))]) : phc
+    phq = (s_.lj && phc0 !== nothing) ? (Tv -> [(a_[1], b_[2] + q * (a_[2] - b_[2]), b_[3] + q * (a_[3] - b_[3])) for (a_, b_) in zip(phc(Tv), phc0(Tv))]) : phc      # (b: W = 0, the static field)
     ex = extrab === nothing ? nothing : (x -> q .* extrab(x))
-    c0 = s_.c0; nHs = s_.nHs
-    cooling = (ρ, T, d) -> (c0 === nothing ? zero(T) : c0(ρ, T, d)) - tl3_heat(ρ, T, d, merge(p3q, (; ne = nHs * max(d[:Hp], zero(d[:Hp])))))[1]
-    (; env, phc = phq, cooling, extra = ex)
+    c0 = s_.c0
+    cooling = (ρ_, T, d) -> (c0 === nothing ? zero(T) : c0(ρ_, T, d)) - tl3_heat(ρ_, T, d, merge(p3q, (; ne = ρ_ / CNn.μH() * max(d[:Hp], zero(d[:Hp])))))[1]
+    (; env, phc = phq, cooling, extra = ex, kLW)
 end
 function cpl_g(m::NetGas, k, z)
     t = CPLTERMS[][k]; ρ = z[1]; T = z[2]
-    length(z) >= 5 && hasproperty(t, :slq) && (t = cpl_tq(t, z[5], length(z) >= 6 ? Float64(ForwardDiff.value(z[6])) : 1.0))
+    length(z) >= 9 && hasproperty(t, :slq) && (t = cpl_tq(t, ρ, T, z[3], z[4], z[5], Float64(ForwardDiff.value(z[6])), z[7], z[8], z[9]))
     x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
     u, p = CNn.eos(ρ, T, x, m.net)
     dfull = CNn.full(x, m.net)
     Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, dfull)
+    md = li_model(k)
+    md === nothing || (Λ += li_cool(md, ρ, T, dfull, md.ep !== nothing && length(z) >= 9 ? z[8] / md.ep.g0 : 1.0))      # H2 line cooling of the iterate (LINEIMP)
+    hd0 = HDCHEM[] && k <= length(CPLHD0[]) ? CPLHD0[][k] : nothing
+    hd0 === nothing || (Λ += hd_cool(ρ, T, dfull, HDYD[] * hd_x(ρ, T, dfull, hasproperty(t, :kLW) ? t.kLW : 0.0, hd0)[3]))      # HD cooling of the iterate (HDCHEM)
     # three-level heats of the iterate (chemistry heat cq, cycle heat yq; n_e self-consistent as in the cooling closure): the hydro solve
     # takes them from the gray field implicitly (TitanResidFast cpQ, cpY) instead of the lagged RAYQ/GASQ bookkeeping
     p3_ = hasproperty(t.env, :tl3) ? t.env.tl3 : nothing
@@ -1742,8 +1910,8 @@ cpl_lift(y, J, ρ, T, a, b) = (pr = promote(ρ, T, a, b); cpl_lift(y, J, pr...))
 "(p, e, S_H⁺, S_H₂, Λ) of coupled zone k at (ρ, T, x_H⁺, x_H₂), with derivatives (see COUPLED above)."
 const CPLPN = Threads.Atomic{Int}(0); const CPLPH = Threads.Atomic{Int}(0); const CPLPT = Threads.Atomic{Int}(0)   # (CPLPROF) misses, hits, ns
 """
-Jacobian reuse (CPLJLAG, default "3e-3,0.1"): a zone's local Jacobian is recomputed only when ρ or T moved by more than the first number or
-x_H⁺, x_H₂ by more than the second (relative, ln) since it was taken; the values are always exact. Float evaluations (the EOS refresh in
+Jacobian reuse (CPLJLAG, default "3e-3,0.1"): a zone's local Jacobian is recomputed only when ρ or T (or, SLIMP, the star-light state q, t, fs, g) moved by
+more than the first number or x_H⁺, x_H₂ by more than the second (relative, ln) since it was taken; the values are always exact. Float evaluations (the EOS refresh in
 update!) take values only. The Newton becomes inexact, the converged state is unchanged. `CPLJLAG=0`: a new Jacobian at every new point.
 """
 const CPLJLAG = let s_ = split(get(ENV, "CPLJLAG", "3e-3,0.1"), ","); s_[1] == "0" ? (0.0, 0.0) : (parse(Float64, s_[1]), parse(Float64, s_[2])) end
@@ -1776,15 +1944,14 @@ function cpl_zone(m::NetGas, k, ρ, T, a, b)
     needJ ? cpl_lift(c[2], c[4], ρ, T, a, b) : Tuple(c[2])
 end
 const CPLCACHEQ = Ref(Any[])
-@inline cpl_closeq(vJ, v) = cpl_close(vJ, v) && all(abs(log(v[i] / vJ[i])) < CPLJLAG[2] for i in 5:length(v))
-"(SLIMP) local values and Jacobian at v = (ρ, T, x1, x2, q, t): AD in the first five, central differences (ln t, 1e-3) in t."
+@inline cpl_closeq(vJ, v) = cpl_close(vJ, v) && abs(log(v[5] / vJ[5])) < CPLJLAG[1] && abs(log(v[6] / vJ[6])) < CPLJLAG[1] &&     # (the star-light state moves the rates steeply: the
+                            abs(v[7] - vJ[7]) <= CPLJLAG[1] * max(v[7], vJ[7], 1e-3) && abs(log(v[8] / vJ[8])) < CPLJLAG[1] && abs(v[9] - vJ[9]) <= CPLJLAG[1]       #  tolerance of ρ, T, not that of the species)
+"(SLIMP) local values and Jacobian at v = (ρ, T, x1, x2, q, t, fs, g, dp): AD in all but t, central differences (ln t, 1e-3) in t (a Float in the photo-rate tables)."
 function cpl_vjq(m, k, v)
     y, J = cpl_vj(m, k, v)
-    if length(v) >= 6
-        ε = 1e-3; zp = [v...]; zm = [v...]; zp[6] = v[6] * (1 + ε); zm[6] = v[6] / (1 + ε)
-        yp = cpl_g(m, k, zp); ym = cpl_g(m, k, zm)
-        for i in 1:7; J[i, 6] = (yp[i] - ym[i]) / (v[6] * 2log1p(ε)); end
-    end
+    ε = 1e-3; zp = [v...]; zm = [v...]; zp[6] = v[6] * (1 + ε); zm[6] = v[6] / (1 + ε)
+    yp = cpl_g(m, k, zp); ym = cpl_g(m, k, zm)
+    for i in 1:7; J[i, 6] = (yp[i] - ym[i]) / (v[6] * 2log1p(ε)); end
     if TX.SLIMPDBG[] > 0 && !all(isfinite, J)
         TX.SLIMPDBG[] -= 1; bad = [(i, j) for i in 1:7, j in 1:size(J, 2) if !isfinite(J[i, j])]
         println("SLIMPDBG cpl_vjq zone $k v $v: non-finite J at $bad; y $y; rec ", CPLTERMS[][k].slq.rec)
@@ -1796,11 +1963,11 @@ function cpl_liftq(y, J, xs...)
     Ps = map(x -> ForwardDiff.partials(D(x)), xs)
     ntuple(i -> D(y[i], sum(J[i, j] * Ps[j] for j in eachindex(Ps))), 7)
 end
-"(SLIMP) cpl_zone with the star-light factors q = W/W_start (and t = T_c/T_c,start) as local variables (cached per zone on the Float values)."
-function cpl_zone_q(m::NetGas, k, ρ, T, a, b, q, tc = 1.0)
+"(SLIMP) cpl_zone with the star-light state (q, t, fs, g, dp) of the iterate as local variables (cached per zone on the Float values)."
+function cpl_zone_q(m::NetGas, k, ρ, T, a, b, q, tc, fs, g, dp)
     V(x) = Float64(ForwardDiff.value(x))
-    v = (V(ρ), V(T), V(a), V(b), V(q), V(tc))
-    needJ = any(x -> x isa ForwardDiff.Dual, (ρ, T, a, b, q, tc))
+    v = (V(ρ), V(T), V(a), V(b), V(q), V(tc), V(fs), V(g), V(dp))
+    needJ = any(x -> x isa ForwardDiff.Dual, (ρ, T, a, b, q, tc, fs, g, dp))
     length(CPLCACHEQ[]) < k && (CPLCACHEQ[] = vcat(CPLCACHEQ[], Any[nothing for _ in length(CPLCACHEQ[])+1:k]))
     c = CPLCACHEQ[][k]
     if c === nothing || c[1] != v
@@ -1813,12 +1980,12 @@ function cpl_zone_q(m::NetGas, k, ρ, T, a, b, q, tc = 1.0)
     elseif needJ && !cpl_closeq(c[3], v)
         y, J = cpl_vjq(m, k, v); c = (v, y, v, J); CPLCACHEQ[][k] = c
     end
-    needJ ? cpl_liftq(c[2], c[4], ρ, T, a, b, q, tc) : Tuple(c[2])
+    needJ ? cpl_liftq(c[2], c[4], ρ, T, a, b, q, tc, fs, g, dp) : Tuple(c[2])
 end
 function cpl_prepare!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); nf = length(m.net.free)
     dn, tn = TM.v(:dn), TM.v(:tn); mgr = length(dn); TX.cpl_alloc!(mgr)
-    HDCHEM[] && (HDX[] = [length(x) > nf ? max(x[nf+2], 0.0) : 0.0 for x in m.x])
+    CPLHD0[] = HDCHEM[] ? Any[length(x) > nf ? hd_fracs(x[nf+1], x[nf+2]) : nothing for x in m.x] : Any[]
     length(CPLTERMS[]) == mgr || (CPLTERMS[] = Any[nothing for _ in 1:mgr]); fill!(CPLTERMS[], nothing)
     length(CPLCACHE[]) == mgr || (CPLCACHE[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHE[], nothing)
     SLIMP && (length(CPLCACHEQ[]) == mgr || (CPLCACHEQ[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHEQ[], nothing);
@@ -1851,17 +2018,32 @@ function cpl_prepare!(m::NetGas)
     end
     nothing
 end
+"(diagnostic, SLSIZE=z1:z2) per zone of the range, the star-light inputs at the start of the step (prepare pass) and at the solved state: T_src, w_q, T_c, W, f_sh × on-weight, R_Lyα, k_LW."
+const SLSIZE = Ref{Union{Nothing,UnitRange{Int}}}(haskey(ENV, "SLSIZE") ? (z = parse.(Int, split(ENV["SLSIZE"], ":")); z[1]:z[2]) : nothing)
+function sl_size_report(S, dn)
+    a = Int(TF.getscalar(:ngrs)); νLW = 12.87 * EVERG / CNn.hP; kLW(W, Tc, fs) = 1.1e8 * 4π * W * _bnu(νLW, Tc) * fs
+    for z in SLSIZE[]
+        k = a + z - 1; t = CPLTERMS[][k]
+        (k <= length(SLW0[]) && (r = SLW0[][k]) !== nothing && t !== nothing) || continue
+        RL0 = t.slq.p3.RL; fs0 = r.lw ? r.fsh : 0.0; RL1 = lya_escape(dn[k], TX.XSN[][1][k], TX.XSN[][2][k], S.g[k]); Tc1 = r.Tc0 * S.t[k]; W1 = r.W0 * S.q[k]
+        @printf("SLSIZE step %d zone %d: T_src %.1f -> %.1f | w_q %.4f -> %.4f | T_c %.1f -> %.1f | W %.4e -> %.4e | fs %.4e -> %.4e | R_Lya %.4e -> %.4e | k_LW %.4e -> %.4e\n",
+                Int(TF.getscalar(:jstep)), z, r.Tsrc, S.ts[k], r.wq, S.wq[k], r.Tc0, Tc1, r.W0, W1, fs0, S.fs[k], RL0, RL1, kLW(r.W0, r.Tc0, fs0), kLW(W1, Tc1, S.fs[k]))
+    end
+end
 "After the hydro step (and advect_species!, which moved the HD tail): the coupled zones' free species := CK expansion of the solution."
 function cpl_finish!(m::NetGas)
     a, b = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); nf = length(m.net.free); dn, tn = TM.v(:dn), TM.v(:tn)
+    n = length(dn)
+    if SLIMP                                       # SLIMP: the fast species at the star light of the solved state
+        S = (; q = ones(n), t = ones(n), fs = zeros(n), g = ones(n), ts = zeros(n), wq = zeros(n), dp = zeros(n)); er_, fr_ = TM.v(:ern), TM.v(:frn)
+        mgqt = MGON ? (k -> (g_ = TX.MGSLG[]; sl_qt_mg(k, er_[k], TX.MGEN[][g_][k], TX.MGFN[][g_][k], TX.MGFN[][g_][k+1]))) : nothing
+        sl_sweep!(S, a, b, TM.v(:rn), dn, tn, TM.v(:un), er_, fr_, TX.XSN[][1], TX.XSN[][2], TX.cplz; mgqt)
+        SLSIZE[] === nothing || sl_size_report(S, dn)
+    end
     for k in a:b
         TX.cplz(k) || continue
         t = CPLTERMS[][k]
-        if SLIMP && hasproperty(t, :slq) && sl_on(k)   # SLIMP: the fast species at the star light of the solved E_r, F_r
-            er_, fr_ = TM.v(:ern), TM.v(:frn)
-            qt_ = MGON ? (g_ = TX.MGSLG[]; sl_qt_mg(k, er_[k], TX.MGEN[][g_][k], TX.MGFN[][g_][k], TX.MGFN[][g_][k+1])) : sl_qt(k, er_[k], fr_[k], fr_[k+1])
-            t = cpl_tq(t, qt_[1], qt_[2])
-        end
+        SLIMP && hasproperty(t, :slq) && (t = cpl_tq(t, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k], S.q[k], S.t[k], S.fs[k], S.g[k], S.dp[k]))
         x, _ = CNn.ck_eval([TX.XSN[][1][k], TX.XSN[][2][k]], dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)
         old = m.x[k]; m.x[k] = length(old) > nf ? vcat(x, old[nf+1:end]) : x
     end

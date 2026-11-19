@@ -546,7 +546,7 @@ end
 # call), not Λ held from the last call. Retires as devices: the IMPCOOL slope (second transfer call) and its [−10, 30] clamp, the
 # Δt ≤ 0.1 (or DTCOOL) t_cool cap, TCOOLTH (only the cap used it). LINEFRAC still skips transfer calls (the model is then kept).
 # Hybrid NLTE: on an ALI step the zone takes the ALI rates (β = 1 − Λ*, J̄ = J̄_fs − Λ* S); in between the EP rates of the step × the
-# last ALI/EP factor, bounded to [1/LIFMAX, LIFMAX] (default 10); where LINECOLL holds the ALI collisional rate (ALIFIX: EP and ALI differ
+# last ALI/EP factor (the EP rates themselves follow the iterate's populations, velocity gradient and incident field: PopIIIMaterial.li_ep), bounded to [1/LIFMAX, LIFMAX] (default 10); where LINECOLL holds the ALI collisional rate (ALIFIX: EP and ALI differ
 # in sign), the zone holds the last ALI call's RATES instead, so its cooling still follows its T. Needs NLTE = ep | ali | hyb.
 const LINEIMP = true; const LIFMAX = parse(Float64, get(ENV, "LIFMAX", "10"))
 LINEIMP && !(NLTE in ("ep", "ali", "hyb")) && error("LINEIMP=1 needs NLTE=ep, ali or hyb")
@@ -574,7 +574,7 @@ end
 "(LINEIMP) zones remapped: drop the line models (the held Λext of the remap is used until the next transfer call)."
 li_inval!() = (PM.li_invalidate!(); fill!(LIALI[], nothing); nothing)
 "(LINEIMP) per TITAN zone, the line model from the transfer call `Lc` (H2Lines.LAST[]) on the reduced grid (see LINEIMP above)."
-function li_store!(Lc, fac, dd, nh2, nl, zk, ncz, nz_; ali = false, held = nothing)
+function li_store!(Lc, fac, dd, nh2, nl, zk, ncz, nz_; ali = false, held = nothing, ep = nothing)
     hasproperty(Lc, :β) || return nothing
     nk = length(mat.x); length(PM.LIMODEL[]) == nk || (PM.LIMODEL[] = Any[nothing for _ in 1:nk]); length(LIALI[]) == nk || (LIALI[] = Any[nothing for _ in 1:nk])
     for kk in a:b; PM.LIMODEL[][kk] = nothing; end
@@ -590,7 +590,8 @@ function li_store!(Lc, fac, dd, nh2, nl, zk, ncz, nz_; ali = false, held = nothi
         end
         β_ = Lc.β[:, j]; J_ = max.(Lc.Jeff[:, j], β_ .* jc_)
         f_ = fac(j); fc = clamp(f_, 1 / LIFMAX, LIFMAX); fc != f_ && (LISTAT[4] += 1)
-        PM.li_set!(kk, HLV, β_, J_, nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j], dd[j], fc)
+        PM.li_set!(kk, HLV, β_, J_, nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j], dd[j], fc;
+                   ep = ep === nothing ? nothing : (; jc = jc_, P = Lc.pops[:, j], T = ep.T[j], g0 = PM.sl_grad(ep.r[j], ep.r[j+1], ep.u[j], ep.u[j+1])))
         LISTAT[ali ? 2 : 1] += 1
         ali && (LIALI[][kk] = PM.LIMODEL[][kk])
     end
@@ -636,7 +637,7 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
         inc = lineinc()
         if NLTE != "hyb"
             out_ = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep, inc)
-            LINEIMP && k >= 0 && li_store!(H2Lines.LAST[], j -> 1.0, dd, nh2, nl, zk, ncz, nz_)
+            LINEIMP && k >= 0 && li_store!(H2Lines.LAST[], j -> 1.0, dd, nh2, nl, zk, ncz, nz_; ep = NLTE == "ep" ? (; T = tt, r = rr, u = uu) : nothing)
             return out_
         end
         tq = time(); Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep, inc)
@@ -712,7 +713,7 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
         end
         if LEP !== nothing                  # LINEIMP: EP rates × the ALI/EP factor; zones that hold the ALI collisional rate (ALIFIX) hold the ALI rates instead
             hf = length(ALIFAC[]) == nz_
-            li_store!(LEP, j -> hf ? ALIFAC[][j] : 1.0, dd, nh2, nl, zk, ncz, nz_;
+            li_store!(LEP, j -> hf ? ALIFAC[][j] : 1.0, dd, nh2, nl, zk, ncz, nz_; ep = (; T = tt, r = rr, u = uu),
                       held = (LINECOLL && hf && length(ALIFIX[]) == nz_) ? (j -> !isnan(ALIFIX[][j])) : nothing)
         end
         length(ALIFAC[]) == nz_ || return Λe, Lr, x                        # (perturbed call right after the reduced grid changed: EP)
@@ -1851,10 +1852,10 @@ try
         TF.PARAMS[:meqn] >= 9 || error("COUPLED=1: meqn = $(TF.PARAMS[:meqn]) < 9")
         ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
         TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
-        if PM.SLIMP                                # SLIMP=1: the star-light dilution of the coupled zones at the Newton iterate (PM.sl_q, cpl_zone_q)
-            TX.SLIMP[] = true; TX.SLQ_FN[] = PM.sl_qt; TX.SLON_FN[] = PM.sl_on; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t)
-            pr("SLIMP=%d: star light of the coupled zones at the Newton iterate: dilution W%s (local variables of the zone's chemistry and NLOIT opacity)\n",
-               PM.SLIMPN, PM.SLIMPN >= 2 ? " and the local part of T_c (T_r^wq)" : " (T_c held)")
+        if PM.SLIMP                                # SLIMP>0: the star light of the coupled zones at the Newton iterate (PM.sl_sweep!, cpl_zone_q)
+            PM.SLBLEND[] || error("SLIMP needs SLBLEND=1 (the colour temperature and dilution of the iterate are the blend of PM.sl_sweep!)")
+            TX.SLIMP[] = true; TX.SL_SWEEP[] = PM.sl_sweep!; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t, fs, g, dp) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t, fs, g, dp)
+            pr("SLIMP: star light of the coupled zones at the Newton iterate: dilution W, colour temperature, Lyman-Werner shielding, Lyα escape (local variables of the zone's chemistry and NLOIT opacity)\n")
         end
         get(ENV, "CPLLOCAL", "1") == "1" && (TX.CPL_LOCAL[] = (k, dt) -> PM.cpl_local!(mat, k, dt))
         TC.CPLH[] = (; newstep = TX.cpl_newstep!, reset = TX.cpl_reset!, update = TX.cpl_update!, dmax = TX.cpl_dmax!)
