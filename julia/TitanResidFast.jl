@@ -1786,7 +1786,8 @@ E_s = E_b + e^{−s} E_x − e^{−s/2} χ_N ρ_N F_N+1 (r_N+1 − r_c,N)/(c f_x
 """
 @inline function vef_esurf(W, fedd, N, xmu, cc, Eb)
     rn = W.rn; rc = 0.5 * (rn[N] + rn[N+1]); Ex = W.ern[N] - Eb
-    fx = ForwardDiff.value(Ex) != 0 ? clamp(ForwardDiff.value((fedd[N] * W.ern[N] - Eb / 3) / Ex), 1 / 3, 1.0) : 1 / 3
+    fxr = ForwardDiff.value(Ex) != 0 ? (fedd[N] * W.ern[N] - Eb / 3) / Ex : zero(Ex) + 1 / 3      # (differentiated: f_x of the excess at the surface, clamped to [1/3, 1])
+    fx = fxr < 1 / 3 ? zero(fxr) + 1 / 3 : fxr > 1.0 ? zero(fxr) + 1.0 : fxr
     s = 0.5xmu * (3 - 1 / fx) * log(rn[N+1] / rc)
     Eb + exp(-s) * Ex - exp(-0.5s) * W.chifn[N] * W.dn[N] * W.frn[N+1] * (rn[N+1] - rc) / (cc * fx)
 end
