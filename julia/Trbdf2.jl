@@ -483,6 +483,7 @@ function sd_state_print(Δ)
         k = a + zk - 1
         x1 = TX.COUPLED[] ? TX.XSN[][1][k] : NaN; x2 = TX.COUPLED[] ? TX.XSN[][2][k] : NaN
         TitanResidFast.SDHD && haskey(TitanResidFast.SDHRAW, k) && (hr = TitanResidFast.SDHRAW[k]; @printf("SDHD jstep %d zone %d interface-donor raw_h %.6e hFS %.6e tau_i %.5e a %.5e\n", Int(g(:jstep)), zk, hr...))
+        TitanResidFast.SDROW && haskey(TitanResidFast.SDROWV, k) && (rv = TitanResidFast.SDROWV[k]; @printf("SDROW jstep %d zone %d R_mom %.4e B %.4e w %.4f | dF: abs %.4e inert %.4e tie %.4e | dE_(k-1): mom %.4e tie %.4e\n", Int(g(:jstep)), zk, rv[1], rv[2], rv[3], rv[4], rv[8], rv[5], rv[6], rv[7]))
         @printf("SDSTATE jstep %d t %.9e yr dt %.4e zone %d Er %.9e T %.9e xHp %.9e xH2 %.9e rho %.9e u %.6e F %.6e r %.6e dr %.4e chi %.4e tau %.4e cs %.4e p %.4e %s\n", Int(g(:jstep)), g(:timen) / 3.156e7, Δ, zk, er[k], tn[k], x1, x2, dn[k], un[k], fr[k], rn[k], rn[k+1] - rn[k], chi[k], tau[k], asn[k], pg[k],
                 SD_FLAGS[] === nothing ? "" : SD_FLAGS[](k))
     end

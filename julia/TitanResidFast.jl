@@ -377,6 +377,9 @@ end
 const SDTIEF = parse(Float64, get(ENV, "SDTIEF", "0"))   # (stalldiag, test) f of the SLABTIE correction replaced by this constant
 const SDFIN = Ref(parse(Float64, get(ENV, "SDFIN", "1")))   # (stalldiag, test only) factor on the radiation-momentum inertia term (1/c^2) dF/dt of the F_r row
 const SDFRZ = get(ENV, "SDFRZ", "0") == "1"; const SDFRZV = Float64[]
+const SDW = let s = get(ENV, "SDW", ""); isempty(s) ? (0, 0, 0.0) : (f = split(s, ":"); (parse(Int, f[1]), parse(Int, f[2]), parse(Float64, f[3]))) end
+const SDROW = get(ENV, "SDROW", "") != ""; const SDW0 = SDROW ? parse(Int, split(ENV["SDROW"], ":")[1]) : 0; const SDW1 = SDROW ? parse(Int, split(ENV["SDROW"], ":")[2]) : 0
+const SDROWV = Dict{Int,NTuple{8,Float64}}()   # (SDROW=lo:hi) per interface: R_mom, B, w, dR_mom/dF (absorption part), dB/dF, dR_mom/dE_(k-1) (static f part), dB/dE_(k-1), dR_mom/dF (inertia part)
 const SDHD = get(ENV, "SDHD", "0") == "1"; const SDHRAW = Dict{Int,NTuple{4,Float64}}()   # (SDHD=1) per interface: (raw h before max, h_FS, tau_i, a)
 const SDDSW = Ref{Any}(let s = get(ENV, "SDDSW", ""); isempty(s) ? nothing : (parse(Int, split(s, ":")[1]):parse(Int, split(s, ":")[2])) end)
 const SDDSWLAST = Ref("")
@@ -1709,6 +1712,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                     0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] * fr[k] / cc
             end
             wt = tie ? TD.TIEW[k] : 0.0
+            SDW[1] > 0 && SDW[1] <= k - ngrs + 1 <= SDW[2] && tie && (wt = SDW[3])      # stalldiag (SDW=lo:hi:w): tie weight forced at interfaces lo..hi (zone numbers)
             if wt > 0                                # FLUXTIE: F = h c E (TitanDriver.FLUXTIE)
                 rcm = (0.5 * (r[k-1] + r[k]))^mu; rcp = (0.5 * (r[k] + r[k+1]))^mu
                 # upwind (donor cell): outward light from the zone inside, inward from the zone outside, diluted as r^-2. The centred
@@ -1739,6 +1743,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                     B += (-dmdt[k] * erb[k] + (rn[k]^(mu + 1) - c.ro[k]^(mu + 1)) / (xmup1 * dt) * 0.5 * (er[k-1] + er[k]) +
                           rmu[k] * u[k] * 0.5 * (fedd[k-1] * er[k-1] + fedd[k] * er[k]) -
                           2u[k] * (rcm * ho^2 * em + rcp * hi^2 * ep)) / cc
+                end
+                if SDROW && SDW0 <= k - ngrs + 1 <= SDW1     # stalldiag: the two mixed rows and their coefficients on F and E (values)
+                    cF_m = (qFo * 0 + 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * avchi[k] / cc)
+                    SDROWV[k] = (val(R[iF, kb(k)]), val(B), val(wt), val(cF_m), val(rmu[k] / cc), val(rmu[k] * fedd[k-1]), val(rcm * (SLABTIE[] ? hd : max(HT[k-1], 0.0))), val(SDFIN[] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) / (2cc^2 * dt) * 2 / (dn[k] + dn[k-1])))
                 end
                 R[iF, kb(k)] = (1 - wt) * R[iF, kb(k)] + wt * B
             end
