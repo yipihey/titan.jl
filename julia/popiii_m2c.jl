@@ -700,6 +700,13 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
                     pr("          zone %d (TITAN %d) r %.3e R_sun T %.1f nH2 %.2e: Λa %+.3e Λrate %+.3e Λcoll %+.3e\n", j, zk(j), rr[j] / 6.957e10, tt[j], nh2[j], Λfs[j], Λr_[j], Λc_[j])
                 end
             end
+            if Trbdf2.SDON       # stalldiag: line-cooling ALI factor change per TITAN zone in SDZONES at this call
+                for j in 1:nz_
+                    (zk(j) - Int(TF.getscalar(:ngrs)) + 1) in Trbdf2.SDZ || continue
+                    pr("        SDALI jstep %d TITAN zone %d reduced %d: f %.4g -> %.4g, Lambda_ALI %.4e Lambda_EP %.4e\n", Int(TF.getscalar(:jstep)), zk(j) - Int(TF.getscalar(:ngrs)) + 1, j,
+                       length(ALIFAC[]) == nz_ ? ALIFAC[][j] : NaN, fnew[j], Λa[j], Λe[j])
+                end
+            end
             ALIFAC[] = fnew; ALILAST[] = k; NALICALL[] += 1
             return Λa, Lra, xa
         end
