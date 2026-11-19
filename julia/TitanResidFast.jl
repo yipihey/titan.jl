@@ -14,6 +14,7 @@ TITAN drops it altogether.  `ncol = 7` (slower) separates it cleanly.
 module TitanResidFast
 
 using ForwardDiff
+using Printf
 import ..TitanDriver
 const TD = TitanDriver
 const TF = TD.TF
