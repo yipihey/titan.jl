@@ -2229,7 +2229,7 @@ function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, ern, rn, ::Type{T}) whe
     (lift(:f, c.fedd), lift(:h, TD.HEDD), lift(:hx, TD.HXEDD), lift(:fx, TD.FXEDD), lift(:w, TD.TIEW), g)
 end
 
-matgen!(; ncol = 6) = (TD.CLOSJ[] && TD.CSENS_HOOK[] !== nothing && gi(:lrad) == 1 && TD.CSENS_HOOK[](); assemble!(context(); ncol); nothing)
+matgen!(; ncol = 6) = (TD.CLOSJ[] && TD.CSENS_HOOK[] !== nothing && gi(:lrad) == 1 && (gi(:iter) <= 1 || !TD.CSENS.valid) && TD.CSENS_HOOK[](); assemble!(context(); ncol); nothing)
 
 """
 COUPLED test (popiii_m2c CPLJCHECK=n1,n2,…: zone numbers from the inner boundary, at the first Newton iteration of the first step): the
