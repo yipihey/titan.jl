@@ -1314,7 +1314,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     end
     fedd = c.fedd; HEl = TD.HEDD; HXl = TD.HXEDD; FXl = TD.FXEDD; TWl = TD.TIEW; gedr = P.geddr
     if TD.CLOSJ[] && c.lrad && TD.CSENS.valid && TD.CSENS.a == ngrs && T <: ForwardDiff.Dual
-        fedd, HEl, HXl, FXl, TWl, gedr = closure_lift(c, P, ngrs, ngre, chifn, xkpn, plfn, dn, ern, rn, T)
+        fedd, HEl, HXl, FXl, TWl, gedr = closure_lift(c, P, ngrs, ngre, chifn, xkpn, plfn, dn, tn, ern, rn, W.xs1, W.xs2, T)
     end
     fill!(R, zero(T))
     # ---------------------------------------------------------------- GRID
@@ -2197,19 +2197,31 @@ end
 CLOSJ: the closure arrays of the formal solution as Duals: value + sum over i = m-1..m+1 of d(out_m)/dS_i (S_i^Dual - S_i) + d(out_m)/d(dtau_i)(dtau_i^Dual - dtau_i)
 (TitanDriver.CSENS; S_i, dtau_i built from the iterate exactly as TitanCore.eddfac! builds them). Returns (fedd, HEDD, HXEDD, FXEDD, TIEW, geddr).
 """
-function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, ern, rn, ::Type{T}) where {T}
+function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, rn, xs1, xs2, ::Type{T}) where {T}
     cs = TD.CSENS; xnen = v(:xnen); csige = P.csige; cc = P.cc; cpi = P.cpi
     Sd = zeros(T, b + 2); Td = zeros(T, b + 2)
-    @inbounds for i in a:b
-        chi = chifn[i]; kp = xkpn[i]; pl = plfn[i]; ρ = dn[i]; E = ern[i]; ne = xnen[i]
-        S = if cs.msrc
-            (cs.scat && chi * ρ > kp * ρ + csige * ne) ? (kp * pl + (chi - kp) * E * cc / (4cpi)) / chi :
-                                                          (kp * ρ * pl + csige * ne * E * cc / (4cpi)) / (kp * ρ + csige * ne)
-        else
-            ((chi * ρ - csige * ne) * pl + csige * ne * E * cc / (4cpi)) / (chi * ρ)
+    z0_ = ZONE[]; w0_ = CPLW[]; sl0_ = CPLSL[]
+    COUPLED[] && (CPLW[] = (xs1, xs2)); CPLSL[] = nothing
+    try
+        @inbounds for i in a:b
+            chi, kp = if MATERIAL[] !== nothing && SLIMP[]
+                ZONE[] = i; ch_, _, kp_ = material_opac(MATERIAL[], dn[i], tn[i]); (ch_, kp_)
+            else
+                (chifn[i], xkpn[i])
+            end
+            pl = plfn[i]; ρ = dn[i]; E = ern[i]
+            ne = xnen[i] * (ρ / val(ρ)) * (cplz(i) && val(xs1[i]) > 0 ? xs1[i] / val(xs1[i]) : one(T))
+            S = if cs.msrc
+                (cs.scat && chi * ρ > kp * ρ + csige * ne) ? (kp * pl + (chi - kp) * E * cc / (4cpi)) / chi :
+                                                              (kp * ρ * pl + csige * ne * E * cc / (4cpi)) / (kp * ρ + csige * ne)
+            else
+                ((chi * ρ - csige * ne) * pl + csige * ne * E * cc / (4cpi)) / (chi * ρ)
+            end
+            τ = chi * ρ * (rn[i+1] - rn[i])
+            Sd[i] = S - val(S); Td[i] = τ - val(τ)
         end
-        τ = chi * ρ * (rn[i+1] - rn[i])
-        Sd[i] = S - val(S); Td[i] = τ - val(τ)
+    finally
+        ZONE[] = z0_; CPLW[] = w0_; CPLSL[] = sl0_
     end
     function lift(name::Symbol, base::AbstractVector)
         out = Vector{T}(undef, length(base)); @inbounds for k in eachindex(base); out[k] = T(base[k]); end
@@ -2227,7 +2239,7 @@ function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, ern, rn, ::Type{T}) whe
     (lift(:f, c.fedd), lift(:h, TD.HEDD), lift(:hx, TD.HXEDD), lift(:fx, TD.FXEDD), lift(:w, TD.TIEW), g)
 end
 
-matgen!(; ncol = 6) = (TD.CLOSJ[] && TD.CSENS_HOOK[] !== nothing && gi(:lrad) == 1 && (gi(:iter) <= 1 || !TD.CSENS.valid) && TD.CSENS_HOOK[](); assemble!(context(); ncol); nothing)
+matgen!(; ncol = 6) = (TD.CLOSJ[] && TD.CSENS_HOOK[] !== nothing && gi(:lrad) == 1 && TD.CSENS_HOOK[](); assemble!(context(); ncol); nothing)
 
 """
 COUPLED test (popiii_m2c CPLJCHECK=n1,n2,…: zone numbers from the inner boundary, at the first Newton iteration of the first step): the

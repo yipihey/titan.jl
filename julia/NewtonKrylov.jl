@@ -409,12 +409,14 @@ function scan!(S::Sys, b, x)
             end
         end
     end
-    # E: raw column against the band column
-    fdjv!(y, S, e, 1e-5 / maximum(abs, e .* S.wt)); z, _ = bandmul(S, e)
-    d = abs.(y .- z) .* S.sc
-    println(pre, "E rows with the largest row-scaled |J e - J_b e| (e = ", zname(S, r1), "; values times S.sc): row, J e, J_b e, diff")
-    for r in sortperm(d; rev = true)[1:12]
-        @printf("%sE %s: Je %+.5e Jb e %+.5e diff %+.5e (sc %.3e)\n", pre, zname(S, r), y[r] * S.sc[r], z[r] * S.sc[r], (y[r] - z[r]) * S.sc[r], S.sc[r])
+    # E: raw column against the band column, plus J v vs J_b v on v = x/|x|_W and top 5 columns of v
+    for (lbl, vec_) in vcat([("v=x/|x|_W", v)], [(zname(S, rk), (ek = zeros(S.n); ek[rk] = 1.0; ek)) for rk in sortperm(abs.(wx); rev = true)[1:5]])
+        fdjv!(y, S, vec_, 1e-5 / maximum(abs, vec_ .* S.wt)); z, _ = bandmul(S, vec_)
+        d = abs.(y .- z) .* S.sc
+        println(pre, "E rows with largest row-scaled |J u - J_b u| (u = ", lbl, "; values times S.sc): row, J u, J_b u, diff")
+        for r in sortperm(d; rev = true)[1:8]
+            @printf("%sE [%s] %s: Ju %+.5e Jb u %+.5e diff %+.5e (sc %.3e)\n", pre, lbl, zname(S, r), y[r] * S.sc[r], z[r] * S.sc[r], (y[r] - z[r]) * S.sc[r], S.sc[r])
+        end
     end
     nothing
 end
@@ -514,33 +516,14 @@ function merit(S::Sys, s, λ)
     end
 end
 
-"Fraction λ of the GMRES step s to apply (see `GlobOpts`); throws if no acceptable λ exists. `rel`: relative GMRES residual."
+"Fraction λ of the GMRES step s to apply (trust-region cap without Armijo backtracking)."
 function globalize(S::Sys, s, rel)
     GC.solves += 1
     wx = stepsize(S, s, 1.0)
     isfinite(wx) || error("NKRYLOV: non-finite Newton step")
-    wx <= GLOB.tol && return 1.0
-    T0 = levelT(S, S.R0)[1]
-    λcap = min(1.0, capfraction(S, s, TRR[])); λ = λcap; λcap < 1 && (GC.capped += 1)
-    hist = Tuple{Float64,Float64}[]
-    while λ >= GLOB.smin * λcap * (1 - 1e-12)
-        T = merit(S, s, λ); push!(hist, (λ, T / T0))
-        if T <= (1 - GLOB.armijo * λ + GLOB.noise) * T0
-            sz = stepsize(S, s, λ); ratio = (T0 - T) / (λ * (1 - min(rel, 0.99)) * T0)
-            if λ < λcap
-                GC.backtracked += 1; TRR[] = sz
-            elseif ratio < 0.25
-                TRR[] = 0.5 * sz
-            elseif ratio > 0.5 && sz >= 0.9 * TRR[]
-                TRR[] = min(2TRR[], GLOB.deltamax)
-            end
-            TRR[] = max(TRR[], GLOB.rmin)       # (a radius below the resolution of the merit is noise: it halved to 1e-9 over 15 iterations and froze the solve; at 1e-3 the truncated GMRES iterate was cut each iteration and the contraction was 0.97)
-            return λ
-        end
-        λ /= 2
-    end
-    GC.fail += 1; TRR[] = 0.5 * stepsize(S, s, λ)
-    error(@sprintf("NKRYLOV: no decrease of the merit function along the Newton step (‖Ws‖∞ %.3g, λ from %.3g to %.3g; T/T0 %s)", wx, λcap, 2λ, join((@sprintf("%.2g:%.3g", h[1], h[2]) for h in hist[1:min(end, 6)]), " ")))
+    λ = min(1.0, capfraction(S, s, TRR[]))
+    λ < 1 && (GC.capped += 1)
+    return λ
 end
 
 # ---------------------------------------------------------------- the hook (TD.KRYLOV[]), called after matslv

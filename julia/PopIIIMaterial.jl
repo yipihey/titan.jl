@@ -437,7 +437,7 @@ function hbf_blend(f, p)
     w = hbf_w(p)
     w <= 0 && return f(false)
     w >= 1 && return f(true)
-    map((a, b) -> (1 - w) * a + w * b, f(false), f(true))
+    map((a, b) -> exp((1 - w) * log(max(a, 1e-300)) + w * log(max(b, 1e-300))), f(false), f(true))
 end
 """
 `G2BLEND=Γ0,D0,P0` (or `G2BLEND=1` for 0.3,0.1,0.01; default off, off = bit-identical): the network material everywhere outside the stellar
@@ -708,20 +708,23 @@ function nlo_it(m::NetGas, k, ρ, T, s)
         end
         dual = qd isa ForwardDiff.Dual || td isa ForwardDiff.Dual || gd isa ForwardDiff.Dual || dd isa ForwardDiff.Dual
         if dual && !(e_[4] !== nothing && all((i == 8 ? abs(key[i] - e_[4][i]) : abs(log(key[i] / e_[4][i]))) < NLOITJ[i <= 2 ? 1 : 2] for i in 1:8))
-            ε = 1e-2; Rp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv * (1 + ε), tv, gv)...)
-            Rm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv / (1 + ε), tv, gv)...)
+            ε = 1e-2; Rp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv * (1 + ε), tv, gv, dv)...)
+            Rm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv / (1 + ε), tv, gv, dv)...)
             sq = ntuple(i -> log(Rp[i] / Rm[i]) / (2log1p(ε)), 3)
-            εt = 1e-3; Tp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv * (1 + εt), gv)...)
-            Tm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv / (1 + εt), gv)...)
+            εt = 1e-3; Tp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv * (1 + εt), gv, dv)...)
+            Tm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv / (1 + εt), gv, dv)...)
             st = ntuple(i -> log(Tp[i] / Tm[i]) / (2log1p(εt)), 3)
-            Gp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv * (1 + ε))...)
-            Gm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv / (1 + ε))...)
+            Gp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv * (1 + ε), dv)...)
+            Gm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv / (1 + ε), dv)...)
             sg = ntuple(i -> log(Gp[i] / Gm[i]) / (2log1p(ε)), 3)
             sdp = (0.0, 0.0, 0.0)
             if NLOHBFDEEP                                                  # the deep weight of the bound–free blend: additive slope (per unit weight)
-                εd = 0.02; Dp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dv + εd)...)
-                Dm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dv - εd)...)
-                sdp = ntuple(i -> log(Dp[i] / Dm[i]) / (2εd), 3)
+                εd = 1e-4; dhi = min(dv + εd, 1.0); dlo = max(dv - εd, 0.0)
+                if dhi > dlo
+                    Dp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dhi)...)
+                    Dm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dlo)...)
+                    sdp = ntuple(i -> log(Dp[i] / Dm[i]) / (dhi - dlo), 3)
+                end
             end
             e_ = (e_[1], e_[2], e_[3], key, (sq, st, sg, sdp))
         end
@@ -1157,7 +1160,12 @@ function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = not
     # blocks inside its window (zone i = k−3 reaches block k−2 through r_{i+1}; the partials of block k−3 land in a seed slot the band never reads)
     τv = zeros(b + 2)
     for j in b:-1:a; τv[j] = τv[j+1] + chi[j] * _val(dn[j]) * _val(rn[j+1] - rn[j]); end
-    corτ(i, k) = (c_ = chi[i] * winv(dn[i], i, k) * (winv(rn[i+1], i + 1, k) - winv(rn[i], i, k)); c_ - _val(c_))
+    chiD = if isD && TX.MATERIAL[] !== nothing
+        z0_ = TX.ZONE[]
+        try [i < a ? zero(T) : (TX.ZONE[] = i; cd_ = TX.material_opac(TX.MATERIAL[], dn[i], tn[i])[1]; vc_ = _val(cd_); vc_ > 0 ? chi[i] * (cd_ / vc_) : T(chi[i])) for i in 1:b]
+        finally TX.ZONE[] = z0_ end
+    else nothing end
+    corτ(i, k) = (c_ = (chiD === nothing ? chi[i] : winv(chiD[i], i, k)) * winv(dn[i], i, k) * (winv(rn[i+1], i + 1, k) - winv(rn[i], i, k)); c_ - _val(c_))
     τwin(j, k) = j > b ? zero(T) : isD ? τv[j] + sum((corτ(i, k) for i in max(j, k - 3):min(b, k + 2)); init = zero(T)) : τv[j]
     ph = τv[a] >= 2 / 3                                               # (a photosphere inside the grid)
     jph = ph ? findlast(j -> τv[j] >= 2 / 3, a:b) + a - 1 : a         # bracketing interfaces jph, jph+1: τ ≥ 2/3 > τ

@@ -736,10 +736,10 @@ Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(EN
 # checkpoint's, so the continuation is the uninterrupted run (checked bit for bit). Files: CKDIR [lib/popiii/ck].
 const CKDIR = get(ENV, "CKDIR", joinpath(TF.ROOT, "lib", "popiii", "ck"))
 const KOFF = Ref(0); const SG = Ref{Any}(nothing)
-# LINEIMP line models as plain data (the level data LV is the constant HLV, the LiCache is rebuilt empty): a checkpoint stays readable without the modules
-lim_plain(m) = m === nothing ? nothing : (; β = copy(m.β), J = copy(m.J), nH = m.nH, nH2 = m.nH2, nHe = m.nHe, nHp = m.nHp, ρ = m.ρ, f = m.f)
+# LINEIMP line models as plain data (the level data LV is the constant HLV, the PopWS workspace is rebuilt): a checkpoint stays readable without the modules
+lim_plain(m) = m === nothing ? nothing : (; β = copy(m.β), J = copy(m.J), nH = m.nH, nH2 = m.nH2, nHe = m.nHe, nHp = m.nHp, ρ = m.ρ, f = m.f, ep = hasproperty(m, :ep) ? deepcopy(m.ep) : nothing)
 lim_make(p) = p === nothing ? nothing : (; LV = HLV, β = copy(p.β), J = copy(p.J), nH = p.nH, nH2 = p.nH2, nHe = p.nHe, nHp = p.nHp, ρ = p.ρ, f = p.f,
-                                         c = PM.LiCache(NaN, 0.0, 0.0, false, H2Levels.PopWS(HLV)))
+                                         ws = H2Levels.PopWS(HLV), ep = hasproperty(p, :ep) ? deepcopy(p.ep) : nothing)
 matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope), Y = HOTON ? copy(SG[].Y) : nothing,
                                      star = HOTON ? (; fscale = copy(SG[].fscale), fslope = copy(SG[].fslope), fcur = copy(SG[].fcur), Dmix = copy(SG[].Dmix), dtcap = SG[].dtcap, capE = SG[].capE, ledger = SG[].ledger, Yprev = copy(SG[].Yprev)) : nothing,
                                      # lagged over one step (set in chemistry, used by the next hydro step): without them a restart is not exact
