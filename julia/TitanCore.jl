@@ -645,6 +645,16 @@ HPON[] (diagnostic, set by the MGROUPS group formal solutions; default false: no
 outgoing half moment H⁺_k = ½∫₀¹ I μ dμ of the outward sweep (the light leaving the layers inside r_k, whatever lies outside) in HPLUS
 (excess over the background with VEF_BG; the tangent ray of r_k itself is not in the quadrature).
 """
+
+"""
+(1 - (1 + d) e^-d)/d without the cancellation of the direct form: in the thin outer zones (d ~ 1e-6..1e-3 on the tangent rays) 1 - (1 + d)e^-d ~ d^2/2 is
+a difference of two numbers of order one, and the quotient carried a relative round-off of 1e-16/d^2 (up to 1e-6 and more in f, h and g of the outer
+zones, the noise floor of the finite-difference J v). Series for d < 0.05 (terms to d^8, relative truncation < 1e-15).
+"""
+@inline function omde_over(d)
+    d < 0.05 && return d * (0.5 + d * (-1 / 3 + d * (1 / 8 + d * (-1 / 30 + d * (1 / 144 + d * (-1 / 840 + d / 5760))))))
+    (1.0 - (1.0 + d) * exp(-d)) / d
+end
 const HPON = Ref(false); const HPLUS = Float64[]
 "Eddington factors f = K/J and boundary factors g from a formal solution (eddfac.f)."
 function eddfac!()
@@ -771,7 +781,7 @@ function eddfac!()
             @inbounds for j in 1:nj
                 xjl = sqrt(rp[l]^2 - p[j]^2); xjlp1 = sqrt(rp[l+1]^2 - p[j]^2)
                 dtjl = dn[k] * chifn[k] * (xjlp1 - xjl); ex = exp(-dtjl)
-                xip[j] = (1.0 - ex) * sl[l] + (1.0 - (1.0 + dtjl) * ex) * (sr[l] - sl[l]) / dtjl + ex * xim[j]
+                xip[j] = -expm1(-dtjl) * sl[l] + omde_over(dtjl) * (sr[l] - sl[l]) + ex * xim[j]
                 ep && (xip[j] = max(xip[j], lo))
                 xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
             end
@@ -799,7 +809,7 @@ function eddfac!()
             @inbounds for j in 1:nj
                 xjl = sqrt(rp[l]^2 - p[j]^2); xjlm1 = sqrt(rp[l-1]^2 - p[j]^2)
                 dtjl = dn[k] * chifn[k] * (xjl - xjlm1); ex = exp(-dtjl)
-                xip[j] = (1.0 - ex) * sr[l-1] + (1.0 - (1.0 + dtjl) * ex) * (sl[l-1] - sr[l-1]) / dtjl + ex * xim[j]
+                xip[j] = -expm1(-dtjl) * sr[l-1] + omde_over(dtjl) * (sl[l-1] - sr[l-1]) + ex * xim[j]
                 ep && (xip[j] = max(xip[j], lo))
                 xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
             end
