@@ -1156,7 +1156,10 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
             gq(i) = G4 * (xmtot - xmen[i] + (EXTMASS[] === nothing ? zero(rn[i]) : EXTMASS[](rn[i]))) / rn[i]^2
             S += ge.gp[1] * d2(dn) * 0.5 * (abs(un[j]) * gq(j) + abs(un[j+1]) * gq(j + 1)) * (xmen[j] - xmen[j+1]) / ge.gp[2]
         end
-        G2 = ν(j)^2 * S; G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
+        G2 = ν(j)^2 * S
+        # resolution floor (GEQDEC): + ω_r² + ω_m² ν² (Δ ln m)² (enclosed-mass term; zone stencil clamped to the shells from the first interface outward), constants of the run
+        hasproperty(ge, :fr) && (G2 += ge.fr + ge.fm * ν(j)^2 * h * ((lm(jp) - lm(j))^2 + (lm(j) - lm(jm))^2))   # (adjacent-interface stencil, as the monitor terms above)
+        G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
         γ = ge.tauv[j] / dt
         ((1 + γ) * xnt - γ * xnto) / sqrt(1 + G2)
     end
