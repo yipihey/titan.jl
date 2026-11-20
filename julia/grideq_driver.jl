@@ -2,8 +2,8 @@
 include(joinpath(@__DIR__, "GridEq.jl"))
 """
 GRIDEQ=mode (with ENVEUL=0,… (regular centre), lgrid = 2; default off): one global, scale-free equidistribution rule for the whole
-mesh (GridEq.jl): every zone from the centre sphere to the outer edge (the centre r = 0 and the outer edge are the only fixed interfaces; the first interface
-above the centre is an ordinary node of mode 1 and counts in the fmove limit; mode 0's explicit target still holds it) covers the same
+mesh (GridEq.jl): every zone between the first interface above the centre and the outer edge (both fixed in radius; with ICMLOG the first interface
+is instead Lagrangian, its grid row holds its enclosed mass: TitanResidFast.GEQ_LAGFIRST, and it counts in the fmove limit) covers the same
 ∫ M d ln r, M = sqrt(1 + Σ_q w_q (∂ln q/∂ln r)²) over q = ρ, P, T, E_r, m and τ (clamped to [τlo, τhi]), with a smooth gradient cap
 gmax and Dorfi–Drury smoothing α (neighbours within (1 + α)/α). No markers, thresholds or zone budgets.
 
@@ -23,10 +23,10 @@ neighbours; the floor keeps the grid speed below about fv (|u| + c_s)), so that 
 shock without being fast everywhere.
 With ICEUL the IC is built on the rule's mesh of the IC. No state beyond the mesh: a checkpoint restarts with the same setting.
 
-GEQDEC=pr,pm[,C*] (default 5,5,1): resolution floor, at least pr zones per decade of r and pm per decade of enclosed mass. M² gets the constant
+GEQDEC=pr,pm[,C*] (default 6,6,1): resolution floor, at least pr zones per decade of r and pm per decade of enclosed mass. M² gets the constant
 ω_r² and the term ω_m² (∂ln m/∂ln r)² (added to the monitor's G² before the gmax cap; mode 1 and mode 0), ω_x = p_x C*/ln 10. Equidistribution gives Δln r_j = C/M_j
 with C = ∫M dln r/N; M ≥ sqrt(1 + ω_r²) > ω_r and, at fixed ∂ln m/∂ln r, Δln m_j ≤ C/ω_m, so Δlog10 r ≤ (C/C*)/pr and Δlog10 m ≤ (C/C*)/pm
-(the floor is exact when C ≤ C*; C is printed in the grid-eq line as 'C'; it is a weight, not a clamp: if physics raises C above C*, the floor degrades as C/C*). The centre sphere [0, r_k1] (zone 0 of the rule, its ln-width infinite) counts as a zone of the floor's width, ν_c = pr/ln 10 instead of r̄/Δr, with its own full monitor: in a flat core the first shell then has exactly the floor width, and r_k1 follows the core inward as the gas collapses (a first interface far outside the core makes the sphere's monitor large and pulls it in). The first
+(the floor is exact when C ≤ C*; C is printed in the grid-eq line as 'C'; it is a weight, not a clamp: if physics raises C above C*, the floor degrades as C/C*). The floor terms act on the shells from the first interface outward (with ICMLOG the first interface is Lagrangian and not a grid row; its enclosed mass is pinned, so ∂ln m/∂ln r of the first shells is one-sided from the pinned interface). The 6 (not 5) leaves ~25% slack for C > C* so that >= 5 zones per decade survive. The first
 term of M (the 1) and wm still act on top.
 GEQX=wx[,xfl] (default 0: off): a composition term wx Σ_s (∂ ln(x_s + xfl)/∂ ln r)² over every species of the network (abundances
 per H nucleus, ChemNet.full; xfl default 1e-3), frozen per step like the τ term (mode 1) and in the explicit target (mode 0). A
@@ -46,7 +46,7 @@ const GEQX = geqv("GEQX", [0.0, 1e-3])
 # GEQGP=w_g,L_ref [L_sun] (provisional, default 0 = off; implicit grid equation only): density jump x gravity power of the zone in the monitor
 # (TitanResidFast.grideq_rows!, docs/POPIII_ENERGY.md §14.6)
 const GEQGP = geqv("GEQGP", [0.0, 100.0])
-const GEQDEC = geqv("GEQDEC", [5.0, 5.0, 1.0])   # zones per decade in r, in enclosed mass; C* (see above)
+const GEQDEC = geqv("GEQDEC", [6.0, 6.0, 1.0])   # zones per decade in r, in enclosed mass; C* (see above)
 const GEQFL = ((GEQDEC[1] * GEQDEC[3] / log(10))^2, (GEQDEC[2] * GEQDEC[3] / log(10))^2)   # (ω_r², ω_m²)
 const GEQRAMP = haskey(ENV, "GEQRAMP") ? parse.(Float64, split(ENV["GEQRAMP"], ",")) : nothing
 const GEQJ0 = Ref(-1)                  # jstep at the first grideq_step! of this process (GEQRAMP; -2: no ramp, the mesh is close to the rule)
@@ -148,7 +148,7 @@ function grideq_step!()
             # GEQX: composition, ln(x + xfl) of every species, centred zone differences as the τ term
             s.X === nothing || (sx[a+j-1] += GEQX[1] * sum((h * (s.X[q, jp] - s.X[q, jm]))^2 for q in axes(s.X, 1)))
         end
-        TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, sx, wχ = GEQW[8], gp = (GEQGP[1], GEQGP[2] * 3.828e33 / (4π)), fr = GEQFL[1], fm = GEQFL[2], nuc = GEQDEC[1] / log(10))
+        TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, sx, wχ = GEQW[8], gp = (GEQGP[1], GEQGP[2] * 3.828e33 / (4π)), fr = GEQFL[1], fm = GEQFL[2])
     else
         rt = geq_target(s); w = TX.GRIDVEL[]; fill!(w, 0.0)
         for j in 3:n                                              # interfaces above the first one, below the outer edge

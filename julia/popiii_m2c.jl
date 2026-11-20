@@ -1173,7 +1173,8 @@ function envlr(rout)
 end
 # ICMLOG=m1 (default unset = unchanged): the IC mesh is logarithmic in enclosed mass instead of envlr's / the rule's (GRIDEQ) mesh:
 # N = GEQN (default nsh) zones: the N interfaces above the centre at m_k = m1 (M_cloud/m1)^((k-1)/(N-1)), k = 1..N (m1 in Msun; the centre zone holds m1),
-# r(m) the exact inverse of the IC's M(r) interpolation. Only for the start from the IC. # (only the IC: under GRIDEQ the first interface is an ordinary node of the grid equation).
+# r(m) the exact inverse of the IC's M(r) interpolation. Only for the start from the IC. The first interface is Lagrangian under GRIDEQ
+# (TitanResidFast.GEQ_LAGFIRST, set from the presence of ICMLOG in the environment: restarts of the run follow).
 # The start (every run without RESTART/STARFROM; formerly ICEUL=1): the initial condition directly on the fixed log mesh of
 # ENVEUL/ENVCORE (lgrid = 2, regular centre), at t = 0. The mesh is `envlr`'s, from ENVCORE's first interface to the outer radius of the IC. Mass-conserving: the interior mass at
 # every interface is that of the IC's tabulated M(r) (piecewise-uniform density between its nodes, so the zone masses add up to the
@@ -1228,7 +1229,7 @@ function iceulbuild!(; rIset = nothing, icmlog = nothing)     # rIset: the inter
     all(>(0), diff(mI_)) || error("ICEUL: a zone without mass")
     if icmlog !== nothing
         dl_ = diff(log.(rI_[2:end])); i2_ = searchsortedfirst(mI_, 1e-2Msun) - 1       # (zone j spans interfaces j, j+1 of rI_; i2_ = the zone containing 1e-2 Msun)
-        pr("ICMLOG: IC starting mesh, %d zones: first interface at m %.3g Msun, r %.4g R_sun, then log in enclosed mass to %.4g Msun (r %.4g R_sun), dln r %.3f .. %.3f, dln m %.4f\n",
+        pr("ICMLOG: IC starting mesh, %d zones: first interface (Lagrangian) at m %.3g Msun, r %.4g R_sun, then log in enclosed mass to %.4g Msun (r %.4g R_sun), dln r %.3f .. %.3f, dln m %.4f\n",
            n, mI_[2] / Msun, rI_[2] / Rsun, Mtot / Msun, rI_[end] / Rsun, minimum(dl_), maximum(dl_), log(Mtot / mI_[2]) / (n - 1))
         pr("ICMLOG: 1e-2 Msun at r %.4g R_sun, in zone %d (of %d); interfaces 1,2,3,4 r [R_sun] %s\n", rofM(1e-2Msun) / Rsun, i2_, n,
            join((@sprintf("%.4g", rI_[k] / Rsun) for k in 2:5), " "))
@@ -1313,6 +1314,7 @@ if GRIDEQP !== nothing
     (ENVEUL !== nothing && ENVCENTRE && Int(TF.getscalar(:lgrid)) == 2) || error("GRIDEQ needs the fixed-mesh envelope with a regular centre (ENVEUL=0,..., lgrid = 2)")
     GRIDEQP in (0, 1) || error("GRIDEQ=0 (prescribed target) or 1 (implicit grid equation)")
     TC.GRIDMOVE[] = true; TF.setscalar!(:ctol, GEQC[8])
+    TX.GEQ_LAGFIRST[] = haskey(ENV, "ICMLOG")       # ICMLOG: the first interface holds its enclosed mass (Lagrangian) instead of its radius; restarts read the same run.env
     if GRIDEQP == 0
         TX.GRIDVEL[] = zeros(length(TF.var(:rn)))
     else
@@ -1320,7 +1322,7 @@ if GRIDEQP !== nothing
         let fmv = GEQC[5]
             fmcap = function ()        # no interface moves more than fmove × its smaller neighbouring zone per step
                 rn_ = TF.var(:rn); ro_ = TF.var(:ro); f = 0.0
-                for k in a+1:b          # (the first interface above the centre is an ordinary node)
+                for k in (TX.GEQ_LAGFIRST[] ? a+1 : a+2):b          # (ICMLOG: the Lagrangian first interface moves too)
                     wd = min(ro_[k] - ro_[k-1], ro_[k+1] - ro_[k]); f = max(f, abs(rn_[k] - ro_[k]) / wd)
                 end
                 f > 0 ? fmv / f * TF.getscalar(:dtime) : Inf
