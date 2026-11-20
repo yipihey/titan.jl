@@ -1331,15 +1331,15 @@ if GRIDEQP !== nothing
             push!(Trbdf2.DT_BOUNDS, fmcap) # DTERR respects the mesh-motion bound
         end
     end
-    pr("GRIDEQ: mode %d (%s), %d zones, weights rho,P,T,E,m,tau %s, gmax %.3g, alph %.3g, kappa %.3g, fv %.3g, fmove %.3g, tau %.3g..%.3g, ctol %.3g, kappa_f %.3g\n",
-       GRIDEQP, GRIDEQP == 1 ? "implicit grid equation" : "prescribed target", nsh, join(GEQW, ","), GEQC[1:9]...)
+    pr("GRIDEQ: mode %d (%s), %d zones, weights rho,P,T,E,m,tau %s, gmax %.3g, alph %.3g, kappa %.3g, fv %.3g, fmove %.3g, tau %.3g..%.3g, ctol %.3g, kappa_f %.3g (unused), f_dyn %.3g\n",
+       GRIDEQP, GRIDEQP == 1 ? "implicit grid equation" : "prescribed target", nsh, join(GEQW, ","), GEQC[1:10]...)
     GEQGP[1] > 0 && pr("GEQGP (provisional): monitor term w_g %g x (dln rho/dj)^2 x gravity power of the zone / %g L_sun (implicit grid equation only)\n", GEQGP...)
 end
 JNEXT[] >= 0 && TF.setscalar!(:jstep, JNEXT[])      # restart: the step counter of the uninterrupted run (after the repeated grideq_step!, which ran at the checkpointed step's jstep)
 const CHEMDIAG = get(ENV, "CHEMDIAG", "0") == "1"; const LNUC = Ref(0.0); const TIMING = get(ENV, "TIMING", "0") == "1"; const TSTEP = Ref(0.0); const TCHEM = Ref(0.0); const TLINE = Ref(0.0); const TOTH = Ref(0.0)
 const TMARK = Ref(time()); const TOUT = Ref(0.0)
 const DTSTOP = parse(Float64, get(ENV, "DTSTOP", "0"))   # stop an unattended run whose Δt has collapsed, before the checkpoints are overwritten
-const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0)
+const PRINTEVERY = parse(Int, get(ENV, "PRINTEVERY", "500")); const CKEVERY = parse(Int, get(ENV, "CKEVERY", "500")); const KLAST = Ref(0); const LASTOK = Ref{Any}(nothing)
 # Newton controls, applied after any restart: NITER (iterations per attempt), FAILTFAC (Δt factor after a failed attempt)
 haskey(ENV, "NITER") && TF.setscalar!(:niter, parse(Float64, ENV["NITER"]))
 # NKRYLOV=1[,<eta>[,<mmax>[,<eps>[,<central>]]]] (provisional, default off = bit-identical): each Newton correction solved by GMRES on the true Jacobian (finite-difference products of the residual after a
@@ -2289,9 +2289,11 @@ try
         # CKDUMP=k1:k2[,k3:k4…] (diagnostic, default off): also write a full checkpoint <SAVE>_k<step> at each listed step (restart A/B tests)
         haskey(ENV, "CKDUMP") && haskey(ENV, "SAVE") && any(r_ -> (p_ = parse.(Int, split(r_, ":")); p_[1] <= k <= p_[end]), split(ENV["CKDUMP"], ",")) && checkpoint(ENV["SAVE"] * "_k" * string(k), k; jinc = 1)
         haskey(ENV, "SAVE") && CKEVERY > 0 && k % CKEVERY == 0 && checkpoint(ENV["SAVE"] * "_auto" * string((k ÷ CKEVERY) % 2), k; jinc = 1)
+        haskey(ENV, "SAVE") && (LASTOK[] = TD.snapshot())     # the accepted state, for the checkpoint of a failed step
     end)
 catch e
     pr("stopped: %s\n", first(sprint(showerror, e), 400))
+    LASTOK[] === nothing || (TD.restore!(LASTOK[]); pr("state restored to the last accepted step %d for the checkpoint\n", KLAST[]))
     get(ENV, "DEBUG", "0") == "1" && Base.display_error(stderr, e, catch_backtrace())
 end
 Trbdf2.ERESTOL[] > 0 && pr("ERESTOL %g: %d stage solves tested, %d extra Newton iterations, %d left above the tolerance (%d of them at niter); largest accepted measure %.4g L_sun\n",

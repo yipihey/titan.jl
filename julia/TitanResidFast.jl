@@ -1135,12 +1135,25 @@ end
 # ------------------------------------------------------------------ residual
 
 "Grid-equation rows of GRIDEQ (see there) for the interfaces k1+1 … k2−1."
-function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, chi = nothing; un = nothing, G4 = 0.0)
+function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, chi = nothing; un = nothing, G4 = 0.0, cs = nothing, Gc = 0.0)
     k1, k2 = ge.k1, ge.k2; zl, zh = k1, k2 - 1                  # zones between the fixed interfaces
     α = ge.alph * (1 + ge.alph); wρ, wP, wT, wE, wm = ge.w
     zc(j) = clamp(j, zl, zh)
     ν(j) = (j = zc(j); (rn[j+1] + rn[j]) / (2 * (rn[j+1] - rn[j]))); νo(j) = (j = zc(j); (ro[j+1] + ro[j]) / (2 * (ro[j+1] - ro[j])))
     lm(j) = (j = zc(j); log(0.5 * ((xmtot - xmen[j]) + (xmtot - xmen[j+1]))))
+    # Relaxation time of zone j from the Newton iterate (smooth, differentiated with the rows):
+    #   tau = smax( smin(kappa t_cross, f_dyn t_dyn), t_floor ),  smin/smax(a,b) = (a^-p + b^-p)^(-1/p) / (a^p + b^p)^(1/p), p = 4.
+    # t_cross = r_c / (|u|_c + c_s) (the driver's geq_tcross: r_c mid-zone radius, |u|_c mean of the two interface speeds, |u| -> sqrt(u^2 + eps^2),
+    # eps = 1e-3 c_s; c_s = sqrt(gamma p/rho) = W.asn); t_dyn = 1/sqrt(G rho) (G = P.cgrav); t_floor: the speed floor of the driver (start-of-step).
+    function tau(j)
+        (cs === nothing || !hasproperty(ge, :tfl)) && return ge.tauv[j]
+        c_ = cs[j]; ε = 1e-3 * c_
+        um = 0.5 * (sqrt(un[j]^2 + ε^2) + sqrt(un[j+1]^2 + ε^2))
+        tc_ = 0.5 * (rn[j] + rn[j+1]) / (um + c_)
+        a_ = ge.kap * tc_; b_ = ge.fdyn / sqrt(Gc * dn[j])
+        tm = (a_^-4 + b_^-4)^-0.25
+        (tm^4 + ge.tfl[j]^4)^0.25
+    end
     function nhat(j)
         xnt = ν(j) - α * (ν(j-1) - 2ν(j) + ν(j+1)); xnto = νo(j) - α * (νo(j-1) - 2νo(j) + νo(j+1))
         jm, jp = zc(j - 1), zc(j + 1); h = jp - jm == 2 ? 0.5 : 1.0
@@ -1160,7 +1173,7 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
         # resolution floor (GEQDEC): + ω_r² + ω_m² ν² (Δ ln m)² (enclosed-mass term; zone stencil clamped to the shells from the first interface outward), constants of the run
         hasproperty(ge, :fr) && (G2 += ge.fr + ge.fm * ν(j)^2 * h * ((lm(jp) - lm(j))^2 + (lm(j) - lm(jm))^2))   # (adjacent-interface stencil, as the monitor terms above)
         G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
-        γ = ge.tauv[j] / dt
+        γ = tau(j) / dt
         ((1 + γ) * xnt - γ * xnto) / sqrt(1 + G2)
     end
     @inbounds for k in k1+1:k2-1
@@ -1460,7 +1473,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         else
             @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k] - gv[k] * dt; end
         end
-        GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[], W.chifn; un, G4 = 2 * Float64(c.mu) * P.cpi * P.cgrav)
+        GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[], W.chifn; un, G4 = 2 * Float64(c.mu) * P.cpi * P.cgrav, cs = W.asn, Gc = Float64(P.cgrav))
         GEQ_LAGFIRST[] && gridmoves() && (R[ir, kb(ngrs+1)] = (xmen[ngrs+1] - c.xmeo[ngrs+1]) * (c.ro[ngrs+1] / (c.xmeo[ngrs] - c.xmeo[ngrs+1])))
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
