@@ -1152,7 +1152,22 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
         tc_ = 0.5 * (rn[j] + rn[j+1]) / (um + c_)
         a_ = ge.kap * tc_; b_ = ge.fdyn / sqrt(Gc * dn[j])
         tm = (a_^-4 + b_^-4)^-0.25
-        (tm^4 + ge.tfl[j]^4)^0.25
+        tf_ = log(rn[j+1] / rn[j]) * tc_ * ge.flc          # speed floor from the iterate: a zone moving its own width ln(r_j+1/r_j) in tau goes at most fv (|u|+c_s)  (ge.flc = 1/min(fmove-ish cap, fvr))
+        (tm^4 + tf_^4)^0.25
+    end
+    # Optical depth of the Newton iterate (GEQW entry 6, w_tau): tau_k = sum_{j>=k} chi_j rho_j (r_j+1 - r_j) from the outer zone zh inward (zones k1..zh),
+    # ln tau confined to [ln tau_lo, ln tau_hi] by a SMOOTH window (smooth max/min, sqrt((x-L)^2 + e^2), e = 0.5), zone value = mean of the two interface values,
+    # term w_tau h ((dlt_j+1 - dlt_j)^2 + (dlt_j - dlt_j-1)^2) in the same adjacent-interface stencil as the other monitor terms. Local to the iterate and differentiated.
+    wt_ = hasproperty(ge, :wtau) && ge.wtau > 0 && chi !== nothing
+    ltc = if wt_
+        ta = Vector{typeof(rn[zl] * chi[zl] * dn[zl])}(undef, zh - zl + 2); ta[end] = zero(ta[end])
+        for k in zh:-1:zl; ta[k-zl+1] = ta[k-zl+2] + chi[k] * dn[k] * (rn[k+1] - rn[k]); end
+        llo, lhi = log(ge.tlo), log(ge.thi); e2 = 0.25
+        smax_(x, L) = 0.5 * (x + L + sqrt((x - L)^2 + e2)); smin_(x, L) = 0.5 * (x + L - sqrt((x - L)^2 + e2))
+        lw = [smin_(smax_(log(t + 1e-30), llo), lhi) for t in ta]
+        [0.5 * (lw[j-zl+1] + lw[j-zl+2]) for j in zl:zh]
+    else
+        nothing
     end
     function nhat(j)
         xnt = ν(j) - α * (ν(j-1) - 2ν(j) + ν(j+1)); xnto = νo(j) - α * (νo(j-1) - 2νo(j) + νo(j+1))
@@ -1160,6 +1175,7 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
         d2(v) = h * (log(v[jp] / v[j])^2 + log(v[j] / v[jm])^2)
         S = wρ * d2(dn) + wP * d2(pg) + wT * d2(tn) +
             wE * d2(er) + wm * h * ((lm(jp) - lm(j))^2 + (lm(j) - lm(jm))^2) + ge.sx[j]
+        wt_ && (S += ge.wtau * h * ((ltc[jp-zl+1] - ltc[j-zl+1])^2 + (ltc[j-zl+1] - ltc[jm-zl+1])^2))
         # (GEQW entry 8, wχ > 0: the extinction coefficient χρ of the Newton iterate, adjacent interface jumps: local, not lagged)
         (hasproperty(ge, :wχ) && ge.wχ > 0 && chi !== nothing) && (S += ge.wχ * h * (log((chi[jp] * dn[jp]) / (chi[j] * dn[j]))^2 + log((chi[j] * dn[j]) / (chi[jm] * dn[jm]))^2))
         # (GEQGP = w_g, L_ref; provisional, default off; docs/POPIII_ENERGY.md §14.6) the density jump weighted with the gravity power of the

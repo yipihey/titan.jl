@@ -8,13 +8,13 @@ is instead Lagrangian, its grid row holds its enclosed mass: TitanResidFast.GEQ_
 gmax and Dorfi–Drury smoothing α (neighbours within (1 + α)/α). No markers, thresholds or zone budgets.
 
   mode 1 (preferred): TITAN's implicit grid equation over the whole mesh (TitanResidFast.GRIDEQ), time-smoothed per zone with
-          γ_j = κ t_cross,j / Δt, t_cross = r_c/(|u| + c_s) the zone's own signal-crossing time; the τ term is frozen per step;
+          γ_j = κ t_cross,j / Δt, t_cross = r_c/(|u| + c_s) the zone's own signal-crossing time; the τ term (GEQW entry 6, wτ) is formed from the Newton iterate (τ = Σχρ Δr from the outer zone, ln τ smoothly confined to [ln τlo, ln τhi]) and differentiated; the speed floor of the relaxation time too;
           Δt limited so that no interface moves more than fmove of its smaller neighbouring zone per step.
   mode 0 (fallback): the explicit target of the same rule (GridEq.target); every interface relaxes to it in max(3 Δt, κ t_cross),
           at most fmove of the zone it moves into per step and |ṙ| ≤ fv (|u| + c_s); no zone shrinks below half its narrower
           neighbour. Mesh motion never limits Δt in this mode.
 
-GEQN=N (with ICEUL): the IC is built on N zones (even; default: envlr's count). GEQW=wρ,wP,wT,wE,wm,wτ,wu,wχ (default 1,1,1,1,1,1,0,0; wχ: (∂ln(χρ)/∂ln r)² of the Newton iterate, mode 1 only; wu: the term wu ((r ∂u/∂r)/(|u| + c_s))², mode 1 only); GEQC=gmax,alph,κ,fv,fmove,τlo,τhi,ctol,κf,f_dyn (default 100,1.5,30,0.5,0.5,0.1,1e4,0.3,0,0.2; mode 1: κf is no longer used in τ; f_dyn: the grid relaxation time of every zone is smin(κ t_cross, f_dyn/√(Gρ)) of the Newton iterate, see TitanResidFast.grideq_rows!).
+GEQN=N (with ICEUL): the IC is built on N zones (even; default: envlr's count). GEQW=wρ,wP,wT,wE,wm,wτ,wu,wχ (default 1,1,1,1,1,1,0,0; wτ: (Δ ln τ)² of the Newton iterate within τlo..τhi, mode 1; wχ: (∂ln(χρ)/∂ln r)² of the Newton iterate, mode 1 only; wu: the term wu ((r ∂u/∂r)/(|u| + c_s))², mode 1 only); GEQC=gmax,alph,κ,fv,fmove,τlo,τhi,ctol,κf,f_dyn (default 100,1.5,30,0.5,0.5,0.1,1e4,0.3,0,0.2; mode 1: κf is no longer used in τ; f_dyn: the grid relaxation time of every zone is smin(κ t_cross, f_dyn/√(Gρ)) of the Newton iterate, see TitanResidFast.grideq_rows!).
 
 Feature tracking (κf > 0): the features of M move with the velocity v = −(∂M/∂t)(∂M/∂ln r)/((∂M/∂ln r)² + (2M)²) (in ln r per s;
 the pattern speed of ∂M/∂t + v ∂M/∂ln r = 0, damped where M is flat: scale-free), estimated from M of this step and of the last
@@ -143,7 +143,6 @@ function grideq_step!()
     if GRIDEQP == 1
         prev_tv = (TX.GRIDEQ[] !== nothing && hasproperty(TX.GRIDEQ[], :tauv) && length(TX.GRIDEQ[].tauv) == length(TF.var(:rn))) ? TX.GRIDEQ[].tauv : nothing
         tauv = zeros(length(TF.var(:rn))); tfl = zeros(length(TF.var(:rn))); sx = zeros(length(TF.var(:rn)))
-        lτ = log.(clamp.(max.(s.τ, 1e-300), GEQC[6], GEQC[7])); lτc = [0.5 * (lτ[j] + lτ[j+1]) for j in 1:n]
         for j in 1:n
             # Implicit-grid relaxation time (mode 1): tau_j = smax(smin(kappa t_cross, f_dyn t_dyn), tfl) is formed in TitanResidFast.grideq_rows!
             # from the Newton iterate. Held here: kappa (GEQRAMP), the speed floor tfl (start-of-step, as before) and tauv = kappa t_cross (diagnostic).
@@ -151,13 +150,13 @@ function grideq_step!()
             dxj = j >= 2 ? log(s.r[j+1] / s.r[j]) : 1.0
             tfl[a+j-1] = dxj * tc[j] / min(GEQC[4] * GEQC[3] / κ, fvr); tauv[a+j-1] = κ * tc[j]
             jm, jp = max(j - 1, 2), min(j + 1, n); h = jp - jm == 2 ? 0.5 : 1.0
-            sx[a+j-1] = GEQW[6] * h * ((lτc[jp] - lτc[j])^2 + (lτc[j] - lτc[jm])^2)
+            sx[a+j-1] = 0.0                  # (the optical-depth term w_tau is formed from the Newton iterate in grideq_rows!)
             # velocity jump in units of the signal speed, (r ∂u/∂r)/(|u| + c_s): resolves shocks (the zone's own Δu, per zone index)
             GEQW[7] > 0 && (sx[a+j-1] += GEQW[7] * ((s.u[j+1] - s.u[j]) / (0.5 * (abs(s.u[j]) + abs(s.u[j+1])) + s.cs[j]))^2)
             # GEQX: composition, ln(x + xfl) of every species, adjacent interface jumps
             s.X === nothing || (sx[a+j-1] += GEQX[1] * h * sum((s.X[q, jp] - s.X[q, j])^2 + (s.X[q, j] - s.X[q, jm])^2 for q in axes(s.X, 1)))
         end
-        TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, tfl, kap = κ, fdyn = GEQC[10], sx, wχ = GEQW[8], gp = (GEQGP[1], GEQGP[2] * 3.828e33 / (4π)), fr = GEQFL[1], fm = GEQFL[2])
+        TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, tfl, flc = 1 / min(GEQC[4] * GEQC[3] / κ, fvr), wtau = GEQW[6], tlo = GEQC[6], thi = GEQC[7], kap = κ, fdyn = GEQC[10], sx, wχ = GEQW[8], gp = (GEQGP[1], GEQGP[2] * 3.828e33 / (4π)), fr = GEQFL[1], fm = GEQFL[2])
     else
         rt = geq_target(s); w = TX.GRIDVEL[]; fill!(w, 0.0)
         for j in 3:n                                              # interfaces above the first one, below the outer edge
