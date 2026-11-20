@@ -23,11 +23,14 @@ neighbours; the floor keeps the grid speed below about fv (|u| + c_s)), so that 
 shock without being fast everywhere.
 With ICEUL the IC is built on the rule's mesh of the IC. No state beyond the mesh: a checkpoint restarts with the same setting.
 
-GEQDEC=pr,pm[,C*] (default 6,6,1): resolution floor, at least pr zones per decade of r and pm per decade of enclosed mass. M² gets the constant
-ω_r² and the term ω_m² (∂ln m/∂ln r)² (added to the monitor's G² before the gmax cap; mode 1 and mode 0), ω_x = p_x C*/ln 10. Equidistribution gives Δln r_j = C/M_j
-with C = ∫M dln r/N; M ≥ sqrt(1 + ω_r²) > ω_r and, at fixed ∂ln m/∂ln r, Δln m_j ≤ C/ω_m, so Δlog10 r ≤ (C/C*)/pr and Δlog10 m ≤ (C/C*)/pm
-(the floor is exact when C ≤ C*; C is printed in the grid-eq line as 'C'; it is a weight, not a clamp: if physics raises C above C*, the floor degrades as C/C*). The floor terms act on the shells from the first interface outward (with ICMLOG the first interface is Lagrangian and not a grid row; its enclosed mass is pinned, so ∂ln m/∂ln r of the first shells is one-sided from the pinned interface). The 6 (not 5) leaves ~25% slack for C > C* so that >= 5 zones per decade survive. The first
-term of M (the 1) and wm still act on top.
+GEQDEC=pr,pm[,a] (default 6,6,0.4): guaranteed resolution floor as a MIXTURE of separately normalised monitors. Physics monitor M_p = sqrt(1 + G²) (all terms above, G² capped at gmax²) and
+floor monitor M_f = sqrt(ω_r² + ω_m² (∂ln m/∂ln r)²), ω_x = p_x/ln 10 (pr zones per decade of r, pm per decade of enclosed mass; one-sided stencil from the pinned first interface with ICMLOG).
+The mesh equidistributes M = a (I_p/I_f) M_f + (1-a) M_p, I_x = Σ_j M_x,j Δξ_j over the zones, Δξ_j = 1/ν_j ≈ Δln r_j (implicit rows: x̂_j/M_j, TitanResidFast grideq_rows!, from the Newton iterate, differentiated;
+I_p, I_f are global sums, dense dependence only through J·v; IC mesh: GridEq.density, I = trapezoid ∫M dln r). a = 0 gives the plain physics rows. Equidistribution gives M_j Δξ_j = I_p/N, hence
+a (I_p/I_f) M_f,j Δξ_j <= I_p/N, i.e. Δln r_j <= I_f/(a N M_f,j) <= I_f/(a N ω_r) and, at fixed ∂ln m/∂ln r, Δln m_j <= I_f/(a N ω_m):
+Δlog10 r <= I_f/(a N pr) and Δlog10 m <= I_f/(a N pm) (I_f >= ω_r Δln r_total: the floor is a guaranteed share a of the N zones, independent of how strong the physics features are; bounds hold up to
+the (1+α)/α neighbour smoothing of the xnt row and the O(1) stencil approximations). I_f, I_p are printed in the grid-eq line.
+The 1 in M_p and wm still act in M_p.
 GEQX=wx[,xfl] (default 0: off): a composition term wx Σ_s (∂ ln(x_s + xfl)/∂ ln r)² over every species of the network (abundances
 per H nucleus, ChemNet.full; xfl default 1e-3), frozen per step like the τ term (mode 1) and in the explicit target (mode 0). A
 species far below xfl contributes nothing, so only changes of composition that carry a share ≳ xfl of the nuclei (ionization and
@@ -46,13 +49,13 @@ const GEQX = geqv("GEQX", [0.0, 1e-3])
 # GEQGP=w_g,L_ref [L_sun] (provisional, default 0 = off; implicit grid equation only): density jump x gravity power of the zone in the monitor
 # (TitanResidFast.grideq_rows!, docs/POPIII_ENERGY.md §14.6)
 const GEQGP = geqv("GEQGP", [0.0, 100.0])
-const GEQDEC = geqv("GEQDEC", [6.0, 6.0, 1.0])   # zones per decade in r, in enclosed mass; C* (see above)
-const GEQFL = ((GEQDEC[1] * GEQDEC[3] / log(10))^2, (GEQDEC[2] * GEQDEC[3] / log(10))^2)   # (ω_r², ω_m²)
+const GEQDEC = geqv("GEQDEC", [6.0, 6.0, 0.4])   # zones per decade in r, in enclosed mass; a, the floor monitor's share of the zones (see above)
+const GEQFL = ((GEQDEC[1] / log(10))^2, (GEQDEC[2] / log(10))^2)   # (ω_r², ω_m²)
 const GEQRAMP = haskey(ENV, "GEQRAMP") ? parse.(Float64, split(ENV["GEQRAMP"], ",")) : nothing
 const GEQJ0 = Ref(-1)                  # jstep at the first grideq_step! of this process (GEQRAMP; -2: no ramp, the mesh is close to the rule)
 "max_j(M_j Δln r_j) / median over the zones above the centre: how far the mesh is from equidistribution (GEQRAMP)."
 function geq_quality(s)
-    D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0, fl = GEQFL)
+    D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0, fl = GEQFL, mix = GEQDEC[3])
     q = [D.M[i] * log(s.r[i+2] / s.r[i+1]) for i in eachindex(D.M)]; qs = sort(q)
     (; ratio = maximum(q) / qs[(length(qs) + 1) ÷ 2], k = argmax(q) + 1)
 end
@@ -78,7 +81,7 @@ function geq_lx()
     Float64[log(max(Float64(ForwardDiff.value(d[j][q])), 0.0) + GEQX[2]) for q in sp, j in eachindex(d)]
 end
 geq_target(s; N = nsh - 1) = GridEq.target(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ, N; w = Tuple(GEQW), gmax = GEQC[1], alph = GEQC[2], τlo = GEQC[6], τhi = GEQC[7],
-                                            X = s.Xd, wx = 1.0, fl = GEQFL)
+                                            X = s.Xd, wx = 1.0, fl = GEQFL, mix = GEQDEC[3])
 "Grid totals (erg, g): internal (e incl. the chemical offsets), kinetic (zone-centred u), radiation, gravitational (−G m dm / r_c)."
 function geq_energy()
     r = TF.var(:rn)[a:b+1]; u = TF.var(:un)[a:b+1]; m = 4π .* envmenc(); e = TF.var(:egn)[a:b]; E = TF.var(:ern)[a:b]; n = nsh
@@ -101,9 +104,9 @@ function geq_diag(s)
     dT = maximum(abs(log(s.T[j+1] / s.T[j])) for j in 2:length(s.T)-1)      # largest jump of ln T across one interface
     dl = [log(s.r[j+1] / s.r[j]) for j in 2:length(s.ρ)]
     rat = maximum(max(dl[j] / dl[j-1], dl[j-1] / dl[j]) for j in 2:length(dl))
-    Dn = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0, fl = GEQFL)
-    Cq = sum(Dn.M .* dl) / length(s.ρ)                 # C = ∫M dln r / N of the explicit monitor (the floor holds when C <= C*)
-    (; nsk, rsk = s.r[ku], uk = s.u[ku], nph, nph5, dT, dlmin = minimum(dl), rat, Cq)
+    Dn = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0, fl = GEQFL, mix = GEQDEC[3])
+    Cq = Dn.If; Ipq = Dn.Ip                             # I_f, I_p of the explicit monitors (guarantee: Δlog10 r <= I_f/(a N pr))
+    (; nsk, rsk = s.r[ku], uk = s.u[ku], nph, nph5, dT, dlmin = minimum(dl), rat, Cq, Ipq)
 end
 function grideq_step!()
     s = geq_state(); n = nsh; dt = TF.getscalar(:dtime); tc = geq_tcross(s); κ = GEQC[3]; κf = GEQC[9]
@@ -118,7 +121,7 @@ function grideq_step!()
     fvr = (GEQRAMP !== nothing && length(GEQRAMP) >= 4) ? GEQRAMP[4] : Inf      # GEQRAMP entry 4: cap of the ramped grid speed in units of |u| + c_s
     tfe = fill(Inf, n); nfast = 0                                 # feature-crossing time of each zone (feature tracking)
     if κf > 0
-        D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0, fl = GEQFL)
+        D = GridEq.density(s.r, s.m, s.ρ, s.P, s.T, s.E, s.τ; w = Tuple(GEQW), gmax = GEQC[1], τlo = GEQC[6], τhi = GEQC[7], X = s.Xd, wx = 1.0, fl = GEQFL, mix = GEQDEC[3])
         t = TF.getscalar(:timen); pv = GEQPREV[]
         if pv !== nothing && t > pv[1]
             Mp = [GridEq.lin(pv[2], pv[3], x) for x in D.x]; nd = length(D.x); v = zeros(nd)
@@ -156,7 +159,7 @@ function grideq_step!()
             # GEQX: composition, ln(x + xfl) of every species, adjacent interface jumps
             s.X === nothing || (sx[a+j-1] += GEQX[1] * h * sum((s.X[q, jp] - s.X[q, j])^2 + (s.X[q, j] - s.X[q, jm])^2 for q in axes(s.X, 1)))
         end
-        TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, tfl, flc = 1 / min(GEQC[4] * GEQC[3] / κ, fvr), wtau = GEQW[6], tlo = GEQC[6], thi = GEQC[7], kap = κ, fdyn = GEQC[10], sx, wχ = GEQW[8], gp = (GEQGP[1], GEQGP[2] * 3.828e33 / (4π)), fr = GEQFL[1], fm = GEQFL[2])
+        TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, tfl, flc = 1 / min(GEQC[4] * GEQC[3] / κ, fvr), wtau = GEQW[6], tlo = GEQC[6], thi = GEQC[7], kap = κ, fdyn = GEQC[10], sx, wχ = GEQW[8], gp = (GEQGP[1], GEQGP[2] * 3.828e33 / (4π)), fr = GEQFL[1], fm = GEQFL[2], amix = GEQDEC[3])
     else
         rt = geq_target(s); w = TX.GRIDVEL[]; fill!(w, 0.0)
         for j in 3:n                                              # interfaces above the first one, below the outer edge
@@ -185,6 +188,6 @@ function grideq_line()
             v = abs(rn[k] - ro[k]) / dt / (abs(un[k]) + 0.5 * (cs[k-1] + cs[k])); vmax = max(vmax, v)
         end
     end
-    @sprintf("        grid eq: shock at %.4g R_sun (u %.1f km/s) across %d zones, photosphere (0.1 <= tau <= 10) across %d interfaces (1 <= tau <= 1e5: %d), largest |dln T| per interface %.3f; dln r min %.3e, max neighbour ratio %.2f; grid speed max %.3f (|u| + c_s); %d zones relaxing at their feature speed; kappa %.3g; C %.3g (C* %.3g)\n",
-             d.rsk / Rsun, d.uk / 1e5, d.nsk, d.nph, d.nph5, d.dT, d.dlmin, d.rat, vmax, d.nfast, d.κ, d.Cq, GEQDEC[3])
+    @sprintf("        grid eq: shock at %.4g R_sun (u %.1f km/s) across %d zones, photosphere (0.1 <= tau <= 10) across %d interfaces (1 <= tau <= 1e5: %d), largest |dln T| per interface %.3f; dln r min %.3e, max neighbour ratio %.2f; grid speed max %.3f (|u| + c_s); %d zones relaxing at their feature speed; kappa %.3g; I_f %.3g I_p %.3g (a %.2f)\n",
+             d.rsk / Rsun, d.uk / 1e5, d.nsk, d.nph, d.nph5, d.dT, d.dlmin, d.rat, vmax, d.nfast, d.κ, d.Cq, d.Ipq, GEQDEC[3])
 end

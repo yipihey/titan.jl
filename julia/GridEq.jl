@@ -5,8 +5,8 @@ Every zone covers the same ∫ M d ln r with
 
     M = sqrt(1 + G²),  G² = Σ_q w_q (∂ ln q/∂ ln r)²,  q ∈ {ρ, P, T, E_r, m (interior mass), τ (clamped to [τlo, τhi])},
 
-with the resolution floor G² += ω_r² + ω_m² (∂ ln m/∂ ln r)² (GEQDEC), G² capped smoothly at gmax² (G² gmax²/(G² + gmax²): no zone finer than √(1 + gmax²) times the baseline, so a jump is spread over a
-bounded number of zones), and neighbouring zones within the factor (1 + α)/α (the bound of Dorfi–Drury's spatial smoothing). All
+M_p = M as above, G² capped smoothly at gmax² (G² gmax²/(G² + gmax²): no zone finer than √(1 + gmax²) times the baseline, so a jump is spread over a
+bounded number of zones). GEQDEC mixes in the resolution-floor monitor M_f = √(ω_r² + ω_m² (∂ ln m/∂ ln r)²) with its own normalisation, M ← a (I_p/I_f) M_f + (1−a) M_p, I_x = ∫M_x dln r (trapezoid on the zone centres), which gives the floor a fixed share a of the zones (grideq_driver.jl). Neighbouring zones within the factor (1 + α)/α (the bound of Dorfi–Drury's spatial smoothing). All
 terms are logarithmic derivatives: the rule has no scale and no threshold. A power law ρ ∝ r^−n gives a constant M (a logarithmic
 mesh that does not move). The implicit form of the same rule is TITAN's grid equation (TitanResidFast.GRIDEQ); this module gives the
 explicit target (the starting mesh and the prescribed mode). Plain vectors, no dependence on the rest of the code.
@@ -50,11 +50,11 @@ M at the zone centres x = ln r_c (zones 2…n: the central sphere is left out) o
 mass), τ (optical depth from the outer edge); zones ρ, P, T, E. Derivatives centred in ln r between zone centres. X (optional, species ×
 zones 1…n): further logarithmic fields, e.g. ln(x + x_floor) of the composition, with the common weight wx.
 """
-function density(r, m, ρ, P, T, E, τ; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 100.0, τlo = 0.1, τhi = 1e4, X = nothing, wx = 0.0, fl = (0.0, 0.0))
+function density(r, m, ρ, P, T, E, τ; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 100.0, τlo = 0.1, τhi = 1e4, X = nothing, wx = 0.0, fl = (0.0, 0.0), mix = 0.0)
     n = length(ρ); x = [log(sqrt(r[j] * r[j+1])) for j in 2:n]
     lmc = [log(0.5 * (m[j] + m[j+1])) for j in 2:n]; ltc = [log(clamp(sqrt(max(τ[j], 1e-300) * max(τ[j+1], 1e-300)), τlo, τhi)) for j in 2:n]
     fs = (log.(ρ[2:n]), log.(P[2:n]), log.(T[2:n]), log.(max.(E[2:n], 1e-300)), lmc, ltc)
-    M = similar(x)
+    Mp = similar(x); Mf = similar(x)
     for i in eachindex(x)
         il, ih = max(i - 1, 1), min(i + 1, length(x))
         dl = i > il ? (x[i] - x[il]) : 1.0; dh = ih > i ? (x[ih] - x[i]) : 1.0
@@ -62,10 +62,14 @@ function density(r, m, ρ, P, T, E, τ; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax
         G2 = 0.0
         for (wq, f) in zip(w, fs); G2 += wq * w2 * (((f[i] - f[il]) / dl)^2 + ((f[ih] - f[i]) / dh)^2); end
         (X === nothing || wx == 0) || (G2 += wx * w2 * sum(((X[q, i+1] - X[q, il+1]) / dl)^2 + ((X[q, ih+1] - X[q, i+1]) / dh)^2 for q in axes(X, 1)))   # (X: zones 1…n, x: zones 2…n)
-        G2 += fl[1] + fl[2] * w2 * (((lmc[i] - lmc[il]) / dl)^2 + ((lmc[ih] - lmc[i]) / dh)^2)       # resolution floor (GEQDEC): ω_r² + ω_m² (∂ln m/∂ln r)², adjacent-interface stencil
-        G2 = G2 * gmax^2 / (G2 + gmax^2); M[i] = sqrt(1 + G2)
+        Mp[i] = sqrt(1 + G2 * gmax^2 / (G2 + gmax^2))                                  # physics monitor M_p
+        Mf[i] = sqrt(fl[1] + fl[2] * w2 * (((lmc[i] - lmc[il]) / dl)^2 + ((lmc[ih] - lmc[i]) / dh)^2))   # floor monitor M_f (GEQDEC): sqrt(ω_r² + ω_m² (∂ln m/∂ln r)²), adjacent-interface stencil
     end
-    (; x, M)
+    # mixture of separately normalised monitors: M = a (I_p/I_f) M_f + (1-a) M_p  (= I_p × [a M_f/I_f + (1-a) M_p/I_p]); I = ∫ M dln r (trapezoid on the zone centres)
+    trz(v) = sum(0.5 * (v[i] + v[i+1]) * (x[i+1] - x[i]) for i in 1:length(x)-1)
+    Ip = trz(Mp); If = trz(Mf)
+    M = mix > 0 && If > 0 ? mix * (Ip / If) .* Mf .+ (1 - mix) .* Mp : Mp
+    (; x, M, Ip, If)
 end
 """
     target(r, m, ρ, P, T, E, τ, N; w, gmax, alph, τlo, τhi, nf) -> N + 1 radii from r[2] (the first interface) to r[end]
@@ -73,8 +77,8 @@ end
 The mesh of N zones between the fixed first interface and the outer edge that equidistributes ∫ M d ln r, with neighbour ratio
 ≤ (1 + α)/α.
 """
-function target(r, m, ρ, P, T, E, τ, N; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 100.0, alph = 1.5, τlo = 0.1, τhi = 1e4, nf = 6000, X = nothing, wx = 0.0, fl = (0.0, 0.0))
-    D = density(r, m, ρ, P, T, E, τ; w, gmax, τlo, τhi, X, wx, fl)
+function target(r, m, ρ, P, T, E, τ, N; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax = 100.0, alph = 1.5, τlo = 0.1, τhi = 1e4, nf = 6000, X = nothing, wx = 0.0, fl = (0.0, 0.0), mix = 0.0)
+    D = density(r, m, ρ, P, T, E, τ; w, gmax, τlo, τhi, X, wx, fl, mix)
     xa, xb = log(r[2]), log(r[end]); dx = (xb - xa) / nf; xe = [xa + (i - 1) * dx for i in 1:nf+1]
     f0 = [lin(D.x, D.M, 0.5 * (xe[i] + xe[i+1])) * dx for i in 1:nf]
     c = equi(f0, N; lg = log((1 + alph) / alph))

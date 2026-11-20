@@ -1169,7 +1169,8 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
     else
         nothing
     end
-    function nhat(j)
+    # monitors of zone j (physics M_p = sqrt(1+G2 capped), floor M_f), the smoothed node density xnt and its old value, all from the iterate
+    function mons(j)
         xnt = ν(j) - α * (ν(j-1) - 2ν(j) + ν(j+1)); xnto = νo(j) - α * (νo(j-1) - 2νo(j) + νo(j+1))
         jm, jp = zc(j - 1), zc(j + 1); h = jp - jm == 2 ? 0.5 : 1.0
         d2(v) = h * (log(v[jp] / v[j])^2 + log(v[j] / v[jm])^2)
@@ -1186,11 +1187,22 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
             S += ge.gp[1] * d2(dn) * 0.5 * (abs(un[j]) * gq(j) + abs(un[j+1]) * gq(j + 1)) * (xmen[j] - xmen[j+1]) / ge.gp[2]
         end
         G2 = ν(j)^2 * S
-        # resolution floor (GEQDEC): + ω_r² + ω_m² ν² (Δ ln m)² (enclosed-mass term; zone stencil clamped to the shells from the first interface outward), constants of the run
-        hasproperty(ge, :fr) && (G2 += ge.fr + ge.fm * ν(j)^2 * h * ((lm(jp) - lm(j))^2 + (lm(j) - lm(jm))^2))   # (adjacent-interface stencil, as the monitor terms above)
         G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
+        # floor monitor (GEQDEC): M_f^2 = ω_r² + ω_m² ν² (Δ ln m)² (enclosed-mass term; adjacent-interface stencil, clamped to the shells from the first interface outward)
+        Gf2 = ge.fr + ge.fm * ν(j)^2 * h * ((lm(jp) - lm(j))^2 + (lm(j) - lm(jm))^2)
+        (sqrt(1 + G2), sqrt(Gf2), xnt, xnto)
+    end
+    # Mixture of separately normalised monitors (GEQDEC entry 3 = a): the row of zone j is x̂_j/M_j with
+    #   M_j = a (I_p/I_f) M_f,j + (1-a) M_p,j,   I_x = Σ_j M_x,j Δξ_j,  Δξ_j = 1/ν_j (ν = (r_j+1 + r_j)/(2(r_j+1 - r_j)) ≈ 1/Δln r_j),
+    # over the zones zl..zh; = I_p [a M_f/I_f + (1-a) M_p/I_p]; a = 0 gives the plain physics row. Equidistribution (the rows) makes M_j Δξ_j the same for all zones;
+    # I_p, I_f are global sums of the iterate (Dual-safe, dense dependence only through J·v).
+    ms = [mons(j) for j in zl:zh]
+    Ipp = sum(m[1] / ν(j) for (j, m) in zip(zl:zh, ms)); Iff = sum(m[2] / ν(j) for (j, m) in zip(zl:zh, ms))
+    amix = hasproperty(ge, :amix) ? ge.amix : 0.0
+    nhat(j) = begin
+        m = ms[j-zl+1]; Mj = amix > 0 ? amix * (Ipp / Iff) * m[2] + (1 - amix) * m[1] : m[1]
         γ = tau(j) / dt
-        ((1 + γ) * xnt - γ * xnto) / sqrt(1 + G2)
+        ((1 + γ) * m[3] - γ * m[4]) / Mj
     end
     @inbounds for k in k1+1:k2-1
         R[ir, k - k0 + 1] = nhat(k) - nhat(k - 1)
