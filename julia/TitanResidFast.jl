@@ -665,10 +665,10 @@ h = 0, f = 1/3: F₀ = −(4/3) u E₀, the flux a moving observer sees in an is
 in the CMB-dominated cloud (h ~ 1e-6…1e-3) the energy row's ∇·(uE) + (E/3)∇·u was then balanced by nothing and the infall compressed the
 CMB like a trapped gas (E_r up to 6 E_CMB at 0.2 pc, −1e5 L☉ through the outer boundary, docs/POPIII_ENERGY.md §3).
 Discrete form at interface k (all at the θ-level of the row, nothing lagged), chosen so that a uniform isotropic field is a steady state of
-the energy row to round-off, also on a moving mesh (well-balanced):
-    r² F₀ = r_c² c (h E)_donor + ṁ_k (E/ρ)ᵇ_k − V̇_k ½(E₋ + E₊) − r² u ½(f₋E₋ + f₊E₊) + 2 u r_c² (h² E)_donor,
+the energy row to round-off, also on a moving mesh (well-balanced), and the mesh-sweep rezoning term −V̇_k E_up is upwinded in the interface motion (M-matrix):
+    r² F₀ = r_c² c (h E)_donor + ṁ_k (E/ρ)ᵇ_k − V̇_k E_up − r² u ½(f₋E₋ + f₊E₊) + 2 u r_c² (h² E)_donor,
 ṁ_k (E/ρ)ᵇ_k the advective flux of the energy row itself (dmdt·erb, = −r² ρᵇ u_rel (E/ρ)ᵇ), V̇_k = (r_new³ − r_old³)/(3Δt) the volume the
-interface sweeps per unit time (the same radii as ΔV_new − ΔV_old of the row: geometric conservation); the two together are −r² u E.
+interface sweeps per unit time (the same radii as ΔV_new − ΔV_old of the row: geometric conservation; E_up = E₊ for V̇_k ≥ 0, E₋ for V̇_k < 0); the two together are −r² u E.
 Outer boundary: F_lab = g c E_s − π(2g + 1) I_in becomes F₀ = [g c E_s − π(2g + 1) I_in](1 + 2 g u/c) − (1 + f) u E.
 """
 const TIEFRAME = Ref(false)
@@ -1738,7 +1738,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 end
                 if TIEFRAME[]                        # the unknown F is the comoving flux: F₀ = F_lab − (1 + f) u E + 2 h² u E (see TIEFRAME)
                     ho = SLABTIE[] ? hd : max(HT[k-1], 0.0); hi = min(HT[k], 0.0)
-                    B += (-dmdt[k] * erb[k] + (rn[k]^(mu + 1) - c.ro[k]^(mu + 1)) / (xmup1 * dt) * 0.5 * (er[k-1] + er[k]) +
+                    eup = decide(:up, 21, k, val(rn[k]) >= c.ro[k]) ? er[k] : er[k-1]
+                    B += (-dmdt[k] * erb[k] + (rn[k]^(mu + 1) - c.ro[k]^(mu + 1)) / (xmup1 * dt) * eup +
                           rmu[k] * u[k] * 0.5 * (fedd[k-1] * er[k-1] + fedd[k] * er[k]) -
                           2u[k] * (rcm * ho^2 * em + rcp * hi^2 * ep)) / cc
                 end

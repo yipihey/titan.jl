@@ -339,7 +339,8 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
                 B = rmu[k] * fg[k] / cc - (rcm * hd * eg[k-1] + rcp * min(HE[k], 0.0) * eg[k])
                 if TIEFRAME[]                        # F_g is the comoving flux, as the grey row (TitanResidFast.TIEFRAME), per group
                     hi = min(HE[k], 0.0)
-                    B += (-dmdt[k] * erb[k] + (rn[k]^(c.mu + 1) - c.ro[k]^(c.mu + 1)) / ((c.mu + 1) * dt) * 0.5 * (eg[k-1] + eg[k]) +
+                    egup = decide(:up, 21 + g, k, val(rn[k]) >= c.ro[k]) ? eg[k] : eg[k-1]
+                    B += (-dmdt[k] * erb[k] + (rn[k]^(c.mu + 1) - c.ro[k]^(c.mu + 1)) / ((c.mu + 1) * dt) * egup +
                           rmu[k] * u[k] * 0.5 * (fedd[k-1] * eg[k-1] + fedd[k] * eg[k]) -
                           2u[k] * (rcm * hd^2 * eg[k-1] + rcp * hi^2 * eg[k])) / cc
                 end
