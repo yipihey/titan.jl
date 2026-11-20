@@ -37,10 +37,12 @@ mutable struct Opts
 end
 const OPT = Opts(1e-3, 30, 1e-5, true, 0)
 mutable struct Count
-    solves::Int; mv::Int; nonconv::Int; ndrift::Int; maxdrift::Float64; secs::Float64
+    solves::Int; mv::Int; nonconv::Int; ndrift::Int; maxdrift::Float64; secs::Float64; jb_reused::Int
 end
-const CNT = Count(0, 0, 0, 0, 0.0, 0.0)
+const CNT = Count(0, 0, 0, 0, 0.0, 0.0, 0)
 const MARK = Ref((0, 0, 0, 0))        # counters and step count at the last trace line
+const LUCACHE = Ref{Any}(nothing)
+const LAST_SOLVE = Ref((false, 0, 0.0))
 
 # ---------------------------------------------------------------- snapshot of everything update! writes
 const SKIP = (:em2, :em1, :e00, :ep1, :ep2, :rhs)       # the Jacobian and the correction are not state
@@ -228,7 +230,14 @@ function setup()
     act = activeset(c); snap = Snap(); take!(snap)
     TX.FREEZE[] = 1
     R0 = try resid(ne, nb) finally TX.FREEZE[] = 0 end
-    AB, ipiv, sc, kl, ku = bandlu(ne, nb, k0)
+    AB, ipiv, sc, kl, ku = if TX.RESID_ONLY[] && LUCACHE[] !== nothing
+        CNT.jb_reused += 1
+        LUCACHE[]::Tuple{Matrix{Float64},Vector{LinearAlgebra.BlasInt},Vector{Float64},Int,Int}
+    else
+        lu_ = bandlu(ne, nb, k0)
+        LUCACHE[] = lu_
+        lu_
+    end
     wt = weights(c, act)
     wtr = [c.code[(r-1)%ne+1] in LOGCODES ? 1.0 : wt[r] for r in 1:ne*nb]
     Sys(ne, nb, k0, ne * nb, copy(c.code), act, wt, wtr, R0, snap, AB, ipiv, sc, kl, ku)
@@ -539,6 +548,10 @@ function krylov!()
         @inbounds for r in 1:S.n; S.act[r] && (b[r] = δ0[(r-1)%ne+1, (r-1)÷ne+1]); end
         gi(:iter) == 1 && (TRR[] = GLOB.delta0)
         x, m, conv, rel, trunc = gmres(S, b, TRR[])
+        if TX.RESID_ONLY[] && (!conv || m > 6)
+            CNT.solves -= 1; CNT.jb_reused -= 1
+            error("NKRYLOV: refresh J_b")
+        end
         conv || trunc || (CNT.nonconv += 1); trunc && (GC.truncated += 1)
         if SCAN[][1] == Trbdf2.NWATT[] && gi(:iter) in SCAN[][2]
             try scan!(S, b, x)
@@ -550,6 +563,7 @@ function krylov!()
         end
         boxclip!(S, x)
         λ = globalize(S, x, rel)
+        LAST_SOLVE[] = (conv, m, λ); Trbdf2.LAST_KRYLOV_SOLVE[] = (conv, m, λ)
         lsinfo = @sprintf(" glob lambda %.6g radius %.4g", λ, TRR[])
         TitanCore.STEP_FRAC[] = λ
         blk .= δ0           # (the perturbed updates used `rhs` as scratch); entries update! ignores keep the band solution
@@ -669,7 +683,7 @@ function trace_text(steps)
     @sprintf(" | NK %.2f Krylov its/Newton it, %.1f mv/step, nonconv %d", ds == 0 ? 0.0 : dm / ds, nsteps == 0 ? 0.0 : dm / nsteps, dn)
 end
 glob_text() = @sprintf(" | NKGLOB: %d globalised steps, %d Krylov-truncated, %d trust-region capped, %d backtracked, %d failed, %d merit evaluations (%d trial states rejected)", GC.solves, GC.truncated, GC.capped, GC.backtracked, GC.fail, GC.evals, GC.rejected)
-summary_text() = @sprintf("NKRYLOV (eta %g, mmax %d, eps %g): %d Newton linear solves, %d matrix-vector products (%.2f per solve), %d GMRES non-convergences, %d state-drift events (max %.2e), %.1f s",
-                          OPT.eta, OPT.mmax, OPT.eps, CNT.solves, CNT.mv, CNT.solves == 0 ? 0.0 : CNT.mv / CNT.solves, CNT.nonconv, CNT.ndrift, CNT.maxdrift, CNT.secs) * glob_text()
+summary_text() = @sprintf("NKRYLOV (eta %g, mmax %d, eps %g): %d Newton linear solves (%d J_b reused), %d matrix-vector products (%.2f per solve), %d GMRES non-convergences, %d state-drift events (max %.2e), %.1f s",
+                          OPT.eta, OPT.mmax, OPT.eps, CNT.solves, CNT.jb_reused, CNT.mv, CNT.solves == 0 ? 0.0 : CNT.mv / CNT.solves, CNT.nonconv, CNT.ndrift, CNT.maxdrift, CNT.secs) * glob_text()
 
 end # module

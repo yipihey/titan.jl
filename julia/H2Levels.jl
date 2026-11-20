@@ -161,33 +161,51 @@ the de-excitation coefficients and Boltzmann factors at the zone's temperature, 
 (they do not depend on the ortho fraction). The arithmetic and its order are those of the path without `ws`: the
 populations are bit-identical.
 """
-struct PopWS
-    Q::Matrix{Float64}; P::Matrix{Float64}; s::Vector{Float64}
-    k::Vector{Vector{Float64}}; ex::Vector{Vector{Float64}}; have::Vector{Bool}
+struct PopWS{T}
+    Q::Matrix{T}; P::Matrix{T}; s::Vector{T}; π::Vector{T}
+    Qo::Matrix{T}; Po::Matrix{T}; so::Vector{T}; πo::Vector{T}
+    Qp::Matrix{T}; Pp::Matrix{T}; sp::Vector{T}; πp::Vector{T}
+    k::Vector{Vector{T}}; ex::Vector{Vector{T}}; have::Vector{Bool}
     o::Vector{Int}; p::Vector{Int}
+    κ0::Vector{T}; S::Vector{T}; β::Vector{T}; J::Vector{T}
 end
-PopWS(L::Levels) = (n = length(L.E); PopWS(zeros(n, n), zeros(n, n), zeros(n), [zeros(length(L.colls[c].pu)) for c in COLLKEYS],
-    [zeros(length(L.colls[c].pu)) for c in COLLKEYS], fill(false, length(COLLKEYS)), findall(L.ortho), findall(.!L.ortho)))
+function PopWS{T}(L::Levels) where {T}
+    n = length(L.E); o = findall(L.ortho); p = findall(.!L.ortho); no = length(o); np = length(p); nl = length(L.A)
+    PopWS{T}(zeros(T, n, n), zeros(T, n, n), zeros(T, n), zeros(T, n),
+             zeros(T, no, no), zeros(T, no, no), zeros(T, no), zeros(T, no),
+             zeros(T, np, np), zeros(T, np, np), zeros(T, np), zeros(T, np),
+             [zeros(T, length(L.colls[c].pu)) for c in COLLKEYS],
+             [zeros(T, length(L.colls[c].pu)) for c in COLLKEYS], fill(false, length(COLLKEYS)), o, p,
+             zeros(T, nl), zeros(T, nl), zeros(T, nl), zeros(T, nl))
+end
+PopWS(L::Levels) = PopWS{Float64}(L)
+const POPWS_POOL = [IdDict{Levels,Dict{DataType,Any}}() for _ in 1:Threads.maxthreadid()]
+function popws(L::Levels, ::Type{T} = Float64) where {T}
+    d0 = POPWS_POOL[Threads.threadid()]
+    d = get!(d0, L) do; Dict{DataType,Any}(); end
+    w = get(d, T, nothing)
+    w === nothing ? (w2 = PopWS{T}(L); d[T] = w2; w2) : (w::PopWS{T})
+end
 
 "`kde` into k (the same interpolation, element by element)."
-function kde!(k::Vector{Float64}, t::CollTable, T)
-    x = clamp(log(T), t.lT[1], t.lT[end]); nT = length(t.lT)
+function kde!(k::Vector{T}, t::CollTable, Tval) where {T}
+    x = clamp(log(Tval), t.lT[1], t.lT[end]); nT = length(t.lT)
     i = clamp(searchsortedlast(t.lT, x), 1, nT - 1); w = (x - t.lT[i]) / (t.lT[i+1] - t.lT[i])
     @inbounds for p in eachindex(k); k[p] = exp((1 - w) * t.lk[p, i] + w * t.lk[p, i+1]); end
     k
 end
 
 "`collrates!` with the densities in the order of COLLKEYS and the coefficients of `ws` (filled on first use at this T)."
-function collrates!(Q, L::Levels, T, ns::NTuple{5,Float64}, ws::PopWS; reactive = true)
+function collrates!(Q::Matrix{T}, L::Levels, Tval, ns::NTuple{5,T}, ws::PopWS{T}; reactive = true) where {T}
     for (c, key) in enumerate(COLLKEYS)
         n = ns[c]; n > 0 || continue
         t = L.colls[key]; k = ws.k[c]; ex = ws.ex[c]
         if !ws.have[c]
-            kde!(k, t, T)
-            for p in eachindex(k); ex[p] = exp(-(L.E[t.pu[p]] - L.E[t.pl[p]]) / (kB * T)); end
+            kde!(k, t, Tval)
+            @inbounds for p in eachindex(k); ex[p] = exp(-(L.E[t.pu[p]] - L.E[t.pl[p]]) / (kB * Tval)); end
             ws.have[c] = true
         end
-        for p in eachindex(k)
+        @inbounds for p in eachindex(k)
             u = t.pu[p]; lo = t.pl[p]
             (!reactive && L.ortho[u] != L.ortho[lo]) && continue
             Q[u, lo] += n * k[p]
@@ -200,8 +218,9 @@ end
 "Stationary distribution of the Markov generator with off-diagonal rates Q[i,j] (i→j), by GTH state reduction."
 gth(Q0::AbstractMatrix) = gth!(Matrix{eltype(Q0)}(Q0), zeros(eltype(Q0), size(Q0, 1)))
 "`gth` on work arrays: P is overwritten with Q0 and reduced, s is scratch (same arithmetic as `gth(Q0)`)."
-gth(Q0::AbstractMatrix, P::Matrix{Float64}, s::Vector{Float64}) = gth!(copyto!(P, Q0), fill!(s, 0.0))
-function gth!(P::Matrix{T}, s::Vector{T}) where {T<:Real}
+gth(Q0::AbstractMatrix, P::Matrix{T}, s::Vector{T}) where {T<:Real} = gth!(copyto!(P, Q0), fill!(s, zero(T)))
+gth(Q0::AbstractMatrix, P::Matrix{T}, s::Vector{T}, π::Vector{T}) where {T<:Real} = gth!(copyto!(P, Q0), fill!(s, zero(T)), π)
+function gth!(P::Matrix{T}, s::Vector{T}, π::Vector{T} = zeros(T, size(P, 1))) where {T<:Real}
     n = size(P, 1)
     for i in 1:n; P[i, i] = 0.0; end
     for k in n:-1:2
@@ -213,12 +232,14 @@ function gth!(P::Matrix{T}, s::Vector{T}) where {T<:Real}
             for j in 1:k-1; P[i, j] += pik * P[k, j] / sk; end
         end
     end
-    π = zeros(T, n); π[1] = 1.0
+    fill!(π, zero(T)); π[1] = 1.0
     for k in 2:n
         a = zero(T); for i in 1:k-1; a += π[i] * P[i, k]; end
         π[k] = a / s[k]
     end
-    π ./ sum(π)
+    sp = sum(π)
+    @inbounds for i in 1:n; π[i] = π[i] / sp; end
+    π
 end
 
 "Radiative rates added to Q: u→l A β + B_ul J̄, l→u B_lu J̄."
@@ -233,15 +254,27 @@ function radrates!(Q, L::Levels, β, Jbar)
     Q
 end
 
-function solve_Q(L::Levels, Q, opr, ws = nothing)
+function solve_Q(L::Levels, Q::Matrix{T}, opr, ws::Union{Nothing,PopWS{T}} = nothing) where {T}
     n = length(L.E); o = ws === nothing ? findall(L.ortho) : ws.o; p = ws === nothing ? findall(.!L.ortho) : ws.p
-    cross = (sum(@view Q[o, p]) + sum(@view Q[p, o])) > 0
+    cross = false
+    @inbounds for j in p, i in o
+        if Q[i, j] > 0 || Q[j, i] > 0; cross = true; break; end
+    end
     if cross && opr === nothing
-        return ws === nothing ? gth(Q) : gth(Q, ws.P, ws.s)
+        return ws === nothing ? gth(Q) : gth(Q, ws.P, ws.s, ws.π)
     end
     xo = opr === nothing ? 0.75 : opr / (1 + opr)
-    π = zeros(eltype(Q), n)
-    π[o] .= xo .* gth(Q[o, o]); π[p] .= (1 - xo) .* gth(Q[p, p])
+    if ws === nothing
+        π = zeros(T, n)
+        π[o] .= xo .* gth(Q[o, o]); π[p] .= (1 - xo) .* gth(Q[p, p])
+        return π
+    end
+    @inbounds for (jj, j) in enumerate(o), (ii, i) in enumerate(o); ws.Qo[ii, jj] = Q[i, j]; end
+    @inbounds for (jj, j) in enumerate(p), (ii, i) in enumerate(p); ws.Qp[ii, jj] = Q[i, j]; end
+    go = gth(ws.Qo, ws.Po, ws.so, ws.πo); gp = gth(ws.Qp, ws.Pp, ws.sp, ws.πp)
+    π = fill!(ws.π, zero(T))
+    @inbounds for (ii, i) in enumerate(o); π[i] = xo * go[ii]; end
+    @inbounds for (ii, i) in enumerate(p); π[i] = (1 - xo) * gp[ii]; end
     π
 end
 
@@ -253,31 +286,33 @@ densities in cm⁻³ (no electron collisions). β: escape probability (scalar or
 per line [erg s⁻¹ cm⁻² Hz⁻¹ sr⁻¹] (scalar or per line, default 0). `opr`: fixed ortho:para ratio (conversion rates dropped), see
 the module docs.
 """
+@inline function _solve_for!(w::PopWS{ET}, L::Levels, T, n_H, n_H2, n_He, n_Hp, xo, β, Jbar, opr) where {ET}
+    Q = fill!(w.Q, zero(ET))
+    collrates!(Q, L, ET(T), (ET(n_H), ET(n_He), ET(n_Hp), ET(n_H2 * xo), ET(n_H2 * (1 - xo))), w; reactive = opr === nothing)
+    radrates!(Q, L, β, Jbar)
+    solve_Q(L, Q, opr, w)
+end
 function populations(L::Levels, T, n_H, n_H2, n_He, n_Hp; β = nothing, Jbar = nothing, opr = nothing, ws::Union{Nothing,PopWS} = nothing)
-    n = length(L.E)
-    ws === nothing || fill!(ws.have, false)
-    function solve_for(xo)
-        if ws === nothing
-            ET = promote_type(typeof(T), typeof(n_H), typeof(n_H2), typeof(n_He), typeof(n_Hp), typeof(xo))     # (Duals: the populations carry the derivatives of T and the colliders)
-            Q = zeros(ET, n, n)
-            ns = promote(n_H, n_He, n_Hp, n_H2 * xo, n_H2 * (1 - xo))
-            collrates!(Q, L, T, [key => ns[i] for (i, key) in enumerate(COLLKEYS)]; reactive = opr === nothing)
-        else                                         # work arrays of the task (PopWS): no allocation, coefficients kept over the iteration
-            Q = fill!(ws.Q, 0.0)
-            collrates!(Q, L, Float64(T), (Float64(n_H), Float64(n_He), Float64(n_Hp), Float64(n_H2 * xo), Float64(n_H2 * (1 - xo))), ws; reactive = opr === nothing)
-        end
-        radrates!(Q, L, β, Jbar)
-        solve_Q(L, Q, opr, ws)
+    ET = promote_type(typeof(T), typeof(n_H), typeof(n_H2), typeof(n_He), typeof(n_Hp), typeof(opr === nothing ? 0.75 : opr / (1 + opr)),
+                      β === nothing ? Float64 : eltype(β), Jbar === nothing ? Float64 : eltype(Jbar))
+    w = (ws isa PopWS{ET}) ? ws : popws(L, ET)
+    fill!(w.have, false)
+    if opr !== nothing
+        π = _solve_for!(w, L, T, n_H, n_H2, n_He, n_Hp, opr / (1 + opr), β, Jbar, opr)
+        return ws === nothing ? copy(π) : π
     end
-    opr !== nothing && return solve_for(opr / (1 + opr))
-    n_H2 > 0 || return solve_for(0.75)
-    xo = 0.75; π = solve_for(xo)
+    if !(n_H2 > 0)
+        π = _solve_for!(w, L, T, n_H, n_H2, n_He, n_Hp, 0.75, β, Jbar, opr)
+        return ws === nothing ? copy(π) : π
+    end
+    xo = 0.75 + zero(ET); π = _solve_for!(w, L, T, n_H, n_H2, n_He, n_Hp, xo, β, Jbar, opr)
     for it in 1:50
-        xn = sum(π[L.ortho])
+        @inbounds for (ii, i) in enumerate(w.o); w.πo[ii] = π[i]; end
+        xn = sum(w.πo)
         abs(xn - xo) < 1e-9 && break
-        xo = xn; π = solve_for(xo)
+        xo = xn; π = _solve_for!(w, L, T, n_H, n_H2, n_He, n_Hp, xo, β, Jbar, opr)
     end
-    π
+    ws === nothing ? copy(π) : π
 end
 
 "Line cooling Σ n_u A β hν per volume [erg cm⁻³ s⁻¹] for H₂ number density n_H2 (pops: fractions)."
@@ -333,9 +368,50 @@ end
 Line-centre opacity coefficient hν/(4π) n_H2 (n_l B_lu − n_u B_ul) [cm⁻¹ Hz, the profile factor excluded] of populations `pops` (as H2Lines.cooling_nlte's opac).
 """
 linekappa(L::Levels, P, n_H2) = [h * L.ν[i] / (4π) * n_H2 * (P[L.il[i]] * L.Blu[i] - P[L.iu[i]] * L.Bul[i]) for i in eachindex(L.A)]
+function linekappa!(κ0::Vector{T}, L::Levels, P::Vector{T}, n_H2) where {T}
+    @inbounds for i in eachindex(L.A)
+        κ0[i] = h * L.ν[i] / (4π) * n_H2 * (P[L.il[i]] * L.Blu[i] - P[L.iu[i]] * L.Bul[i])
+    end
+    κ0
+end
 
 "Line source function n_u A/(n_l B_lu − n_u B_ul) of populations `pops` (B_ν(T) where the line is inverted), per line."
 linesource(L::Levels, P, T) = [(den = P[L.il[i]] * L.Blu[i] - P[L.iu[i]] * L.Bul[i]; den > 0 ? P[L.iu[i]] * L.A[i] / den : HL.Bν(L.ν[i], T)) for i in eachindex(L.A)]
+function linesource!(S::Vector{T}, L::Levels, P::Vector{T}, Tval) where {T}
+    @inbounds for i in eachindex(L.A)
+        den = P[L.il[i]] * L.Blu[i] - P[L.iu[i]] * L.Bul[i]
+        S[i] = den > 0 ? P[L.iu[i]] * L.A[i] / den : HL.Bν(L.ν[i], Tval)
+    end
+    S
+end
+
+_li_esc(τ) = τ < 1e-6 ? 1 - τ / 2 : -expm1(-τ) / τ
+"""
+Allocation-free LINEIMP cooling kernel (`PopIIIMaterial.li_lam`) evaluated inside `H2Levels` so that `populations`, `linekappa!`,
+`linesource!`, and `netrad` use concrete per-thread work buffers (`PopWS{ET}`) for both `Float64` and `ForwardDiff.Dual`.
+Bit-identical to the boxed path.
+"""
+function li_lam_eval(LV::Levels, β0::Vector{Float64}, J0::Vector{Float64}, f::Float64, ep, T, nH, nH2, nHe, nHp, gr = 1.0)
+    Tm = max(T, 1.0)
+    ET = promote_type(typeof(Tm), typeof(nH), typeof(nH2), typeof(nHe), typeof(nHp), typeof(gr))
+    ws = popws(LV, ET)
+    if ep !== nothing
+        P0 = populations(LV, Tm, nH, nH2, nHe, nHp; β = β0, Jbar = J0, ws)
+        κ0 = linekappa!(ws.κ0, LV, P0, nH2); S = linesource!(ws.S, LV, P0, Tm)
+        ℓ = ep.ℓ::Vector{Float64}; Jbg = ep.Jbg::Vector{Float64}; jc = ep.jc::Vector{Float64}
+        β = ws.β; J = ws.J
+        @inbounds for i in eachindex(β0)
+            κi = κ0[i]
+            βi = ℓ[i] > 0 ? (κi > 0 ? _li_esc(ℓ[i] * κi / gr) : one(κi)) : β0[i] + zero(κi)
+            β[i] = βi
+            J[i] = ℓ[i] > 0 ? max((1 - βi) * S[i] + βi * Jbg[i], βi * jc[i]) : J0[i] + zero(κi)
+        end
+        P = populations(LV, Tm, nH, nH2, nHe, nHp; β, Jbar = J, ws)
+        return f * netrad(LV, P, nH2, β, J)
+    end
+    P = populations(LV, Tm, nH, nH2, nHe, nHp; β = β0, Jbar = J0, ws)
+    f * netrad(LV, P, nH2, β0, J0)
+end
 
 "LTE (Boltzmann) fractions over the 63 levels."
 function lte(L::Levels, T)

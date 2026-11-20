@@ -144,21 +144,42 @@ function newton_quality!(dm)
     f = isfinite(ϑ) && ϑ > 0 ? clamp(ϑreq / ϑ, 0.1, 1.0) : (isfinite(ϑ) ? 1.0 : 0.1)
     NQ[] = min(NQ[], f)
 end
+const JB_REUSE = Ref(get(ENV, "NKREUSEJB", "1") != "0")
+const LAST_KRYLOV_SOLVE = Ref((false, 0, 0.0))
+function _newton_linear!(reuse::Bool)
+    if reuse && JB_REUSE[] && TD.KRYLOV[] !== nothing && !haskey(ENV, "NKCHECK")
+        TX.RESID_ONLY[] = true; BlockSolver.Penta.REUSE_LU[] = true
+        try
+            TD.newton_linear!()
+            return nothing
+        catch e
+            e isa InterruptException && rethrow()
+        finally
+            TX.RESID_ONLY[] = false; BlockSolver.Penta.REUSE_LU[] = false
+        end
+    end
+    TX.RESID_ONLY[] = false; BlockSolver.Penta.REUSE_LU[] = false
+    TD.newton_linear!()
+end
 function newton0!()
-    s!(:iter, 1); dm = Float64[]
+    s!(:iter, 1); dm = Float64[]; LAST_KRYLOV_SOLVE[] = (false, 0, 0.0)
     try
         while true
-            TD.newton_linear!(); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update); SDCLO && sd_clo(); push!(dm, g(:dmax))
+            ls = LAST_KRYLOV_SOLVE[]
+            reuse = !isempty(dm) && dm[end] < 0.25 && (length(dm) < 2 || dm[end] < 0.5 * dm[end-1]) && ls[1] && ls[2] <= 4 && ls[3] == 1.0
+            _newton_linear!(reuse); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update); SDCLO && sd_clo(); push!(dm, g(:dmax))
             g(:dmax) <= g(:conv) && break
             s!(:iter, g(:iter) + 1)
             g(:iter) > g(:niter) && (newton_quality!(dm); return false)
         end
-        s!(:lboos, 1); TD.newton_linear!(); r(:maxdel); r(:update); s!(:lboos, 0)
+        ls = LAST_KRYLOV_SOLVE[]; reuse_b = ls[1] && ls[2] <= 4 && ls[3] == 1.0
+        s!(:lboos, 1); _newton_linear!(reuse_b); r(:maxdel); r(:update); s!(:lboos, 0)
         if ERESTOL[] > 0
             e = eres(); ERES[:checks] += 1
             while e > ERESTOL[]
                 g(:iter) >= g(:niter) && (ERES[:niter] += 1; break)
-                s!(:iter, g(:iter) + 1); s!(:lboos, 1); TD.newton_linear!(); r(:maxdel); r(:update); s!(:lboos, 0); ERES[:extra] += 1
+                ls = LAST_KRYLOV_SOLVE[]; reuse_e = ls[1] && ls[2] <= 4 && ls[3] == 1.0
+                s!(:iter, g(:iter) + 1); s!(:lboos, 1); _newton_linear!(reuse_e); r(:maxdel); r(:update); s!(:lboos, 0); ERES[:extra] += 1
                 e1 = eres(); stall = !(e1 < 0.5e); e = e1
                 stall && break
             end

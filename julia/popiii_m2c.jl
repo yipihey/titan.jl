@@ -1796,11 +1796,11 @@ PROFSAMPLE >= 0 && @eval using Profile
 # (PERF) CPLPROFALLOC=rate: an allocation profile (Profile.Allocs, sampling rate) over the same steps, summarised by the innermost
 # repository frame and by the chain of the three innermost repository frames (bytes of the sampled allocations / rate)
 const PROFALLOC = parse(Float64, get(ENV, "CPLPROFALLOC", "0"))
+_isrepoframe(f) = (s = string(f.file); endswith(s, ".jl") && isfile(joinpath(@__DIR__, basename(s))))
 function alloc_report(io, rate)
     r = Profile.Allocs.fetch(); byf = Dict{String,Float64}(); byc = Dict{String,Float64}(); tot = 0.0
     for a in r.allocs
-        fr = [f for f in a.stacktrace if occursin(".jl", string(f.file)) && !startswith(string(f.file), "@") && !occursin("/share/julia/", string(f.file)) &&
-              !occursin("/.julia/", string(f.file))]
+        fr = [f for f in a.stacktrace if _isrepoframe(f)]
         key1 = isempty(fr) ? "(no repository frame)" : string(basename(string(fr[1].file)), ":", fr[1].line, " ", fr[1].func)
         keyc = isempty(fr) ? key1 : join((string(basename(string(f.file)), ":", f.line, " ", f.func) for f in fr[1:min(3, end)]), " < ")
         byf[key1] = get(byf, key1, 0.0) + a.size / rate; byc[keyc] = get(byc, keyc, 0.0) + a.size / rate; tot += a.size / rate
@@ -1810,9 +1810,85 @@ function alloc_report(io, rate)
     println(io, "\nby the three innermost repository frames:")
     for (k, v) in sort(collect(byc); by = last, rev = true)[1:min(80, end)]; @printf(io, "%10.3f GB  %5.1f %%  %s\n", v / 1e9, 100v / tot, k); end
 end
+function mainthread_report(io)
+    data = Profile.fetch(include_meta = true); dict = Profile.getdict(data)
+    nt = Threads.nthreads(:default)
+    blocks = Tuple{Int,Int,UInt64,Vector{UInt}}[]; st = 1
+    for i in 1:length(data)
+        if Profile.is_block_end(data, i)
+            tid = Int(data[i - Profile.META_OFFSET_THREADID])
+            slp = Int(data[i - Profile.META_OFFSET_SLEEPSTATE])
+            clk = UInt64(data[i - Profile.META_OFFSET_CPUCYCLECLOCK])
+            ips = data[st:(i - Profile.nmeta - 2)]
+            push!(blocks, (tid, slp, clk, ips))
+            st = i + 1
+        end
+    end
+    # Group blocks into timer-interrupt ticks (consecutive blocks with non-repeating tid or within 2 ms of cycle clock)
+    ticks = Vector{Tuple{Int,Int,Vector{UInt}}}[]
+    cur = Tuple{Int,Int,Vector{UInt}}[]; seen = Set{Int}(); last_clk = UInt64(0)
+    for (tid, slp, clk, ips) in blocks
+        tid <= nt || continue
+        if !isempty(cur) && (tid in seen || (clk > last_clk && clk - last_clk > 5_000_000))
+            push!(ticks, cur); cur = Tuple{Int,Int,Vector{UInt}}[]; empty!(seen)
+        end
+        push!(cur, (tid, slp, ips)); push!(seen, tid); last_clk = clk
+    end
+    isempty(cur) || push!(ticks, cur)
+    n_ticks = length(ticks); n_main_only = 0; n_parallel = 0; n_worker_busy = 0
+    by_inner = Dict{String,Int}(); by_chain = Dict{String,Int}(); by_func = Dict{String,Int}()
+    for tk in ticks
+        m1 = nothing; workers_busy = 0
+        for (tid, slp, ips) in tk
+            rep = StackTraces.StackFrame[]
+            for ip in ips
+                for f in get(dict, ip, StackTraces.StackFrame[])
+                    _isrepoframe(f) && push!(rep, f)
+                end
+            end
+            busy = slp == 1 && !isempty(rep)
+            if tid == 1
+                busy && (m1 = rep)
+            elseif busy
+                workers_busy += 1
+            end
+        end
+        workers_busy > 0 && (n_worker_busy += workers_busy)
+        if m1 !== nothing && workers_busy == 0
+            n_main_only += 1
+            k1 = string(basename(string(m1[1].file)), ":", m1[1].line, " ", m1[1].func)
+            kc = join((string(basename(string(f.file)), ":", f.line, " ", f.func) for f in m1[1:min(4, end)]), " < ")
+            by_inner[k1] = get(by_inner, k1, 0) + 1
+            by_chain[kc] = get(by_chain, kc, 0) + 1
+            seenf = Set{String}()
+            for f in m1
+                fn = string(basename(string(f.file)), ":", f.func)
+                fn in seenf || (push!(seenf, fn); by_func[fn] = get(by_func, fn, 0) + 1)
+            end
+        elseif m1 !== nothing || workers_busy > 0
+            n_parallel += 1
+        end
+    end
+    @printf(io, "Thread activity summary (%d default threads, %d ticks):\n", nt, n_ticks)
+    @printf(io, "  Main-thread-only busy ticks: %d (%.1f %% of ticks)\n", n_main_only, 100 * n_main_only / max(n_ticks, 1))
+    @printf(io, "  Parallel (worker-active) ticks: %d (%.1f %% of ticks)\n", n_parallel, 100 * n_parallel / max(n_ticks, 1))
+    @printf(io, "  Average worker utilization: %.1f %%\n\n", 100 * n_worker_busy / max(n_ticks * max(nt - 1, 1), 1))
+    println(io, "Main-thread-only samples by inclusive repository function (present on stack):")
+    for (k, v) in sort(collect(by_func); by = last, rev = true)[1:min(40, end)]
+        @printf(io, "%6d  %5.1f %%  %s\n", v, 100v / max(n_main_only, 1), k)
+    end
+    println(io, "\nMain-thread-only samples by innermost repository frame:")
+    for (k, v) in sort(collect(by_inner); by = last, rev = true)[1:min(40, end)]
+        @printf(io, "%6d  %5.1f %%  %s\n", v, 100v / max(n_main_only, 1), k)
+    end
+    println(io, "\nMain-thread-only samples by 4 innermost repository frames:")
+    for (k, v) in sort(collect(by_chain); by = last, rev = true)[1:min(50, end)]
+        @printf(io, "%6d  %5.1f %%  %s\n", v, 100v / max(n_main_only, 1), k)
+    end
+end
 function prof_sample(js)
     if js == PROFSAMPLE
-        Base.invokelatest(() -> (Profile.init(n = 10^7, delay = 0.01); Profile.clear(); PROFALLOC > 0 ? (Profile.Allocs.clear(); Profile.Allocs.start(sample_rate = PROFALLOC)) : Profile.start_timer()))
+        Base.invokelatest(() -> (Profile.init(n = 10^7, delay = 0.003); Profile.clear(); PROFALLOC > 0 ? (Profile.Allocs.clear(); Profile.Allocs.start(sample_rate = PROFALLOC)) : Profile.start_timer()))
     elseif js == PROFSAMPLE + PROFSAMPLEN
         PROFALLOC > 0 && return Base.invokelatest() do
             Profile.Allocs.stop()
@@ -1820,6 +1896,7 @@ function prof_sample(js)
         end
         Base.invokelatest() do
             Profile.stop_timer()
+            open(io -> mainthread_report(io), joinpath(get(ENV, "POPIII_OUT", "."), "cplprofile_mainonly_$(js).txt"), "w")
             open(joinpath(get(ENV, "POPIII_OUT", "."), "cplprofile_$(js).txt"), "w") do io
                 Profile.print(IOContext(io, :displaysize => (100000, 250)); format = :flat, sortedby = :count, mincount = 50)
             end

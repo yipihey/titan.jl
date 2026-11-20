@@ -92,23 +92,12 @@ the call. Any of the arguments may be a Dual (no work arrays then). EP-type mode
 the populations of the cooling then solved with them.
 """
 function li_lam(md, T, nH, nH2, nHe, nHp, gr = 1.0)
-    HV = Main.H2Levels; Tm = max(T, 1.0); LV = md.LV
-    dual = any(x -> x isa ForwardDiff.Dual, (Tm, nH, nH2, nHe, nHp, gr))
-    ws = dual ? nothing : md.ws
-    β, J = md.β, md.J
-    if md.ep !== nothing
-        P0 = HV.populations(LV, Tm, nH, nH2, nHe, nHp; β, Jbar = J, ws)
-        κ0 = HV.linekappa(LV, P0, nH2); S = HV.linesource(LV, P0, Tm); e = md.ep
-        β = [e.ℓ[i] > 0 ? (κ0[i] > 0 ? li_esc(e.ℓ[i] * κ0[i] / gr) : one(κ0[i])) : md.β[i] + zero(κ0[i]) for i in eachindex(md.β)]
-        J = [e.ℓ[i] > 0 ? max((1 - β[i]) * S[i] + β[i] * e.Jbg[i], β[i] * e.jc[i]) : md.J[i] + zero(κ0[i]) for i in eachindex(md.β)]
-    end
-    P = HV.populations(LV, Tm, nH, nH2, nHe, nHp; β, Jbar = J, ws)
-    λ = md.f * HV.netrad(LV, P, nH2, β, J)
+    HV = Main.H2Levels
+    λ = HV.li_lam_eval(md.LV, md.β::Vector{Float64}, md.J::Vector{Float64}, md.f::Float64, md.ep, T, nH, nH2, nHe, nHp, gr)
     if !isfinite(ForwardDiff.value(λ)) && LIBAD[] < 20
-        LIBAD[] += 1
-        @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e f %.3g; β %s, J̄ %s, pops %s)\n", string(λ), ForwardDiff.value(Tm), ForwardDiff.value(nH), ForwardDiff.value(nH2),
-                ForwardDiff.value(nHe), ForwardDiff.value(nHp), md.f, all(isfinite, ForwardDiff.value.(β)) ? "finite" : "NON-FINITE", all(isfinite, ForwardDiff.value.(J)) ? "finite" : "NON-FINITE",
-                all(isfinite, ForwardDiff.value.(P)) ? "finite" : "NON-FINITE"); flush(stdout)
+        LIBAD[] += 1; Tm = max(T, 1.0)
+        @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e f %.3g)\n", string(λ), ForwardDiff.value(Tm), ForwardDiff.value(nH), ForwardDiff.value(nH2),
+                ForwardDiff.value(nHe), ForwardDiff.value(nHp), md.f); flush(stdout)
     end
     λ
 end
@@ -615,6 +604,11 @@ function nlo_ratio(ρ, T, d, p)
 end
 "(NLOIT) weight of the table calibration: smooth step in ln T from 0 at NLOITW[1] to 1 at NLOITW[2]."
 nlo_w(T) = (x = clamp((log(T) - log(NLOITW[1])) / (log(NLOITW[2]) - log(NLOITW[1])), 0.0, 1.0); x * x * (3 - 2x))
+@inline _phvec(ph_::Vector{CNn.Photo}, Tv, env) = _phvec_et(ph_, Tv, env, CNn._ph_et(Tv, env))
+@inline _phvec_et(ph_::Vector{CNn.Photo}, Tv, env, ::Type{ET}) where {ET} = Tuple{CNn.Photo,ET,ET}[(p_, CNn.photorates_t(p_, Tv, env)...) for p_ in ph_]
+function _phq_combine(a_::Vector{Tuple{CNn.Photo,TA,TA}}, b_::Vector{Tuple{CNn.Photo,TB,TB}}, q::TQ) where {TA,TB,TQ}
+    Tuple{CNn.Photo,promote_type(TA,TB,TQ),promote_type(TA,TB,TQ)}[(a_[i][1], b_[i][2] + q * (a_[i][2] - b_[i][2]), b_[i][3] + q * (a_[i][3] - b_[i][3])) for i in eachindex(a_)]
+end
 "(NLOIT) composition of zone k at (ρ, T) and x_H⁺, x_H₂ (coupled zones: CK expansion with the step's terms; else the chemistry's)."
 function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0, g = nothing, dp = nothing)
     t = (TX.cplz(k) && k <= length(CPLTERMS[])) ? CPLTERMS[][k] : nothing
@@ -622,17 +616,17 @@ function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0, g = nothing, dp = n
     t0_ = time_ns()
     # (not t.phc: its one-entry cache is shared with the residual's dual evaluation, which would then take this call's Float rates
     # at the same T and lose ∂(photo-rates)/∂T from the coupled zone's Jacobian)
-    ph_, en_ = t.phraw; phc = Tq -> Any[(p_, CNn.photorates_t(p_, Tq, en_)...) for p_ in ph_]
+    ph_, en_ = t.phraw; phc = Tq -> _phvec(ph_, Tq, en_)
     if (q != 1 || tc != 1 || g !== nothing || dp !== nothing) && hasproperty(t, :slq)          # SLIMP: the composition at the iterate's star light (f_sh does not enter the fast species)
-        e0 = t.slq.envc0; phc0 = e0 === nothing ? nothing : (Tq -> Any[(p_, CNn.photorates_t(p_, Tq, e0)...) for p_ in ph_])
+        e0 = t.slq.envc0; phc0 = e0 === nothing ? nothing : (Tq -> _phvec(ph_, Tq, e0))
         tq = cpl_tq(t, ρ, T, x1, x2, q, tc, 0.0, g, dp; phc, phc0)
-        x, _ = CNn.ck_eval([x1, x2], ρ, T, m.net; env = tq.env, phc = tq.phc, extra = tq.extra)
+        x, _ = CNn.ck_eval((x1, x2), ρ, T, m.net; env = tq.env, phc = tq.phc, extra = tq.extra)
         Threads.atomic_add!(NLOCNS, Int(time_ns() - t0_))
-        return CNn.full(x, m.net), tq.env.tl3
+        return CNn.full_fast(x, m.net), tq.env.tl3
     end
-    x, _ = CNn.ck_eval([x1, x2], ρ, T, m.net; env = t.env, phc, extra = t.extra)
+    x, _ = CNn.ck_eval((x1, x2), ρ, T, m.net; env = t.env, phc, extra = t.extra)
     Threads.atomic_add!(NLOCNS, Int(time_ns() - t0_))
-    CNn.full(x, m.net), (hasproperty(t.env, :tl3) ? t.env.tl3 : s.p)
+    CNn.full_fast(x, m.net), (hasproperty(t.env, :tl3) ? t.env.tl3 : s.p)
 end
 """
 (NLOIT) exact slopes of the ratios (R_E, R_P, R_R) and of n_e at (ρ, T, x_H⁺, x_H₂) and the star-light factors (q, t): ForwardDiff Duals with four
@@ -664,6 +658,11 @@ function nlo_it(m::NetGas, k, ρ, T, s)
     if s === nothing                          # no three-level parameters: the table, χ floored at Thomson on the zone's electrons
         cc = CNn.compiled(m.net); ne = max(CNn.fullvec(m.x[k], cc)[cc.ie], 0.0) * ρv / CNn.μH()
         return chicap(max(κR0, COp.σT * ne / ρ), T), κP0, κP0
+    end
+    if TX.OPAC_NOCACHE[]
+        d, p = nlo_comp(m, k, s, ρv, Tv, xv, xv2)
+        (RE, RP, RR), ned = nlo_ratio(ρv, Tv, d, p)
+        return chicap(max(κR0 * RR, COp.σT * ned / ρ), T), κP0 * RE, κP0 * RP
     end
     keep = k <= length(NLOC[])                # (the cache is sized by nloc_reset!; a zone beyond it is evaluated without one)
     c = keep ? NLOC[][k] : nothing; v = (ρv, Tv, xv, xv2)
@@ -762,8 +761,8 @@ function nloit_diag(m, k, ρ, T, new)
             TF.getscalar(:jstep), k - Int(TF.getscalar(:ngrs)) + 1, T, ρ, s.d[:e], new[1], old[1], κR0, new[2], old[2], new[3], old[3], κP0); flush(stdout)
     nothing
 end
-# (PERF512) the Float64 opacity of NetGas writes no caches unless NLOIT (nlo_it keeps per-zone caches)
-TX.opac_pure(::NetGas) = false
+# (PERF512) the Float64 opacity of NetGas in convcoef's parallel pre-sweep uses OPAC_NOCACHE so NLOC/NLONED are updated only by the final zone
+TX.opac_pure(::NetGas) = true
 @inline function TX.material_opac(m::NetGas, ρ, T)
     if NLOIT && NLOPAC[]
         k = TX.ZONE[]
@@ -987,9 +986,9 @@ tl3_C(T, p) = (D = p.RL + LAM2S + 4p.ne * q21_H(T); D / (D + p.β))
 "Mean photon energy of n = 2 photoionization (σ ∝ ν⁻³) in J ∝ B(T_c)."
 function balmer_mean(Tc)
     ν0 = CHI2 / CNn.hP; s0 = 0.0; s1 = 0.0
-    νs = [ν0 * exp(x) for x in range(0.0, log(1 + 40CNn.kB * Tc / CHI2), length = 101)]
+    xs = range(0.0, log(1 + 40CNn.kB * Tc / CHI2), length = 101); νa = ν0 * exp(xs[1])
     for i in 1:100
-        ν = 0.5(νs[i] + νs[i+1]); w = _bnu(ν, Tc) / ν^4 * (νs[i+1] - νs[i]); s0 += w; s1 += w * CNn.hP * ν
+        νb = ν0 * exp(xs[i+1]); ν = 0.5(νa + νb); w = _bnu(ν, Tc) / ν^4 * (νb - νa); s0 += w; s1 += w * CNn.hP * ν; νa = νb
     end
     s0 > 0 ? s1 / s0 : CHI2
 end
@@ -1371,7 +1370,7 @@ function starlight_terms(m::NetGas, ρ, kHm, kH, kLW; a1 = 0.0)
     fr_ = m.net.free; iHp = findfirst(==(:Hp), fr_); iHm = findfirst(==(:Hm), fr_); iH2 = findfirst(==(:H2), fr_)
     nH = ρ / CNn.μH()
     extra = x -> begin
-        f = zeros(eltype(x), length(x)); d = CNn.full(x, m.net)
+        f = zeros(eltype(x), length(x)); d = CNn.full_fast(x, m.net)
         iHm === nothing || (f[iHm] -= kHm * x[iHm])
         f[iHp] += kH * max(d[:H], zero(d[:H]))
         a1 == 0 || (f[iHp] -= a1 * max(d[:e], zero(d[:e])) * max(d[:Hp], zero(d[:Hp])))     # (MGROUPS) ground-state recombination, see MGA1
@@ -1553,12 +1552,12 @@ function chem_core!(m::NetGas)
                         cools === nothing ? 0.0 : cools(dn[k], tn[k], d0), ex === nothing ? "-" : string(round.(ex, sigdigits = 3)), dt, egn[k])
             end
             if CPLPREP[]                             # COUPLED prepare: the zone's terms for the hydro solve
-                envc = envk; phc_ = phk; cache = Ref((NaN, Any[]))
+                envc = envk; phc_ = phk; cache = Ref((NaN, Tuple{CNn.Photo,Float64,Float64}[]))
                 phc = photo_cache(cache, phc_, envc)
                 if SLIMP && p3 !== nothing && isempty(TX.CHEMB[])   # SLIMP: what scales with W (see sl_q, cpl_tq)
                     lj = hasproperty(envk, :ljW) || (ljon(p3) && hasproperty(envk, :J))
                     envc0 = !lj ? nothing : hasproperty(envk, :ljW) ? merge(envk, (; J = ν -> 0.0, ljW = 0.0)) : merge(envk, (; J = envk.ljs.J))      # (W = 0: the static field alone)
-                    cache0 = Ref((NaN, Any[]))
+                    cache0 = Ref((NaN, Tuple{CNn.Photo,Float64,Float64}[]))
                     phc0 = envc0 === nothing ? nothing :
                         photo_cache(cache0, phc_, envc0)
                     hm0 = if CNn.HM88                        # He and the He-ion electrons of the start of the step: the part of the perturber densities the slow species do not carry
@@ -1826,8 +1825,8 @@ The zone's photo-rates as a function of T: cached on the last Float64 T (`cache 
 `cpl_vj`, `nlo_slopes`) is evaluated directly and carries ∂(rates)/∂T (ChemNet.ck_eval used to take the rates at the value of T: the Jacobian then lacked
 the T dependence of the photo-ionisation/recombination coefficients, e.g. 0.03 instead of 0.12 for d ln n_e/d ln T of the He ions in zones 17–19 of the stuck state).
 """
-photo_cache(cache, ph_, env) = Tv -> Tv isa ForwardDiff.Dual ? Any[(p_, CNn.photorates_t(p_, Tv, env)...) for p_ in ph_] :
-    (Tv == cache[][1] || (cache[] = (Tv, Any[(p_, CNn.photorates_t(p_, Tv, env)...) for p_ in ph_])); cache[][2])
+photo_cache(cache, ph_, env) = Tv -> (Tv isa ForwardDiff.Dual || (CNn.HM88 && hasproperty(env, :hm) && env.hm[1] isa ForwardDiff.Dual)) ? _phvec(ph_, Tv, env) :
+    (Tv == cache[][1] || (cache[] = (Tv, _phvec(ph_, Tv, env))); cache[][2])
 """
 Lyα escape rate R_Lyα [s⁻¹] per 2p atom of the three-level model at the iterate: τ_S = 3A_21 λ_α³ n_1s / (8π g), n_1s = n_H x_H with
 x_H = 1 − x_H⁺ − 2x_H₂ (the slow species of the iterate; the fast ones are ≤ 1e-6), g the angle-mean velocity gradient
@@ -1867,7 +1866,7 @@ function cpl_tq(t, ρ, T, x1, x2, q, tc, fs, g, dp = nothing; phc = t.phc, phc0 
         Jb = s_.lj && !hasproperty(tenv, :ljW) ? (Js = tenv.ljs.J; ν -> Js(ν) + Jb0(ν)) : Jb0          # (J = J_static + W B(T_c))
         envb = s_.lj ? (hasproperty(tenv, :ljW) ? merge(tenv, (; Trad = Tc, J = Jb, ljW = WBa, tl3 = p3b)) :
                                                    merge(tenv, (; Trad = Tc, J = Jb, tl3 = p3b))) : merge(tenv, (; tl3 = p3b))
-        ph_ = s_.ph; phc = Tv -> Any[(p_, CNn.photorates_t(p_, Tv, envb)...) for p_ in ph_]
+        ph_ = s_.ph; phc = Tv -> _phvec(ph_, Tv, envb)
         if t.extra !== nothing
             e1 = (Trad = Tc, J = Jb); Tv = Float64(ForwardDiff.value(T))
             kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, Tv, e1)
@@ -1883,7 +1882,7 @@ function cpl_tq(t, ρ, T, x1, x2, q, tc, fs, g, dp = nothing; phc = t.phc, phc0 
     #  where Q12 underflows (cold gas, T_c ~ T_CMB); the derivative of q·0 is 0 anyway)
     p3q = merge(p3b, (; β = iszero(_val(p3b.β)) ? _val(p3b.β) : q * p3b.β, P12 = iszero(_val(p3b.P12)) ? _val(p3b.P12) : q * p3b.P12))
     env = merge(envb, (; tl3 = p3q))
-    phq = (s_.lj && phc0 !== nothing) ? (Tv -> [(a_[1], b_[2] + q * (a_[2] - b_[2]), b_[3] + q * (a_[3] - b_[3])) for (a_, b_) in zip(phc(Tv), phc0(Tv))]) : phc      # (b: W = 0, the static field)
+    phq = (s_.lj && phc0 !== nothing) ? (Tv -> _phq_combine(phc(Tv), phc0(Tv), q)) : phc      # (b: W = 0, the static field)
     ex = extrab === nothing ? nothing : (x -> q .* extrab(x))
     c0 = s_.c0
     cooling = (ρ_, T, d) -> (c0 === nothing ? zero(T) : c0(ρ_, T, d)) - tl3_heat(ρ_, T, d, merge(p3q, (; ne = ρ_ / CNn.μH() * max(d[:Hp], zero(d[:Hp])))))[1]
@@ -1892,9 +1891,9 @@ end
 function cpl_g(m::NetGas, k, z)
     t = CPLTERMS[][k]; ρ = z[1]; T = z[2]
     length(z) >= 9 && hasproperty(t, :slq) && (t = cpl_tq(t, ρ, T, z[3], z[4], z[5], Float64(ForwardDiff.value(z[6])), z[7], z[8], z[9]))
-    x, fs = CNn.ck_eval([z[3], z[4]], ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
+    x, fs = CNn.ck_eval((z[3], z[4]), ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
     u, p = CNn.eos(ρ, T, x, m.net)
-    dfull = CNn.full(x, m.net)
+    dfull = CNn.full_fast(x, m.net)
     Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, dfull)
     md = li_model(k)
     md === nothing || (Λ += li_cool(md, ρ, T, dfull, md.ep !== nothing && length(z) >= 9 ? z[8] / md.ep.g0 : 1.0))      # H2 line cooling of the iterate (LINEIMP)
@@ -2071,8 +2070,8 @@ function cpl_finish!(m::NetGas)
         TX.cplz(k) || continue
         t = CPLTERMS[][k]
         SLIMP && hasproperty(t, :slq) && (t = cpl_tq(t, dn[k], tn[k], TX.XSN[][1][k], TX.XSN[][2][k], S.q[k], S.t[k], S.fs[k], S.g[k], S.dp[k]))
-        x, _ = CNn.ck_eval([TX.XSN[][1][k], TX.XSN[][2][k]], dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)
-        old = m.x[k]; m.x[k] = length(old) > nf ? vcat(x, old[nf+1:end]) : x
+        x, _ = CNn.ck_eval((TX.XSN[][1][k], TX.XSN[][2][k]), dn[k], tn[k], m.net; env = t.env, phc = t.phc, extra = t.extra)
+        old = m.x[k]; m.x[k] = length(old) > nf ? vcat(x, old[nf+1:end]) : copy(x)
     end
     nothing
 end

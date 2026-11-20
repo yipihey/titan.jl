@@ -176,13 +176,25 @@ function cowget!(f, c::CowCache{V}, key) where {V}
     end
 end
 Ztr(s::Species, T) = (2π * s.m * kB * T / hP^2)^1.5
+@inline function _zint(s::Species, T)
+    ET = typeof(one(T)); n = s.name
+    n === :H ? 2 * ZH_el(T) :
+    (n === :Hp || n === :Hm || n === :e) ? 2 + zero(T) :
+    n === :H2 ? (H2PF ? Zint_H2_g2(T) : Zrot_H2(T) * Zvib(T, θvib_H2)) :
+    n === :H2p ? Zint_H2p(T) :
+    n === :He ? (HECHEM ? ZHe_el(T) : 1 + zero(T)) :
+    n === :Hep ? ZHep_el(T) :
+    n === :Hepp ? 1 + zero(T) :
+    n === :Li ? 4 * ZLi_el(T) :
+    n === :Lip ? 4 + zero(T) : (ET(s.Zint(T)))::ET
+end
 "Equilibrium constant Π_P n / Π_R n [cm^{-3 Δν}] of R → P (vectors of species names, repeats allowed)."
 Keq(R, P, T) = exp(lnKeq(R, P, T))
 "ln Keq — use this where K itself under- or overflows (ionisation equilibria below a few hundred K)."
 function lnKeq(R, P, T)
     lnK = zero(T)
-    for p in P; s = SPECIES[p]; lnK += log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
-    for r in R; s = SPECIES[r]; lnK -= log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
+    for p in P; s = SPECIES[p]; lnK += log(Ztr(s, T) * _zint(s, T)) - s.E0 / (kB * T); end
+    for r in R; s = SPECIES[r]; lnK -= log(Ztr(s, T) * _zint(s, T)) - s.E0 / (kB * T); end
     lnK
 end
 """
@@ -197,7 +209,7 @@ mutable struct LnKMemo
 end
 const LNKMEMOON = get(ENV, "LNKMEMO", "1") != "0"     # (FIX-RACE) LNKMEMO=0: the direct sum (bit-identical)
 const LNKMEMO = [LnKMemo(NaN, Dict{Symbol,Float64}()) for _ in 1:Threads.maxthreadid()]
-@inline _spterm(s::Species, T) = log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T)
+@inline _spterm(s::Species, T) = log(Ztr(s, T) * _zint(s, T)) - s.E0 / (kB * T)
 function _spterm_memo(m::LnKMemo, p::Symbol, T::Float64)
     t = get(m.v, p, NaN)
     isnan(t) || return t
@@ -216,8 +228,8 @@ function lnKeq(R, P, T::Float64)
 end
 function _lnKeq_direct(R, P, T::Float64)
     lnK = zero(T)
-    for p in P; s = SPECIES[p]; lnK += log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
-    for r in R; s = SPECIES[r]; lnK -= log(Ztr(s, T) * s.Zint(T)) - s.E0 / (kB * T); end
+    for p in P; s = SPECIES[p]; lnK += log(Ztr(s, T) * _zint(s, T)) - s.E0 / (kB * T); end
+    for r in R; s = SPECIES[r]; lnK -= log(Ztr(s, T) * _zint(s, T)) - s.E0 / (kB * T); end
     lnK
 end
 
@@ -226,6 +238,10 @@ struct Reaction
     name::String
     R::Vector{Symbol}; P::Vector{Symbol}
     k::Function           # (T, env) -> rate coefficient [cm^{3(n_R−1)} s⁻¹]
+end
+struct PhotoFast{F1,F2}
+    Ex::Vector{Float64}; g::Vector{Float64}; Eth::Vector{Float64}
+    s1::F1; srest::Vector{F2}
 end
 """
 Photo-process X + γ → products from the levels of X: `levels` = [(E_x, g, E_th, σ(ν)), …] (excitation energy above X's
@@ -238,9 +254,24 @@ struct Photo
     levels::Vector{Tuple{Float64,Float64,Float64,Function}}
     Z::Function
     milne::Bool           # add the inverse (radiative attachment/recombination) from the Milne relation
+    Ex::Vector{Float64}; g::Vector{Float64}; Eth::Vector{Float64}
+    pf::Any
+    function Photo(name, R, P, levels, Z, milne)
+        lvs = Vector{Tuple{Float64,Float64,Float64,Function}}(levels)
+        Ex = [lv[1] for lv in lvs]; g = [lv[2] for lv in lvs]; Eth = [lv[3] for lv in lvs]
+        s1 = lvs[1][4]
+        srest = length(lvs) > 1 && all(i -> lvs[i][4] isa typeof(lvs[2][4]), 2:length(lvs)) ?
+                [lvs[i][4]::typeof(lvs[2][4]) for i in 2:length(lvs)] : Function[lvs[i][4] for i in 2:length(lvs)]
+        new(String(name), Symbol(R), Vector{Symbol}(P), lvs, Z, Bool(milne), Ex, g, Eth, PhotoFast(Ex, g, Eth, s1, srest))
+    end
 end
 "Single-level process with cross section σ(ν) above Eth."
 Photo(name, R, P, σ::Function, Eth::Real, milne::Bool) = Photo(name, R, P, [(0.0, 1.0, Float64(Eth), σ)], T -> 1.0, milne)
+@inline function _photoZ(p::Photo, T)
+    ET = typeof(one(T)); f = p.Z
+    f === ZH_el ? ZH_el(T) : f === ZHe_el ? ZHe_el(T) : f === ZHep_el ? ZHep_el(T) : f === ZLi_el ? ZLi_el(T) :
+    (ET(f(T)))::ET
+end
 struct Network
     species::Vector{Symbol}          # all species in the network (incl. eliminated; He as inert spectator)
     free::Vector{Symbol}             # the unknowns
@@ -267,13 +298,14 @@ error of an endothermic fit by e^{ΔE/kT} (AAZN97 k1 below 1e4 K gave three-body
 """
 function reverse_k(r::Reaction; Tmin = 0.0)
     Tu = Ref(NaN); Ta = Ref(NaN); Ts = Ref(NaN)
-    lnkr(T, env) = log(r.k(T, env)) - lnKeq(r.R, r.P, T)
+    rk = r.k; rR = r.R; rP = r.P
+    lnkr(T, env) = log(rk(T, env)) - lnKeq(rR, rP, T)
     function k(T, env)
-        kf = r.k(T, env)
-        T >= Tmin && kf > 1e-290 && return exp(log(kf) - lnKeq(r.R, r.P, T))
+        kf = rk(T, env)
+        T >= Tmin && kf > 1e-290 && return exp(log(kf) - lnKeq(rR, rP, T))
         iszero(kf) || kf > 0 || return zero(T)                 # a fit that is ≤ 0 (clipped) stays 0
         if isnan(Tu[])
-            t = max(Float64(Tmin), ForwardDiff.value(T)); while r.k(t, env) <= 1e-290 && t < 1e6; t *= 1.05; end
+            t = max(Float64(Tmin), ForwardDiff.value(T)); while rk(t, env) <= 1e-290 && t < 1e6; t *= 1.05; end
             Tu[] = t
         end
         Tu[] >= 1e6 && return zero(T)
@@ -287,16 +319,20 @@ function reverse_k(r::Reaction; Tmin = 0.0)
 end
 
 "Photo-rate [s⁻¹] 4π∫σJ/(hν)dν and the Milne inverse coefficient α for A + e → X + γ (stimulated emission included)."
-function photorates(p::Photo, T, env; n = 200)
+photorates(p::Photo, T, env; n = 200) = _photorates_fast(p, p.pf, T, env, n)
+function _photorates_fast(p::Photo, pf::PhotoFast{F1,F2}, T, env::E, n::Int) where {F1,F2,E}
     # α = Σ_levels (n_l/Π n_P)_eq × 4π∫σ_l/(hν)(2hν³/c² + J) e^{−hν/kT} dν, (n_l/Π n_P)_eq = g_l e^{−E_x/kT}/(Z K(X → P));
     # the Boltzmann factors and 1/K are combined in one exponent (each alone under/overflows below a few hundred K)
-    lnK = lnKeq([p.R], p.P, T); Z = p.Z(T); R = 0.0; A = 0.0
-    for (Ex, g, Eth, σf) in p.levels
-        ν0 = Eth / hP; νs = [ν0 * exp(x) for x in range(0.0, log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), length = n + 1)]
+    ET = typeof(one(T))
+    lnK = lnKeq((p.R,), p.P, T)::ET; Z = _photoZ(p, T); R = zero(ET); A = zero(ET)
+    caseB0 = hasproperty(env, :caseB) && env.caseB && length(pf.Ex) > 1
+    @inbounds for l in eachindex(pf.Ex)
+        Ex = pf.Ex[l]; g = pf.g[l]; Eth = pf.Eth[l]
+        ν0 = Eth / hP; xs = range(0.0, log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), length = n + 1)
         w = g / Z
-        Rl, Al = _photoRA(σf, env.J, νs, n, Ex, T, lnK)
+        Rl, Al = l == 1 ? _photoRA_fast(pf.s1, env.J, ν0, xs, n, Ex, T, lnK) : _photoRA_fast(pf.srest[l-1], env.J, ν0, xs, n, Ex, T, lnK)
         # env.caseB (on the spot): recombinations directly to a level with Ex = 0 of a multi-level atom make a photon that is reabsorbed nearby, so they do not count
-        caseB = hasproperty(env, :caseB) && env.caseB && Ex == 0 && length(p.levels) > 1
+        caseB = caseB0 && Ex == 0
         R += w * exp(-Ex / (kB * T)) * Rl; caseB || (A += w * Al)
     end
     R, A
@@ -314,14 +350,28 @@ function _photoRA(σf::F, Jf::G, νs, n, Ex, T, lnK) where {F,G}
     end
     Rl, Al
 end
+function _photoRA_fast(σf::F, Jf::G, ν0::Float64, xs, n::Int, Ex::Float64, T, lnK) where {F,G}
+    Rl = 0.0; Al = 0.0; νa = ν0 * exp(xs[1])
+    for i in 1:n
+        νb = ν0 * exp(xs[i+1]); ν = 0.5 * (νa + νb); dν = νb - νa; σ = σf(ν); J = Jf(ν)
+        Rl += 4π * σ * J / (hP * ν) * dν
+        Al += 4π * σ / (hP * ν) * (2hP * ν^3 / c^2 + J) * exp(-(Ex + hP * ν) / (kB * T) - lnK) * dν
+        νa = νb
+    end
+    Rl, Al
+end
 """
 Photo-rate R of `photorates` alone: the same arithmetic in the same order (R is bit-identical), without the integrand of the
 Milne coefficient. For callers that use only R (the star-light rates of every zone and step: the unused α was half of their cost).
 """
-function photorate(p::Photo, T, env; n = 200)
-    Z = p.Z(T); R = 0.0
-    for (Ex, g, Eth, σf) in p.levels
-        Rl = _photoR(σf, env.J, Eth / hP, range(0.0, log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), length = n + 1), n)
+photorate(p::Photo, T, env; n = 200) = _photorate_fast(p, p.pf, T, env, n)
+function _photorate_fast(p::Photo, pf::PhotoFast{F1,F2}, T, env::E, n::Int) where {F1,F2,E}
+    ET = typeof(one(T))
+    Z = _photoZ(p, T); R = zero(ET)
+    @inbounds for l in eachindex(pf.Ex)
+        Ex = pf.Ex[l]; g = pf.g[l]; Eth = pf.Eth[l]
+        xs = range(0.0, log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), length = n + 1)
+        Rl = l == 1 ? _photoR(pf.s1, env.J, Eth / hP, xs, n) : _photoR(pf.srest[l-1], env.J, Eth / hP, xs, n)
         w = g / Z
         R += w * exp(-Ex / (kB * T)) * Rl
     end
@@ -341,9 +391,14 @@ end
 photorates through a table in log T (1–1e6 K, 0.005 dex, Catmull–Rom in ln R and ln α) when the radiation field is the same in
 every zone (`env.static == true`, e.g. the CMB or none); otherwise direct. Table vs direct ≤ 3e-3 at 20 K–9e5 K (H, H⁻, Li; J = B(54 K)); the larger differences, H⁻ α above 7e4 K, are the direct quadrature's own (n = 200 vs 800: 3 %).
 """
-const PHTAB = CowCache{Any}(); const PHLOCK = PHTAB.lk
+const PHTAB = CowCache{Tuple{Vector{Float64},Vector{Float64},Vector{Float64}}}(); const PHLOCK = PHTAB.lk
+@inline _ph_et(T, env) = (HM88 && hasproperty(env, :hm)) ? promote_type(typeof(one(T)), typeof(env.hm[1])) : typeof(one(T))
 "(HM88) the Milne inverse of H photoionization × φ (see HM88); otherwise `_photorates_t`."
-photorates_t(p::Photo, T, env) = (HM88 && p.R === :H && hasproperty(env, :hm)) ? (r = _photorates_t(p, T, env); (r[1], r[2] * hm_phi(T, env))) : _photorates_t(p, T, env)
+function photorates_t(p::Photo, T, env)
+    ET = _ph_et(T, env); r = _photorates_t(p, T, env)
+    a = (HM88 && p.R === :H && hasproperty(env, :hm)) ? r[2] * hm_phi(T, env) : r[2]
+    (ET(r[1])::ET, ET(a)::ET)
+end
 function _photorates_t(p::Photo, T, env)
     if hasproperty(env, :ljW)                          # J = J_static + W B(T_c): the table of the diluted blackbody plus the static field's rates (the spontaneous α once)
         r = photorates_lj(p, T, env)
@@ -366,13 +421,9 @@ function _photorates_t(p::Photo, T, env)
             end
         end
     end
-    lT, lR, lA = tab; n = length(lT); x = clamp(log10(T), 0.0, 6.0); i = clamp(Int(floor(x / 0.005)) + 1, 2, n - 2); w = (x - lT[i]) / 0.005
-    function cr(f)                                                 # Catmull–Rom
-        p0, p1, p2, p3 = f[i-1], f[i], f[i+1], f[i+2]
-        p1 + 0.5w * (p2 - p0 + w * (2p0 - 5p1 + 4p2 - p3 + w * (3(p1 - p2) + p3 - p0)))
-    end
-    R = exp(cr(lR)); A = exp(cr(lA))
-    (R < 1e-290 ? 0.0 : R), A
+    lT, lR, lA = tab; n = length(lT); x = clamp(log10(T), 0.0, 6.0); i = clamp(Int(floor((_ljv(x)) / 0.005)) + 1, 2, n - 2); w = (x - lT[i]) / 0.005
+    R = exp(_cr4(lR[i-1], lR[i], lR[i+1], lR[i+2], w)); A = exp(_cr4(lA[i-1], lA[i], lA[i+1], lA[i+2], w))
+    (R < 1e-290 ? zero(R) : R), A
 end
 
 """
@@ -384,7 +435,10 @@ Photo-rates in a diluted blackbody J = W B(T_c) from tables (PopIIIMaterial LOCA
   are integrated on the gas-T grid with n = 1000, R_l on `photorates`' T_c grid with n = 1000 (both more accurate than the direct path).
 Catmull–Rom in each direction (as the static tables). Outside the ranges, or with `caseB`, the direct integrals.
 """
-const LJTAB = CowCache{Any}(); const LJLOCK = LJTAB.lk
+struct LJTab
+    lR::Matrix{Float64}; lA0::Vector{Float64}; lr::Matrix{Float64}
+end
+const LJTAB = CowCache{LJTab}(); const LJLOCK = LJTAB.lk
 # quadrature points of the table integrals (LJTABN, default 1000). Against n = 4000 integrals at n = 1000: Li ≤ 4e-4, H⁻ ≤ 5e-3 (flow 1e-5),
 # He I ≤ 2e-3 (thick) / 1e-2 (flow α), He II ≤ 1e-2 / 5e-2; the direct path (n = 200) 5–30× larger. Build time ∝ n.
 const LJTABN = parse(Int, get(ENV, "LJTABN", "1000"))
@@ -414,7 +468,7 @@ function lj_tables(p::Photo)
                 a1 = photorates(p, T, (Trad = 0.0, J = ν -> _bnu_lj(ν, Tc)); n = LJTABN)[2]
                 lr[i, j] = log(max(a1 / max(a0s[i], 1e-300) - 1, 1e-300))
             end
-            (; lR, lA0, lr)
+            LJTab(lR, lA0, lr)
         end
     end
 end
@@ -429,8 +483,10 @@ function photorates_lj(p::Photo, T, env)
          LJ_2T[1] + 2LJ_2T[2] <= lTv <= LJ_2T[1] + LJ_2T[2] * (LJ_2T[3] - 3)
     ok || return photorates(p, T, env)
     tb = lj_tables(p)
-    ic, wc = _ljidx(lc, LJ_C); Z = p.Z(T); R = zero(T)
-    for (l, (Ex, g, Eth, σf)) in enumerate(p.levels)
+    ic, wc = _ljidx(lc, LJ_C); Z = _photoZ(p, T); R = zero(T)
+    Exs = p.Ex; gs = p.g
+    @inbounds for l in eachindex(Exs)
+        Ex = Exs[l]; g = gs[l]
         Rl = exp(_cr4(tb.lR[l, ic-1], tb.lR[l, ic], tb.lR[l, ic+1], tb.lR[l, ic+2], wc))
         R += g / Z * exp(-Ex / (kB * T)) * Rl
     end
@@ -461,6 +517,34 @@ function full(x, net)
 end
 μH() = mH * (1 + 4yHe)    # mass per H nucleus (Li negligible)
 
+struct CKWS{T}
+    x::Vector{T}; xt::Vector{T}; v::Vector{T}; veos::Vector{T}; ks::Vector{T}; dd::Vector{T}; fsl::Vector{T}
+    ud1::Vector{T}; ud2::Vector{T}; w::Vector{T}
+end
+function CKWS{T}(nf::Int, nsp::Int, nrx::Int, nsl::Int) where {T}
+    CKWS{T}(zeros(T, nf), zeros(T, nf), zeros(T, nsp), zeros(T, nsp), zeros(T, nrx), zeros(T, nsp), zeros(T, nsl),
+            zeros(T, 4), zeros(T, 4), zeros(T, 5))
+end
+
+"""
+Stack-allocated immutable composition dictionary (`full_fast(x, net)`), bit-identical to `full(x, net)` on every species.
+"""
+struct FullComp{T} <: AbstractDict{Symbol,T}
+    H::T; Hp::T; Hm::T; H2::T; H2p::T; e::T; He::T; Hep::T; Hepp::T; Li::T; Lip::T
+    hasHe::Bool; hasLi::Bool
+end
+@inline function Base.getindex(d::FullComp{T}, s::Symbol) where {T}
+    s === :H ? d.H : s === :Hp ? d.Hp : s === :Hm ? d.Hm : s === :H2 ? d.H2 : s === :H2p ? d.H2p :
+    s === :e ? d.e : s === :He ? d.He : s === :Hep ? d.Hep : s === :Hepp ? d.Hepp :
+    s === :Li ? d.Li : s === :Lip ? d.Lip : throw(KeyError(s))
+end
+@inline function Base.get(d::FullComp{T}, s::Symbol, def) where {T}
+    s === :H ? d.H : s === :Hp ? d.Hp : s === :Hm ? d.Hm : s === :H2 ? d.H2 : s === :H2p ? d.H2p :
+    s === :e ? d.e : s === :He ? d.He : s === :Hep ? (d.hasHe ? d.Hep : def) : s === :Hepp ? (d.hasHe ? d.Hepp : def) :
+    s === :Li ? (d.hasLi ? d.Li : def) : s === :Lip ? (d.hasLi ? d.Lip : def) : def
+end
+@inline Base.haskey(d::FullComp, s::Symbol) = s in (:H, :Hp, :Hm, :H2, :H2p, :e, :He) || (d.hasHe && s in (:Hep, :Hepp)) || (d.hasLi && s in (:Li, :Lip))
+
 """
 Index form of a network (built once per Network, cached): species vector = net.species ∪ {He}; free-species positions;
 reactant/product index lists; element and charge coefficients for the eliminated H, Li, e.
@@ -472,39 +556,89 @@ struct Compiled
     elH::Vector{Float64}; elLi::Vector{Float64}; q::Vector{Float64}       # per free species
     elHe::Vector{Float64}; hasHe::Bool                                     # He nuclei per free species; He eliminated (HECHEM)
     cv::Vector{Function}; E0::Vector{Float64}; isH2::Vector{Bool}
+    cv0::Vector{Float64}; ktup::Any; nR1::Vector{Int}; nslow::Int
+    pidx::CowCache{Tuple{Int,Vector{Int}}}
+    ifree::NTuple{7,Int}; hasLi::Bool; ekeys::Vector{Symbol}
+    ws_f64::Vector{CKWS{Float64}}; ws_pool::Vector{Dict{DataType,Any}}
 end
 const COMPILED = CowCache{Compiled}()
 compiled(net) = cowget!(COMPILED, net) do
     sp = unique(vcat(net.species, [:He])); idx = Dict(s => i for (i, s) in enumerate(sp))
     fr = [idx[s] for s in net.free]
+    fp(s) = (i = findfirst(==(s), net.free); i === nothing ? 0 : i)
+    nslow = count(i -> !(net.free[i] in (:Hm, :H2p, :Hep, :Hepp, :Lip)), eachindex(net.free))
+    hasHe = any(s -> SPECIES[s].el[2] > 0, net.free); hasLi = :Li in net.species
+    dtmp = Dict{Symbol,Float64}()
+    for s in net.free; dtmp[s] = 0.0; end
+    dtmp[:He] = 0.0; dtmp[:H] = 0.0; hasLi && (dtmp[:Li] = 0.0)
+    ekeys = [s for s in keys(dtmp) if s != :e]
+    nt = Threads.maxthreadid()
     Compiled(sp, idx, fr, [[idx[s] for s in r.R] for r in net.reactions], [[idx[s] for s in r.P] for r in net.reactions],
              get(idx, :H, 0), get(idx, :Li, 0), get(idx, :e, 0), idx[:He],
              [s == :H ? 0.0 : Float64(SPECIES[s].el[1]) for s in net.free], [Float64(SPECIES[s].el[3]) for s in net.free],
-             [Float64(SPECIES[s].q) for s in net.free], [Float64(SPECIES[s].el[2]) for s in net.free], any(s -> SPECIES[s].el[2] > 0, net.free),
-             [SPECIES[s].cv for s in sp], [SPECIES[s].E0 for s in sp], [s == :H2 for s in sp])
+             [Float64(SPECIES[s].q) for s in net.free], [Float64(SPECIES[s].el[2]) for s in net.free], hasHe,
+             [SPECIES[s].cv for s in sp], [SPECIES[s].E0 for s in sp], [s == :H2 for s in sp],
+             [s == :H2 ? NaN : Float64(SPECIES[s].cv(300.0)) for s in sp], Tuple(r.k for r in net.reactions),
+             [length(r.R) - 1 for r in net.reactions], nslow, CowCache{Tuple{Int,Vector{Int}}}(),
+             (fp(:Hp), fp(:Hm), fp(:H2), fp(:H2p), fp(:Lip), fp(:Hep), fp(:Hepp)), hasLi, ekeys,
+             [CKWS{Float64}(length(fr), length(sp), length(net.reactions), nslow) for _ in 1:nt],
+             [Dict{DataType,Any}() for _ in 1:nt])
+end
+@inline function _pidx(c::Compiled, p::Photo)
+    v = cowget(c.pidx, p, nothing); v === nothing || return v
+    cowget!(c.pidx, p) do; (c.idx[p.R], [c.idx[s] for s in p.P]); end
+end
+@inline get_ckws(c::Compiled, ::Type{Float64}) = @inbounds c.ws_f64[Threads.threadid()]
+@inline function get_ckws(c::Compiled, ::Type{T}) where {T}
+    d = @inbounds c.ws_pool[Threads.threadid()]
+    w = get(d, T, nothing)
+    w === nothing ? (w2 = CKWS{T}(length(c.free), length(c.sp), length(c.R), c.nslow); d[T] = w2; w2) : (w::CKWS{T})
+end
+function full_fast(x, net)
+    c = compiled(net); T = eltype(x); z = zero(T)
+    iHp, iHm, iH2, iH2p, iLip, iHep, iHepp = c.ifree
+    @inbounds begin
+        Hp = iHp > 0 ? x[iHp] : z; Hm = iHm > 0 ? x[iHm] : z
+        H2 = iH2 > 0 ? x[iH2] : z; H2p = iH2p > 0 ? x[iH2p] : z
+        Lip = iLip > 0 ? x[iLip] : z; Hep = iHep > 0 ? x[iHep] : z; Hepp = iHepp > 0 ? x[iHepp] : z
+    end
+    He = c.hasHe ? yHe - (z + Hep + Hepp) : yHe + z
+    sh = z
+    @inbounds for i in eachindex(c.free)
+        el1 = Int(c.elH[i]); el1 > 0 && (sh += el1 * x[i])
+    end
+    H = 1 - sh
+    Li = c.hasLi ? yLi - (z + Lip) : z
+    d0 = FullComp{T}(H, Hp, Hm, H2, H2p, z, He, Hep, Hepp, Li, Lip, c.hasHe, c.hasLi)
+    e = z
+    @inbounds for s in c.ekeys
+        e += SPECIES[s].q * d0[s]
+    end
+    FullComp{T}(H, Hp, Hm, H2, H2p, e, He, Hep, Hepp, Li, Lip, c.hasHe, c.hasLi)
 end
 "Full composition as a vector over compiled(net).sp (same elimination as `full`); entries of x behind the free species are ignored."
-function fullvec(x, c::Compiled)
-    v = zeros(eltype(x), length(c.sp))
-    for (i, j) in enumerate(c.free); v[j] = x[i]; end
+function fullvec!(v::Vector{T}, x, c::Compiled) where {T}
+    fill!(v, zero(T))
+    @inbounds for (i, j) in enumerate(c.free); v[j] = x[i]; end
     v[c.iHe] = c.hasHe ? yHe - sum(c.elHe[i] * x[i] for i in eachindex(c.free)) : yHe
     c.iH > 0 && (v[c.iH] = 1 - sum(c.elH[i] * x[i] for i in eachindex(c.free)))
     c.iLi > 0 && (v[c.iLi] = yLi - sum(c.elLi[i] * x[i] for i in eachindex(c.free)))
     c.ie > 0 && (v[c.ie] = sum(c.q[i] * x[i] for i in eachindex(c.free)))
     v
 end
+fullvec(x, c::Compiled) = fullvec!(zeros(eltype(x), length(c.sp)), x, c)
 
 "Chemical energy per gram Σ x_j E0_j/μ_H of composition x (the T-independent part of `eos`'s u; 0 for fully ionized gas)."
 function echem(x, net)
-    c = compiled(net); v = fullvec(x, c)
+    c = compiled(net); v = fullvec!(get_ckws(c, eltype(x)).veos, x, c)
     sum(v[j] * c.E0[j] for j in eachindex(v)) / μH()
 end
 "Internal energy per gram and pressure."
 function eos(ρ, T, x, net)
-    c = compiled(net); v = fullvec(x, c); nH = ρ / μH()
+    c = compiled(net); v = fullvec!(get_ckws(c, eltype(x)).veos, x, c); nH = ρ / μH()
     u = zero(T); N = zero(T)
-    for j in eachindex(v)
-        u += v[j] * ((c.isH2[j] ? u_H2(T) : c.cv[j](T)) * kB * T + c.E0[j])
+    @inbounds for j in eachindex(v)
+        u += v[j] * ((c.isH2[j] ? u_H2(T) : c.cv0[j]) * kB * T + c.E0[j])
         N += v[j]
     end
     if HM88 && c.iH > 0                    # HM88: excitation energy and occupation-probability pressure of H I (see HM88)
@@ -595,20 +729,25 @@ function dxdt(x, nH, T, net, env, photo)
 end
 
 "dxdt with the rate coefficients precomputed: ks[ir] = k_ir(T, env) n_H^(n_R − 1) (as in `ck_expand`); same result as `dxdt`."
-function dxdt_k(x, nH, net, ph, ks)
-    c = compiled(net); v = fullvec(x, c); dd = zeros(promote_type(eltype(x), eltype(ks)), length(v))
-    for ir in eachindex(net.reactions)
+function dxdt_k!(ws::CKWS{ET}, x, nH, net, c::Compiled, ph, ks) where {ET}
+    v = fullvec!(ws.v, x, c); dd = fill!(ws.dd, zero(ET))
+    @inbounds for ir in eachindex(net.reactions)
         Ri = c.R[ir]; rate = ks[ir]
         for j in Ri; rate *= v[j]; end
         for j in Ri; dd[j] -= rate; end
         for j in c.P[ir]; dd[j] += rate; end
     end
-    for (p, R, α) in ph
-        jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]
+    @inbounds for (p, R, α) in ph
+        jr, jp = _pidx(c, p)
         rate = R * v[jr]; for j in jp; dd[j] += rate; end; dd[jr] -= rate
         inv_ = α * nH^(length(jp) - 1); for j in jp; inv_ *= v[j]; end
         for j in jp; dd[j] -= inv_; end; dd[jr] += inv_
     end
+    dd
+end
+function dxdt_k(x, nH, net, ph, ks)
+    c = compiled(net); ET = promote_type(eltype(x), eltype(ks)); ws = get_ckws(c, ET)
+    dd = dxdt_k!(ws, x, nH, net, c, ph, ks)
     dd[c.free]
 end
 
@@ -656,6 +795,7 @@ struct CKInfo
     fast::Vector{Int}; slow::Vector{Int}                 # positions in net.free
     single::Vector{Tuple{Int,Int}}                       # H⁻, H₂⁺: (position in net.free, index in compiled sp)
     chains::Vector{Vector{Tuple{Int,Int}}}               # element ionisation stages from the neutral up: (free position or 0, sp index)
+    kHp::Int                                             # index of :Hp in slow (0 if not present)
 end
 const CKINFO = CowCache{CKInfo}()
 ckinfo(net) = cowget!(CKINFO, net) do
@@ -667,7 +807,17 @@ ckinfo(net) = cowget!(CKINFO, net) do
         all(s -> haskey(c.idx, s), ch) && any(s -> fp(s) > 0, ch[2:end]) || continue
         push!(chains, [(fp(s), c.idx[s]) for s in ch])
     end
-    CKInfo(fast, slow, single, chains)
+    kHp = findfirst(==(:Hp), net.free[slow])
+    CKInfo(fast, slow, single, chains, kHp === nothing ? 0 : kHp)
+end
+@generated function _fill_ks!(ks::Vector{ET}, ktup::KT, nR1::Vector{Int}, T, ev, nH) where {ET,KT<:Tuple}
+    M = fieldcount(KT)
+    ex = Expr(:block)
+    for i in 1:M
+        push!(ex.args, :(@inbounds ks[$i] = ktup[$i](T, ev) * nH^nR1[$i]))
+    end
+    push!(ex.args, :ks)
+    ex
 end
 "k · Π v[Ri] with one occurrence of index j left out."
 @inline function _rwo(r0, v, Ri, j)
@@ -676,15 +826,16 @@ end
     r
 end
 "Creation rate of sp index j and its loss rate per unit x_j (per H nucleus), ks = k n_H^(n−1) per reaction, ph per-zone photo-rates."
-function _ck_cl(v, j, nH, net, c, ph, ks)
+function _ck_cl_p(v, j, nH, net, c::Compiled, ph, ks)
     C = zero(eltype(v)); L = zero(eltype(v))
-    for ir in eachindex(net.reactions)
+    @inbounds for ir in eachindex(net.reactions)
         Ri = c.R[ir]; Pi = c.P[ir]; nr = count(==(j), Ri); np = count(==(j), Pi)
         nr == 0 && np == 0 && continue
         nr > 0 && (L += nr * _rwo(ks[ir], v, Ri, j))
         np > 0 && (C += np * _rwo(ks[ir], v, Ri, 0))
     end
-    for (jr, jp, R, α) in ph
+    @inbounds for (p, R, α) in ph
+        jr, jp = _pidx(c, p)
         inv0 = α * nH^(length(jp) - 1)
         if jr == j; L += R; C += _rwo(inv0, v, jp, 0); end
         if j in jp; C += R * v[jr]; L += _rwo(inv0, v, jp, j); end
@@ -692,47 +843,61 @@ function _ck_cl(v, j, nH, net, c, ph, ks)
     C, L
 end
 "Rates per unit x_a of a → b and per unit x_b of b → a (a, b sp indices of adjacent ionisation stages)."
-function _ck_ud(v, a, b, nH, net, c, ph, ks)
+function _ck_ud_p(v, a, b, nH, net, c::Compiled, ph, ks)
     up = zero(eltype(v)); dn = zero(eltype(v))
-    for ir in eachindex(net.reactions)
+    @inbounds for ir in eachindex(net.reactions)
         Ri = c.R[ir]; Pi = c.P[ir]
         a in Ri && b in Pi && (up += _rwo(ks[ir], v, Ri, a))
         b in Ri && a in Pi && (dn += _rwo(ks[ir], v, Ri, b))
     end
-    for (jr, jp, R, α) in ph
+    @inbounds for (p, R, α) in ph
+        jr, jp = _pidx(c, p)
         jr == a && b in jp && (up += R; dn += _rwo(α * nH^(length(jp) - 1), v, jp, b))
     end
     up, dn
 end
-"Free abundances with the slow ones xs (over ckinfo(net).slow) and the fast ones from equilibrium at T."
-function ck_expand(xs, T, nH, net, ph, ks, extra = nothing)
-    c = compiled(net); ci = ckinfo(net)
-    x = zeros(promote_type(eltype(xs), typeof(T), eltype(ks)), length(net.free))
-    for (k, i) in enumerate(ci.slow); x[i] = xs[k]; end
-    phi = [(c.idx[p.R], [c.idx[s] for s in p.P], R, α) for (p, R, α) in ph]
+function ck_expand!(ws::CKWS{ET}, xs, T, nH, net, c::Compiled, ci::CKInfo, ph, ks::Vector{ET}, extra = nothing) where {ET}
+    x = fill!(ws.x, zero(ET))
+    @inbounds for (k, i) in enumerate(ci.slow); x[i] = xs[k]; end
     # extra (star light, ray) in the H⁻/H₂⁺ rows, taken as a + b x_j: two calls, all fast singles at 0 and at 1
     ea = eb = nothing
     if extra !== nothing && !isempty(ci.single)
-        xt = copy(x); ea = extra(xt); for (f, _) in ci.single; xt[f] = one(eltype(x)); end; eb = extra(xt) .- ea
+        xt = copyto!(ws.xt, x); ea = extra(xt); for (f, _) in ci.single; xt[f] = one(ET); end; eb = extra(xt) .- ea
     end
     for _ in 1:CKSWEEPS[]
         for (f, j) in ci.single
-            v = fullvec(x, c); C, L = _ck_cl(v, j, nH, net, c, phi, ks)
+            v = fullvec!(ws.v, x, c); C, L = _ck_cl_p(v, j, nH, net, c, ph, ks)
             ea === nothing || (ea[f] > 0 && (C += ea[f]); eb[f] < 0 && (L -= eb[f]))
             x[f] = L > 0 ? C / L : zero(C)
         end
         for ch in ci.chains
-            v = fullvec(x, c); m = length(ch)
-            ud = [_ck_ud(v, ch[k][2], ch[k+1][2], nH, net, c, phi, ks) for k in 1:m-1]
-            w = [prod((ud[i][1] for i in 1:k); init = one(eltype(x))) * prod((ud[i][2] for i in k+1:m-1); init = one(eltype(x))) for k in 0:m-1]
-            sw = sum(w); tot = ch[1][2] == c.iHe ? yHe : yLi
-            for k in 1:m
+            v = fullvec!(ws.v, x, c); m = length(ch)
+            ud1 = ws.ud1; ud2 = ws.ud2; w = ws.w
+            @inbounds for k in 1:m-1
+                u_, d_ = _ck_ud_p(v, ch[k][2], ch[k+1][2], nH, net, c, ph, ks)
+                ud1[k] = u_; ud2[k] = d_
+            end
+            @inbounds for k in 0:m-1
+                p1 = one(ET); for i in 1:k; p1 *= ud1[i]; end
+                p2 = one(ET); for i in k+1:m-1; p2 *= ud2[i]; end
+                w[k+1] = p1 * p2
+            end
+            sw = zero(ET); @inbounds for k in 1:m; sw += w[k]; end
+            tot = ch[1][2] == c.iHe ? yHe : yLi
+            @inbounds for k in 1:m
                 ch[k][1] > 0 || continue
                 x[ch[k][1]] = sw > 0 ? tot * w[k] / sw : zero(sw)
             end
         end
     end
     x
+end
+"Free abundances with the slow ones xs (over ckinfo(net).slow) and the fast ones from equilibrium at T."
+function ck_expand(xs, T, nH, net, ph, ks, extra = nothing)
+    c = compiled(net); ci = ckinfo(net)
+    ET = promote_type(eltype(xs), typeof(T), eltype(ks))
+    ws = get_ckws(c, ET)
+    copy(ck_expand!(ws, xs, T, nH, net, c, ci, ph, ET === eltype(ks) ? ks : copyto!(ws.ks, ks), extra))
 end
 """
     ck_eval(xs, ρ, T, net; env, phc, extra) -> (x, f)
@@ -743,15 +908,29 @@ three-level zone (env carries `tl3`) n_e of the Peebles C is n_H x_H⁺ of `xs` 
 per-zone photo-rate tuples at the Float temperature Tv (lagged in T as in `step`).
 """
 function ck_eval(xs, ρ, T, net; env, phc, extra)
-    nH = ρ / μH(); ci = ckinfo(net); sl = ci.slow
-    kHp = findfirst(==(:Hp), net.free[sl])
-    tl3 = kHp !== nothing && hasproperty(env, :tl3) && env.tl3 !== nothing
-    ev = tl3 ? merge(env, (; tl3 = merge(env.tl3, (; ne = nH * xs[kHp])))) : env
+    nH = ρ / μH(); c = compiled(net); ci = ckinfo(net); sl = ci.slow
+    kHp = ci.kHp
+    tl3 = kHp > 0 && hasproperty(env, :tl3) && env.tl3 !== nothing
+    ev = if tl3
+        t3 = merge(env.tl3, (; ne = nH * xs[kHp]))
+        (HM88 && hasproperty(env, :hm)) ? (; tl3 = t3, hm = env.hm) : (; tl3 = t3)
+    else
+        env
+    end
     ph = phc(T)                                   # (a Dual T: the photo-rates carry ∂/∂T, see PopIIIMaterial.photo_cache)
-    ks = [r.k(T, ev) * nH^(length(r.R) - 1) for r in net.reactions]
-    x = ck_expand(xs, T, nH, net, ph, ks, extra)
-    f = dxdt_k(x, nH, net, ph, ks); extra === nothing || (f = f .+ extra(x))
-    x, f[sl]
+    ET = promote_type(eltype(xs), typeof(ρ), typeof(T), eltype(ph) <: Tuple ? fieldtype(eltype(ph), 2) : typeof(T))
+    ws = get_ckws(c, ET)
+    ks = _fill_ks!(ws.ks, c.ktup, c.nR1, T, ev, nH)
+    x = ck_expand!(ws, xs, T, nH, net, c, ci, ph, ks, extra)
+    dd = dxdt_k!(ws, x, nH, net, c, ph, ks)
+    fsl = ws.fsl
+    if extra === nothing
+        @inbounds for (k, i) in enumerate(sl); fsl[k] = dd[c.free[i]]; end
+    else
+        ex = extra(x)
+        @inbounds for (k, i) in enumerate(sl); fsl[k] = dd[c.free[i]] + ex[i]; end
+    end
+    x, fsl
 end
 function step_ck(x0, ρ, u, T0, dt, net; env, photos, cooling, extra, accepted, tol, maxit)
     nH = ρ / μH(); ci = ckinfo(net); sl = ci.slow; ns = length(sl); cc = compiled(net)

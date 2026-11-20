@@ -428,6 +428,7 @@ function context(; etotal::Bool = ETOTAL[], ηsw::Float64 = ETASW[], dt = nothin
         CONVECTION[], ALPHA_MLT[], convcoef(ngrs, ngre, base))
 end
 
+const OPAC_NOCACHE = Ref(false)
 "Interface ∇_ad, c_P, δ, κ_R on the current iterate (base) for the MLT flux; zeros if convection is off."
 function convcoef(ngrs, ngre, base)
     mgr = TF.MGR
@@ -449,11 +450,17 @@ function convcoef(ngrs, ngre, base)
     # (PERF512) for a material whose Float64 opacity has no side effects (`opac_pure(m)`), the zones' χ first on MATTHREADS tasks, then the
     # serial sum. The serial loop calls material_opac without setting ZONE[] (a material that reads ZONE[] sees the zone left by the last
     # sweep, for every k), so the tasks use that same ZONE[]; a zone whose evaluation throws is evaluated again in the loop, which then throws
-    # as before. Bit-identical.
+    # as before. The final zone visited by the downward loop (`klast`) is left to the serial loop so per-zone caches (NLOIT) end in the exact
+    # same state. Bit-identical.
     χτ = get!(() -> zeros(mgr), BUFS, :cvchi)::Vector{Float64}; okτ = get!(() -> zeros(Bool, mgr), BUFS, :cvchiok)::Vector{Bool}; fill!(okτ, false)
     if opac_pure(m)
         z0 = ZONE0[]
-        try zone_sweep!(ngrs+1:ngre, k -> @inbounds(base[k, 3] > 0 && base[k, 5] > 0)) do k
+        klast = 0
+        @inbounds for k in ngrs+1:ngre
+            if base[k, 3] > 0 && base[k, 5] > 0; klast = k; break; end
+        end
+        OPAC_NOCACHE[] = true
+        try zone_sweep!(ngrs+1:ngre, k -> k != klast && @inbounds(base[k, 3] > 0 && base[k, 5] > 0)) do k
             ZONE[] = z0
             try
                 y = @inbounds material_opac(m, base[k, 3], base[k, 5])[1]
@@ -461,7 +468,7 @@ function convcoef(ngrs, ngre, base)
             catch
             end
         end
-        finally ZONE0[] = z0 end
+        finally OPAC_NOCACHE[] = false; ZONE0[] = z0 end
     end
     τ = 0.0
     @inbounds for k in ngre:-1:ngrs+1
