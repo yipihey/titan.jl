@@ -1199,11 +1199,11 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
     ms = [mons(j) for j in zl:zh]
     Ipp = sum(m[1] / ν(j) for (j, m) in zip(zl:zh, ms)); Iff = sum(m[2] / ν(j) for (j, m) in zip(zl:zh, ms))
     amix = hasproperty(ge, :amix) ? ge.amix : 0.0
-    # Inside-out ceiling on the relaxation time (smooth, differentiated, no lag): tau~_j = smin(tau_j, q tau~_{j-1}), q = (1+alph_g)/alph_g, the neighbour-ratio
-    # bound of the mesh (alph_g = GEQC[2]); tau~_zl = tau_zl. A zone's own tau (t_dyn, t_cross, speed floor) can be 1e3-1e8 dt when the step is set by the collapsing
-    # core; the row n̂_j = n̂_j-1 chain then freezes the envelope mesh and the zones that are free (core) cannot get nodes (zone 2-6 mass ratios ~9 instead of <=2).
-    # The ceiling lets the relaxation time grow outward from the core by at most the mesh's own neighbour ratio per zone (core -> envelope hand-over of nodes).
-    τraw = [tau(j) for j in zl:zh]; τct = similar(τraw); qτ = (1 + ge.alph) / ge.alph
+    # Inside-out ceiling on the relaxation time (smooth, differentiated, no lag): tau~_j = smin(tau_j, q tau~_{j-1}), tau~_zl = tau_zl, q = 1 + 5/N (5 % per zone).
+    # A zone's own tau (t_dyn, t_cross, speed floor) is 1e3-1e8 dt once the step is set by the collapsing core. In the frozen limit the chain n̂_j = n̂_j-1 shares a change
+    # of the span ln(r_N/r_zl) (r_zl collapses with the Lagrangian first interface) among the zones in proportion to M_j/tau_j, so the core zones alone absorb all of it:
+    # dlnr_2..5 grow 0.3 -> 0.9, mass ratios 3 (n_c 1e16) -> 9. A nearly uniform tau (ceiling) shares it over all N zones (~0.03 e-fold each).
+    τraw = [tau(j) for j in zl:zh]; τct = similar(τraw); qτ = 1 + 5 / length(τraw)
     @inbounds for i in eachindex(τraw)
         τct[i] = i == 1 ? τraw[1] : (τraw[i]^-4 + (qτ * τct[i-1])^-4)^-0.25
     end
