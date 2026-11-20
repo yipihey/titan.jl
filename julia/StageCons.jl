@@ -328,11 +328,71 @@ function peqcheck()
     nothing
 end
 
+
+"""
+ZEROSTEP=n (diagnostic, default off): at the start of the first n steps (after peq!/save!), the residual at the start state for the step's Δ and Δ·1e-3, Δ·1e-6, in two
+states: `old` (new := old) and `pred` (the predictor over the scaled step, as a Newton solve starts), TR stage (θ=½, dt=γΔ_scaled). Per equation the 5 largest |normalized row rate| (see rates)
+with zone. A row that is O(1) as Δ→0 is not satisfied by the old state.
+"""
+function zerostep(Δ, Cn)
+    J = Int(TD.g(:jstep)); a = Int(TD.g(:ngrs)); b = Int(TD.g(:ngre))
+    S = NK.Snap(); NK.take!(S); rhs0 = copy(TF.var(:rhs)); θ0 = TD.g(:thet); dt0 = TD.g(:dtime)
+    try
+        for mode in (:old, :pred), sc in (1.0, 1e-3, 1e-6)
+            dtp = sc * Δ
+            NK.restore!(S); TF.var(:rhs) .= 0.0
+            if mode === :old
+                new_eq_old!(a, b)
+            else
+                TD.s!(:thet, θ0); TD.s!(:dtime, dtp); TD.s!(:tfac, sc); TD.r(:reset); TD.s!(:timen, TD.g(:timeo) + dtp)
+                TC.predict!(; halve = false, dtscale = TR.γ)
+            end
+            R, c, Wz = evalR(0.5, TR.γ * dtp); ρ = rates(R, c, Cn)
+            if mode === :old && sc == 1e-3      # E_r row decomposition, zones 1..5: R, E_r dV, flux divergence, absorption-emission, F at the faces, T, E_r vs aT^4
+                cc = Float64(TD.g(:cc)); k0 = c.k0
+                for Z in 1:5
+                    k = a + Z - 1
+                    fd = Wz.rmu[k+1] * Wz.frn[k+1] - Wz.rmu[k] * Wz.frn[k]
+                    ab = (cc * Wz.xken[k] * Wz.ern[k] - 4c.p.cpi * Wz.xkpn[k] * Wz.plfn[k]) * Wz.dn[k] * Wz.dvoln[k]
+                    @printf("ZEROSTEP jstep %d Er-row zone %d: R %.3e | Er*dV %.3e | flux-div %.3e | abs-emis %.3e | rest %.3e | F(k) %.3e F(k+1) %.3e | T %.4e Er %.4e aT4 %.4e | cc*kappa*rho*dr-ish tau_c %.3e\n",
+                            J, Z, R[c.ix[6], k-k0+1], Wz.ern[k] * Wz.dvoln[k], fd, ab, R[c.ix[6], k-k0+1] - fd - ab, Wz.frn[k], Wz.frn[k+1], Wz.tn[k], Wz.ern[k], 7.565723e-15 * Wz.tn[k]^4, cc * Wz.xken[k] * Wz.dn[k])
+                end
+            end
+            if mode === :old && sc == 1e-3      # F_r row at faces 1..5 (zone Z = its inner face): blended R, moment-only R (FLUXTIE off), tie weight, h, F against c E
+                ft = TD.FLUXTIE[]; TD.FLUXTIE[] = (ft[1], 0.0)
+                Rm = try evalR(0.5, TR.γ * dtp)[1] finally TD.FLUXTIE[] = ft end
+                cc = Float64(TD.g(:cc)); k0 = c.k0
+                for Z in 2:6
+                    k = a + Z - 1
+                    @printf("ZEROSTEP jstep %d F-row face %d: R_blend %.3e R_momentonly %.3e | TIEW %.4f HEDD(k-1) %.4f HEDD(k) %.4f fedd(k-1) %.4f | F %.3e cE(k-1) %.3e cE(k) %.3e | R_blend/(rmu F/c) %.3e\n",
+                            J, Z, R[c.ix[7], k-k0+1], Rm[c.ix[7], k-k0+1], length(TD.TIEW) >= k ? TD.TIEW[k] : NaN, TD.HEDD[k-1], TD.HEDD[k], vf(:fedd)[k-1], Wz.frn[k], cc * Wz.ern[k-1], cc * Wz.ern[k], R[c.ix[7], k-k0+1] / (Wz.rmu[k] * Wz.frn[k] / cc))
+                end
+            end
+            for s in ROWS
+                haskey(ρ, s) || continue
+                v = ρ[s]; idx = [k for k in a:b+1 if k <= length(v) && isfinite(v[k])]
+                top = sort(idx; by = k -> -abs(v[k]))[1:min(5, length(idx))]
+                @printf("ZEROSTEP jstep %d %s dt %.3e (x%.0e) %-4s top5 (zone:rate): %s\n", J, mode, dtp, sc, s, join((@sprintf("%d:%.3e", k - a + 1, v[k]) for k in top), " "))
+            end
+        end
+    finally
+        NK.restore!(S); TF.var(:rhs) .= rhs0; TD.s!(:thet, θ0); TD.s!(:dtime, dt0)
+    end
+    flush(stdout); nothing
+end
+const ZDONE = Ref(0)
+function zhook(what, Δ, Cn)
+    (what === :start && ZDONE[] < parse(Int, get(ENV, "ZEROSTEP", "1"))) || return nothing
+    ZDONE[] += 1; zerostep(Δ, Cn)
+end
+
 "STAGECONS=n: install the hook (every n-th accepted step)."
 function configure!(n::Int)
     EVERY[] = n; TR.STAGECONS_HOOK[] = hook
     if get(ENV, "STAGEPEQ", "0") == "1"; TC.PEQ_HOOK[] === nothing || error("STAGEPEQ: TitanCore.PEQ_HOOK already in use"); TC.PEQ_HOOK[] = peqcheck; end
     nothing
 end
+
+configure_zero!() = (TR.STAGECONS_HOOK[] = zhook; nothing)
 
 end # module

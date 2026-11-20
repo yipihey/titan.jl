@@ -1355,6 +1355,7 @@ if get(ENV, "NKRYLOV", "0") != "0"
 end
 # STAGECONS=n (diagnostic, default off = bit-identical): every n-th accepted step print `STAGECONS` lines testing stage consistency (start state with new := old: residual independent of θ, dt?; against the FSAL
 # derivative; leftover residual of each converged stage; old-level vs new-level arrays), all as normalized rates [1/s] comparable with DTERRDIAG's (z2 - z1)/(y_n Δ). StageCons.jl. Run with DTERRDIAG=n DTERRTRACE=n.
+haskey(ENV, "ZEROSTEP") && ENV["ZEROSTEP"] != "0" && StageCons.configure_zero!()
 haskey(ENV, "STAGECONS") && ENV["STAGECONS"] != "0" && (StageCons.configure!(parse(Int, ENV["STAGECONS"])); pr("STAGECONS: stage-consistency diagnostic every %d steps (StageCons.jl)\n", StageCons.EVERY[]))
 haskey(ENV, "NWFREEZE") && (TC.NWFREEZE[] = String.(split(ENV["NWFREEZE"], ",")))     # (diagnostic, default off) see TitanCore.NWFREEZE
 haskey(ENV, "NWTRACE") && (Trbdf2.NWTRACE[] = open(ENV["NWTRACE"], "a"))      # (diagnostic, default off) Newton trace, see Trbdf2.NWTRACE
