@@ -422,7 +422,7 @@ chemistry heat. For network zones deep in the thick layers (G2: the network thro
 const NLOHBFDEEP = get(ENV, "NLOHBFDEEP", "0") == "1"
 hbf_w(p) = NLOHBFDEEP && p !== nothing && hasproperty(p, :deep) ? p.deep : 0.0
 "The means f(hbfP) with the H bound–free absorption weighted by the deep weight of p (linear blend of the two means in the transition)."
-function hbf_blend(f, p)
+@inline function hbf_blend(f::F, p) where {F}
     w = hbf_w(p)
     w <= 0 && return f(false)
     w >= 1 && return f(true)
@@ -571,11 +571,11 @@ end
 "(NLOIT) the ratios (R_E, R_P, R_R) and n_e [cm⁻³] of composition d (full fractions) at (ρ, T), three-level parameters p."
 function nlo_ratio(ρ, T, d, p)
     t0_ = time_ns()
-    nH = ρ / CNn.μH(); nHe = PC.yHe * nH
+    nH = ρ / CNn.μH(); nHe0 = PC.yHe * nH
     Rt, Pt = OPAC[](ρ, T); w = nlo_w(T); Pq = Rq = 1.0
     if w > 0
     # equilibrium composition (as nlte_kappas with d = nothing)
-    y = EQ.composition(ρ, min(T, 1e6)); xp = y[1]; xh2 = y[3]; n1e = nH * max(1 - xp - 2xh2, 0.0); nee = nH * xp; nHee = nHe
+    y = EQ.composition(ρ, min(T, 1e6)); xp = y[1]; xh2 = y[3]; n1e = nH * max(1 - xp - 2xh2, 0.0); nee = nH * xp; nHee = nHe0
     if CNn.HECHEM
         z1, z2 = EQ.composition_he(ρ, min(T, 1e6)); nee = nH * (xp + z1 + 2z2); nHee = nH * max(PC.yHe - z1 - z2, 0.0)
     end
@@ -592,13 +592,17 @@ function nlo_ratio(ρ, T, d, p)
     # equilibrium (w = 1, κ = table × κ^nl(d)/κ^nl(eq): the table's calibration) above NLOITW[2], geometric blend in between
     bP = max(Pt, 1e-300)^(1 - w) * max(Pq, 1e-300)^w; bR = max(Rt, 1e-300)^(1 - w) * max(Rq, 1e-300)^w
     n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
-    CNn.HECHEM && (nHe = nH * max(d[:He], 0.0))
+    nHe = CNn.HECHEM ? nH * max(d[:He], 0.0) : nHe0
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
     nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
     Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T
-    E, P, R = G2O.ON ? hbf_blend(hb -> nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hb, Tw,
-                                       nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0)), p) :
-                hbf_blend(hb -> nlte_means_fast(ρ, T; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = hb, Tw), p)
+    n2_ = n2_tl3(T, n1, ne, np, p); nH2_ = nH * max(d[:H2], 0.0)
+    E, P, R = if G2O.ON
+        nHep_ = nH * max(get(d, :Hep, 0.0), 0.0); nHepp_ = nH * max(get(d, :Hepp, 0.0), 0.0)
+        hbf_blend(hb -> nlte_means_fast(ρ, T; n1, n2 = n2_, nH2 = nH2_, nHe, nHp = np, ne, nHm, nHmS, hbfP = hb, Tw, nHep = nHep_, nHepp = nHepp_), p)
+    else
+        hbf_blend(hb -> nlte_means_fast(ρ, T; n1, n2 = n2_, nH2 = nH2_, nHe, nHp = np, ne, nHm, nHmS, hbfP = hb, Tw), p)
+    end
     Threads.atomic_add!(NLOITN, 1); Threads.atomic_add!(NLOITNS, Int(time_ns() - t0_))
     (E / bP, P / bP, R / bR), ne
 end
@@ -612,14 +616,18 @@ end
 "(NLOIT) composition of zone k at (ρ, T) and x_H⁺, x_H₂ (coupled zones: CK expansion with the step's terms; else the chemistry's)."
 function nlo_comp(m, k, s, ρ, T, x1, x2, q = 1.0, tc = 1.0, g = nothing, dp = nothing)
     t = (TX.cplz(k) && k <= length(CPLTERMS[])) ? CPLTERMS[][k] : nothing
+    _nlo_comp(m, k, s, t, ρ, T, x1, x2, q, tc, g, dp)
+end
+function _nlo_comp(m, k, s, t, ρ, T, x1, x2, q, tc, g, dp)
     t === nothing && return s.d, s.p
     t0_ = time_ns()
     # (not t.phc: its one-entry cache is shared with the residual's dual evaluation, which would then take this call's Float rates
     # at the same T and lose ∂(photo-rates)/∂T from the coupled zone's Jacobian)
-    ph_, en_ = t.phraw; phc = Tq -> _phvec(ph_, Tq, en_)
+    ph_ = t.phraw[1]::Vector{CNn.Photo}; en_ = t.phraw[2]
+    phc = Tq -> _phvec(ph_, Tq, en_)
     if (q != 1 || tc != 1 || g !== nothing || dp !== nothing) && hasproperty(t, :slq)          # SLIMP: the composition at the iterate's star light (f_sh does not enter the fast species)
         e0 = t.slq.envc0; phc0 = e0 === nothing ? nothing : (Tq -> _phvec(ph_, Tq, e0))
-        tq = cpl_tq(t, ρ, T, x1, x2, q, tc, 0.0, g, dp; phc, phc0)
+        tq = cpl_tq(t, ρ, T, x1, x2, q, tc, 0.0, g, dp; phc, phc0, need_cool = false)
         x, _ = CNn.ck_eval((x1, x2), ρ, T, m.net; env = tq.env, phc = tq.phc, extra = tq.extra)
         Threads.atomic_add!(NLOCNS, Int(time_ns() - t0_))
         return CNn.full_fast(x, m.net), tq.env.tl3
@@ -808,8 +816,8 @@ function TM.fill_opac!(m::NetGas)
         NLOIT && NLOITDIAG[] > 0 && nloit_diag(m, k, dn[k], tn[k], (χ, κE, κP))
         # electrons for the scattering term of the formal solution (the template state's xnen is not ours)
         xnen[k] = (CNn.HECHEM ? (m.eqzone[k] ? (Tq = min(tn[k], 1e6); z = EQ.composition_he(dn[k], Tq); EQ.composition(dn[k], Tq)[1] + z[1] + 2z[2]) :
-                                 CNn.full(m.x[k], m.net)[:e]) :
-                   (m.eqzone[k] ? EQ.composition(dn[k], min(tn[k], 1e6))[1] : CNn.full(m.x[k], m.net)[:Hp])) * dn[k] / CNn.μH()
+                                 CNn.full_fast(m.x[k], m.net)[:e]) :
+                   (m.eqzone[k] ? EQ.composition(dn[k], min(tn[k], 1e6))[1] : CNn.full_fast(m.x[k], m.net)[:Hp])) * dn[k] / CNn.μH()
         # coupled network zone: the electrons of the iterate (x_H⁺, x_H₂ of the Newton vector, via nlo_it's CK expansion), the same n_e that
         # chifn's Thomson floor uses, not the composition of the last chemistry
         if TX.COUPLED[] && !m.eqzone[k] && TX.cplz(k) && k <= length(NLONED[]) && isfinite(NLONED[][k])
@@ -1157,12 +1165,13 @@ function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = not
     T = eltype(dn); inv_mu = 1 / CNn.μH()
     # optical depth: τ[j] by values, and the Dual corrections (zero value) that a consumer zone k picks up from the zones i that depend on
     # blocks inside its window (zone i = k−3 reaches block k−2 through r_{i+1}; the partials of block k−3 land in a seed slot the band never reads)
-    τv = zeros(b + 2)
+    τv = get!(() -> zeros(b + 2), TX.SLQBUF, (:sl_tauv, b + 2))::Vector{Float64}; fill!(τv, 0.0)
     for j in b:-1:a; τv[j] = τv[j+1] + chi[j] * _val(dn[j]) * _val(rn[j+1] - rn[j]); end
     chiD = if isD && TX.MATERIAL[] !== nothing
         z0_ = TX.ZONE0[]; sl0_ = TX.CPLSL[]; TX.CPLSL[] = nothing
-        loc = get!(() -> (Vector{T}(undef, length(xs1)), Vector{T}(undef, length(xs1))), TX.SLQBUF, (:locop, T, length(xs1)))
-        chiL, kpL = loc; cdv = Vector{T}(undef, b)
+        loc = get!(() -> (Vector{T}(undef, length(xs1)), Vector{T}(undef, length(xs1))), TX.SLQBUF, (:locop, T, length(xs1)))::Tuple{Vector{T},Vector{T}}
+        chiL, kpL = loc
+        cdv = get!(() -> Vector{T}(undef, b), TX.SLQBUF, (:sl_cdv, T, b))::Vector{T}
         try
             TX.zone_sweep!(a:b, _ -> true) do i
                 ch_, _, kp_ = TX.material_opac(TX.MATERIAL[], dn[i], tn[i])
@@ -1181,11 +1190,13 @@ function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = not
     # Lyman-Werner columns: contributions of the zones outside the photosphere, with the Duals of the window and of the transition zones
     lw = sl !== nothing && sl.shield !== :off
     lwcols = lw && sl.shield !== :none
-    trans = [j for j in a:b if 0 < sl_lwon(τv[j]) < 1]               # zones whose weight depends on τ
+    trans = get!(() -> Int[], TX.SLQBUF, :sl_trans)::Vector{Int}; empty!(trans)
+    for j in a:b; 0 < sl_lwon(τv[j]) < 1 && push!(trans, j); end      # zones whose weight depends on τ
     nH(j) = dn[j] * inv_mu
     c2(j, k, w) = w * winv(nH(j), j, k) * max(winv(xs2[j], j, k), 0) * (winv(rn[j+1], j + 1, k) - winv(rn[j], j, k))
     c1(j, k, w) = w * winv(nH(j), j, k) * max(1 - winv(xs1[j], j, k) - 2winv(xs2[j], j, k), 0) * (winv(rn[j+1], j + 1, k) - winv(rn[j], j, k))
-    P2 = zeros(b + 2); P1 = zeros(b + 2)                              # value prefix sums of the weighted column integrands over the zones below k
+    P2 = get!(() -> zeros(b + 2), TX.SLQBUF, (:sl_P2, b + 2))::Vector{Float64}; fill!(P2, 0.0)
+    P1 = get!(() -> zeros(b + 2), TX.SLQBUF, (:sl_P1, b + 2))::Vector{Float64}; fill!(P1, 0.0) # value prefix sums of the weighted column integrands over the zones below k
     if lwcols
         for j in a:b
             w = sl_lwon(τv[j]); P2[j+1] = P2[j] + _val(w * nH(j) * max(xs2[j], 0) * (rn[j+1] - rn[j])); P1[j+1] = P1[j] + _val(w * nH(j) * max(1 - xs1[j] - 2xs2[j], 0) * (rn[j+1] - rn[j]))
@@ -1846,51 +1857,55 @@ colour temperature enters as a Float (the photo-rate tables are Float in T_c; it
 (ρ, x) are Duals. A zone without a star-light record (no star at the prepare pass) has q = tc = 1 and keeps the prepared W and T_c; its
 R_Lyα is still the iterate's. `phc`, `phc0` may be given uncached (NLOIT's path).
 """
-function cpl_tq(t, ρ, T, x1, x2, q, tc, fs, g, dp = nothing; phc = t.phc, phc0 = t.slq.phc0)
-    s_ = t.slq; p3b = s_.p3; extrab = t.extra; r = s_.rec
-    tenv = t.env
-    if CNn.HM88 && hasproperty(tenv, :hm) && s_.hm0 !== nothing       # HM88: the perturber densities of the iterate (H, H₂, H⁺ from the slow species; the He part of the start)
-        nHt = ρ / CNn.μH(); tenv = merge(tenv, (; hm = (nHt * (max(1 - x1 - 2x2, 0) + s_.hm0[1] + x2), nHt * (x1 + s_.hm0[2]))))
+function cpl_tq(t, ρ, T, x1, x2, q, tc, fs, g, dp = nothing; phc = t.phc, phc0 = t.slq.phc0, need_cool::Bool = true)
+    s_ = t.slq; p3_0 = s_.p3; extrab0 = t.extra; r = s_.rec
+    tenv0 = t.env
+    tenv = if CNn.HM88 && hasproperty(tenv0, :hm) && s_.hm0 !== nothing       # HM88: the perturber densities of the iterate (H, H₂, H⁺ from the slow species; the He part of the start)
+        nHt = ρ / CNn.μH(); merge(tenv0, (; hm = (nHt * (max(1 - x1 - 2x2, 0) + s_.hm0[1] + x2), nHt * (x1 + s_.hm0[2]))))
+    else
+        tenv0
     end
-    envb = tenv
-    dp === nothing || (p3b = merge(p3b, (; deep = dp)))                # TL3DEEP: the iterate's deep weight
-    RL = g === nothing ? p3b.RL : lya_escape(ρ, x1, x2, g)             # (g = nothing: the prepared R_Lyα, for the opacity's base value)
-    kLW = 0.0
+    p3_1 = dp === nothing ? p3_0 : merge(p3_0, (; deep = dp))          # TL3DEEP: the iterate's deep weight
+    RL = g === nothing ? p3_1.RL : lya_escape(ρ, x1, x2, g)            # (g = nothing: the prepared R_Lyα, for the opacity's base value)
     if r !== nothing                             # the terms at the iterate's colour temperature (Float) and dilution (q: below)
         Tc = r.Tc0 * tc; W0 = r.W0; sl = STARLIGHT[]
         mgr_ = hasproperty(r, :Wg)                   # MGROUPS: each process with its group's dilution
         WBa = mgr_ ? r.Wg[MGROLE[].Ba] : W0; WLy = mgr_ ? r.Wg[MGROLE[].Lya] : W0
         nb = WLy / expm1(E21 / (CNn.kB * Tc))
-        p3b = merge(p3b, (; β = WBa * beta2s_bb(Tc), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc, RL))
+        p3b = merge(p3_1, (; β = WBa * beta2s_bb(Tc), P12 = (RL + LAM2S) * nb, hν = balmer_mean(Tc), Tc, RL))
         Jb0 = mgr_ ? mg_J(r.Wg, Tc) : (ν -> W0 * _bnu(ν, Tc))
         Jb = s_.lj && !hasproperty(tenv, :ljW) ? (Js = tenv.ljs.J; ν -> Js(ν) + Jb0(ν)) : Jb0          # (J = J_static + W B(T_c))
         envb = s_.lj ? (hasproperty(tenv, :ljW) ? merge(tenv, (; Trad = Tc, J = Jb, ljW = WBa, tl3 = p3b)) :
                                                    merge(tenv, (; Trad = Tc, J = Jb, tl3 = p3b))) : merge(tenv, (; tl3 = p3b))
-        ph_ = s_.ph; phc = Tv -> _phvec(ph_, Tv, envb)
+        ph_ = s_.ph::Vector{CNn.Photo}; phc1 = Tv -> _phvec(ph_, Tv, envb)
         if t.extra !== nothing
             e1 = (Trad = Tc, J = Jb); Tv = Float64(ForwardDiff.value(T))
             kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, Tv, e1)
             kH = mgr_ ? (r.kHon ? mg_kH(r.Wg, Tc) : 0.0) : sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, Tv, e1)
             kLW = 1.1e8 * 4π * (mgr_ ? r.Wg[MGROLE[].LW] : W0) * _bnu(12.87 * EVERG / CNn.hP, Tc) * fs
             extrab = mgr_ ? starlight_terms(s_.mm, r.ρ, kHm, kH, kLW; a1 = r.a1) : starlight_terms(s_.mm, r.ρ, kHm, kH, kLW)
+        else
+            kLW = zero(fs); extrab = extrab0
         end
     else
-        p3b = merge(p3b, (; RL, P12 = iszero(p3b.P12) ? p3b.P12 : (RL + LAM2S) * p3b.P12 / (s_.p3.RL + LAM2S)))
-        envb = merge(envb, (; tl3 = p3b))
+        p3b = merge(p3_1, (; RL, P12 = iszero(p3_1.P12) ? p3_1.P12 : (RL + LAM2S) * p3_1.P12 / (s_.p3.RL + LAM2S)))
+        envb = merge(tenv, (; tl3 = p3b))
+        phc1 = phc; kLW = 0.0; extrab = extrab0
     end
     # (a rate that is exactly 0 stays a Float 0: q·0 is a Dual zero, and tl3_heat's E21 P12/(Q12 + P12 + 1e-300) then has 0/0 partials
     #  where Q12 underflows (cold gas, T_c ~ T_CMB); the derivative of q·0 is 0 anyway)
     p3q = merge(p3b, (; β = iszero(_val(p3b.β)) ? _val(p3b.β) : q * p3b.β, P12 = iszero(_val(p3b.P12)) ? _val(p3b.P12) : q * p3b.P12))
     env = merge(envb, (; tl3 = p3q))
-    phq = (s_.lj && phc0 !== nothing) ? (Tv -> _phq_combine(phc(Tv), phc0(Tv), q)) : phc      # (b: W = 0, the static field)
+    phq = (s_.lj && phc0 !== nothing) ? (Tv -> _phq_combine(phc1(Tv), phc0(Tv), q)) : phc1      # (b: W = 0, the static field)
     ex = extrab === nothing ? nothing : (x -> q .* extrab(x))
     c0 = s_.c0
-    cooling = (ρ_, T, d) -> (c0 === nothing ? zero(T) : c0(ρ_, T, d)) - tl3_heat(ρ_, T, d, merge(p3q, (; ne = ρ_ / CNn.μH() * max(d[:Hp], zero(d[:Hp])))))[1]
+    cooling = need_cool ? ((ρ_, T_, d) -> (c0 === nothing ? zero(T_) : c0(ρ_, T_, d)) - tl3_heat(ρ_, T_, d, merge(p3q, (; ne = ρ_ / CNn.μH() * max(d[:Hp], zero(d[:Hp])))))[1]) : nothing
     (; env, phc = phq, cooling, extra = ex, kLW)
 end
-function cpl_g(m::NetGas, k, z)
-    t = CPLTERMS[][k]; ρ = z[1]; T = z[2]
-    length(z) >= 9 && hasproperty(t, :slq) && (t = cpl_tq(t, ρ, T, z[3], z[4], z[5], Float64(ForwardDiff.value(z[6])), z[7], z[8], z[9]))
+cpl_g(m::NetGas, k, z) = _cpl_g(m, k, CPLTERMS[][k], z)
+function _cpl_g(m::NetGas, k, t0, z)
+    ρ = z[1]; T = z[2]
+    t = (length(z) >= 9 && hasproperty(t0, :slq)) ? cpl_tq(t0, ρ, T, z[3], z[4], z[5], Float64(ForwardDiff.value(z[6])), z[7], z[8], z[9]) : t0
     x, fs = CNn.ck_eval((z[3], z[4]), ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra)
     u, p = CNn.eos(ρ, T, x, m.net)
     dfull = CNn.full_fast(x, m.net)
@@ -1984,6 +1999,14 @@ function cpl_vjq(m, k, v)
     end
     y, J
 end
+function cpl_liftq(y, J, x1::D, x2::D, x3::D, x4::D, x5::D, x6::D, x7::D, x8::D, x9::D) where {D<:ForwardDiff.Dual}
+    P1, P2, P3 = ForwardDiff.partials(x1), ForwardDiff.partials(x2), ForwardDiff.partials(x3)
+    P4, P5, P6 = ForwardDiff.partials(x4), ForwardDiff.partials(x5), ForwardDiff.partials(x6)
+    P7, P8, P9 = ForwardDiff.partials(x7), ForwardDiff.partials(x8), ForwardDiff.partials(x9)
+    @inbounds ntuple(i -> D(y[i], J[i, 1] * P1 + J[i, 2] * P2 + J[i, 3] * P3 + J[i, 4] * P4 + J[i, 5] * P5 + J[i, 6] * P6 + J[i, 7] * P7 + J[i, 8] * P8 + J[i, 9] * P9), 7)
+end
+cpl_liftq(y, J, x1::Float64, x2::Float64, x3::Float64, x4::Float64, x5::Float64, x6::Float64, x7::Float64, x8::Float64, x9::Float64) = Tuple(y)
+cpl_liftq(y, J, x1, x2, x3, x4, x5, x6, x7, x8, x9) = (pr = promote(x1, x2, x3, x4, x5, x6, x7, x8, x9); cpl_liftq(y, J, pr...))
 function cpl_liftq(y, J, xs...)
     D = promote_type(map(typeof, xs)...); D <: ForwardDiff.Dual || return Tuple(y)
     Ps = map(x -> ForwardDiff.partials(D(x)), xs)

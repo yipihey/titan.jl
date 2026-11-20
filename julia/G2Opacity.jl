@@ -173,6 +173,42 @@ end
 @inline function _tint(A, j, a, i)                                     # linear in log T between rows j, j+1
     (1 - a) * A[j, i] + a * A[j+1, i]
 end
+struct MeansWS{T}
+    wH::Vector{T}; wHe::Vector{T}; pH::Vector{T}; pHe::Vector{T}; dis::Vector{T}
+    MeansWS{T}(nlev::Int, nnu::Int) where {T} = new{T}(Vector{T}(undef, nlev), Vector{T}(undef, nlev), Vector{T}(undef, nlev), Vector{T}(undef, nlev), zeros(T, nnu))
+end
+const MWS_F64 = Vector{MeansWS{Float64}}()
+const MWS_POOL = Vector{Dict{DataType,Any}}()
+const MWS_LOCK = ReentrantLock()
+function _init_mws!(nnu::Int)
+    nt = Threads.maxthreadid()
+    length(MWS_F64) >= nt && return
+    lock(MWS_LOCK) do
+        while length(MWS_F64) < nt
+            push!(MWS_F64, MeansWS{Float64}(NLEV, nnu))
+            push!(MWS_POOL, Dict{DataType,Any}())
+        end
+    end
+end
+@inline function get_mws(::Type{Float64}, nnu::Int)
+    tid = Threads.threadid()
+    tid > length(MWS_F64) && _init_mws!(nnu)
+    w = @inbounds MWS_F64[tid]
+    length(w.dis) < nnu && resize!(w.dis, nnu)
+    fill!(w.dis, 0.0)
+    w
+end
+@inline function get_mws(::Type{T}, nnu::Int) where {T}
+    tid = Threads.threadid()
+    tid > length(MWS_POOL) && _init_mws!(nnu)
+    d = @inbounds MWS_POOL[tid]
+    w0 = get(d, T, nothing)
+    w = w0 === nothing ? (w2 = MeansWS{T}(NLEV, nnu); d[T] = w2; w2) : (w0::MeansWS{T})
+    length(w.dis) < nnu && resize!(w.dis, nnu)
+    fill!(w.dis, zero(T))
+    w
+end
+
 "`means` on the fast grid (see FAST); same arguments and conventions, generic in the number type."
 means_fast(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, nHmS, hbfP, Tw = T) =
     _means_fast(fastgrid(), ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS, hbfP, Tw)
@@ -181,7 +217,9 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS
     Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
     χH = Z0.χH; χ2 = Z0.χHe2
     Tp = typeof(one(n1) * one(n2) * one(nHep) * one(Nion) * one(Nneu) * one(T))
-    wH = Vector{Tp}(undef, NLEV); wHe = Vector{Tp}(undef, NLEV); pH = Vector{Tp}(undef, NLEV); pHe = Vector{Tp}(undef, NLEV)
+    N = length(F.ν)
+    mws = get_mws(Tp, N)
+    wH = mws.wH; wHe = mws.wHe; pH = mws.pH; pHe = mws.pHe; dis = mws.dis
     lwH = ntuple(n -> Z0.ln_occupation(n, 1, Nion, Nneu), NLEV)
     for n in 1:NLEV; wH[n] = exp(lwH[n]); wHe[n] = Z0.occupation(n, 2, Nion, Nneu); end
     sx = zero(Tp)
@@ -193,9 +231,7 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS
     lT = log10(ForwardDiff_value(T)); x = clamp((lT - FLT0) / FDLT, 0.0, FNT - 1 - 1e-9); j = floor(Int, x) + 1
     a = clamp((log10(T) - FLT0) / FDLT - (j - 1), 0.0, 1.0)            # (generic weight; clamped at the table ends)
     cia = nH2 > 1e-3 * n1; wJ = Tw != T
-    N = length(F.ν)
     # dissolved-level contributions per node (sparse)
-    dis = zeros(Tp, N)
     for (i, n, ns, σe) in F.DIS
         d = 1 - exp(Z0.ln_occupation(ns, 1, Nion, Nneu) - lwH[n])         # (the ratio of two occupation probabilities, from their logarithms: both can be 1e-100)
         d > 0 && (dis[i] += d * pH[n] * σe)

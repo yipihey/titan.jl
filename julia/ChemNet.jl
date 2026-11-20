@@ -239,6 +239,28 @@ struct Reaction
     R::Vector{Symbol}; P::Vector{Symbol}
     k::Function           # (T, env) -> rate coefficient [cm^{3(n_R−1)} s⁻¹]
 end
+function hm_cs_hook end
+struct VernerCS <: Function
+    is_hm::Bool
+    eth::Float64
+    p::NTuple{7,Float64}
+end
+VernerCS(eth::Real, p::NTuple{7,Float64}) = VernerCS(false, Float64(eth), p)
+VernerCS() = VernerCS(true, 0.0, (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+@inline function (v::VernerCS)(ν)
+    v.is_hm && return hm_cs_hook(ν)
+    E = 6.62607015e-27 * ν / 1.602176634e-12; E < v.eth && return 0.0
+    E0, σ0, ya, P, yw, y0, y1 = v.p
+    x = E / E0 - y0; z = sqrt(x^2 + y1^2)
+    σ0 * ((x - 1)^2 + yw^2) * z^(0.5P - 5.5) * (1 + sqrt(z / ya))^(-P) * 1e-18
+end
+struct KramersCS <: Function
+    n::Float64
+    div4::Bool
+    eth::Float64
+end
+@inline (k::KramersCS)(ν) = (k.div4 ? 7.91e-18 * k.n / 4 : 7.91e-18 * k.n) * (k.eth / (6.62607015e-27 * ν))^3
+
 struct PhotoFast{F1,F2}
     Ex::Vector{Float64}; g::Vector{Float64}; Eth::Vector{Float64}
     s1::F1; srest::Vector{F2}
@@ -260,8 +282,13 @@ struct Photo
         lvs = Vector{Tuple{Float64,Float64,Float64,Function}}(levels)
         Ex = [lv[1] for lv in lvs]; g = [lv[2] for lv in lvs]; Eth = [lv[3] for lv in lvs]
         s1 = lvs[1][4]
-        srest = length(lvs) > 1 && all(i -> lvs[i][4] isa typeof(lvs[2][4]), 2:length(lvs)) ?
-                [lvs[i][4]::typeof(lvs[2][4]) for i in 2:length(lvs)] : Function[lvs[i][4] for i in 2:length(lvs)]
+        srest = if length(lvs) == 1 && s1 isa VernerCS
+            KramersCS[]
+        elseif length(lvs) > 1 && all(i -> lvs[i][4] isa typeof(lvs[2][4]), 2:length(lvs))
+            [lvs[i][4]::typeof(lvs[2][4]) for i in 2:length(lvs)]
+        else
+            Function[lvs[i][4] for i in 2:length(lvs)]
+        end
         new(String(name), Symbol(R), Vector{Symbol}(P), lvs, Z, Bool(milne), Ex, g, Eth, PhotoFast(Ex, g, Eth, s1, srest))
     end
 end
@@ -319,7 +346,12 @@ function reverse_k(r::Reaction; Tmin = 0.0)
 end
 
 "Photo-rate [s⁻¹] 4π∫σJ/(hν)dν and the Milne inverse coefficient α for A + e → X + γ (stimulated emission included)."
-photorates(p::Photo, T, env; n = 200) = _photorates_fast(p, p.pf, T, env, n)
+function photorates(p::Photo, T, env; n = 200)
+    pf = p.pf
+    pf isa PhotoFast{VernerCS,KramersCS} ? _photorates_fast(p, pf, T, env, n) :
+    pf isa PhotoFast{KramersCS,KramersCS} ? _photorates_fast(p, pf, T, env, n) :
+    _photorates_fast(p, pf, T, env, n)
+end
 function _photorates_fast(p::Photo, pf::PhotoFast{F1,F2}, T, env::E, n::Int) where {F1,F2,E}
     # α = Σ_levels (n_l/Π n_P)_eq × 4π∫σ_l/(hν)(2hν³/c² + J) e^{−hν/kT} dν, (n_l/Π n_P)_eq = g_l e^{−E_x/kT}/(Z K(X → P));
     # the Boltzmann factors and 1/K are combined in one exponent (each alone under/overflows below a few hundred K)
@@ -351,7 +383,9 @@ function _photoRA(σf::F, Jf::G, νs, n, Ex, T, lnK) where {F,G}
     Rl, Al
 end
 function _photoRA_fast(σf::F, Jf::G, ν0::Float64, xs, n::Int, Ex::Float64, T, lnK) where {F,G}
-    Rl = 0.0; Al = 0.0; νa = ν0 * exp(xs[1])
+    νa = ν0 * exp(xs[1])
+    ET = typeof(one(νa) * one(T) * one(lnK))
+    Rl = zero(ET); Al = zero(ET)
     for i in 1:n
         νb = ν0 * exp(xs[i+1]); ν = 0.5 * (νa + νb); dν = νb - νa; σ = σf(ν); J = Jf(ν)
         Rl += 4π * σ * J / (hP * ν) * dν
@@ -364,7 +398,12 @@ end
 Photo-rate R of `photorates` alone: the same arithmetic in the same order (R is bit-identical), without the integrand of the
 Milne coefficient. For callers that use only R (the star-light rates of every zone and step: the unused α was half of their cost).
 """
-photorate(p::Photo, T, env; n = 200) = _photorate_fast(p, p.pf, T, env, n)
+function photorate(p::Photo, T, env; n = 200)
+    pf = p.pf
+    pf isa PhotoFast{VernerCS,KramersCS} ? _photorate_fast(p, pf, T, env, n) :
+    pf isa PhotoFast{KramersCS,KramersCS} ? _photorate_fast(p, pf, T, env, n) :
+    _photorate_fast(p, pf, T, env, n)
+end
 function _photorate_fast(p::Photo, pf::PhotoFast{F1,F2}, T, env::E, n::Int) where {F1,F2,E}
     ET = typeof(one(T))
     Z = _photoZ(p, T); R = zero(ET)
@@ -391,7 +430,32 @@ end
 photorates through a table in log T (1–1e6 K, 0.005 dex, Catmull–Rom in ln R and ln α) when the radiation field is the same in
 every zone (`env.static == true`, e.g. the CMB or none); otherwise direct. Table vs direct ≤ 3e-3 at 20 K–9e5 K (H, H⁻, Li; J = B(54 K)); the larger differences, H⁻ α above 7e4 K, are the direct quadrature's own (n = 200 vs 800: 3 %).
 """
+mutable struct PhTab
+    const p::Photo
+    const tabenv::Any
+    const lT::Vector{Float64}
+    const lR::Vector{Float64}
+    const lA::Vector{Float64}
+end
 const PHTAB = CowCache{Tuple{Vector{Float64},Vector{Float64},Vector{Float64}}}(); const PHLOCK = PHTAB.lk
+const PHTAB_LIST = Ref(PhTab[])
+@inline function _get_phtab(p::Photo, tabenv, env)
+    list = PHTAB_LIST[]
+    @inbounds for i in eachindex(list)
+        e = list[i]
+        (e.p === p && e.tabenv === tabenv) && return e
+    end
+    lock(PHLOCK) do
+        for e in PHTAB_LIST[]
+            (e.p === p && e.tabenv === tabenv) && return e
+        end
+        lT = collect(0.0:0.005:6.0)
+        v = [photorates(p, 10^x, env) for x in lT]
+        tb = PhTab(p, tabenv, lT, [log(max(a[1], 1e-300)) for a in v], [log(max(a[2], 1e-300)) for a in v])
+        PHTAB_LIST[] = vcat(PHTAB_LIST[], [tb])
+        tb
+    end
+end
 @inline _ph_et(T, env) = (HM88 && hasproperty(env, :hm)) ? promote_type(typeof(one(T)), typeof(env.hm[1])) : typeof(one(T))
 "(HM88) the Milne inverse of H photoionization × φ (see HM88); otherwise `_photorates_t`."
 function photorates_t(p::Photo, T, env)
@@ -400,30 +464,23 @@ function photorates_t(p::Photo, T, env)
     (ET(r[1])::ET, ET(a)::ET)
 end
 function _photorates_t(p::Photo, T, env)
+    ET = typeof(one(T))
     if hasproperty(env, :ljW)                          # J = J_static + W B(T_c): the table of the diluted blackbody plus the static field's rates (the spontaneous α once)
         r = photorates_lj(p, T, env)
-        hasproperty(env, :ljs) || return r
+        hasproperty(env, :ljs) || return (ET(r[1])::ET, ET(r[2])::ET)
         s_ = _photorates_t(p, T, env.ljs); a0 = photorates_lj(p, T, merge(env, (; ljW = 0.0)))[2]
-        return (r[1] + s_[1], r[2] + s_[2] - a0)
+        return (ET(r[1] + s_[1])::ET, ET(r[2] + s_[2] - a0)::ET)
     end
-    (hasproperty(env, :static) && env.static) || return photorates(p, T, env)
+    if !(hasproperty(env, :static) && env.static)
+        r0 = photorates(p, T, env)
+        return (ET(r0[1])::ET, ET(r0[2])::ET)
+    end
     # env.tabkey: a per-zone env (extra fields for reactions) that shares the static J of `tabkey`, and so its table
-    key = (p, hasproperty(env, :tabkey) ? env.tabkey : env)
-    tab = cowget(PHTAB, key, nothing)
-    if tab === nothing
-        # built once, under a lock: the chemistry threads all arrive here in the first step (they used to build the table 16
-        # times over, 5 s each, and to insert into the IdDict concurrently)
-        tab = begin
-            cowget!(PHTAB, key) do
-                lT = collect(0.0:0.005:6.0)
-                v = [photorates(p, 10^x, env) for x in lT]
-                (lT, [log(max(a[1], 1e-300)) for a in v], [log(max(a[2], 1e-300)) for a in v])
-            end
-        end
-    end
-    lT, lR, lA = tab; n = length(lT); x = clamp(log10(T), 0.0, 6.0); i = clamp(Int(floor((_ljv(x)) / 0.005)) + 1, 2, n - 2); w = (x - lT[i]) / 0.005
+    tabenv = hasproperty(env, :tabkey) ? env.tabkey : env
+    tab = _get_phtab(p, tabenv, env)
+    lT = tab.lT; lR = tab.lR; lA = tab.lA; n = length(lT); x = clamp(log10(T), 0.0, 6.0); i = clamp(Int(floor((_ljv(x)) / 0.005)) + 1, 2, n - 2); w = (x - lT[i]) / 0.005
     R = exp(_cr4(lR[i-1], lR[i], lR[i+1], lR[i+2], w)); A = exp(_cr4(lA[i-1], lA[i], lA[i+1], lA[i+2], w))
-    (R < 1e-290 ? zero(R) : R), A
+    (ET(R < 1e-290 ? zero(R) : R)::ET, ET(A)::ET)
 end
 
 """
@@ -549,6 +606,11 @@ end
 Index form of a network (built once per Network, cached): species vector = net.species ∪ {He}; free-species positions;
 reactant/product index lists; element and charge coefficients for the eliminated H, Li, e.
 """
+mutable struct PIdx
+    const p::Photo
+    const jr::Int
+    const jp::Vector{Int}
+end
 struct Compiled
     sp::Vector{Symbol}; idx::Dict{Symbol,Int}; free::Vector{Int}
     R::Vector{Vector{Int}}; P::Vector{Vector{Int}}
@@ -557,7 +619,7 @@ struct Compiled
     elHe::Vector{Float64}; hasHe::Bool                                     # He nuclei per free species; He eliminated (HECHEM)
     cv::Vector{Function}; E0::Vector{Float64}; isH2::Vector{Bool}
     cv0::Vector{Float64}; ktup::Any; nR1::Vector{Int}; nslow::Int
-    pidx::CowCache{Tuple{Int,Vector{Int}}}
+    pidx::Base.RefValue{Vector{PIdx}}; pidx_lk::ReentrantLock
     ifree::NTuple{7,Int}; hasLi::Bool; ekeys::Vector{Symbol}
     ws_f64::Vector{CKWS{Float64}}; ws_pool::Vector{Dict{DataType,Any}}
 end
@@ -579,14 +641,25 @@ compiled(net) = cowget!(COMPILED, net) do
              [Float64(SPECIES[s].q) for s in net.free], [Float64(SPECIES[s].el[2]) for s in net.free], hasHe,
              [SPECIES[s].cv for s in sp], [SPECIES[s].E0 for s in sp], [s == :H2 for s in sp],
              [s == :H2 ? NaN : Float64(SPECIES[s].cv(300.0)) for s in sp], Tuple(r.k for r in net.reactions),
-             [length(r.R) - 1 for r in net.reactions], nslow, CowCache{Tuple{Int,Vector{Int}}}(),
+             [length(r.R) - 1 for r in net.reactions], nslow, Ref(PIdx[]), ReentrantLock(),
              (fp(:Hp), fp(:Hm), fp(:H2), fp(:H2p), fp(:Lip), fp(:Hep), fp(:Hepp)), hasLi, ekeys,
              [CKWS{Float64}(length(fr), length(sp), length(net.reactions), nslow) for _ in 1:nt],
              [Dict{DataType,Any}() for _ in 1:nt])
 end
 @inline function _pidx(c::Compiled, p::Photo)
-    v = cowget(c.pidx, p, nothing); v === nothing || return v
-    cowget!(c.pidx, p) do; (c.idx[p.R], [c.idx[s] for s in p.P]); end
+    list = c.pidx[]
+    @inbounds for i in eachindex(list)
+        e = list[i]
+        e.p === p && return (e.jr, e.jp)
+    end
+    lock(c.pidx_lk) do
+        for e in c.pidx[]
+            e.p === p && return (e.jr, e.jp)
+        end
+        e = PIdx(p, c.idx[p.R], [c.idx[s] for s in p.P])
+        c.pidx[] = vcat(c.pidx[], [e])
+        (e.jr, e.jp)
+    end
 end
 @inline get_ckws(c::Compiled, ::Type{Float64}) = @inbounds c.ws_f64[Threads.threadid()]
 @inline function get_ckws(c::Compiled, ::Type{T}) where {T}
@@ -908,6 +981,10 @@ three-level zone (env carries `tl3`) n_e of the Peebles C is n_H x_H⁺ of `xs` 
 per-zone photo-rate tuples at the Float temperature Tv (lagged in T as in `step`).
 """
 function ck_eval(xs, ρ, T, net; env, phc, extra)
+    ph = phc(T)                                   # (a Dual T: the photo-rates carry ∂/∂T, see PopIIIMaterial.photo_cache)
+    _ck_eval_barrier(xs, ρ, T, net, env, ph, extra)
+end
+function _ck_eval_barrier(xs, ρ, T, net, env, ph::Vector{Tuple{Photo,TP,TP}}, extra) where {TP}
     nH = ρ / μH(); c = compiled(net); ci = ckinfo(net); sl = ci.slow
     kHp = ci.kHp
     tl3 = kHp > 0 && hasproperty(env, :tl3) && env.tl3 !== nothing
@@ -917,7 +994,30 @@ function ck_eval(xs, ρ, T, net; env, phc, extra)
     else
         env
     end
-    ph = phc(T)                                   # (a Dual T: the photo-rates carry ∂/∂T, see PopIIIMaterial.photo_cache)
+    ET = promote_type(eltype(xs), typeof(ρ), typeof(T), TP)
+    ws = get_ckws(c, ET)
+    ks = _fill_ks!(ws.ks, c.ktup, c.nR1, T, ev, nH)
+    x = ck_expand!(ws, xs, T, nH, net, c, ci, ph, ks, extra)
+    dd = dxdt_k!(ws, x, nH, net, c, ph, ks)
+    fsl = ws.fsl
+    if extra === nothing
+        @inbounds for (k, i) in enumerate(sl); fsl[k] = dd[c.free[i]]; end
+    else
+        ex = extra(x)
+        @inbounds for (k, i) in enumerate(sl); fsl[k] = dd[c.free[i]] + ex[i]; end
+    end
+    x, fsl
+end
+function _ck_eval_barrier(xs, ρ, T, net, env, ph, extra)
+    nH = ρ / μH(); c = compiled(net); ci = ckinfo(net); sl = ci.slow
+    kHp = ci.kHp
+    tl3 = kHp > 0 && hasproperty(env, :tl3) && env.tl3 !== nothing
+    ev = if tl3
+        t3 = merge(env.tl3, (; ne = nH * xs[kHp]))
+        (HM88 && hasproperty(env, :hm)) ? (; tl3 = t3, hm = env.hm) : (; tl3 = t3)
+    else
+        env
+    end
     ET = promote_type(eltype(xs), typeof(ρ), typeof(T), eltype(ph) <: Tuple ? fieldtype(eltype(ph), 2) : typeof(T))
     ws = get_ckws(c, ET)
     ks = _fill_ks!(ws.ks, c.ktup, c.nR1, T, ev, nH)

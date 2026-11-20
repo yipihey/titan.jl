@@ -36,7 +36,7 @@ is the total radiative recombination (≈ case A); with J = B the pair gives Sah
 includes the same levels). Order-of-magnitude cross sections for n ≥ 2; to refine with exact hydrogenic σ.
 """
 levels_H() = [(CN.χH * (1 - 1 / n^2), 2.0n^2, CN.χH / n^2,
-               n == 1 ? (ν -> σ_verner(ν, 13.598, VERNER_HI)) : (ν -> 7.91e-18 * n * (CN.χH / n^2 / (6.62607015e-27 * ν))^3))
+               n == 1 ? CN.VernerCS(13.598, VERNER_HI) : CN.KramersCS(Float64(n), false, CN.χH / n^2))
               for n in 1:CN.NH_LEVELS]
 """
 Verner et al. (1996, ApJ 465, 487) outer-shell fit, as coded in D. A. Verner's phfit2.f (version 2, 1996; copy in FAC
@@ -59,11 +59,11 @@ levels hydrogenic for the outer electron, σ = 7.91e-18 n (ν_th/ν)³ cm² — 
 cross sections of the model atom). The Milne inverse is the radiative recombination to these levels (≈ case A); with J = B
 the pair gives Saha exactly.
 """
-levels_HeI() = [(Ex, g, CN.χHe1 - Ex, i == 1 ? (ν -> σ_verner(ν, 24.587, VERNER_HeI)) : (ν -> 7.91e-18 * n * ((CN.χHe1 - Ex) / (6.62607015e-27 * ν))^3))
+levels_HeI() = [(Ex, g, CN.χHe1 - Ex, i == 1 ? CN.VernerCS(24.587, VERNER_HeI) : CN.KramersCS(Float64(n), false, CN.χHe1 - Ex))
                 for (i, (Ex, g, n)) in enumerate(CN.HEI_LEVELS)]
 "He II photo-ionisation from its hydrogenic levels n ≤ NH_LEVELS: 1s from Verner et al. 1996, n ≥ 2 Kramers σ = 7.91e-18 n/Z² (ν_n/ν)³."
 levels_HeII() = [(CN.χHe2 * (1 - 1 / n^2), 2.0n^2, CN.χHe2 / n^2,
-                  n == 1 ? (ν -> σ_verner(ν, 54.418, VERNER_HeII)) : (ν -> 7.91e-18 * n / 4 * (CN.χHe2 / n^2 / (6.62607015e-27 * ν))^3))
+                  n == 1 ? CN.VernerCS(54.418, VERNER_HeII) : CN.KramersCS(Float64(n), true, CN.χHe2 / n^2))
                  for n in 1:CN.NH_LEVELS]
 """
 Li photo-ionisation from its levels (ChemNet.LI_LEVELS, Boltzmann populations): ground 2s from Verner et al. 1996; excited
@@ -71,7 +71,7 @@ levels hydrogenic (Kramers, σ = 7.91e-18 n* (ν_th/ν)³ cm², n* the effective
 inverse is then the total radiative recombination (≈ case A), checked against GP98 Li1 (Verner & Ferland 1996).
 """
 levels_Li() = [(Ex, g, CN.χLi - Ex,
-                i == 1 ? (ν -> σ_verner(ν, 5.392, VERNER_LiI)) : (ν -> 7.91e-18 * ns * ((CN.χLi - Ex) / (6.62607015e-27 * ν))^3))
+                i == 1 ? CN.VernerCS(5.392, VERNER_LiI) : CN.KramersCS(Float64(ns), false, CN.χLi - Ex))
                for (i, (Ex, g, ns)) in enumerate(CN.LI_LEVELS)]
 """
 Voronov (1997, ADNDT 65, 1) collisional ionisation by electrons: k = A (1 + P√U) U^K e^{−U}/(X + U) cm³ s⁻¹, U = ΔE/kT
@@ -80,6 +80,7 @@ Voronov (1997, ADNDT 65, 1) collisional ionisation by electrons: k = A (1 + P√
 voronov(T, dE, P, A, X, K) = (U = dE * 11604.518 / T; A * (1 + P * sqrt(U)) * U^K * exp(-U) / (X + U))
 "H⁻ photodetachment (John 1988), ν in Hz."
 σ_Hm(ν) = CO.σ_Hm_bf(2.99792458e14 / ν)
+CN.hm_cs_hook(ν) = σ_Hm(ν)
 
 """
 Modern set: detailed balance for every reversible channel. Returns (net, photos).
@@ -105,7 +106,7 @@ function modern(; li = false, he = CN.HECHEM)
         (R("2H + He → H2 + He (GA08 k32)", [:H, :H, :He], [:H2, :He], k(T -> 6.9e-32 * T^-0.4)), true),
     ]
     rx = CN.with_db(lst)
-    photos = [CN.Photo("H- + γ → H + e (John 1988)", :Hm, [:H, :e], σ_Hm, 0.754 * 1.602176634e-12, true),
+    photos = [CN.Photo("H- + γ → H + e (John 1988)", :Hm, [:H, :e], CN.VernerCS(), 0.754 * 1.602176634e-12, true),
               CN.Photo("H(n ≤ $(CN.NH_LEVELS)) + γ → H+ + e (Verner 1s + Kramers, Boltzmann levels)", :H, [:Hp, :e], levels_H(), CN.ZH_el, true)]
     species = [:H, :Hp, :Hm, :H2, :H2p, :e, :He]; free = [:Hp, :Hm, :H2, :H2p]
     if li

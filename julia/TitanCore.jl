@@ -776,15 +776,19 @@ function eddfac!()
         for j in ncor+1:nray; p[j] = rp[j - ncor]; end
         lrobc == 1 && (xim[1:nray] .= bg ? 0.0 : gf(:ximr))
         FX = TD.FXEDD; bg && length(FX) < length(fedd) && resize!(FX, length(fedd))
+        exb, em1b, omdb, xangb = _sweep_bufs(nray, lmax)
         # inward sweep along tangent rays
         for l in lmax-1:-1:1
             k = a + (l - 1) ÷ 2; nj = ncor + l
             @inbounds for j in 1:nj
                 xjl = sqrt(rp[l]^2 - p[j]^2); xjlp1 = sqrt(rp[l+1]^2 - p[j]^2)
                 dtjl = dn[k] * chifn[k] * (xjlp1 - xjl); ex = exp(-dtjl)
-                xip[j] = -expm1(-dtjl) * sl[l] + omde_over(dtjl) * (sr[l] - sl[l]) + ex * xim[j]
+                em1 = -expm1(-dtjl); omd = omde_over(dtjl)
+                xip[j] = em1 * sl[l] + omd * (sr[l] - sl[l]) + ex * xim[j]
                 ep && (xip[j] = max(xip[j], lo))
-                xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
+                xa = sqrt(1.0 - p[j]^2 / rp[l]^2)
+                xang[j] = xa
+                exb[j, l] = ex; em1b[j, l] = em1; omdb[j, l] = omd; xangb[j, l] = xa
             end
             for j in 1:nj; xim[j] = xip[j]; end
             if iseven(l)
@@ -796,23 +800,29 @@ function eddfac!()
             l == 1 && s!(:geddl, _eddg(nj, xang, xip))
         end
         if lribc == 1
-            for j in 1:ncor+1; xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2); xim[j] = gf(:xipl) - Ib; end
+            @inbounds for j in 1:ncor+1; xang[j] = xangb[j, 1]; xim[j] = gf(:xipl) - Ib; end
         end
         if lribc == 3                                    # (uses the planar quadrature ang(j), as in TITAN 1.2)
-            for j in 1:ncor+1
-                xang[j] = sqrt(1.0 - p[j]^2 / rp[1]^2)
+            @inbounds for j in 1:ncor+1
+                xang[j] = xangb[j, 1]
                 xim[j] = (cc * ern[a] + 1.5 * frn[a] * dtau[a]) / (4.0 * cpi) + 3.0 * ang[j] * frn[a] / (4.0 * cpi) - Ib
             end
         end
-        # outward sweep
+        # outward sweep (reuses ray optical-depth exponentials and angles from inward sweep)
         for l in 2:lmax
-            k = a + (l - 2) ÷ 2; nj = ncor + l - 1
-            @inbounds for j in 1:nj
-                xjl = sqrt(rp[l]^2 - p[j]^2); xjlm1 = sqrt(rp[l-1]^2 - p[j]^2)
-                dtjl = dn[k] * chifn[k] * (xjl - xjlm1); ex = exp(-dtjl)
-                xip[j] = -expm1(-dtjl) * sr[l-1] + omde_over(dtjl) * (sl[l-1] - sr[l-1]) + ex * xim[j]
-                ep && (xip[j] = max(xip[j], lo))
-                xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
+            m = l - 1; nj = ncor + m
+            if l < lmax
+                @inbounds for j in 1:nj
+                    xip[j] = em1b[j, m] * sr[m] + omdb[j, m] * (sl[m] - sr[m]) + exb[j, m] * xim[j]
+                    ep && (xip[j] = max(xip[j], lo))
+                    xang[j] = xangb[j, l]
+                end
+            else
+                @inbounds for j in 1:nj
+                    xip[j] = em1b[j, m] * sr[m] + omdb[j, m] * (sl[m] - sr[m]) + exb[j, m] * xim[j]
+                    ep && (xip[j] = max(xip[j], lo))
+                    xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
+                end
             end
             for j in 1:nj; xim[j] = xip[j]; end
             if HPON[] && isodd(l)
@@ -857,6 +867,20 @@ function eddfac!()
     CSENS_REQ[] && closure_sens!(sweep2!, a, b, sf, dtau, matsrc)
     nothing
 end
+const SWEEP_EX = Ref(zeros(0, 0))
+const SWEEP_EM1 = Ref(zeros(0, 0))
+const SWEEP_OMD = Ref(zeros(0, 0))
+const SWEEP_XANG = Ref(zeros(0, 0))
+@inline function _sweep_bufs(nray::Int, lmax::Int)
+    exb = SWEEP_EX[]
+    if size(exb, 1) < nray || size(exb, 2) < lmax
+        nr = max(nray, size(exb, 1)); lm = max(lmax, size(exb, 2))
+        SWEEP_EX[] = zeros(nr, lm); SWEEP_EM1[] = zeros(nr, lm)
+        SWEEP_OMD[] = zeros(nr, lm); SWEEP_XANG[] = zeros(nr, lm)
+    end
+    (SWEEP_EX[], SWEEP_EM1[], SWEEP_OMD[], SWEEP_XANG[])
+end
+
 "FLUXTIE weights per interface from the flux-mean optical depth measured from the outer boundary (TD.FLUXTIE)."
 function tiew!(a, b, dtau)
     τ1, τ2 = TD.FLUXTIE[]; W = TD.TIEW

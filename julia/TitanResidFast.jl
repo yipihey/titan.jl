@@ -853,7 +853,7 @@ MATTHREADS = n > 1: the material sweep of the residual (`_material!`: EOS, nucle
 Dual numbers ~70 % of the implicit solve) on n tasks. The zones are independent and each writes only its own entries, so the result is
 bit-identical to the serial sweep. 0 or 1 (the default): serial.
 """
-const MAT_THREADS = Ref(parse(Int, get(ENV, "MATTHREADS", "0")))
+const MAT_THREADS = Ref(parse(Int, get(ENV, "MATTHREADS", string(Threads.nthreads()))))
 function material_gas end
 "`material_gasne(m, ρ, T) -> (p_gas, e_gas, a_s, n_e)`; default: material_gas and n_e = 0 (no Compton exchange)."
 material_gasne(m, ρ, T) = (material_gas(m, ρ, T)..., zero(ρ))
@@ -1011,10 +1011,15 @@ function _mlt_pre!(m, W, cvw, mok, dn, tn, ngrs, ngre, nt)
     end
     nothing
 end
+const SWEEP_WARMED = Set{DataType}()
+const SWEEP_KERR = Int[]
+const SWEEP_ERRS = Any[]
+
 function _material!(m, W, c, P, dn, tn, ern, k0, ngre)
     hassrc = has_source(m)
-    nt = min(MAT_THREADS[], Threads.nthreads())
-    (nt > 1 && ngre + 3 - k0 >= 4nt && !ZTASK[]) && return _material_mt!(m, W, c, P, dn, tn, ern, k0, ngre, hassrc, nt)
+    nzk = ngre + 3 - k0
+    nt = min(MAT_THREADS[], Threads.nthreads(), nzk)
+    (nt > 1 && nzk >= 2 && !ZTASK[]) && return _material_mt!(m, W, c, P, dn, tn, ern, k0, ngre, hassrc, nt)
     for k in k0:ngre+2
         _matzone!(m, W, c, P, dn, tn, ern, k, hassrc)
     end
@@ -1027,7 +1032,9 @@ the one of the lowest zone, unwrapped, after all tasks have ended (the Newton it
 """
 function _material_mt!(m, W, c, P, dn, tn, ern, k0, ngre, hassrc, nt)
     kend = ngre + 2; next = Threads.Atomic{Int}(k0)
-    kerr = fill(typemax(Int), nt); errs = Vector{Any}(nothing, nt)
+    kerr = SWEEP_KERR; errs = SWEEP_ERRS
+    length(kerr) < nt && (resize!(kerr, nt); resize!(errs, nt))
+    @inbounds for it in 1:nt; kerr[it] = typemax(Int); errs[it] = nothing; end
     ZTASK[] = true
     try
         @sync for it in 1:nt
@@ -1046,7 +1053,10 @@ function _material_mt!(m, W, c, P, dn, tn, ern, k0, ngre, hassrc, nt)
     finally
         ZTASK[] = false
     end
-    kmin, imin = findmin(kerr)
+    kmin = typemax(Int); imin = 1
+    @inbounds for it in 1:nt
+        kerr[it] < kmin && (kmin = kerr[it]; imin = it)
+    end
     if kmin < typemax(Int)
         ZONE0[] = kmin
         throw(errs[imin])
@@ -1067,22 +1077,29 @@ zones above it, whose entries are then written here — the callers' state is re
 # threaded as before PERF512). Bit-identical either way.
 const ZONESWEEP = Ref(get(ENV, "ZONESWEEP", "1") != "0")
 function zone_sweep!(f::F, ks::UnitRange{Int}, ok::G) where {F,G}
-    nt = ZONESWEEP[] ? min(MAT_THREADS[], Threads.nthreads()) : 1
-    if !(nt > 1 && length(ks) >= 4nt && !ZTASK[])
+    nt = ZONESWEEP[] ? min(MAT_THREADS[], Threads.nthreads(), length(ks)) : 1
+    if !(nt > 1 && length(ks) >= 2 && !ZTASK[])
         for k in ks
             ok(k) || continue
             ZONE[] = k; f(k)
         end
         return nothing
     end
-    # (FIX-RACE) the first zone serially, before any task starts: lazily built shared tables (photo-rate tables, compiled networks, ...)
-    # that every zone needs are then built by one task, not raced for (the restart z100s50b crashed with UndefRefError in the first step,
-    # where cpl_prepare!'s first photo-rate evaluations of the process ran on the threads). Same order of values: bit-identical.
+    # (FIX-RACE) the first zone serially once per closure type F, before any task starts: lazily built shared tables (photo-rate tables,
+    # compiled networks, ...) that every zone needs are then built by one task, not raced for. Subsequent sweeps dispatch all zones to tasks.
     k1 = first(ks); while k1 <= last(ks) && !ok(k1); k1 += 1; end
     k1 > last(ks) && return nothing
-    ZONE[] = k1; f(k1)
-    next = Threads.Atomic{Int}(k1 + 1); kend = last(ks)
-    kerr = fill(typemax(Int), nt); errs = Vector{Any}(nothing, nt)
+    if !(F in SWEEP_WARMED)
+        ZONE[] = k1; f(k1)
+        push!(SWEEP_WARMED, F)
+        kstart = k1 + 1
+    else
+        kstart = k1
+    end
+    next = Threads.Atomic{Int}(kstart); kend = last(ks)
+    kerr = SWEEP_KERR; errs = SWEEP_ERRS
+    length(kerr) < nt && (resize!(kerr, nt); resize!(errs, nt))
+    @inbounds for it in 1:nt; kerr[it] = typemax(Int); errs[it] = nothing; end
     ZTASK[] = true
     try
         @sync for it in 1:nt
@@ -1102,7 +1119,10 @@ function zone_sweep!(f::F, ks::UnitRange{Int}, ok::G) where {F,G}
     finally
         ZTASK[] = false
     end
-    kmin, imin = findmin(kerr)
+    kmin = typemax(Int); imin = 1
+    @inbounds for it in 1:nt
+        kerr[it] < kmin && (kmin = kerr[it]; imin = it)
+    end
     if kmin < typemax(Int)
         ZONE0[] = kmin
         throw(errs[imin])
@@ -1153,6 +1173,8 @@ end
 const GEQDBG = Ref(get(ENV, "GEQDBG", "0") in ("1", "2"))
 const GEQDBG2 = Ref(get(ENV, "GEQDBG", "0") == "2" ? 5 : 0)
 
+const SLState{T} = NamedTuple{(:q, :t, :fs, :g, :ts, :wq, :dp), NTuple{7, Vector{T}}}
+
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
     ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
     P = c.p; θ = P.θ; dt = P.dt; xmu = Float64(mu); xmup1 = xmu + 1; cc = P.cc
@@ -1185,21 +1207,23 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             k = k0 + bb - 1; xs1[k] = xn1[k] * exp(x[(bb-1)*neqn+8]); xs2[k] = xn2[k] * exp(x[(bb-1)*neqn+9])
         end
         CPLW[] = (xs1, xs2)
-        slst = nothing
-        if SLIMP[]                                   # SLIMP: the star-light state of the iterate (new-level r, ρ, T, u, E_r, F_r, species)
-            slst = get!(() -> (; q = Vector{T}(undef, length(xs1)), t = Vector{T}(undef, length(xs1)), fs = Vector{T}(undef, length(xs1)),
-                               g = Vector{T}(undef, length(xs1)), ts = Vector{T}(undef, length(xs1)), wq = Vector{T}(undef, length(xs1)), dp = Vector{T}(undef, length(xs1))), SLQBUF, (T, length(xs1)))
-            @inbounds for k in eachindex(slst.q); slst.q[k] = one(T); slst.t[k] = one(T); slst.fs[k] = zero(T); slst.g[k] = one(T); slst.ts[k] = zero(T); slst.wq[k] = zero(T); slst.dp[k] = zero(T); end
-            SL_SWEEP[](slst, ngrs, ngre, rn, dn, tn, un, ern, frn, xs1, xs2, cplz;
+        slst::Union{Nothing,SLState{T}} = if SLIMP[] # SLIMP: the star-light state of the iterate (new-level r, ρ, T, u, E_r, F_r, species)
+            s_ = get!(() -> (; q = Vector{T}(undef, length(xs1)), t = Vector{T}(undef, length(xs1)), fs = Vector{T}(undef, length(xs1)),
+                               g = Vector{T}(undef, length(xs1)), ts = Vector{T}(undef, length(xs1)), wq = Vector{T}(undef, length(xs1)), dp = Vector{T}(undef, length(xs1))), SLQBUF, (T, length(xs1)))::SLState{T}
+            @inbounds for k in eachindex(s_.q); s_.q[k] = one(T); s_.t[k] = one(T); s_.fs[k] = zero(T); s_.g[k] = one(T); s_.ts[k] = zero(T); s_.wq[k] = zero(T); s_.dp[k] = zero(T); end
+            SL_SWEEP[](s_, ngrs, ngre, rn, dn, tn, un, ern, frn, xs1, xs2, cplz;
                          mgqt = Mg === nothing ? nothing : (k -> (gq = MGSLG[]; MGSLQ[](k, ern[k], Mg.egn[gq][k], Mg.fgn[gq][k], Mg.fgn[gq][k+1]))))
             if SLIMPDBG[] > 0
                 fin(v) = isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v)))
                 for k in ngrs:ngre
-                    (fin(slst.q[k]) && fin(slst.t[k]) && fin(slst.fs[k]) && fin(slst.g[k])) && continue
-                    SLIMPDBG[] -= 1; println("SLIMPDBG star-light state non-finite zone $(k - ngrs + 1): q $(slst.q[k]) t $(slst.t[k]) fs $(slst.fs[k]) g $(slst.g[k]) E $(ern[k]) F $(frn[k]) $(frn[k+1])"); break
+                    (fin(s_.q[k]) && fin(s_.t[k]) && fin(s_.fs[k]) && fin(s_.g[k])) && continue
+                    SLIMPDBG[] -= 1; println("SLIMPDBG star-light state non-finite zone $(k - ngrs + 1): q $(s_.q[k]) t $(s_.t[k]) fs $(s_.fs[k]) g $(s_.g[k]) E $(ern[k]) F $(frn[k]) $(frn[k+1])"); break
                 end
             end
-            CPLSL[] = slst
+            CPLSL[] = s_
+            s_
+        else
+            nothing
         end
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
@@ -2132,6 +2156,9 @@ const DBUF = Dict{Any,Any}()
 "Residual + coloured AD Jacobian -> rhs, em2..ep2 in COMMON; side outputs -> COMMON."
 function assemble!(c::Ctx; ncol::Int = 6)
     neqn = c.neqn; nb = c.nb; k0 = c.k0; N = neqn * nb
+    ncol * neqn == 54 ? _assemble!(c, Val(54), ncol) :
+    ncol * neqn == 63 ? _assemble!(c, Val(63), ncol) :
+    ncol * neqn == 42 ? _assemble!(c, Val(42), ncol) :
     ncol * neqn == 35 ? _assemble!(c, Val(35), ncol) :
     ncol * neqn == 25 ? _assemble!(c, Val(25), ncol) :
     ncol * neqn == 49 ? _assemble!(c, Val(49), ncol) : _assemble!(c, Val(ncol * neqn), ncol)
@@ -2207,16 +2234,18 @@ CLOSJ: the closure arrays of the formal solution as Duals: value + sum over i = 
 """
 function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, rn, xs1, xs2, ::Type{T}) where {T}
     cs = TD.CSENS; xnen = v(:xnen); csige = P.csige; cc = P.cc; cpi = P.cpi
-    Sd = zeros(T, b + 2); Td = zeros(T, b + 2)
+    Sd = get!(() -> zeros(T, b + 2), DBUF, (:clos_Sd, T, b + 2))::Vector{T}; fill!(Sd, zero(T))
+    Td = get!(() -> zeros(T, b + 2), DBUF, (:clos_Td, T, b + 2))::Vector{T}; fill!(Td, zero(T))
     z0_ = ZONE0[]; w0_ = CPLW[]; sl0_ = CPLSL[]
     COUPLED[] && (CPLW[] = (xs1, xs2)); CPLSL[] = nothing
     try
         if MATERIAL[] !== nothing && SLIMP[]
             loc = get(SLQBUF, (:locop, T, length(xs1)), nothing)
             if loc !== nothing && length(loc[1]) >= b
-                chiL, kpL = loc
+                chiL, kpL = loc::Tuple{Vector{T},Vector{T}}
             else
-                chiL = zeros(T, b + 2); kpL = zeros(T, b + 2)
+                chiL = get!(() -> zeros(T, b + 2), DBUF, (:clos_chiL, T, b + 2))::Vector{T}; fill!(chiL, zero(T))
+                kpL = get!(() -> zeros(T, b + 2), DBUF, (:clos_kpL, T, b + 2))::Vector{T}; fill!(kpL, zero(T))
                 zone_sweep!(a:b, _ -> true) do i
                     ch_, _, kp_ = material_opac(MATERIAL[], dn[i], tn[i])
                     @inbounds chiL[i] = ch_; @inbounds kpL[i] = kp_
@@ -2240,7 +2269,8 @@ function closure_lift(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, rn, xs1, xs2, 
         ZONE0[] = z0_; CPLW[] = w0_; CPLSL[] = sl0_
     end
     function lift(name::Symbol, base::AbstractVector)
-        out = Vector{T}(undef, length(base)); @inbounds for k in eachindex(base); out[k] = T(base[k]); end
+        out = get!(() -> Vector{T}(undef, length(base)), DBUF, (:clos_out, name, T, length(base)))::Vector{T}
+        @inbounds for k in eachindex(base); out[k] = T(base[k]); end
         haskey(cs.S, name) || return out
         MS = cs.S[name]; MT = cs.T[name]
         @inbounds for m in a:min(b, length(base))

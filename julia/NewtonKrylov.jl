@@ -47,21 +47,51 @@ const LAST_SOLVE = Ref((false, 0, 0.0))
 # ---------------------------------------------------------------- snapshot of everything update! writes
 const SKIP = (:em2, :em1, :e00, :ep1, :ep2, :rhs)       # the Jacobian and the correction are not state
 mutable struct Snap
-    arrs::Dict{Symbol,Array}; extra::Vector{Vector{Float64}}; gx::Float64
+    arrs::Dict{Symbol,Array}
+    pairs1::Vector{Tuple{Vector{Float64},Vector{Float64}}}
+    pairs_other::Vector{Tuple{Array,Array}}
+    extra::Vector{Vector{Float64}}
+    gx::Float64
 end
-Snap() = Snap(Dict{Symbol,Array}(), [Float64[] for _ in 1:6], 0.0)
+Snap() = Snap(Dict{Symbol,Array}(), Tuple{Vector{Float64},Vector{Float64}}[], Tuple{Array,Array}[], [Float64[] for _ in 1:6], 0.0)
+const SNAP = Snap()
+push!(TF.ON_SWITCH, () -> (empty!(SNAP.pairs1); empty!(SNAP.pairs_other); empty!(SNAP.arrs)))
 extras() = (TD.HEDD, TD.HXEDD, TD.FXEDD, TD.TIEW, TX.XSN[][1], TX.XSN[][2])      # closure h, h_x, f_x, tie weight; species iterate
 function take!(S::Snap)
-    for (n, a) in TF.JSTATE
-        n in SKIP && continue
-        haskey(S.arrs, n) ? copyto!(S.arrs[n], a) : (S.arrs[n] = copy(a))
+    if length(S.pairs1) + length(S.pairs_other) + length(SKIP) != length(TF.JSTATE)
+        empty!(S.pairs1); empty!(S.pairs_other)
+        for (n, a) in TF.JSTATE
+            n in SKIP && continue
+            b = haskey(S.arrs, n) && size(S.arrs[n]) == size(a) ? S.arrs[n] : (S.arrs[n] = copy(a))
+            if a isa Vector{Float64} && b isa Vector{Float64}
+                push!(S.pairs1, (a, b))
+            else
+                push!(S.pairs_other, (a, b))
+            end
+        end
     end
-    for (i, a) in enumerate(extras()); S.extra[i] = copy(a); end
+    @inbounds for (dst, src) in S.pairs1
+        length(src) == length(dst) || resize!(src, length(dst))
+        copyto!(src, dst)
+    end
+    @inbounds for (dst, src) in S.pairs_other
+        copyto!(src, dst)
+    end
+    for (i, a) in enumerate(extras())
+        b = S.extra[i]
+        length(b) == length(a) || resize!(b, length(a))
+        copyto!(b, a)
+    end
     S.gx = TD.GXEDD[]
     nothing
 end
 function restore!(S::Snap)
-    for (n, a) in S.arrs; copyto!(TF.JSTATE[n], a); end
+    @inbounds for (dst, src) in S.pairs1
+        copyto!(dst, src)
+    end
+    @inbounds for (dst, src) in S.pairs_other
+        copyto!(dst, src)
+    end
     for (b, a) in zip(extras(), S.extra)
         length(b) == length(a) || resize!(b, length(a))
         copyto!(b, a)
@@ -85,9 +115,21 @@ struct Sys
     AB::Matrix{Float64}; ipiv::Vector{LinearAlgebra.BlasInt}; sc::Vector{Float64}; kl::Int; ku::Int
 end
 
-function resid(ne, nb)
-    c = TX.context(); ws = TX.getws(Float64, c.mgr); R = zeros(ne, nb)
-    TX.residual!(R, ws, c, zeros(ne * nb)); vec(R)
+const XZ_BUF = Float64[]
+const R1_BUF = Ref(zeros(0, 0))
+const R2_BUF = Ref(zeros(0, 0))
+@inline function _get_rbuf(r::Base.RefValue{Matrix{Float64}}, ne::Int, nb::Int)
+    M = r[]
+    size(M) == (ne, nb) || (M = zeros(ne, nb); r[] = M)
+    M
+end
+function resid(ne, nb; rbuf::Union{Nothing,Matrix{Float64}} = nothing)
+    c = TX.context(); ws = TX.getws(Float64, c.mgr)
+    R = (rbuf !== nothing && size(rbuf) == (ne, nb)) ? rbuf : zeros(ne, nb)
+    fill!(R, 0.0)
+    n = ne * nb
+    length(XZ_BUF) == n || (resize!(XZ_BUF, n); fill!(XZ_BUF, 0.0))
+    TX.residual!(R, ws, c, XZ_BUF); vec(R)
 end
 
 function activeset(c)
@@ -184,7 +226,7 @@ end
 Residual at x ⊕ s·v: s·v is written into `rhs`, `update!` applied (branch decisions replayed), a fresh context and the Float64 residual evaluated; the state is restored.
 `realized` (optional) receives the change the update actually made to every unknown including the ghost entries, per unit s.
 """
-function perturbed(S::Sys, v, s; realized = nothing, freeze = 2, inspect = nothing, clip = Inf)
+function perturbed(S::Sys, v, s; realized = nothing, freeze = 2, inspect = nothing, clip = Inf, rbuf = nothing)
     ne, nb, k0 = S.ne, S.nb, S.k0; rhs = TF.var(:rhs)
     base = realized === nothing ? nothing : (c = TX.context(); (copy(c.base), copy(vf(:unom)), copy(vf(:frnom))))
     @inbounds for kb in 1:nb, i in 1:ne; rhs[i, k0+kb-1] = S.act[(kb-1)*ne+i] ? (S.code[i] in LOGCODES ? clamp(s * v[(kb-1)*ne+i], -clip, clip) : s * v[(kb-1)*ne+i]) : 0.0; end
@@ -192,7 +234,7 @@ function perturbed(S::Sys, v, s; realized = nothing, freeze = 2, inspect = nothi
     try
         TD.r(:update); updated = true
         inspect === nothing || inspect()          # (NKSCAN: the state after the trial update, before the restore)
-        R1 = resid(ne, nb)
+        R1 = resid(ne, nb; rbuf)
         if realized !== nothing
             cnew = TX.context()
             for kb in 1:nb, i in 1:ne
@@ -214,9 +256,9 @@ end
 Directional derivative of the full residual, y = J v: central difference [R(x ⊕ εv) − R(x ⊖ εv)]/2ε (one-sided [R(x ⊕ εv) − R(x)]/ε if `OPT.central` is false). v is a vector over the active entries.
 """
 function fdjv!(y, S::Sys, v, ε; realized = nothing, freeze = 2)
-    R1 = perturbed(S, v, ε; realized, freeze, clip = FDCLIP)
+    R1 = perturbed(S, v, ε; realized, freeze, clip = FDCLIP, rbuf = _get_rbuf(R1_BUF, S.ne, S.nb))
     if OPT.central
-        R2 = perturbed(S, v, -ε; freeze, clip = FDCLIP)
+        R2 = perturbed(S, v, -ε; freeze, clip = FDCLIP, rbuf = _get_rbuf(R2_BUF, S.ne, S.nb))
         @inbounds for r in 1:S.n; y[r] = (R1[r] - R2[r]) / (2ε); end
     else
         @inbounds for r in 1:S.n; y[r] = (R1[r] - S.R0[r]) / ε; end
@@ -227,7 +269,7 @@ end
 function setup()
     TF.BACKEND[] === :julia || error("NKRYLOV needs the Julia state backend")
     c = TX.context(); ne, nb, k0 = c.neqn, c.nb, c.k0
-    act = activeset(c); snap = Snap(); take!(snap)
+    act = activeset(c); snap = SNAP; take!(snap)
     TX.FREEZE[] = 1
     R0 = try resid(ne, nb) finally TX.FREEZE[] = 0 end
     AB, ipiv, sc, kl, ku = if TX.RESID_ONLY[] && LUCACHE[] !== nothing
