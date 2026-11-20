@@ -139,19 +139,13 @@ const GRIDVEL = Ref{Union{Nothing,Vector{Float64}}}(nothing)
 """
 GRIDEQ[] (lgrid = 2 only; `nothing` = off): TITAN's implicit grid equation over the whole mesh (GRIDEQ in popiii_m2c.jl). A
 NamedTuple (; k1, k2, w = (wρ, wP, wT, wE, wm), alph, gmax, tauv, sx): the interfaces k1 (the first above the regular centre) and
-k2 (the outer edge) stay (with GEQ_LAGFIRST, ICMLOG, k1 is Lagrangian instead: it holds its enclosed mass, not its radius); every interface in between obeys n̂_j = n̂_{j−1} with n̂_j = x̃_j / sqrt(1 + G_j²), x̃_j = ν_j −
+k2 (the outer edge) are the ends: the centre r = 0 is the fixed inner boundary and the sphere [0, r_k1] is the first zone of the rule (ν = 1/2); every interface from k1 up to k2−1 is an ordinary node and obeys n̂_j = n̂_{j−1} with n̂_j = x̃_j / sqrt(1 + G_j²), x̃_j = ν_j −
 α(1+α) Δ²ν (ν_j = r̄_j/Δr_j, the logarithmic baseline; α = alph), time-smoothed per zone, x̃ → (1 + γ_j) x̃ − γ_j x̃_old with
 γ_j = tauv[j]/Δt (tauv: a multiple of the zone's signal-crossing time, frozen for the step), and G_j² = ν_j² S_j capped smoothly at
 gmax², S_j = Σ_q w_q (½ Δ ln q)² over q = ρ, P, T, E_r and the interior mass m (centred differences of the zone values; one-sided
 at the ends) plus sx[j] (terms frozen for the step: the capped ln τ). All terms are logarithmic, so the rule has no scale.
 """
 const GRIDEQ = Ref{Any}(nothing)
-"""
-GEQ_LAGFIRST[] (lgrid = 2 with GRIDEQ or GRIDVEL; default false): the first interface above the regular centre, k1 = ngrs + 1, is Lagrangian: its grid row holds
-its enclosed mass fixed, (x_m,e,new − x_m,e,old) r_old / (zone mass of k1 − 1, old), instead of its radius (the other interface rows are unchanged). The
-row is a function of the iterate only (the scale factors are old-level constants; r_old/zone mass makes it a length like the radius rows). ICMLOG sets it.
-"""
-const GEQ_LAGFIRST = Ref(false)
 "A mesh with lgrid = 2 whose interfaces move (GRIDVEL or GRIDEQ)."
 @inline gridmoves() = GRIDVEL[] !== nothing || GRIDEQ[] !== nothing
 """
@@ -1134,18 +1128,22 @@ end
 
 # ------------------------------------------------------------------ residual
 
-"Grid-equation rows of GRIDEQ (see there) for the interfaces k1+1 … k2−1."
+"Grid-equation rows of GRIDEQ (see there) for the interfaces k1 … k2−1 (the centre sphere is zone k1−1 of the rule)."
 function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, chi = nothing; un = nothing, G4 = 0.0)
-    k1, k2 = ge.k1, ge.k2; zl, zh = k1, k2 - 1                  # zones between the fixed interfaces
+    k1, k2 = ge.k1, ge.k2; zl, zh = k1 - 1, k2 - 1              # zones from the centre sphere to the outer edge (r = 0 and the outer edge are fixed)
     α = ge.alph * (1 + ge.alph); wρ, wP, wT, wE, wm = ge.w
     zc(j) = clamp(j, zl, zh)
     ν(j) = (j = zc(j); (rn[j+1] + rn[j]) / (2 * (rn[j+1] - rn[j]))); νo(j) = (j = zc(j); (ro[j+1] + ro[j]) / (2 * (ro[j+1] - ro[j])))
     lm(j) = (j = zc(j); log(0.5 * ((xmtot - xmen[j]) + (xmtot - xmen[j+1]))))
     function nhat(j)
-        xnt = ν(j) - α * (ν(j-1) - 2ν(j) + ν(j+1)); xnto = νo(j) - α * (νo(j-1) - 2νo(j) + νo(j+1))
-        jm, jp = zc(j - 1), zc(j + 1); h = jp - jm == 2 ? 0.5 : 1.0
+        # ctr: the centre sphere [0, r_k1] is zone k1 − 1 of the rule. Its log-width is infinite, so by convention it counts as a zone of the floor's width, ν_c = pr/ln 10
+        # (GEQDEC; 0.5 = r̄/Δr of the sphere if the run has no floor), with its own thermodynamic monitor (ρ, P, T, E_r one-sided from the sphere to zone k1, plus ω_r²; no mass term: the sphere's mass is geometry); no smoothing, no time smoothing.
+        ctr = j == k1 - 1; nuj = ctr ? (hasproperty(ge, :nuc) && ge.nuc > 0 ? ge.nuc : 0.5) : ν(j)
+        xnt = ctr ? nuj : ν(j) - α * (ν(j-1) - 2ν(j) + ν(j+1)); xnto = νo(j) - α * (νo(j-1) - 2νo(j) + νo(j+1))
+        zs(i) = clamp(i, k1, zh)               # the monitor's stencil of the shells never reaches into the sphere (its mass is geometry); the sphere's own: c → k1
+        jm, jp = ctr ? (j, j + 1) : (zs(j - 1), zs(j + 1)); h = jp - jm == 2 ? 0.5 : 1.0
         S = wρ * (h * log(dn[jp] / dn[jm]))^2 + wP * (h * log(pg[jp] / pg[jm]))^2 + wT * (h * log(tn[jp] / tn[jm]))^2 +
-            wE * (h * log(er[jp] / er[jm]))^2 + wm * (h * (lm(jp) - lm(jm)))^2 + ge.sx[j]
+            wE * (h * log(er[jp] / er[jm]))^2 + (ctr ? zero(wm) : wm * (h * (lm(jp) - lm(jm)))^2) + (ctr ? zero(wm) : ge.sx[j])
         # (GEQW entry 8, wχ > 0: the extinction coefficient χρ of the Newton iterate, ln(χ_jp ρ_jp/χ_jm ρ_jm): the opacity cliff, local, not lagged)
         (hasproperty(ge, :wχ) && ge.wχ > 0 && chi !== nothing) && (S += ge.wχ * (h * log((chi[jp] * dn[jp]) / (chi[jm] * dn[jm])))^2)
         # (GEQGP = w_g, L_ref; provisional, default off; docs/POPIII_ENERGY.md §14.6) the density jump weighted with the gravity power of the
@@ -1155,11 +1153,16 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
             gq(i) = G4 * (xmtot - xmen[i] + (EXTMASS[] === nothing ? zero(rn[i]) : EXTMASS[](rn[i]))) / rn[i]^2
             S += ge.gp[1] * (h * log(dn[jp] / dn[jm]))^2 * 0.5 * (abs(un[j]) * gq(j) + abs(un[j+1]) * gq(j + 1)) * (xmen[j] - xmen[j+1]) / ge.gp[2]
         end
-        G2 = ν(j)^2 * S; G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
-        γ = ge.tauv[j] / dt
+        G2 = nuj^2 * S
+        # resolution floor (GEQDEC): + ω_r² (ln r term: 1 per unit ∂ln r/∂ln r) + ω_m² ν² (Δ ln m)² (enclosed-mass term), constants of the run (GEQDEC in grideq_driver.jl)
+        if hasproperty(ge, :fr)
+            G2 += ge.fr + (ctr ? zero(G2) : ge.fm * nuj^2 * (h * (lm(jp) - lm(jm)))^2)
+        end
+        G2 = G2 * ge.gmax^2 / (G2 + ge.gmax^2)
+        γ = ctr ? zero(dt) : ge.tauv[j] / dt
         ((1 + γ) * xnt - γ * xnto) / sqrt(1 + G2)
     end
-    @inbounds for k in k1+1:k2-1
+    @inbounds for k in k1:k2-1
         R[ir, k - k0 + 1] = nhat(k) - nhat(k - 1)
         if GEQDBG[] && !isfinite(ForwardDiff.value(R[ir, k - k0 + 1]))     # (GEQDBG=1: report the first non-finite grid row)
             GEQDBG[] = false; j = k
@@ -1457,7 +1460,6 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = rn[k] - c.ro[k] - gv[k] * dt; end
         end
         GRIDEQ[] === nothing || grideq_rows!(R, ir, k0, rn, c.ro, dn, tn, W.pgn, ern, xmen, P.xmtot, dt, GRIDEQ[], W.chifn; un, G4 = 2 * Float64(c.mu) * P.cpi * P.cgrav)
-        GEQ_LAGFIRST[] && gridmoves() && (R[ir, kb(ngrs+1)] = (xmen[ngrs+1] - c.xmeo[ngrs+1]) * (c.ro[ngrs+1] / (c.xmeo[ngrs] - c.xmeo[ngrs+1])))
     else
         @inbounds for k in ngrs:ngre+1; R[ir, kb(k)] = (rn[k] - c.ro[k]) / dt - u[k]; end
     end
