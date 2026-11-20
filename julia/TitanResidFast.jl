@@ -1174,6 +1174,8 @@ const GEQDBG = Ref(get(ENV, "GEQDBG", "0") in ("1", "2"))
 const GEQDBG2 = Ref(get(ENV, "GEQDBG", "0") == "2" ? 5 : 0)
 
 const SLState{T} = NamedTuple{(:q, :t, :fs, :g, :ts, :wq, :dp), NTuple{7, Vector{T}}}
+const AD_JV = Ref(false)
+const EDDFAC_DUAL = Ref{Any}(nothing)
 
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
     ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
@@ -1193,6 +1195,49 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             for bb in 1:nb; k = k0 + bb - 1; a[k] = c.base[k, 7] + x[(bb-1)*neqn+j] * c.nomf[k]; end
         else
             for bb in 1:nb; k = k0 + bb - 1; a[k] = c.base[k, cde] * exp(x[(bb-1)*neqn+j]); end
+        end
+    end
+    if AD_JV[]
+        mup1 = mu + 1; rxm1 = 1.0 / xmup1
+        k = ngrs - 1
+        if P.leibc == 1
+            tn[k] = tn[k+1]; dn[k] = dn[k+1]
+            rn[k] = rn[k+1] * 2.0 - rn[k+2]; xmen[k] = xmen[k+1] * 2.0 - xmen[k+2]; un[k] = -un[k+2]
+        elseif P.leibc == 2
+            tn[k] = T(gf(:tl)); dn[k] = T(P.dl); rn[k] = rn[k+1] - P.delrl
+            xmen[k] = xmen[k+1] + P.dl * rxm1 * (rn[k+1]^mup1 - rn[k]^mup1); un[k] = T(gf(:ul))
+        end
+        if P.llibc == 1
+            tn[k] = tn[k+1]; dn[k] = dn[k+1]
+            rn[k] = (rn[k+1]^mup1 - xmup1 * P.delml / dn[k])^rxm1
+            xmen[k] = xmen[k+1] + P.delml; un[k] = un[k+1]
+        end
+        if c.lrad
+            ern[k] = ern[k+1]
+            P.lribc == 1 && (frn[k] = +frn[k+1])
+            P.lribc == 2 && (frn[k] = -frn[k+2])
+            P.lribc == 3 && (frn[k] = frn[k+1] * (rn[k+1] / rn[k])^mu)
+        end
+        k = ngre + 1
+        if P.leobc == 1
+            tn[k] = tn[k-1]; tn[k+1] = tn[k]; dn[k] = dn[k-1]; dn[k+1] = dn[k]
+            rn[k+1] = rn[k] * 2.0 - rn[k-1]; xmen[k+1] = xmen[k] * 2.0 - xmen[k-1]; un[k+1] = -un[k-1]
+        elseif P.leobc == 2
+            tr_ = T(gf(:tr)); dr_ = T(P.dr)
+            tn[k] = tr_; tn[k+1] = tr_; dn[k] = dr_; dn[k+1] = dr_
+            rn[k+1] = rn[k] + P.delrr; xmen[k+1] = xmen[k] - P.dr * rxm1 * (rn[k+1]^mup1 - rn[k]^mup1); un[k+1] = T(gf(:ur))
+        elseif P.leobc == 3
+            tn[k] = tn[k-1]; tn[k+1] = tn[k]; dn[k] = dn[k-1]; dn[k+1] = dn[k]
+            rn[k+1] = rn[k] + P.delrr; xmen[k+1] = xmen[k] - dn[k] * rxm1 * (rn[k+1]^mup1 - rn[k]^mup1); un[k+1] = un[k]
+        end
+        if P.llobc > 0
+            tn[k] = tn[k-1]; tn[k+1] = tn[k]; dn[k] = dn[k-1]; dn[k+1] = dn[k]
+            rn[k+1] = (rn[k]^mup1 + xmup1 * P.delmr / dn[k])^rxm1; xmen[k+1] = xmen[k] - P.delmr; un[k+1] = un[k]
+        end
+        if c.lrad
+            P.lrobc == 1 && (ern[k] = ern[k-1]; ern[k+1] = ern[k]; frn[k+1] = +frn[k])
+            P.lrobc == 2 && (ern[k] = ern[k-1]; ern[k+1] = ern[k-2]; frn[k+1] = -frn[k-1])
+            P.lrobc == 3 && (ern[k] = ern[k-1]; ern[k+1] = ern[k]; frn[k+1] = frn[k] * (rn[k] / rn[k+1])^mu)
         end
     end
     Mg = MG[] ? mgws(T, c.mgr) : nothing          # MGROUPS: the group unknowns of the iterate
@@ -1344,13 +1389,15 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         dfe[k] = P.sige == 0 ? zero(T) : P.sige * rmu[k] * (d[k] + d[k-1]) * (eg[k] - eg[k-1]) / (r[k+1] - r[k-1])
     end
     fedd = c.fedd; HEl = TD.HEDD; HXl = TD.HXEDD; FXl = TD.FXEDD; TWl = TD.TIEW; gedr = P.geddr
-    if TD.CLOSJ[] && c.lrad && TD.CSENS.valid && TD.CSENS.a == ngrs && T <: ForwardDiff.Dual
+    if AD_JV[] && c.lrad && T <: ForwardDiff.Dual && EDDFAC_DUAL[] !== nothing
+        fedd, HEl, HXl, FXl, TWl, gedr = EDDFAC_DUAL[](c, P, ngrs, ngre, chifn, xkpn, plfn, dn, tn, ern, frn, rn, W.xs1, W.xs2, T, DBUF, SLQBUF, MATERIAL[], SLIMP[], cplz)
+    elseif TD.CLOSJ[] && c.lrad && TD.CSENS.valid && TD.CSENS.a == ngrs && T <: ForwardDiff.Dual
         fedd, HEl, HXl, FXl, TWl, gedr = closure_lift(c, P, ngrs, ngre, chifn, xkpn, plfn, dn, tn, ern, rn, W.xs1, W.xs2, T)
     end
     fill!(R, zero(T))
     # ---------------------------------------------------------------- GRID
     kb(k) = k - k0 + 1
-    X(i, k) = x[(kb(k) - 1) * neqn + i]
+    X(i, k) = AD_JV[] ? zero(T) : x[(kb(k) - 1) * neqn + i]
     if P.lgrid == 1
         α = P.alph * (1 + P.alph); gam = (P.tau / dt)^P.ibet
         xnu, xnc, ss, xnuo = W.xnu, W.xnc, W.ss, ws.xnuo
@@ -1517,7 +1564,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         mok = get!(() -> fill(false, length(cvw)), BUFS, :mltok)::Vector{Bool}
         mpre && _mlt_pre!(MATERIAL[], W, cvw, mok, dn, tn, ngrs, ngre, ntm)
         @inbounds for k in ngrs+1:ngre
-            Pm = pgn[k-1] + c.fedd[k-1] * ern[k-1]; Pp = pgn[k] + c.fedd[k] * ern[k]
+            Pm = pgn[k-1] + (AD_JV[] ? fedd[k-1] : c.fedd[k-1]) * ern[k-1]; Pp = pgn[k] + (AD_JV[] ? fedd[k] : c.fedd[k]) * ern[k]
             wτ = cvw[k]; wτ > 0 || continue          # optically thin: no MLT flux
             Ti = 0.5 * (tn[k-1] + tn[k]); ρi = 0.5 * (dn[k-1] + dn[k]); Pi = 0.5 * (Pm + Pp)
             gk = 2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g
@@ -1594,7 +1641,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 w += -dmdt[k+1] * egbg[k+1] + dmdt[k] * egbg[k]
             end
         elseif c.etotal && !c.useint[k]
-            w = etot_row(k, c, W, T) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
+            w = etot_row(k, c, W, T, AD_JV[] ? fedd : c.fedd) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])     # the gas gets the ray's energy in chemistry: it leaves the total here (as the lrad total row)
             w += cqheat(k, W) * dvol[k]                         # chemistry heat: the iterate's (coupled zone; inside cpL as heating of the gas) or the booked one
         elseif c.lrad && GASROW[]
@@ -1656,10 +1703,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     end
     if COUPLED[]
         # ------------------------------------------------------------ SPECIES (COUPLED)
-        @inbounds for kb_ in 1:nb, i in 8:9; R[i, kb_] = x[(kb_-1)*neqn+i]; end
+        @inbounds for kb_ in 1:nb, i in 8:9; R[i, kb_] = AD_JV[] ? zero(T) : x[(kb_-1)*neqn+i]; end
         # no radiation (lrad = 0, the collapse stages): rows 6–7 (E_r, F_r) are not formed above, but neqn = 9 puts the species at 8–9;
         # make them trivial (δ = 0) instead of leaving the buffer's stale values (a singular block: all Newton corrections 0, step 1 fails)
-        c.lrad || @inbounds for kb_ in 1:nb, i in 6:7; R[i, kb_] = x[(kb_-1)*neqn+i]; end
+        c.lrad || @inbounds for kb_ in 1:nb, i in 6:7; R[i, kb_] = AD_JV[] ? zero(T) : x[(kb_-1)*neqn+i]; end
         @inbounds for k in ngrs:ngre
             cplz(k) || continue
             for (i, q, qo, qb, S_, So) in ((8, W.xs1, XSO[][1], W.xb1, W.cpS1, XSRCO[][1]), (9, W.xs2, XSO[][2], W.xb2, W.cpS2, XSRCO[][2]))
@@ -1823,7 +1870,7 @@ E_s = E_b + e^{−s} E_x − e^{−s/2} χ_N ρ_N F_N+1 (r_N+1 − r_c,N)/(c f_x
 end
 # ------------------------------------------------------------------ total energy (item 2)
 "Total pressure (gas + radiation fE) of zone k at the θ-level."
-@inline ptot(k, c, W) = c.lrad ? W.pg[k] + c.fedd[k] * W.er[k] : W.pg[k]
+@inline ptot(k, c, W, fedd = c.fedd) = c.lrad ? W.pg[k] + fedd[k] * W.er[k] : W.pg[k]
 "Viscous stress weight of zone k at interface k' (momentum equation: r1(k')·r3(k)·qf(k))."
 @inline r3(k, W, xmu) = ((W.r[k] + W.r[k+1]) / 2)^(1.5xmu)
 """
@@ -1836,7 +1883,7 @@ TITAN's discretisation of each piece:
 Boundary interfaces use TITAN's own boundary fluxes (gasnrg/totnrg) plus the matching
 kinetic-energy, work and viscous pieces of the adjacent zone.
 """
-@inline function eflux(k, c, W, ::Type{T}) where {T}
+@inline function eflux(k, c, W, ::Type{T}, fedd = c.fedd) where {T}
     P = c.p; ngrs, ngre = c.ngrs, c.ngre; xmu = Float64(c.mu)
     u = W.u[k]; rmu = W.rmu[k]; dmdt = W.dmdt[k]
     Fl = zero(T)
@@ -1844,16 +1891,16 @@ kinetic-energy, work and viscous pieces of the adjacent zone.
     Fl -= W.dfe[k]
     if k == ngrs
         Fl += c.lrad ? (P.phil2 + W.er[k] * W.urel[k]) * rmu : P.phil2 * rmu
-        Fl += -dmdt * 0.5 * u^2 + rmu * u * ptot(k, c, W) + rmu * u * W.qf[k]
+        Fl += -dmdt * 0.5 * u^2 + rmu * u * ptot(k, c, W, fedd) + rmu * u * W.qf[k]
     elseif k == ngre + 1
         if P.leobc != 3
             Fl += c.lrad ? rmu * (P.phir2 + W.urel[k] * W.er[k-1]) : rmu * P.phir2
         else
             Fl += -dmdt * W.egb[k]
         end
-        Fl += -dmdt * 0.5 * u^2 + rmu * u * ptot(k - 1, c, W) + rmu * u * W.qf[k-1]
+        Fl += -dmdt * 0.5 * u^2 + rmu * u * ptot(k - 1, c, W, fedd) + rmu * u * W.qf[k-1]
     else
-        Fl += -dmdt * (W.egb[k] + 0.5 * u^2) + rmu * u * 0.5 * (ptot(k - 1, c, W) + ptot(k, c, W)) +
+        Fl += -dmdt * (W.egb[k] + 0.5 * u^2) + rmu * u * 0.5 * (ptot(k - 1, c, W, fedd) + ptot(k, c, W, fedd)) +
               u * W.r[k]^(-0.5xmu) * 0.5 * (r3(k - 1, W, xmu) * W.qf[k-1] + r3(k, W, xmu) * W.qf[k])
     end
     Fl
@@ -1886,12 +1933,12 @@ Spherical geometry, or no self-gravity.
     (gj * mb * (W.u[j] - W.urel[j]) + f * Δ) * (lower ? wl : 1 - wl)
 end
 "Conservative total-energy row of zone k: Δ[m(e_g [+E_r/ρ]) + m(u_k²+u_{k+1}²)/4]/dt + Φ_{k+1} − Φ_k."
-@inline function etot_row(k, c, W, ::Type{T}) where {T}
+@inline function etot_row(k, c, W, ::Type{T}, fedd = c.fedd) where {T}
     dn, un, dvoln = W.dn, W.un, W.dvoln
     en = c.lrad ? W.egrn[k] : W.egn[k]; eo = c.lrad ? c.egro[k] : c.ego[k]
     w = (dn[k] * dvoln[k] * (en + 0.25 * (un[k]^2 + un[k+1]^2)) -
          c.do_[k] * c.dvolo[k] * (eo + 0.25 * (c.uo[k]^2 + c.uo[k+1]^2))) / c.p.dt +
-        eflux(k + 1, c, W, T) - eflux(k, c, W, T)
+        eflux(k + 1, c, W, T, fedd) - eflux(k, c, W, T, fedd)
     if ETOT_GRAV[]
         # Gravity of the monitor and of the dual-energy stack's total rows: the exact rate of change of the discrete binding energy W = Σ_j m̄_j φ_j of the node masses
         # m̄_j = ½(m_{j-1} + m_j) at the interface potentials φ_j (docs/POPIII_ENERGY.md §23.4), whose gradient at fixed masses is the momentum row's force g_j m̄_j.

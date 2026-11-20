@@ -23,9 +23,10 @@ Then the unchanged `maxdel!`, `update!`.
 """
 module NewtonKrylov
 
-using LinearAlgebra, Printf, Statistics
+using LinearAlgebra, Printf, Statistics, ForwardDiff
 import ..TitanDriver, ..TitanCore, ..TitanResidFast, ..Trbdf2
 const TD = TitanDriver; const TF = TD.TF; const TC = TitanCore; const TX = TitanResidFast
+TX.EDDFAC_DUAL[] = TC.eddfac_dual
 vf(s) = TF.var(s)::Vector{Float64}
 gi(s) = Int(TD.g(s))
 gf(s) = Float64(TD.g(s))
@@ -34,8 +35,10 @@ mutable struct Opts
     eta::Float64; mmax::Int; eps::Float64
     central::Bool                    # central (default) or one-sided differences for J v
     check::Int                       # NKCHECK=<Newton iteration>: matrix-vector check at that iteration of the first attempt, then exit (diagnostic)
+    ad::Bool                         # NKAD=1 (default): exact 1-partial forward-mode Dual J v instead of central finite differences
+    ew::Bool                         # NKEW=1 (default): Eisenstat-Walker adaptive GMRES tolerance on non-boost iterations
 end
-const OPT = Opts(1e-3, 30, 1e-5, true, 0)
+const OPT = Opts(1e-3, 30, 1e-5, true, 0, get(ENV, "NKAD", "1") != "0", get(ENV, "NKEW", "1") != "0")
 mutable struct Count
     solves::Int; mv::Int; nonconv::Int; ndrift::Int; maxdrift::Float64; secs::Float64; jb_reused::Int
 end
@@ -52,10 +55,11 @@ mutable struct Snap
     pairs_other::Vector{Tuple{Array,Array}}
     extra::Vector{Vector{Float64}}
     gx::Float64
+    taken::Bool
 end
-Snap() = Snap(Dict{Symbol,Array}(), Tuple{Vector{Float64},Vector{Float64}}[], Tuple{Array,Array}[], [Float64[] for _ in 1:6], 0.0)
+Snap() = Snap(Dict{Symbol,Array}(), Tuple{Vector{Float64},Vector{Float64}}[], Tuple{Array,Array}[], [Float64[] for _ in 1:6], 0.0, false)
 const SNAP = Snap()
-push!(TF.ON_SWITCH, () -> (empty!(SNAP.pairs1); empty!(SNAP.pairs_other); empty!(SNAP.arrs)))
+push!(TF.ON_SWITCH, () -> (empty!(SNAP.pairs1); empty!(SNAP.pairs_other); empty!(SNAP.arrs); SNAP.taken = false))
 extras() = (TD.HEDD, TD.HXEDD, TD.FXEDD, TD.TIEW, TX.XSN[][1], TX.XSN[][2])      # closure h, h_x, f_x, tie weight; species iterate
 function take!(S::Snap)
     if length(S.pairs1) + length(S.pairs_other) + length(SKIP) != length(TF.JSTATE)
@@ -83,6 +87,7 @@ function take!(S::Snap)
         copyto!(b, a)
     end
     S.gx = TD.GXEDD[]
+    S.taken = true
     nothing
 end
 function restore!(S::Snap)
@@ -107,6 +112,7 @@ const POSCODES = (3, 5, 6)          # (ρ, T, E_r: x ψ(δ); the species: x e^δ
 const FDCLIP = 0.1
 struct Sys
     ne::Int; nb::Int; k0::Int; n::Int
+    c::TX.Ctx
     code::Vector{Int}; act::BitVector            # act[(kb-1)ne+i]: the entry update! applies
     wt::Vector{Float64}                         # weight of each entry in the GMRES norm (Trbdf2.wnorm's)
     wtr::Vector{Float64}                        # weight in the trust-region measure: 1 for the log variables (ρ, T, E_r, species), the GMRES weight for the others
@@ -227,6 +233,7 @@ Residual at x ⊕ s·v: s·v is written into `rhs`, `update!` applied (branch de
 `realized` (optional) receives the change the update actually made to every unknown including the ghost entries, per unit s.
 """
 function perturbed(S::Sys, v, s; realized = nothing, freeze = 2, inspect = nothing, clip = Inf, rbuf = nothing)
+    S.snap.taken || take!(S.snap)
     ne, nb, k0 = S.ne, S.nb, S.k0; rhs = TF.var(:rhs)
     base = realized === nothing ? nothing : (c = TX.context(); (copy(c.base), copy(vf(:unom)), copy(vf(:frnom))))
     @inbounds for kb in 1:nb, i in 1:ne; rhs[i, k0+kb-1] = S.act[(kb-1)*ne+i] ? (S.code[i] in LOGCODES ? clamp(s * v[(kb-1)*ne+i], -clip, clip) : s * v[(kb-1)*ne+i]) : 0.0; end
@@ -266,10 +273,34 @@ function fdjv!(y, S::Sys, v, ε; realized = nothing, freeze = 2)
     y
 end
 
+struct NKTag end
+ForwardDiff.:≺(::Type{NKTag}, ::Type{<:ForwardDiff.Tag}) = true
+ForwardDiff.:≺(::Type{<:ForwardDiff.Tag}, ::Type{NKTag}) = false
+"Exact 1-partial forward-mode directional derivative y = J v at the base state."
+function adjv!(y, S::Sys, v)
+    D = ForwardDiff.Dual{NKTag,Float64,1}
+    xd = get!(() -> Vector{D}(undef, S.n), TX.DBUF, (:nk_x, D, S.n))::Vector{D}
+    Rd = get!(() -> Matrix{D}(undef, S.ne, S.nb), TX.DBUF, (:nk_R, D, S.ne, S.nb))::Matrix{D}
+    @inbounds for r in 1:S.n
+        xd[r] = D(0.0, ForwardDiff.Partials((S.act[r] ? v[r] : 0.0,)))
+    end
+    ws = TX.getws(D, S.c.mgr)
+    TX.AD_JV[] = true; TX.FREEZE[] = 2
+    try
+        TX.residual!(Rd, ws, S.c, xd)
+    finally
+        TX.AD_JV[] = false; TX.FREEZE[] = 0
+    end
+    @inbounds for r in 1:S.n
+        y[r] = ForwardDiff.partials(Rd[r], 1)
+    end
+    y
+end
+
 function setup()
     TF.BACKEND[] === :julia || error("NKRYLOV needs the Julia state backend")
     c = TX.context(); ne, nb, k0 = c.neqn, c.nb, c.k0
-    act = activeset(c); snap = SNAP; take!(snap)
+    act = activeset(c); snap = SNAP; snap.taken = false; OPT.ad || take!(snap)
     TX.FREEZE[] = 1
     R0 = try resid(ne, nb) finally TX.FREEZE[] = 0 end
     AB, ipiv, sc, kl, ku = if TX.RESID_ONLY[] && LUCACHE[] !== nothing
@@ -282,13 +313,14 @@ function setup()
     end
     wt = weights(c, act)
     wtr = [c.code[(r-1)%ne+1] in LOGCODES ? 1.0 : wt[r] for r in 1:ne*nb]
-    Sys(ne, nb, k0, ne * nb, copy(c.code), act, wt, wtr, R0, snap, AB, ipiv, sc, kl, ku)
+    Sys(ne, nb, k0, ne * nb, c, copy(c.code), act, wt, wtr, R0, snap, AB, ipiv, sc, kl, ku)
 end
 
 # ---------------------------------------------------------------- GMRES
 "Solve A x = b (A v = P J_b⁻¹ J v) from x = 0 by GMRES in the norm ‖W·‖₂ (weights S.wt); returns (x, iterations, converged, relative residual, truncated). With a finite `radius` the iteration stops (truncated Steihaug-style) at the first iterate whose step is outside the trust region (`stepsize` > radius) and keeps the one before."
 function gmres(S::Sys, b, radius)
-    n = S.n; mmax = OPT.mmax; η = OPT.eta; wt = S.wt; bs = b .* wt           # scaled space: ṽ = W v
+    n = S.n; mmax = OPT.mmax; wt = S.wt; bs = b .* wt           # scaled space: ṽ = W v
+    η = (OPT.ew && gi(:lboos) == 0) ? (gi(:iter) == 1 ? max(OPT.eta, 1e-2) : clamp(0.1 * gf(:dmax), OPT.eta, 1e-2)) : OPT.eta
     β = norm(bs); x = zeros(n)
     β == 0 && return x, 0, true, 0.0, false
     V = zeros(n, mmax + 1); H = zeros(mmax + 1, mmax); cs = zeros(mmax); sn = zeros(mmax); gv = zeros(mmax + 1)
@@ -296,7 +328,7 @@ function gmres(S::Sys, b, radius)
     y = zeros(n); w = zeros(n); v = zeros(n); m = 0; conv = false; res = β; trunc = false; mgood = 1; ygood = Float64[0.0]; xprev = zeros(n); xcut = zeros(n)
     for j in 1:mmax
         v .= (@view V[:, j]) ./ wt; v[.!S.act] .= 0.0
-        fdjv!(y, S, v, OPT.eps / maximum(abs, @view V[:, j])); CNT.mv += 1       # ε v: the largest weighted entry changes by OPT.eps
+        OPT.ad ? adjv!(y, S, v) : fdjv!(y, S, v, OPT.eps / maximum(abs, @view V[:, j])); CNT.mv += 1
         all(isfinite, y) || (rb = findfirst(!isfinite, y); error(@sprintf("NKRYLOV: non-finite J v (%d entries; first row %s; ε %.3g)", count(!isfinite, y), zname(S, rb), OPT.eps / maximum(abs, @view V[:, j]))))
         precond!(w, S, y); w[.!S.act] .= 0.0; w .*= wt
         for i in 1:j                                       # modified Gram-Schmidt
@@ -610,12 +642,18 @@ function krylov!()
         TitanCore.STEP_FRAC[] = λ
         blk .= δ0           # (the perturbed updates used `rhs` as scratch); entries update! ignores keep the band solution
         @inbounds for r in 1:S.n; S.act[r] && (blk[(r-1)%ne+1, (r-1)÷ne+1] = λ * x[r]); end
-        Rf = resid(ne, nb); d = maximum(abs, Rf .- S.R0) / (maximum(abs, S.R0) + 1e-300)       # drift of the restored state
-        CNT.maxdrift = max(CNT.maxdrift, d); d > 1e-10 && (CNT.ndrift += 1)
+        d = if S.snap.taken
+            Rf = resid(ne, nb)
+            d_ = maximum(abs, Rf .- S.R0) / (maximum(abs, S.R0) + 1e-300)       # drift of the restored state
+            CNT.maxdrift = max(CNT.maxdrift, d_); d_ > 1e-10 && (CNT.ndrift += 1)
+            d_
+        else
+            0.0
+        end
         Trbdf2.NWTRACE[] === nothing || println(Trbdf2.NWTRACE[], "NKR att ", Trbdf2.NWATT[], " it ", gi(:iter), " krylov its ", m, " converged ", conv, " rel residual ", rel, " |delta0|_W ", norm(b .* S.wt), " |delta|_W ", norm(x .* S.wt), " drift ", d, " largest weighted delta0 ", wtop(b, S, ne, k0), " largest weighted delta ", wtop(x, S, ne, k0), lsinfo)
     catch ex
         ex isa InterruptException && rethrow()
-        S === nothing || restore!(S.snap)
+        (S === nothing || !S.snap.taken) || restore!(S.snap)
         TX.FREEZE[] = 0; blk .= δ0; TitanCore.STEP_FRAC[] = 1.0
         rethrow()          # a failed linear solve or globalisation is a Newton failure (the caller retries with a smaller dt), not a silent band solve
     end

@@ -12,6 +12,7 @@ Not bitwise by design: integer powers use Julia `^`, and real powers use Julia `
 """
 module TitanCore
 
+using ForwardDiff
 import ..TitanDriver
 const TD = TitanDriver
 const TF = TD.TF
@@ -621,7 +622,7 @@ edpos() = EDD_POSITIVE[] === :auto ? TD.EDD_MATERIAL_SOURCE[] : EDD_POSITIVE[]::
 end
 "First moment of xi over ang[1:n] (the s1 of _eddg)."
 @inline function _mom1(n, ang, xi)
-    s1 = 0.0
+    s1 = zero(eltype(xi))
     @inbounds for i in 1:n-1
         a, b = ang[i], ang[i+1]; x, y = xi[i], xi[i+1]
         s1 += (x * b - y * a) * (a + b) / 2.0 + (y - x) * (a^2 + a * b + b^2) / 3.0
@@ -630,7 +631,7 @@ end
 end
 "eddg.f: first moment / zeroth moment of xi over ang[1:n]."
 @inline function _eddg(n, ang, xi)
-    s0 = 0.0; s1 = 0.0
+    s0 = zero(eltype(xi)); s1 = zero(eltype(xi))
     @inbounds for i in 1:n-1
         a, b = ang[i], ang[i+1]; x, y = xi[i], xi[i+1]
         s0 += 0.5 * (x + y) * (b - a)
@@ -891,6 +892,169 @@ function tiew!(a, b, dtau)
         W[k] = τ <= τ1 ? 1.0 : τ >= τ2 ? 0.0 : (q = log(τ2 / τ) / log(τ2 / τ1); q * q * (3 - 2q))
     end
     nothing
+end
+
+"Exact Dual formal solution (spherical mu = 2) for 1-partial forward-mode J*v."
+function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, xs2, ::Type{T}, dbuf, slqbuf, material, slimp::Bool, cplz) where {T}
+    mgr = TF.MGR
+    vbuf(nm, n) = get!(() -> zeros(T, n), dbuf, (:eddf_v, nm, T, n))::Vector{T}
+    mbuf(nm, nr, lm) = get!(() -> zeros(T, nr, lm), dbuf, (:eddf_m, nm, T, nr, lm))::Matrix{T}
+    fedd = vbuf(:fedd, mgr); HE = vbuf(:HE, mgr); HX = vbuf(:HX, mgr); FX = vbuf(:FX, mgr); TW = vbuf(:TW, mgr)
+    @inbounds for k in 1:mgr
+        fedd[k] = k <= length(c.fedd) ? T(c.fedd[k]) : zero(T)
+        HE[k] = k <= length(TD.HEDD) ? T(TD.HEDD[k]) : zero(T)
+        HX[k] = k <= length(TD.HXEDD) ? T(TD.HXEDD[k]) : zero(T)
+        FX[k] = k <= length(TD.FXEDD) ? T(TD.FXEDD[k]) : zero(T)
+        TW[k] = k <= length(TD.TIEW) ? T(TD.TIEW[k]) : zero(T)
+    end
+    if gi(:ltran) > 1
+        @inbounds for k in a-1:b+2; fedd[k] = T(1.0 / 3.0); end
+        return (fedd, HE, HX, FX, TW, T(0.5))
+    end
+    c.mu == 2 || error("eddfac_dual: only mu = 2 supported")
+    sf = vbuf(:sf, mgr); dtau = vbuf(:dtau, mgr); dsf = vbuf(:dsf, mgr); bsf = vbuf(:bsf, mgr)
+    xmom0 = vbuf(:xmom0, mgr); xmom2 = vbuf(:xmom2, mgr)
+    lmax = 2 * (b - a + 1) + 1; ncor = gi(:ncor); nray = (ncor + 1) + 2 * (b + 1 - a)
+    rp = vbuf(:rp, lmax); sl = vbuf(:sl, lmax); sr = vbuf(:sr, lmax)
+    p = vbuf(:p, nray + 2); xim = vbuf(:xim, nray + 2); xip = vbuf(:xip, nray + 2); xang = vbuf(:xang, nray + 2)
+    exb = mbuf(:ex, nray + 2, lmax); em1b = mbuf(:em1, nray + 2, lmax); omdb = mbuf(:omd, nray + 2, lmax); xangb = mbuf(:xang, nray + 2, lmax)
+    chiL, kpL = if material !== nothing && slimp
+        loc = get(slqbuf, (:locop, T, length(xs1)), nothing)
+        (loc !== nothing && length(loc[1]) >= b) ? (loc::Tuple{Vector{T},Vector{T}}) : (chifn, xkpn)
+    else
+        (chifn, xkpn)
+    end
+    neL = (material !== nothing && slimp) ? get(slqbuf, (:locop_ne, T), nothing) : nothing
+    xnen = vf(:xnen); csige = P.csige; cc = P.cc; cpi = P.cpi; eps = gf(:epsedf)
+    lribc, lrobc = P.lribc, P.lrobc; matsrc = TD.EDD_MATERIAL_SOURCE[]; scat = EDD_SCATTER[]
+    @inbounds for k in b:-1:a
+        chi = chiL[k]; kp = kpL[k]; pl = plfn[k]; ρ = dn[k]; E = ern[k]
+        ne = (neL !== nothing && k <= length(neL::Vector{T})) ? (neL::Vector{T})[k] :
+             xnen[k] * (ρ / ForwardDiff.value(ρ)) * (cplz(k) && ForwardDiff.value(xs1[k]) > 0 ? xs1[k] / ForwardDiff.value(xs1[k]) : one(T))
+        sf[k] = matsrc ?
+            (scat && chi * ρ > kp * ρ + csige * ne ?
+             (kp * pl + (chi - kp) * E * cc / (4.0 * cpi)) / chi :
+             (kp * ρ * pl + csige * ne * E * cc / (4.0 * cpi)) / (kp * ρ + csige * ne)) :
+            ((chi * ρ - csige * ne) * pl + csige * ne * E * cc / (4.0 * cpi)) / (chi * ρ)
+        dtau[k] = chi * ρ * (rn[k+1] - rn[k])
+    end
+    bg = TD.VEF_BG[] && lrobc == 1; Ib = bg ? P.ximr : 0.0; ep = edpos(); lo = bg ? -Ib : 0.0
+    bg && (@inbounds for k in a:b; sf[k] -= Ib; end)
+    @inbounds for k in a:b-1; dsf[k] = sf[k] - sf[k+1]; end
+    @inbounds for k in a+1:b-1
+        dxm = 0.5 * (dtau[k-1] + dtau[k]); dxp = 0.5 * (dtau[k] + dtau[k+1])
+        sm = dxm * dsf[k] + dxp * dsf[k-1]; prod = dsf[k-1] * dsf[k]
+        denom = cvmgm(sm - eps, sm + eps, sm)
+        bsf[k] = cvmgp(2.0 * prod / denom, zero(T), prod)
+    end
+    bsf[a] = bsf[a+1]; bsf[b] = bsf[b-1]
+    @inbounds for k in a:b
+        l = 2 * (k - a) + 1
+        rp[l] = rn[k]; rp[l+1] = 0.5 * (rn[k] + rn[k+1])
+        sl[l] = sf[k] + 0.5 * dtau[k] * bsf[k]; sr[l] = sf[k]
+        sl[l+1] = sf[k]; sr[l+1] = sf[k] - 0.5 * dtau[k] * bsf[k]
+        if ep
+            sl[l] = max(sl[l], lo); sr[l+1] = max(sr[l+1], lo)
+        end
+    end
+    rp[lmax] = rn[b+1]
+    tie = TD.FLUXTIE[][2] > 0
+    tie && fill!(HE, zero(T))
+    @inbounds for j in 1:ncor; p[j] = Float64(j - 1) * rp[1] / Float64(ncor); end
+    @inbounds for j in ncor+1:nray; p[j] = rp[j - ncor]; end
+    lrobc == 1 && (@inbounds for j in 1:nray; xim[j] = T(bg ? 0.0 : P.ximr); end)
+    for l in lmax-1:-1:1
+        k = a + (l - 1) ÷ 2; nj = ncor + l
+        @inbounds for j in 1:nj
+            xjlp1 = sqrt(rp[l+1]^2 - p[j]^2)
+            if j == nj
+                xjl = zero(T); xa = zero(T)
+            elseif l == 1
+                q = Float64(j - 1) / Float64(ncor)
+                xa = T(sqrt(1.0 - q^2)); xjl = rp[1] * xa
+            else
+                xjl = sqrt(rp[l]^2 - p[j]^2); xa = sqrt(1.0 - p[j]^2 / rp[l]^2)
+            end
+            dtjl = dn[k] * chiL[k] * (xjlp1 - xjl); ex = exp(-dtjl)
+            em1 = -expm1(-dtjl); omd = omde_over(dtjl)
+            xip[j] = em1 * sl[l] + omd * (sr[l] - sl[l]) + ex * xim[j]
+            ep && (xip[j] = max(xip[j], lo))
+            xang[j] = xa
+            exb[j, l] = ex; em1b[j, l] = em1; omdb[j, l] = omd; xangb[j, l] = xa
+        end
+        @inbounds for j in 1:nj; xim[j] = xip[j]; end
+        if iseven(l)
+            k = a + (l - 1) ÷ 2
+            xmom0[k] = zero(T); xmom2[k] = zero(T)
+            _eddf!(nj, xang, xip, xmom0, xmom2, k)
+            tie && (HE[k] = -_mom1(nj, xang, xip))
+        end
+    end
+    if lribc == 1
+        xipl = gf(:xipl)
+        @inbounds for j in 1:ncor+1; xang[j] = xangb[j, 1]; xim[j] = T(xipl - Ib); end
+    elseif lribc == 3
+        ang = vf(:ang)
+        @inbounds for j in 1:ncor+1
+            xang[j] = xangb[j, 1]
+            xim[j] = (cc * ern[a] + 1.5 * frn[a] * dtau[a]) / (4.0 * cpi) + 3.0 * ang[j] * frn[a] / (4.0 * cpi) - Ib
+        end
+    end
+    geddr = T(P.geddr)
+    for l in 2:lmax
+        m = l - 1; nj = ncor + m
+        if l < lmax
+            @inbounds for j in 1:nj
+                xip[j] = em1b[j, m] * sr[m] + omdb[j, m] * (sl[m] - sr[m]) + exb[j, m] * xim[j]
+                ep && (xip[j] = max(xip[j], lo))
+                xang[j] = xangb[j, l]
+            end
+        else
+            @inbounds for j in 1:nj
+                xip[j] = em1b[j, m] * sr[m] + omdb[j, m] * (sl[m] - sr[m]) + exb[j, m] * xim[j]
+                ep && (xip[j] = max(xip[j], lo))
+                xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
+            end
+        end
+        @inbounds for j in 1:nj; xim[j] = xip[j]; end
+        if iseven(l)
+            k = a + (l - 1) ÷ 2
+            xang[nj+1] = zero(T)
+            _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
+            if tie && bg && TD.TIEX[]
+                hx = (HE[k] + _mom1(nj + 1, xang, xim)) / xmom0[k]
+                HX[k] = isfinite(hx) ? clamp(hx, -1.0, 1.0) : zero(T)
+            end
+            tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : zero(T))
+            if bg
+                FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : T(1.0 / 3.0)
+                fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+            else
+                fedd[k] = ep && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? T(1.0 / 3.0) :
+                          max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+            end
+        end
+        if l == lmax
+            EDDG_MU0[] && (xang[nj+1] = zero(T); xip[nj+1] = xip[nj])
+            if bg
+                n_ = EDDG_MU0[] ? nj + 1 : nj; s0 = zero(T)
+                @inbounds for i in 1:n_-1; s0 += 0.5 * (xip[i] + xip[i+1]) * (xang[i+1] - xang[i]); end
+                s1 = _mom1(n_, xang, xip)
+                geddr = (-s1 + 0.5 * Ib) / (-s0 + Ib)
+            else
+                geddr = _eddg(EDDG_MU0[] ? nj + 1 : nj, xang, xip)
+            end
+            geddr = max(0.5, min(geddr, 1.0))
+        end
+    end
+    if tie
+        τ1, τ2 = TD.FLUXTIE[]; fill!(TW, zero(T)); τ = zero(T)
+        @inbounds for k in b:-1:a+1
+            τ += dtau[k]
+            TW[k] = τ <= τ1 ? one(T) : τ >= τ2 ? zero(T) : (q = log(τ2 / τ) / log(τ2 / τ1); q * q * (3 - 2q))
+        end
+    end
+    (fedd, HE, HX, FX, TW, geddr)
 end
 
 const CSENS_REQ = Ref(false); const CSENS_SKIP = Ref(false)

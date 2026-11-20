@@ -509,12 +509,12 @@ const NLOITW = let s_ = split(get(ENV, "NLOITW", "5000,6000"), ","); (parse(Floa
 const NLOITJ = let s_ = split(get(ENV, "NLOITJ", "0,0"), ","); (parse(Float64, s_[1]), parse(Float64, s_[2])) end
 const NLOST = Ref{Vector{Any}}(Any[])        # per zone: (; d, p) at the end of the last chemistry, or nothing
 mutable struct NloC
-    v::NTuple{4,Float64}; R::NTuple{3,Float64}; ne::Float64
+    v::NTuple{4,Float64}; R::NTuple{3,Float64}; ne::Float64; bPR::NTuple{2,Float64}
     vJ::NTuple{4,Float64}; qT::NTuple{3,Float64}; qx::NTuple{3,Float64}; qr::NTuple{3,Float64}; qx2::NTuple{3,Float64}; qn::NTuple{4,Float64}; hasJ::Bool
 end
-const NLOC = Ref{Vector{Any}}(Any[])          # per zone cache
+const NLOC = Ref{Vector{Union{Nothing,NloC}}}(Union{Nothing,NloC}[])          # per zone cache
 const NLOITN = Threads.Atomic{Int}(0); const NLOITNS = Threads.Atomic{Int}(0); const NLOCNS = Threads.Atomic{Int}(0); const NLOITJN = Threads.Atomic{Int}(0)     # (evaluations of R, of its slopes)
-nloc_reset!(n) = (length(NLOC[]) == n ? fill!(NLOC[], nothing) : (NLOC[] = Any[nothing for _ in 1:n]); SLIMP && (NLOQC[] = Any[nothing for _ in 1:n]); nothing)
+nloc_reset!(n) = (length(NLOC[]) == n ? fill!(NLOC[], nothing) : (NLOC[] = Union{Nothing,NloC}[nothing for _ in 1:n]); SLIMP && (NLOQC[] = Any[nothing for _ in 1:n]); nothing)
 "(SLIMP) per zone the NLOIT ratio at the star-light factor q: (key (ρ, T, x1, x2, q), R, n_e, key of the q slope, d ln R/d ln q)."
 const NLOQC = Ref{Vector{Any}}(Any[])
 "CIA kernels on the nlte_means frequencies (every 8th point), tabulated on the union of the tables' node temperatures: exact (kcia and k_h2h2 are piecewise linear in T between those nodes, held outside)."
@@ -568,29 +568,33 @@ function nlost_restart!(m)
     end
     nothing
 end
-"(NLOIT) the ratios (R_E, R_P, R_R) and n_e [cm⁻³] of composition d (full fractions) at (ρ, T), three-level parameters p."
-function nlo_ratio(ρ, T, d, p)
-    t0_ = time_ns()
+"(NLOIT) equilibrium reference base (bP, bR) at (ρ, T) alone."
+function nlo_base(ρ, T)
     nH = ρ / CNn.μH(); nHe0 = PC.yHe * nH
     Rt, Pt = OPAC[](ρ, T); w = nlo_w(T); Pq = Rq = 1.0
     if w > 0
-    # equilibrium composition (as nlte_kappas with d = nothing)
-    y = EQ.composition(ρ, min(T, 1e6)); xp = y[1]; xh2 = y[3]; n1e = nH * max(1 - xp - 2xh2, 0.0); nee = nH * xp; nHee = nHe0
-    if CNn.HECHEM
-        z1, z2 = EQ.composition_he(ρ, min(T, 1e6)); nee = nH * (xp + z1 + 2z2); nHee = nH * max(PC.yHe - z1 - z2, 0.0)
+        # equilibrium composition (as nlte_kappas with d = nothing)
+        y = EQ.composition(ρ, min(T, 1e6)); xp = y[1]; xh2 = y[3]; n1e = nH * max(1 - xp - 2xh2, 0.0); nee = nH * xp; nHee = nHe0
+        if CNn.HECHEM
+            z1, z2 = EQ.composition_he(ρ, min(T, 1e6)); nee = nH * (xp + z1 + 2z2); nHee = nH * max(PC.yHe - z1 - z2, 0.0)
+        end
+        n2e = 4n1e * exp(-E21 / (CNn.kB * T)); nHme = n1e * nee / CNn.Keq([:Hm], [:H, :e], T)
+        if G2O.ON && CNn.HECHEM                   # G2OPAC: with the He ions and the LTE n = 2 of G2Opacity
+            z1g, z2g = EQ.composition_he(ρ, min(T, 1e6))
+            _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = G2O.n2_lte(T, n1e, nee, n1e + nHee + nH * xh2), nH2 = nH * xh2, nHe = nHee, nHp = nH * xp, ne = nee,
+                                        nHm = nHme, nHmS = nHme, hbfP = true, nHep = nH * z1g, nHepp = nH * z2g)
+        else
+            _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = n2e, nH2 = nH * xh2, nHe = nHee, nHp = nee, ne = nee, nHm = nHme, nHmS = nHme, hbfP = true)
+        end
     end
-    n2e = 4n1e * exp(-E21 / (CNn.kB * T)); nHme = n1e * nee / CNn.Keq([:Hm], [:H, :e], T)
-    if G2O.ON && CNn.HECHEM                   # G2OPAC: with the He ions and the LTE n = 2 of G2Opacity
-        z1g, z2g = EQ.composition_he(ρ, min(T, 1e6))
-        _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = G2O.n2_lte(T, n1e, nee, n1e + nHee + nH * xh2), nH2 = nH * xh2, nHe = nHee, nHp = nH * xp, ne = nee,
-                                    nHm = nHme, nHmS = nHme, hbfP = true, nHep = nH * z1g, nHepp = nH * z2g)
-    else
-    _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = n2e, nH2 = nH * xh2, nHe = nHee, nHp = nee, ne = nee, nHm = nHme, nHmS = nHme, hbfP = true)
-    end
-    end
-    # the base the network's means are measured against: the table itself (w = 0, κ = κ^nl(d)) below NLOITW[1], the continuum code in
-    # equilibrium (w = 1, κ = table × κ^nl(d)/κ^nl(eq): the table's calibration) above NLOITW[2], geometric blend in between
     bP = max(Pt, 1e-300)^(1 - w) * max(Pq, 1e-300)^w; bR = max(Rt, 1e-300)^(1 - w) * max(Rq, 1e-300)^w
+    (bP, bR)
+end
+"(NLOIT) the ratios (R_E, R_P, R_R) and n_e [cm⁻³] of composition d (full fractions) at (ρ, T), three-level parameters p."
+function nlo_ratio(ρ, T, d, p; bPR = nothing)
+    t0_ = time_ns()
+    nH = ρ / CNn.μH(); nHe0 = PC.yHe * nH
+    bP, bR = bPR === nothing ? nlo_base(ρ, T) : bPR
     n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
     nHe = CNn.HECHEM ? nH * max(d[:He], 0.0) : nHe0
     nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
@@ -675,10 +679,12 @@ function nlo_it(m::NetGas, k, ρ, T, s)
     keep = k <= length(NLOC[])                # (the cache is sized by nloc_reset!; a zone beyond it is evaluated without one)
     c = keep ? NLOC[][k] : nothing; v = (ρv, Tv, xv, xv2)
     if c === nothing || c.v != v
+        bPR = (c !== nothing && c.v[1] == ρv && c.v[2] == Tv) ? c.bPR : nlo_base(ρv, Tv)
         d, p = nlo_comp(m, k, s, ρv, Tv, xv, xv2)
-        R, ne = nlo_ratio(ρv, Tv, d, p)
-        c === nothing ? (c = NloC(v, R, ne, (NaN, NaN, NaN, NaN), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0), false); keep && (NLOC[][k] = c)) : (c.v = v; c.R = R; c.ne = ne)
+        R, ne = nlo_ratio(ρv, Tv, d, p; bPR = bPR)
+        c === nothing ? (c = NloC(v, R, ne, bPR, (NaN, NaN, NaN, NaN), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0), false); keep && (NLOC[][k] = c)) : (c.v = v; c.R = R; c.ne = ne; c.bPR = bPR)
     end
+    bPR = c.bPR
     needJ = T isa ForwardDiff.Dual || xd isa ForwardDiff.Dual || ρ isa ForwardDiff.Dual
     slon = SLIMP && cz && TX.CPLSL[] !== nothing       # SLIMP: the ratio at the iterate's star-light state (below)
     qv = slon ? Float64(ForwardDiff.value(TX.CPLSL[].q[k])) : 1.0; tv = slon ? Float64(ForwardDiff.value(TX.CPLSL[].t[k])) : 1.0
@@ -692,9 +698,9 @@ function nlo_it(m::NetGas, k, ρ, T, s)
             d0, p0 = nlo_comp(m, k, s, ρv, Tv / (1 + εT), xv, xv2); R0, _ = nlo_ratio(ρv, Tv / (1 + εT), d0, p0)
             c.qT = ntuple(i -> log(R1[i] / R0[i]) / (2log1p(εT)), 3)          # (central: the ratio is steep in T, q ~ 10-20)
             if cz
-                εx = 1e-2; d2, p2 = nlo_comp(m, k, s, ρv, Tv, xv * (1 + εx), xv2); R2, _ = nlo_ratio(ρv, Tv, d2, p2)
+                εx = 1e-2; d2, p2 = nlo_comp(m, k, s, ρv, Tv, xv * (1 + εx), xv2); R2, _ = nlo_ratio(ρv, Tv, d2, p2; bPR = bPR)
                 c.qx = ntuple(i -> log(R2[i] / c.R[i]) / log1p(εx), 3)
-                d4, p4 = nlo_comp(m, k, s, ρv, Tv, xv, xv2 * (1 + εx)); R4, _ = nlo_ratio(ρv, Tv, d4, p4)
+                d4, p4 = nlo_comp(m, k, s, ρv, Tv, xv, xv2 * (1 + εx)); R4, _ = nlo_ratio(ρv, Tv, d4, p4; bPR = bPR)
                 c.qx2 = ntuple(i -> log(R4[i] / c.R[i]) / log1p(εx), 3)
             end
             εr = 1e-3; d3, p3 = nlo_comp(m, k, s, ρv * (1 + εr), Tv, xv, xv2); R3, _ = nlo_ratio(ρv * (1 + εr), Tv, d3, p3)
@@ -710,26 +716,26 @@ function nlo_it(m::NetGas, k, ρ, T, s)
         length(NLOQC[]) < k && (NLOQC[] = vcat(NLOQC[], Any[nothing for _ in length(NLOQC[])+1:k]))
         e_ = NLOQC[][k]; key = (v..., qv, tv, gv, dv)
         if e_ === nothing || e_[1] != key
-            Rq, neq = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dv)...)
+            Rq, neq = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dv)...; bPR = bPR)
             e_ = (key, Rq, neq, e_ === nothing ? nothing : e_[4], e_ === nothing ? ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)) : e_[5])
         end
         dual = qd isa ForwardDiff.Dual || td isa ForwardDiff.Dual || gd isa ForwardDiff.Dual || dd isa ForwardDiff.Dual
         if dual && !(e_[4] !== nothing && all((i == 8 ? abs(key[i] - e_[4][i]) : abs(log(key[i] / e_[4][i]))) < NLOITJ[i <= 2 ? 1 : 2] for i in 1:8))
-            ε = 1e-2; Rp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv * (1 + ε), tv, gv, dv)...)
-            Rm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv / (1 + ε), tv, gv, dv)...)
+            ε = 1e-2; Rp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv * (1 + ε), tv, gv, dv)...; bPR = bPR)
+            Rm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv / (1 + ε), tv, gv, dv)...; bPR = bPR)
             sq = ntuple(i -> log(Rp[i] / Rm[i]) / (2log1p(ε)), 3)
-            εt = 1e-3; Tp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv * (1 + εt), gv, dv)...)
-            Tm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv / (1 + εt), gv, dv)...)
+            εt = 1e-3; Tp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv * (1 + εt), gv, dv)...; bPR = bPR)
+            Tm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv / (1 + εt), gv, dv)...; bPR = bPR)
             st = ntuple(i -> log(Tp[i] / Tm[i]) / (2log1p(εt)), 3)
-            Gp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv * (1 + ε), dv)...)
-            Gm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv / (1 + ε), dv)...)
+            Gp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv * (1 + ε), dv)...; bPR = bPR)
+            Gm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv / (1 + ε), dv)...; bPR = bPR)
             sg = ntuple(i -> log(Gp[i] / Gm[i]) / (2log1p(ε)), 3)
             sdp = (0.0, 0.0, 0.0)
             if NLOHBFDEEP                                                  # the deep weight of the bound–free blend: additive slope (per unit weight)
                 εd = 1e-4; dhi = min(dv + εd, 1.0); dlo = max(dv - εd, 0.0)
                 if dhi > dlo
-                    Dp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dhi)...)
-                    Dm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dlo)...)
+                    Dp, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dhi)...; bPR = bPR)
+                    Dm, _ = nlo_ratio(ρv, Tv, nlo_comp(m, k, s, ρv, Tv, xv, xv2, qv, tv, gv, dlo)...; bPR = bPR)
                     sdp = ntuple(i -> log(Dp[i] / Dm[i]) / (dhi - dlo), 3)
                 end
             end
@@ -749,6 +755,10 @@ function nlo_it(m::NetGas, k, ρ, T, s)
     end
     ned = needJ ? nebase * exp(c.qn[1] * lt + c.qn[2] * lx + c.qn[3] * lx2 + c.qn[4] * lr) : nebase
     k <= length(NLONED[]) && (NLONED[][k] = Float64(ForwardDiff.value(ned)))     # n_e of the iterate, for fill_opac!'s xnen (the scattering share of the formal solution)
+    if TX.AD_JV[] && !slon && typeof(ned) <: ForwardDiff.Dual
+        neL = get(TX.SLQBUF, (:locop_ne, typeof(ned)), nothing)
+        neL !== nothing && k <= length(neL) && (@inbounds (neL::Vector{typeof(ned)})[k] = ned)
+    end
     return chicap(max(κR0 * RR, COp.σT * ned / ρ), T), κP0 * RE, κP0 * RP
 end
 "(diagnostic, NLOITDIAG=n: n sweeps of fill_opac!) per network zone the NLOIT opacities against those the lagged NLOPAC ratio would give at the same state."
@@ -1091,8 +1101,15 @@ function tl3_heat(ρ, T, d, p)
     wd >= 1 && return (zero(T), zero(T))
     nH = ρ / CNn.μH(); C = tl3_C(T, p); xH = max(d[:H], zero(T)); xe = max(d[:e], zero(T)); xp = max(d[:Hp], zero(T))
     Q12 = nH * xe * q12_H(T); I = (1 - C) * xH * (Q12 + p.P12); rec = alphaB_recfast(T) * nH * xe * xp
-    Ein = p.hν + E21 * p.P12 / (Q12 + p.P12 + 1e-300)
-    chemq = nH * (I * Ein - C * rec * (CNn.χH + 0.75CNn.kB * T))
+    if iszero(p.P12)
+        I_Ein = I * p.hν
+    elseif _val(Q12 + p.P12) < 1e-150
+        I_Ein = (1 - C) * xH * ((Q12 + p.P12) * p.hν + E21 * p.P12)
+    else
+        Ein = p.hν + E21 * p.P12 / (Q12 + p.P12 + 1e-300)
+        I_Ein = I * Ein
+    end
+    chemq = nH * (I_Ein - C * rec * (CNn.χH + 0.75CNn.kB * T))
     cycq = nH * (1 - C) * rec * (p.hν - CHI2 - 0.75CNn.kB * T)
     LYABB[] && (chemq += lya_bb(ρ, T, d, p))
     (1 - wd) * chemq, (1 - wd) * cycq
@@ -1141,6 +1158,7 @@ Window of the band Jacobian: the colour-coded Duals of the residual carry the de
 blocks 3 or more apart share a seed slot). A non-local quantity of zone k is therefore built from the Duals of zones j with |j − k| ≤ 2 and the
 values of all others; the rest of its dependence on the iterate is seen by the Jacobian-vector products of the Newton–Krylov solve.
 """
+@inline winv(x::ForwardDiff.Dual{<:Any,<:Any,1}, j, k) = x
 @inline winv(x::ForwardDiff.Dual, j, k) = abs(j - k) <= 2 ? x : ForwardDiff.value(x)
 @inline winv(x, j, k) = x
 @inline _val(x) = x isa ForwardDiff.Dual ? ForwardDiff.value(x) : x
@@ -1162,7 +1180,7 @@ Non-local sums keep the Duals of the zones in the band window of the consumer zo
 """
 function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = nothing)
     sl = STARLIGHT[]; arad = 7.565723e-15; σ = 5.670374419e-5; chi = TM.v(:chifn); isD = eltype(dn) <: ForwardDiff.Dual; CMBE = arad * sl.tcmb^4
-    T = eltype(dn); inv_mu = 1 / CNn.μH()
+    T = eltype(dn); isD1 = T <: ForwardDiff.Dual{<:Any,<:Any,1}; inv_mu = 1 / CNn.μH()
     # optical depth: τ[j] by values, and the Dual corrections (zero value) that a consumer zone k picks up from the zones i that depend on
     # blocks inside its window (zone i = k−3 reaches block k−2 through r_{i+1}; the partials of block k−3 land in a seed slot the band never reads)
     τv = get!(() -> zeros(b + 2), TX.SLQBUF, (:sl_tauv, b + 2))::Vector{Float64}; fill!(τv, 0.0)
@@ -1171,19 +1189,32 @@ function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = not
         z0_ = TX.ZONE0[]; sl0_ = TX.CPLSL[]; TX.CPLSL[] = nothing
         loc = get!(() -> (Vector{T}(undef, length(xs1)), Vector{T}(undef, length(xs1))), TX.SLQBUF, (:locop, T, length(xs1)))::Tuple{Vector{T},Vector{T}}
         chiL, kpL = loc
+        if isD1
+            neL = get!(() -> zeros(T, length(xs1)), TX.SLQBUF, (:locop_ne, T))::Vector{T}
+            length(neL) < length(xs1) && resize!(neL, length(xs1))
+        end
         cdv = get!(() -> Vector{T}(undef, b), TX.SLQBUF, (:sl_cdv, T, b))::Vector{T}
         try
             TX.zone_sweep!(a:b, _ -> true) do i
+                if isD1
+                    m_ = TX.MATERIAL[]
+                    if m_ isa NetGas && m_.eqzone[i]
+                        Tq = min(tn[i], 1e6)
+                        @inbounds neL[i] = (CNn.HECHEM ? (z_ = EQ.composition_he(dn[i], Tq); EQ.composition(dn[i], Tq)[1] + z_[1] + 2z_[2]) : EQ.composition(dn[i], Tq)[1]) * dn[i] * inv_mu
+                    else
+                        @inbounds neL[i] = TM.v(:xnen)[i] * (dn[i] / _val(dn[i]))
+                    end
+                end
                 ch_, _, kp_ = TX.material_opac(TX.MATERIAL[], dn[i], tn[i])
                 @inbounds chiL[i] = ch_; @inbounds kpL[i] = kp_
-                vc_ = _val(ch_); @inbounds cdv[i] = vc_ > 0 ? chi[i] * (ch_ / vc_) : T(chi[i])
+                vc_ = _val(ch_); @inbounds cdv[i] = (isD1 || !(vc_ > 0)) ? ch_ : chi[i] * (ch_ / vc_)
             end
             for i in 1:a-1; @inbounds cdv[i] = zero(T); end
             cdv
         finally TX.ZONE0[] = z0_; TX.CPLSL[] = sl0_ end
     else nothing end
     corτ(i, k) = (c_ = (chiD === nothing ? chi[i] : winv(chiD[i], i, k)) * winv(dn[i], i, k) * (winv(rn[i+1], i + 1, k) - winv(rn[i], i, k)); c_ - _val(c_))
-    τwin(j, k) = j > b ? zero(T) : isD ? τv[j] + sum((corτ(i, k) for i in max(j, k - 3):min(b, k + 2)); init = zero(T)) : τv[j]
+    τwin(j, k) = j > b ? zero(T) : isD1 ? τv[j] + sum((corτ(i, k) for i in j:b); init = zero(T)) : isD ? τv[j] + sum((corτ(i, k) for i in max(j, k - 3):min(b, k + 2)); init = zero(T)) : τv[j]
     ph = τv[a] >= 2 / 3                                               # (a photosphere inside the grid)
     jph = ph ? findlast(j -> τv[j] >= 2 / 3, a:b) + a - 1 : a         # bracketing interfaces jph, jph+1: τ ≥ 2/3 > τ
     SDPH && (SDPHJ[] != jph && println("SDPH sweep jstep ", Int(TF.getscalar(:jstep)), " thet ", TF.getscalar(:thet), ": iterate jph ", jph - a + 1, " (was ", SDPHJ[] - a + 1, ")"); SDPHJ[] = jph)
@@ -1244,16 +1275,18 @@ function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = not
             if lwcols
                 N2 = P2[k] + 0.5 * c2(k, k, on); N1 = P1[k] + 0.5 * c1(k, k, on)
                 if isD                                                   # the Duals inside the window and of the transition zones
-                    @inbounds for j in max(a, k - 3):k - 1
+                    @inbounds for j in (isD1 ? a : max(a, k - 3)):k - 1
                         wj = sl_lwon(τwin(j, k))
                         c2j = c2(j, k, wj); c1j = c1(j, k, wj)
                         N2 += c2j - _val(c2j); N1 += c1j - _val(c1j)
                     end
-                    @inbounds for j in trans
-                        j < k - 3 || continue
-                        wj = sl_lwon(τwin(j, k))
-                        c2j = c2(j, k, wj); c1j = c1(j, k, wj)
-                        N2 += c2j - _val(c2j); N1 += c1j - _val(c1j)
+                    if !isD1
+                        @inbounds for j in trans
+                            j < k - 3 || continue
+                            wj = sl_lwon(τwin(j, k))
+                            c2j = c2(j, k, wj); c1j = c1(j, k, wj)
+                            N2 += c2j - _val(c2j); N1 += c1j - _val(c1j)
+                        end
                     end
                 end
                 if sl.shield === :sobolev

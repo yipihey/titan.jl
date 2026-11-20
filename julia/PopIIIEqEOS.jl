@@ -176,7 +176,7 @@ end
 "Equilibrium composition y = (x_H⁺, 0, x_H₂, 0) at (ρ, T) (bilinear, Float64)."
 function composition(ρ, T)
     t = table(); x = gx(t, log10(ρ)); y = gy(t, log10(T))
-    i = clamp(floor(Int, x), 1, t.nρ - 1); j = clamp(floor(Int, y), 1, t.nT - 1); a = clamp(x - i, 0, 1); b = clamp(y - j, 0, 1)
+    i = clamp(floor(Int, ForwardDiff.value(x)), 1, t.nρ - 1); j = clamp(floor(Int, ForwardDiff.value(y)), 1, t.nT - 1); a = clamp(x - i, 0, 1); b = clamp(y - j, 0, 1)
     bl(A) = (1 - a) * (1 - b) * A[i, j] + a * (1 - b) * A[i+1, j] + (1 - a) * b * A[i, j+1] + a * b * A[i+1, j+1]
     (bl(t.xHp), 0.0, bl(t.fH2) / 2, 0.0)
 end
@@ -184,7 +184,7 @@ end
 function composition_he(ρ, T)
     HEEOS || return (0.0, 0.0)
     t = table(); z1, z2 = HETAB[]; x = gx(t, log10(ρ)); y = gy(t, log10(T))
-    i = clamp(floor(Int, x), 1, t.nρ - 1); j = clamp(floor(Int, y), 1, t.nT - 1); a = clamp(x - i, 0, 1); b = clamp(y - j, 0, 1)
+    i = clamp(floor(Int, ForwardDiff.value(x)), 1, t.nρ - 1); j = clamp(floor(Int, ForwardDiff.value(y)), 1, t.nT - 1); a = clamp(x - i, 0, 1); b = clamp(y - j, 0, 1)
     bl(A) = (1 - a) * (1 - b) * A[i, j] + a * (1 - b) * A[i+1, j] + (1 - a) * b * A[i, j+1] + a * b * A[i+1, j+1]
     (bl(z1), bl(z2))
 end
