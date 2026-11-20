@@ -1199,9 +1199,17 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
     ms = [mons(j) for j in zl:zh]
     Ipp = sum(m[1] / ν(j) for (j, m) in zip(zl:zh, ms)); Iff = sum(m[2] / ν(j) for (j, m) in zip(zl:zh, ms))
     amix = hasproperty(ge, :amix) ? ge.amix : 0.0
+    # Inside-out ceiling on the relaxation time (smooth, differentiated, no lag): tau~_j = smin(tau_j, q tau~_{j-1}), q = (1+alph_g)/alph_g, the neighbour-ratio
+    # bound of the mesh (alph_g = GEQC[2]); tau~_zl = tau_zl. A zone's own tau (t_dyn, t_cross, speed floor) can be 1e3-1e8 dt when the step is set by the collapsing
+    # core; the row n̂_j = n̂_j-1 chain then freezes the envelope mesh and the zones that are free (core) cannot get nodes (zone 2-6 mass ratios ~9 instead of <=2).
+    # The ceiling lets the relaxation time grow outward from the core by at most the mesh's own neighbour ratio per zone (core -> envelope hand-over of nodes).
+    τraw = [tau(j) for j in zl:zh]; τct = similar(τraw); qτ = (1 + ge.alph) / ge.alph
+    @inbounds for i in eachindex(τraw)
+        τct[i] = i == 1 ? τraw[1] : (τraw[i]^-4 + (qτ * τct[i-1])^-4)^-0.25
+    end
     nhat(j) = begin
         m = ms[j-zl+1]; Mj = amix > 0 ? amix * (Ipp / Iff) * m[2] + (1 - amix) * m[1] : m[1]
-        γ = tau(j) / dt
+        γ = τct[j-zl+1] / dt
         ((1 + γ) * m[3] - γ * m[4]) / Mj
     end
     @inbounds for k in k1+1:k2-1
