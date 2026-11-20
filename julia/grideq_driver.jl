@@ -118,26 +118,36 @@ function grideq_step!()
                 v[i] = -(D.M[i] - Mp[i]) / (t - pv[1]) * Md / (Md^2 + (2D.M[i])^2)
             end
             for i in 1:nd
-                vm = maximum(abs, v[max(i - 1, 1):min(i + 1, nd)]); j = i + 1      # (D covers zones 2…n)
+                il, ih = max(i - 1, 1), min(i + 1, nd); j = i + 1      # (D covers zones 2…n)
+                # Coherent translation filter: opposite-sign flanks around a stationary breathing peak (v[il]*v[ih] <= 0) cancel;
+                # also bound by the local donor-preserving advective rate f_v * min(|u_j|, |u_{j+1}|) / r_c so feature tracking
+                # never drives a quasi-hydrostatic front faster than the gas velocity |u| (which would flip the upwind donor u - rdot).
+                vcoh = v[il] * v[ih] > 0 ? abs(sum(v[il:ih]) / (ih - il + 1)) : 0.0
+                rc = 0.5 * (s.r[j] + s.r[j+1])
+                vadv = GEQC[4] * min(abs(s.u[j]), abs(s.u[j+1])) / max(rc, 1e-300)
+                vm = min(vcoh, vadv)
                 vm > 0 && (tfe[j] = log(s.r[j+1] / s.r[j]) / vm)
             end
         end
         GEQPREV[] = (t, D.x, D.M)
     end
     if GRIDEQP == 1
+        prev_tv = (TX.GRIDEQ[] !== nothing && hasproperty(TX.GRIDEQ[], :tauv) && length(TX.GRIDEQ[].tauv) == length(TF.var(:rn))) ? TX.GRIDEQ[].tauv : nothing
         tauv = zeros(length(TF.var(:rn))); sx = zeros(length(TF.var(:rn)))
         lτ = log.(clamp.(max.(s.τ, 1e-300), GEQC[6], GEQC[7])); lτc = [0.5 * (lτ[j] + lτ[j+1]) for j in 1:n]
         for j in 1:n
             # (feature tracking; floor: a zone moving its own width in t_relax goes at most fv (|u| + c_s))
             dxj = j >= 2 ? log(s.r[j+1] / s.r[j]) : 1.0
             # (κf = 0: no feature tracking; 0 × Inf would be NaN and min() propagates it into every grid row)
-            tr_ = max(κf > 0 ? min(κ * tc[j], κf * tfe[j]) : κ * tc[j], dxj * tc[j] / min(GEQC[4] * GEQC[3] / κ, fvr)); tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_   # (GEQRAMP: floor ramped with κ, grid speed ≤ fvr (|u| + c_s))
+            tr_ = max(κf > 0 ? min(κ * tc[j], κf * tfe[j]) : κ * tc[j], dxj * tc[j] / min(GEQC[4] * GEQC[3] / κ, fvr))
+            prev_tv !== nothing && prev_tv[a+j-1] > 0 && (tr_ = max(tr_, 0.5 * prev_tv[a+j-1]))
+            tr_ < κ * tc[j] && (nfast += 1); tauv[a+j-1] = tr_   # (GEQRAMP: floor ramped with κ, grid speed ≤ fvr (|u| + c_s))
             jm, jp = max(j - 1, 2), min(j + 1, n); h = jp - jm == 2 ? 0.5 : 1.0
-            sx[a+j-1] = GEQW[6] * (h * (lτc[jp] - lτc[jm]))^2
+            sx[a+j-1] = GEQW[6] * h * ((lτc[jp] - lτc[j])^2 + (lτc[j] - lτc[jm])^2)
             # velocity jump in units of the signal speed, (r ∂u/∂r)/(|u| + c_s): resolves shocks (the zone's own Δu, per zone index)
             GEQW[7] > 0 && (sx[a+j-1] += GEQW[7] * ((s.u[j+1] - s.u[j]) / (0.5 * (abs(s.u[j]) + abs(s.u[j+1])) + s.cs[j]))^2)
-            # GEQX: composition, ln(x + xfl) of every species, centred zone differences as the τ term
-            s.X === nothing || (sx[a+j-1] += GEQX[1] * sum((h * (s.X[q, jp] - s.X[q, jm]))^2 for q in axes(s.X, 1)))
+            # GEQX: composition, ln(x + xfl) of every species, adjacent interface jumps
+            s.X === nothing || (sx[a+j-1] += GEQX[1] * h * sum((s.X[q, jp] - s.X[q, j])^2 + (s.X[q, j] - s.X[q, jm])^2 for q in axes(s.X, 1)))
         end
         TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (GEQW[1], GEQW[2], GEQW[3], GEQW[4], GEQW[5]), alph = GEQC[2], gmax = GEQC[1], tauv, sx, wχ = GEQW[8], gp = (GEQGP[1], GEQGP[2] * 3.828e33 / (4π)))
     else

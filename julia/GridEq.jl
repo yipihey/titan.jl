@@ -56,10 +56,12 @@ function density(r, m, ρ, P, T, E, τ; w = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), gmax
     fs = (log.(ρ[2:n]), log.(P[2:n]), log.(T[2:n]), log.(max.(E[2:n], 1e-300)), lmc, ltc)
     M = similar(x)
     for i in eachindex(x)
-        il, ih = max(i - 1, 1), min(i + 1, length(x)); dx = x[ih] - x[il]
+        il, ih = max(i - 1, 1), min(i + 1, length(x))
+        dl = i > il ? (x[i] - x[il]) : 1.0; dh = ih > i ? (x[ih] - x[i]) : 1.0
+        w2 = (i > il && ih > i) ? 0.5 : 1.0
         G2 = 0.0
-        for (wq, f) in zip(w, fs); G2 += wq * ((f[ih] - f[il]) / dx)^2; end
-        (X === nothing || wx == 0) || (G2 += wx * sum(((X[q, ih+1] - X[q, il+1]) / dx)^2 for q in axes(X, 1)))   # (X: zones 1…n, x: zones 2…n)
+        for (wq, f) in zip(w, fs); G2 += wq * w2 * (((f[i] - f[il]) / dl)^2 + ((f[ih] - f[i]) / dh)^2); end
+        (X === nothing || wx == 0) || (G2 += wx * w2 * sum(((X[q, i+1] - X[q, il+1]) / dl)^2 + ((X[q, ih+1] - X[q, i+1]) / dh)^2 for q in axes(X, 1)))   # (X: zones 1…n, x: zones 2…n)
         G2 = G2 * gmax^2 / (G2 + gmax^2); M[i] = sqrt(1 + G2)
     end
     (; x, M)
