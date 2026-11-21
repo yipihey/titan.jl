@@ -93,7 +93,7 @@ let n = 30, nH = 1e14, R = 1e14
     r, u, ρ, T, nH2 = sphere(n; R, nH2 = 0.5nH)
     _, La, _ = HL.cooling(L, r, u, ρ, T, nH2; nlte = nltez(n, nH)); la = HL.LAST[]
     _, Lb, _ = HL.cooling(L, r, u, ρ, T, nH2)
-    @printf("  L_ALI/L_LTE = %.5f  (ALI iterations %d, EP start %d, converged %s, thick lines %d)\n", La[end] / Lb[end], la.iters, la.nep, la.converged, la.nthick)
+    @printf("  L_ALI/L_LTE = %.5f  (ALI iterations %d, converged %s, thick lines %d)\n", La[end] / Lb[end], la.iters, la.converged, la.nthick)
     chk("nlte = LTE within 1 %", abs(La[end] / Lb[end] - 1) < 0.01)
 end
 
