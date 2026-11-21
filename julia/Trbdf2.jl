@@ -110,7 +110,8 @@ function sd_clo()
     end
     println("SDCLO jstep ", Int(g(:jstep)), " thet ", g(:thet), " dt ", g(:dtime), " it ", Int(g(:iter)), " dmax ", g(:dmax), String(take!(io)))
 end
-const SDESTNK = get(ENV, "SDESTNK", "0") == "1"   # the estimate's linear solves also get the Krylov refinement (exact J v), as the Newton solves do; default: band J_b only
+# Default ON (meshfix): the filter solves of the estimate need the exact J v where NKRYLOV runs the Newton; the band J_b misses the nonlocal F_r flux-tie coupling (VEFIMP: h of the formal solution at the iterate), which left an h-independent F_r estimate (err 1.4-1.6, F_r zone 72, every attempt rejected from t_mf02 step 369). SDESTNK=0 restores the band-only filter.
+const SDESTNK = get(ENV, "SDESTNK", "1") != "0"
 const SD_FLAGS = Ref{Any}(nothing)          # (popiii_m2c) k -> String: regime flags of zone k (table/network, coupled)
 const SDACC = Dict{Tuple{Symbol,Int,Int},Float64}(); const SDTAG = Ref(:e0)
 function nwtrace_it()
