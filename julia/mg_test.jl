@@ -60,13 +60,13 @@ states = [  # (label, ρ, T, Tw, nH fractions: x_H, x_e(=x_p), x_H2, x_H-)
 for (lab, ρ, T, Tw, xH, xe, xH2, xHm) in states
     nH = ρ / (1.4 * 1.6735575e-24); n1 = xH * nH; ne = xe * nH; np = ne; nH2 = xH2 * nH; nHm = xHm * nH; nHe = 0.0789 * nH
     n2 = G2O.n2_lte(T, n1, np, n1 + nHe + nH2)
-    κE, κP, χ, k1, gE, gP, gχ = G2O.group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHp = np, ne, nHm, nHmS = nHm, hbfP = false, Tw, Tmin = 1.0)
+    κE, κP, χ, k1, gE, gP, gχ = G2O.group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHp = np, ne, nHm, hbfP = false, Tw, Tmin = 1.0)
     sP = sum(TX.mg_bfrac(g, T) * κP[g] for g in 1:G) / gP; sE = sum(TX.mg_bfrac(g, Tw) * κE[g] for g in 1:G) / gE
     sR = sum(dbfrac(g, T) / χ[g] for g in 1:G if χ[g] > 0) * gχ
     check(max(abs(sP - 1), abs(sE - 1), abs(sR - 1)) < 2e-2, @sprintf("%-24s Σ b κP/κP %.4f, Σ b(Tw) κE/κE %.4f, Σ b'/χ·χ %.4f | rP %s | rR %s | κ1s ion %.3e (κE grey %.3e)",
           lab, sP, sE, sR, join((@sprintf("%.3g", κP[g] / gP) for g in 1:G), " "), join((@sprintf("%.3g", χ[g] / gχ) for g in 1:G), " "), k1[4], gE))
     # the fast grey means of the same physics
-    m = G2O.means_fast(ρ, T; n1, n2, nH2, nHe, nHp = np, ne, nHm, nHmS = nHm, hbfP = false, Tw)
+    m = G2O.means_fast(ρ, T; n1, n2, nH2, nHe, nHp = np, ne, nHm, hbfP = false, Tw)
     check(maximum(abs.([gE, gP, gχ] ./ collect(m) .- 1)) < 1e-12, @sprintf("%-24s grey means of group_fast = means_fast (%.1e)", lab, maximum(abs.([gE, gP, gχ] ./ collect(m) .- 1))))
 end
 println(nbad[] == 0 ? "all passed" : "$(nbad[]) FAILED")

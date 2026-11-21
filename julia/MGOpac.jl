@@ -54,7 +54,7 @@ function mg_ratios!(m::NetGas)
         nHmS = n1 * ne / CNn.Keq([:Hm], [:H, :e], T); nHm = haskey(d, :Hm) ? nH * max(d[:Hm], 0.0) : nHmS
         Tw = NLOPACJ[] && hasproperty(p, :Tc) ? p.Tc : T; hbf = hbf_deep(p)
         y = try
-            G2O.group_fast(ρ, T, MGGIDX[], G; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS,
+            G2O.group_fast(ρ, T, MGGIDX[], G; n1, n2 = n2_tl3(T, n1, ne, np, p), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm,
                            hbfP = hbf, Tw, nHep = nH * max(get(d, :Hep, 0.0), 0.0), nHepp = nH * max(get(d, :Hepp, 0.0), 0.0), Tmin = MGTMIN)
         catch
             nothing

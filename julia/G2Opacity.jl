@@ -49,12 +49,12 @@ function freq()
 end
 
 """
-    means(ρ, T; n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS, hbfP, Tw = T) -> (κ_E, κ_P, κ_R) [cm² g⁻¹]
+    means(ρ, T; n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, hbfP, Tw = T) -> (κ_E, κ_P, κ_R) [cm² g⁻¹]
 
 As PopIIIMaterial.nlte_means (n1: H atoms, taken as the ground state; n2: population of n = 2 [cm⁻³]; nHe: neutral He) with the
 additions listed in the module docstring.
 """
-function means(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, nHmS, hbfP, Tw = T)
+function means(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, hbfP, Tw = T)
     ρ = Float64(ρ); T = Float64(T); F = freq(); t = COp.tables(); kT = COp.kB * T
     sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0; wJ = Tw != T
     Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
@@ -66,12 +66,11 @@ function means(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, n
     pH = ntuple(n -> n == 1 ? ng : pH0[n], NLEV)
     UHe = sum(n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n] for n in 1:NLEV)
     pHe = ntuple(n -> nHep * n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n] / max(UHe, 1e-300), NLEV)
-    cia = nH2 > 1e-3 * n1; acia = 0.0
     νH = χH / COp.h; νHe = χ2 / COp.h
     @inbounds for i in eachindex(F.ν)
         ν = F.ν[i]; dν = F.dν[i]; σ = F.σ[i]; λμ = F.λμ[i]; ν3 = F.ν3[i]
         stim = -expm1(-COp.h * ν / kT)
-        cia && i % 8 == 1 && (acia = COp.k_h2h2(t, σ, T) * nH2^2 + COp.kcia(t.H2He, σ, T) * nH2 * nHe + COp.kcia(t.H2H, σ, T) * nH2 * n1)
+        acia = (COp.k_h2h2(t, σ, T) * nH2^2 + COp.kcia(t.H2He, σ, T) * nH2 * nHe + COp.kcia(t.H2H, σ, T) * nH2 * n1)      # CIA at every frequency point, always
         # free–free: H⁻ (John 1988), H⁺ + He⁺ (Z = 1) and He²⁺ (Z = 2) with van Hoof Gaunt factors
         aff = COp.k_Hm_ff(λμ, T) * ng * ne * kT
         aff += 3.692e8 * ne / (sqrt(T) * ν3) * stim * ((nHp + nHep) * Z0.gaunt_ff(1, T, ν) + (nHepp > 0 ? 4nHepp * Z0.gaunt_ff(2, T, ν) : 0.0))
@@ -105,7 +104,7 @@ function means(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, n
         sca = F.ray2[i] * nH2 + F.ray1[i] * ng + COp.σT * ne
         B = COp.Bν(ν, T); D = COp.dBdT(ν, T); h = hbfP ? ab : 0.0
         BJ = wJ ? COp.Bν(ν, Tw) : B
-        sE += (a0 + σhm * nHm + h) * BJ * dν; sW += BJ * dν; sP += (a0 + σhm * nHmS + h) * B * dν; sB += B * dν
+        sE += (a0 + σhm * nHm + h) * BJ * dν; sW += BJ * dν; sP += (a0 + σhm * nHm + h) * B * dν; sB += B * dν
         sR += D / max(a0 + σhm * nHm + ab + sca, 1e-300) * dν; sD += D * dν
     end
     (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
@@ -210,9 +209,9 @@ end
 end
 
 "`means` on the fast grid (see FAST); same arguments and conventions, generic in the number type."
-means_fast(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, nHmS, hbfP, Tw = T) =
-    _means_fast(fastgrid(), ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS, hbfP, Tw)
-function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS, hbfP, Tw)     # (function barrier: F concrete)
+means_fast(ρ, T; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, hbfP, Tw = T) =
+    _means_fast(fastgrid(), ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, hbfP, Tw)
+function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, hbfP, Tw)     # (function barrier: F concrete)
     kB = COp.kB; h = COp.h; kT = kB * T
     Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
     χH = Z0.χH; χ2 = Z0.χHe2
@@ -230,7 +229,7 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS
     for n in 1:NLEV; pHe[n] *= nHep / UHe; end
     lT = log10(ForwardDiff_value(T)); x = clamp((lT - FLT0) / FDLT, 0.0, FNT - 1 - 1e-9); j = floor(Int, x) + 1
     a = clamp((log10(T) - FLT0) / FDLT - (j - 1), 0.0, 1.0)            # (generic weight; clamped at the table ends)
-    cia = nH2 > 1e-3 * n1; wJ = Tw != T
+    wJ = Tw != T
     # dissolved-level contributions per node (sparse)
     for (i, n, ns, σe) in F.DIS
         d = 1 - exp(Z0.ln_occupation(ns, 1, Nion, Nneu) - lwH[n])         # (the ratio of two occupation probabilities, from their logarithms: both can be 1e-100)
@@ -251,13 +250,13 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, nHmS
         ahe *= stim
         aff = _tint(F.HF, j, a, i) * ng * ne * kT +
               3.692e8 * ne / (sqrt(T) * F.ν3[i]) * stim * ((nHp + nHep) * _tint(F.G1, j, a, i) + 4nHepp * _tint(F.G2, j, a, i))
-        acia = cia ? (_tint(F.C1, j, a, i) * nH2^2 + _tint(F.C2, j, a, i) * nH2 * nHe + _tint(F.C3, j, a, i) * nH2 * n1) : zero(aff)
+        acia = _tint(F.C1, j, a, i) * nH2^2 + _tint(F.C2, j, a, i) * nH2 * nHe + _tint(F.C3, j, a, i) * nH2 * n1
         a0 = acia + aff + ahe
         σhm = F.σhm[i] * stim
         sca = F.ray2[i] * nH2 + F.ray1[i] * ng + COp.σT * ne
         hb = hbfP ? ab : zero(ab)
         BJ = wJ ? COp.Bν(ν, Tw) : B
-        sE += (a0 + σhm * nHm + hb) * BJ * dν; sW += BJ * dν; sP += (a0 + σhm * nHmS + hb) * B * dν; sB += B * dν
+        sE += (a0 + σhm * nHm + hb) * BJ * dν; sW += BJ * dν; sP += (a0 + σhm * nHm + hb) * B * dν; sB += B * dν
         sR += D / max(a0 + σhm * nHm + ab + sca, 1e-300) * dν; sD += D * dν
     end
     (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
@@ -271,7 +270,7 @@ temperature broke the emission identity below it: 1000 K cloud gas then over-emi
 Returns (κE_g, κP_g, χ_g, κ1s_g, κE, κP, χ): κ1s_g the H(1s) bound–free absorption per mass with the in-group shape B_ν(max(Tw, Tmin)) (the
 star's light, also in unlit cold gas where B_ν(Tw) of the ionising groups underflows), whether or not hbfP puts H bound–free into κE_g.
 """
-function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, nHmS, hbfP, Tw = T, Tmin = 3000.0)
+function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, hbfP, Tw = T, Tmin = 3000.0)
     F = fastgrid(); kB = COp.kB; h = COp.h; ρ = Float64(ρ); T = Float64(T); Tw = Float64(Tw); kT = kB * T
     Ts = T; Tws = Tw; T1s = max(Tw, Tmin)
     Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
@@ -284,7 +283,7 @@ function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, n
     for n in 1:NLEV; pHe[n] = n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n]; UHe += pHe[n]; end
     for n in 1:NLEV; pHe[n] *= nHep / UHe; end
     x = clamp((log10(T) - FLT0) / FDLT, 0.0, FNT - 1 - 1e-9); j = floor(Int, x) + 1; a = clamp(x - (j - 1), 0.0, 1.0)
-    cia = nH2 > 1e-3 * n1; wJ = Tw != T
+    wJ = Tw != T
     N = length(F.ν); dis = zeros(N); dis1 = zeros(N)
     for (i, n, ns, σe) in F.DIS
         d = 1 - Z0.occupation(ns, 1, Nion, Nneu) / max(wH[n], 1e-300)
@@ -313,13 +312,13 @@ function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, n
         ahe *= stim
         aff = _tint(F.HF, j, a, i) * ng * ne * kT +
               3.692e8 * ne / (sqrt(T) * F.ν3[i]) * stim * ((nHp + nHep) * _tint(F.G1, j, a, i) + 4nHepp * _tint(F.G2, j, a, i))
-        acia = cia ? (_tint(F.C1, j, a, i) * nH2^2 + _tint(F.C2, j, a, i) * nH2 * nHe + _tint(F.C3, j, a, i) * nH2 * n1) : 0.0
+        acia = _tint(F.C1, j, a, i) * nH2^2 + _tint(F.C2, j, a, i) * nH2 * nHe + _tint(F.C3, j, a, i) * nH2 * n1
         a0 = acia + aff + ahe
         σhm = F.σhm[i] * stim
         sca = F.ray2[i] * nH2 + F.ray1[i] * ng + COp.σT * ne
         hb = hbfP ? ab : 0.0
         BJ = wJ ? COp.Bν(ν, Tw) : B
-        aE = a0 + σhm * nHm + hb; aP = a0 + σhm * nHmS + hb; ext = a0 + σhm * nHm + ab + sca
+        aE = a0 + σhm * nHm + hb; aP = a0 + σhm * nHm + hb; ext = a0 + σhm * nHm + ab + sca
         sE += aE * BJ * dν; sW += BJ * dν; sP += aP * B * dν; sB += B * dν
         sR += D / max(ext, 1e-300) * dν; sD += D * dν
         g = gidx[i]; Bs = Bf(ν, Ts); Bw = Bf(ν, Tws); Ds = Df(ν, Ts)
