@@ -220,7 +220,7 @@ const SLIMP = Ref(false); const CPL_ZONEQ = Ref{Any}(nothing); const CPLSL = Ref
 const SLIMPDBG = Ref(parse(Int, get(ENV, "SLIMPDBG", "0")))   # (diagnostic) report the first n non-finite SLIMP values in the residual
 const SLQBUF = Dict{Any,Any}()
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
-"Weight floor of the species corrections in maxdel's convergence measure, and the clamp of a species correction per Newton iteration."
+"Weight floor of the species corrections in maxdel's convergence measure (cpl_dmax!). It weights only the measure: no species correction is clamped."
 const CPL_XFLOOR = Ref(1e-8)
 """
 Time weight of the chemistry source and cooling in the coupled rows (default 1: backward Euler in every stage, also in TR-BDF2's
