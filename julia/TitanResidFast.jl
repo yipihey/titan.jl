@@ -345,6 +345,7 @@ Dual-energy switch, evaluated on the OLD (start-of-step) state and frozen during
 iteration: zone k keeps TITAN's internal-energy row when
 η_k = m(e_g [+E_r/ρ]) / (m(e_g [+E_r/ρ]) + K_k) < ηsw  (K_k = m(u_k²+u_{k+1}²)/4).
 """
+const TIE_SW = Ref((key = (0, 0.0, 0.0, 0.0, 0, 0), on = Bool[]))
 function dualswitch(ngrs, ngre, lrad, ηsw)
     mgr = TF.MGR; ui = get!(() -> fill(false, mgr), BUFS, :useint)::Vector{Bool}; fill!(ui, false)
     ηsw > 0 || return ui
@@ -364,9 +365,16 @@ function dualswitch(ngrs, ngre, lrad, ηsw)
     end
     wtie = ETASW_TIE[]
     if wtie > 0 && lrad && TD.FLUXTIE[][2] > 0 && length(TD.TIEW) >= ngre
-        W = TD.TIEW
+        # the tie weight of the iterate crosses wtie from one Newton iteration to the next in a zone at the edge of the tie (W = 0.50 at wtie = 0.5):
+        # the zone then alternated between the two energy rows, which differ by u × (moment-equation residual), a 1e-7 step in the row that Newton cycled on
+        # (zeulnc, zone 37 x_H2). As the η switch above, the choice is made once, on the weights the step starts from, and held for all its iterations.
+        key = (gi(:jstep), gf(:thet), gf(:dtime), wtie, ngrs, ngre); sw = TIE_SW[]
+        if sw.key != key
+            W = TD.TIEW; TIE_SW[] = (key = key, on = [k <= length(W) && W[k] >= wtie for k in 1:ngre])
+            sw = TIE_SW[]
+        end
         for k in ngrs:ngre
-            ui[k] || (ui[k] = W[k] >= wtie)
+            ui[k] || (ui[k] = sw.on[k])
         end
     end
     SDDSW[] === nothing || sd_dsw(ui, ngrs, dO, dv, uo, eo)
