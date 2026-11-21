@@ -519,7 +519,7 @@ const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(EN
 # H2 line transfer: ALI only (statistical equilibrium of the levels coupled to the formal solution, H2Lines.cooling_nlte; the
 # escape-probability and hybrid modes are gone). Every transfer call starts from the previous call's converged populations (POPS0,
 # aligned from the outside on the fixed mesh; cold start at the first call and after a remap).
-const NALICALL = Ref(0); const POPS0 = Ref(zeros(0, 0))
+const LEDGERZ = Ref(false); const NALICALL = Ref(0); const POPS0 = Ref(zeros(0, 0))
 "The previous call's populations on a reduced grid of nz_ zones (columns that have no predecessor are NaN: cold start), or nothing."
 function pops0_for(nz_)
     P = POPS0[]; n0 = size(P, 2)
@@ -646,6 +646,14 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0, chic = 
         pr("        ALI call %.1f s (ALI iterations %d, converged %s, warm start %s)\n", time() - tq, Lc.iters, Lc.converged, pops0_for(nz_) === nothing ? "no" : "yes")
         pr("        LEDGER k %d: sum V Lambda_coll %.6e = L_esc %.6e + absorbed by continuum %.6e (merged core %.3e); residual %.3e (relative to sum V Lambda_coll %.2e)\n",
            k, Sc, Le, Sa, Sk, Sc - Le - Sa, (Sc - Le - Sa) / max(abs(Sc), 1e-300))
+        if !LEDGERZ[]               # (once) the zones with continuum depth from the surface 0.1 .. 10 at the first call: collisional cooling, continuum-absorbed power, net
+            LEDGERZ[] = true; τz = 0.0; kpz = TF.var(:xkpn)
+            for j in nz_:-1:ncz+1
+                τz += (chic === nothing ? 0.0 : chic[j]) * (rr[j+1] - rr[j])
+                0.1 <= τz <= 10 && pr("        LEDGERZ zone %d (TITAN %d) r %.3e R_sun tau_cont(surface) %.3f T %.0f nH2 %.2e: Lambda_coll %.4e Lambda_cont %.4e (%.2e of coll) net %.4e flux-based %.4e\n",
+                                      j, zk(j), rr[j] / 6.957e10, τz, tt[j], nh2[j], Λcl[j-ncz], Lc.Labs[j], Lc.Labs[j] / Λcl[j-ncz], Λcl[j-ncz] - Lc.Labs[j], out_[1][j])
+            end
+        end
     end
     out_
 end
