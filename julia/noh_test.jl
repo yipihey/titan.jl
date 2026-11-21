@@ -1,9 +1,9 @@
 # Noh problem (spherical, γ = 5/3): cold uniform gas flowing into a reflecting wall, the high-Mach limit of the accretion shock (K/e ≫ 1 ahead of the shock).
-#   TITAN_NOLIB=1 [ETOTAL=0|1] julia --project=env noh_test.jl [n] [T0]
+#   TITAN_NOLIB=1 [ECOMPAT=1] julia --project=env noh_test.jl [n] [T0]
 # Exact solution inside the shock (r < |u0| t/3): u = 0, ρ = ((γ+1)/(γ−1))³ ρ0 = 64 ρ0, e = u0²/2 (all the kinetic energy thermalised), p = (γ−1) ρ e;
 # ahead of it ρ = ρ0 (1 + |u0| t/r)², u = u0. Hydrodynamics only (neqn = 5), Eulerian fixed mesh, inner wall at r = RIN, outer inflow (ρ0, T0, u0).
 # The run ends at t = 0.6 R/|u0|: gas at r < R − |u0| t (0.4 R) is initial gas, so the exact pre-shock state holds there (outside it the boundary's constant ρ0 flows in). Output: shock position and plateau values against the exact ones.
-# ETOTAL=1 (ETASW = 0): total-energy row everywhere; ETOTAL=0: the compatible internal-energy rows (TitanResidFast.ECOMPAT); unset: TITAN's own rows.
+# ECOMPAT=1: the compatible internal-energy rows (TitanResidFast.ECOMPAT); unset: TITAN's own rows.
 using Printf
 include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "JuliaPhysics.jl"))
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
@@ -24,9 +24,9 @@ PS.build!(; rI, rho = fill(ρ0, n), T = fill(T0, n), u = uI, geom = 2, lgrid = 2
 avm == "prod" && (TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "2")); TX.AV_TENSION[] = get(ENV, "AVTENSION", "0") == "1")
 INTEG == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
 PS.install_julia!(BlockSolver); TD.MSGIO[] = get(ENV, "NOHMSG", "0") == "1" ? stdout : devnull
-etot = get(ENV, "ETOTAL", "")
-etot == "1" && (TX.ETOTAL[] = true; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0")))
-etot == "0" && (TX.ECOMPAT[] = true; TX.GASROW[] = true)
+for k_ in ("ETOTAL", "ETASW"); haskey(ENV, k_) && error(k_ * " was removed (internal energy only; ECOMPAT=1 selects the compatible rows, ETOTMON=1 monitors the total energy)"); end
+etot = get(ENV, "ECOMPAT", "0")
+etot == "1" && (TX.ECOMPAT[] = true; TX.GASROW[] = true)
 mon = Any[]; get(ENV, "ETOTMON", "0") != "0" && (TD.STAGE_HOOK[] = (kind, dt) -> (push!(mon, TX.etot_monitor(dt)); nothing))
 ck, cm0 = TF.getscalar(:ck), TF.getscalar(:cm0)
 Tpost = (γ - 1) * μg * cm0 * 0.5u0^2 / ck                       # e = (k/(m0 μ)) T/(γ−1) = u0²/2
@@ -40,7 +40,7 @@ rs = abs(u0) * t / 3
 # shock position: first zone from the outside where ρ exceeds 32 ρ0 (halfway between the pre-shock 16 ρ0 and the post-shock 64 ρ0, scaled)
 is = findlast(>(32ρ0), d); rsh = rc[is]
 sel = findall(x -> 0.3rs < x < 0.8rs, rc)
-@printf("Noh n=%d T0=%g K (Mach %.0f, K/e %.0f) ETOTAL=%s: %d steps (%s), t = %.4e s, tend %.4e\n", n, T0, abs(u0) / sqrt(γ * ck * T0 / (cm0 * μg)),
+@printf("Noh n=%d T0=%g K (Mach %.0f, K/e %.0f) ECOMPAT=%s: %d steps (%s), t = %.4e s, tend %.4e\n", n, T0, abs(u0) / sqrt(γ * ck * T0 / (cm0 * μg)),
         0.5u0^2 / (ck * T0 / (cm0 * μg * (γ - 1))), etot == "" ? "unset" : etot, nst, why, t, tend)
 @printf("shock radius (ρ > 32 ρ0): %.4e, exact |u0|t/3 = %.4e, ratio %.4f\n", rsh, rs, rsh / rs)
 @printf("plateau 0.3-0.8 r_s (%d zones): T/T_RH median %.4f min %.4f max %.4f; ρ/(64ρ0) median %.4f min %.4f max %.4f; max|u|/|u0| %.3e\n", length(sel),

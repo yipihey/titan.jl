@@ -34,7 +34,7 @@ const POPIII_STACK = [
     # radiation
     "VEFIMP" => "1", "EDDGMU0" => "1", "EDDSCAT" => "1", "SUBZONE" => "1,2", "FLUXTIE" => "0.1,1", "ERTAUMIN" => "3000",
     # energy
-    "ETOTAL" => "1", "ETASW" => "0.6", "ETASWTH" => "1e-3", "ETASWTIE" => "0.5", "EXCAP" => "1e8",
+    "EXCAP" => "1e8", "ETOTMON" => "1",   # one energy variable (internal energy, compatible rows, unconditional); ETOTMON only monitors the total
     # hydro
     "AVZONE" => "2", "AVTENSION" => "0",
     # mesh: 290 zones, Δln r 0.0794 from a regular centre (one central zone to 0.1 R☉); GRIDEQ moving mesh (iterate-only monitor)

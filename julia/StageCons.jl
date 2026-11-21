@@ -11,17 +11,16 @@ implies; compare with ε = (z2 − z1)/(yₙ Δ) of DTERRDIAG (z = Δ × derivat
   r   (1)  C = r (:r)                 s = 1     (lgrid 3 row (rn − ro)/dt − u: ρ = u_θ − (rn − ro)/dt)
   m   (3)  continuity,  C = m = ρΔV (:m)           s = 1
   P   (4)  momentum,    C = u(m_{k−1} + m_k) (:P)  s = 2    (row is Δ[u(m_{k−1}+m_k)]/(2dt))
-  E   (5)  energy row, s = 1, of a type that depends on the zone (printed as `Etype` at the start): `etot` (ETOTAL and not on the dual-energy switch) Δ[m(e_g + E_r/ρ) + m(u_k²+u_{k+1}²)/4]/dt, C = C_mer + K,
-           K the kinetic energy of yₙ; `gas` (GASROW) Δ[m e_g]/dt, C = m e_g (:me); `mer` (neither) Δ[m(e_g + E_r/ρ)]/dt, C = :mer
+  E   (5)  energy row, s = 1, of a type that depends on the zone (printed as `Etype` at the start): `gas` (GASROW) Δ[m e_g]/dt, C = m e_g (:me); `mer` (neither) Δ[m(e_g + E_r/ρ)]/dt, C = :mer
   EV  (6)  E_r, C = E_r ΔV (:EV)      s = 1
   QF  (7)  F_r, C = F·2(m_{k−1}+m_k)/(ρ_{k−1}+ρ_k) (:QF)  s = 2c²   (row is ΔQF/(2c² dt); in FLUXTIE zones (TIEW > 0) the row is blended with the tie condition: not a derivative)
   x1, x2 (8, 9) species, C = m x (:x1, :x2)    s = 1
   xme (2)  mass-coordinate row x_me(k−1) − x_me(k) − m_{k−1}: no time derivative; printed R/m_{k−1} (dimensionless, NOT a rate)
-Item 2 evaluates the energy row with etotal = false (all zones gas-only or mer type) and compares :me and :mer = :me + :EV with the FSAL D.
+Item 2 evaluates the energy row (all zones gas-only or mer type) and compares :me and :mer = :me + :EV with the FSAL D.
 
 Items per printed step (jstep J): (1) at the start-of-step state with new := old (all primary unknowns and the species; update! with a zero correction then refreshes ghost
 cells and derived arrays; no predict!) the residual at (θ, dt) = (½, γΔ), (1, γΔ), (1, C2Δ), (½, 10γΔ): with new = old all time differences vanish, so every row must be independent of
-θ and dt; (2) −R(new = old) against the FSAL derivative DSAL of the previous step, (f − D)/C (energy from the row with etotal = false); (1b: θ-independence there, where the old-level face values enter; 2b) the same with r and x_me displaced by Δt × their FSAL velocities (the rows contain the mesh velocity (rn − ro)/dt and the mass flux dmdt = −(xmen − xmeo)/dt, which are 0 at new = old) and the time-difference part (C_new − C_old)/dt of each row removed; (3) the true
+θ and dt; (2) −R(new = old) against the FSAL derivative DSAL of the previous step, (f − D)/C (energy from the internal-energy row); (1b: θ-independence there, where the old-level face values enter; 2b) the same with r and x_me displaced by Δt × their FSAL velocities (the rows contain the mesh velocity (rn − ro)/dt and the mass flux dmdt = −(xmen − xmeo)/dt, which are 0 at new = old) and the time-difference part (C_new − C_old)/dt of each row removed; (3) the true
 residual at each converged stage (TR: θ ½, dt γΔ, old = yₙ; BDF2: θ 1, dt C2Δ, old = y*), with Newton iterations and final dmax; (4) every old-level array the residual reads against its
 new-level counterpart at the start state (max relative difference with zone, values in zones 31–33), and the closure arrays against their values at the end of the previous step; (6) the old state of the step against the state at the end of the last converged BDF2 stage (anything done to the state between the steps).
 Zones are numbered from the inner boundary (zone Z = array index ngrs + Z − 1, as in DTERRDIAG). Skipped on a step without FSAL (first step after a restart: DSAL === nothing).
@@ -42,9 +41,9 @@ const PRIM = (:rn => :ro, :xmen => :xmeo, :dn => :do, :un => :uo, :tn => :to, :e
 endstate() = (; prim = Dict(n_ => copy(vf(n_)) for (n_, _) in PRIM), xs = [copy(TX.XSN[][i]) for i in 1:2])
 closure() = (; fedd = copy(vf(:fedd)), hedd = copy(TD.HEDD), hxedd = copy(TD.HXEDD), fxedd = copy(TD.FXEDD), tiew = copy(TD.TIEW))
 
-function evalR(θ, dt; etotal = TX.ETOTAL[])
+function evalR(θ, dt)
     TD.s!(:thet, θ); TD.s!(:dtime, dt)
-    c = TX.context(; etotal); ws = TX.getws(Float64, c.mgr); R = zeros(c.neqn, c.nb)
+    c = TX.context(); ws = TX.getws(Float64, c.mgr); R = zeros(c.neqn, c.nb)
     TX.residual!(R, ws, c, zeros(c.neqn * c.nb)); (R, c, ws.a)
 end
 
@@ -58,7 +57,7 @@ function rates(R, c, Cn; Cnew = nothing, dt = 1.0)
     nw(key) = Cnew === nothing ? nothing : Cnew[key]
     put(:r, ir, 1.0, Cn[:r], a:b+1); put(:m, id, 1.0, Cn[:m], a:b, nw(:m)); put(:P, iu, 2.0, Cn[:P], a+1:b, nw(:P))
     ty = etypes(c); uo = TR.SAVE[:uo]
-    CE = zeros(n); for k in a:b; CE[k] = ty[k] === :etot ? (c.lrad ? Cn[:mer][k] : Cn[:me][k]) + 0.25Cn[:m][k] * (uo[k]^2 + uo[k+1]^2) : ty[k] === :gas ? Cn[:me][k] : Cn[:mer][k]; end
+    CE = zeros(n); for k in a:b; CE[k] = ty[k] === :gas ? Cn[:me][k] : Cn[:mer][k]; end
     CEn = Cnew === nothing ? nothing : [ty[k] === :gas ? Cnew[:me][k] : ty[k] === :mer ? Cnew[:mer][k] : NaN for k in 1:n]
     put(:E, it, 1.0, CE, a:b, CEn)
     c.lrad && (put(:EV, ie, 1.0, Cn[:EV], a:b, nw(:EV)); put(:QF, iF, 2cc^2, Cn[:QF], a+1:b, nw(:QF)))
@@ -70,7 +69,7 @@ function rates(R, c, Cn; Cnew = nothing, dt = 1.0)
 end
 const ROWS = (:r, :m, :P, :E, :EV, :QF, :x1, :x2, :xme)
 "Row type of the energy row per zone (see the module docstring)."
-etypes(c) = [(c.etotal && !c.useint[k]) ? :etot : (TX.ECOMPAT[] || !c.lrad || TX.GASROW[]) ? :gas : :mer for k in 1:length(c.useint)]
+etypes(c) = [(TX.ECOMPAT[] || !c.lrad || TX.GASROW[]) ? :gas : :mer for k in 1:c.mgr]
 
 function maxabs(v, a)
     best = 0.0; kb = 0
@@ -128,9 +127,9 @@ function item2(J, Cn, a, Δ; mesh = :none, disp = nothing)
         @printf("STAGECONS jstep %d %s: mesh displaced by %s; face velocity (r_displaced - r_old)/dt at zone-32 inner face %.6e, FSAL D[:r] there %.6e, u_old there %.6e\n", J, tag,
                 mesh === :tr ? "the TR stage's (r_gamma - r_n), (xme_gamma - xme_n)" : "dt*D[:r], dt*D[:xme]", (vf(:rn)[a+31] - vf(:ro)[a+31]) / dt, D[:r][a+31], vf(:uo)[a+31])
     end
-    Ri, ci, Wi = evalR(1.0, dt; etotal = false); ρi = rates(Ri, ci, Cn; Cnew = Cnw, dt); ty = etypes(ci); TX.COUPLED[] && (LASTCHEM[] = chemrates(Wi))
+    Ri, ci, Wi = evalR(1.0, dt); ρi = rates(Ri, ci, Cn; Cnew = Cnw, dt); ty = etypes(ci); TX.COUPLED[] && (LASTCHEM[] = chemrates(Wi))
     if mesh === :fsal       # item 1b: θ-independence at the displaced state (dmdt, u_rel ≠ 0 there, so the old-level face values enter): ρ(½) − ρ(1), same dt, same state
-        Rh, ch, _ = evalR(0.5, dt; etotal = false); ρh = rates(Rh, ch, Cn); ρ1 = rates(Ri, ci, Cn)
+        Rh, ch, _ = evalR(0.5, dt); ρh = rates(Rh, ch, Cn); ρ1 = rates(Ri, ci, Cn)
         for nm in (:m, :P, :E, :EV, :QF, :x1, :x2)
             haskey(ρh, nm) || continue
             d = ρh[nm] .- ρ1[nm]; mx, z = maxabs(d, a)
@@ -163,9 +162,9 @@ function item5(J, Cn, a, Δ, Cg, Fn, Fg, Sg)
         @printf("STAGECONS jstep %d item5 %-4s max|2(G-D/C)| %.3e zone %d | zones %d..%d G %s F_n(TRmesh) %s F_gamma %s G-(F_n+F_gamma)/2 %s D/C %s eps_pred=2(G-D/C) %s\n", J, nm, mx, z, ZS[1], ZS[end], zl(G, a), zl(Fn[nm], a), zl(Fg[nm], a), zl(dl, a), zl(Dn, a), zl(ep, a))
     end
 end
-"Flux-part rates at the current (converged TR) state: θ = 1, dt γΔ, old = yₙ, row energy of the etotal = false form."
+"Flux-part rates at the current (converged TR) state: θ = 1, dt γΔ, old = yₙ, row energy of the internal-energy form."
 function fgamma(Cn, Δ)
-    Cg = TR.combos_new(); R, c, W = evalR(1.0, TR.γ * Δ; etotal = false); ρ = rates(R, c, Cn; Cnew = Cg, dt = TR.γ * Δ)
+    Cg = TR.combos_new(); R, c, W = evalR(1.0, TR.γ * Δ); ρ = rates(R, c, Cn; Cnew = Cg, dt = TR.γ * Δ)
     Cg, fieldset(ρ, etypes(c), Cn, false), TX.COUPLED[] ? chemrates(W) : Dict{Symbol,Vector{Float64}}()
 end
 

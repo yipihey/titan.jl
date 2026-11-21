@@ -125,7 +125,7 @@ G4 consistent variable-Eddington-factor (VEF) closure (S6, ENV `VEFIMP`, default
   ximr; from H = g J⁺ − I_in/4 and J = J⁺ + I_in/2), which then takes the energy
   density at the boundary radius, E_s, from the zone centre value by the same sphericality factor over the half zone
   (including its χρF/c), not E_N itself (in free streaming E_N/E_s = (r_N+1/r_c,N)² ≈ 1.3 at Δ ln r = 0.25).
-With either part on, FLUXTIE (and ETASWTIE, which needs it) is disabled by popiii_m2c.
+With either part on, FLUXTIE is disabled by popiii_m2c.
 """
 const VEF_ITER = Ref(false)
 const VEF_SPH = Ref(false)

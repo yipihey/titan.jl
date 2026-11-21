@@ -795,6 +795,8 @@ Open points:
 
 ## 11. What becomes removable once ECOMPAT is the default
 
+**Done on branch `iedef` (internal energy only; commit hash below).** Deleted: `ETOTAL`, `ETASW`, `ETASW_EOFF/TH/TIE`, `dualswitch` (with `TIE_SW`, `SDDSW`), the `Ctx` fields `etotal`/`useint`, the `ηsw`/`etotal` arguments of `context`, the total-row branch of the solve, `ERLAB`, the env parsing in popiii_m2c/phase6_run/noh_test/selfgrav_energy_test/StageCons; etotal_run.jl and etot_check.jl moved to julia/outdated/. popiii_m2c applies the compatible rows unconditionally and errors if ETOTAL/ETASW/ETASWTH/ETASWTIE/ETOTGRAVGRID/ERLAB is set; popiii_stack defaults ETOTMON=1. The total row survives only as a diagnostic: `etot_rows(f)` (flag `ETOT_DIAG`) for etot_monitor/stage_diag/energy_imbalance/zone_diag, with `etot_row`, `ETOT_GRAV`, `nocompat`. Kept: `ECOMPAT` itself (phase6_run/noh_test select it with ECOMPAT=1; the quasi-star line still uses TITAN's rows), `GASROW`, the combined gas+radiation row, and all radiation-side items of the list above (comoving radiation row, static-frame tie rows, MGRad.jl) because the quasi-star line and the diagnostics' `nocompat` rows reach them. `ETOT_GRAV_GRID` was already gone. Gates: reference 40-step replay Newton trace byte-identical to the ETOTAL=0 tree; Noh and SOD ETOTMON unchanged.
+
 Not deleted in this round (the S4/S5 isolated-star line and the quasi-star line use the same residual). *Follow-up: whether
 ECOMPAT becomes the default is open again (§14.7). The lists below hold if it does, unchanged; if ECOMPAT + ECGRAV=1 is chosen
 instead, `dualswitch`, `ETASW`, `ETASWTH`, `ETASWTIE` and the `Ctx` field `useint` stay (ECGRAV=1 selects its zones with them)

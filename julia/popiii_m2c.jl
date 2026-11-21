@@ -1293,10 +1293,11 @@ haskey(ENV, "CONV") && TF.setscalar!(:conv, parse(Float64, ENV["CONV"]))
 haskey(ENV, "NTRY") && TF.setscalar!(:ntry, parse(Float64, ENV["NTRY"]))
 if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Trbdf2.TFAC[] = TD.FAIL_TFAC[]; end
 haskey(ENV, "ERTHICK") && (TC.ER_THICK[] = parse(Float64, ENV["ERTHICK"]))
-# ETOTAL=1: TITAN's conservative total-energy row (P4.2); the gas row stays where e/(e + KE) < ETASW, in the cold hypersonic infall, where T is a small difference
-haskey(ENV, "ETASWTH") && (TX.ETASW_TH[] = parse(Float64, ENV["ETASWTH"]))     # internal-energy row also where 3p/2ρ < ETASWTH × (3p/2ρ + E_r/ρ + K/m) (off: as before)
-haskey(ENV, "ETASWTIE") && (TX.ETASW_TIE[] = parse(Float64, ENV["ETASWTIE"]))   # internal-energy row also where the FLUXTIE weight at the zone's inner interface >= ETASWTIE (off: as before)
-get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETOT_GRAV[] = true; TX.ETASW_EOFF[] = PC.UOFF_TH; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0.1")))
+# One energy variable, the gas internal energy: the compatible rows (TX.ECOMPAT, below) are the only energy rows. The dual-energy switches are gone (docs/POPIII_ENERGY.md §11):
+# an old run.env that sets one must not silently select something else.
+for k_ in ("ETOTAL", "ETASW", "ETASWTH", "ETASWTIE", "ETOTGRAVGRID", "ERLAB")
+    haskey(ENV, k_) && error(k_ * " is set: the dual-energy / total-energy-row switches were removed (internal energy only, docs/POPIII_ENERGY.md §11, §23); unset it. ETOTMON=1 monitors the total energy")
+end
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
 # SUBZONE=1[,τ_f] (default off): interface optical depth across an unresolved front from the two-layer sub-zone form (TX.SUBZONE)
 if get(ENV, "SUBZONE", "0") != "0"
@@ -1329,21 +1330,11 @@ if get(ENV, "TIEFRAME", "0") == "1"
     TX.TIEFRAME[] = true
     pr("TIEFRAME: FLUXTIE closes the lab-frame flux, F_0 = [h c - (1 + f - 2 h^2) u] E_0 for the comoving unknowns; outer boundary row likewise\n")
 end
-# ETOTAL=0 (or ECOMPAT=1): compatible internal-energy rows in every zone, no row switching and no total-energy row (TX.ECOMPAT, docs/POPIII_ENERGY.md §4, §23); implies TIEFRAME
-if get(ENV, "ECOMPAT", "0") == "1" || get(ENV, "ETOTAL", "") == "0"
-    TX.GASROW[] || error("ETOTAL=0 / ECOMPAT=1 needs the gas-alone row (GASROW)")
-    TX.ECOMPAT[] = true
-    TX.TIEFRAME[] || (TX.TIEFRAME[] = true; pr("ECOMPAT: TIEFRAME switched on\n"))
-    pr("ECOMPAT: first-law gas row adjoint to the momentum row in every zone (ETOTAL/ETASW* row switching unused), lab-frame radiation energy row\n")
-end
-# ERLAB=1 (provisional, default off): ECOMPAT's lab-frame radiation energy row with the stack's gas rows (TX.ERLAB, docs/POPIII_ENERGY.md §18); implies TIEFRAME
-if get(ENV, "ERLAB", "0") == "1"
-    TX.GASROW[] || error("ERLAB=1 needs the gas-alone row (GASROW)")
-    TX.ECOMPAT[] && error("ERLAB=1: ECOMPAT=1 already has the lab-frame radiation row")
-    TX.ERLAB[] = true
-    TX.TIEFRAME[] || (TX.TIEFRAME[] = true; pr("ERLAB: TIEFRAME switched on\n"))
-    pr("ERLAB: lab-frame radiation energy row; gas rows of the stack (dual-energy)\n")
-end
+# Compatible internal-energy rows in every zone, no row switching and no total-energy row (TX.ECOMPAT, docs/POPIII_ENERGY.md §4, §23); implies TIEFRAME
+TX.GASROW[] || error("the compatible energy rows need the gas-alone row (GASROW)")
+TX.ECOMPAT[] = true
+TX.TIEFRAME[] || (TX.TIEFRAME[] = true; pr("ECOMPAT: TIEFRAME switched on\n"))
+pr("ECOMPAT: first-law gas row adjoint to the momentum row in every zone, lab-frame radiation energy row\n")
 # GFV=1 (provisional, default off): finite-volume gravity weight in the gas momentum row (TX.GFV, docs/POPIII_ENERGY.md §19)
 if get(ENV, "GFV", "0") == "1"
     TX.GFV[] = true
@@ -1469,14 +1460,14 @@ TC.EDDG_MU0[] = get(ENV, "EDDGMU0", "0") == "1"
 # VEFIMP=1 (G4, default off): consistent closure of the gray moments. The formal solution's f, g and h (h with FLUXTIE) at every Newton
 # iterate (TitanDriver.VEF_ITER), the momentum row and outer boundary in Auer's sphericality-factor form (VEF_SPH), the CMB only as the
 # isotropic background, added to the moments analytically (VEF_BG); FLUXTIE, if set, then ties F = h c E with the h of the iterate.
-# VEFIMP=notie: the same with FLUXTIE (and ETASWTIE) off, the moment equations everywhere; nobg: notie without VEF_BG; it / sph: one part (tests).
+# VEFIMP=notie: the same with FLUXTIE off, the moment equations everywhere; nobg: notie without VEF_BG; it / sph: one part (tests).
 if get(ENV, "VEFIMP", "0") != "0"
     let v = ENV["VEFIMP"]
         v in ("1", "notie", "nobg", "it", "sph") || error("VEFIMP must be 1, notie, nobg, it or sph")
         TD.VEF_ITER[] = v != "sph"; TD.VEF_SPH[] = v != "it"; TD.VEF_BG[] = v in ("1", "notie")
-        if v != "1" && (TD.FLUXTIE[][2] > 0 || TX.ETASW_TIE[] > 0)
-            pr("VEFIMP: FLUXTIE (%g,%g) and ETASWTIE %g switched off\n", TD.FLUXTIE[]..., TX.ETASW_TIE[])
-            TD.FLUXTIE[] = (0.0, 0.0); TX.ETASW_TIE[] = 0.0
+        if v != "1" && TD.FLUXTIE[][2] > 0
+            pr("VEFIMP: FLUXTIE (%g,%g) switched off\n", TD.FLUXTIE[]...)
+            TD.FLUXTIE[] = (0.0, 0.0)
         end
         pr("VEFIMP=%s: Eddington factors f, g%s %s; radiation momentum row and outer boundary %s%s\n", v, TD.FLUXTIE[][2] > 0 ? " and the flux tie's h" : "",
            TD.VEF_ITER[] ? "of the formal solution at every Newton iterate (not lagged)" : "lagged (formal solution of the predictor)",
@@ -1898,7 +1889,7 @@ try
         pr("EDIAG=2: total-energy rows of every converged stage -> ediag.csv, per zone -> ediagz.jls\n")
     end
     if get(ENV, "EDIAG", "0") == "1"               # (diagnostic, default off) total-energy non-conservation of every converged implicit stage
-        # TitanResidFast.stage_diag: the conservative total-energy rows of all zones (ηsw = 0) at the converged state of the stage, summed × the stage's
+        # TitanResidFast.stage_diag: the conservative total-energy rows of all zones at the converged state of the stage, summed × the stage's
         # dt = ΔE_total + dt (Φ_out − Φ_in) − (what the rows of the solve actually conserved): one line per stage in POPIII_OUT/ediag.csv
         let f_ = joinpath(get(ENV, "POPIII_OUT", "."), "ediag.csv")
             isfile(f_) || open(io -> println(io, "jstep,kind,dt,imb,dE,fin,fout"), f_, "w")

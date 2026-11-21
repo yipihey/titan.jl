@@ -50,8 +50,6 @@ struct Ctx
     dvolo::Vector{Float64}; xmo::Vector{Float64}; fedd::Vector{Float64}; bri::Vector{Float64}
     lady::Vector{Int}; wt::Vector{Float64}; yscl::Vector{Float64}
     p::Par
-    etotal::Bool                      # conservative total-energy row instead of gasnrg
-    useint::Vector{Bool}              # dual-energy switch: zone k keeps the internal-energy row
     conv::Bool                        # MLT convective flux in the energy equation (Phase 7)
     alpha::Float64                    # mixing-length parameter
     cv::NTuple{4,Vector{Float64}}     # interface ∇_ad, c_P, δ, κ_R from the current iterate (held during the AD sweep)
@@ -59,26 +57,6 @@ end
 
 const CTXBUF = Ref{Any}(nothing)
 const BUFS = Dict{Symbol,Any}()     # reused context buffers (allocation-free context())
-"Defaults for the energy formulation (Phase 4 item 2); ETOTAL[] = true selects the total-energy row."
-const ETOTAL = Ref(false)
-const ETASW = Ref(0.0)
-"Added to e in the dual-energy test, for a material whose e has a negative zero point (Population III: −1e13 erg/g), where the ratio otherwise has no meaning and can be singular."
-const ETASW_EOFF = Ref(0.0)
-"""
-ETASW_TH[] (`ETASWTH`, default 0 = off): a zone also keeps the internal-energy row where its thermal energy 3p/2ρ is less than this fraction of
-3p/2ρ + E_r/ρ + K/m. There the total-energy row gives the gas energy as a small difference, and it is not the first law of the gas: total row minus
-kinetic energy minus radiation-energy row leaves −u [∂(fE)/∂r + (3f − 1)E/r + χρF/c] on the gas, which vanishes only if the radiation momentum equation
-holds in its static form. In transparent zones with a gradient of E_r it does not (the row is `FLUXTIE`'s there), and inflow against the gradient
-cools the gas: 0.12 K/yr at 2.6 pc in the 146-zone run, to 17 K and then 11.7 K, where the run stopped twice (11 Nov 2026; docs/POPIII_RUNS.md).
-"""
-const ETASW_TH = Ref(0.0)
-"""
-ETASW_TIE[] (`ETASWTIE`, default 0 = off): a zone also keeps the internal-energy row where the FLUXTIE weight at its inner
-interface is at least this value (0 < ETASWTIE <= 1). Where the radiation momentum row is the closure F = h c E instead of the
-moment equation, total-energy row − kinetic energy − radiation-energy row leaves −u × (moment-equation residual) on the gas;
-this selects the first law there by cause instead of by the size of the thermal energy (ETASWTH).
-"""
-const ETASW_TIE = Ref(0.0)
 """
 GASROW[] (lrad = 1 only): energy row of the gas ALONE,
   Δ(m e_g)/dt + advection of e_g + p_g ∇·u + Q_visc + MLT flux = −(c κ_E E − 4π κ_P B) ρ dV,
@@ -340,47 +318,7 @@ const EXTMASS = Ref{Any}(nothing)
 "u/r at interface k, with the regular limit at the centre."
 @inline uor(u, r, k, ngrs) = REGULAR_CENTRE[] && k == ngrs ? u[k+1] / r[k+1] : u[k] / r[k]
 const MEC2 = 8.1871057769e-7            # m_e c² [erg]
-"""
-Dual-energy switch, evaluated on the OLD (start-of-step) state and frozen during the Newton
-iteration: zone k keeps TITAN's internal-energy row when
-η_k = m(e_g [+E_r/ρ]) / (m(e_g [+E_r/ρ]) + K_k) < ηsw  (K_k = m(u_k²+u_{k+1}²)/4).
-"""
-const TIE_SW = Ref((key = (0, 0.0, 0.0, 0.0, 0, 0), on = Bool[]))
-function dualswitch(ngrs, ngre, lrad, ηsw)
-    mgr = TF.MGR; ui = get!(() -> fill(false, mgr), BUFS, :useint)::Vector{Bool}; fill!(ui, false)
-    ηsw > 0 || return ui
-    dO, dv, uo = v(:do), v(:dvolo), v(:uo); eo = lrad ? v(:egro) : v(:ego)
-    for k in ngrs:ngre
-        m = dO[k] * dv[k]; ein = m * max(eo[k] + ETASW_EOFF[], 0.0); K = 0.25m * (uo[k]^2 + uo[k+1]^2)
-        ui[k] = ein / (ein + K) < ηsw
-    end
-    ηth = ETASW_TH[]
-    if ηth > 0 && lrad
-        pgo, ero = v(:pgo), v(:ero)
-        for k in ngrs:ngre
-            ui[k] && continue
-            eth = 1.5 * pgo[k] / dO[k]
-            ui[k] = eth < ηth * (eth + ero[k] / dO[k] + 0.25 * (uo[k]^2 + uo[k+1]^2))
-        end
-    end
-    wtie = ETASW_TIE[]
-    if wtie > 0 && lrad && TD.FLUXTIE[][2] > 0 && length(TD.TIEW) >= ngre
-        # the tie weight of the iterate crosses wtie from one Newton iteration to the next in a zone at the edge of the tie (W = 0.50 at wtie = 0.5):
-        # the zone then alternated between the two energy rows, which differ by u × (moment-equation residual), a 1e-7 step in the row that Newton cycled on
-        # (zeulnc, zone 37 x_H2). As the η switch above, the choice is made once, on the weights the step starts from, and held for all its iterations.
-        key = (gi(:jstep), gf(:thet), gf(:dtime), wtie, ngrs, ngre); sw = TIE_SW[]
-        if sw.key != key
-            W = TD.TIEW; TIE_SW[] = (key = key, on = [k <= length(W) && W[k] >= wtie for k in 1:ngre])
-            sw = TIE_SW[]
-        end
-        for k in ngrs:ngre
-            ui[k] || (ui[k] = sw.on[k])
-        end
-    end
-    SDDSW[] === nothing || sd_dsw(ui, ngrs, dO, dv, uo, eo)
-    ui
-end
-# stalldiag (SDDSW=lo:hi, default off): print the dual-energy row choice (ui = internal-energy row) of the zones lo:hi whenever it differs from the previous call
+# (the dual-energy switch `dualswitch` and its ETASW* criteria are gone: one internal-energy row everywhere, docs/POPIII_ENERGY.md §11)
 const SDTIEF = parse(Float64, get(ENV, "SDTIEF", "0"))   # (stalldiag, test) f of the SLABTIE correction replaced by this constant
 const SDFIN = Ref(parse(Float64, get(ENV, "SDFIN", "1")))   # (stalldiag, test only) factor on the radiation-momentum inertia term (1/c^2) dF/dt of the F_r row
 const SDFRZ = get(ENV, "SDFRZ", "0") == "1"; const SDFRZV = Float64[]
@@ -388,20 +326,8 @@ const SDW = let s = get(ENV, "SDW", ""); isempty(s) ? (0, 0, 0.0) : (f = split(s
 const SDROW = get(ENV, "SDROW", "") != ""; const SDW0 = SDROW ? parse(Int, split(ENV["SDROW"], ":")[1]) : 0; const SDW1 = SDROW ? parse(Int, split(ENV["SDROW"], ":")[2]) : 0
 const SDROWV = Dict{Int,NTuple{8,Float64}}()   # (SDROW=lo:hi) per interface: R_mom, B, w, dR_mom/dF (absorption part), dB/dF, dR_mom/dE_(k-1) (static f part), dB/dE_(k-1), dR_mom/dF (inertia part)
 const SDHD = get(ENV, "SDHD", "0") == "1"; const SDHRAW = Dict{Int,NTuple{4,Float64}}()   # (SDHD=1) per interface: (raw h before max, h_FS, tau_i, a)
-const SDDSW = Ref{Any}(let s = get(ENV, "SDDSW", ""); isempty(s) ? nothing : (parse(Int, split(s, ":")[1]):parse(Int, split(s, ":")[2])) end)
-const SDDSWLAST = Ref("")
-function sd_dsw(ui, ngrs, dO, dv, uo, eo)
-    zs = SDDSW[]; bits = join((ui[ngrs+z-1] ? '1' : '0' for z in zs))
-    if bits != SDDSWLAST[]
-        etas = join((@sprintf("%d:%.3f/W%.2f", z, (m = dO[ngrs+z-1] * dv[ngrs+z-1]; ein = m * max(eo[ngrs+z-1], 0.0); ein / (ein + 0.25m * (uo[ngrs+z-1]^2 + uo[ngrs+z]^2))),
-                      length(TD.TIEW) >= ngrs + z - 1 ? TD.TIEW[ngrs+z-1] : NaN) for z in zs), " ")
-        println("SDDSW jstep ", Int(TF.getscalar(:jstep)), " thet ", TF.getscalar(:thet), " dtime ", TF.getscalar(:dtime), " ui[", first(zs), ":", last(zs), "] ", bits, "  eta/Wtie ", etas)
-        SDDSWLAST[] = bits
-    end
-    nothing
-end
 v(s) = TF.var(s)
-function context(; etotal::Bool = ETOTAL[], ηsw::Float64 = ETASW[], dt = nothing)
+function context(; dt = nothing)
     ngrs = gi(:ngrs); ngre = gi(:ngre); neqn = gi(:neqn); lrad = gi(:lrad) == 1; mgr = TF.MGR
     lrad && compton_old!(ngrs, ngre)
     source_old!(ngrs, ngre)
@@ -432,7 +358,7 @@ function context(; etotal::Bool = ETOTAL[], ηsw::Float64 = ETASW[], dt = nothin
         v(:fro), v(:egro),
         v(:pgo), v(:aso), v(:chifo), v(:xkeo),
         v(:xkpo), v(:plfo), v(:dvolo), v(:xmo), v(:fedd), v(:bri),
-        (la = v(:lady); lb = get!(() -> zeros(Int, length(la)), BUFS, :lady)::Vector{Int}; lb .= la; lb), v(:wt), v(:yscl), P, etotal, dualswitch(ngrs, ngre, lrad, ηsw),
+        (la = v(:lady); lb = get!(() -> zeros(Int, length(la)), BUFS, :lady)::Vector{Int}; lb .= la; lb), v(:wt), v(:yscl), P,
         CONVECTION[], ALPHA_MLT[], convcoef(ngrs, ngre, base))
 end
 
@@ -688,7 +614,7 @@ Outer boundary: F_lab = g c E_s − π(2g + 1) I_in becomes F₀ = [g c E_s − 
 """
 const TIEFRAME = Ref(false)
 """
-ECOMPAT[] (default false; selected by ETOTAL=0 in popiii_m2c and phase6_run, radiation grey or lrad = 0): compatible energy rows in EVERY zone, no row switching and no E − K subtraction
+ECOMPAT[] (default false; always on in popiii_m2c, selected by ECOMPAT=1 in phase6_run; radiation grey or lrad = 0): compatible energy rows in EVERY zone, no row switching and no E − K subtraction
 (docs/POPIII_ENERGY.md §4). The gas row is the first law (GASROW's row) made the exact discrete adjoint of the momentum row, so that
 Σ_k (gas row + radiation row)_k + Σ_j u_j (momentum row)_j is the conservative total-energy row sum identically:
   * viscous work q_k r̄_k^{3μ/2} (u_{k+1} r_{k+1}^{−μ/2} − u_k r_k^{−μ/2}), the adjoint of the momentum row's r^{−μ/2} Δ(r̄^{3μ/2} q);
@@ -724,12 +650,6 @@ const KSTAR = Ref(Float64[])
     up = decide(:up, 20, j, val(dmdt[j]) >= 0) ? j : j - 1          # (branch recorded/replayed with the other upwind decisions of J v)
     dmdt[j] * 0.125 * (u[up+1] - u[up])^2
 end
-"""
-ERLAB[] (provisional, ENV ERLAB=1, default false; lrad = 1, grey): ECOMPAT's radiation half alone (docs/POPIII_ENERGY.md §18). The radiation
-energy row is the lab-frame conservation law of ECOMPAT (comoving row + u × radiation momentum equation); the gas rows are the stack's
-(dual-energy: total row where c.etotal && !useint, the GASROW first-law row elsewhere). Use with TIEFRAME (the driver switches it on).
-"""
-const ERLAB = Ref(false)
 """
 GFV[] (provisional, ENV GFV=1, default false; μ = 2 self-gravity): finite-volume weight in the gas momentum row (docs/POPIII_ENERGY.md §19).
 The row's gravity term is the node mass times the interface's acceleration, g_j ½(m_j−1 + m_j), exact where the interface moves with the gas.
@@ -1702,7 +1622,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             else
                 w += -dmdt[k+1] * egbg[k+1] + dmdt[k] * egbg[k]
             end
-        elseif c.etotal && !c.useint[k]
+        elseif ETOT_DIAG[]                     # diagnostic only (etot_rows): the conservative total-energy row, never a solve row
             w = etot_row(k, c, W, T, AD_JV[] ? fedd : c.fedd) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
             isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])     # the gas gets the ray's energy in chemistry: it leaves the total here (as the lrad total row)
             w += cqheat(k, W) * dvol[k]                         # chemistry heat: the iterate's (coupled zone; inside cpL as heating of the gas) or the booked one
@@ -1791,7 +1711,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         # ------------------------------------------------------------ RADIATION ENERGY
         @inbounds for k in ngrs:ngre
             aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
-            if ECOMPAT[] || ERLAB[]            # lab-frame conservation law: flux of u P and the work on the gas (see ECOMPAT)
+            if ECOMPAT[]                       # lab-frame conservation law: flux of u P and the work on the gas (see ECOMPAT)
                 fEl = k == ngrs ? fedd[k] * er[k] : 0.5 * (fedd[k-1] * er[k-1] + fedd[k] * er[k])
                 fEu = k == ngre ? fedd[k] * er[k] : 0.5 * (fedd[k] * er[k] + fedd[k+1] * er[k+1])
                 wk = rmu[k+1] * u[k+1] * fEu - rmu[k] * u[k] * fEl
@@ -1969,10 +1889,17 @@ kinetic-energy, work and viscous pieces of the adjacent zone.
 end
 "ETOT_GRAV[]: the total-energy row includes the work of gravity (self-gravity or P.g). Default false, as in the tests and ledgers that book the potential energy themselves."
 const ETOT_GRAV = Ref(false)
-"Run f with ECOMPAT off: the conservative total-energy rows and the plain internal rows of the diagnostics (the independent check of the compatible rows)."
+"Run f with ECOMPAT off: the plain internal rows of the diagnostics (the independent check of the compatible rows)."
 function nocompat(f)
-    e = ECOMPAT[]; l = ERLAB[]; ECOMPAT[] = false; ERLAB[] = false
-    try f() finally ECOMPAT[] = e; ERLAB[] = l end
+    e = ECOMPAT[]; ECOMPAT[] = false
+    try f() finally ECOMPAT[] = e end
+end
+"ETOT_DIAG[]: the gas energy row is the conservative total-energy row (`etot_row`) in every zone. Set only by `etot_rows`, for the diagnostics; no solve uses it."
+const ETOT_DIAG = Ref(false)
+"Run f with the conservative total-energy row in every zone (and ECOMPAT off): the independent diagnostic of the solve's energy conservation."
+function etot_rows(f)
+    d = ETOT_DIAG[]; ETOT_DIAG[] = true
+    try nocompat(f) finally ETOT_DIAG[] = d end
 end
 """
 Gravity term of the total-energy row at interior face j, the share of the zone above (lower = false) or below (lower = true) the face. With the potential at the interfaces
@@ -2025,10 +1952,10 @@ sum × dt is exactly ΔE_total + dt(Φ_out − Φ_in), i.e. the step's discrete 
 non-conservation, whichever formulation produced the step.
 """
 function energy_imbalance(dt)
-    c = context(; etotal = true, ηsw = 0.0, dt)
+    c = context(; dt)
     nb = c.nb; neqn = c.neqn
     R = zeros(neqn, nb); ws = getws(Float64, c.mgr)
-    nocompat(() -> residual!(R, ws, c, zeros(neqn * nb)))
+    etot_rows(() -> residual!(R, ws, c, zeros(neqn * nb)))
     it = c.ix[5]; W = ws.a
     imb = sum(R[it, k - c.k0 + 1] for k in c.ngrs:c.ngre) * dt
     E(k) = W.dn[k] * W.dvoln[k] * ((c.lrad ? W.egrn[k] : W.egn[k]) + 0.25 * (W.un[k]^2 + W.un[k+1]^2))
@@ -2042,7 +1969,7 @@ end
     etot_monitor(dt) -> (; imb, thr, G, gnet, zmax, vmax, zshare, vshare, dE, fin, fout)
 
 (ETOTMON, diagnostic; no influence on the solution.) Right after a converged implicit solve (`TitanDriver.STAGE_HOOK`, old arrays = the solve's start,
-`dt` = the solve's step): one Float64 residual evaluation of the CONSERVATIVE total-energy rows of every zone (ηsw = 0, ETOT_GRAV on, whatever
+`dt` = the solve's step): one Float64 residual evaluation of the CONSERVATIVE total-energy rows of every zone (ETOT_DIAG rows, ETOT_GRAV on, whatever
 formulation produced the solve): row_k = Δ[m(e_g + E_r/ρ + K)]_k/dt + Φ_k+1 − Φ_k (`etot_row`: the fluxes Φ are `eflux`, including the boundary fluxes at the
 first and last interface; the nuclear source, the star-light/ray heating RAYQ and the chemistry cooling are in the row as in the solve). The sum over the
 zones × dt is therefore the global budget  ΔE_tot + dt (Φ_out − Φ_in) − ∫(sources),  `imb`  [erg sr⁻¹], the interior fluxes telescoping.
@@ -2053,12 +1980,12 @@ s_k = |row_k| dt/thr (`zshare`, `vshare`: the zone that contributes most to the 
 function etot_monitor(dt)
     eg0 = ETOT_GRAV[]; ETOT_GRAV[] = true
     # (context() fills reused buffers in place: the solver's row-switch flags and base state are restored, the monitor has no influence on the solve)
-    us = haskey(BUFS, :useint) ? copy(BUFS[:useint]::Vector{Bool}) : nothing; bs = haskey(BUFS, :base) ? copy(BUFS[:base]::Matrix{Float64}) : nothing
+    bs = haskey(BUFS, :base) ? copy(BUFS[:base]::Matrix{Float64}) : nothing
     try
-        c = context(; etotal = true, ηsw = 0.0, dt)
+        c = context(; dt)
         nb, neqn = c.nb, c.neqn
         R = zeros(neqn, nb); ws = getws(Float64, c.mgr)
-        nocompat(() -> residual!(R, ws, c, zeros(neqn * nb))); W = ws.a
+        etot_rows(() -> residual!(R, ws, c, zeros(neqn * nb))); W = ws.a
         it = c.ix[5]; a, b = c.ngrs, c.ngre
         E(k) = W.dn[k] * W.dvoln[k] * ((c.lrad ? W.egrn[k] : W.egn[k]) + 0.25 * (W.un[k]^2 + W.un[k+1]^2))
         Eo(k) = c.do_[k] * c.dvolo[k] * ((c.lrad ? c.egro[k] : c.ego[k]) + 0.25 * (c.uo[k]^2 + c.uo[k+1]^2))
@@ -2072,7 +1999,7 @@ function etot_monitor(dt)
         (; imb, thr, G = imb / max(thr, 1e-300), gnet = imb / max(abs(dE) + abs(fin) + abs(fout), 1e-300), zmax = zm, vmax = v[zm], zshare = zs, vshare = s[zs], dE, fin, fout)
     finally
         ETOT_GRAV[] = eg0
-        us === nothing || copyto!(BUFS[:useint]::Vector{Bool}, us); bs === nothing || copyto!(BUFS[:base]::Matrix{Float64}, bs)
+        bs === nothing || copyto!(BUFS[:base]::Matrix{Float64}, bs)
     end
 end
 
@@ -2098,10 +2025,10 @@ side outputs, and the stage's energy change and boundary fluxes (× dt, per ster
 converged implicit solve (θ-step, TR stage, BDF stage), see `TitanDriver.STAGE_HOOK`.
 """
 function stage_diag(dt)
-    c = context(; etotal = true, ηsw = 0.0, dt)
+    c = context(; dt)
     nb = c.nb; neqn = c.neqn
     R = zeros(neqn, nb); ws = getws(Float64, c.mgr)
-    nocompat(() -> residual!(R, ws, c, zeros(neqn * nb))); W = ws.a
+    etot_rows(() -> residual!(R, ws, c, zeros(neqn * nb))); W = ws.a
     it = c.ix[5]
     imb = sum(R[it, k - c.k0 + 1] for k in c.ngrs:c.ngre) * dt
     E(k) = W.dn[k] * W.dvoln[k] * ((c.lrad ? W.egrn[k] : W.egn[k]) + 0.25 * (W.un[k]^2 + W.un[k+1]^2))
@@ -2114,7 +2041,7 @@ end
 """
     zone_diag(dt) -> NamedTuple of per-zone / per-interface vectors
 
-(Diagnostic, EDIAG=2; grey rows.) Right after a converged stage: the residual T_k of the conservative total-energy row of every zone (ηsw = 0)
+(Diagnostic, EDIAG=2; grey rows.) Right after a converged stage: the residual T_k of the conservative total-energy row of every zone
 at the converged state [erg s⁻¹ sr⁻¹] (its sum × dt is `stage_diag`'s imb), split exactly into the terms by which the total row differs from
 the rows an internal-energy formulation solves (docs/POPIII_ENERGY.md §2). With G_k the gas internal-energy row (GASROW), E_k the radiation
 energy row, M_j the gas momentum row of interface j split into the parts that belong to the zone below and above it (M_j = M_j^U(j−1) + M_j^L(j):
@@ -2140,17 +2067,16 @@ old = −m_old (egro − ego − ero/ρ_old)/dt: the total row differences `egro
 re-evaluated between the steps with the species of the finished step (cpl_prepare!) and `egro` is the solve's own value (docs/POPIII_ENERGY.md §2.3).
 Kbnd, Rbnd: what is left in the boundary zones, whose outer faces have no momentum row (0 in interior zones: the check of the formulas).
 Also returned: `Kn`, `Ko` (zone kinetic energy ¼ m (u_k² + u_k+1²) of the new and of the old arrays; in a BDF stage the old arrays are y*, and
-K(y*) − (A K_γ − B K_n) is the part of the step's kinetic-energy budget no stage row sees), which zones the solve closed with the internal-energy
-row (`useint`), the FLUXTIE weights, and the radiation momentum row in moment form `rmom` (tie off).
+K(y*) − (A K_γ − B K_n) is the part of the step's kinetic-energy budget no stage row sees), the FLUXTIE weights, and the radiation momentum row in moment form `rmom` (tie off).
 """
 function zone_diag(dt)
-    c0 = context(; dt); ui = copy(c0.useint)
-    neqn, nb = c0.neqn, c0.nb; z = zeros(neqn * nb); ws = getws(Float64, c0.mgr)
-    cg = context(; etotal = false, dt); Rg = zeros(neqn, nb); residual!(Rg, ws, cg, z)          # internal-energy rows in every zone
+    cg = context(; dt)
+    neqn, nb = cg.neqn, cg.nb; z = zeros(neqn * nb); ws = getws(Float64, cg.mgr)
+     Rg = zeros(neqn, nb); residual!(Rg, ws, cg, z)          # internal-energy rows in every zone
     Rc = Rg                                                                                     # (ECOMPAT: the compatible rows; the split below is of the plain ones)
-    (ECOMPAT[] || ERLAB[]) && (Rg = zeros(neqn, nb); nocompat(() -> residual!(Rg, ws, cg, z)))
-    c = context(; etotal = true, ηsw = 0.0, dt)
-    R = zeros(neqn, nb); nocompat(() -> residual!(R, ws, c, z)); W = ws.a
+    ECOMPAT[] && (Rg = zeros(neqn, nb); nocompat(() -> residual!(Rg, ws, cg, z)))
+    c = context(; dt)
+    R = zeros(neqn, nb); etot_rows(() -> residual!(R, ws, c, z)); W = ws.a
     iu, it, ie, iF = c.ix[4], c.ix[5], c.ix[6], c.ix[7]; a, b = c.ngrs, c.ngre; kb(k) = k - c.k0 + 1
     imb = [R[it, kb(k)] for k in a:b]; Gr = [Rg[it, kb(k)] for k in a:b]; Er = c.lrad ? [R[ie, kb(k)] for k in a:b] : zeros(b - a + 1)
     Gc = [Rc[it, kb(k)] for k in a:b]; Ec = c.lrad ? [Rc[ie, kb(k)] for k in a:b] : zeros(b - a + 1)
@@ -2160,7 +2086,7 @@ function zone_diag(dt)
     tw = length(TD.TIEW) >= b + 1 ? copy(TD.TIEW[a:b+1]) : zeros(b - a + 2)
     ft = TD.FLUXTIE[]; TD.FLUXTIE[] = (ft[1], 0.0)
     rm = try
-        R2 = zeros(neqn, nb); nocompat(() -> residual!(R2, ws, c, z)); [R2[iF, kb(k)] for k in a:b+1]
+        R2 = zeros(neqn, nb); etot_rows(() -> residual!(R2, ws, c, z)); [R2[iF, kb(k)] for k in a:b+1]
     finally
         TD.FLUXTIE[] = ft
     end
@@ -2246,7 +2172,7 @@ function zone_diag(dt)
         # ECOMPAT: total row − (compatible rows + u × momentum rows), gravity and advection forms apart
         cres[i] = imb[i] - gr - adv[i] - p_ - S - Gc[i] - Ec[i] - (ECOMPAT[] ? dKs[i] - kst[i] : 0.0)
     end
-    (; imb, adv, kin, useint = ui[a:b], tiew = tw, rmom = rm, u = copy(W.u[a:b+1]), r = copy(W.rn[a:b+1]), E = copy(W.ern[a:b]), T = copy(W.tn[a:b]),
+    (; imb, adv, kin, tiew = tw, rmom = rm, u = copy(W.u[a:b+1]), r = copy(W.rn[a:b+1]), E = copy(W.ern[a:b]), T = copy(W.tn[a:b]),
        F = copy(W.frn[a:b+1]), ρ = copy(W.dn[a:b]), θ, Gr, Er, uM, dΨ, dΨr, K2a, K2b, K3a, Kbnd, prs, V4, G5, R6a, R6b, R6c, Rbnd, rem, Kn, Ko, old, Gc, Ec, cres, dKs, kst, ecg,
        mchk, rchk, Mrow, ub = copy(ub[a:b]), dmdt = copy(dm[a:b+1]), qf = copy(qf[a:b]), pg = copy(W.pgn[a:b]), eg = copy(W.egn[a:b]),
        un = copy(un[a:b+1]), uo = copy(uo[a:b+1]), mn = [mn(k) for k in a:b], mo = [mo(k) for k in a:b], fedd = copy(fedd[a:b]),

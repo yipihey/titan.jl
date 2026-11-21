@@ -1,6 +1,6 @@
 # Self-gravitating energy test on the fixed Eulerian mesh: a cold uniform sphere (M = 100 Msun, rho0 = 1e-19) falls in; ETOTMON's total-energy residual G
 # (TitanResidFast.etot_monitor, which books gravity as the mass flux times the potential drop) against the rows that were solved.
-#   TITAN_NOLIB=1 [ETOTAL=0] julia --project=env selfgrav_energy_test.jl [n] [fraction of the free-fall time]
+#   TITAN_NOLIB=1 [ECOMPAT=1] julia --project=env selfgrav_energy_test.jl [n] [fraction of the free-fall time]
 using Printf
 include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "JuliaPhysics.jl"))
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
@@ -20,13 +20,14 @@ else
     PS.build!(; rI, rho = fill(ρ0, n), T = fill(T0, n), u = zeros(n + 1), geom = 2, lgrid = 2, inner = :wall, outer = :wall, selfgrav = true)
 end
 PS.install_julia!(BlockSolver); TD.MSGIO[] = devnull
-etot = get(ENV, "ETOTAL", "")
-etot == "0" && (TX.ECOMPAT[] = true; TX.GASROW[] = true)
+for k_ in ("ETOTAL", "ETASW"); haskey(ENV, k_) && error(k_ * " was removed (internal energy only; ECOMPAT=1 selects the compatible rows, ETOTMON=1 monitors the total energy)"); end
+etot = get(ENV, "ECOMPAT", "")
+etot == "1" && (TX.ECOMPAT[] = true; TX.GASROW[] = true)
 tff = sqrt(3π / (32Z0.G * ρ0)); TF.setscalar!(:dtime, 1e-4tff); TF.setscalar!(:tmax, fr * tff)
 TC.DT_DYN[] = parse(Float64, get(ENV, "CDYN", "0.02"))      # dynamical-time step cap (as popiii_m1)
 mon = Any[]; TD.STAGE_HOOK[] = (kind, dt) -> (push!(mon, TX.etot_monitor(dt)); nothing)
 nst, why = TD.run_julia!(maxsteps = parse(Int, get(ENV, "MAXSTEPS", "20000")))
 Gs = sort(abs.([m.G for m in mon]))
-@printf("selfgrav n=%d ETOTAL=%s: %d steps (%s), t/t_ff = %.4f; ETOTMON %d solves: median |G| %.3e, max |G| %.3e, sum imb/sum thr %.3e\n", n, etot == "" ? "unset" : etot, nst, why,
+@printf("selfgrav n=%d ECOMPAT=%s: %d steps (%s), t/t_ff = %.4f; ETOTMON %d solves: median |G| %.3e, max |G| %.3e, sum imb/sum thr %.3e\n", n, etot == "" ? "unset" : etot, nst, why,
         TF.getscalar(:timen) / tff, length(mon), Gs[(length(Gs)+1)÷2], Gs[end], sum(m.imb for m in mon) / sum(m.thr for m in mon))
 let i = argmax(abs.([m.G for m in mon])); @printf("largest |G| at solve %d: G %.3e, worst zone by own throughput %d (%.2e), by share %d (%.2e)\n", i, mon[i].G, mon[i].zmax, mon[i].vmax, mon[i].zshare, mon[i].vshare) end

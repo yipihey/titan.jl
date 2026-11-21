@@ -36,10 +36,9 @@ elseif mode == "pure"
     end
     TM.use!(TM.Builtin()); TC.EDDFAC[] = TC.eddfac!       # benchmarks: TITAN's own ideal gas + opacities
     TD.MSGIO[] = devnull
-    # ETOTAL=1 [ETASW=x] (diagnostic, default off): TITAN's conservative total-energy row in every zone (ETASW = 0, the default here) or where e/(e+K) >= ETASW
-    get(ENV, "ETOTAL", "0") == "1" && (TX.ETOTAL[] = true; TX.ETASW[] = parse(Float64, get(ENV, "ETASW", "0")))
-    # ETOTAL=0 set explicitly: the compatible internal-energy rows (TX.ECOMPAT: first law, discrete adjoint of the momentum row, docs/POPIII_ENERGY.md §23); unset: TITAN's own rows
-    get(ENV, "ETOTAL", "") == "0" && (TX.ECOMPAT[] = true; TX.GASROW[] = true)
+    for k_ in ("ETOTAL", "ETASW"); haskey(ENV, k_) && error(k_ * " was removed (internal energy only; ECOMPAT=1 selects the compatible rows, ETOTMON=1 monitors the total energy)"); end
+    # ECOMPAT=1: the compatible internal-energy rows (TX.ECOMPAT: first law, discrete adjoint of the momentum row, docs/POPIII_ENERGY.md §23); unset: TITAN's own rows
+    get(ENV, "ECOMPAT", "0") == "1" && (TX.ECOMPAT[] = true; TX.GASROW[] = true)
     snaps = Metrics.Snap[]; tstep = Float64[]
     # ETOTMON=1 (diagnostic, default off; no influence on the solution): TX.etot_monitor after every converged implicit solve, summary below
     mon = Any[]
