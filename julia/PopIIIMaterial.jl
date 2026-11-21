@@ -582,9 +582,9 @@ function nlo_base(ρ, T)
         if G2O.ON && CNn.HECHEM                   # G2OPAC: with the He ions and the LTE n = 2 of G2Opacity
             z1g, z2g = EQ.composition_he(ρ, min(T, 1e6))
             _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = G2O.n2_lte(T, n1e, nee, n1e + nHee + nH * xh2), nH2 = nH * xh2, nHe = nHee, nHp = nH * xp, ne = nee,
-                                        nHm = nHme e, hbfP = true, nHep = nH * z1g, nHepp = nH * z2g)
+                                        nHm = nHme, hbfP = true, nHep = nH * z1g, nHepp = nH * z2g)
         else
-            _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = n2e, nH2 = nH * xh2, nHe = nHee, nHp = nee, ne = nee, nHm = nHme e, hbfP = true)
+            _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = n2e, nH2 = nH * xh2, nHe = nHee, nHp = nee, ne = nee, nHm = nHme, hbfP = true)
         end
     end
     bP = max(Pt, 1e-300)^(1 - w) * max(Pq, 1e-300)^w; bR = max(Rt, 1e-300)^(1 - w) * max(Rq, 1e-300)^w
