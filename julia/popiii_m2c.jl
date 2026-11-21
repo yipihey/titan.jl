@@ -615,7 +615,10 @@ function linecool(rr, uu, dd, tt, nh2, k)
         end
         jc = jc >= nsh - 4 ? 0 : jc                  # (keep at least a few zones)
     end
-    jc < 2 && return linecool_full(rr, uu, dd, tt, nh2, k, 0)
+    # continuum extinction at the line frequencies, grey: χ_c = κ_P ρ per zone (TITAN's xkpn, the G2Opacity Planck mean: CIA, H⁻ bf/ff, H ff/bf; not frequency dependent);
+    # the merged core is opaque to the rays (χ_c Δr = LTAUCUT across its radius)
+    kpv = TF.var(:xkpn)
+    jc < 2 && return linecool_full(rr, uu, dd, tt, nh2, k, 0, 0, [kpv[a+j-1] * dd[j] for j in 1:nsh])
     # the merged core is NCORE transparent zones with interfaces uniform in p² (LINECORE, S6): impact parameters through the core, so the
     # inner nodes have rays over all μ (with one core zone the inner edge saw a single ray through the centre); u linear in r inside
     nc = LINECORE; rin = rr[jc+1]
@@ -623,20 +626,21 @@ function linecool(rr, uu, dd, tt, nh2, k)
     r2 = [rcz; rr[jc+1:end]]; u2 = [uu[jc+1] .* rcz ./ rin; uu[jc+1:end]]
     m_c = sum(dd[j] * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:jc); d2 = [fill(m_c / (4π / 3 * rin^3), nc); dd[jc+1:end]]
     t2 = [fill(tt[jc], nc); tt[jc+1:end]]; h2 = [zeros(nc); nh2[jc+1:end]]
-    Λ2, L2, x2 = linecool_full(r2, u2, d2, t2, h2, k, jc, nc)
+    chic = [fill(LTAUCUT / rin, nc); [kpv[a+j-1] * dd[j] for j in jc+1:nsh]]
+    Λ2, L2, x2 = linecool_full(r2, u2, d2, t2, h2, k, jc, nc, chic)
     Λ = zeros(nsh); Λ[jc+1:end] .= Λ2[nc+1:end]; Lr = zeros(nsh + 1); Lr[jc+1:end] .= L2[nc+1:end]
     Λ, Lr, x2
 end
 const LTAUCUT = parse(Float64, get(ENV, "LTAUCUT", "10")); const LINECORE = parse(Int, get(ENV, "LINECORE", "1"))
 "Line cooling per zone (and Lr) for zone temperatures tt; step k (for NLTE=hyb); jc = number of core zones merged away."
-function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
+function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0, chic = nothing)
     nz_ = length(dd); zk(j) = j <= ncz ? a + jc - 1 : a + (j - ncz) + jc - 1   # TITAN zone of reduced zone j (ncz merged-core zones first)
     if NLTE in ("ep", "ali", "hyb")
         yc = [ycomp(zk(j)) for j in 1:nz_]; nHn = dd ./ PC.μH
         nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nz_], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nz_])
         inc = lineinc()
         if NLTE != "hyb"
-            out_ = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep, inc)
+            out_ = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep, inc, chic)
             LINEIMP && k >= 0 && li_store!(H2Lines.LAST[], j -> 1.0, dd, nh2, nl, zk, ncz, nz_; ep = NLTE == "ep" ? (; T = tt, r = rr, u = uu) : nothing)
             return out_
         end
@@ -655,7 +659,7 @@ function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0)
             end
         end
         if k >= 0 && (k - ALILAST[] >= ALIINT[] || length(ALIFAC[]) != nz_)
-            tq = time(); Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali, inc)
+            tq = time(); Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali, inc, chic)
             LINEIMP && li_store!(H2Lines.LAST[], j -> 1.0, dd, nh2, nl, zk, ncz, nz_; ali = true)
             TIMING && pr("        ALI call %.1f s (nep %d, ALI iterations %d, converged %s)\n", time() - tq, H2Lines.LAST[].nep, H2Lines.LAST[].iters, H2Lines.LAST[].converged)
             Λfs = Λa                                     # −∇·F of the formal solution (diagnostics)
@@ -1600,8 +1604,8 @@ function tabaudit()
     end
     function means(ρ, T, d)
         nH = ρ / ChemNet.μH(); n1 = nH * max(d[:H], 0.0); ne = nH * max(d[:e], 0.0); np = nH * max(d[:Hp], 0.0)
-        nHe = nH * max(get(d, :He, PC.yHe), 0.0); nHmS = n1 * ne / ChemNet.Keq([:Hm], [:H, :e], T); nHm = nH * max(get(d, :Hm, 0.0), 0.0)
-        PM.nlte_means(ρ, T; n1, n2 = 4n1 * exp(-E21 / (kB * T)), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, nHmS, hbfP = true)
+        nHe = nH * max(get(d, :He, PC.yHe), 0.0); nHm = nH * max(get(d, :Hm, 0.0), 0.0)
+        PM.nlte_means(ρ, T; n1, n2 = 4n1 * exp(-E21 / (kB * T)), nH2 = nH * max(d[:H2], 0.0), nHe, nHp = np, ne, nHm, hbfP = true)
     end
     @printf("TABAUDIT: zone r[Rsun] T[K] nH | x_e tab/net | x_H2 tab/net | x_H- tab/net | x_He+ x_He++ tab/net | u tab/net (rel diff) | p rel diff | c_v rel diff | Γ1 tab/net | κR_tab κP_tab | κ(E,P,R) nlte net comp | κ(E,P,R) nlte tab comp\n")
     if get(ENV, "TABAUDIT", "1") == "4"          # opacity audit of every zone below the hot branch (table and network zones)

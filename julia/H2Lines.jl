@@ -72,10 +72,10 @@ Frequency bins per line (G6a): span ±(3 v_th + |u|) and bin width ≤ ½ v_th,m
 radial line-centre depth < 2 tol use the thin emission (relative error ≲ tol).
 """
 function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, tol = 0.01, nbinmax = 200, cover = 0.999,
-                 nlte = nothing, nlte_mode = :ali, nlte_tol = 1e-3, nlte_maxit = 60, nlte_init = :ep, nlte_lambda = :diag, inc = nothing)
+                 nlte = nothing, nlte_mode = :ali, nlte_tol = 1e-3, nlte_maxit = 60, nlte_init = :ep, nlte_lambda = :diag, inc = nothing, chic = nothing)
     if nlte !== nothing
         return cooling_nlte(L, r, u, T, nH2, nlte; nbin, tol, nbinmax, cover, mode = nlte_mode, ntol = nlte_tol,
-                            maxit = nlte_maxit, init = nlte_init, lam = nlte_lambda, inc)
+                            maxit = nlte_maxit, init = nlte_init, lam = nlte_lambda, inc, chic)
     end
     n = length(T); @assert length(r) == n + 1
     vth = [sqrt(2kB * T[k] / mH2) for k in 1:n]
@@ -462,9 +462,29 @@ end
     (lo, hi)
 end
 # one segment for all the bins it acts on: I ← I e^{−Δτ} + S (1 − e^{−Δτ}), ψ = 1 − e^{−Δτ}, Δτ = pr φ̂((v + qs)/vt) (`shz`, `ψz`)
-@inline function fast_step!(I, ψ, xv, pr, qs, vt, S, x1, rdv, nb)
-    pr == 0 && return (1, 0)
+# Continuum absorption (tc = χ_c Δz of the segment, frequency-flat across a line; 0 without): Δτ = Δτ_l + tc, the line source enters with the
+# fraction f = Δτ_l/Δτ (the continuum's own emission is in the background I_bg that I′ is measured from): I ← I e^{−Δτ} + f S (1 − e^{−Δτ}), ψ = f (1 − e^{−Δτ});
+# bins outside the line window are only attenuated, I ← I e^{−tc}.
+@inline function fast_step!(I, ψ, xv, pr, qs, vt, S, x1, rdv, nb, tc = 0.0)
+    if pr == 0
+        if tc > 0; ec = exp(-tc); @inbounds @simd for ib in 1:nb; I[ib] *= ec; end; end
+        return (1, 0)
+    end
     lo, hi = binwin(-qs, vt * sqrt(FASTXC2 + log(max(abs(pr), 1.0))), x1, rdv, nb)
+    if tc > 0
+        ec = exp(-tc)
+        @inbounds @simd for ib in 1:lo-1; I[ib] *= ec; end
+        @inbounds @simd for ib in hi+1:nb; I[ib] *= ec; end
+        @inbounds @simd for ib in lo:hi
+            a = (xv[ib] + qs) / vt
+            Δl = pr * expk(-(a * a))[1]; Δτ = Δl + tc; f = Δl / Δτ
+            e, em = expk(-Δτ)
+            Io = I[ib]
+            I[ib] = ifelse(Δτ < 1e-4, Io * (1 - Δτ) + Δl * S, Io * e + f * S * (1 - e))
+            ψ[ib] = ifelse(Δτ < 1e-4, Δl, -f * em)
+        end
+        return (lo, hi)
+    end
     @inbounds @simd for ib in lo:hi
         a = (xv[ib] + qs) / vt
         Δτ = pr * expk(-(a * a))[1]
@@ -493,7 +513,7 @@ end
     (sJ, sΛ)
 end
 "`transfer_line` with `Sz` (zone-constant source), reorganised (see LINEFAST). Returns (Fν, Jz, Λz) as views of the work set `W`: copy before releasing it."
-function transfer_line_fast!(W::FastWS, r, u, vth, κ0, ν0, xs, lam::Bool, Sz, G::RayGeom, bg)
+function transfer_line_fast!(W::FastWS, r, u, vth, κ0, ν0, xs, lam::Bool, Sz, G::RayGeom, bg, chic = nothing)
     n = length(vth); nb = length(xs); dv = step(xs); rdv = 1 / dv
     Fν = W.Fν; Jz = W.Jz; Λz = W.Λz; ΔI = W.ΔI; QJ = W.QJ; QΛ = W.QΛ; pre = W.pre; Iin = W.Iin; I = W.I; ψ = W.ψ; xv = W.xv
     @assert size(ΔI, 2) == n && length(I) >= nb
@@ -512,7 +532,7 @@ function transfer_line_fast!(W::FastWS, r, u, vth, κ0, ν0, xs, lam::Bool, Sz, 
         for ib in 1:nb; I[ib] = 0.0; ψ[ib] = 0.0; Iin[ib, nk] = 0.0; end              # nothing comes in at the outer node
         for m in nk-1:-1:1                                         # inwards (I′ = 0 at the outer node)
             kz = j + m - 1
-            lo, hi = fast_step!(I, ψ, xv, pre[m, j], μu[m, j], vth[kz], Sz[kz] - Bc, x1, rdv, nb)
+            lo, hi = fast_step!(I, ψ, xv, pre[m, j], μu[m, j], vth[kz], Sz[kz] - Bc, x1, rdv, nb, chic === nothing ? 0.0 : chic[kz] * dz[m, j])
             @simd for ib in 1:nb; Iin[ib, m] = I[ib]; end
             qn = μku[m, j]
             for s in 1:2
@@ -530,7 +550,7 @@ function transfer_line_fast!(W::FastWS, r, u, vth, κ0, ν0, xs, lam::Bool, Sz, 
         for m in 2:nk                                              # outwards
             kz = j + m - 2; k = j + m - 1
             bq = (mq > 0 && m > mq) ? Bs : Bc
-            lo, hi = fast_step!(I, ψ, xv, pre[m-1, j], -μu[m-1, j], vth[kz], Sz[kz] - bq, x1, rdv, nb)
+            lo, hi = fast_step!(I, ψ, xv, pre[m-1, j], -μu[m-1, j], vth[kz], Sz[kz] - bq, x1, rdv, nb, chic === nothing ? 0.0 : chic[kz] * dz[m-1, j])
             if m == mq                                             # the star is opaque: I′ = 0 from here on
                 for ib in 1:nb; I[ib] = 0.0; end
                 for ib in lo:hi; ψ[ib] = 0.0; end
@@ -708,7 +728,7 @@ flux of the formal solution of the last iterate); `LAST[]` gets `iters` (ALI ite
 n_u B_ul) J̄] per zone, ALI) and `pops` (63 × n).
 """
 function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nbinmax = 200, cover = 0.999, mode = :ali,
-                      ntol = 1e-3, maxit = 60, init = :ep, lam = :diag, inc = nothing)
+                      ntol = 1e-3, maxit = 60, init = :ep, lam = :diag, inc = nothing, chic = nothing)
     LV = nlte.LV; HV = Main.H2Levels; check_levels(L, LV)
     n = length(T); @assert length(r) == n + 1
     nl = length(L.A); nlev = length(LV.E)
@@ -860,10 +880,11 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
             κ0, S, nmaser = opac(P)
             fill!(Jfs, 0.0); fill!(Lam, 0.0); fill!(Lline, 0.0); kalines === nothing || fill!(kalines, nothing)
             nb_t = Threads.Atomic{Int}(0); nth_t = Threads.Atomic{Int}(0)
+            kin = findfirst(>(0), nH2); τcont = chic === nothing || kin === nothing ? 0.0 : sum(chic[k] * (r[k+1] - r[k]) for k in kin:n)     # continuum depth from the innermost H2 zone to the surface
             Threads.@threads :greedy for i in 1:nl                  # one line per task: the thick lines are neighbours in the list
                 ν0 = ν[i]; κl = κ0[i, :]
                 τc = sum(κl[k] / (sqrt(π) * vth[k] / c * ν0) * (r[k+1] - r[k]) for k in 1:n)
-                if τc < τthin
+                if τc < τthin && τcont < τthin          # (thin line escapes only if the continuum is thin from its emitting zones outwards)
                     acc = 0.0
                     if bgd === nothing
                     for k in 1:n
@@ -894,13 +915,14 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                 Threads.atomic_max!(nb_t, nb)
                 xs = range(-vspan, vspan, length = nb)
                 bgl = bgd === nothing ? nothing : (Bc = bgd.Bc[i], Bs = bgd.Bs[i], kq = bgd.kq)
+                chic === nothing || (wpool !== nothing && kaws === nothing) || error("continuum extinction in the line transfer needs LINEFAST=1, LINESRC=zone and no LINEGPU")
                 if kaws !== nothing                                   # LINEGPU: only collect the inputs; solved as one batch below
                     kalines[i] = (; κ0 = κl, ν0, xs, lam = lam == :diag, Sz = S[i, :], bg = bgl)
                     Threads.atomic_add!(nth_t, 1); continue
                 end
                 W = wpool === nothing ? nothing : take!(wpool)
                 Fν, Jz, Λz = W === nothing ? transfer_line(r, u, vth, κl, Si, ν0, xs, lam == :diag; Sz = SRCZONE[] ? S[i, :] : nothing, G = geom, bg = bgl) :
-                             transfer_line_fast!(W, r, u, vth, κl, ν0, xs, lam == :diag, S[i, :], geom, bgl)
+                             transfer_line_fast!(W, r, u, vth, κl, ν0, xs, lam == :diag, S[i, :], geom, bgl, chic)
                 for k in 1:n+1; Lline[i, k] = 4π * r[k]^2 * Fν[k]; end
                 Jfs[i, :] .= Jz; Lam[i, :] .= Λz
                 W === nothing || put!(wpool, W)
