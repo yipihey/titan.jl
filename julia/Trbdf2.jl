@@ -110,8 +110,7 @@ function sd_clo()
     end
     println("SDCLO jstep ", Int(g(:jstep)), " thet ", g(:thet), " dt ", g(:dtime), " it ", Int(g(:iter)), " dmax ", g(:dmax), String(take!(io)))
 end
-# Default ON (meshfix): the filter solves of the estimate need the exact J v where NKRYLOV runs the Newton; the band J_b misses the nonlocal F_r flux-tie coupling (VEFIMP: h of the formal solution at the iterate), which left an h-independent F_r estimate (err 1.4-1.6, F_r zone 72, every attempt rejected from t_mf02 step 369). SDESTNK=0 restores the band-only filter.
-const SDESTNK = get(ENV, "SDESTNK", "1") != "0"
+# The filter solves of the estimate use the exact Krylov J v where NKRYLOV runs the Newton (the band J_b misses the nonlocal F_r flux-tie coupling, VEFIMP: h of the formal solution at the iterate; it left an h-independent F_r estimate, t_mf02 step 369).
 const SD_FLAGS = Ref{Any}(nothing)          # (popiii_m2c) k -> String: regime flags of zone k (table/network, coupled)
 const SDACC = Dict{Tuple{Symbol,Int,Int},Float64}(); const SDTAG = Ref(:e0)
 function nwtrace_it()
@@ -531,10 +530,10 @@ function estimate!(Cn, Cg, C1, Cs, Δ)
     rhs = TF.var(:rhs)
     TitanCore.CSENS_SKIP[] = TD.CSENS.valid
     try
-        s!(:iter, 1); r(:matgen); r(:matslv); SDESTNK && TD.KRYLOV[] !== nothing && TD.KRYLOV[](); δ0 = copy(rhs)
+        s!(:iter, 1); r(:matgen); r(:matslv); TD.KRYLOV[] !== nothing && TD.KRYLOV[](); δ0 = copy(rhs)
         old_from!(Co) || (ESTATS[:neg_old] += 1; return (Inf, "m<=0", 0, Inf))
         TX.RESID_ONLY[] = true; BlockSolver.Penta.REUSE_LU[] = true
-        r(:matgen); r(:matslv); SDESTNK && TD.KRYLOV[] !== nothing && TD.KRYLOV[](); rhs .-= δ0
+        r(:matgen); r(:matslv); TD.KRYLOV[] !== nothing && TD.KRYLOV[](); rhs .-= δ0
         SDTAG[] = :e0; e0 = wnorm(δ0); ERR0[] = e0[1]
         SDTAG[] = :f1
         EOPT.filt >= 2 || return wnorm(rhs)
@@ -581,7 +580,7 @@ function refilter!(E1, Cs, δ0)
         Co[s_] = o
     end
     old_from!(Co) || return false
-    rhs = TF.var(:rhs); r(:matgen); r(:matslv); SDESTNK && TD.KRYLOV[] !== nothing && TD.KRYLOV[](); rhs .-= δ0
+    rhs = TF.var(:rhs); r(:matgen); r(:matslv); TD.KRYLOV[] !== nothing && TD.KRYLOV[](); rhs .-= δ0
     true
 end
 

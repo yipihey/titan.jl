@@ -1146,14 +1146,14 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
     # t_cross = r_c / (|u|_c + c_s) (the driver's geq_tcross: r_c mid-zone radius, |u|_c mean of the two interface speeds, |u| -> sqrt(u^2 + eps^2),
     # eps = 1e-3 c_s; c_s = sqrt(gamma p/rho) = W.asn); t_dyn = 1/sqrt(G rho) (G = P.cgrav); t_floor: the speed floor of the driver (start-of-step).
     function tau(j)
-        (cs === nothing || !hasproperty(ge, :tfl)) && return ge.tauv[j]
+        (cs === nothing || !hasproperty(ge, :tfl)) && return (ge.tauv[j], zero(ge.tauv[j]))
         c_ = cs[j]; ε = 1e-3 * c_
         um = 0.5 * (sqrt(un[j]^2 + ε^2) + sqrt(un[j+1]^2 + ε^2))
         tc_ = 0.5 * (rn[j] + rn[j+1]) / (um + c_)
         a_ = ge.kap * tc_; b_ = ge.fdyn / sqrt(Gc * dn[j])
         tm = (a_^-4 + b_^-4)^-0.25
         tf_ = log(rn[j+1] / rn[j]) * tc_ * ge.flc          # speed floor from the iterate: a zone moving its own width ln(r_j+1/r_j) in tau goes at most fv (|u|+c_s)  (ge.flc = 1/min(fmove-ish cap, fvr))
-        (tm^4 + tf_^4)^0.25
+        (tm, tf_)
     end
     # Optical depth of the Newton iterate (GEQW entry 6, w_tau): tau_k = sum_{j>=k} chi_j rho_j (r_j+1 - r_j) from the outer zone zh inward (zones k1..zh),
     # ln tau confined to [ln tau_lo, ln tau_hi] by a SMOOTH window (smooth max/min, sqrt((x-L)^2 + e^2), e = 0.5), zone value = mean of the two interface values,
@@ -1203,9 +1203,10 @@ function grideq_rows!(R, ir, k0, rn, ro, dn, tn, pg, er, xmen, xmtot, dt, ge, ch
     # A zone's own tau (t_dyn, t_cross, speed floor) is 1e3-1e8 dt once the step is set by the collapsing core. In the frozen limit the chain n̂_j = n̂_j-1 shares a change
     # of the span ln(r_N/r_zl) (r_zl collapses with the Lagrangian first interface) among the zones in proportion to M_j/tau_j, so the core zones alone absorb all of it:
     # dlnr_2..5 grow 0.3 -> 0.9, mass ratios 3 (n_c 1e16) -> 9. A nearly uniform tau (ceiling) shares it over all N zones (~0.03 e-fold each).
-    τraw = [tau(j) for j in zl:zh]; τct = similar(τraw); qτ = 1 + 5 / length(τraw)
+    τraw = [tau(j) for j in zl:zh]; τce = similar(first.(τraw)); τct = similar(τce); qτ = 1 + 5 / length(τraw)
     @inbounds for i in eachindex(τraw)
-        τct[i] = i == 1 ? τraw[1] : (τraw[i]^-4 + (qτ * τct[i-1])^-4)^-0.25
+        τce[i] = i == 1 ? τraw[i][1] : (τraw[i][1]^-4 + (qτ * τce[i-1])^-4)^-0.25
+        τct[i] = (τce[i]^4 + τraw[i][2]^4)^0.25        # speed floor AFTER the ceiling (smooth smax(tau~_j, t_floor,j)): no zone is slower than fv (|u|+c_s) allows; the ceiling chain itself is floor-free
     end
     nhat(j) = begin
         m = ms[j-zl+1]; Mj = amix > 0 ? amix * (Ipp / Iff) * m[2] + (1 - amix) * m[1] : m[1]

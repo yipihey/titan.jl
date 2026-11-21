@@ -24,7 +24,7 @@ Then the unchanged `maxdel!`, `update!`.
 module NewtonKrylov
 
 using LinearAlgebra, Printf, Statistics, ForwardDiff
-import ..TitanDriver, ..TitanCore, ..TitanResidFast, ..Trbdf2
+import ..TitanDriver, ..TitanCore, ..TitanResidFast, ..Trbdf2, ..BlockSolver
 const TD = TitanDriver; const TF = TD.TF; const TC = TitanCore; const TX = TitanResidFast
 TX.EDDFAC_DUAL[] = TC.eddfac_dual
 vf(s) = TF.var(s)::Vector{Float64}
@@ -623,8 +623,16 @@ function krylov!()
         gi(:iter) == 1 && (TRR[] = GLOB.delta0)
         x, m, conv, rel, trunc = gmres(S, b, TRR[])
         if TX.RESID_ONLY[] && (!conv || m > 6)
+            # the cached band factorisation no longer preconditions J at this state (the estimate's solves run at a perturbed old state):
+            # refactorise at the current state (matgen + matslv with a fresh LU, which also replaces the cache) and solve again
             CNT.solves -= 1; CNT.jb_reused -= 1
-            error("NKRYLOV: refresh J_b")
+            S.snap.taken && restore!(S.snap)
+            TX.FREEZE[] = 0; TitanCore.STEP_FRAC[] = 1.0
+            TX.RESID_ONLY[] = false; BlockSolver.Penta.REUSE_LU[] = false
+            TitanDriver.r(:matgen); TitanDriver.r(:matslv)
+            krylov!()
+            TX.RESID_ONLY[] = true; BlockSolver.Penta.REUSE_LU[] = true       # (the caller's later solves reuse the fresh factorisation)
+            return nothing
         end
         conv || trunc || (CNT.nonconv += 1); trunc && (GC.truncated += 1)
         if SCAN[][1] == Trbdf2.NWATT[] && gi(:iter) in SCAN[][2]
