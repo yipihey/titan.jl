@@ -2160,3 +2160,15 @@ says nothing about a resolved photosphere. The core test covers about a year; th
 Main run vs finer zones (`_mf`, to step 17900, day 151): T(0.1) differs by up to ±9 %, entropy ≤ 0.03 at m = 0.03, 0.1 and up to 0.18 at m = 0.12; breathing period ~15 d (fine) vs 18–26 d. Inconclusive: fine zones begin only at ~0.15 M⊙. The shock spans one zone.
 
 Open: m*(t), R*(t) are not results until the breathing is resolved or replaced by a boundary treatment. Not compared yet with Hosokawa+2012, Omukai & Palla 2003 tables in `popiii_lit/stellar`.
+
+
+## ALI only; continuum absorption of line photons returned to the gas (20 Nov 2026, branch alionly)
+Tom: "ALI should be always on. No fast escape probability." The escape-probability and hybrid line modes are removed (NLTE, NALI, ALIWMIN/ALIGROW/ALISHRINK/ALICAP,
+LINECOLL, EPTAB, EPGRAD, LIFMAX, LLDIAG, LINECONS; `H2Lines` `:ep`, epβ, E2, `nlte_mode`, `nlte_init`; `PopIIIMaterial.li_ep`/`li_esc`, the velocity-gradient ratio of
+`li_lam`/`li_cool`/`_cpl_g`). Every step calls the ALI transfer; it starts from the previous call's converged populations (`POPS0` in popiii_m2c, aligned from the
+outside on the fixed mesh; cold start = level equilibrium without line radiation at the first call and after a remap), same tolerance 1e-3.
+Energy: the continuum absorbs line photons (Δτ = Δτ_l + χ_c Δz in the formal solution, commit 1b39281); the absorbed power per zone, 4π χ_c ∫J̄′dν
+(`H2Lines.LAST[].Labs`, from the same ray quadrature as J̄), is returned to the GAS: `PopIIIMaterial.li_cool` = netrad(iterate) − hc ρ/ρ_call, i.e. the net divergence of the
+line flux. Reason: the grey energy rows treat κ_P ρ (E_r − aT⁴) as gas heating by absorbed continuum radiation; a line photon absorbed by the same opacity is thermalised the
+same way, and E_r is not changed (the line photons that escape are the lost energy L_lines). The opaque merged core's absorption heats the core zones uniformly in volume
+(`linecool`). With TIMING=1 each call prints `LEDGER`: Σ V Λ_coll = L_esc + absorbed by continuum.

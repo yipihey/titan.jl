@@ -135,7 +135,6 @@ Columns: default (code at 1782928); value in the z300mm stack (`–` = not set; 
 | RHOEQ | `"5e-11"` | – | popiii_m2c.jl:353 | equilibrium switch / EOS of PrimordialGas (unused with CHEM=net*) | REMOVE-SUPERSEDED | superseded by ChemNet (CHEM=netmodernli) |
 | EQEOS | `"scvh"` | – | popiii_m2c.jl:353 | equilibrium switch / EOS of PrimordialGas (unused with CHEM=net*) | REMOVE-SUPERSEDED | superseded by ChemNet (CHEM=netmodernli) |
 | K5 | `"pss"` | – | popiii_m2c.jl:334 | choice of rate k5 of the RHFC02 network | UNCLEAR | only the RHFC02 network reads it? check ChemRates; with netmodernli remove |
-| NLTE | `"1"` | `hyb` | popiii_m2c.jl:551 | H₂ line source function 1/0/ep/ali/hyb | MAKE-DEFAULT | stack hyb; ep/ali/1/0 branches are tests |
 | NBIN | `"30"` | – | popiii_m2c.jl:752 | frequency bins of the line transfer | KEEP-STACK |  |
 | RAD | `"0"` | `1` | popiii_m2c.jl:43 | radiation E_r, F_r on (RA04 CIE cooling off) | MAKE-DEFAULT | always 1 from the IC with ICEUL; RAD=0 + RADFROM = the old stage chain (stage 3) |
 | HOT | `"0"` | `1` | popiii_m2c.jl:22 | stellar EOS, nuclear network and MLT in the hot core | KEEP-STACK | stack 1; make default with the HOTT1/HOTT2 blend kept |
@@ -156,13 +155,11 @@ Columns: default (code at 1782928); value in the z300mm stack (`–` = not set; 
 | TL3NEFULL | `"0"` | – | ChemNet.jl:846 | n_e of the three-level atom from charge conservation, not n_H x_H⁺ | UNCLEAR | correctness option never adopted; test with the stack, then default or remove |
 | TL3DEEP | `"0"` | `1` | PopIIIMaterial.jl:1072 | G2: three-level atom also in the deep network zones | MAKE-DEFAULT | stack 1 |
 | LINEINC | `"0"` | `1` | popiii_m2c.jl:566 | H₂ levels see the incident CMB + diluted photosphere | MAKE-DEFAULT | stack 1 |
-| LINECOLL | `"0"` | `1` | popiii_m2c.jl:558 | gas term = net collisional exchange at ALI populations | MAKE-DEFAULT | stack 1 |
 | LINESRC | `"linear"` | `zone` | H2Lines.jl:238 | zone-constant line source | MAKE-DEFAULT | stack zone |
 | LINEQUAD | `"mu"` | `p2` | H2Lines.jl:242 | flux quadrature trapezoid in μ² | MAKE-DEFAULT | stack p2 |
 | LINECORE | `"1"` | `8` | popiii_m2c.jl:658 | transparent merged-core zones for impact parameters | KEEP-STACK | stack 8 |
 | LTAUCUT | `"10"` | – | popiii_m2c.jl:658 | H₂ line transfer only outside continuum τ (default 10) | KEEP-STACK |  |
 | LTRAN | `"1"` | – | popiii_m2c.jl:910 | 1 = formal solution for f, g; 2 = Eddington approximation | UNCLEAR | stack default 1; =2 is a test path |
-| EPGRAD | `"thermal"` | – | H2Lines.jl:602 | Sobolev gradient over one thermal width (default thermal) | KEEP-STACK | default already the fix; the other values are dead |
 | DM | `"1"` | – | popiii_m2c.jl:163 | ABN02 dark-matter potential on (default 1) | KEEP-STACK |  |
 | DMCORE | `ic == "abn02red" ? "…` | – | popiii_m2c.jl:177 | DM potential: cored inner profile (default on for abn02red) / which ABN02 DM line (z19\|final) | KEEP-STACK |  |
 | DMLINE | `"z19"` | – | popiii_m2c.jl:114 | DM potential: cored inner profile (default on for abn02red) / which ABN02 DM line (z19\|final) | KEEP-STACK |  |
@@ -273,7 +270,6 @@ Columns: default (code at 1782928); value in the z300mm stack (`–` = not set; 
 | LOCALJWMIN | `"0"` | `1e-3` | PopIIIMaterial.jl:1033 | LOCALJ: minimum dilution | KEEP-STACK | stack 1e-3 |
 | LOCALJTAB | `"1"` | – | PopIIIMaterial.jl:1030 | LOCALJ photo-rate tables (default on) / table size | KEEP-TOOL | performance |
 | LJTABN | `"1000"` | – | ChemNet.jl:352 | LOCALJ photo-rate tables (default on) / table size | KEEP-TOOL | performance |
-| EPTAB | `"0"` | `1` | H2Lines.jl:629 | tabulated EP line-cooling kernels | MAKE-DEFAULT | stack 1 (and repo phaseB.env) |
 | LINEFAST | `"0"` | `1` | H2Lines.jl:431 | fast resonance window of the line transfer / its width (38, 16 in the repo phaseB.env) | MAKE-DEFAULT | stack LINEFAST=1, LINEXC2 default 38 |
 | LINEXC2 | `"38"` | – | H2Lines.jl:432 | fast resonance window of the line transfer / its width (38, 16 in the repo phaseB.env) | MAKE-DEFAULT | stack LINEFAST=1, LINEXC2 default 38 |
 | NLOITDIAG | `"0"` | – | PopIIIMaterial.jl:675 | NLOIT: per-zone opacity diagnostics | KEEP-TOOL |  |
@@ -294,18 +290,11 @@ Columns: default (code at 1782928); value in the z300mm stack (`–` = not set; 
 | Switch | Default | z300mm | Where | What | Verdict | Note |
 |---|---|---|---|---|---|---|
 | LINEIMP | `"0"` | `1` | popiii_m2c.jl:580 | line cooling of each zone at the iterate (T, colliders, n_H₂, EP β and J̄ of the iterate; exact ∂/∂T, ∂/∂ρ, ∂/∂x, ∂/∂g by ForwardDiff, §11; ALI/EP factor f from the last transfer call) | MAKE-DEFAULT | stack 1 |
-| LIFMAX | `"10"` | – | popiii_m2c.jl:580 | LINEIMP: bound of the ALI/EP factor (10) | KEEP-STACK |  |
 | IMPCOOL | `"1"` | – | popiii_m2c.jl:342, popiii_m2c.jl:344 | line-cooling slope from a second transfer call | REMOVE-SUPERSEDED | unset (default IMPCOOL=1), not used with LINEIMP (popiii_m2c LINEIMP docstring); superseded by LINEIMP. IMPCOOL in CKENV: translate |
 | IMPALWAYS | `"0"` | – | popiii_m2c.jl:344 | line-cooling slope from a second transfer call | REMOVE-SUPERSEDED | unset (default IMPCOOL=1), not used with LINEIMP (popiii_m2c LINEIMP docstring); superseded by LINEIMP. IMPCOOL in CKENV: translate |
 | DTCOOL | `"1.0"` | – | popiii_m2c.jl:343 | Δt ≤ DTCOOL t_cool | REMOVE-SUPERSEDED | no effect with LINEIMP and DTERR; superseded; in CKENV |
 | TCOOLTH | `"0"` | `1` | popiii_m2c.jl:349 | t_cool from 3p/2ρ (only the cap uses it) | REMOVE-SUPERSEDED | stack 1, no effect with LINEIMP/DTERR |
 | LINEFRAC | `"0"` | `0` | popiii_m2c.jl:1978 | reuse Λ until LINEFRAC × t_cool | REMOVE-SUPERSEDED | stack 0 (= default) |
-| NALI | `"20"` | – | popiii_m2c.jl:551 | hybrid NLTE: ALI refresh interval and its adaptation | KEEP-STACK | stack ALIWMIN 1e-3, ALIGROW 0.1, ALISHRINK 0.5 (≠ defaults: make those the defaults) |
-| ALIWMIN | `"0"` | `1e-3` | popiii_m2c.jl:551 | hybrid NLTE: ALI refresh interval and its adaptation | KEEP-STACK | stack ALIWMIN 1e-3, ALIGROW 0.1, ALISHRINK 0.5 (≠ defaults: make those the defaults) |
-| ALIGROW | `"0.01"` | `0.1` | popiii_m2c.jl:551 | hybrid NLTE: ALI refresh interval and its adaptation | KEEP-STACK | stack ALIWMIN 1e-3, ALIGROW 0.1, ALISHRINK 0.5 (≠ defaults: make those the defaults) |
-| ALISHRINK | `"0.05"` | `0.5` | popiii_m2c.jl:551 | hybrid NLTE: ALI refresh interval and its adaptation | KEEP-STACK | stack ALIWMIN 1e-3, ALIGROW 0.1, ALISHRINK 0.5 (≠ defaults: make those the defaults) |
-| ALICAP | `"0"` | – | popiii_m2c.jl:551 | hybrid NLTE: ALI refresh interval and its adaptation | KEEP-STACK | stack ALIWMIN 1e-3, ALIGROW 0.1, ALISHRINK 0.5 (≠ defaults: make those the defaults) |
-| LLDIAG | `"0"` | – | popiii_m2c.jl:715 | line-luminosity closure / per-zone consistency / LINEINC diagnostics | KEEP-TOOL |  |
 | LINECONS | `"0"` | – | popiii_m2c.jl:723 | line-luminosity closure / per-zone consistency / LINEINC diagnostics | KEEP-TOOL |  |
 | LINEINCDIAG | `"0"` | – | popiii_m2c.jl:566 | line-luminosity closure / per-zone consistency / LINEINC diagnostics | KEEP-TOOL |  |
 | LYART | `"0"` | – | LyaTransfer.jl:26 | Lyα transfer for the three-level atom (LyaTransfer.jl) instead of Sobolev escape | UNCLEAR | off everywhere; a physics method, not a patch: keep if Lyα transfer is planned, otherwise delete LyaTransfer.jl (~200 lines) |

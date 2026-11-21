@@ -39,78 +39,56 @@ ext_cooling(m, k) = (Λx = m.Λext[k]; Λx == 0 ? nothing :
                      m.slope[k] == 0 ? ((T) -> Λx + zero(T)) : (Tr = m.Tref[k]; s = m.slope[k]; (T) -> Λx * (T / Tr)^s))
 """
 LINEIMP (popiii_m2c; always on): the H₂ line cooling of a zone is a function of the zone's current state, not a number held from the last
-transfer call. Each transfer call (popiii_m2c `linecool`) leaves per zone the radiative rates of its last population solve: escape
-probability β and mean intensity J̄ per line (escape-probability call: β of the local optical depths, J̄ = β J_bg of the incident CMB + star
-light; ALI call: β = 1 − Λ*, J̄ = J̄_fs − Λ* S, the accelerated-Λ-iteration split). Between transfer calls those rates are frozen and the level
-populations are re-solved in statistical equilibrium at the temperature, the collider densities (n_H, n_H₂, n_He, n_H⁺ of the iterate's
-composition) and the H₂ density of the iterate:
-    Λ(ρ, T, x) = f · n_H₂ Σ_lines hν [n_u(T, n) (A β + B_ul J̄) − n_l(T, n) B_lu J̄]     (H2Levels.netrad = collcool in s.e.)
-with f the ALI/EP factor of the hybrid scheme. So the optically thin and the escape-probability part of the cooling are implicit and exact
-in T, ρ and the composition, and the derivatives are those of this function (ForwardDiff through the population solve: the populations
-are generic in the number type). The radiative rates of an escape-probability call follow the iterate too (`li_ep`: β from the line depths of the iterate's populations,
-density and velocity gradient, J̄ from the iterate's source function and the call's incident field); what stays as the transfer call left it is the static slab
-geometry inside β (through the call's Sobolev length), the incident field J_bg, the rates of an ALI call and the ALI/EP factor f.
-Λ is the net exchange with the zone's radiation field: it vanishes where the levels are in equilibrium with J̄ (for J̄ = β B_ν(T_r):
-at T = T_r) and is heating below that, so no held rate can take a zone below the radiation temperature; J̄ ≥ β B_ν(T_CMB) per line.
+transfer call. Each ALI transfer call (popiii_m2c `linecool`; the only line-transfer mode) leaves per zone the radiative rates of its last population
+solve (β = 1 − Λ*, J̄ = J̄_fs − Λ* S, the accelerated-Λ-iteration split) and hc, the line power the grey continuum absorbed in the zone (4π χ_c ∫J̄′dν).
+Between calls those are frozen and the level populations are re-solved in statistical equilibrium at the temperature, the collider densities (n_H, n_H₂, n_He, n_H⁺ of the
+iterate's composition) and the H₂ density of the iterate:
+    Λ(ρ, T, x) = n_H₂ Σ_lines hν [n_u(T, n) (A β + B_ul J̄) − n_l(T, n) B_lu J̄] − hc ρ/ρ_call     (H2Levels.netrad = collcool in s.e.)
+so the cooling is implicit and exact in T, ρ and the composition, and the derivatives are those of this function (ForwardDiff through the population solve: the
+populations are generic in the number type). The first term is the net collisional exchange of the levels; the second returns to the gas the line photons the
+continuum absorbed (thermalised by κ_P as the energy rows treat the Planck-mean absorption), so Λ is the net divergence of the line flux.
+Λ is the net exchange with the zone's radiation field: it vanishes where the levels are in equilibrium with J̄ and is heating below that, so no held rate can take a zone
+below the radiation temperature; J̄ ≥ β B_ν(T_CMB) per line.
 """
 const LINEIMP = Ref(false)
-const LIMODEL = Ref{Vector{Any}}(Any[])          # per zone k: nothing or (; LV, β, J, nH, nH2, nHe, nHp, ρ, f, ws, ep): the rates and the state of the call, ep: EP-type extras
+const LIMODEL = Ref{Vector{Any}}(Any[])          # per zone k: nothing or (; LV, β, J, nH, nH2, nHe, nHp, ρ, hc, ws): the rates and the state of the call
 li_model(k) = (LINEIMP[] && k <= length(LIMODEL[])) ? LIMODEL[][k] : nothing
 li_invalidate!() = (fill!(LIMODEL[], nothing); nothing)
-"Escape probability (1 − e^{−τ})/τ of a Sobolev slab and its inverse in τ (β < 1)."
-li_esc(τ) = τ < 1e-6 ? 1 - τ / 2 : -expm1(-τ) / τ
-function li_esc_inv(β)
-    lo, hi = -18.0, 18.0                                      # bisection in ln τ
-    for _ in 1:80; mid = 0.5(lo + hi); li_esc(exp(mid)) > β ? (lo = mid) : (hi = mid); end
-    exp(0.5(lo + hi))
-end
-"""
-(LINEIMP) the escape-probability model at the iterate. An EP transfer call (β of the line depths, J̄ = (1 − β) S + β J_bg) leaves per line
-its β, J̄ and, per zone, the populations. The model keeps from it, per line, the Sobolev length ℓ_i = τ_i/κ0_i (τ_i = the optical depth of the Sobolev form
-(1 − e^{−τ})/τ that gives the call's β, κ0_i the call's line opacity), the incident part J_bg,i = (J̄_i − (1 − β_i) S_i)/β_i and the zone's velocity gradient g0
-(`sl_grad`). At the iterate the lines are re-evaluated from the iterate's populations: κ0_i(iterate), τ_i = ℓ_i κ0_i g0/g, β_i = (1 − e^{−τ_i})/τ_i
-(1 where κ0_i ≤ 0), J̄_i = (1 − β_i) S_i + β_i J_bg,i ≥ β_i B_ν(T_CMB) (S_i the iterate's source function). At the state of the call this
-reproduces the call's β and J̄. Lines of an ALI call (β = 1 − Λ*, J̄ = J̄_fs − Λ* S) and lines with β = 1 at the call keep their rates.
-"""
-function li_ep(LV, β, J, jc, P, T, nH2, g0)
-    HV = Main.H2Levels; κ0 = HV.linekappa(LV, P, nH2); S = HV.linesource(LV, P, T)
-    ℓ = [(κ0[i] > 0 && β[i] < 1 - 1e-12 && β[i] > 0) ? li_esc_inv(β[i]) / κ0[i] : 0.0 for i in eachindex(β)]
-    Jbg = [β[i] > 0 ? max((J[i] - (1 - β[i]) * S[i]) / β[i], 0.0) : 0.0 for i in eachindex(β)]
-    (; ℓ, Jbg, jc, g0)
-end
-"(LINEIMP) the zone's line model from the radiative rates of a transfer call (see LINEIMP); ep = (; jc, P, T, g0) for an escape-probability call: the CMB intensity per line, the call's populations of the zone, its T and velocity gradient."
-function li_set!(k, LV, β, J, nH, nH2, nHe, nHp, ρ, f; ep = nothing)
+"(LINEIMP) the zone's line model from the radiative rates of the ALI transfer call (see LINEIMP); hc: the line power per volume the continuum absorbs [erg cm⁻³ s⁻¹]."
+function li_set!(k, LV, β, J, nH, nH2, nHe, nHp, ρ, hc)
     length(LIMODEL[]) < k && append!(LIMODEL[], Any[nothing for _ in length(LIMODEL[])+1:k])
-    LIMODEL[][k] = (nH2 > 0 && isfinite(f)) ? (; LV, β, J, nH = max(Float64(nH), 0.0), nH2 = Float64(nH2), nHe = max(Float64(nHe), 0.0), nHp = max(Float64(nHp), 0.0), ρ = Float64(ρ), f = Float64(f),
-                                              ws = Main.H2Levels.PopWS(LV), ep = ep === nothing ? nothing : li_ep(LV, β, J, ep.jc, ep.P, ep.T, nH2, ep.g0)) : nothing
+    LIMODEL[][k] = (nH2 > 0 && isfinite(hc)) ? (; LV, β, J, nH = max(Float64(nH), 0.0), nH2 = Float64(nH2), nHe = max(Float64(nHe), 0.0), nHp = max(Float64(nHp), 0.0), ρ = Float64(ρ), hc = Float64(hc),
+                                              ws = Main.H2Levels.PopWS(LV)) : nothing
     nothing
 end
 const LIBAD = Ref(0)
 """
-(LINEIMP) the line cooling [erg cm⁻³ s⁻¹] of the model md at temperature T and colliders (n_H, n_H₂, n_He, n_H⁺); gr = g/g0, the iterate's velocity gradient over that of
-the call. Any of the arguments may be a Dual (no work arrays then). EP-type models: the lines' β and J̄ are those of the iterate's populations (see `li_ep`),
-the populations of the cooling then solved with them.
+(LINEIMP) the net radiative line cooling [erg cm⁻³ s⁻¹] of the model md at temperature T and colliders (n_H, n_H₂, n_He, n_H⁺) (the continuum's absorption is added in `li_cool`) Any of the arguments may be a Dual (no work arrays then).
 """
-function li_lam(md, T, nH, nH2, nHe, nHp, gr = 1.0)
+function li_lam(md, T, nH, nH2, nHe, nHp)
     HV = Main.H2Levels
-    λ = HV.li_lam_eval(md.LV, md.β::Vector{Float64}, md.J::Vector{Float64}, md.f::Float64, md.ep, T, nH, nH2, nHe, nHp, gr)
+    λ = HV.li_lam_eval(md.LV, md.β::Vector{Float64}, md.J::Vector{Float64}, T, nH, nH2, nHe, nHp)
     if !isfinite(ForwardDiff.value(λ)) && LIBAD[] < 20
         LIBAD[] += 1; Tm = max(T, 1.0)
-        @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e f %.3g)\n", string(λ), ForwardDiff.value(Tm), ForwardDiff.value(nH), ForwardDiff.value(nH2),
-                ForwardDiff.value(nHe), ForwardDiff.value(nHp), md.f); flush(stdout)
+        @printf("LINEIMP: non-finite line cooling %s at T %.4g (n_H %.3e n_H2 %.3e n_He %.3e n_H+ %.3e)\n", string(λ), ForwardDiff.value(Tm), ForwardDiff.value(nH), ForwardDiff.value(nH2),
+                ForwardDiff.value(nHe), ForwardDiff.value(nHp)); flush(stdout)
     end
     λ
 end
-"(LINEIMP) the line cooling of the zone with model md at (ρ, T, composition y | nothing, velocity-gradient ratio gr): colliders of the iterate's composition; without one (table zone) those of the call scaled by ρ."
-function li_cool(md, ρ, T, y, gr = 1.0)
-    y === nothing && return li_lam(md, T, md.nH, md.nH2, md.nHe, md.nHp) * (ρ / md.ρ)
+"""
+(LINEIMP) the line cooling of the zone with model md at (ρ, T, composition y | nothing): colliders of the iterate's composition; without one (table zone) those of the call scaled by ρ.
+Net of the continuum's absorption of line photons: the gas takes back the line power the grey continuum absorbed, md.hc (its κ_P ρ J̄′ at the call, ∝ ρ at fixed J̄′), so
+that the cooling is the net divergence of the line flux, −∇·F = Λ_coll − Λ_cont; the line photons absorbed by κ_P are thermalised in the gas as the Planck-mean absorption is in the energy rows.
+"""
+function li_cool(md, ρ, T, y)
+    y === nothing && return (li_lam(md, T, md.nH, md.nH2, md.nHe, md.nHp) - md.hc) * (ρ / md.ρ)
     nHt = ρ / CNn.μH(); comp(s_) = nHt * max(y[s_], zero(nHt))
-    li_lam(md, T, comp(:H), comp(:H2), comp(:He), comp(:Hp), gr)
+    li_lam(md, T, comp(:H), comp(:H2), comp(:He), comp(:Hp)) - md.hc * (ρ / md.ρ)
 end
 "Cooling function for zone k: the material's own plus the transfer term."
 function zone_cooling(m, k)
     md = li_model(k)
-    if md !== nothing && CPLPREP[]                   # the coupled zones' line cooling is that of the iterate's velocity gradient too: cpl_g adds it
+    if md !== nothing && CPLPREP[]                   # the coupled zones' line cooling is that of the iterate: cpl_g adds it
         c = m.cooling
     elseif md !== nothing                            # LINEIMP: the line cooling of the iterate (see LINEIMP)
         g = (ρ, T, y) -> li_cool(md, ρ, T, y)
@@ -1944,7 +1922,7 @@ function _cpl_g(m::NetGas, k, t0, z)
     dfull = CNn.full_fast(x, m.net)
     Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, dfull)
     md = li_model(k)
-    md === nothing || (Λ += li_cool(md, ρ, T, dfull, md.ep !== nothing && length(z) >= 9 ? z[8] / md.ep.g0 : 1.0))      # H2 line cooling of the iterate (LINEIMP)
+    md === nothing || (Λ += li_cool(md, ρ, T, dfull))      # H2 line cooling of the iterate (LINEIMP)
     hd0 = HDCHEM[] && k <= length(CPLHD0[]) ? CPLHD0[][k] : nothing
     hd0 === nothing || (Λ += hd_cool(ρ, T, dfull, HDYD[] * hd_x(ρ, T, dfull, hasproperty(t, :kLW) ? t.kLW : 0.0, hd0)[3]))      # HD cooling of the iterate (HDCHEM)
     # three-level heats of the iterate (chemistry heat cq, cycle heat yq; n_e self-consistent as in the cooling closure): the hydro solve

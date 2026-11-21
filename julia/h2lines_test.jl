@@ -103,8 +103,8 @@ for nH in (1e2, 1e3, 1e4)
     n = 20; R = 1e14
     r, u, ρ, T, nH2 = sphere(n; R, nH2 = 0.1nH)
     nz = nltez(n, nH)
-    for mode in (:ali, :ep)
-        _, Ln, _ = HL.cooling(L, r, u, ρ, T, nH2; nlte = nz, nlte_mode = mode); la = HL.LAST[]
+    for mode in (:ali,)
+        _, Ln, _ = HL.cooling(L, r, u, ρ, T, nH2; nlte = nz); la = HL.LAST[]
         pops = HV.populations(LV, T[1], nH, nH2[1], nz.nHe[1], 0.0)
         Lref = 4π / 3 * R^3 * HV.cooling(LV, pops, nH2[1])
         @printf("  n_H = %.0e, %-4s: ratio %.6f   (n_H2 L_LTE-thin/ours: %.2f; thick lines %d; iterations %d)\n", nH, mode, Ln[end] / Lref,
@@ -114,23 +114,22 @@ for nH in (1e2, 1e3, 1e4)
 end
 
 # 8. thick non-LTE: homogeneous sphere, T = 1000 K, n_H2 = 0.5 n_H, R such that the strongest lines have line-centre depth 10 .. 100.
-println("\n8. thick non-LTE homogeneous spheres (T = 1000 K, 30 zones): ALI vs EP vs old fnlte path vs LTE")
+println("\n8. thick non-LTE homogeneous spheres (T = 1000 K, 30 zones): ALI vs old fnlte path vs LTE")
 for (nH, R) in ((1e4, 1e22), (1e5, 3e21), (1e6, 1e21))
     n = 30; nH2v = 0.5nH
     r, u, ρ, T, nH2 = sphere(n; R, nH2 = nH2v); nz = nltez(n, nH)
     Pl = HV.lte(LV, 1000.0); vt = sqrt(2HL.kB * 1000 / HL.mH2)
     τmax = maximum(i -> HL.h * L.ν[i] / (4π) * HL.c^2 / (2HL.h * L.ν[i]^3) * L.A[i] * nH2v * (LV.g[LV.iu[i]] / LV.g[LV.il[i]] * Pl[LV.il[i]] - Pl[LV.iu[i]]) / (sqrt(π) * vt / HL.c * L.ν[i]) * R, eachindex(L.A))
     _, La, _ = HL.cooling(L, r, u, ρ, T, nH2; nlte = nz); la = HL.LAST[]
-    _, Lt, _ = HL.cooling(L, r, u, ρ, T, nH2; nlte = nz, nlte_init = :thin); lt = HL.LAST[]
-    _, Le, _ = HL.cooling(L, r, u, ρ, T, nH2; nlte = nz, nlte_mode = :ep); le = HL.LAST[]
+    _, Lt, _ = HL.cooling(L, r, u, ρ, T, nH2; nlte = nz, pops0 = la.pops); lt = HL.LAST[]       # warm start from the converged populations
     _, Lp, _ = HL.cooling(L, r, u, ρ, T, nH2; nlte = nz, nlte_lambda = :none, nlte_tol = 1e-6, nlte_maxit = 400); lp = HL.LAST[]
     fnl = [1 / (1 + PC.Λ_H2_LTE_HM(T[j]) / (nH * PC.Λ_H2_0_GP(T[j]))) for j in 1:n]
     _, Lf, _ = HL.cooling(L, r, u, ρ, T, nH2; fnlte = fnl)
     _, Ll, _ = HL.cooling(L, r, u, ρ, T, nH2)
     Lrate = sum(la.Λrate[k] * 4π / 3 * (r[k+1]^3 - r[k]^3) for k in 1:n)
     @printf("  n_H = %.0e, R = %.0e (n_H2 R = %.1e cm⁻², LTE line-centre τ_max %.0f, %d thick lines):\n", nH, R, nH2v * R, τmax, la.nthick)
-    @printf("    L_ALI = %.4e;  EP/ALI %.3f   fnlte/ALI %.3f   LTE/ALI %.3f;  Σ rate-based/flux-based %.4f\n", La[end], Le[end] / La[end], Lf[end] / La[end], Ll[end] / La[end], Lrate / La[end])
-    @printf("    ALI iterations to 1e-3: %d (EP start %d; from thin start: %d, same L: %.5f); history %s\n", la.iters, la.nep, lt.iters, Lt[end] / La[end], join([@sprintf("%.1e", x) for x in la.hist], " "))
+    @printf("    L_ALI = %.4e;  fnlte/ALI %.3f   LTE/ALI %.3f;  Σ rate-based/flux-based %.4f\n", La[end], Lf[end] / La[end], Ll[end] / La[end], Lrate / La[end])
+    @printf("    ALI iterations to 1e-3: %d (warm start from the converged populations: %d, same L: %.5f); history %s\n", la.iters, lt.iters, Lt[end] / La[end], join([@sprintf("%.1e", x) for x in la.hist], " "))
     @printf("    plain Λ iteration (tol 1e-6): %d iterations, converged %s, L/L_ALI = %.5f\n", lp.iters, lp.converged, Lp[end] / La[end])
     chk("n_H = $nH: ALI converged, plain Λ agrees within 0.5 %", la.converged && lp.converged && abs(Lp[end] / La[end] - 1) < 0.005)
 end
@@ -141,17 +140,16 @@ let nH = 1e5, R = 3e21                                  # resolution: rate-based
         @printf("  n_H = 1e5, %3d zones: L_ALI %.4e, rate/flux %.4f, iterations %d\n", n, La[end], sum(la.Λrate[k] * 4π / 3 * (r[k+1]^3 - r[k]^3) for k in 1:n) / La[end], la.iters)
     end
 end
-# collapse-like profile with infall (velocity gradient): ALI vs EP (Sobolev part active) vs LTE
+# collapse-like profile with infall (velocity gradient): ALI vs LTE
 let n = 40, R = 1e20
     r = collect(range(0.0, R, length = n + 1)); rc = 0.5 .* (r[1:end-1] .+ r[2:end])
     nHv = [1e7 * (0.05R / max(x, 0.05R))^2 for x in rc]; T = [600 + 800 * (0.05R / max(x, 0.05R)) for x in rc]
     u = [-1e6 * min(1.0, x / (0.3R)) for x in r]
     nH2 = 0.5 .* nHv; nz = (LV = LV, nH = nHv, nHe = 0.16 .* nHv, nHp = zeros(n))
     _, La, _ = HL.cooling(L, r, u, ones(n), T, nH2; nlte = nz); la = HL.LAST[]
-    _, Le, _ = HL.cooling(L, r, u, ones(n), T, nH2; nlte = nz, nlte_mode = :ep)
     _, Ll, _ = HL.cooling(L, r, u, ones(n), T, nH2)
-    @printf("  infalling cloud (n_H 1e7 .. 1e4, 600-1400 K, ≤ 10 km/s): L_ALI %.4e, EP/ALI %.3f, LTE/ALI %.3f; ALI iterations %d, thick lines %d\n",
-            La[end], Le[end] / La[end], Ll[end] / La[end], la.iters, la.nthick)
+    @printf("  infalling cloud (n_H 1e7 .. 1e4, 600-1400 K, ≤ 10 km/s): L_ALI %.4e, LTE/ALI %.3f; ALI iterations %d, thick lines %d\n",
+            La[end], Ll[end] / La[end], la.iters, la.nthick)
 end
 # timing: 100 zones, collapse-like profile, threads = $(Threads.nthreads())
 let n = 100, R = 1e20
@@ -162,8 +160,7 @@ let n = 100, R = 1e20
     HL.cooling(L, r, u, ones(n), T, nH2); HL.cooling(L, r, u, ones(n), T, nH2; nlte = nz)             # compile
     tl = minimum(@elapsed(HL.cooling(L, r, u, ones(n), T, nH2)) for _ in 1:3)
     ta = @elapsed HL.cooling(L, r, u, ones(n), T, nH2; nlte = nz); la = HL.LAST[]
-    te = @elapsed HL.cooling(L, r, u, ones(n), T, nH2; nlte = nz, nlte_mode = :ep)
-    @printf("  timing, 100 zones, %d threads: LTE path %.2f s; ALI %.2f s (%d iterations, %d thick lines, ≤ %d bins); EP %.2f s\n", Threads.nthreads(), tl, ta, la.iters, la.nthick, la.nbins, te)
+    @printf("  timing, 100 zones, %d threads: LTE path %.2f s; ALI %.2f s (%d iterations, %d thick lines, ≤ %d bins)\n", Threads.nthreads(), tl, ta, la.iters, la.nthick, la.nbins)
 end
 println("\nG6c: ", count(OKS), "/", length(OKS), " checks passed")
 exit(all(OKS) ? 0 : 1)

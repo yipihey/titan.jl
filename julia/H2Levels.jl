@@ -385,32 +385,17 @@ function linesource!(S::Vector{T}, L::Levels, P::Vector{T}, Tval) where {T}
     S
 end
 
-_li_esc(τ) = τ < 1e-6 ? 1 - τ / 2 : -expm1(-τ) / τ
 """
 Allocation-free LINEIMP cooling kernel (`PopIIIMaterial.li_lam`) evaluated inside `H2Levels` so that `populations`, `linekappa!`,
 `linesource!`, and `netrad` use concrete per-thread work buffers (`PopWS{ET}`) for both `Float64` and `ForwardDiff.Dual`.
-Bit-identical to the boxed path.
+The populations are re-solved at the iterate with the radiative rates (β, J̄) of the last (ALI) transfer call.
 """
-function li_lam_eval(LV::Levels, β0::Vector{Float64}, J0::Vector{Float64}, f::Float64, ep, T, nH, nH2, nHe, nHp, gr = 1.0)
+function li_lam_eval(LV::Levels, β0::Vector{Float64}, J0::Vector{Float64}, T, nH, nH2, nHe, nHp)
     Tm = max(T, 1.0)
-    ET = promote_type(typeof(Tm), typeof(nH), typeof(nH2), typeof(nHe), typeof(nHp), typeof(gr))
+    ET = promote_type(typeof(Tm), typeof(nH), typeof(nH2), typeof(nHe), typeof(nHp))
     ws = popws(LV, ET)
-    if ep !== nothing
-        P0 = populations(LV, Tm, nH, nH2, nHe, nHp; β = β0, Jbar = J0, ws)
-        κ0 = linekappa!(ws.κ0, LV, P0, nH2); S = linesource!(ws.S, LV, P0, Tm)
-        ℓ = ep.ℓ::Vector{Float64}; Jbg = ep.Jbg::Vector{Float64}; jc = ep.jc::Vector{Float64}
-        β = ws.β; J = ws.J
-        @inbounds for i in eachindex(β0)
-            κi = κ0[i]
-            βi = ℓ[i] > 0 ? (κi > 0 ? _li_esc(ℓ[i] * κi / gr) : one(κi)) : β0[i] + zero(κi)
-            β[i] = βi
-            J[i] = ℓ[i] > 0 ? max((1 - βi) * S[i] + βi * Jbg[i], βi * jc[i]) : J0[i] + zero(κi)
-        end
-        P = populations(LV, Tm, nH, nH2, nHe, nHp; β, Jbar = J, ws)
-        return f * netrad(LV, P, nH2, β, J)
-    end
     P = populations(LV, Tm, nH, nH2, nHe, nHp; β = β0, Jbar = J0, ws)
-    f * netrad(LV, P, nH2, β0, J0)
+    netrad(LV, P, nH2, β0, J0)
 end
 
 "LTE (Boltzmann) fractions over the 63 levels."

@@ -118,16 +118,12 @@ Read-only audit. Nothing in the repository or the run directories was changed or
 | HDCHEM | 0 | PopIIIMaterial.jl:1237 | D⁺/HD trace network and HD cooling | 1 | – | d97be5f 2026-11-11 | N |
 | CHEMCK | 0 | ChemNet.jl:548 | reduced network (H₂, H⁺ slow; fast species algebraic) as in ChemistryKernels | 1 | – | 6bf97a8 2026-11-13 | N (model reduction underlying COUPLED) |
 | CHEMCKSWEEPS | 3 | ChemNet.jl:548 | Gauss–Seidel sweeps for fast-species steady state | – | – | 6bf97a8 2026-11-13 | U |
-| NLTE | 1 | popiii_m2c.jl:441 | H₂ line source function: 1/0/ep/ali/hyb | hyb | hyb | root | N |
-| NALI | 20 | popiii_m2c.jl:441 | ALI refresh interval in `hyb` | – | – | root | U (lag scheme) |
 | NBIN | 30 | popiii_m2c.jl:576 | frequency bins of line transfer | – | – | root | N |
-| LINECOLL | 0 | popiii_m2c.jl:448 | gas term = net collisional exchange at ALI populations instead of −∇·F of the formal solution | 1 | 1 | f6f2bad 2026-11-08 | N |
 | LINEINC | 0 | popiii_m2c.jl:456 | H₂ levels see the incident CMB plus diluted photosphere ("otherwise … line cooling can take the gas below T_CMB") | 1 | – | b6fa7fd 2026-11-11 | N |
 | LINESRC | linear | H2Lines.jl:238 | zone-constant line source | zone | zone | f6f2bad 2026-11-08 | N |
 | LINEQUAD | mu | H2Lines.jl:242 | flux quadrature trapezoid in μ² (p²) | p2 | p2 | f6f2bad 2026-11-08 | N |
 | LINECORE | 1 | popiii_m2c.jl:493 | number of transparent merged-core zones for impact parameters | 8 | 8 | f6f2bad 2026-11-08 | N |
 | LTAUCUT | 10 | popiii_m2c.jl:493 | H₂ line transfer only outside continuum τ (commit "outside the continuum photosphere (10x)") | – | – | f0bee17 2026-10-31 | U |
-| EPGRAD | thermal | H2Lines.jl:602 | Sobolev gradient over one thermal width (fix for core ringing, POPIII_RUNS.md:76-95) | – (=thermal) | thermal | 73491cc 2026-11-09 | N (now the default) |
 | LYART + LYATAU, LYAGAMMA, LYAVMAX, LYAH, LYANCORE, LYASUBTOP, LYANSUB, LYAMAXIT, LYATOL, LYANG | 0; 20, 1, 2e5, 0.2, 6, 30, 24, 40, 1e-3, 4 | LyaTransfer.jl:26-28, 36, 69, 98, 168-169 | Lyα transfer for the three-level atom replacing Sobolev escape (Voigt, ALI+Ng, sublayers) | – | – | d565e21 2026-11-08 | N (off; physics option) |
 | RAY, RAYTMIN, RAYXMIN | 0, 1.5e4, 1e-6 | popiii_m2c.jl:376, 378, 399 | photon-conserving ionising ray from the photosphere (M3); a zone the ray can ionise by > RAYXMIN stays on the network | – | – | e96c96c 2026-11-04 | N (the H II region is the expected end of accretion, POPIII_STRATEGY.md) |
 | SHOCKRAD, SHOCKDU | 0, unset | popiii_m2c.jl:270, 276 | sub-grid radiative shock | – | – | a8eb0ae 2026-11-04 | U |
@@ -195,7 +191,6 @@ Newton) or the ideal-gas ChemNet network. The decision is in PopIIIMaterial.jl:1
 | CHEMSUBCYC, CHEMSUBMAX_SC | 0, 200000 | ChemNet.jl:414-415 | sub-cycled chemistry (Anninos 1997) | – | – | deb6f13 / 59ac3c2 2026-11-13 | R |
 | IMPCOOL / IMPALWAYS | 1 / 0 | popiii_m2c.jl:235, 237 | H₂ line cooling Λ_j (T/T_j)^s implicit in chemistry; slope by a second transfer call | – (=1) | – (=1) | root / 73491cc | R (G1: Λ in Newton) |
 | LINEFRAC | 0 | popiii_m2c.jl:1659 | reuse Λ until LINEFRAC × t_cool elapsed | 0 | 0 | 225ef23 2026-11-04 | R |
-| ALIWMIN, ALIGROW, ALISHRINK, ALICAP | 0, 0.01, 0.05, NALI | popiii_m2c.jl:441 | adaptive ALI refresh interval in NLTE=hyb | 1e-3, 0.1, 0.5, – | same | 38b8e81 2026-10-31; ALICAP b1b766e 2026-11-11 | U (lagged-line scheme; R if lines enter Newton) |
 
 ## 7. Chemistry-Newton workarounds (numerics workaround)
 
@@ -292,7 +287,6 @@ Newton) or the ideal-gas ChemNet network. The decision is in PopIIIMaterial.jl:1
 | LINESCHED | zone | H2Lines.jl:604 | scheduling | – | – | f57b27e 2026-11-10 |
 | LINEFAST | 0 | H2Lines.jl:431 | "agree to round-off, not to the last bit" | 1 | 1 | a614b3e 2026-11-11 |
 | LINEXC2 | 38 | H2Lines.jl:432 | 16 "changes the cooling by ≲ 3e-9" (not bit-identical) | – (38) | 16 | 50c85cc 2026-11-11 |
-| EPTAB | 0 | H2Lines.jl:629 | "the same to the last bit" | – | 1 | 1ba004f 2026-11-11 |
 | LINEGPU, LINEGPUFLOAT | unset, 32 | h2lines_gpu.jl:45, 35 | GPU formal solution (Float32 by default: not identical) | – | – | a5eeef4 2026-11-11 |
 | THCHAIN | 1 | popiii_m2c.jl:635 | "same values and same first derivatives" | – (=1) | – | ef4ba2c 2026-11-09 |
 | CPLJLAG | 3e-3,0.1 | PopIIIMaterial.jl:1393 | inexact Newton, "converged state is unchanged" | – (on) | – | e982bb0 2026-11-13 |
@@ -310,7 +304,7 @@ Newton) or the ideal-gas ChemNet network. The decision is in PopIIIMaterial.jl:1
   `TSTPDBG` 0 TitanCore.jl:195 (5267f83); `STEPKX` 0 popiii_m2c.jl:2183 (225ef23).
 - Radiation: `EDDDBG` popiii_m2c.jl:1755 (6fcf304); `ERDIAG` popiii_m2c.jl:2187 (f75ab23); `ERDIAGZ` popiii_m2c.jl:2192 (4b90c91); `FLUXTIEDIAG`
   TitanCore.jl:797 (a85f13b).
-- Lines: `LLDIAG` 0 popiii_m2c.jl:544 (a41cbba); `LINECONS` 0 popiii_m2c.jl:552 (f6f2bad); `LINEINCDIAG` 0 popiii_m2c.jl:456 (b6fa7fd).
+- Lines: `LINEINCDIAG` 0 popiii_m2c.jl:456 (b6fa7fd).
 - Zones/profiles: `ZDIAG` popiii_m2c.jl:2059 (c559871); `SLZ` popiii_m2c.jl:2081 (4095a0a); `IFDBG`/`IFDBGN` 4 popiii_m2c.jl:2085/1986 (5267f83);
   `PROFAT` popiii_m2c.jl:2197 (root); `UDIAG` 0 popiii_m2c.jl:2218 (root); `FORCECHECK` 0 popiii_m2c.jl:282 (root); `REZDBG` 0 popiii_m2c.jl:875 (c81412a);
   `REZNULL` 0 popiii_m2c.jl:849 (f42916f); `RAYTEST` popiii_m2c.jl:379 (e96c96c).

@@ -72,10 +72,10 @@ Frequency bins per line (G6a): span ±(3 v_th + |u|) and bin width ≤ ½ v_th,m
 radial line-centre depth < 2 tol use the thin emission (relative error ≲ tol).
 """
 function cooling(L::LineList, r, u, ρ, T, nH2; nbin = 30, fnlte = nothing, tol = 0.01, nbinmax = 200, cover = 0.999,
-                 nlte = nothing, nlte_mode = :ali, nlte_tol = 1e-3, nlte_maxit = 60, nlte_init = :ep, nlte_lambda = :diag, inc = nothing, chic = nothing)
+                 nlte = nothing, nlte_tol = 1e-3, nlte_maxit = 60, nlte_lambda = :diag, inc = nothing, chic = nothing, pops0 = nothing)
     if nlte !== nothing
-        return cooling_nlte(L, r, u, T, nH2, nlte; nbin, tol, nbinmax, cover, mode = nlte_mode, ntol = nlte_tol,
-                            maxit = nlte_maxit, init = nlte_init, lam = nlte_lambda, inc, chic)
+        return cooling_nlte(L, r, u, T, nH2, nlte; nbin, tol, nbinmax, cover, ntol = nlte_tol,
+                            maxit = nlte_maxit, lam = nlte_lambda, inc, chic, pops0)
     end
     n = length(T); @assert length(r) == n + 1
     vth = [sqrt(2kB * T[k] / mH2) for k in 1:n]
@@ -445,9 +445,10 @@ struct FastWS
     Iin::Matrix{Float64}; I::Vector{Float64}; ψ::Vector{Float64}; xv::Vector{Float64}
     ΔI::Matrix{Float64}; QJ::Array{Float64,3}; QΛ::Array{Float64,3}; pre::Matrix{Float64}
     Fν::Vector{Float64}; Jz::Vector{Float64}; Λz::Vector{Float64}
+    QC::Array{Float64,3}; Cz::Vector{Float64}        # continuum absorption: Σ_bins I′ at the nodes and the zone's ∫J′dν
 end
 FastWS(n, nb) = FastWS(zeros(nb, n + 1), zeros(nb), zeros(nb), zeros(nb), zeros(n + 1, n), zeros(n + 1, n, 2), zeros(n + 1, n, 2),
-                       zeros(n + 1, n), zeros(n + 1), zeros(n), zeros(n))
+                       zeros(n + 1, n), zeros(n + 1), zeros(n), zeros(n), zeros(n + 1, n, 2), zeros(n))
 function fastpool(n, nb)
     ch = Channel{FastWS}(Threads.nthreads())
     for _ in 1:Threads.nthreads(); put!(ch, FastWS(n, nb)); end
@@ -495,6 +496,12 @@ end
     end
     (lo, hi)
 end
+# Σ over all bins of I (the frequency integral of the line-excess intensity, up to dv ν0/c: the continuum absorbs χ_c ∫I′dν)
+@inline function fast_sum(I, nb)
+    s = 0.0
+    @inbounds @simd for ib in 1:nb; s += I[ib]; end
+    s
+end
 # Σ over the bins of φ̂((v + qs)/vt) I and of φ̂ ψ (the profile's normalisation is applied by the caller)
 @inline function fast_node(I, ψ, xv, qs, vt, x1, rdv, nb, lam)
     lo, hi = binwin(-qs, vt * sqrt(FASTXC2), x1, rdv, nb)
@@ -517,7 +524,7 @@ function transfer_line_fast!(W::FastWS, r, u, vth, κ0, ν0, xs, lam::Bool, Sz, 
     n = length(vth); nb = length(xs); dv = step(xs); rdv = 1 / dv
     Fν = W.Fν; Jz = W.Jz; Λz = W.Λz; ΔI = W.ΔI; QJ = W.QJ; QΛ = W.QΛ; pre = W.pre; Iin = W.Iin; I = W.I; ψ = W.ψ; xv = W.xv
     @assert size(ΔI, 2) == n && length(I) >= nb
-    fill!(Fν, 0.0); fill!(Jz, 0.0); fill!(Λz, 0.0); fill!(ΔI, 0.0); fill!(QJ, 0.0); fill!(QΛ, 0.0)
+    fill!(Fν, 0.0); fill!(Jz, 0.0); fill!(Λz, 0.0); fill!(ΔI, 0.0); fill!(QJ, 0.0); fill!(QΛ, 0.0); fill!(W.QC, 0.0); fill!(W.Cz, 0.0); QC = W.QC; hasc = chic !== nothing
     dz = G.dz; μu = G.μu; μku = G.μku; Ma = G.μa; Mb = G.μb
     @inbounds for ib in 1:nb; xv[ib] = xs[ib]; end
     x1 = xv[1]
@@ -544,6 +551,7 @@ function transfer_line_fast!(W::FastWS, r, u, vth, κ0, ν0, xs, lam::Bool, Sz, 
                 end
                 spv = sqrt(π) * vth[zs]
                 QJ[kz, j, s] = sJ / spv; QΛ[kz, j, s] = sΛ / spv
+                hasc && (QC[kz, j, s] = (m == 1 ? 2 : 1) * fast_sum(I, nb))     # (the turning point counts both legs)
             end
             for ib in lo:hi; ψ[ib] = 0.0; end
         end
@@ -565,6 +573,7 @@ function transfer_line_fast!(W::FastWS, r, u, vth, κ0, ν0, xs, lam::Bool, Sz, 
                 sJ, sΛ = fast_node(I, ψ, xv, -qn, vth[zs], x1, rdv, nb, lam)
                 spv = sqrt(π) * vth[zs]
                 QJ[k, j, s] += sJ / spv; QΛ[k, j, s] += sΛ / spv
+                hasc && (QC[k, j, s] += fast_sum(I, nb))
             end
             for ib in lo:hi; ψ[ib] = 0.0; end
         end
@@ -588,86 +597,28 @@ function transfer_line_fast!(W::FastWS, r, u, vth, κ0, ν0, xs, lam::Bool, Sz, 
         zs = k - 2 + s
         (zs < 1 || zs > n) && continue
         if k == 1
-            Jz[zs] += 0.25 * QJ[1, 1, s] * dv; lam && (Λz[zs] += 0.25 * QΛ[1, 1, s] * dv)
+            Jz[zs] += 0.25 * QJ[1, 1, s] * dv; lam && (Λz[zs] += 0.25 * QΛ[1, 1, s] * dv); hasc && (W.Cz[zs] += 0.25 * QC[1, 1, s] * dv * ν0 / c)
             continue
         end
-        aJ = 0.0; aΛ = 0.0
+        aJ = 0.0; aΛ = 0.0; aC = 0.0
         for j in 1:k-1
             μa = Ma[k, j]; μb = Mb[k, j]
             d = μb - μa; d <= 0 && continue
             qa = j + 1 <= n ? QJ[k, j+1, s] : 0.0
             aJ += 0.5 * (qa + QJ[k, j, s]) * d
+            hasc && (aC += 0.5 * ((j + 1 <= n ? QC[k, j+1, s] : 0.0) + QC[k, j, s]) * d)
             if lam
                 la = j + 1 <= n ? QΛ[k, j+1, s] : 0.0
                 aΛ += 0.5 * (la + QΛ[k, j, s]) * d
             end
         end
-        Jz[zs] += 0.25 * aJ * dv; lam && (Λz[zs] += 0.25 * aΛ * dv)
+        Jz[zs] += 0.25 * aJ * dv; lam && (Λz[zs] += 0.25 * aΛ * dv); hasc && (W.Cz[zs] += 0.25 * aC * dv * ν0 / c)
     end
     Fν, Jz, Λz
 end
 
-# EPGRAD (escape-probability mode, the Sobolev part): which radial velocity gradient a zone's lines escape through.
-#   zone: the difference of the zone's two interface velocities, |Δu|/Δr, and |ū|/r of the zone (the method up to Nov 2026).
-#   thermal (default): v_th/ℓ, ℓ the distance from the zone centre to the nearest radius (inwards or outwards) where the velocity differs from
-#     the zone's by one thermal width v_th; no radial term if it never does. Where the flow is resolved and supersonic this is |du/dr|;
-#     in a subsonic core (Δu across a zone ≪ v_th, Sobolev length ≫ zone) a line photon does not see the zone's own Δu, and |Δu|/Δr
-#     carries the zone-to-zone velocity noise amplified by r/Δr into β and so into the cooling: a zone compressing slightly faster
-#     cooled more, lost pressure and compressed faster still (growth time a few zone sound crossings; the central noise of full1
-#     from n_c = 1e10, when the lines turn thick; the ALI populations, from the real transfer, do not show it).
-#     The tangential term is taken over a thermal width too (not |u|/r of the zone): in the core |u|/r is a ratio of two small numbers
-#     and a 10 m/s sound wave (Mach 0.003) changed it, and with it the EP cooling of the central zones, by 40 % from one step to the next
-#     (t_f7, steps 3742 → 3744, n_c = 1.7e11: Λ_EP 2.5e-11 → 3.6e-11 while the ALI cooling moved 5.65e-11 → 6.00e-11).
-#   flow: no radial term at all, only the tangential one |u|/r (diagnostic).
-const EPGRAD = Ref(Symbol(get(ENV, "EPGRAD", "thermal")))
 "LINESCHED=zone (default): the level populations of the zones are distributed one zone at a time; `chunk`: `Threads.@threads` blocks. Same results."
 const ZSCHED = Ref(get(ENV, "LINESCHED", "zone") == "zone")
-"Exponential integral E₂(x) = e^{−x} − x E₁(x), x ≥ 0 (series for x ≤ 1, continued fraction above)."
-function E2(x)
-    x <= 0 && return 1.0
-    if x <= 1
-        E1 = -0.5772156649015329 - log(x); t = 1.0
-        for k in 1:30; t *= -x / k; E1 -= t / k; end
-        return exp(-x) - x * E1
-    end
-    # Lentz continued fraction for E₁
-    b = x + 1.0; cc = 1e300; d = 1 / b; f = d
-    for k in 1:200
-        a = -k^2.0; b += 2.0; d = 1 / (a * d + b); cc = b + a / cc; Δ = cc * d; f *= Δ; abs(Δ - 1) < 1e-14 && break
-    end
-    exp(-x) - x * (f * exp(-x))
-end
-# EPTAB=1 (Nov 2026; default off): the static part of the escape probability of `epβ` from a table. That part is a function of one
-# variable, F(τ) = Σ_x w_x E₂(τ e^{−x²}) over the 21-point frequency quadrature (β_static = ½[F(τ_out) + F(τ_in)]), and was summed
-# with 42 E₂ evaluations (series or continued fraction) for every line and zone on every escape-probability call: after LINEFAST
-# the largest single item of the line transfer between ALI refreshes. The table holds the same sum on a grid in ln τ (step 1/128,
-# 1e-10 ≤ τ ≤ 1e10; 4-point Lagrange interpolation, relative error < 1e-9; outside the range the sum itself). The table is used
-# only to DECIDE: β is the larger of the static and the Sobolev term, and where the Sobolev term exceeds the tabulated static
-# term by more than the table's error (margin 1e-6) the sum is not needed; elsewhere the sum is evaluated as before. The result
-# is therefore the same to the last bit. (In the accreting envelope the Sobolev term wins everywhere: 0 of 4.2e5 evaluations
-# on four production snapshots needed the sum.)
-const EPTAB = Ref(get(ENV, "EPTAB", "0") == "1")
-const EPXG = 0.0:0.25:5.0
-const EPWG = [(x == 0 || x == 5.0 ? 0.5 : 1.0) * 0.25 * 2 / sqrt(π) * exp(-x^2) for x in EPXG]
-const EPPH = [exp(-x^2) for x in EPXG]
-function epF_sum(τ)
-    b = 0.0
-    for j in eachindex(EPWG); b += EPWG[j] * E2(τ * EPPH[j]); end
-    b
-end
-const EPTL0 = log(1e-10); const EPTH = 1 / 128; const EPTN = ceil(Int, (log(1e10) - EPTL0) / EPTH) + 4
-const EPTABLE = Ref(Float64[])
-"The table of F at ln τ = EPTL0 + (j − 2) EPTH, j = 1..EPTN (built on first use; call before a threaded loop)."
-eptable() = (isempty(EPTABLE[]) && (EPTABLE[] = [epF_sum(exp(EPTL0 + (j - 2) * EPTH)) for j in 1:EPTN]); EPTABLE[])
-@inline function epF(tab, τ)
-    τ > 0 || return epF_sum(0.0)
-    s = (log(τ) - EPTL0) / EPTH
-    (s >= 0 && s < EPTN - 4) || return epF_sum(τ)
-    j = floor(Int, s); t = s - j
-    @inbounds f0 = tab[j+1]; @inbounds f1 = tab[j+2]; @inbounds f2 = tab[j+3]; @inbounds f3 = tab[j+4]
-    -t * (t - 1) * (t - 2) / 6 * f0 + (t + 1) * (t - 1) * (t - 2) / 2 * f1 - (t + 1) * t * (t - 2) / 2 * f2 + (t + 1) * t * (t - 1) / 6 * f3
-end
-
 "Max relative change of the level populations (levels with fraction > pmin in either iterate)."
 function popchange(P, Q; pmin = 1e-6)
     d = 0.0
@@ -720,23 +671,24 @@ function incident(inc, r, ν)
 end
 
 """
-    cooling_nlte(L, r, u, T, nH2, nlte; mode = :ali | :ep, ntol, maxit, init, lam)
+    cooling_nlte(L, r, u, T, nH2, nlte; ntol, maxit, lam, inc, chic, pops0)
 
 See `cooling` (keyword `nlte = (LV, nH, nHe, nHp)`). Returns (Λ, Lr, Lline) as the LTE path (Λ = −∇·F per zone from the
-flux of the formal solution of the last iterate); `LAST[]` gets `iters` (ALI iterations; the EP start is counted in `nep`),
+flux of the formal solution of the last iterate); `LAST[]` gets `iters` (ALI iterations, started from `pops0`, the previous call's populations, or cold),
+`Labs` (per zone, the line power the continuum absorbed, see `chic`),
 `converged`, `hist` (max relative population change per iteration), `Λrate` (net radiative rate Σ hν[n_u A − (n_l B_lu −
 n_u B_ul) J̄] per zone, ALI) and `pops` (63 × n).
 """
-function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nbinmax = 200, cover = 0.999, mode = :ali,
-                      ntol = 1e-3, maxit = 60, init = :ep, lam = :diag, inc = nothing, chic = nothing)
+function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nbinmax = 200, cover = 0.999,
+                      ntol = 1e-3, maxit = 60, lam = :diag, inc = nothing, chic = nothing, pops0 = nothing)
     LV = nlte.LV; HV = Main.H2Levels; check_levels(L, LV)
     n = length(T); @assert length(r) == n + 1
     nl = length(L.A); nlev = length(LV.E)
     vth = [sqrt(2kB * T[k] / mH2) for k in 1:n]
-    τthin = 2tol
+    τthin = 2tol; τcthin = 1e-3
     iu = LV.iu; il = LV.il; Bul = LV.Bul; Blu = LV.Blu; ν = L.ν
     P = zeros(nlev, n); β = ones(nl, n); Jeff = zeros(nl, n)
-    # incident radiation (`incident`): in the escape-probability populations J̄ = (1 − β) S + β J_bg, in the ALI ones J̄ = J̄′ + J_bg
+    # incident radiation (`incident`): in the ALI populations J̄ = J̄′ + J_bg
     bgd = inc === nothing ? nothing : incident(inc, r, ν)
     function solve!(Pn)
         if ZSCHED[]                                   # one zone at a time from a shared counter: the ortho:para iteration count varies between zones
@@ -773,103 +725,16 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
         end
         κ0, S, sum(nm)
     end
-    # escape probability per line and zone from the current per-line depths (EP mode): static part = profile-averaged
-    # two-direction slab escape ½[E₂(τ_out φ̂) + E₂(τ_in φ̂)], φ̂ = e^{−x²}, with τ_out the line-centre depth along the radius to
-    # the surface and τ_in that along the inward radius through the centre to the surface; Sobolev part (velocity gradient
-    # g = max(|du/dr|, |u/r|)): (1 − e^{−τ_S})/τ_S, τ_S = κ0 c/(ν0 g); β = the larger of the two (a photon leaves by the
-    # easier route). β = 1 where κ0 ≤ 0.
-    # EPGRAD=thermal: the radial gradient over the distance in which the velocity changes by one thermal width (see EPGRAD)
-    gth = zeros(n); gtn = zeros(n)
-    if EPGRAD[] == :thermal
-        for k in 1:n
-            rc = 0.5 * (r[k] + r[k+1]); uc = 0.5 * (u[k] + u[k+1]); ℓ = Inf
-            for (js, rev) in ((k+1:n+1, false), (k:-1:1, true))
-                rp = rc; dp = 0.0
-                for j in js
-                    dj = abs(u[j] - uc)
-                    if dj >= vth[k]
-                        ℓ = min(ℓ, abs(rp + (r[j] - rp) * (vth[k] - dp) / (dj - dp) - rc)); break
-                    end
-                    rp = r[j]; dp = dj
-                end
-            end
-            gth[k] = vth[k] / ℓ
-            # the same along the tangent: at path length s from the zone centre the line-of-sight velocity is u(r') s/r', r' = √(rc² + s²)
-            # (zero at the tangent point); for homologous flow u = −a r this gives a, as |u|/r does, and |u|/r where |u| ≫ v_th
-            sp = 0.0; vp = 0.0
-            for j in k+1:n+1
-                sj = sqrt(max(r[j]^2 - rc^2, 0.0)); vj = abs(u[j]) * sj / r[j]
-                if vj >= vth[k]
-                    gtn[k] = vth[k] / (sp + (sj - sp) * (vth[k] - vp) / (vj - vp)); break
-                end
-                sp = sj; vp = vj
-            end
-        end
-    end
-    function epβ(κ0)
-        βn = ones(nl, n)
-        xg = 0.0:0.25:5.0; wg = [(x == 0 || x == 5.0 ? 0.5 : 1.0) * 0.25 * 2 / sqrt(π) * exp(-x^2) for x in xg]
-        tab = EPTAB[] ? eptable() : nothing
-        Threads.@threads for i in 1:nl                # (S6: threaded; lines independent)
-            τs = zeros(n); acc = 0.0
-            for k in n:-1:1
-                dτ = max(κ0[i, k], 0.0) / (sqrt(π) * vth[k] / c * ν[i]) * (r[k+1] - r[k])
-                τs[k] = acc + 0.5dτ; acc += dτ
-            end
-            τtot = acc
-            for k in 1:n
-                κ0[i, k] > 0 || continue
-                τo = τs[k]; τi = (τtot - τs[k]) + τtot
-                rc = 0.5 * (r[k] + r[k+1])
-                g = EPGRAD[] == :thermal ? max(gth[k], gtn[k]) :
-                    max(EPGRAD[] == :flow ? 0.0 : abs(u[k+1] - u[k]) / (r[k+1] - r[k]), abs(0.5 * (u[k] + u[k+1])) / max(rc, 1e-300))
-                bS = -1.0
-                if g > 0
-                    τS = κ0[i, k] * c / (ν[i] * g); bS = τS < 1e-6 ? 1 - τS / 2 : -expm1(-τS) / τS
-                end
-                b = 0.0
-                if tab !== nothing && bS >= (1 + 1e-6) * 0.5 * (epF(tab, τo) + epF(tab, τi))
-                    b = bS                                # (EPTAB) the static term cannot win: its sum is not needed
-                else
-                    for (x, w) in zip(xg, wg); φ̂ = exp(-x^2); b += w * 0.5 * (E2(τo * φ̂) + E2(τi * φ̂)); end
-                    g > 0 && (b = max(b, bS))
-                end
-                βn[i, k] = min(b, 1.0)
-            end
-        end
-        βn
-    end
-    hist = Float64[]; nep = 0; iters = 0; converged = false
+    hist = Float64[]; iters = 0; converged = false
     bgd !== nothing && (Jeff .= bgd.Jbg)
-    solve!(P)
-    if mode == :ep || init == :ep
-        while nep < maxit
-            κ0, S, _ = opac(P); β .= epβ(κ0); bgd !== nothing && (Jeff .= β .* bgd.Jbg); Pn = solve!(copy(P)); nep += 1
-            d = popchange(P, Pn); P .= Pn; mode == :ep && push!(hist, d); d < ntol && break
-        end
-        mode == :ep && (converged = !isempty(hist) && hist[end] < ntol)
-    end
+    # start: the previous call's converged populations (`pops0`, nlev × n; columns that are not finite start cold), else the
+    # statistical equilibrium without line radiation (β = 1, J̄ = J_bg)
+    warm = pops0 !== nothing && size(pops0) == size(P) ? [all(isfinite, view(pops0, :, k)) for k in 1:n] : falses(n)
+    all(warm) || solve!(P)
+    for k in 1:n; warm[k] && (P[:, k] .= view(pops0, :, k)); end
     nbmax = 0; nthick = 0; Lline = zeros(nl, n + 1); Λrate = zeros(n); nmaser = 0
-    Λem = zeros(n)                # (incident radiation, EP mode) the emission alone, n_u A β hν summed over the lines [erg cm⁻³ s⁻¹]
-    if mode == :ep
-        κ0, S, nmaser = opac(P)
-        # local emission n_u A β hν accumulated over the volume
-        # (PERF512) zone-outer loops: the same recursion over k for every line and the same order of the Λem sum over i (bit-identical),
-        # with the column-major arrays traversed by columns (the line-outer order strided by nl through P, β, J_bg and Lline)
-        if bgd === nothing
-        for k in 1:n, i in 1:nl
-            Lline[i, k+1] = Lline[i, k] + nH2[k] * P[iu[i], k] * LV.A[i] * β[i, k] * h * ν[i] * 4π / 3 * (r[k+1]^3 - r[k]^3)
-        end
-        else                      # net of the background photons absorbed: β hν [n_u A − (n_l B_lu − n_u B_ul) J_bg]
-            for k in 1:n, i in 1:nl
-                pu = P[iu[i], k]; pl = P[il[i], k]
-                em = nH2[k] * pu * LV.A[i] * β[i, k] * h * ν[i]
-                ab = nH2[k] * (pl * Blu[i] - pu * Bul[i]) * β[i, k] * bgd.Jbg[i, k] * h * ν[i]
-                Λem[k] += em; Lline[i, k+1] = Lline[i, k] + (em - ab) * 4π / 3 * (r[k+1]^3 - r[k]^3)
-            end
-        end
-        iters = nep
-    else
+    Labs = zeros(nl, n)           # per line and zone: line power absorbed by the continuum 4π χ_c ∫J′dν [erg cm⁻³ s⁻¹] (returned to the gas by the driver)
+    begin
         Jfs = zeros(nl, n); Lam = zeros(nl, n); β .= 1; Jeff .= 0
         geom = raygeom(r, u)
         wpool = FAST[] && SRCZONE[] ? fastpool(n, nbinmax) : nothing          # LINEFAST: one work set per task
@@ -884,7 +749,7 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
             Threads.@threads :greedy for i in 1:nl                  # one line per task: the thick lines are neighbours in the list
                 ν0 = ν[i]; κl = κ0[i, :]
                 τc = sum(κl[k] / (sqrt(π) * vth[k] / c * ν0) * (r[k+1] - r[k]) for k in 1:n)
-                if τc < τthin && τcont < τthin          # (thin line escapes only if the continuum is thin from its emitting zones outwards)
+                if τc < τthin && τcont < τcthin         # (thin line escapes unattenuated only if the continuum is thin from its emitting zones outwards: the absorbed fraction is then < τcthin/2 of the emission)
                     acc = 0.0
                     if bgd === nothing
                     for k in 1:n
@@ -925,6 +790,7 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
                              transfer_line_fast!(W, r, u, vth, κl, ν0, xs, lam == :diag, S[i, :], geom, bgl, chic)
                 for k in 1:n+1; Lline[i, k] = 4π * r[k]^2 * Fν[k]; end
                 Jfs[i, :] .= Jz; Lam[i, :] .= Λz
+                chic === nothing || (Labs[i, :] .= 4π .* chic .* W.Cz)       # power the continuum takes from the line photons: 4π χ_c ∫J′dν
                 W === nothing || put!(wpool, W)
                 if bgd !== nothing
                     for k in 1:n; Jfs[i, k] += bgd.Jbg[i, k]; end
@@ -960,8 +826,8 @@ function cooling_nlte(L::LineList, r, u, T, nH2, nlte; nbin = 30, tol = 0.01, nb
     end
     Lr = [sum(view(Lline, :, k)) for k in 1:n+1]
     Λ = [(Lr[k+1] - Lr[k]) / (4π / 3 * (r[k+1]^3 - r[k]^3)) for k in 1:n]
-    LAST[] = (nbins = nbmax, nthick = nthick, iters = iters, nep = nep, converged = converged, hist = hist, Λrate = Λrate,
-              pops = P, nmaser = nmaser, mode = mode, Λem = Λem, kq = bgd === nothing ? 0 : bgd.kq,
+    LAST[] = (nbins = nbmax, nthick = nthick, iters = iters, converged = converged, hist = hist, Λrate = Λrate,
+              pops = P, nmaser = nmaser, Labs = vec(sum(Labs; dims = 1)), kq = bgd === nothing ? 0 : bgd.kq,
               β = β, Jeff = Jeff)          # (the radiative rates of the last population solve: LINEIMP's local model, popiii_m2c)
     Λ, Lr, Lline
 end

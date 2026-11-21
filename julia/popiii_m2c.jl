@@ -516,24 +516,25 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
 end
 const SNAPS = get(ENV, "SNAPS", "0") == "1" ? Any[] : nothing
 const SNAPNEXT = Ref(log10(rho[1] / PC.mH)); const SNAPEVERY = parse(Int, get(ENV, "SNAPEVERY", "0"))
-# NLTE (line source functions): 1 = GP98/HM79 factor on S (old default), 0 = LTE, ep = statistical equilibrium with escape
-# probabilities (H2Levels), ali = statistical equilibrium coupled to the transfer (ALI, G6c), hyb = ALI every NALI steps
-# and EP × (ALI/EP per zone, from the last ALI) in between, the interval adaptive (see linecool)
-const ALIWMIN = parse(Float64, get(ENV, "ALIWMIN", "0")); const ALIGROW = parse(Float64, get(ENV, "ALIGROW", "0.01")); const ALISHRINK = parse(Float64, get(ENV, "ALISHRINK", "0.05")); const NLTE = get(ENV, "NLTE", "1"); const NALI = parse(Int, get(ENV, "NALI", "20")); const ALICAP = (c_ = parse(Int, get(ENV, "ALICAP", "0")); c_ > 0 ? c_ : NALI); const ALIFAC = Ref{Vector{Float64}}(Float64[]); const ALILAST = Ref(-10^9); const ALIINT = Ref(1); const NALICALL = Ref(0)
-# LINECOLL=1 (S6): the gas term of the line transfer is the net collisional exchange with the H₂ levels at the converged ALI populations
-# (H2Levels.collcool; = their net radiative rate in statistical equilibrium), zone by zone, not −∇·F of the formal solution: the latter
-# is the difference of the line flux across a zone, and where a large flux crosses dilute zones its discretisation error (pumped,
-# fluorescent and maser lines included) was booked as gas heating or cooling up to 1e5 × the real exchange (91001: 1e-19 against
-# 1e-24 erg cm⁻³ s⁻¹ at 3e7 R_sun; ΣΛV 4.5e35 against 1.7e35). Between ALI calls Λ = Λ_EP × (Λcoll/Λ_EP) as before, except where the
-# two differ in sign (heated zones: escape probability can only cool): there Λcoll of the last ALI call is held (ALIFIX).
-const LINECOLL = get(ENV, "LINECOLL", "0") == "1"; const ALIFIX = Ref{Vector{Float64}}(Float64[])
+# H2 line transfer: ALI only (statistical equilibrium of the levels coupled to the formal solution, H2Lines.cooling_nlte; the
+# escape-probability and hybrid modes are gone). Every transfer call starts from the previous call's converged populations (POPS0,
+# aligned from the outside on the fixed mesh; cold start at the first call and after a remap).
+const NALICALL = Ref(0); const POPS0 = Ref(zeros(0, 0))
+"The previous call's populations on a reduced grid of nz_ zones (columns that have no predecessor are NaN: cold start), or nothing."
+function pops0_for(nz_)
+    P = POPS0[]; n0 = size(P, 2)
+    n0 == 0 && return nothing
+    n0 == nz_ && return P
+    Q = fill(NaN, size(P, 1), nz_)
+    for j in 1:nz_; jo = j + n0 - nz_; jo >= 1 && (Q[:, j] .= view(P, :, jo)); end
+    Q
+end
 # LINEINC=1: the H₂ levels also see the radiation that falls on the gas from outside the lines (`H2Lines.incident`): the CMB (TCMB)
 # and the continuum of the photosphere, B_ν(T_eff) from the sphere of the photosphere's radius (STARLIGHT's, of the last chemistry
 # step), diluted. LINEINC=cmb: the CMB alone. Default 0: the lines see only their own radiation, so in the cold outer envelope the
 # levels are excited by collisions alone and the line cooling can take the gas below T_CMB. With the incident field the levels are
-# pumped as well and the gas term (LINECOLL: the net collisional exchange) becomes heating where the radiation is warmer than the
-# gas. The escape-probability rate between ALI calls is then net of the absorbed background and can change sign; a zone where the
-# absorbed background exceeds half its emission holds the collisional rate of the last ALI call (ALIFIX), as the heated zones do.
+# pumped as well and the gas term (the net collisional exchange) becomes heating where the radiation is warmer than the
+# gas. The ALI rates are net of the absorbed background and can change sign.
 const LINEINC = get(ENV, "LINEINC", "0"); const LINEINCDIAG = get(ENV, "LINEINCDIAG", "0") == "1"
 function lineinc()
     LINEINC in ("1", "cmb") || return nothing
@@ -545,13 +546,8 @@ end
 # the hydro Newton (PopIIIMaterial.LINEIMP: populations re-solved at the iterate's T with the radiative rates β, J̄ of the last transfer
 # call), not Λ held from the last call. Retires as devices: the IMPCOOL slope (second transfer call) and its [−10, 30] clamp, the
 # Δt ≤ 0.1 (or DTCOOL) t_cool cap, TCOOLTH (only the cap used it). LINEFRAC still skips transfer calls (the model is then kept).
-# Hybrid NLTE: on an ALI step the zone takes the ALI rates (β = 1 − Λ*, J̄ = J̄_fs − Λ* S); in between the EP rates of the step × the
-# last ALI/EP factor (the EP rates themselves follow the iterate's populations, velocity gradient and incident field: PopIIIMaterial.li_ep), bounded to [1/LIFMAX, LIFMAX] (default 10); where LINECOLL holds the ALI collisional rate (ALIFIX: EP and ALI differ
-# in sign), the zone holds the last ALI call's RATES instead, so its cooling still follows its T. Needs NLTE = ep | ali | hyb.
-const LINEIMP = true; const LIFMAX = parse(Float64, get(ENV, "LIFMAX", "10"))
-LINEIMP && !(NLTE in ("ep", "ali", "hyb")) && error("LINEIMP=1 needs NLTE=ep, ali or hyb")
+const LINEIMP = true
 LINEIMP && (PM.LINEIMP[] = true; pr("LINEIMP: H2 line cooling of each zone from its own state (populations at the iterate's T, radiative rates of the last transfer call); no t_cool cap, no IMPCOOL slope\n"))
-const LIALI = Ref{Vector{Any}}(Any[]); const LISTAT = zeros(Int, 4)    # (zones with EP, ALI, held-ALI rates; f clamped)
 const LIJCMB = Ref{Vector{Float64}}(Float64[])
 "(diagnostic, NANSCAN=1) report the first zones whose state is not finite."
 const NANSCAN = get(ENV, "NANSCAN", "0") == "1"; const FLUSHOUT = get(ENV, "FLUSHOUT", "0") == "1"
@@ -572,33 +568,25 @@ function nanscan(where, k)
     nothing
 end
 "(LINEIMP) zones remapped: drop the line models (the held Λext of the remap is used until the next transfer call)."
-li_inval!() = (PM.li_invalidate!(); fill!(LIALI[], nothing); nothing)
+li_inval!() = (PM.li_invalidate!(); POPS0[] = zeros(0, 0); nothing)
 "(LINEIMP) per TITAN zone, the line model from the transfer call `Lc` (H2Lines.LAST[]) on the reduced grid (see LINEIMP above)."
-function li_store!(Lc, fac, dd, nh2, nl, zk, ncz, nz_; ali = false, held = nothing, ep = nothing)
+function li_store!(Lc, dd, nh2, nl, zk, ncz, nz_)
     hasproperty(Lc, :β) || return nothing
-    nk = length(mat.x); length(PM.LIMODEL[]) == nk || (PM.LIMODEL[] = Any[nothing for _ in 1:nk]); length(LIALI[]) == nk || (LIALI[] = Any[nothing for _ in 1:nk])
+    nk = length(mat.x); length(PM.LIMODEL[]) == nk || (PM.LIMODEL[] = Any[nothing for _ in 1:nk])
     for kk in a:b; PM.LIMODEL[][kk] = nothing; end
     if isempty(LIJCMB[])
         Tb = parse(Float64, get(ENV, "TCMB", "0"))
         LIJCMB[] = [Tb > 0 ? H2Lines.Bν(ν_, Tb) : 0.0 for ν_ in HLL.ν]
     end
-    jc_ = LIJCMB[]; fill!(LISTAT, 0)
+    jc_ = LIJCMB[]
     for j in ncz+1:nz_
-        kk = zk(j)
-        if held !== nothing && held(j) && LIALI[][kk] !== nothing
-            PM.LIMODEL[][kk] = LIALI[][kk]; LISTAT[3] += 1; continue
-        end
         β_ = Lc.β[:, j]; J_ = max.(Lc.Jeff[:, j], β_ .* jc_)
-        f_ = fac(j); fc = clamp(f_, 1 / LIFMAX, LIFMAX); fc != f_ && (LISTAT[4] += 1)
-        PM.li_set!(kk, HLV, β_, J_, nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j], dd[j], fc;
-                   ep = ep === nothing ? nothing : (; jc = jc_, P = Lc.pops[:, j], T = ep.T[j], g0 = PM.sl_grad(ep.r[j], ep.r[j+1], ep.u[j], ep.u[j+1])))
-        LISTAT[ali ? 2 : 1] += 1
-        ali && (LIALI[][kk] = PM.LIMODEL[][kk])
+        PM.li_set!(zk(j), HLV, β_, J_, nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j], dd[j], Lc.Labs[j])
     end
     nothing
 end
-NLTE in ("ep", "ali", "hyb") && include(joinpath(@__DIR__, "H2Levels.jl"))
-const HLV = NLTE in ("ep", "ali", "hyb") ? H2Levels.load() : nothing
+include(joinpath(@__DIR__, "H2Levels.jl"))
+const HLV = H2Levels.load()
 """
 S6: H₂ line transfer outside the continuum photosphere only (RAD runs, LTAUCUT > 0 [10]): the zones deeper than continuum
 optical depth LTAUCUT from the surface are merged into one transparent central zone without H₂ for the line transfer (their
@@ -629,126 +617,55 @@ function linecool(rr, uu, dd, tt, nh2, k)
     chic = [fill(LTAUCUT / rin, nc); [kpv[a+j-1] * dd[j] for j in jc+1:nsh]]
     Λ2, L2, x2 = linecool_full(r2, u2, d2, t2, h2, k, jc, nc, chic)
     Λ = zeros(nsh); Λ[jc+1:end] .= Λ2[nc+1:end]; Lr = zeros(nsh + 1); Lr[jc+1:end] .= L2[nc+1:end]
+    # the line power the opaque merged core absorbs (the continuum there is thick: LTAUCUT) heats the gas of the zones it stands for, uniformly in volume
+    Vc = [4π / 3 * (r2[j+1]^3 - r2[j]^3) for j in 1:nc]; Λ[1:jc] .= -sum(H2Lines.LAST[].Labs[1:nc] .* Vc) / (4π / 3 * rin^3)
     Λ, Lr, x2
 end
 const LTAUCUT = parse(Float64, get(ENV, "LTAUCUT", "10")); const LINECORE = parse(Int, get(ENV, "LINECORE", "1"))
-"Line cooling per zone (and Lr) for zone temperatures tt; step k (for NLTE=hyb); jc = number of core zones merged away."
+"""
+Line cooling per zone (and Lr) for zone temperatures tt (ALI line transfer, H2Lines.cooling_nlte, with the grey continuum absorption chic);
+step k; jc = number of core zones merged away. Λ is the net divergence of the line flux −∇·F: collisional line cooling minus the line power
+the continuum absorbed, which the gas takes back (PopIIIMaterial.li_cool does the same for the zone's cooling at the iterate).
+"""
 function linecool_full(rr, uu, dd, tt, nh2, k, jc, ncz = jc > 0 ? 1 : 0, chic = nothing)
     nz_ = length(dd); zk(j) = j <= ncz ? a + jc - 1 : a + (j - ncz) + jc - 1   # TITAN zone of reduced zone j (ncz merged-core zones first)
-    if NLTE in ("ep", "ali", "hyb")
-        yc = [ycomp(zk(j)) for j in 1:nz_]; nHn = dd ./ PC.μH
-        nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nz_], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nz_])
-        inc = lineinc()
-        if NLTE != "hyb"
-            out_ = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = NLTE == "ali" ? :ali : :ep, inc, chic)
-            LINEIMP && k >= 0 && li_store!(H2Lines.LAST[], j -> 1.0, dd, nh2, nl, zk, ncz, nz_; ep = NLTE == "ep" ? (; T = tt, r = rr, u = uu) : nothing)
-            return out_
-        end
-        tq = time(); Λe, Lr, x = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ep, inc)
-        LEP = (LINEIMP && k >= 0) ? H2Lines.LAST[] : nothing
-        Λg = inc === nothing ? nothing : copy(H2Lines.LAST[].Λem)       # the EP emission alone (Λe is net of the absorbed background)
-        TIMING && k >= 0 && pr("        EP call %.1f s (nep %d)\n", time() - tq, H2Lines.LAST[].nep)
-        # (ALICAP=n, Nov 2026: the largest interval, default NALI; a separate variable because NALI is part of the restart check)
-        # ALI refresh interval adaptive (≤ NALI): halved when the ALI/EP factor moved by > 5 % since the last refresh,
-        # doubled when < 1 % — a factor frozen while the lines turn thick jumps at the refresh and kicks the core
-        # (fixed mesh: the photosphere only moves the inner end of the reduced grid; the factors stay with their zones, aligned from the outside)
-        if ENVEUL !== nothing && k >= 0 && !isempty(ALIFAC[]) && length(ALIFAC[]) != nz_
-            o_ = ALIFAC[]; ALIFAC[] = [j + length(o_) - nz_ >= 1 ? o_[j+length(o_)-nz_] : 1.0 for j in 1:nz_]
-            if length(ALIFIX[]) == length(o_)
-                q_ = ALIFIX[]; ALIFIX[] = [j + length(q_) - nz_ >= 1 ? q_[j+length(q_)-nz_] : NaN for j in 1:nz_]
-            end
-        end
-        if k >= 0 && (k - ALILAST[] >= ALIINT[] || length(ALIFAC[]) != nz_)
-            tq = time(); Λa, Lra, xa = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, nlte_mode = :ali, inc, chic)
-            LINEIMP && li_store!(H2Lines.LAST[], j -> 1.0, dd, nh2, nl, zk, ncz, nz_; ali = true)
-            TIMING && pr("        ALI call %.1f s (nep %d, ALI iterations %d, converged %s)\n", time() - tq, H2Lines.LAST[].nep, H2Lines.LAST[].iters, H2Lines.LAST[].converged)
-            Λfs = Λa                                     # −∇·F of the formal solution (diagnostics)
-            if LINECOLL
-                P_ = H2Lines.LAST[].pops
-                Λa = [H2Levels.collcool(HLV, tt[j], view(P_, :, j), nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j]) for j in 1:nz_]
-                Lra = zeros(nz_ + 1); for j in 1:nz_; Lra[j+1] = Lra[j] + Λa[j] * 4π / 3 * (rr[j+1]^3 - rr[j]^3); end
-                ALIFIX[] = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 ? NaN : Λa[j] for j in 1:nz_]
-                if Λg !== nothing
-                    for j in 1:nz_; abs(Λe[j] - Λg[j]) > 0.5Λg[j] && (ALIFIX[][j] = Λa[j]); end
-                    LINEINCDIAG && pr("        LINEINC k %d: T_bg %.1f T_star %.0f R_ph %.3e R_sun node %d of %d; held zones %d; sum V*(Λcoll %.3e, heating part %.3e)\n", k,
-                                      inc.Tbg, inc.Tstar, inc.Rph / 6.957e10, H2Lines.LAST[].kq, nz_ + 1, count(!isnan, ALIFIX[]), Lra[end],
-                                      sum(min(Λa[j], 0.0) * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nz_))
-                end
-            end
-            fnew = [Λe[j] != 0 && Λa[j] / Λe[j] > 0 && !(LINECOLL && Λg !== nothing && !isnan(ALIFIX[][j])) ? Λa[j] / Λe[j] : 1.0 for j in 1:nz_]
-            if length(ALIFAC[]) == nz_
-                # (S6-C2, ALIWMIN > 0, e.g. 1e-4) only over zones carrying ≥ ALIWMIN of the line luminosity: tiny zones (rezoned shock) with
-                # negligible cooling otherwise keep the interval at 1 and the ALI (≈ 50× an EP step) runs every step
-                wv = [abs(Λe[j]) * 4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nz_]; wmin = ALIWMIN * sum(wv)
-                δ = maximum((abs(log(fnew[j] / ALIFAC[][j])) for j in 1:nz_ if wv[j] >= wmin); init = 0.0)
-                ALIINT[] = δ > ALISHRINK ? max(1, ALIINT[] ÷ 2) : δ < ALIGROW ? min(ALICAP, 2ALIINT[]) : ALIINT[]
-                if TIMING
-                    jd = argmax([wv[j] >= wmin ? abs(log(fnew[j] / ALIFAC[][j])) : 0.0 for j in 1:nz_])
-                    pr("        ALI interval %d: δ %.3f at reduced zone %d of %d (r %.1f R_sun, T %.0f, n_H2 %.2e, share of |Λ|V %.2e, f %.3g -> %.3g), %d zones with δ > ALISHRINK\n", ALIINT[], δ, jd, nz_, rr[jd] / 6.957e10, tt[jd], nh2[jd], wv[jd] / sum(wv), ALIFAC[][jd], fnew[jd],
-                       count(j -> wv[j] >= wmin && abs(log(fnew[j] / ALIFAC[][j])) > ALISHRINK, 1:nz_))
-                end
-            end
-            if get(ENV, "LLDIAG", "0") == "1"           # how the ALI correction factor f = Λa/Λe closes the line luminosity
-                vol = [4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nz_]; bad = [Λe[j] == 0 || Λa[j] / Λe[j] <= 0 for j in 1:nz_]
-                pr("        LLDIAG k %d: sum(Le) %.3e sum(La) %.3e sum(f Le) %.3e Lr_e %.3e Lr_a %.3e; sign-flip zones %d: sum(Le) %.3e sum(La) %.3e; +La %.3e -La %.3e; f median %.3f\n", k,
-                   sum(Λe .* vol), sum(Λa .* vol), sum(Λe .* fnew .* vol), Lr[end], Lra[end], count(bad), sum(Λe[bad] .* vol[bad]; init = 0.0), sum(Λa[bad] .* vol[bad]; init = 0.0),
-                   sum(max.(Λa, 0) .* vol), sum(min.(Λa, 0) .* vol), sort(fnew)[nz_÷2])
-                ib = sortperm(abs.((Λe .* fnew .- Λa) .* vol); rev = true)[1:min(5, nz_)]
-                for j in ib; pr("          zone %d (TITAN %d) r %.3e T %.1f n %.3e nH2 %.3e: Le %.3e La %.3e flag %s\n", j, zk(j), rr[j+1], tt[j], dd[j] / PC.mH, nh2[j], Λe[j] * vol[j], Λa[j] * vol[j], bad[j]); end
-            end
-            if get(ENV, "LINECONS", "0") == "1"         # per-zone consistency: −∇·F (Λa), net radiative rate (Λrate), net collisional (gas) exchange
-                P_ = H2Lines.LAST[].pops; Λr_ = H2Lines.LAST[].Λrate; vol = [4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nz_]
-                Λc_ = [H2Levels.collcool(HLV, tt[j], view(P_, :, j), nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j]) for j in 1:nz_]
-                pr("        LINECONS k %d: sum V*(Λa %.3e, Λrate %.3e, Λcoll %.3e) Lr %.3e; sum|Λa-Λcoll|V %.3e; maser lines %d, ALI it %d conv %s\n", k,
-                   sum(Λfs .* vol), sum(Λr_ .* vol), sum(Λc_ .* vol), Lra[end], sum(abs.(Λfs .- Λc_) .* vol), H2Lines.LAST[].nmaser, H2Lines.LAST[].iters, H2Lines.LAST[].converged)
-                for j in sortperm(abs.((Λfs .- Λc_) .* vol); rev = true)[1:min(6, nz_)]
-                    pr("          zone %d (TITAN %d) r %.3e R_sun T %.1f nH2 %.2e: Λa %+.3e Λrate %+.3e Λcoll %+.3e\n", j, zk(j), rr[j] / 6.957e10, tt[j], nh2[j], Λfs[j], Λr_[j], Λc_[j])
-                end
-            end
-            if Trbdf2.SDON       # stalldiag: line-cooling ALI factor change per TITAN zone in SDZONES at this call
-                for j in 1:nz_
-                    (zk(j) - Int(TF.getscalar(:ngrs)) + 1) in Trbdf2.SDZ || continue
-                    pr("        SDALI jstep %d TITAN zone %d reduced %d: f %.4g -> %.4g, Lambda_ALI %.4e Lambda_EP %.4e\n", Int(TF.getscalar(:jstep)), zk(j) - Int(TF.getscalar(:ngrs)) + 1, j,
-                       length(ALIFAC[]) == nz_ ? ALIFAC[][j] : NaN, fnew[j], Λa[j], Λe[j])
-                end
-            end
-            ALIFAC[] = fnew; ALILAST[] = k; NALICALL[] += 1
-            return Λa, Lra, xa
-        end
-        if LEP !== nothing                  # LINEIMP: EP rates × the ALI/EP factor; zones that hold the ALI collisional rate (ALIFIX) hold the ALI rates instead
-            hf = length(ALIFAC[]) == nz_
-            li_store!(LEP, j -> hf ? ALIFAC[][j] : 1.0, dd, nh2, nl, zk, ncz, nz_; ep = (; T = tt, r = rr, u = uu),
-                      held = (LINECOLL && hf && length(ALIFIX[]) == nz_) ? (j -> !isnan(ALIFIX[][j])) : nothing)
-        end
-        length(ALIFAC[]) == nz_ || return Λe, Lr, x                        # (perturbed call right after the reduced grid changed: EP)
-        Λs = Λe .* ALIFAC[]; Lrs = zeros(nz_ + 1)
-        if LINECOLL && length(ALIFIX[]) == nz_
-            for j in 1:nz_; isnan(ALIFIX[][j]) || (Λs[j] = ALIFIX[][j]); end
-        end                          # Lr of the Λ actually applied (the EP Lr overstates L_lines by ~2)
-        for j in 1:nz_; Lrs[j+1] = Lrs[j] + Λs[j] * 4π / 3 * (rr[j+1]^3 - rr[j]^3); end
-        return Λs, Lrs, x
+    yc = [ycomp(zk(j)) for j in 1:nz_]; nHn = dd ./ PC.μH
+    nl = (LV = HLV, nH = [PC.xH(yc[j]) * nHn[j] for j in 1:nz_], nHe = PC.yHe .* nHn, nHp = [yc[j][1] * nHn[j] for j in 1:nz_])
+    tq = time()
+    out_ = H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, nlte = nl, inc = lineinc(), chic, pops0 = k >= 0 ? pops0_for(nz_) : nothing)
+    Lc = H2Lines.LAST[]
+    if k >= 0
+        POPS0[] = copy(Lc.pops); NALICALL[] += 1
+        li_store!(Lc, dd, nh2, nl, zk, ncz, nz_)
     end
-    # NLTE=1: source function × f = 1/(1 + Λ_LTE/(n_H Λ_0)) (the GP98/HM79 combination of PrimordialChem.cool_H2_thin)
-    fnl = [1 / (1 + PC.Λ_H2_LTE_HM(tt[j]) / max(PC.xH(ycomp(zk(j))) * dd[j] / PC.μH * PC.Λ_H2_0_GP(tt[j]), 1e-300)) for j in 1:nz_]
-    H2Lines.cooling(HLL, rr, uu, dd, tt, nh2; nbin = NBIN, fnlte = NLTE == "1" ? fnl : nothing)
+    if TIMING && k >= 0
+        # closed line-energy ledger: collisional line cooling of the levels = line luminosity leaving the surface + line power absorbed by the continuum
+        vol = [4π / 3 * (rr[j+1]^3 - rr[j]^3) for j in 1:nz_]
+        Λcl = [H2Levels.collcool(HLV, tt[j], view(Lc.pops, :, j), nl.nH[j], nh2[j], nl.nHe[j], nl.nHp[j]) for j in ncz+1:nz_]
+        Sc = sum(Λcl .* vol[ncz+1:nz_]; init = 0.0); Sa = sum(Lc.Labs .* vol); Sk = sum(Lc.Labs[1:ncz] .* vol[1:ncz]; init = 0.0); Le = out_[2][end]
+        pr("        ALI call %.1f s (ALI iterations %d, converged %s, warm start %s)\n", time() - tq, Lc.iters, Lc.converged, pops0_for(nz_) === nothing ? "no" : "yes")
+        pr("        LEDGER k %d: sum V Lambda_coll %.6e = L_esc %.6e + absorbed by continuum %.6e (merged core %.3e); residual %.3e (relative to sum V Lambda_coll %.2e)\n",
+           k, Sc, Le, Sa, Sk, Sc - Le - Sa, (Sc - Le - Sa) / max(abs(Sc), 1e-300))
+    end
+    out_
 end
 const HLL = cool == "lines" ? H2Lines.load() : nothing; const NBIN = parse(Int, get(ENV, "NBIN", "30")); const LLINE = Ref(0.0); const JCMIN = Ref(1)
 Tstop = parse(Float64, get(ENV, "TSTOP", "6000")); nstop = parse(Float64, get(ENV, "NSTOP", "1e18"))
 # Checkpoint / restart (S6-A). SAVE=name: checkpoint at the end and every CKEVERY [500] steps (alternating
 # <name>_auto0/_auto1); RESTART=name: the set-up above runs as usual (same ENV), then the TITAN state, the material's
-# per-zone state, the driver's NLTE/cooling bookkeeping, the TR-BDF2 counters and the step number are replaced by the
+# per-zone state, the driver's cooling bookkeeping, the TR-BDF2 counters and the step number are replaced by the
 # checkpoint's, so the continuation is the uninterrupted run (checked bit for bit). Files: CKDIR [lib/popiii/ck].
 const CKDIR = get(ENV, "CKDIR", joinpath(TF.ROOT, "lib", "popiii", "ck"))
 const KOFF = Ref(0); const SG = Ref{Any}(nothing)
 # LINEIMP line models as plain data (the level data LV is the constant HLV, the PopWS workspace is rebuilt): a checkpoint stays readable without the modules
-lim_plain(m) = m === nothing ? nothing : (; β = copy(m.β), J = copy(m.J), nH = m.nH, nH2 = m.nH2, nHe = m.nHe, nHp = m.nHp, ρ = m.ρ, f = m.f, ep = hasproperty(m, :ep) ? deepcopy(m.ep) : nothing)
-lim_make(p) = p === nothing ? nothing : (; LV = HLV, β = copy(p.β), J = copy(p.J), nH = p.nH, nH2 = p.nH2, nHe = p.nHe, nHp = p.nHp, ρ = p.ρ, f = p.f,
-                                         ws = H2Levels.PopWS(HLV), ep = hasproperty(p, :ep) ? deepcopy(p.ep) : nothing)
+lim_plain(m) = m === nothing ? nothing : (; β = copy(m.β), J = copy(m.J), nH = m.nH, nH2 = m.nH2, nHe = m.nHe, nHp = m.nHp, ρ = m.ρ, hc = m.hc)
+lim_make(p) = p === nothing ? nothing : (; LV = HLV, β = copy(p.β), J = copy(p.J), nH = p.nH, nH2 = p.nH2, nHe = p.nHe, nHp = p.nHp, ρ = p.ρ,
+                                         hc = hasproperty(p, :hc) ? p.hc : 0.0, ws = H2Levels.PopWS(HLV))      # (a checkpoint from before the continuum return: hc = 0 until the next call)
 matstate() = mat isa PM.NetGas ? (; x = deepcopy(mat.x), eqzone = copy(mat.eqzone), Λext = copy(mat.Λext), Tref = copy(mat.Tref), slope = copy(mat.slope), Y = HOTON ? copy(SG[].Y) : nothing,
                                      star = HOTON ? (; fscale = copy(SG[].fscale), fslope = copy(SG[].fslope), fcur = copy(SG[].fcur), Dmix = copy(SG[].Dmix), dtcap = SG[].dtcap, capE = SG[].capE, ledger = SG[].ledger, Yprev = copy(SG[].Yprev)) : nothing,
                                      # lagged over one step (set in chemistry, used by the next hydro step): without them a restart is not exact
                                      lag = (; NLOPC = deepcopy(PM.NLOPC[]), GASQ = copy(TX.GASQ[]), RAYQ = copy(TX.RAYQ[]), CQB = copy(TX.CQB[]), YQB = copy(TX.YQB[]), SLDIAG = deepcopy(PM.SLDIAG[]), CHEMB = copy(TX.CHEMB[]),
-                                                 LIMODEL = [lim_plain(m_) for m_ in PM.LIMODEL[]], LIALI = [lim_plain(m_) for m_ in LIALI[]], NLOST = deepcopy(PM.NLOST[]))) :   # (lag.LIMODEL/LIALI: LINEIMP's H2 line models / held ALI rates, set by the last transfer call, used by the next hydro step)
+                                                 LIMODEL = [lim_plain(m_) for m_ in PM.LIMODEL[]], NLOST = deepcopy(PM.NLOST[]))) :   # (lag.LIMODEL: LINEIMP's H2 line models, set by the last transfer call, used by the next hydro step)
              error("checkpoint: only the NetGas material (CHEM=net*) is supported")
 # jinc: 1 for a checkpoint written inside the step loop's output callback, where TITAN's step counter jstep has not yet been advanced for the
 # step just done (run_julia! increments it after output()); the restart then continues with jstep + 1, as the uninterrupted run would
@@ -787,7 +704,7 @@ function checkpoint(name, k; jinc = 0)
     get(ENV, "HELDDUMP", "0") == "1" && held_dump(joinpath(CKDIR, "m2c_$(name).held"))
     mkpath(CKDIR)
     TF.save_state(joinpath(CKDIR, "m2c_$(name).tstate.gz"))
-    ax = (; k, jnext = Int(TF.getscalar(:jstep)) + jinc, mat = matstate(), ALIFAC = copy(ALIFAC[]), ALIFIX = copy(ALIFIX[]), ALILAST = ALILAST[], ALIINT = ALIINT[],
+    ax = (; k, jnext = Int(TF.getscalar(:jstep)) + jinc, mat = matstate(), POPS0 = copy(POPS0[]),
         NALICALL = NALICALL[], NIMP = NIMP[], LLINE = LLINE[], nextln = nextln[], SNAPNEXT = SNAPNEXT[], SNAPS,
         trb = (; STATS = copy(Trbdf2.STATS), BE_LEFT = Trbdf2.BE_LEFT[]),
         # solver / controller / held-input state that is not in the TITAN COMMON (without it the first steps after a restart differ: no FSAL error estimate,
@@ -809,7 +726,7 @@ function edd_restore!(e)
 end
 const MGAUX = Ref{Any}(nothing)       # (MGROUPS) the group fields of the checkpoint a run restarted from
 # settings that must agree between a run and its restart (the set-up and the physics); the rest may change
-const CKENV = ("IC", "TCMB", "AVZONE", "AVQL1", "AVCQ2", "CHEM", "NLTE", "NALI", "NBIN", "K5", "MCLOUD", "LRJOIN", "DLNJOIN", "DM", "PSWITCH",
+const CKENV = ("IC", "TCMB", "AVZONE", "AVQL1", "AVCQ2", "CHEM", "NBIN", "K5", "MCLOUD", "LRJOIN", "DLNJOIN", "DM", "PSWITCH",
                "INTEGRATOR", "THETA", "XE0", "RAD")   # (not CDYN: the accretion phase relaxes the dynamical Δt limit at a restart)
 function restart!(name; allow = ())
     aux = deserialize(joinpath(CKDIR, "m2c_$(name).aux"))
@@ -843,13 +760,13 @@ function restart!(name; allow = ())
             pr("restart: checkpoint without CQB/YQB; chemistry and cycle heat of %d zones taken out of RAYQ/GASQ and booked as CQB/YQB\n", nconv)
         end
         if hasproperty(l_, :LIMODEL)
-            PM.LIMODEL[] = Any[lim_make(m_) for m_ in l_.LIMODEL]; LIALI[] = Any[lim_make(m_) for m_ in l_.LIALI]
+            PM.LIMODEL[] = Any[lim_make(m_) for m_ in l_.LIMODEL]
         else
             pr("WARNING: checkpoint %s has no H2 line models (older code): the first step after the restart has no line cooling until the first transfer call\n", name)
         end
         hasproperty(l_, :CHEMB) && length(l_.CHEMB) == length(TX.CHEMB[]) && (TX.CHEMB[] .= l_.CHEMB)
     end
-    ALIFAC[] = copy(aux.ALIFAC); ALIFIX[] = hasproperty(aux, :ALIFIX) ? copy(aux.ALIFIX) : Float64[]; ALILAST[] = aux.ALILAST; ALIINT[] = aux.ALIINT; NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
+    POPS0[] = hasproperty(aux, :POPS0) ? copy(aux.POPS0) : zeros(0, 0); NALICALL[] = aux.NALICALL; NIMP[] = aux.NIMP
     LLINE[] = aux.LLINE; nextln[] = aux.nextln; SNAPNEXT[] = aux.SNAPNEXT
     SNAPS === nothing || aux.SNAPS === nothing || (empty!(SNAPS); append!(SNAPS, aux.SNAPS))
     empty!(Trbdf2.STATS); merge!(Trbdf2.STATS, aux.trb.STATS); Trbdf2.BE_LEFT[] = aux.trb.BE_LEFT
@@ -1023,7 +940,7 @@ function rebuild!(rI, ρz, Tz, uI, Er, Fr, matz)
     TF.setscalar!(:timen, t0); TF.setscalar!(:timeo, t0); TF.setscalar!(:dtime, dt0); TF.setscalar!(:jstep, js); TF.setscalar!(:tmax, 1e3tff)
     radsettings!()
     TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
-    empty!(ALIFAC[])                                  # per-zone NLTE factors: recomputed at the next line-transfer call
+    POPS0[] = zeros(0, 0)                             # line populations: cold start at the next line-transfer call
 end
 PM.PSWHYS[] = parse(Float64, get(ENV, "PSWHYS", "1"))
 PM.PSWTMIN[] = parse(Float64, get(ENV, "PSWTMIN", "0"))
@@ -1279,7 +1196,7 @@ function iceulbuild!(; rIset = nothing, icmlog = nothing)     # rIset: the inter
     radsettings!()
     envflags!()
     TD.EOS[](); TD.OPAC[](); TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
-    empty!(ALIFAC[]); empty!(ALIFIX[]); SNAPS === nothing || empty!(SNAPS)
+    POPS0[] = zeros(0, 0); SNAPS === nothing || empty!(SNAPS)
     xme = TF.var(:xmen); ENVMS0[] = xme[a] - xme[a+envsurface()-1]
     pr("ICEUL: initial condition on the fixed mesh: %d zones, r 0, %.3g R_sun .. %.4g pc (dln r %.4f), grid mass %.2f Msun (cloud %.2f), rho_c %.4e T_c %.1f, tau_R(centre) %.3e, %d interfaces falling, dt0 %.3e s, M_shell0 %.3e Msun\n",
        n, rI_[2] / Rsun, rI_[end] / 3.0857e18, log(rI_[3] / rI_[2]), Mnew / Msun, Mtot / Msun, ρz[1], Tz[1], τ[1], count(<(0), uI_), TF.getscalar(:dtime), 4π * ENVMS0[] / Msun)
@@ -2178,7 +2095,7 @@ try
             if get(ENV, "DTDIAG", "0") == "1"
                 j_ = JCMIN[]; pr("        line cap: t_cool %.3e s at zone %d (m %.4e Msun, T %.1f, n %.3e, e+U %.3e, Lambda %.3e); dtime before %.3e, smax %.3e\n", tcmin, j_, 4π * xmi(a+j_) / Msun, tt[j_], dd[j_] / (1.22PC.mH),
                                 TF.var(:egn)[a+j_-1] + PC.UOFF_TH, Λl[j_], TF.getscalar(:dtime), TF.getscalar(:smax))
-                LINEIMP && pr("        LINEIMP: zone line models from EP %d, ALI %d, held ALI rates %d (ALI/EP factor clamped in %d); no t_cool cap\n", LISTAT...)
+                pr("        LINEIMP: %d zone line models (ALI rates); no t_cool cap\n", count(!isnothing, PM.LIMODEL[]))
             end
             LINECAPV[] = tcmin                       # (diagnostic only: DTERR sets Δt; LINEIMP has no t_cool cap)
         end
@@ -2312,7 +2229,7 @@ if haskey(ENV, "SAVE")      # never overwrite a checkpoint with a non-finite sta
     end
 end
 PM.NLOIT && pr("NLOIT: %d opacity-ratio evaluations (%.1f s), %d slope refreshes; CK expansions %.1f s\n", PM.NLOITN[], PM.NLOITNS[] * 1e-9, PM.NLOITJN[], PM.NLOCNS[] * 1e-9)
-NLTE == "hyb" && pr("hybrid NLTE: %d ALI calls\n", NALICALL[])
+pr("ALI line transfer: %d calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
 TD.KRYLOV[] === nothing || pr("%s\n", NewtonKrylov.summary_text())
 Trbdf2.ERRCTL[] && pr("DTERR statistics %s; limiting variable (accepted steps) %s; TR-BDF2 %s\n", string(Trbdf2.ESTATS), string(Trbdf2.LIMHIST), string(Trbdf2.STATS))

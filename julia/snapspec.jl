@@ -26,8 +26,7 @@
 # - the temperature structure is the run's (grey flux-limited diffusion, or no continuum at all before the radiation rebuild): the
 #   frequency integral of this spectrum need not equal the run's luminosity. Both are stored, the ratio is the check.
 #
-# H₂ lines: H2Lines.cooling in ALI mode on the snapshot (level populations and transfer as the run's reference solution; the run
-# itself uses the escape-probability solution rescaled to ALI every ALIINT steps), with the run's merging of the zones deeper than
+# H₂ lines: H2Lines.cooling in ALI mode on the snapshot (level populations and transfer as the run's: ALI every step), with the run's merging of the zones deeper than
 # continuum optical depth LTAUCUT. The line transfer has no continuum extinction: line photons emitted inside the photosphere are
 # excluded by the cut, those emitted outside travel freely.
 using Serialization, Printf
@@ -263,7 +262,7 @@ function h2lines(x, τ, kph)
         t2 = [tt[jc]; tt[jc+1:end]]; h2 = [0.0; d.nH2[jc+1:end]]
         nH = [d.nH[jc]; d.nH[jc+1:end]]; nHe = [d.nHe[jc]; d.nHe[jc+1:end]]; nHp = [d.nHp[jc]; d.nHp[jc+1:end]]
     end
-    _, Lr, Ll = H2Lines.cooling(HLL[], r2, u2, d2, t2, h2; nbin = NBIN, nlte = (LV = HLV[], nH, nHe, nHp), nlte_mode = :ali)
+    _, Lr, Ll = H2Lines.cooling(HLL[], r2, u2, d2, t2, h2; nbin = NBIN, nlte = (LV = HLV[], nH, nHe, nHp))
     la = H2Lines.LAST[]
     kp = kph === nothing ? 0 : kph - jc + nc                        # the photosphere interface on the reduced grid
     # the gas's net collisional loss to the levels at the ALI populations, summed outwards: what the run books as line cooling

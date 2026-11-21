@@ -5,7 +5,7 @@
 # code defaults).
 #
 # Groups: backend; IC; material (network everywhere outside the dense interior: G2 SCVH95+x_e table, HM88, network continuum
-# opacity, three-level H); chemistry (coupled implicit, reduced CK network, HD, He); H₂ lines (hybrid ALI/EP, at the iterate);
+# opacity, three-level H); chemistry (coupled implicit, reduced CK network, HD, He); H₂ lines (ALI, at the iterate);
 # star light at the iterate; radiation (Eddington factors at the iterate, sub-zone front closure, flux tie in the thin outer
 # zones); energy (total-energy row); hydro (zone-width viscosity); mesh (log mesh from a regular centre, GRIDEQ moving mesh);
 # step control (TR-BDF2 error estimate); run control.
@@ -26,8 +26,8 @@ const POPIII_STACK = [
     "CHEMCK" => "1", "CHEMCKHSS" => "100", "CHEMSUB" => "1.3,3", "CHEMFBNET" => "16",
     "HDCHEM" => "1", "HECHEM" => "1", "CHEMTHREADS" => "1", "MATTHREADS" => "8",
     # H₂ lines
-    "NLTE" => "hyb", "LINEINC" => "1", "LINECOLL" => "1", "LINESRC" => "zone", "LINEQUAD" => "p2",
-    "LINECORE" => "8", "LINEFAST" => "1", "EPTAB" => "1", "ALIWMIN" => "1e-3", "ALISHRINK" => "0.5", "ALIGROW" => "0.1",
+    "LINEINC" => "1", "LINESRC" => "zone", "LINEQUAD" => "p2",
+    "LINECORE" => "8", "LINEFAST" => "1",
     # star light
     "STARLIGHT" => "1", "SL3" => "1", "SLBLEND" => "1", "SLEB" => "1", "SLWFLUX" => "1", "SLSHIELD" => "sobolev", "LYABB" => "1",
     "SLIMP" => "2",
