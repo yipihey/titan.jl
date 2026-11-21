@@ -1295,7 +1295,7 @@ if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Tr
 haskey(ENV, "ERTHICK") && (TC.ER_THICK[] = parse(Float64, ENV["ERTHICK"]))
 # One energy variable, the gas internal energy: the compatible rows (TX.ECOMPAT, below) are the only energy rows. The dual-energy switches are gone (docs/POPIII_ENERGY.md §11):
 # an old run.env that sets one must not silently select something else.
-for k_ in ("ETOTAL", "ETASW", "ETASWTH", "ETASWTIE", "ETOTGRAVGRID", "ERLAB")
+for k_ in ("ETOTAL", "ETASW", "ETASWTH", "ETASWTIE", "ETOTGRAVGRID", "ERLAB", "ECOMPAT")
     haskey(ENV, k_) && error(k_ * " is set: the dual-energy / total-energy-row switches were removed (internal energy only, docs/POPIII_ENERGY.md §11, §23); unset it. ETOTMON=1 monitors the total energy")
 end
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
