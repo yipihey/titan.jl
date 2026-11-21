@@ -429,6 +429,7 @@ function decdiff(S::Sys, x, λ)
     for k in collect(keys(TX.DEC)); haskey(base, k) ? copyto!(TX.DEC[k], base[k]) : delete!(TX.DEC, k); end
     nd, join(parts, " ")
 end
+const SCANPREV = Ref{Any}(nothing)
 function scan!(S::Sys, b, x)
     ne, nb, k0 = S.ne, S.nb, S.k0; a = gi(:ngrs); wb = b .* S.wt; wx = x .* S.wt; pre = "NKSCAN "
     @printf("%sA att %d it %d jstep %d dtime %.6g theta %g |b|_W %.6g |x|_W %.6g\n", pre, Trbdf2.NWATT[], gi(:iter), gi(:jstep), TD.g(:dtime), TD.g(:thet), norm(wb), norm(wx))
@@ -450,17 +451,22 @@ function scan!(S::Sys, b, x)
     end
     # C: line scan
     T0, _ = levelT(S, S.R0); @printf("%sC T0 %.6g (norm(b W) %.6g), |sc R0| %.6g\n", pre, T0, norm(wb), norm(S.sc .* S.R0))
-    lams = [1e-6, 1e-5, 1e-4, 1e-3, 1/256, 1/128, 1/64, 1/32, 1/16, 1/8, 1/4, 1/2, 1.0]
+    lams = haskey(ENV, "NKSCANX") ? collect(0.5:0.05:1.0) : [1e-6, 1e-5, 1e-4, 1e-3, 1/256, 1/128, 1/64, 1/32, 1/16, 1/8, 1/4, 1/2, 1.0]
+    r937 = (a + 37 - 1 - k0) * ne + 9
     for sg in (-1, 1), l in lams
-        λ = sg * l; line = ""
+        λ = sg * l; line = ""; (haskey(ENV, "NKSCANX") && sg < 0) && continue
         for fr in (0, 2)
             R, exc, bad = scantrial(S, x, λ, fr)
             if exc !== nothing
                 println(pre, "C lambda ", λ, " freeze ", fr, " EXCEPTION ", typeof(exc), ": ", first(split(sprint(showerror, exc), '\n')))
             else
                 T, w = levelT(S, R)
+                if fr == 0 && haskey(ENV, "NKSCANX")
+                    SCANPREV[] !== nothing && println(pre, "C   lambda ", λ, " rows jumping vs previous lambda (sc R diff): ", toplist(S, (S.sc .* R) .- SCANPREV[], 8), " | R_sc now: ", join((@sprintf("%s:%.3e", zname(S, r), S.sc[r] * R[r]) for r in sortperm(abs.(S.sc .* R); rev = true)[1:6]), " "))
+                    SCANPREV[] = copy(S.sc .* R)
+                end
                 if isfinite(T)
-                    @printf("%sC lambda %+.6g freeze %d T %.6g T/T0 %.6g linear |1-l| %.6g |sc R| %.6g worst row %s\n", pre, λ, fr, T, T / T0, abs(1 - λ), norm(S.sc .* R), zname(S, argmax(abs.(w))))
+                    @printf("%sC lambda %+.6g freeze %d T %.6g T/T0 %.6g linear |1-l| %.6g |sc R| %.6g worst row %s | R_sc[9@37] %+.4e P R[9@37] %+.4e P R[5@37] %+.4e P R[8@37] %+.4e\n", pre, λ, fr, T, T / T0, abs(1 - λ), norm(S.sc .* R), zname(S, argmax(abs.(w))), S.sc[r937] * R[r937], w[r937] / S.wt[r937], w[r937-4] / S.wt[r937-4], w[r937-1] / S.wt[r937-1])
                 else
                     nf = findall(!isfinite, R)
                     @printf("%sC lambda %+.6g freeze %d T non-finite (%d non-finite residual rows): %s\n", pre, λ, fr, length(nf), join((zname(S, r) * "=" * string(R[r]) for r in first(nf, 10)), " "))
@@ -658,6 +664,7 @@ function krylov!()
         else
             0.0
         end
+        OPT_DIAG && diag!(S, b, x, λ, rel, m, conv, trunc)
         Trbdf2.NWTRACE[] === nothing || println(Trbdf2.NWTRACE[], "NKR att ", Trbdf2.NWATT[], " it ", gi(:iter), " krylov its ", m, " converged ", conv, " rel residual ", rel, " |delta0|_W ", norm(b .* S.wt), " |delta|_W ", norm(x .* S.wt), " drift ", d, " largest weighted delta0 ", wtop(b, S, ne, k0), " largest weighted delta ", wtop(x, S, ne, k0), lsinfo)
     catch ex
         ex isa InterruptException && rethrow()
@@ -667,6 +674,37 @@ function krylov!()
     end
     CNT.secs += time() - t0
     nothing
+end
+
+
+# ---------------------------------------------------------------- NKDIAG (diagnostic, default off; no behaviour change)
+const OPT_DIAG = get(ENV, "NKDIAG", "") != ""
+const DIAGZ = [z for z0 in split(get(ENV, "NKDIAGZ", "35:39,99:101"), ",") for z in (occursin(":", z0) ? collect(parse(Int, split(z0, ":")[1]):parse(Int, split(z0, ":")[2])) : [parse(Int, z0)])]
+function diag!(S::Sys, b, x, λ, rel, m, conv, trunc)
+    io = Trbdf2.NWTRACE[] === nothing ? stdout : Trbdf2.NWTRACE[]; ne = S.ne; a = gi(:ngrs)
+    zn(kb) = S.k0 + kb - 1 - a + 1
+    fcap = Inf; rcap = 0
+    @inbounds for r in 1:S.n
+        S.act[r] || continue
+        c = S.code[(r-1)%ne+1]; d = x[r]; d == 0 && continue
+        f = c in POSCODES ? (d > 0 ? expm1(TRR[]) / d : TitanCore.psiinv(exp(-TRR[])) / d) : c == 0 ? TRR[] / abs(d) : TRR[] / (abs(d) * S.wtr[r])
+        f < fcap && (fcap = f; rcap = r)
+    end
+    Rs = S.R0 .* S.sc
+    @printf(io, "NKD att %d it %d jstep %d dt %.5g | lam %.4g radius %.4g cap-entry %s (x %.3g wtr %.2g) | gmres its %d conv %s trunc %s rel %.2e | |R|_sc inf %.3e %s | |b|_W %.3e |x|_W %.3e\n",
+            Trbdf2.NWATT[], gi(:iter), gi(:jstep), TD.g(:dtime), λ, TRR[], rcap == 0 ? "-" : zname(S, rcap), rcap == 0 ? 0.0 : x[rcap], rcap == 0 ? 0.0 : S.wtr[rcap], m, conv, trunc, rel,
+            maximum(abs, Rs), zname(S, argmax(abs.(Rs))), norm(b .* S.wt), norm(x .* S.wt))
+    for i in 1:ne
+        rr = [(kb-1)*ne+i for kb in 1:S.nb if S.act[(kb-1)*ne+i]]; isempty(rr) && continue
+        rb = rr[argmax(abs.(b[rr]))]; rx = rr[argmax(abs.(x[rr] .* S.wt[rr]))]; rR = rr[argmax(abs.(Rs[rr]))]
+        @printf(io, "NKD   eq %-4s max|R_sc| %+.3e @%d | max|band corr| %+.3e @%d | max W|gmres step| %+.3e @%d (raw %+.3e)\n", NMS[min(i, 9)], Rs[rR], zn((rR-1)÷ne+1), b[rb], zn((rb-1)÷ne+1), x[rx] * S.wt[rx], zn((rx-1)÷ne+1), x[rx])
+    end
+    for z in DIAGZ
+        kb = z + a - S.k0; (1 <= kb <= S.nb) || continue
+        @printf(io, "NKD   zone %3d R_sc:", z); for i in 1:ne; @printf(io, " %+.2e", Rs[(kb-1)*ne+i]); end
+        @printf(io, " | step:"); for i in 1:ne; @printf(io, " %+.2e", x[(kb-1)*ne+i]); end; println(io)
+    end
+    flush(io)
 end
 
 # ---------------------------------------------------------------- matrix-vector check (NKCHECK, diagnostic)
