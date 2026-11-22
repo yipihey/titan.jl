@@ -7,6 +7,7 @@ Fig. 2 of Abel, Bryan & Norman 2002 (Science 295, 93).
 
 Page 1: radial profiles at N automatically chosen output times (log r column / enclosed-mass column).
 Page 2: time histories of the protostar scalars and a summary table at the plotted times.
+Page 3 (only if the export has cv_* fields, i.e. a CONVDIAG=1 run): sub-shock convection diagnostics of one frame.
 Reads the explorer export P/RUN/frames.json + frames.b64.txt (+ perf.csv, P/runs.json); writes P/RUN/abnfig.pdf.
 See README.md in this directory.
 """
@@ -899,6 +900,121 @@ def page_history(pdf, run, sel, t0, styles, header):
 
 
 # ----------------------------------------------------------------------------------------------- main
+# ----------------------------------------------------------------------------------------------- page 3 (CONVDIAG runs only)
+def page_convection(pdf, run, sel, t0, header, frame=None):
+    """Sub-shock convection diagnostics of one frame (needs the cv_* fields of a CONVDIAG=1 run; see docs/POPIII_CONVECTION.md M1).
+
+    Left column vs r/R_star, right column vs M_enc.  Quantities of buoyancy (nabla, nabla_ad, N^2, Ledoux) are drawn only in
+    zones with Mach < 0.5 (the supersonic infall has no meaningful stratification), the gates and fluxes everywhere.
+    The accretion shock (R_star: first interface with u < -2 km/s) is the vertical dotted line.  The frame is the one with the
+    strongest unstable layer (cv_N2td2) among the selected times, or --cvframe."""
+    cand = [i for i in (sel if frame is None else [frame]) if np.isfinite(run.frame(i).get("cv_mach", np.array([np.nan]))).any()]
+    if not cand:
+        return False
+    if frame is None:
+        td = run.s("cv_N2td2") if "cv_N2td2" in run.scal else np.full(run.nf, np.nan)
+        cand.sort(key=lambda i: (np.nan_to_num(td[i], nan=-1.0), i))
+    i = cand[-1]
+    fr = run.frame(i)
+    Rst = run.s("R_star")[i]
+    Mst = run.s("M_star")[i]
+    r = 10.0 ** fr["logr"]
+    m = 10.0 ** fr["logm"]
+    xr = r / Rst if np.isfinite(Rst) and Rst > 0 else r
+    xlab_r = r"$r/R_\star$" if np.isfinite(Rst) and Rst > 0 else r"$r$  [R$_\odot$]"
+    sub = fr["cv_mach"] < 0.5
+    g = lambda k: fr.get(k, np.full(len(r), np.nan))
+    selx = np.isfinite(xr) & (xr > (0.1 if np.isfinite(Rst) else 0) ) & (xr < (3.0 if np.isfinite(Rst) else np.inf))
+    fig = plt.figure(figsize=(PAGE_W, PAGE_H))
+    t_yr = run.s("t_yr")[i]
+    header(fig, f"Sub-shock convection diagnostics (step {int(run.s('step')[i])}, t - t0 = {fmt_dt(t_yr - t0)})")
+    axs = [[fig.add_axes([0.11 + 0.45 * c, 0.80 - 0.172 * rw, 0.40, 0.145]) for c in range(2)] for rw in range(5)]
+    sym = dict(linthresh=1e-12)
+
+    def put(row, fn, ylab, ylog=False, symlog=False, ylim=None):
+        for c, (x, xl) in enumerate(((xr, xlab_r), (m, r"$M_{\rm enc}$  [M$_\odot$]"))):
+            ax = axs[row][c]
+            fn(ax, x)
+            ax.set_xscale("log")
+            if symlog:
+                ax.set_yscale("symlog", **sym)
+            elif ylog:
+                ax.set_yscale("log")
+            if ylim:
+                ax.set_ylim(*ylim)
+            if c == 0:
+                ax.set_ylabel(ylab)
+            if row == 4:
+                ax.set_xlabel(xl)
+            xs = x[selx]
+            if xs.size:
+                ax.set_xlim(np.nanmin(xs[xs > 0]), np.nanmax(xs))
+            if c == 0 and np.isfinite(Rst) and Rst > 0:
+                ax.axvline(1.0, color=FAINT, ls=":", lw=0.9)
+            if c == 1 and np.isfinite(Mst) and Mst > 0:
+                ax.axvline(Mst, color=FAINT, ls=":", lw=0.9)
+
+    def line(ax, x, y, mask=None, **kw):
+        y = np.asarray(y, float).copy()
+        if mask is not None:
+            y = np.where(mask, y, np.nan)
+        plot_xy(ax, x, y, **kw)
+
+    def f1(ax, x):
+        line(ax, x, g("cv_nab"), sub, color=INK, lw=1.2, label=r"$\nabla$ (MLT, after HS blend)")
+        line(ax, x, g("cv_nab_raw"), sub, color=INK, lw=0.7, ls=(0, (1, 1.5)), label=r"$\nabla$ raw")
+        line(ax, x, g("cv_nad_eq"), sub, color="#c0392b", lw=1.0, label=r"$\nabla_{\rm ad}$ equil.")
+        line(ax, x, g("cv_nad_fr"), sub, color="#2471a3", lw=1.0, ls=(0, (6, 1.6)), label=r"$\nabla_{\rm ad}$ frozen")
+        line(ax, x, g("cv_nab_L"), sub, color="#1e8449", lw=1.0, ls=(0, (3, 1.4)), label=r"$\nabla_{\rm L}$ (Ledoux)")
+        line(ax, x, g("cv_nab_rad"), sub, color="#7d3c98", lw=0.8, ls=(0, (7, 1.6, 1.4, 1.6)), label=r"$\nabla_{\rm rad}$")
+        ax.set_ylim(-1.0, 4.0)
+        if ax is axs[0][0]:
+            ax.legend(fontsize=FS - 2, ncol=2, loc="upper right")
+    put(0, f1, r"$\nabla$ (Mach $<0.5$ only)")
+
+    def f2(ax, x):
+        line(ax, x, g("cv_N2_eq"), sub, color="#c0392b", lw=1.1, label=r"$N^2$ equil. (Schwarzschild)")
+        line(ax, x, g("cv_N2_L"), sub, color="#1e8449", lw=1.1, ls=(0, (3, 1.4)), label=r"$N^2_{\rm L}$ frozen Ledoux")
+        line(ax, x, g("cv_N2_S"), sub, color="#2471a3", lw=0.9, ls=(0, (6, 1.6)), label=r"$N^2$ frozen Schwarzschild")
+        ax.axhline(0, color=FAINT, lw=0.5)
+        if ax is axs[1][0]:
+            ax.legend(fontsize=FS - 2, loc="upper right")
+    put(1, f2, r"$N^2$  [s$^{-2}$] (Mach $<0.5$ only)", symlog=True)
+
+    def f3(ax, x):
+        line(ax, x, g("cv_Fconv_Ftot"), None, color=INK, lw=1.2, label=r"$F_{\rm conv}/F_{\rm tot}$ (as used)")
+        line(ax, x, g("cv_Fpot_Ftot"), None, color="#c0392b", lw=1.0, ls=(0, (6, 1.6)), label=r"gate-free MLT flux$/F_{\rm tot}$")
+        if ax is axs[2][0]:
+            ax.legend(fontsize=FS - 2, loc="upper right")
+    put(2, f3, r"$F_{\rm conv}/F_{\rm tot}$", symlog=True)
+
+    def f4(ax, x):
+        line(ax, x, g("cv_w_tau"), None, color=INK, lw=1.1, label=r"$w_\tau$")
+        line(ax, x, g("cv_w_inf"), None, color="#2471a3", lw=1.0, ls=(0, (6, 1.6)), label=r"$w_{\rm inf}$")
+        line(ax, x, g("cv_w_th"), None, color="#c0392b", lw=1.0, ls=(0, (3, 1.4)), label=r"$w_{\rm th}$ ($\nabla_{\rm ad}<10^{29}$)")
+        line(ax, x, g("cv_hs_w"), None, color="#1e8449", lw=0.9, ls=(0, (1.1, 1.3)), label=r"HS blend weight")
+        ax.set_ylim(-0.05, 1.1)
+        if ax is axs[3][0]:
+            ax.legend(fontsize=FS - 2, ncol=2, loc="center right")
+    put(3, f4, "MLT gates")
+
+    def f5(ax, x):
+        line(ax, x, g("cv_logt_settle"), None, color=INK, lw=1.1, label=r"$t_{\rm settle}=H_P/|u|$")
+        line(ax, x, g("cv_logt_N"), sub, color="#c0392b", lw=1.0, ls=(0, (6, 1.6)), label=r"$1/\sqrt{|N^2_{\rm L}|}$")
+        line(ax, x, g("cv_logt_turn"), None, color="#1e8449", lw=1.0, ls=(0, (3, 1.4)), label=r"$\ell/v$")
+        line(ax, x, g("cv_logt_chem"), None, color="#7d3c98", lw=1.0, ls=(0, (7, 1.6, 1.4, 1.6)), label=r"$t_{\rm chem}$")
+        if ax is axs[4][0]:
+            ax.legend(fontsize=FS - 2, ncol=2, loc="upper right")
+    put(4, f5, r"$\log_{10}$ timescale [s]")
+    ax2 = axs[4][0].twinx()
+    ax2.plot(xr[selx][np.argsort(xr[selx])], g("cv_mach")[selx][np.argsort(xr[selx])], color=FAINT, lw=0.8)
+    ax2.set_ylabel("Mach", color=FAINT)
+    ax2.axhline(0.5, color=FAINT, ls=":", lw=0.5)
+    pdf.savefig(fig)
+    plt.close(fig)
+    return True
+
+
 def make_header(run, sel):
     info = run.info
     nz = [int(f["n"]) for f in run.meta] or [0]
@@ -937,6 +1053,7 @@ def main(argv=None):
     ap.add_argument("--times", default="auto", help="'auto' or comma-separated t - t0 [yr]")
     ap.add_argument("--xaxis", default="abn", choices=["abn", "r", "m"],
                     help="abn: left column vs r, right column vs M_enc (ABN02 layout); r / m: all panels vs r / M_enc")
+    ap.add_argument("--cvframe", type=int, default=None, help="frame index for the convection page (only runs with cv_* fields; default: strongest unstable layer)")
     ap.add_argument("--n", type=int, default=7, help="number of output times for --times auto (default 7, max 8)")
     a = ap.parse_args(argv)
     run = Run(a.panel, a.run)
@@ -959,6 +1076,8 @@ def main(argv=None):
     with PdfPages(out) as pdf:
         page_profiles(pdf, run, sel, t0, a.xaxis, styles, header)
         page_history(pdf, run, sel, t0, styles, header)
+        if any(f.startswith("cv_") for f in run.fields):          # CONVDIAG=1 runs only: runs without cv_* fields are unchanged
+            page_convection(pdf, run, sel, t0, header, a.cvframe)
         d = pdf.infodict()
         d["Title"] = f"titan.jl run {run.key}: ABN02-style profiles"
         d["Author"] = "abnfig.py (titan.jl)"
