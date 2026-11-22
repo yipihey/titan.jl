@@ -258,9 +258,9 @@ is unchanged. Gas + equilibrium radiation (P_rad = aT⁴/3, e_rad = aT⁴/ρ, as
 - `branch`: 0 network, 1 coupled network, 2 table (equilibrium) zone, 3 hot — the order in which `material_gas0` selects.
 A table that cannot be evaluated (outside its range) gives NaN for the equilibrium values.
 """
-function conv_thermo(m::NetGas, k, ρ, T)
+function conv_thermo(m::NetGas, k, ρ, T; x = nothing)
     arad = 7.565723e-15; kB = 1.380649e-16; mu_ = 1.66053906660e-24
-    function thermo_of(eosf)                         # eosf(r, t) -> (u_gas, p_gas); cold_thermo's formula
+    function thermo_of(eosf)                         # eosf(r, t) -> (u_gas, p_gas); cold_thermo's formula (+ α = ∂ln ρ/∂ln P at fixed T, composition)
         pf(r, t) = eosf(r, t)[2] + arad * t^4 / 3
         ef(r, t) = eosf(r, t)[1] + arad * t^4 / r
         p = pf(ρ, T)
@@ -268,26 +268,45 @@ function conv_thermo(m::NetGas, k, ρ, T)
         eT = ForwardDiff.derivative(t -> ef(ρ, t), T); eρ = ForwardDiff.derivative(r -> ef(r, T), ρ)
         cP = eT - (eρ - p / ρ^2) * pT / pρ
         δ = T / ρ * pT / pρ
-        (p * δ / (T * ρ * cP), cP, δ)
+        (p * δ / (T * ρ * cP), cP, δ, p / (ρ * pρ))
     end
-    nanv = (NaN * one(ρ) * one(T), NaN * one(ρ) * one(T), NaN * one(ρ) * one(T))
+    nanv = (NaN * one(ρ) * one(T), NaN * one(ρ) * one(T), NaN * one(ρ) * one(T), NaN * one(ρ) * one(T))
     h = HOT[]
     if h !== nothing && ForwardDiff.value(T) > h.T1
         th = h.thermo(ρ, T, k); pg = h.gas(ρ, T, k)[1]
+        pρ_ = ForwardDiff.derivative(r -> h.gas(r, T, k)[1], ρ); α_ = (pg + arad * T^4 / 3) / (ρ * pρ_)       # (gas + radiation, as thermo_of)
         return (; nad_eq = th[1], cp_eq = th[2], del_eq = th[3], nad_fr = th[1], cp_fr = th[2], del_fr = th[3], phi = one(th[1]),
-                mu = ρ * kB * T / (pg * mu_), branch = 3)
+                mu = ρ * kB * T / (pg * mu_), branch = 3, alpha_eq = α_, alpha_fr = α_, gam1_eq = 1 / (α_ - th[3] * th[1]), gam1_fr = 1 / (α_ - th[3] * th[1]))
     end
     eq = try thermo_of((r, t) -> EQ.eos(r, t)) catch; nanv end
     if !m.eqzone[k] && TX.cplz(k)                    # (material_gas0's order: hot, table zone, coupled, network)
-        x1 = TX.XSN[][1][k]; x2 = TX.XSN[][2][k]
-        ef_(r, t) = (y = cpl_g(m, k, [r, t, x1, x2]); (y[2], y[1]))
+        x1 = x === nothing ? TX.XSN[][1][k] : x[1]; x2 = x === nothing ? TX.XSN[][2][k] : x[2]      # x: the Newton iterate's species of the zone (Duals in the solve)
+        ef_(r, t) = (y = cpl_g(m, k, [promote(r, t, x1, x2)...]); (y[2], y[1]))
         fr = thermo_of(ef_); pgas = ef_(ρ, T)[2]; br = 1
     else
-        x = m.x[k]
-        fr = thermo_of((r, t) -> CNn.eos(r, t, x, m.net)); pgas = CNn.eos(ρ, T, x, m.net)[2]; br = m.eqzone[k] ? 2 : 0
+        xk = m.x[k]
+        fr = thermo_of((r, t) -> CNn.eos(r, t, xk, m.net)); pgas = CNn.eos(ρ, T, xk, m.net)[2]; br = m.eqzone[k] ? 2 : 0
     end
     (; nad_eq = eq[1], cp_eq = eq[2], del_eq = eq[3], nad_fr = fr[1], cp_fr = fr[2], del_fr = fr[3], phi = one(fr[1]),
-       mu = ρ * kB * T / (pgas * mu_), branch = br)
+       mu = ρ * kB * T / (pgas * mu_), branch = br, alpha_eq = eq[4], alpha_fr = fr[4],
+       gam1_eq = 1 / (eq[4] - eq[3] * eq[1]), gam1_fr = 1 / (fr[4] - fr[3] * fr[1]))      # 1/Γ₁ = α − δ ∇_ad (TDC.gamma1)
+end
+"""
+M2: chemical relaxation time of zone k, `t_chem = 1/max_i |∂S_i/∂x_i|` (i = H⁺, H₂: the coupled species) from the zone's CK rates `cpl_g` at (ρ, T, x₁, x₂) (the same map `CPL_ZONE`
+caches; the rows 3, 4 of `cpl_g` are S₁, S₂). Generic in the number type: ∂S_i/∂x_i by ForwardDiff.derivative (its own tag) of a function of Dual arguments, so the outer Jacobian
+sees ρ, T, x₁, x₂. `x` = (x₁, x₂) of the iterate (default: `TX.XSN`). Table (equilibrium) and hot zones: 0 (equilibrium chemistry); network zones that are not coupled: `Inf` (frozen). Does not read or write
+`CPLCACHE` (cpl_g is evaluated directly).
+"""
+function conv_tchem(m::NetGas, k, ρ, T; x = nothing)
+    h = HOT[]
+    (h !== nothing && ForwardDiff.value(T) > h.T1) && return 0.0
+    m.eqzone[k] && return 0.0
+    TX.cplz(k) || return Inf
+    x1 = x === nothing ? TX.XSN[][1][k] : x[1]; x2 = x === nothing ? TX.XSN[][2][k] : x[2]
+    d1 = ForwardDiff.derivative(a -> cpl_g(m, k, [promote(ρ, T, a, x2)...])[3], x1)
+    d2 = ForwardDiff.derivative(b -> cpl_g(m, k, [promote(ρ, T, x1, b)...])[4], x2)
+    mx = max(abs(d1), abs(d2))
+    return iszero(ForwardDiff.value(mx)) ? Inf : 1 / mx
 end
 "CONVDIAG: copies of the per-zone material caches (opacity iteration, CK Jacobian) before a diagnostic residual evaluation, so that the evaluation leaves them as they were."
 function conv_cache_save()
@@ -301,6 +320,8 @@ end
 """MLT thermodynamics: only the hot branch convects (and, with `COLDMLT[]` > 0, the hot equilibrium zones of the table EOS). Below T1 the huge ∇_ad switches the flux off in the chemistry gas: it must be
 out of reach (it was 10, and at a T jump inside the protostar ∇ = Δln T/Δln P crossed it: an MLT flux with this placeholder c_P
 of up to 1e40 erg/s between two zones, and Newton diverged)."""
+TX.material_convthermo(m::NetGas, k, ρ, T, x) = conv_thermo(m, k, ρ, T; x)
+TX.material_tchem(m::NetGas, k, ρ, T, x) = conv_tchem(m, k, ρ, T; x)
 function TX.material_thermo(m::NetGas, ρ, T)
     h = HOT[]
     (h !== nothing && T > h.T1) && return h.thermo(ρ, T, TX.ZONE[])

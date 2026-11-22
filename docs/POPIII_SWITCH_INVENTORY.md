@@ -320,6 +320,13 @@ caches saved and restored (`PopIIIMaterial.conv_cache_save`); the recording bloc
 and are never active in a solve. Claim: the solution is bit-identical on or off [test: docs/logs/subconv/]. Removal plan: none; it is a read-only
 instrument and M2/M3 reuse `conv_thermo`. If the extra evaluation ever shows an effect, it must be fixed there, not by a clamp.
 
+**`MLTBUOY` (provisional, added 22 Nov 2026 on `popiii-subconv` for M2, off by default; `TitanResidFast.MLT_BUOY`).** The MLT superadiabaticity is built from the
+density contrast of a blob across the interface (`TDC.blob_sup`, design D1 of docs/POPIII_CONVECTION.md) instead of ∇ − ∇_ad, with the thermodynamics of the two
+zones evaluated at the Newton iterate with derivatives (`PopIIIMaterial.conv_thermo`, `conv_tchem`). In this mode the network placeholder ∇_ad = 1e30 of
+`material_thermo` is not used (all branches get real thermodynamics) and `MLT_HS` is not applied; the τ weight and `MLT_NOINFALL` stay (MLT is local). Off: the code path is the
+old one [test: bit-identity logs in docs/logs/subconv/m2/]. Removal plan: when M4 accepts it, it becomes the only MLT path (until the TDC of M3 replaces the MLT block);
+then delete the 1e30 placeholder in `material_thermo`, `COLDMLT` (+ `cold_thermo`) and `MLT_HS` (+ its blend, `ForwardDiff.value` weight) and this switch.
+
 ## 14. Switches outside the production path (120; test, benchmark and old-stage scripts)
 
 These are not read by `popiii_m2c.jl` or its includes. They have no bearing on the production run. Listed for completeness, by file.

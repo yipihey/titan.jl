@@ -18,6 +18,7 @@ using Printf
 import ..TitanDriver
 const TD = TitanDriver
 const TF = TD.TF
+include(joinpath(@__DIR__, "TDC.jl")); using .TDC: blob_sup, blob_f, gamma1_inv   # M2/M3: pure convection functions (docs/POPIII_CONVECTION.md)
 
 val(x) = ForwardDiff.value(x)
 gi(s) = Int(TD.g(s)); gf(s) = Float64(TD.g(s))
@@ -837,6 +838,12 @@ end
 "`material_thermo(m, ρ, T) -> (∇_ad, c_P, δ)` of gas + equilibrium radiation (Float64), for the MLT flux."
 function material_thermo end
 """
+M2 (MLT_BUOY): `material_convthermo(m, k, ρ, T, x) -> NamedTuple` (∇_ad, c_P, δ, α, Γ₁ of the zone's equilibrium and frozen chemistry; `PopIIIMaterial.conv_thermo`) and
+`material_tchem(m, k, ρ, T, x) -> t_chem` of zone k at the Newton iterate, `x` = (x_H⁺, x_H₂) of the zone (or `nothing`). Number-type generic.
+"""
+function material_convthermo end
+function material_tchem end
+"""
 MLT convection (Phase 7, Tom's choice: local, time-independent MLT). At interior interfaces
 F_conv = ρ c_P T √(gδ) ℓ² ζ³ / (4√2 H_P^{3/2}),  ζ = √(U² + ∇ − ∇_ad) − U  (0 if ∇ ≤ ∇_ad),
 ℓ = α H_P, U = 3acT³/(c_P ρ² κ ℓ²) √(8H_P/(gδ)); ∇ = Δln T/Δln P from the neighbouring zones (n level),
@@ -870,6 +877,12 @@ Default off (the earlier runs, with r_out = 1.2 R, did not need it).
 """
 const MLT_NOINFALL = Ref(false)
 """
+MLT_BUOY[] (M2, provisional, default false = the production MLT block, bit-identical): the MLT superadiabaticity from the density contrast of a blob (TDC.blob_sup, design D1)
+instead of ∇ − ∇_ad: `sup = A/(δ_b |ΔlnP_hs|)`, with the thermodynamics of the two zones at the iterate (`material_convthermo`, Duals included), equilibrium/frozen blend f from
+t_chem (`material_tchem`), no ∇_ad placeholder, no MLT_HS blend. docs/POPIII_CONVECTION.md M2, docs/POPIII_SWITCH_INVENTORY.md.
+"""
+const MLT_BUOY = Ref(false); const BUOY_EQFAIL = Ref(0)      # (counter: interfaces where the equilibrium table could not be evaluated)
+"""
 CONVDIAG (popiii_m2c `CONVDIAG=1`, default off; diagnostic only, the solution is bit-identical on or off): `conv_diag_pass` re-evaluates the Float64
 residual once at the accepted state with `CVD_ON[]` set. Only then do the blocks marked `cvp` write the MLT intermediates (raw and blended ∇,
 the hydrostatic blend weight, ∇_ad, c_P, δ, κ as used, the gate-free flux and velocity) and the terms of the gas-energy row into the buffers `CVD`;
@@ -878,6 +891,7 @@ convcoef keeps the τ and the inflow factor of `cvw` in `BUFS[:cvwt]`, `BUFS[:cv
 const CONVDIAG = Ref(false)
 const CVD = Dict{Symbol,Vector{Float64}}(); const CVD_ON = Ref(false)
 const CVD_NAMES = (:rhoi, :Ti, :Pi, :g, :HP, :lmix, :frad, :lp_raw, :lph, :hs_w, :nab_raw, :nab, :nad_used, :cp_used, :del_used, :kap, :fpot, :vpot, :fconv, :vconv,
+                   :sup, :fchem, :tchem, :delb, :cpb,
                    :e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res)
 @inline cvrec!(nm::Symbol, k, x) = (@inbounds CVD[nm][k] = Float64(ForwardDiff.value(x)); nothing)
 """
@@ -922,6 +936,25 @@ const MLT_HSDISC = Ref(false)
         end
     end
     true
+end
+"""
+M2 (MLT_BUOY): thermodynamics of the zones next to the MLT interfaces on the current iterate: per zone j, `(th, t_chem)` = `material_convthermo` and `material_tchem` at
+(ρ_j, T_j) and the zone's own species (x_H⁺, x_H₂)_j of the iterate, so every dependence (ρ, T, x of both zones) is in the Jacobian. `nothing` for zones no interface needs.
+"""
+function _buoy_zones(m, W, dn, tn, cvw, ngrs, ngre, cvp)
+    need = get!(() -> fill(false, length(cvw)), BUFS, :buoyneed)::Vector{Bool}; fill!(need, false)
+    @inbounds for k in ngrs+1:ngre
+        (cvw[k] > 0 || cvp) && (need[k-1] = true; need[k] = true)
+    end
+    zth = Vector{Any}(nothing, ngre + 1)
+    @inbounds for j in ngrs:ngre
+        need[j] || continue
+        (ForwardDiff.value(dn[j]) > 0 && ForwardDiff.value(tn[j]) > 0) || continue          # unphysical iterate: no MLT (the step will be rejected)
+        ZONE[] = j
+        x = COUPLED[] ? (W.xs1[j], W.xs2[j]) : nothing
+        zth[j] = (material_convthermo(m, j, dn[j], tn[j], x), material_tchem(m, j, dn[j], tn[j], x))
+    end
+    zth
 end
 """
 MATTHREADS pre-pass of the MLT loop: ∇_ad, c_P, δ and κ_R at the interface state (the means of the two zones, as in the
@@ -1560,9 +1593,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         nadv, cpv, δv, κv = c.cv; cvw = BUFS[:cvw]::Vector{Float64}
         arad = 4P.csigr / cc
         ntm = min(MAT_THREADS[], Threads.nthreads())
-        mpre = MLT_AD[] && ntm > 1 && ngre - ngrs >= 4ntm && !ZTASK[]
+        mpre = MLT_AD[] && !MLT_BUOY[] && ntm > 1 && ngre - ngrs >= 4ntm && !ZTASK[]
         mok = get!(() -> fill(false, length(cvw)), BUFS, :mltok)::Vector{Bool}
         mpre && _mlt_pre!(MATERIAL[], W, cvw, mok, dn, tn, ngrs, ngre, ntm)
+        zth = MLT_BUOY[] ? _buoy_zones(MATERIAL[], W, dn, tn, cvw, ngrs, ngre, cvp) : nothing
         @inbounds for k in ngrs+1:ngre
             Pm = pgn[k-1] + (AD_JV[] ? fedd[k-1] : c.fedd[k-1]) * ern[k-1]; Pp = pgn[k] + (AD_JV[] ? fedd[k] : c.fedd[k]) * ern[k]
             wτ = cvw[k]; wτ > 0 || cvp || continue          # optically thin: no MLT flux (the recording pass goes on: it records the gate-free flux)
@@ -1572,6 +1606,43 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             HP = Pi / (ρi * gk); l = MLT_RCAP[] ? c.alpha / sqrt(1 / HP^2 + 1 / r[k]^2) : c.alpha * HP
             if cvp
                 cvrec!(:rhoi, k, ρi); cvrec!(:Ti, k, Ti); cvrec!(:Pi, k, Pi); cvrec!(:g, k, gk); cvrec!(:HP, k, HP); cvrec!(:lmix, k, l); cvrec!(:frad, k, fr[k])
+            end
+            if MLT_BUOY[]                            # M2: buoyancy from the density contrast of a blob (design D1), thermodynamics of the two zones at the iterate
+                z1 = zth[k-1]; z2 = zth[k]; (z1 === nothing || z2 === nothing) && continue
+                t1, tc1 = z1; t2, tc2 = z2
+                ZONE[] = k; κk = material_opac(MATERIAL[], ρi, Ti)[1]
+                hm(a, b) = 0.5 * (a + b)                 # interface values = means of the two zones' values
+                αfr = hm(t1.alpha_fr, t2.alpha_fr); δfr = hm(t1.del_fr, t2.del_fr); φfr = hm(t1.phi, t2.phi); cpfr = hm(t1.cp_fr, t2.cp_fr); Γfr = hm(t1.gam1_fr, t2.gam1_fr)
+                Γeq = hm(t1.gam1_eq, t2.gam1_eq); δeq = hm(t1.del_eq, t2.del_eq); cpeq = hm(t1.cp_eq, t2.cp_eq)
+                aML = l * sqrt(gk * δfr / (8HP))        # KW velocity scale: the turnover time of an eddy is ℓ/a (smooth also where sup ≤ 0, no velocity iteration)
+                fb = hm(blob_f(l, aML, tc1), blob_f(l, aML, tc2))
+                eqok = isfinite(ForwardDiff.value(Γeq)) && isfinite(ForwardDiff.value(δeq)) && isfinite(ForwardDiff.value(cpeq))
+                eqok || (fb = zero(fb); BUOY_EQFAIL[] += 1)      # equilibrium data not available (table range): frozen blob
+                lph = MLT_HSDISC[] ? ((GFV[] || GVAR[]) ? -(gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
+                                                           gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
+                                                           (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
+                                      -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (rn[k+1] - rn[k-1]) / HP
+                ΔlnP = log(Pp / Pm); ΔlnT = log(tn[k] / tn[k-1]); Δlnρ = log(dn[k] / dn[k-1])
+                Δlnμ = (Δlnρ - αfr * ΔlnP + δfr * ΔlnT) / φfr       # composition + EOS curvature part of the actual density contrast (docs M2: replaces Δlnμ from the zones' μ)
+                sup, δb = blob_sup(ΔlnP, ΔlnT, Δlnμ, αfr, δfr, φfr, Γeq, Γfr, δeq, fb, lph)
+                cpb = iszero(fb) ? cpfr : fb * cpeq + (1 - fb) * cpfr
+                if cvp
+                    cvrec!(:lp_raw, k, ΔlnP); cvrec!(:lph, k, lph); cvrec!(:sup, k, sup); cvrec!(:fchem, k, fb); cvrec!(:tchem, k, hm(tc1, tc2)); cvrec!(:delb, k, δb); cvrec!(:cpb, k, cpb)
+                    cvrec!(:nab_raw, k, ΔlnT / ΔlnP); cvrec!(:kap, k, κk); cvrec!(:cp_used, k, cpb); cvrec!(:del_used, k, δb)
+                end
+                W.nabv[k] = sup                          # (diagnostic outputs of the step: the superadiabaticity used; ∇_ad part 0)
+                ForwardDiff.value(sup) > 0 || (cvp && (cvrec!(:fpot, k, 0.0); cvrec!(:vpot, k, 0.0); cvrec!(:fconv, k, 0.0); cvrec!(:vconv, k, 0.0)); continue)
+                U = 3arad * cc * Ti^3 / (cpb * ρi^2 * κk * l^2) * sqrt(8HP / (gk * δb))
+                ζ = sqrt(U^2 + sup) - U
+                if cvp
+                    cvrec!(:fpot, k, ρi * cpb * Ti * sqrt(gk * δb) * l^2 * ζ^3 / (4sqrt(2.0) * HP * sqrt(HP)))
+                    cvrec!(:vpot, k, l * sqrt(gk * δb / (8HP)) * ζ)
+                    cvrec!(:fconv, k, wτ * ρi * cpb * Ti * sqrt(gk * δb) * l^2 * ζ^3 / (4sqrt(2.0) * HP * sqrt(HP)))
+                    cvrec!(:vconv, k, wτ > 0 ? l * sqrt(gk * δb / (8HP)) * ζ : 0.0)
+                end
+                fcv[k] = wτ * ρi * cpb * Ti * sqrt(gk * δb) * l^2 * ζ^3 / (4sqrt(2.0) * HP * sqrt(HP))
+                W.vcv[k] = l * sqrt(gk * δb / (8HP)) * ζ; W.lcv[k] = l
+                continue
             end
             # ∇ = Δln T/Δln P with the actual pressure difference. MLT_HS: where the layer is far from hydrostatic
             # (|Δln P| below half of the hydrostatic −Δr/H_P, Δr between zone centres) blend smoothly to the

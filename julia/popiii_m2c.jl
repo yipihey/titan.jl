@@ -444,7 +444,7 @@ function convdiag_snap(k, snap)
     end
     I(nm) = (v = NaNv(n + 1); for j in 2:n; v[j] = ps[nm][a+j-1]; end; v)       # pass quantity of interface k = a+j−1
     Z(nm) = (v = NaNv(n); for j in 1:n; v[j] = ps[nm][a+j-1]; end; v)
-    names = (:nab, :nab_raw, :hs_w, :nad_used, :cp_used, :del_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g)
+    names = (:nab, :nab_raw, :hs_w, :nad_used, :cp_used, :del_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g, :sup, :fchem, :tchem, :delb, :cpb)
     d = Dict{Symbol,Vector{Float64}}(nm => I(nm) for nm in names)
     for nm in (:w_tau, :w_inf, :tau); d[nm] = I(nm); end
     for nm in (:e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res); d[nm] = Z(nm); end
@@ -1018,6 +1018,8 @@ function radsettings!()
     if HOTON                                          # convection (hot branch only: PM.material_thermo), as the S5 stars
         TX.CONVECTION[] = true; TX.ALPHA_MLT[] = parse(Float64, get(ENV, "ALPHAMLT", "1.5")); TX.MLT_HSDISC[] = true; TX.MLT_RCAP[] = true
         PM.COLDMLT[] = parse(Float64, get(ENV, "COLDMLT", "0")); PM.COLDMLT[] > 0 && (TX.MLT_NOINFALL[] = true)
+        # MLTBUOY=1 (M2, provisional, default off = bit-identical; docs/POPIII_CONVECTION.md M2): MLT superadiabaticity from the blob's density contrast with the zones' thermodynamics at the iterate (TX.MLT_BUOY)
+        TX.MLT_BUOY[] = get(ENV, "MLTBUOY", "0") == "1"
     end
     TD.MSGIO[] = get(ENV, "MSG", "0") == "1" ? stdout : devnull
 end
