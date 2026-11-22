@@ -1628,7 +1628,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                     zv[j] === nothing && ((ForwardDiff.value(dn[j]) > 0 && ForwardDiff.value(tn[j]) > 0) ? (zv[j] = _buoy_zone(MATERIAL[], W, dn, tn, j, Float64)) : (zv[j] = false))
                 end
                 (zv[k-1] === false || zv[k] === false) && continue          # unphysical iterate: no MLT (the step will be rejected)
-                ZONE[] = k; κk = material_opac(MATERIAL[], ρi, Ti)[1]
+                κk = c.lrad ? avchi[k] : (ZONE[] = k; material_opac(MATERIAL[], ρi, Ti)[1])      # the interface opacity of the radiative transport (harmonic mean of the zones' χ at the iterate); the NLOIT opacity at the interface mean state is NaN at some iterates
                 lph = MLT_HSDISC[] ? ((GFV[] || GVAR[]) ? -(gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
                                                            gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
                                                            (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :

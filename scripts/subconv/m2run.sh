@@ -10,5 +10,5 @@ for w in "$@"; do case $w in RESTART=rp_k*) for e in aux tstate.gz; do [ -f $R/c
 RUNENV="$(cat $DATA/runs/zie1/run.env | sed 's/SNAPEVERY=50/SNAPEVERY=5/g')"
 cd $WT/julia
 env RUNREC=$R POPIII_OUT=$R CKDIR=$R/ck EQEOS_CACHE=$R/eqeos_he_xe.jls TIMING=1 DTDIAG=1 TAG=_$N $RUNENV "$@" MAXSTEPS=$MAX SNAPEVERY=5 \
-  numactl --physcpubind=64-71 --localalloc julia -t 8 --project=$DATA/subconv/jlenv popiii_m2c.jl lines 128 > $R/run.out 2>&1 < /dev/null
+  numactl --physcpubind=${PINC:-64-71} --localalloc julia -t ${TH:-8} --project=$DATA/subconv/jlenv popiii_m2c.jl lines 128 > $R/run.out 2>&1 < /dev/null
 echo "done $N: $(tail -1 $R/run.out | cut -c1-200)"
