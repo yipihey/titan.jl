@@ -245,6 +245,59 @@ function cold_thermo(ρ, T)
     δ = T / ρ * pT / pρ
     return p * δ / (T * ρ * cP), cP, δ
 end
+"""
+CONVDIAG helper, generic in the number type and ForwardDiff-safe (it is also the thermodynamics of the M2 convection work). Not used by the solver; `material_thermo`
+is unchanged. Gas + equilibrium radiation (P_rad = aT⁴/3, e_rad = aT⁴/ρ, as `cold_thermo`) of zone k at (ρ, T):
+
+- `nad_eq, cp_eq, del_eq`: equilibrium chemistry, from the table EOS (`PopIIIEqEOS.eos`), cold_thermo's formula.
+- `nad_fr, cp_fr, del_fr`: frozen chemistry, the zone's own network EOS at FIXED composition: a coupled zone (`TX.cplz(k)`) takes the CK EOS `cpl_g` at fixed (x₁, x₂) of
+  the current iterate (`TX.XSN`; the faster species follow ρ, T through the CK expansion, as in the residual), otherwise `ChemNet.eos` at `m.x[k]`.
+  Hot-branch zones (T > HOT.T1) take `HOT.thermo` for both.
+- `phi` = (∂ln ρ/∂ln μ)_{P,T} = 1: at fixed P and T the gas pressure P − aT⁴/3 is fixed, so ρ ∝ μ for an ideal gas, radiation included; no non-ideal correction is modelled.
+- `mu` = ρ k_B T/(p_gas m_u), the mean molecular weight per particle of the zone's own EOS (hot: the stellar EOS), for ∇_μ.
+- `branch`: 0 network, 1 coupled network, 2 table (equilibrium) zone, 3 hot — the order in which `material_gas0` selects.
+A table that cannot be evaluated (outside its range) gives NaN for the equilibrium values.
+"""
+function conv_thermo(m::NetGas, k, ρ, T)
+    arad = 7.565723e-15; kB = 1.380649e-16; mu_ = 1.66053906660e-24
+    function thermo_of(eosf)                         # eosf(r, t) -> (u_gas, p_gas); cold_thermo's formula
+        pf(r, t) = eosf(r, t)[2] + arad * t^4 / 3
+        ef(r, t) = eosf(r, t)[1] + arad * t^4 / r
+        p = pf(ρ, T)
+        pT = ForwardDiff.derivative(t -> pf(ρ, t), T); pρ = ForwardDiff.derivative(r -> pf(r, T), ρ)
+        eT = ForwardDiff.derivative(t -> ef(ρ, t), T); eρ = ForwardDiff.derivative(r -> ef(r, T), ρ)
+        cP = eT - (eρ - p / ρ^2) * pT / pρ
+        δ = T / ρ * pT / pρ
+        (p * δ / (T * ρ * cP), cP, δ)
+    end
+    nanv = (NaN * one(ρ) * one(T), NaN * one(ρ) * one(T), NaN * one(ρ) * one(T))
+    h = HOT[]
+    if h !== nothing && ForwardDiff.value(T) > h.T1
+        th = h.thermo(ρ, T, k); pg = h.gas(ρ, T, k)[1]
+        return (; nad_eq = th[1], cp_eq = th[2], del_eq = th[3], nad_fr = th[1], cp_fr = th[2], del_fr = th[3], phi = one(th[1]),
+                mu = ρ * kB * T / (pg * mu_), branch = 3)
+    end
+    eq = try thermo_of((r, t) -> EQ.eos(r, t)) catch; nanv end
+    if !m.eqzone[k] && TX.cplz(k)                    # (material_gas0's order: hot, table zone, coupled, network)
+        x1 = TX.XSN[][1][k]; x2 = TX.XSN[][2][k]
+        ef_(r, t) = (y = cpl_g(m, k, [r, t, x1, x2]); (y[2], y[1]))
+        fr = thermo_of(ef_); pgas = ef_(ρ, T)[2]; br = 1
+    else
+        x = m.x[k]
+        fr = thermo_of((r, t) -> CNn.eos(r, t, x, m.net)); pgas = CNn.eos(ρ, T, x, m.net)[2]; br = m.eqzone[k] ? 2 : 0
+    end
+    (; nad_eq = eq[1], cp_eq = eq[2], del_eq = eq[3], nad_fr = fr[1], cp_fr = fr[2], del_fr = fr[3], phi = one(fr[1]),
+       mu = ρ * kB * T / (pgas * mu_), branch = br)
+end
+"CONVDIAG: copies of the per-zone material caches (opacity iteration, CK Jacobian) before a diagnostic residual evaluation, so that the evaluation leaves them as they were."
+function conv_cache_save()
+    (; nloc = Union{Nothing,NloC}[c === nothing ? nothing : deepcopy(c) for c in NLOC[]], noned = copy(NLONED[]), xneold = copy(XNEOLD[]),
+       cplc = copy(CPLCACHE[]), cplq = copy(CPLCACHEQ[]), nloqc = copy(NLOQC[]), nlost = copy(NLOST[]))
+end
+function conv_cache_restore!(sv)
+    NLOC[] = sv.nloc; NLONED[] = sv.noned; XNEOLD[] = sv.xneold; CPLCACHE[] = sv.cplc; CPLCACHEQ[] = sv.cplq; NLOQC[] = sv.nloqc; NLOST[] = sv.nlost
+    nothing
+end
 """MLT thermodynamics: only the hot branch convects (and, with `COLDMLT[]` > 0, the hot equilibrium zones of the table EOS). Below T1 the huge ∇_ad switches the flux off in the chemistry gas: it must be
 out of reach (it was 10, and at a T jump inside the protostar ∇ = Δln T/Δln P crossed it: an MLT flux with this placeholder c_P
 of up to 1e40 erg/s between two zones, and Newton diverged)."""
