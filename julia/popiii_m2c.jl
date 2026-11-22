@@ -411,7 +411,8 @@ CONVDIAG: the diagnostics `cd` of one snapshot, at the accepted state (a NamedTu
 index j = k−a+1 for the interface k between zones k−1 and k, NaN at j = 1, n+1 and where MLT is not evaluated). The solver is not touched: `TX.conv_diag_pass` is one Float64
 residual evaluation (as `TX.step_diag`) with the material caches saved and restored around it. Definitions (docs/POPIII_CONVECTION.md M1):
 - nab, nab_raw, hs_w, nad_used, kap, fpot, vpot, fconv, vconv, lmix, HP, w_tau, w_inf: what the MLT block used (nab_raw before the MLT_HS blend, hs_w = its weight sw, 1 = untouched;
-  fpot/vpot the flux and velocity with the gates removed (weight 1; 0 where ∇ ≤ ∇_ad,used), fconv/vconv with the gate weights; w_tau, w_inf the two factors of cvw).
+  fpot/vpot the flux and velocity with w_tau = w_inf = 1 (0 where ∇ ≤ ∇_ad,used), fconv/vconv with the gate weights; w_tau, w_inf the two factors of cvw;
+  fpot_th (-> Fpot_over_Ftot): all gates open, i.e. also the thermodynamic gate: where ∇_ad,used = 1e30 the frozen ∇_ad, c_P, δ of conv_thermo in its place, with the same ∇, ℓ, H_P, κ).
 - nad_eq, nad_fr, del_*: `PM.conv_thermo` at the interface mean (ρ, T) with the composition of zone k (the one MLT uses); w_th = 1 if nad_used < 1e29 (network zones: 0).
 - nab_rad = 3 κ ρ F_rad H_P/(4 a c T⁴) (≡ 3κLP/(16π a c G m T⁴) with L = 4π r² F_rad, H_P = P/(ρ g)), F_rad the radiative flux of the interface (frn) actually present, κ the Rosseland κ MLT uses.
 - N² of a zone-centre difference (no division by Δln P): N²_S = g_eff δ_fr (dlnT/dr − ∇_ad,fr dlnP/dr), N2_eq the same with the equilibrium ∇_ad, δ,
@@ -443,11 +444,11 @@ function convdiag_snap(k, snap)
     end
     I(nm) = (v = NaNv(n + 1); for j in 2:n; v[j] = ps[nm][a+j-1]; end; v)       # pass quantity of interface k = a+j−1
     Z(nm) = (v = NaNv(n); for j in 1:n; v[j] = ps[nm][a+j-1]; end; v)
-    names = (:nab, :nab_raw, :hs_w, :nad_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g)
+    names = (:nab, :nab_raw, :hs_w, :nad_used, :cp_used, :del_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g)
     d = Dict{Symbol,Vector{Float64}}(nm => I(nm) for nm in names)
     for nm in (:w_tau, :w_inf, :tau); d[nm] = I(nm); end
     for nm in (:e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res); d[nm] = Z(nm); end
-    for nm in (:nad_eq, :nad_fr, :del_eq, :del_fr, :nab_rad, :nab_mu, :nab_L, :N2_S, :N2_eq, :N2_L, :g_eff, :Ftot, :Fconv_over_Ftot, :Fpot_over_Ftot, :w_th, :mach_i, :t_settle, :t_N, :t_turn, :cp_fr)
+    for nm in (:nad_eq, :nad_fr, :del_eq, :del_fr, :nab_rad, :nab_mu, :nab_L, :N2_S, :N2_eq, :N2_L, :g_eff, :Ftot, :Fconv_over_Ftot, :Fpot_over_Ftot, :fpot_th, :w_th, :mach_i, :t_settle, :t_N, :t_turn, :cp_fr)
         d[nm] = NaNv(n + 1)
     end
     arad_ = 7.565723e-15; cc_ = 2.99792458e10
@@ -465,9 +466,21 @@ function convdiag_snap(k, snap)
             d[:nab_mu][j] = log(mu[j] / mu[j-1]) / log(P[j] / P[j-1])
             d[:nab_L][j] = th.nad_fr + th.phi / th.del_fr * d[:nab_mu][j]
         catch; end
+        # all gates open: w_tau = w_inf = 1, and where the thermodynamic gate is closed (network zone, ∇_ad,used = 1e30) the frozen ∇_ad, c_P, δ in its place
+        try
+            th_ = PM.conv_thermo(mat, kk, ρi, Ti); open_ = d[:w_th][j] == 1.0
+            na_ = open_ ? d[:nad_used][j] : th_.nad_fr; cp_ = open_ ? d[:cp_used][j] : th_.cp_fr; dl_ = open_ ? d[:del_used][j] : th_.del_fr
+            g_ = d[:g][j]; HP_ = d[:HP][j]; l_ = d[:lmix][j]; sup_ = d[:nab][j] - na_
+            if sup_ > 0
+                U_ = 3 * arad_ * cc_ * Ti^3 / (cp_ * ρi^2 * d[:kap][j] * l_^2) * sqrt(8HP_ / (g_ * dl_)); ζ_ = sqrt(U_^2 + sup_) - U_
+                d[:fpot_th][j] = ρi * cp_ * Ti * sqrt(g_ * dl_) * l_^2 * ζ_^3 / (4sqrt(2.0) * HP_ * sqrt(HP_))
+            else
+                d[:fpot_th][j] = 0.0
+            end
+        catch; end
         d[:nab_rad][j] = 3 * d[:kap][j] * ρi * d[:frad][j] * d[:HP][j] / (4 * arad_ * cc_ * Ti^4)
         Ft = d[:frad][j] + d[:fconv][j]; d[:Ftot][j] = Ft
-        d[:Fconv_over_Ftot][j] = d[:fconv][j] / Ft; d[:Fpot_over_Ftot][j] = d[:fpot][j] / Ft
+        d[:Fconv_over_Ftot][j] = d[:fconv][j] / Ft; d[:Fpot_over_Ftot][j] = d[:fpot_th][j] / Ft
         cs_i = 0.5 * (cs[j-1] + cs[j]); d[:mach_i][j] = abs(u[j]) / cs_i
         d[:t_settle][j] = d[:HP][j] / abs(u[j]); d[:t_N][j] = 1 / sqrt(abs(d[:N2_L][j]))
         vt = d[:vconv][j] > 0 ? d[:vconv][j] : d[:vpot][j]; d[:t_turn][j] = vt > 0 ? d[:lmix][j] / vt : NaN
