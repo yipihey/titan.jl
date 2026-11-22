@@ -405,14 +405,20 @@ function convcoef(ngrs, ngre, base)
         finally OPAC_NOCACHE[] = false; ZONE0[] = z0 end
     end
     τ = 0.0
+    cvdg = CONVDIAG[]          # (CONVDIAG) the τ and the inflow factor of cvw in their own buffers; cvw itself is computed exactly as before
+    cvwt = cvdg ? fill!(get!(() -> zeros(mgr), BUFS, :cvwt)::Vector{Float64}, NaN) : cvw
+    cvwi = cvdg ? fill!(get!(() -> zeros(mgr), BUFS, :cvwi)::Vector{Float64}, NaN) : cvw
+    cvtau = cvdg ? fill!(get!(() -> zeros(mgr), BUFS, :cvtau)::Vector{Float64}, NaN) : cvw
     @inbounds for k in ngre:-1:ngrs+1
         (base[k, 3] > 0 && base[k, 5] > 0) &&
             (τ += (okτ[k] ? χτ[k] : material_opac(m, base[k, 3], base[k, 5])[1]) * base[k, 3] * (base[k+1, 1] - base[k, 1]))
         x = clamp((log(max(τ, 1e-300)) - log(TAU_MLT[] / 2)) / log(4.0), 0.0, 1.0)
         cvw[k] = x * x * (3 - 2x)
+        cvdg && (cvwt[k] = x * x * (3 - 2x); cvwi[k] = 1.0; cvtau[k] = τ)
         if MLT_NOINFALL[]          # no MLT flux in infalling gas: smooth step from inflow 10 km/s (MLT on) to 30 (off)
             y = clamp((-base[k, 4] - 1e6) / 2e6, 0.0, 1.0)
             cvw[k] *= 1 - y * y * (3 - 2y)
+            cvdg && (cvwi[k] = 1 - y * y * (3 - 2y))
         end
     end
     cv
@@ -863,6 +869,17 @@ domain (r_out = 30 R) the optical-depth cut alone left it on, and spurious conve
 Default off (the earlier runs, with r_out = 1.2 R, did not need it).
 """
 const MLT_NOINFALL = Ref(false)
+"""
+CONVDIAG (popiii_m2c `CONVDIAG=1`, default off; diagnostic only, the solution is bit-identical on or off): `conv_diag_pass` re-evaluates the Float64
+residual once at the accepted state with `CVD_ON[]` set. Only then do the blocks marked `cvp` write the MLT intermediates (raw and blended ∇,
+the hydrostatic blend weight, ∇_ad, c_P, δ, κ as used, the gate-free flux and velocity) and the terms of the gas-energy row into the buffers `CVD`;
+convcoef keeps the τ and the inflow factor of `cvw` in `BUFS[:cvwt]`, `BUFS[:cvwi]` while `CONVDIAG[]`. Nothing of this is read by the solver.
+"""
+const CONVDIAG = Ref(false)
+const CVD = Dict{Symbol,Vector{Float64}}(); const CVD_ON = Ref(false)
+const CVD_NAMES = (:rhoi, :Ti, :Pi, :g, :HP, :lmix, :frad, :lp_raw, :lph, :hs_w, :nab_raw, :nab, :nad_used, :cp_used, :del_used, :kap, :fpot, :vpot, :fconv, :vconv,
+                   :e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res)
+@inline cvrec!(nm::Symbol, k, x) = (@inbounds CVD[nm][k] = Float64(ForwardDiff.value(x)); nothing)
 """
 MLT_RCAP[] (S5, default false = TITAN): mixing length ℓ = α (H_P⁻² + r⁻²)^(-1/2), i.e. α min(H_P, r) with a smooth minimum. At a regular
 centre g = G m/r² → 0 and H_P = P/(ρ g) → ∞: ℓ = α H_P is then many stellar radii (24 R☉ at the first interface of a 4 R☉ star), an eddy larger
@@ -1537,6 +1554,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     R[iu, kb(k)] = P.leobc == 1 ? un[k-2] + un[k] : P.leobc == 3 ? -un[k-1] + un[k] : X(iu, k)
     # ---------------------------------------------------------------- MLT convective flux (Phase 7)
     fcv = W.fcv
+    cvp = CVD_ON[] && T === Float64          # (CONVDIAG) diagnostic recording pass: see conv_diag_pass; never true in a solve
     @inbounds for k in ngrs:ngre+1; fcv[k] = zero(T); W.vcv[k] = zero(T); W.lcv[k] = zero(T); W.nabv[k] = zero(T); W.nadv[k] = zero(T); end
     if c.conv
         nadv, cpv, δv, κv = c.cv; cvw = BUFS[:cvw]::Vector{Float64}
@@ -1547,27 +1565,33 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         mpre && _mlt_pre!(MATERIAL[], W, cvw, mok, dn, tn, ngrs, ngre, ntm)
         @inbounds for k in ngrs+1:ngre
             Pm = pgn[k-1] + (AD_JV[] ? fedd[k-1] : c.fedd[k-1]) * ern[k-1]; Pp = pgn[k] + (AD_JV[] ? fedd[k] : c.fedd[k]) * ern[k]
-            wτ = cvw[k]; wτ > 0 || continue          # optically thin: no MLT flux
+            wτ = cvw[k]; wτ > 0 || cvp || continue          # optically thin: no MLT flux (the recording pass goes on: it records the gate-free flux)
             Ti = 0.5 * (tn[k-1] + tn[k]); ρi = 0.5 * (dn[k-1] + dn[k]); Pi = 0.5 * (Pm + Pp)
             gk = 2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g
             ForwardDiff.value(gk) > 0 || continue          # no gravity → no buoyancy
             HP = Pi / (ρi * gk); l = MLT_RCAP[] ? c.alpha / sqrt(1 / HP^2 + 1 / r[k]^2) : c.alpha * HP
+            if cvp
+                cvrec!(:rhoi, k, ρi); cvrec!(:Ti, k, Ti); cvrec!(:Pi, k, Pi); cvrec!(:g, k, gk); cvrec!(:HP, k, HP); cvrec!(:lmix, k, l); cvrec!(:frad, k, fr[k])
+            end
             # ∇ = Δln T/Δln P with the actual pressure difference. MLT_HS: where the layer is far from hydrostatic
             # (|Δln P| below half of the hydrostatic −Δr/H_P, Δr between zone centres) blend smoothly to the
             # hydrostatic value: behind the accretion shock the pressure is nearly flat, Δln P → 0 and ∇ reached 110.
             # Hydrostatic layers (ratio ≈ 1) are untouched: deep convection has ∇ − ∇_ad ~ 1e-6, so ∇ must keep the
             # discretisation of the pressure difference that balances the momentum equation.
             lp = log(Pp / Pm)
+            cvp && (cvrec!(:lp_raw, k, lp); cvrec!(:hs_w, k, 1.0); cvrec!(:nab_raw, k, log(tn[k] / tn[k-1]) / lp))
             if MLT_HS[]
                 lph = MLT_HSDISC[] ? ((GFV[] || GVAR[]) ? -(gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
                                                            gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
                                                            (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
                                       -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (rn[k+1] - rn[k-1]) / HP
                 q = clamp((ForwardDiff.value(lp / lph) - 0.25) / 0.5, 0.0, 1.0); sw = q * q * (3 - 2q)
+                cvp && (cvrec!(:lph, k, lph); cvrec!(:hs_w, k, sw))
                 sw < 1 && (lp = sw * lp + (1 - sw) * lph)
             end
             abs(ForwardDiff.value(lp)) < 1e-12 && continue
             ∇ = log(tn[k] / tn[k-1]) / lp
+            cvp && cvrec!(:nab, k, ∇)
             if MLT_AD[]                              # coefficients on the current state, differentiated
                 ZONE[] = k
                 if mpre && mok[k]                    # from the threaded pre-pass: the same calls on the same arguments
@@ -1581,10 +1605,17 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 cpk > 0 || continue
             end
             W.nabv[k] = ∇; W.nadv[k] = nad
+            cvp && (cvrec!(:nad_used, k, nad); cvrec!(:cp_used, k, cpk); cvrec!(:del_used, k, δk); cvrec!(:kap, k, κk))
             sup = ∇ - nad                            # superadiabaticity (not `x`: that is the Newton vector)
-            ForwardDiff.value(sup) > 0 || continue
+            ForwardDiff.value(sup) > 0 || (cvp && (cvrec!(:fpot, k, 0.0); cvrec!(:vpot, k, 0.0); cvrec!(:fconv, k, 0.0); cvrec!(:vconv, k, 0.0)); continue)
             U = 3arad * cc * Ti^3 / (cpk * ρi^2 * κk * l^2) * sqrt(8HP / (gk * δk))
             ζ = sqrt(U^2 + sup) - U
+            if cvp          # gate-free MLT flux and velocity (weight 1), and the ones the solver uses (weight wτ)
+                cvrec!(:fpot, k, ρi * cpk * Ti * sqrt(gk * δk) * l^2 * ζ^3 / (4sqrt(2.0) * HP * sqrt(HP)))
+                cvrec!(:vpot, k, l * sqrt(gk * δk / (8HP)) * ζ)
+                cvrec!(:fconv, k, wτ * ρi * cpk * Ti * sqrt(gk * δk) * l^2 * ζ^3 / (4sqrt(2.0) * HP * sqrt(HP)))
+                cvrec!(:vconv, k, wτ > 0 ? l * sqrt(gk * δk / (8HP)) * ζ : 0.0)
+            end
             fcv[k] = wτ * ρi * cpk * Ti * sqrt(gk * δk) * l^2 * ζ^3 / (4sqrt(2.0) * HP * sqrt(HP))
             W.vcv[k] = l * sqrt(gk * δk / (8HP)) * ζ; W.lcv[k] = l       # KW eq. 7.x: v̄ = ℓ (gδ/8H_P)^½ (∇−∇')^½, ζ² = ∇−∇'
         end
@@ -1621,6 +1652,21 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 w += P.leobc != 3 ? rmu[k+1] * P.phir2 : -dmdt[k+1] * egbg[k+1]
             else
                 w += -dmdt[k+1] * egbg[k+1] + dmdt[k] * egbg[k]
+            end
+            if cvp          # (CONVDIAG) the terms of this row, recomputed from the same quantities; the row `w` itself is not touched
+                cvrec!(:e_stor, k, (mn_ * egn[k] - mo_ * eold) / dt)
+                cvrec!(:e_pdv, k, pg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]))
+                cvrec!(:e_av, k, qf[k] * (vhi - vlo))
+                cvrec!(:e_kin, k, (-(2θ - 1) * 0.125 * (mn_ + mo_) + (θ^2 - θ + 0.5) * 0.25 * (mn_ - mo_)) * du2 / dt)
+                cvrec!(:e_adv, k, 0.5 * (dmdt[k] + dmdt[k+1]) * (u[k+1] - u[k]) * (0.5 * (u[k] + u[k+1]) - W.ub[k]) -
+                    (ksflux(k + 1, u, dmdt, ngrs, ngre) - ksflux(k, u, dmdt, ngrs, ngre)) + (isempty(KSTAR[]) ? 0.0 : KSTAR[][k] / dt) +
+                    (k == ngrs ? -dmdt[k+1] * egbg[k+1] : k == ngre ? dmdt[k] * egbg[k] + (P.leobc != 3 ? 0.0 : -dmdt[k+1] * egbg[k+1]) :
+                     -dmdt[k+1] * egbg[k+1] + dmdt[k] * egbg[k]))
+                cvrec!(:e_dfe, k, -dfe[k+1] + dfe[k])
+                cvrec!(:e_conv, k, rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k])
+                cvrec!(:e_rad, k, c.lrad ? -((Mg === nothing ? excap(cc, xke[k], d[k], dt) * (cc * xke[k] * er[k] - 4P.cpi * xkp[k] * plf[k]) : Mg.xch[k]) * d[k] * dvol[k] -
+                                             compton(k, W, P) * dvol[k]) : 0.0)
+                cvrec!(:e_src, k, -src)
             end
         elseif ETOT_DIAG[]                     # diagnostic only (etot_rows): the conservative total-energy row, never a solve row
             w = etot_row(k, c, W, T, AD_JV[] ? fedd : c.fedd) + rmu[k+1] * fcv[k+1] - rmu[k] * fcv[k] - src
@@ -1676,6 +1722,12 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
         cplz(k) && (θc = max(θ, CPL_THETA[]); w += (θc * W.cpL[k] + (1 - θc) * XLAMO[][k]) * dvol[k])   # COUPLED: the chemistry cooling, implicit
         R[it, kb(k)] = w
+        if cvp          # (CONVDIAG) chemistry heating/cooling terms (cycle heat, GASQ, BALSPLIT mean, implicit cooling of a coupled zone) and the row
+            θc_ = max(θ, CPL_THETA[])
+            cvrec!(:e_chem, k, -yqheat(k, W) * dvol[k] - (isempty(GASQ[]) ? 0.0 : GASQ[][k] * dvol[k]) - (isempty(CHEMB[]) ? 0.0 : d[k] * CHEMB[][k] * dvol[k]) +
+                               (cplz(k) ? (θc_ * W.cpL[k] + (1 - θc_) * XLAMO[][k]) * dvol[k] : 0.0))
+            cvrec!(:e_res, k, w)
+        end
     end
     R[it, 1] = X(it, k0)
     k = ngrs - 1
@@ -2015,6 +2067,31 @@ function step_diag(dt)
     R = zeros(c.neqn, c.nb); ws = getws(Float64, c.mgr)
     residual!(R, ws, c, zeros(c.neqn * c.nb)); W = ws.a
     (; srcw = copy(W.srcw), fcv = copy(W.fcv), vcv = copy(W.vcv), lcv = copy(W.lcv), nab = copy(W.nabv), nad = copy(W.nadv))
+end
+
+"""
+    conv_diag_pass(dt) -> NamedTuple of Float64 vectors (index = zone/interface k)
+
+(CONVDIAG, diagnostic only.) One Float64 residual evaluation at the current (accepted) state, as `step_diag`, with `CVD_ON[]` set so that the blocks
+marked `cvp` record the MLT intermediates and the terms of the gas-energy row (see `CVD_NAMES`), plus the τ weight and the inflow factor of `cvw`
+(`BUFS[:cvwt]`, `BUFS[:cvwi]`, written by convcoef while `CONVDIAG[]`), the optical depth `BUFS[:cvtau]` and the MLT outputs `fcv`, `vcv`, `lcv` of the workspace.
+The result is not read by the solver; the caller (popiii_m2c recsnap!) saves and restores the material caches around the call.
+"""
+function conv_diag_pass(dt)
+    mg = TF.MGR + 3
+    for nm in CVD_NAMES; CVD[nm] = fill(NaN, mg); end
+    z0 = ZONE0[]; CVD_ON[] = true
+    try
+        c = context(; dt)
+        R = zeros(c.neqn, c.nb); ws = getws(Float64, c.mgr)
+        residual!(R, ws, c, zeros(c.neqn * c.nb)); W = ws.a
+        cp(x) = (y = fill(NaN, mg); n = min(length(x), mg); y[1:n] .= x[1:n]; y)
+        extra = (; w_tau = cp(BUFS[:cvwt]), w_inf = cp(BUFS[:cvwi]), tau = cp(BUFS[:cvtau]), cvw = cp(BUFS[:cvw]), fcv_w = cp(W.fcv), vcv_w = cp(W.vcv), lcv_w = cp(W.lcv),
+                 nabv_w = cp(W.nabv), nadv_w = cp(W.nadv))
+        merge(NamedTuple{CVD_NAMES}(Tuple(copy(CVD[nm]) for nm in CVD_NAMES)), extra)
+    finally
+        CVD_ON[] = false; ZONE0[] = z0
+    end
 end
 
 """
