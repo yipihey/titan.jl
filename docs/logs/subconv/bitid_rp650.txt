@@ -1,0 +1,3 @@
+# restart from replay checkpoint rp_k650 (zie1rp, commit aace2a0), 20 steps, SNAPEVERY=5: CONVDIAG unset (rp650off) vs =1 (rp650on2); code popiii-subconv 8a2f7d8
+snapshots compared: 4 (steps 655,660,665,670); fields compared: 120; fields with differences: 0; extra fields in B: cd
+BIT-IDENTICAL

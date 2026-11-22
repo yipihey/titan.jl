@@ -1,0 +1,3 @@
+# IC, zie1 settings, MAXSTEPS=40 SNAPEVERY=5: CONVDIAG unset (off40) vs CONVDIAG=1 (on40b); code popiii-subconv 8a2f7d8
+snapshots compared: 10 (steps 1,2,5,10,15,20,25,30,35,40); fields compared: 300; fields with differences: 0; extra fields in B: cd
+BIT-IDENTICAL

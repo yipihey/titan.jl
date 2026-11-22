@@ -238,3 +238,49 @@ placeholder once M4 is accepted".
 
 **Code layout.** The coefficients, row and flux terms go in a module `julia/TDC.jl` as pure functions on arrays. The residual and
 the stand-alone test harness (T4–T7, with prescribed background profiles) call the same functions.
+
+## M1 — Diagnostics (22 Nov 2026, `CONVDIAG=1`; solution bit-identical)
+
+Labels: [run] [test] [read] [estimate] [interpretation].
+
+### M1.1 What was added [read]
+
+One switch, `CONVDIAG=1` (env, default off; in `docs/POPIII_SWITCH_INVENTORY.md` §13: diagnostic, permanent). With `RUNREC` set every snapshot gets an extra field
+`cd` (a NamedTuple of Float64 vectors; old readers ignore it).
+
+| piece | where |
+|---|---|
+| `conv_thermo(m::NetGas, k, ρ, T)`: ∇_ad, c_P, δ at equilibrium chemistry (table EOS, cold_thermo's formula) and at frozen chemistry (coupled zone: CK EOS `cpl_g` at fixed x₁, x₂ of the iterate; otherwise `ChemNet.eos` at `m.x[k]`; hot zone: `HOT.thermo` for both), φ = 1, μ, branch code (0 network, 1 coupled, 2 table, 3 hot, in `material_gas0`'s order). Generic in the number type; `material_thermo` is unchanged | `julia/PopIIIMaterial.jl:261` |
+| cache save/restore around the diagnostic evaluation | `PopIIIMaterial.jl:293` |
+| `TX.conv_diag_pass(dt)`: one Float64 residual evaluation at the accepted state, exactly the mechanism of `TX.step_diag` (which is how `StarMaterial.mix!` gets `fcv`, `vcv`, `lcv`), with `CVD_ON[]` set | `julia/TitanResidFast.jl:2080` |
+| recording blocks (guarded by `cvp = CVD_ON[] && T === Float64`: never active in a solve): raw and blended ∇, HS weight, ∇_ad/c_P/δ/κ as used, gate-free flux and velocity, and the terms of the ECOMPAT gas-energy row | `TitanResidFast.jl:1557–1730` |
+| τ and inflow factors of `cvw` in extra buffers (`BUFS[:cvwt]`, `:cvwi`, `:cvtau`; `cvw` itself computed as before) | `TitanResidFast.jl:408` |
+| `convdiag_snap`: assembles `cd` (N², ∇_L, ∇_rad, timescales, t_chem, layer scalars) from the pass and `conv_thermo` | `julia/popiii_m2c.jl:425`, call in `recsnap!` |
+| export: `cv_*` fields and scalars, only when some snapshot has `cd` | `julia/runrec.jl:82–110` |
+| abnfig page 3 "convection" (only if `cv_*` fields exist), `--cvframe` | `scripts/abnfig/abnfig.py:904` |
+| explorer v81: convection panel group + layer-history cards, hidden without `cv_*` fields (v80 untouched; scripts copied verbatim to `scripts/explorer/`) | `scripts/explorer/panel_index_v81.html` |
+
+### M1.2 Definitions [read]
+
+Interface vectors have length n+1 with index j = k−a+1 (interface k between zones k−1 and k), zone vectors length n.
+- `nab`, `nab_raw`, `hs_w`: ∇ the MLT block used (after the `MLT_HS` blend), before it, and the blend weight sw (1 = untouched). `nad_used`: what `material_thermo` gave (1e30 = network zone).
+- `nad_eq`, `nad_fr` (and `del_*`, `cp_fr`): `conv_thermo` at the interface mean (ρ, T) with the composition of zone k (the one MLT uses).
+- `nab_rad` = 3κρF_rad H_P/(4acT⁴) ≡ 3κLP/(16πacGmT⁴) with L = 4πr²F_rad, F_rad the radiative flux of the interface actually present (`frn`), κ the Rosseland κ MLT uses.
+- N² of a zone-centre difference, without dividing by Δln P: N²_S = g_eff δ_fr (dlnT/dr − ∇_ad,fr dlnP/dr), `N2_eq` the same with the equilibrium ∇_ad, δ, N²_L = N²_S − g_eff φ dlnμ/dr; g_eff = −ΔP/(ρΔr), P = p_gas + fE_r. `nab_mu` = Δlnμ/ΔlnP, `nab_L` = ∇_ad,fr + (φ/δ)∇_μ.
+- Gates: `w_tau` (optical depth), `w_inf` (`MLT_NOINFALL`), `w_th` = 1 if `nad_used` < 1e29. Flux as used `fconv`; `Fconv_over_Ftot` with F_tot = F_rad + F_conv. `fpot_th` ("all gates open"): w_τ = w_inf = 1 and, where the thermodynamic gate is closed, the frozen ∇_ad, c_P, δ in its place, with the same ∇, ℓ, H_P, κ.
+- Mach = |u|/c_s with c_s = √(5/3 p_gas/ρ); `t_settle` = H_P/|u|, `t_N` = 1/√|N²_L|, `t_turn` = ℓ/v (potential v where `fconv` = 0), `t_chem` = 1/max|∂S_i/∂x_i| of the two coupled species (NaN for non-coupled zones).
+- `e_*`: stor, pdv, av, kin, adv, dfe, rad, conv, chem, src and their sum `e_res` for the gas-energy row of each zone [erg s⁻¹ sr⁻¹]. [test] The ten terms sum to `e_res` to 3e-16 of the largest term in every zone (IC step 2 and 40).
+- **Sub-shock unstable layer** (`cd.layer` = [r_in/R*, r_out/R*, m_layer/M☉, max(−N²)t_dyn², max F_conv/F_tot, max F_pot/F_tot, n, R*/R☉]): the run of interfaces just inside the shock (R* = first interface from the centre with u < −2 km/s, as in `runrec.jl`), contiguous inwards, with Mach < 0.5 and N²_L < 0 or N²_eq < 0. Bounds = outermost and innermost interface of the run; N² is the smaller of the two; t_dyn² = r³/Gm.
+
+### M1.3 Tests
+
+[test] **Bit-identity**, `scripts/subconv/bitid.sh` + `compare_snaps.jl` (every field of every snapshot `isequal` bitwise, `cd` excluded; the Newton counters of the two runs are equal too):
+- IC, zie1 settings, 40 steps, SNAPEVERY=5: 10 snapshots, 300 fields, 0 differences. `docs/logs/subconv/bitid_ic40.txt`.
+- Restart from the replay checkpoint `rp_k650` (zie1rp, 111-yr epoch, M* = 3.2 M☉), 20 steps: 4 snapshots, 120 fields, 0 differences. `docs/logs/subconv/bitid_rp650.txt`.
+The material caches (NLOC, CPLCACHE, …) are saved and restored around the extra evaluation; whether that is needed was not tested separately.
+
+[run] **Zones around the shock, step 655 and 670** (`docs/logs/subconv/shocktable_rp650.txt`; 100 zones, R* = 278 R☉, shock at interface 42):
+- Interfaces 40 and 41 (r/R* = 0.60 and 0.77, T = 37 000 and 16 000–17 000 K, Mach ≤ 0.02) have N²_eq < 0 and N²_L < 0, so the instability is not an artefact of equilibrium versus frozen ∇_ad. They are coupled network zones (branch 1), `w_th` = 0, with `w_tau` = `w_inf` = 1: only the thermodynamic gate (∇_ad = 1e30) closes MLT. ∇ exceeds ∇_ad,fr by 0.04 and 0.14 (step 655).
+- F_conv = 0 there. With all gates open the MLT flux would be 58 and 124 F_tot (step 655), 58 and 376 F_tot (step 670), [estimate: same ∇ and ℓ, frozen c_P and δ, no feedback]. Layer: 2 interfaces, 0.38 M☉, max(−N²)t_dyn² = 7.4 (step 655).
+- This confirms the M0 reading [run] that for M* ≳ 0.1 M☉ the gate, not τ or infall, switches MLT off in the layer, and that `COLDMLT` (table zones only) does not reach it.
+- Not exercised: hot-branch zones (T > 3e5 K is not reached at these epochs), so branch 3 of `conv_thermo` is untested [read only]; `conv_thermo` has not been called under an outer ForwardDiff.
