@@ -149,3 +149,92 @@ zie3 is analogous (S1… segments). Its equal-mass epochs will be mapped from it
 | T9 | steady local limit: TDC flux = MLT flux (α mapping) | M3 | to round-off/tolerance |
 | T10 | 111-yr layer at 100, 300 and ~1000 effective zones (GRIDEQ band around R*) | M3 | convergence of F_conv/L, depth, R* |
 | T11 | B0–B5 from replay checkpoints, into phase C (≳ 30 M☉); B0, B2, B5 repeated at M3 resolution and on zie3's mesh | M4 | comparison table |
+
+## Design of M2 (buoyancy and thermodynamics) and M3 (TDC), 22 Nov 2026
+
+Defaults decided while Tom was away (he asked for autonomous work to a working model, 22 Nov):
+- replay S1 for checkpoints;
+- version the explorer scripts;
+- turbulent species diffusion in the coupled species rows;
+- base branch `logmass`.
+
+### D1. Buoyancy from the density contrast (replaces ∇_ad = 1e30, `COLDMLT` and `MLT_HS`)
+
+**Blob criterion.** Across interface k (zones k−1 → k, outwards), a blob that moves adiabatically has dln ρ_b = dln P/Γ₁,b. The
+background has Δln ρ = α Δln P − δ Δln T + φ Δln μ, with α, δ, φ at fixed composition (frozen EOS of the zone gas). Define
+- A_k = α Δln P − δ Δln T + φ Δln μ − Δln P/Γ₁,b,
+- N² = −g A/Δr.
+
+The blob is unstable if A > 0.
+
+**Superadiabaticity used by MLT and TDC:**
+- sup ≡ A/(δ_b |Δln P_hs|).
+- Δln P_hs = −g M_k/(r_k² P̄) is the hydrostatic pressure difference of the discrete momentum row (`MLT_HSDISC`).
+- [read/derivation] In hydrostatic layers, where Δln P = Δln P_hs and Γ₁,b is the frozen value, sup = ∇ − ∇_ad + (φ/δ)∇_μ.
+  That is the Ledoux form of the production ∇ − ∇_ad, correct to first order in the differences.
+- Behind the shock (Δln P → 0), sup = −δΔln T/(δ_b|Δln P_hs|) + …. This is the correct buoyancy of a flat-pressure layer, so
+  no blending (MLT_HS) is needed. The hydrostatic factor multiplies sup instead of being subtracted from it, so deep convection
+  (sup ~ 1e-6) keeps its accuracy.
+
+**Blob thermodynamics.** The blob's thermodynamics interpolate between equilibrium chemistry (the table EOS: Γ₁,eq, δ_eq,
+c_P,eq, latent heat included) and frozen chemistry (the zone's network/CK EOS at fixed x):
+- 1/Γ₁,b = f/Γ₁,eq + (1−f)/Γ₁,fr; δ_b and c_P,b likewise linear in f.
+- f = t_turn/(t_turn + t_chem) = ℓ/(ℓ + t_chem·v).
+- t_chem = 1/max_i |∂S_i/∂x_i| of the coupled CK rates at the iterate (nested ForwardDiff, so it is differentiated).
+- v is the MLT velocity (M2), or w (M3).
+- Table zones and hot zones have f = 1 (there is only an equilibrium EOS).
+- Network zones that are not coupled have t_chem = ∞, so f = 0 (their composition is held fixed during the hydro step).
+
+### D2. The TDC equation (Kuhfuß type, w = √e_t, MESA-TDC-like Riccati form)
+
+**Unknown.** w_k ≥ 0 [cm s⁻¹] on the interfaces (the staggering of u). It is Newton unknown `iw` = the last row, a linear variable
+with the scale of u, and w = 0 at the centre and the outer boundary.
+
+**KW quantities at the interface,** as now: a = ℓ√(gδ/(8H_P)), U = 3acT³/(c_P ρ² κ ℓ²)√(8H_P/(gδ)), H_P = P/(ρg),
+ℓ = α(H_P⁻² + r⁻²)^(−½). Then:
+- Ỹ ≡ sup − 2U w/a, the blob's ∇ − ∇′ with its radiative losses;
+- Dw/Dt = (1/ℓ)(A_s a² Ỹ − A_d w²) + (1/ρ)∇·(α_t ρ ℓ w ∇w) + α_t ℓ |∇w|²;
+- F_c = A_c ρ c_P T w (ℓ/2H_P) Ỹ, which is negative in overshoot regions;
+- P_t = α_p ρ w² (zone-centred, ē = mean of the two interface w²);
+- D_mix = α_D ℓ w.
+
+**MLT limit.** With A_s = A_d = A_c = 1, the steady, local root of Dw/Dt = 0 is w² + 2Uaw = a² sup, i.e. w = aζ, the KW velocity.
+F_c is then exactly the production MLT flux for the same sup and α [derivation; checked numerically in T9].
+
+**Growth.** At w = 0 with sup > 0, w grows linearly. With constant coefficients and U = 0, w = w_s tanh(w_s t/ℓ),
+w_s = a√sup = (ℓ/√8)N. The time to saturation is ~√8/N (T4, T6).
+
+**Complementarity w ≥ 0.** Let F_k = (w_n − w_o) + Δt·[transport − source], in cm s⁻¹. The row is the Fischer–Burmeister function
+w + F − √(w² + F²) = 0, which is semismooth Newton. Where sup < 0 and there is no turbulence nearby, F > 0 strictly, so w = 0
+exactly. This is MESA TDC's "decay to zero in finite time", made implicit with transport.
+
+**Diffusion.** The diffusion term is the e_t flux −α_t ρ ℓ w∇(w²) divided by 2w. It is non-singular because the Kuhfuß
+diffusivity ∝ w, and it seeds overshoot into w = 0 zones.
+
+**Advection.** The interface control volume (mass m_k = ½(ρΔV)_{k−1} + ½(ρΔV)_k) is advected with the same ṁ, face values and
+θ-weighting as the momentum row. Inflow through a supersonic layer carries w = 0, and the transit time ≪ ℓ/w_s, so there is no
+convection without any gate (T7).
+
+**Energy, exactly conservative.** The realised local exchange per interface CV is
+Q_k ≡ (m e)ⁿ − (m e)ᵒ over Δt + div_k(advective e flux) + div_k(diffusive e flux) + P_t dV_k, with e = w². The e fluxes are
+discrete and telescoping. The gas energy row of zone j gets −½(Q_j + Q_{j+1}). P_t enters the momentum row as rmu_k(P_t,k − P_t,k−1),
+paired with the P_t dV term like p_gas (compatible discretisation). Gas + E_t + kinetic + gravitational energy is then conserved
+to round-off. `ETOTMON` adds E_t = Σ m_k w_k².
+
+**Coupling:**
+- `fcv` = F_c when TDC is on.
+- The τ gate (`TAU_MLT`) and the inflow gate (`MLT_NOINFALL`) are not used under TDC. The KW U → ∞ as κρℓ → 0 suppresses thin
+  layers physically (the Henyey thin-blob correction is an open item).
+- Species: D_mix at interfaces enters the coupled species rows (8, 9) as −4πr²ρ D_mix Δx/Δr fluxes, at the iterate.
+  - The other network species are operator-split in the chemistry step already, so they are mixed in that same step with the
+    converged D_mix (as they get the converged hydro state).
+  - The hot-core `mix!` moves to the same D_mix (later).
+- Eddy viscosity: α_m ρ ℓ w as an additional viscous pressure, with its heating booked into e_t (default α_m = 0 in the first
+  version).
+
+**Switch.** `TDC=1` (provisional, default off, bit-identical when off; it adds the row, so neqn is unchanged when off). Listed in
+the switch inventory, with the removal plan "replaces the MLT block, `MLT_HS`, `MLT_NOINFALL`, `COLDMLT` and the network
+placeholder once M4 is accepted".
+
+**Code layout.** The coefficients, row and flux terms go in a module `julia/TDC.jl` as pure functions on arrays. The residual and
+the stand-alone test harness (T4–T7, with prescribed background profiles) call the same functions.
