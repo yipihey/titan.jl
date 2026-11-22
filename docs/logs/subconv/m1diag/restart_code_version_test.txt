@@ -1,0 +1,19 @@
+# restart from rp_k115 with code aace2a0 (replay commit), CONVDIAG unset, 10 steps vs replay
+production steps 482 (1..2400); replay steps 2 (120..125); common 2; fields compared 60; fields differing 0; distinct steps differing 0
+fields of replay not in production: Symbol[]; production-only: Symbol[]
+# restart from rp_k115 with code c523e91 + julia/TitanCore.jl from aace2a0 (wt_diag_b), CONVDIAG=1, 10 steps vs replay
+production steps 482 (1..2400); replay steps 2 (120..125); common 2; fields compared 60; fields differing 0; distinct steps differing 0
+fields of replay not in production: [:cd]; production-only: Symbol[]
+# restart from rp_k115 with PURE c523e91 (wt_diag), CONVDIAG=1, 200 steps vs replay: field/step differences (last two lines)
+production steps 482 (1..2400); replay steps 40 (120..315); common 40; fields compared 1200; fields differing 906; distinct steps differing 40
+fields of replay not in production: [:cd]; production-only: Symbol[]
+# same, pure c523e91: relative differences of the state vs replay
+120 t 7.649460230287874e12 7.649460200150424e12 dt 139729.7875007608 436600.08206552506 maxrelT 0.1654295226047242 maxrel rho 0.03620756310066264 maxrel u 0.03208555251738101 nz 100100
+125 t 7.649462481578353e12 7.649460202496756e12 dt 671917.0654476698 427.67941591097394 maxrelT 0.6875592820916301 maxrel rho 0.9479283229071402 maxrel u 0.19313527721961743 nz 100100
+140 t 7.649475081937729e12 7.649460207923888e12 dt 1.6050205872879464e6 1680.1583821367578 maxrelT 5.253898961739501 maxrel rho 10.91683660525409 maxrel u 0.8669748129411605 nz 100100
+165 t 7.649491523806258e12 7.649460214229445e12 dt 667444.4384701223 958.5467015767783 maxrelT 6.96320806118528 maxrel rho 22.346103426762955 maxrel u 0.9114474467179889 nz 100100
+215 t 7.649543934025086e12 7.6494602230612295e12 dt 96450.94512397026 817.7485042903827 maxrelT 11.617321200116 maxrel rho 51.767574690548024 maxrel u 0.8652261788117039 nz 100100
+315 t 7.649654313927716e12 7.649460237437779e12 dt 8.682716932807004e6 304.7038019152823 maxrelT 17.11153233822871 maxrel rho 78.65885533440658 maxrel u 0.8396507491936396 nz 100100
+# rp650off (c523e91, M1 test) vs replay:
+production steps 482 (1..2400); replay steps 4 (655..670); common 4; fields compared 120; fields differing 84; distinct steps differing 4
+fields of replay not in production: Symbol[]; production-only: Symbol[]

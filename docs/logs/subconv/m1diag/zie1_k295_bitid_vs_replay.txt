@@ -1,0 +1,2 @@
+production steps 482 (1..2400); replay steps 40 (300..495); common 40; fields compared 1200; fields differing 0; distinct steps differing 0
+fields of replay not in production: [:cd]; production-only: Symbol[]

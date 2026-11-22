@@ -1,0 +1,6 @@
+ julia/PopIIIMaterial.jl |  53 ++++++++++++++++++++++++
+ julia/TitanCore.jl      |  11 +++--
+ julia/TitanResidFast.jl |  81 +++++++++++++++++++++++++++++++++++-
+ julia/popiii_m2c.jl     | 108 ++++++++++++++++++++++++++++++++++++++++++++++++
+ julia/runrec.jl         |  47 ++++++++++++++++++---
+ 5 files changed, 289 insertions(+), 11 deletions(-)

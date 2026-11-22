@@ -1,0 +1,22 @@
+diff --git a/julia/TitanCore.jl b/julia/TitanCore.jl
+index 69f21d3..543436c 100644
+--- a/julia/TitanCore.jl
++++ b/julia/TitanCore.jl
+@@ -540,9 +540,14 @@ function predict!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[](), halve::B
+                 xmen[k] = xmeo[k] - dmdt[k] * dtm
+             end
+         else
+-            @inbounds for k in a:b+1
+-                rn[k] = ro[k] + drdt[k] * dt
+-                xmen[k] = xmeo[k] - dmdt[k] * dt
++            # zone widths and zone masses extrapolated in log (positive by construction, equal to the linear extrapolation to first order in dt),
++            # interfaces rebuilt by cumulative sums from the inner interface a, whose own (boundary) rate is extrapolated linearly
++            rn[a] = ro[a] + drdt[a] * dt
++            xmen[a] = xmeo[a] - dmdt[a] * dt
++            @inbounds for k in a:b
++                dr = ro[k+1] - ro[k]; dm = xmeo[k] - xmeo[k+1]
++                rn[k+1] = rn[k] + dr * exp((drdt[k+1] - drdt[k]) / dr * dt)
++                xmen[k+1] = xmen[k] - dm * exp((dmdt[k] - dmdt[k+1]) / dm * dt)
+             end
+         end
+         mono = true

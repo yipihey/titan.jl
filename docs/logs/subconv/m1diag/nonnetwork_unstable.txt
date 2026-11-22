@@ -1,0 +1,6 @@
+step 200 shock interface 34
+j=2 r/R*=0.0003 T=87824 br=2 N2_L=8.70e-13 N2_eq=-2.83e-15 nab=0.341 nad_used=0.341 w_th=1 Fconv/F=1.00e+00 Fpot_th/F=1.00e+00
+step 250 shock interface 87
+j=34 r/R*=0.0109 T=83559 br=2 N2_L=1.17e-09 N2_eq=-3.04e-13 nab=0.343 nad_used=0.343 w_th=1 Fconv/F=1.00e+00 Fpot_th/F=1.00e+00
+step 660 shock interface 42
+step 700 shock interface 43

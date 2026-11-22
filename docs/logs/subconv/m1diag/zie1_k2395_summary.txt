@@ -1,0 +1,2 @@
+# Ds = s_j - s_(j-1) [k_B/baryon] from N2 (ds/dr = c_P N2/(g_eff delta)); Ds_eq uses c_P,fr (LOWER BOUND |Ds_eq|); dDs/dt and its terms = rate_i(zone j) - rate_i(zone j-1) [k_B/baryon/yr]; tauS_L = |Ds_L|/|dDs/dt|
+step j r/R* N2_L N2_eq Ds_L Ds_eq dDs/dt av kin adv dfe rad conv chem tauS_L/tN nabrad/nab kap_j kap_max kapmax_j

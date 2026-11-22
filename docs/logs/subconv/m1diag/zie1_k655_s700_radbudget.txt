@@ -1,0 +1,8 @@
+zone 39 mass 0.688 Msun  e_rad(total) 1.279e+36 erg/s = 334.2 Lsun (positive = net cooling)  e_adv -1.820e+36 = -475.5 Lsun
+zone 40 mass 0.671 Msun  e_rad(total) -1.046e+36 erg/s = -273.2 Lsun (positive = net cooling)  e_adv 3.489e+36 = 911.5 Lsun
+zone 41 mass 0.680 Msun  e_rad(total) 1.103e+36 erg/s = 288.3 Lsun (positive = net cooling)  e_adv 2.104e+37 = 5496.6 Lsun
+zone 42 mass 0.088 Msun  e_rad(total) 9.924e+37 erg/s = 25923.7 Lsun (positive = net cooling)  e_adv 5.641e+36 = 1473.6 Lsun
+j=40 L_rad=2815.4 Lsun
+j=41 L_rad=1643.8 Lsun
+j=42 L_rad=2639.8 Lsun
+j=43 L_rad=28459.5 Lsun
