@@ -375,6 +375,10 @@ const SNAPFILE = joinpath(OUTDIR, "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(ns
 # split, Newton/TR-BDF2 counters, ALI calls, chemistry fallbacks, GC time and allocations, the Δt limiter and the core state.
 const RUNREC = get(ENV, "RUNREC", "")
 isempty(RUNREC) || mkpath(RUNREC)
+# CONVDIAG=1 (diagnostic, default off; the solution is bit-identical on or off, docs/POPIII_CONVECTION.md M1): with RUNREC, every snapshot carries `cd`, the sub-shock convection
+# diagnostics (`convdiag_snap` below): MLT intermediates and gates per interface, frozen/equilibrium thermodynamics, N², timescales, the terms of the gas-energy row.
+const CONVDIAG = get(ENV, "CONVDIAG", "0") == "1"
+TX.CONVDIAG[] = CONVDIAG
 const REC = (on = !isempty(RUNREC), io = Ref{Any}(nothing), wall0 = time(), klast = Ref(-1), gct = Ref(Base.gc_num().total_time), gcb = Ref(Base.gc_bytes()),
              dtlim = Ref(""), mstar = Ref(NaN), rstar = Ref(NaN), spn = Ref{Vector{Symbol}}(Symbol[]))
 "ENV keys any of the julia/ sources reads (only these go into the meta file)."
@@ -402,6 +406,93 @@ function recopen!(k)
         println(io, "step,t_yr,dt_s,wall_s,pid,nsteps,t_step,t_chem,t_lines,t_other,gc_s,alloc_GB,ndiv,nrepeat,tr_steps,fail_tr,fail_bdf,be_fallback,nali,nchemfb,nthreads,nz,log_nc,Tc,mstar,rstar,umin_kms,dtlim,etot_Gmax,etot_vmax,etot_zone")
     end
 end
+"""
+CONVDIAG: the diagnostics `cd` of one snapshot, at the accepted state (a NamedTuple of Float64 vectors; zone vectors have length n = b−a+1, interface vectors n+1 with
+index j = k−a+1 for the interface k between zones k−1 and k, NaN at j = 1, n+1 and where MLT is not evaluated). The solver is not touched: `TX.conv_diag_pass` is one Float64
+residual evaluation (as `TX.step_diag`) with the material caches saved and restored around it. Definitions (docs/POPIII_CONVECTION.md M1):
+- nab, nab_raw, hs_w, nad_used, kap, fpot, vpot, fconv, vconv, lmix, HP, w_tau, w_inf: what the MLT block used (nab_raw before the MLT_HS blend, hs_w = its weight sw, 1 = untouched;
+  fpot/vpot the flux and velocity with the gates removed (weight 1; 0 where ∇ ≤ ∇_ad,used), fconv/vconv with the gate weights; w_tau, w_inf the two factors of cvw).
+- nad_eq, nad_fr, del_*: `PM.conv_thermo` at the interface mean (ρ, T) with the composition of zone k (the one MLT uses); w_th = 1 if nad_used < 1e29 (network zones: 0).
+- nab_rad = 3 κ ρ F_rad H_P/(4 a c T⁴) (≡ 3κLP/(16π a c G m T⁴) with L = 4π r² F_rad, H_P = P/(ρ g)), F_rad the radiative flux of the interface (frn) actually present, κ the Rosseland κ MLT uses.
+- N² of a zone-centre difference (no division by Δln P): N²_S = g_eff δ_fr (dlnT/dr − ∇_ad,fr dlnP/dr), N2_eq the same with the equilibrium ∇_ad, δ,
+  N²_L = N²_S − g_eff φ dlnμ/dr; g_eff = −(P_k − P_k−1)/(ρ_i Δr), P = p_gas + f E_r; derivatives between the zone centres k−1, k (centre = mean of the faces). nab_mu = Δlnμ/ΔlnP, nab_L = nad_fr + φ/δ_fr nab_mu.
+- mach (zone) = |½(u_k+u_k+1)|/c_s, c_s = √(5/3 p_gas/ρ); mach_i at the interface (c_s of the mean of the two zones). t_settle = H_P/|u_i|, t_N = 1/√|N²_L|, t_turn = ℓ/v (potential v where fconv = 0), t_chem (coupled zones) = 1/max|∂S_i/∂x_i|.
+- e_*: the terms of the gas-energy row of the zone [erg s⁻¹ sr⁻¹], e_res their sum (+ the pieces not listed), at the accepted state.
+- layer: [r_in/R*, r_out/R*, m_layer [Msun], max(−min(N²_L,N²_eq)) t_dyn², max Fconv/Ftot, max Fpot/Ftot, n_interfaces, R* [Rsun]]; the "sub-shock unstable layer" = the run of interfaces just inside the shock
+  (R*: the first interface from the centre with u < −2 km/s, as runrec.jl), contiguous inwards, with mach_i < 0.5 and N²_L < 0 or N²_eq < 0; its bounds are the outermost and innermost of those interfaces, the mass is between them.
+"""
+function convdiag_snap(k, snap)
+    mat isa PM.NetGas && TX.CONVECTION[] || return nothing
+    dt = TF.getscalar(:timen) - TF.getscalar(:timeo)
+    sv = PM.conv_cache_save(); local ps
+    try ps = TX.conv_diag_pass(dt) finally PM.conv_cache_restore!(sv) end
+    n = b - a + 1; NaNv(m) = fill(NaN, m)
+    ρ, T, pg_, er_, fe_, u, r, m_ = snap.ρ, snap.T, snap.pg, snap.er, snap.fedd, snap.u, snap.r, snap.m
+    P = pg_ .+ fe_ .* er_; rc = 0.5 .* (r[1:n] .+ r[2:n+1]); cs = sqrt.(5 / 3 .* pg_ ./ ρ)
+    mach = [abs(0.5 * (u[j] + u[j+1])) / cs[j] for j in 1:n]
+    zth = Vector{Any}(nothing, n); mu = NaNv(n); br = NaNv(n); tch = NaNv(n)
+    for j in 1:n
+        kk = a + j - 1
+        try th = PM.conv_thermo(mat, kk, ρ[j], T[j]); mu[j] = th.mu; br[j] = th.branch catch; end
+        if TX.cplz(kk) && !mat.eqzone[kk]
+            try
+                J = ForwardDiff.jacobian(z -> PM.cpl_g(mat, kk, z), [ρ[j], T[j], TX.XSN[][1][kk], TX.XSN[][2][kk]])
+                tch[j] = 1 / max(abs(J[3, 3]), abs(J[4, 4]))
+            catch; end
+        end
+    end
+    I(nm) = (v = NaNv(n + 1); for j in 2:n; v[j] = ps[nm][a+j-1]; end; v)       # pass quantity of interface k = a+j−1
+    Z(nm) = (v = NaNv(n); for j in 1:n; v[j] = ps[nm][a+j-1]; end; v)
+    names = (:nab, :nab_raw, :hs_w, :nad_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g)
+    d = Dict{Symbol,Vector{Float64}}(nm => I(nm) for nm in names)
+    for nm in (:w_tau, :w_inf, :tau); d[nm] = I(nm); end
+    for nm in (:e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res); d[nm] = Z(nm); end
+    for nm in (:nad_eq, :nad_fr, :del_eq, :del_fr, :nab_rad, :nab_mu, :nab_L, :N2_S, :N2_eq, :N2_L, :g_eff, :Ftot, :Fconv_over_Ftot, :Fpot_over_Ftot, :w_th, :mach_i, :t_settle, :t_N, :t_turn, :cp_fr)
+        d[nm] = NaNv(n + 1)
+    end
+    arad_ = 7.565723e-15; cc_ = 2.99792458e10
+    for j in 2:n
+        kk = a + j - 1; ρi = 0.5 * (ρ[j-1] + ρ[j]); Ti = 0.5 * (T[j-1] + T[j])
+        d[:w_th][j] = d[:nad_used][j] < 1e29 ? 1.0 : 0.0
+        try
+            th = PM.conv_thermo(mat, kk, ρi, Ti)
+            d[:nad_eq][j] = th.nad_eq; d[:nad_fr][j] = th.nad_fr; d[:del_eq][j] = th.del_eq; d[:del_fr][j] = th.del_fr; d[:cp_fr][j] = th.cp_fr
+            Δr = rc[j] - rc[j-1]; lT = log(T[j] / T[j-1]) / Δr; lP = log(P[j] / P[j-1]) / Δr; lm = log(mu[j] / mu[j-1]) / Δr
+            ge = -(P[j] - P[j-1]) / (ρi * Δr); d[:g_eff][j] = ge
+            d[:N2_S][j] = ge * th.del_fr * (lT - th.nad_fr * lP)
+            d[:N2_eq][j] = ge * th.del_eq * (lT - th.nad_eq * lP)
+            d[:N2_L][j] = d[:N2_S][j] - ge * th.phi * lm
+            d[:nab_mu][j] = log(mu[j] / mu[j-1]) / log(P[j] / P[j-1])
+            d[:nab_L][j] = th.nad_fr + th.phi / th.del_fr * d[:nab_mu][j]
+        catch; end
+        d[:nab_rad][j] = 3 * d[:kap][j] * ρi * d[:frad][j] * d[:HP][j] / (4 * arad_ * cc_ * Ti^4)
+        Ft = d[:frad][j] + d[:fconv][j]; d[:Ftot][j] = Ft
+        d[:Fconv_over_Ftot][j] = d[:fconv][j] / Ft; d[:Fpot_over_Ftot][j] = d[:fpot][j] / Ft
+        cs_i = 0.5 * (cs[j-1] + cs[j]); d[:mach_i][j] = abs(u[j]) / cs_i
+        d[:t_settle][j] = d[:HP][j] / abs(u[j]); d[:t_N][j] = 1 / sqrt(abs(d[:N2_L][j]))
+        vt = d[:vconv][j] > 0 ? d[:vconv][j] : d[:vpot][j]; d[:t_turn][j] = vt > 0 ? d[:lmix][j] / vt : NaN
+    end
+    # the sub-shock unstable layer
+    js = findfirst(<(-2e5), u); lay = fill(NaN, 8)
+    if js !== nothing
+        Rst = r[js]; lay[8] = Rst / 6.957e10; jin = 0; jout = 0
+        for j in js-1:-1:2
+            (d[:mach_i][j] < 0.5 && (d[:N2_L][j] < 0 || d[:N2_eq][j] < 0)) || break
+            jout == 0 && (jout = j); jin = j
+        end
+        if jout > 0
+            Gc = 6.674e-8; js_ = jin:jout
+            td2(j) = rc[j]^3 / (Gc * max(m_[j], 1e-30))          # t_dyn² = r³/(G m) at the interface's zone centre, m the interface mass
+            mx(v) = (w = filter(!isnan, v); isempty(w) ? NaN : maximum(w))
+            st = [(w = filter(!isnan, (d[:N2_L][j], d[:N2_eq][j])); isempty(w) ? NaN : -minimum(w) * td2(j)) for j in js_]
+            lay .= [r[jin] / Rst, r[jout] / Rst, (m_[jout] - m_[jin]) / 1.989e33, mx(st), mx(d[:Fconv_over_Ftot][js_]), mx(d[:Fpot_over_Ftot][js_]), length(js_), Rst / 6.957e10]
+        else
+            lay .= [NaN, NaN, 0.0, NaN, NaN, NaN, 0.0, Rst / 6.957e10]
+        end
+    end
+    d[:layer] = lay; d[:branch] = br; d[:mach] = mach; d[:mu] = mu; d[:t_chem] = tch
+    NamedTuple{Tuple(sort(collect(keys(d))))}(Tuple(d[nm] for nm in sort(collect(keys(d)))))
+end
 "One snapshot into the RUNREC stream: everything needed to redraw any profile panel offline."
 function recsnap!(k)
     REC.io[] === nothing && recopen!(k)
@@ -418,6 +509,10 @@ function recsnap!(k)
             gasq = copy(TX.GASQ[]), hotY = HOTON ? SG[].Y[:, a:b] : nothing, Lnuc = LNUC[], Llines = LLINE[],
             nchemfb = PM.NCHEMFB[], kph = sd === nothing ? 0 : sd.kph, Teff = sd === nothing ? NaN : Float64(sd.Te))
     mat isa PM.NetGas && PM.HDCHEM[] && (snap = merge(snap, (; hd = PM.hd_snap(mat, a, b))))     # HDCHEM=1: x_D+, x_HD, HD cooling
+    if CONVDIAG       # diagnostic only: never touches the solution (see convdiag_snap)
+        cd = try convdiag_snap(k, snap) catch e; @warn "CONVDIAG: snapshot diagnostics failed at step $k" exception = (e, catch_backtrace()); nothing end
+        cd === nothing || (snap = merge(snap, (; cd)))
+    end
     serialize(REC.io[], snap); flush(REC.io[])
 end
 # ETOTMON=1 (diagnostic, default off; no influence on the solution): the total-energy monitor of every converged implicit solve, TX.etot_monitor, via TD.STAGE_HOOK.
