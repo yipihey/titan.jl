@@ -313,6 +313,13 @@ Newton) or the ideal-gas ChemNet network. The decision is in PopIIIMaterial.jl:1
 
 ---
 
+**`CONVDIAG` (K, diagnostic, added 22 Nov 2026 on `popiii-subconv`, off by default; permanent).** With `RUNREC` set, every snapshot gets a field `cd`
+(sub-shock convection diagnostics: MLT intermediates and gates, equilibrium and frozen ∇_ad, N², timescales, gas-energy-row terms). Mechanism:
+one extra Float64 residual evaluation per snapshot at the accepted state (`TitanResidFast.conv_diag_pass`, as `step_diag`), with the material
+caches saved and restored (`PopIIIMaterial.conv_cache_save`); the recording blocks inside `residual!` are guarded by `CVD_ON[] && T === Float64`
+and are never active in a solve. Claim: the solution is bit-identical on or off [test: docs/logs/subconv/]. Removal plan: none; it is a read-only
+instrument and M2/M3 reuse `conv_thermo`. If the extra evaluation ever shows an effect, it must be fixed there, not by a clamp.
+
 ## 14. Switches outside the production path (120; test, benchmark and old-stage scripts)
 
 These are not read by `popiii_m2c.jl` or its includes. They have no bearing on the production run. Listed for completeness, by file.
