@@ -1020,6 +1020,7 @@ function radsettings!()
         PM.COLDMLT[] = parse(Float64, get(ENV, "COLDMLT", "0")); PM.COLDMLT[] > 0 && (TX.MLT_NOINFALL[] = true)
         # MLTBUOY=1 (M2, provisional, default off = bit-identical; docs/POPIII_CONVECTION.md M2): MLT superadiabaticity from the blob's density contrast with the zones' thermodynamics at the iterate (TX.MLT_BUOY)
         TX.MLT_BUOY[] = get(ENV, "MLTBUOY", "0") == "1"
+        TX.MLT_BUOY[] && atexit(() -> println(TX.buoy_summary()))
     end
     TD.MSGIO[] = get(ENV, "MSG", "0") == "1" ? stdout : devnull
 end

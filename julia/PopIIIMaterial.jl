@@ -245,6 +245,8 @@ function cold_thermo(ρ, T)
     δ = T / ρ * pT / pρ
     return p * δ / (T * ρ * cP), cP, δ
 end
+"M2: relative step of the central differences of the EOS in `conv_thermo(...; fd = true)` and `conv_tchem(...; fd = true)` (the form the solver uses; `fd = false`: inner ForwardDiff, M1's diagnostics)."
+const THERMO_FD_H = Ref(1e-3)
 """
 CONVDIAG helper, generic in the number type and ForwardDiff-safe (it is also the thermodynamics of the M2 convection work). Not used by the solver; `material_thermo`
 is unchanged. Gas + equilibrium radiation (P_rad = aT⁴/3, e_rad = aT⁴/ρ, as `cold_thermo`) of zone k at (ρ, T):
@@ -257,15 +259,25 @@ is unchanged. Gas + equilibrium radiation (P_rad = aT⁴/3, e_rad = aT⁴/ρ, as
 - `mu` = ρ k_B T/(p_gas m_u), the mean molecular weight per particle of the zone's own EOS (hot: the stellar EOS), for ∇_μ.
 - `branch`: 0 network, 1 coupled network, 2 table (equilibrium) zone, 3 hot — the order in which `material_gas0` selects.
 A table that cannot be evaluated (outside its range) gives NaN for the equilibrium values.
+
+M2 additions: `alpha_eq/fr` = (∂ln ρ/∂ln P)_{T,x}, `gam1_eq/fr` = Γ₁ = 1/(α − δ ∇_ad). Keywords: `x` = (x_H⁺, x_H₂) of the zone's iterate (default `TX.XSN`); `tablefr`: in a table zone frozen := equilibrium;
+`fd`: the EOS derivatives by central differences (`THERMO_FD_H`) instead of inner ForwardDiff, so that an outer ForwardDiff can differentiate the result (the CK expansion behind `cpl_g` supports only one level of Duals).
 """
-function conv_thermo(m::NetGas, k, ρ, T; x = nothing)
+function conv_thermo(m::NetGas, k, ρ, T; x = nothing, tablefr = false, fd = false)
     arad = 7.565723e-15; kB = 1.380649e-16; mu_ = 1.66053906660e-24
-    function thermo_of(eosf)                         # eosf(r, t) -> (u_gas, p_gas); cold_thermo's formula (+ α = ∂ln ρ/∂ln P at fixed T, composition)
-        pf(r, t) = eosf(r, t)[2] + arad * t^4 / 3
-        ef(r, t) = eosf(r, t)[1] + arad * t^4 / r
-        p = pf(ρ, T)
-        pT = ForwardDiff.derivative(t -> pf(ρ, t), T); pρ = ForwardDiff.derivative(r -> pf(r, T), ρ)
-        eT = ForwardDiff.derivative(t -> ef(ρ, t), T); eρ = ForwardDiff.derivative(r -> ef(r, T), ρ)
+    function thermo_of(eosf, lab = "")               # eosf(r, t) -> (u_gas, p_gas); cold_thermo's formula (+ α = ∂ln ρ/∂ln P at fixed T, composition)
+        pe(r, t) = (y = eosf(r, t); (y[2] + arad * t^4 / 3, y[1] + arad * t^4 / r))      # (P, e) with equilibrium radiation
+        if fd                                        # central differences of the EOS in ln ρ, ln T (relative step THERMO_FD_H): the Duals of an outer ForwardDiff then give the exact
+            hh = THERMO_FD_H[]                      # derivative of the stencil (the CK expansion of `cpl_g` is differentiable once, not twice)
+            p, e0 = pe(ρ, T)
+            pTp, eTp = pe(ρ, T * (1 + hh)); pTm, eTm = pe(ρ, T * (1 - hh)); pρp, eρp = pe(ρ * (1 + hh), T); pρm, eρm = pe(ρ * (1 - hh), T)
+            pT = (pTp - pTm) / (2hh * T); eT = (eTp - eTm) / (2hh * T); pρ = (pρp - pρm) / (2hh * ρ); eρ = (eρp - eρm) / (2hh * ρ)
+        else
+            pf(r, t) = pe(r, t)[1]; ef(r, t) = pe(r, t)[2]
+            p = pf(ρ, T)
+            pT = ForwardDiff.derivative(t -> pf(ρ, t), T); pρ = ForwardDiff.derivative(r -> pf(r, T), ρ)
+            eT = ForwardDiff.derivative(t -> ef(ρ, t), T); eρ = ForwardDiff.derivative(r -> ef(r, T), ρ)
+        end
         cP = eT - (eρ - p / ρ^2) * pT / pρ
         δ = T / ρ * pT / pρ
         (p * δ / (T * ρ * cP), cP, δ, p / (ρ * pρ))
@@ -274,18 +286,20 @@ function conv_thermo(m::NetGas, k, ρ, T; x = nothing)
     h = HOT[]
     if h !== nothing && ForwardDiff.value(T) > h.T1
         th = h.thermo(ρ, T, k); pg = h.gas(ρ, T, k)[1]
-        pρ_ = ForwardDiff.derivative(r -> h.gas(r, T, k)[1], ρ); α_ = (pg + arad * T^4 / 3) / (ρ * pρ_)       # (gas + radiation, as thermo_of)
+        pρ_ = fd ? (h.gas(ρ * (1 + THERMO_FD_H[]), T, k)[1] - h.gas(ρ * (1 - THERMO_FD_H[]), T, k)[1]) / (2THERMO_FD_H[] * ρ) : ForwardDiff.derivative(r -> h.gas(r, T, k)[1], ρ); α_ = (pg + arad * T^4 / 3) / (ρ * pρ_)       # (gas + radiation, as thermo_of)
         return (; nad_eq = th[1], cp_eq = th[2], del_eq = th[3], nad_fr = th[1], cp_fr = th[2], del_fr = th[3], phi = one(th[1]),
                 mu = ρ * kB * T / (pg * mu_), branch = 3, alpha_eq = α_, alpha_fr = α_, gam1_eq = 1 / (α_ - th[3] * th[1]), gam1_fr = 1 / (α_ - th[3] * th[1]))
     end
-    eq = try thermo_of((r, t) -> EQ.eos(r, t)) catch; nanv end
+    eq = try thermo_of((r, t) -> EQ.eos(r, t), "EQ") catch; nanv end
     if !m.eqzone[k] && TX.cplz(k)                    # (material_gas0's order: hot, table zone, coupled, network)
         x1 = x === nothing ? TX.XSN[][1][k] : x[1]; x2 = x === nothing ? TX.XSN[][2][k] : x[2]      # x: the Newton iterate's species of the zone (Duals in the solve)
         ef_(r, t) = (y = cpl_g(m, k, [promote(r, t, x1, x2)...]); (y[2], y[1]))
-        fr = thermo_of(ef_); pgas = ef_(ρ, T)[2]; br = 1
+        fr = thermo_of(ef_, "CPL"); pgas = ef_(ρ, T)[2]; br = 1
+    elseif tablefr && m.eqzone[k]                    # (M2) a table zone has only the equilibrium EOS: frozen := equilibrium (the stale m.x[k] network EOS is not used: no frozen chemistry exists there)
+        fr = eq; pgas = EQ.eos(ρ, T)[2]; br = 2
     else
         xk = m.x[k]
-        fr = thermo_of((r, t) -> CNn.eos(r, t, xk, m.net)); pgas = CNn.eos(ρ, T, xk, m.net)[2]; br = m.eqzone[k] ? 2 : 0
+        fr = thermo_of((r, t) -> CNn.eos(r, t, xk, m.net), "CNN"); pgas = CNn.eos(ρ, T, xk, m.net)[2]; br = m.eqzone[k] ? 2 : 0
     end
     (; nad_eq = eq[1], cp_eq = eq[2], del_eq = eq[3], nad_fr = fr[1], cp_fr = fr[2], del_fr = fr[3], phi = one(fr[1]),
        mu = ρ * kB * T / (pgas * mu_), branch = br, alpha_eq = eq[4], alpha_fr = fr[4],
@@ -297,14 +311,20 @@ caches; the rows 3, 4 of `cpl_g` are S₁, S₂). Generic in the number type: �
 sees ρ, T, x₁, x₂. `x` = (x₁, x₂) of the iterate (default: `TX.XSN`). Table (equilibrium) and hot zones: 0 (equilibrium chemistry); network zones that are not coupled: `Inf` (frozen). Does not read or write
 `CPLCACHE` (cpl_g is evaluated directly).
 """
-function conv_tchem(m::NetGas, k, ρ, T; x = nothing)
+function conv_tchem(m::NetGas, k, ρ, T; x = nothing, fd = false)
     h = HOT[]
     (h !== nothing && ForwardDiff.value(T) > h.T1) && return 0.0
     m.eqzone[k] && return 0.0
     TX.cplz(k) || return Inf
     x1 = x === nothing ? TX.XSN[][1][k] : x[1]; x2 = x === nothing ? TX.XSN[][2][k] : x[2]
-    d1 = ForwardDiff.derivative(a -> cpl_g(m, k, [promote(ρ, T, a, x2)...])[3], x1)
-    d2 = ForwardDiff.derivative(b -> cpl_g(m, k, [promote(ρ, T, x1, b)...])[4], x2)
+    if fd
+        hh = THERMO_FD_H[]
+        d1 = (cpl_g(m, k, [promote(ρ, T, x1 * (1 + hh), x2)...])[3] - cpl_g(m, k, [promote(ρ, T, x1 * (1 - hh), x2)...])[3]) / (2hh * x1)
+        d2 = (cpl_g(m, k, [promote(ρ, T, x1, x2 * (1 + hh))...])[4] - cpl_g(m, k, [promote(ρ, T, x1, x2 * (1 - hh))...])[4]) / (2hh * x2)
+    else
+        d1 = ForwardDiff.derivative(a -> cpl_g(m, k, [promote(ρ, T, a, x2)...])[3], x1)
+        d2 = ForwardDiff.derivative(b -> cpl_g(m, k, [promote(ρ, T, x1, b)...])[4], x2)
+    end
     mx = max(abs(d1), abs(d2))
     return iszero(ForwardDiff.value(mx)) ? Inf : 1 / mx
 end
@@ -320,8 +340,8 @@ end
 """MLT thermodynamics: only the hot branch convects (and, with `COLDMLT[]` > 0, the hot equilibrium zones of the table EOS). Below T1 the huge ∇_ad switches the flux off in the chemistry gas: it must be
 out of reach (it was 10, and at a T jump inside the protostar ∇ = Δln T/Δln P crossed it: an MLT flux with this placeholder c_P
 of up to 1e40 erg/s between two zones, and Newton diverged)."""
-TX.material_convthermo(m::NetGas, k, ρ, T, x) = conv_thermo(m, k, ρ, T; x)
-TX.material_tchem(m::NetGas, k, ρ, T, x) = conv_tchem(m, k, ρ, T; x)
+TX.material_convthermo(m::NetGas, k, ρ, T, x) = conv_thermo(m, k, ρ, T; x, tablefr = true, fd = true)
+TX.material_tchem(m::NetGas, k, ρ, T, x) = conv_tchem(m, k, ρ, T; x, fd = true)
 function TX.material_thermo(m::NetGas, ρ, T)
     h = HOT[]
     (h !== nothing && T > h.T1) && return h.thermo(ρ, T, TX.ZONE[])
