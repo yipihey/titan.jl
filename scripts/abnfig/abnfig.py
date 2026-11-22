@@ -927,9 +927,9 @@ def page_convection(pdf, run, sel, t0, header, frame=None):
     selx = np.isfinite(xr) & (xr > (0.1 if np.isfinite(Rst) else 0) ) & (xr < (3.0 if np.isfinite(Rst) else np.inf))
     fig = plt.figure(figsize=(PAGE_W, PAGE_H))
     t_yr = run.s("t_yr")[i]
-    header(fig, f"Sub-shock convection diagnostics (step {int(run.s('step')[i])}, t - t0 = {fmt_dt(t_yr - t0)})")
-    axs = [[fig.add_axes([0.11 + 0.45 * c, 0.80 - 0.172 * rw, 0.40, 0.145]) for c in range(2)] for rw in range(5)]
-    sym = dict(linthresh=1e-12)
+    ref_t = t0 if t0 is not None else float(run.s("t_yr")[0])      # t0 = first frame with a protostar, else the first frame
+    header(fig, f"Sub-shock convection diagnostics (step {int(run.s('step')[i])}, t - t0 = {fmt_dt(t_yr - ref_t)})")
+    axs = [[fig.add_axes([0.11 + 0.45 * c, 0.755 - 0.158 * rw, 0.38, 0.125]) for c in range(2)] for rw in range(5)]
 
     def put(row, fn, ylab, ylog=False, symlog=False, ylim=None):
         for c, (x, xl) in enumerate(((xr, xlab_r), (m, r"$M_{\rm enc}$  [M$_\odot$]"))):
@@ -937,7 +937,7 @@ def page_convection(pdf, run, sel, t0, header, frame=None):
             fn(ax, x)
             ax.set_xscale("log")
             if symlog:
-                ax.set_yscale("symlog", **sym)
+                ax.set_yscale("symlog", linthresh=symlog)
             elif ylog:
                 ax.set_yscale("log")
             if ylim:
@@ -979,14 +979,16 @@ def page_convection(pdf, run, sel, t0, header, frame=None):
         ax.axhline(0, color=FAINT, lw=0.5)
         if ax is axs[1][0]:
             ax.legend(fontsize=FS - 2, loc="upper right")
-    put(1, f2, r"$N^2$  [s$^{-2}$] (Mach $<0.5$ only)", symlog=True)
+    n2 = np.abs(np.concatenate([np.where(sub, g(k), np.nan) for k in ("cv_N2_eq", "cv_N2_L", "cv_N2_S")]))
+    n2 = n2[np.isfinite(n2) & (n2 > 0)]
+    put(1, f2, r"$N^2$  [s$^{-2}$] (Mach $<0.5$ only, symlog)", symlog=(float(np.max(n2)) * 1e-4 if n2.size else 1e-12))
 
     def f3(ax, x):
         line(ax, x, g("cv_Fconv_Ftot"), None, color=INK, lw=1.2, label=r"$F_{\rm conv}/F_{\rm tot}$ (as used)")
         line(ax, x, g("cv_Fpot_Ftot"), None, color="#c0392b", lw=1.0, ls=(0, (6, 1.6)), label=r"gate-free MLT flux$/F_{\rm tot}$")
         if ax is axs[2][0]:
             ax.legend(fontsize=FS - 2, loc="upper right")
-    put(2, f3, r"$F_{\rm conv}/F_{\rm tot}$", symlog=True)
+    put(2, f3, r"$F_{\rm conv}/F_{\rm tot}$")
 
     def f4(ax, x):
         line(ax, x, g("cv_w_tau"), None, color=INK, lw=1.1, label=r"$w_\tau$")
