@@ -77,6 +77,36 @@ const FIELDS = [("logr", "log r [R_sun] (cell centre)"), ("logm", "log m [M_sun]
 const SCAL = ["step", "t_yr", "dt_s", "logn_c", "T_c", "M_star", "R_star", "r_ph", "T_eff_lum", "T_eff_sl", "L_ph", "Mdot_1e4", "u_min", "L_nuc", "L_lines", "nz", "nchemfb",
     "L_D", "L_pp", "L_He3", "L_CNO", "L_3a", "L_ph_med"]      # luminosity by burning process [L_sun], see nucdiag; L_ph_med: see nucref
 
+# CONVDIAG=1 runs: snapshots carry `cd` (popiii_m2c convdiag_snap). Exported as cv_* fields (cell-centred; interface quantities averaged onto the cells, NaN-aware) and cv_* scalars,
+# only if some snapshot has `cd`; a frame without it gets NaN. Runs without CONVDIAG export exactly the fields above.
+const CVFIELDS = [("cv_nab", "nabla = dlnT/dlnP used by MLT (after the MLT_HS blend)"), ("cv_nab_raw", "nabla before the MLT_HS blend"), ("cv_hs_w", "MLT_HS blend weight (1 = untouched)"),
+    ("cv_nad_used", "nabla_ad that material_thermo gave MLT (1e30 = network zone, gate closed)"), ("cv_nad_eq", "nabla_ad, equilibrium chemistry (table EOS)"), ("cv_nad_fr", "nabla_ad, frozen chemistry (zone's network EOS)"),
+    ("cv_nab_rad", "nabla_rad from the radiative flux present"), ("cv_nab_mu", "dln mu/dlnP"), ("cv_nab_L", "Ledoux nabla_ad,fr + phi/delta nabla_mu"),
+    ("cv_N2_S", "N^2 Schwarzschild, frozen [s^-2] (subsonic zones only meaningful)"), ("cv_N2_eq", "N^2 Schwarzschild, equilibrium chemistry [s^-2]"), ("cv_N2_L", "N^2 Ledoux, frozen [s^-2]"),
+    ("cv_Fconv_Ftot", "F_conv/(F_rad+F_conv), as used"), ("cv_Fpot_Ftot", "gate-free MLT flux / (F_rad + F_conv)"), ("cv_vconv", "MLT velocity as used [km/s]"), ("cv_lmix", "mixing length [R_sun]"),
+    ("cv_w_tau", "MLT optical-depth weight"), ("cv_w_inf", "MLT_NOINFALL factor"), ("cv_w_th", "thermodynamic gate (1: nabla_ad,used < 1e29)"), ("cv_mach", "|u|/c_s (zone), c_s = sqrt(5/3 p_gas/rho)"),
+    ("cv_branch", "zone branch: 0 network, 1 coupled network, 2 table, 3 hot"), ("cv_logt_settle", "log10 t_settle = H_P/|u| [s]"), ("cv_logt_N", "log10 1/sqrt|N^2_L| [s]"),
+    ("cv_logt_turn", "log10 l/v [s]"), ("cv_logt_chem", "log10 chemical time of the coupled species [s] (NaN: not coupled)"),
+    ("cv_e_stor", "gas-energy row: storage [erg/s/g]"), ("cv_e_pdv", "pdV work"), ("cv_e_av", "artificial viscosity work"), ("cv_e_kin", "kinetic-energy correction"),
+    ("cv_e_adv", "advection"), ("cv_e_dfe", "energy diffusion"), ("cv_e_rad", "gas-radiation exchange"), ("cv_e_conv", "convective-flux divergence"),
+    ("cv_e_chem", "chemistry cooling/heating"), ("cv_e_src", "nuclear source"), ("cv_e_res", "row residual")]
+const CVSCAL = ["cv_rin", "cv_rout", "cv_mlayer", "cv_N2td2", "cv_FconvFtot_max", "cv_FpotFtot_max", "cv_nlayer"]    # the sub-shock unstable layer (convdiag_snap), r in R_star, m in M_sun
+hascd(x) = hasproperty(x, :cd) && x.cd !== nothing
+nanavg(v) = [(a_ = v[i]; b_ = v[i+1]; isnan(a_) ? b_ : isnan(b_) ? a_ : 0.5 * (a_ + b_)) for i in 1:length(v)-1]
+
+function cvframe(x)
+    c = x.cd; n = length(x.ρ); dm = diff(x.m); l10(v) = [isfinite(q) && q > 0 ? log10(q) : NaN for q in v]
+    zg(v) = 4π .* v ./ dm      # per steradian -> per gram
+    F = Dict("cv_nab" => nanavg(c.nab), "cv_nab_raw" => nanavg(c.nab_raw), "cv_hs_w" => nanavg(c.hs_w), "cv_nad_used" => nanavg(c.nad_used), "cv_nad_eq" => nanavg(c.nad_eq),
+        "cv_nad_fr" => nanavg(c.nad_fr), "cv_nab_rad" => nanavg(c.nab_rad), "cv_nab_mu" => nanavg(c.nab_mu), "cv_nab_L" => nanavg(c.nab_L), "cv_N2_S" => nanavg(c.N2_S),
+        "cv_N2_eq" => nanavg(c.N2_eq), "cv_N2_L" => nanavg(c.N2_L), "cv_Fconv_Ftot" => nanavg(c.Fconv_over_Ftot), "cv_Fpot_Ftot" => nanavg(c.Fpot_over_Ftot),
+        "cv_vconv" => nanavg(c.vconv) ./ 1e5, "cv_lmix" => nanavg(c.lmix) ./ Rs, "cv_w_tau" => nanavg(c.w_tau), "cv_w_inf" => nanavg(c.w_inf), "cv_w_th" => nanavg(c.w_th),
+        "cv_mach" => c.mach, "cv_branch" => c.branch, "cv_logt_settle" => l10(nanavg(c.t_settle)), "cv_logt_N" => l10(nanavg(c.t_N)), "cv_logt_turn" => l10(nanavg(c.t_turn)),
+        "cv_logt_chem" => l10(c.t_chem))
+    for t in (:stor, :pdv, :av, :kin, :adv, :dfe, :rad, :conv, :chem, :src, :res); F["cv_e_$t"] = zg(getproperty(c, Symbol("e_", t))); end
+    F, Float64.(c.layer[1:7])
+end
+
 const NUCSPEC = [("logXH", (:p,)), ("logXD", (:d,)), ("logXHe3", (:he3,)), ("logXHe4", (:he4,)), ("logXC", (:c12, :c13)),
     ("logXN", (:n13, :n14, :n15)), ("logXO", (:o15, :o16, :o17, :o18))]
 hasnuc(x) = isdefined(@__MODULE__, :NucNet) && x.hotY !== nothing && size(x.hotY, 2) == length(x.ρ)
@@ -105,7 +135,7 @@ function nucdiag(x)
     [LD, Lpp, L3, Lc, La] ./ Ls
 end
 
-function frame(x, nuc = fill(NaN, 6))
+function frame(x, nuc = fill(NaN, 6), cvon = false)
     n = length(x.ρ); r = x.r; m = x.m; rc = sqrt.(r[1:n] .* r[2:n+1] .+ (r[1:n] .== 0) .* r[2:n+1] .^ 2 ./ 4)
     rc[1] = r[1] == 0 ? 0.5r[2] : rc[1]
     mc = avg(m); L = 4π .* r .^ 2 .* x.fr ./ Ls; Lc = avg(L)
@@ -130,6 +160,10 @@ function frame(x, nuc = fill(NaN, 6))
     j4 = findfirst(>=(1e4 * Rs), r); md4 = j4 === nothing ? NaN : md[j4]
     S = [x.step, x.t / yr, x.dt, log10(x.ρ[1] / mH), x.T[1], Mst, Rst, rph, Tl, x.Teff, Lph, md4, minimum(x.u) / 1e5,
          x.Lnuc, x.Llines, n, x.nchemfb, nuc...]
+    if cvon
+        if hascd(x); Fc, Sc = cvframe(x); merge!(F, Fc); append!(S, Sc)
+        else append!(S, fill(NaN, length(CVSCAL))) end
+    end
     F, S
 end
 
@@ -190,7 +224,8 @@ end
 
 function export_frames(dir; every = 1, old = nothing, out = joinpath(dir, "export"), budget = nothing, skip = String[])
     L = old === nothing ? lineage(dir) : lineage_old(old); mkpath(out)
-    fields = filter(f -> !(f[1] in skip), FIELDS)
+    cvon = any(hascd, L)
+    fields = filter(f -> !(f[1] in skip), cvon ? vcat(FIELDS, CVFIELDS) : FIELDS); scal = cvon ? vcat(SCAL, CVSCAL) : SCAL
     if budget !== nothing      # the smallest stride for which frames.f32 stays below `budget` bytes
         every = 1; while sum(4 * length(x.ρ) * length(fields) for x in L[1:every:end]; init = 0) > budget; every += 1; end
     end
@@ -200,18 +235,18 @@ function export_frames(dir; every = 1, old = nothing, out = joinpath(dir, "expor
     fr = Any[]; off = 0
     open(joinpath(out, "frames.f32"), "w") do io
         for x in sel
-            F, S = nuc ? frame(x, vcat(T[(x.step, x.t)][1:5], ref[objectid(x)])) : frame(x); n = length(x.ρ)
-            for (k, _) in fields; write(io, Float32.(F[k])); end
+            F, S = nuc ? frame(x, vcat(T[(x.step, x.t)][1:5], ref[objectid(x)]), cvon) : frame(x, fill(NaN, 6), cvon); n = length(x.ρ)
+            for (k, _) in fields; write(io, Float32.(get(F, k, fill(NaN, n)))); end
             push!(fr, (S, n, off)); off += 4 * n * length(fields)
         end
     end
     open(joinpath(out, "track.csv"), "w") do io
-        println(io, join(SCAL, ","))
+        println(io, join(scal, ","))
         for (S, _, _) in fr; println(io, join((@sprintf("%.12g", v) for v in S), ",")); end    # 12 digits: Δt of 1e4 s at t = 2e7 yr
     end
     js(v) = isfinite(v) ? @sprintf("%.12g", v) : "null"
     open(joinpath(out, "frames.json"), "w") do io
-        print(io, "{\"fields\":[", join(("[\"$k\",\"$d\"]" for (k, d) in fields), ","), "],\"scalars\":[", join(("\"$s\"" for s in SCAL), ","), "],")
+        print(io, "{\"fields\":[", join(("[\"$k\",\"$d\"]" for (k, d) in fields), ","), "],\"scalars\":[", join(("\"$s\"" for s in scal), ","), "],")
         if nuc      # onset marks, found on every snapshot of the lineage
             print(io, "\"nuc\":{\"thr\":$NUCTHR,\"marks\":[", join(("{\"key\":\"$(m.key)\",\"state\":\"$(m.state)\",\"step\":$(m.x.step),\"t_yr\":" *
                 js(m.x.t / yr) * ",\"M_star\":" * js(m.Ms) * ",\"frac\":" * js(m.frac) * "}" for m in nucmarks(L, T, nucref(L, T))), ","), "]},")
