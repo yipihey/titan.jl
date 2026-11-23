@@ -1,0 +1,27 @@
+T6: unstable layer of thickness L advected by a uniform settling flow u (Eulerian grid, mass flux ṁ = ρ u through the domain, w = 0 inflow)
+    plane, ℓ = a = 1, sup_u = 1 (w_s = 1, N = √8), stable sup = -1 outside, α_t = 0, U = 0; TITAN sign: dmdt > 0 = inward (towards lower index)
+    analytic transit (parcel enters the layer with w = 0): w(d) = w_s tanh(w_s d/(u ℓ)), d = distance travelled in the layer;
+    measured at the downstream-most unstable interface, d = L − h (the last interface in the layer is d = (n_unstable) h from the stable edge interface)
+
+    (L/u)N   u/w_s    w_an      | rel. deviation |w−w_an|/w_an for n cells across L = 10 | 30 | 100   (Newton failures, max budget residual)
+    0.1      283      0.03499   | 5.828e-05  2.035e-05  6.202e-06
+    0.3      94.3     0.10462   | 5.203e-04  1.817e-04  5.536e-05
+    1        28.3     0.33639   | 5.295e-03  1.842e-03  5.607e-04
+    3        9.43     0.78183   | 2.489e-02  8.290e-03  2.483e-03
+    10       2.83     0.99818   | 8.559e-03  1.622e-03  3.821e-04
+    30       0.943    1.00000   | 4.321e-05  2.694e-07  7.940e-09
+    100      0.283    1.00000   | 7.361e-09  5.529e-14  1.843e-14
+    max deviation: n=10 2.489e-02, n=30 8.290e-03, n=100 2.483e-03;  convergence order 10→100: 1.00
+PASS transit amplitude converges to w_s tanh(w_s L/(uℓ)) first order in h  
+PASS T8 energy budget (advective + diffusive e fluxes telescope) closes in every step of every T6 run  max |resid|/scale = 1.58e-16
+PASS outward flow, mirrored layer: same amplitude as inward flow  0.765618049802938 vs 0.765618049802938
+
+    profile along the flow, (L/u)N = 1, n = 100: x, w_num, w_an (tanh(d/u))
+      x =  20.0  w = 0.000000  w_an = —
+      x =  18.0  w = 0.070584  w_an = 0.070593
+      x =  16.0  w = 0.140451  w_an = 0.140486
+      x =  14.0  w = 0.208930  w_an = 0.209006
+      x =  12.0  w = 0.275405  w_an = 0.275534
+      x =  10.0  w = 0.332277  w_an = —
+      x =   8.0  w = 0.255514  w_an = —
+T6 failures: 0
