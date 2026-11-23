@@ -194,7 +194,7 @@ iterate's arrays, the state S = (q, t, fs, g, dp) of every coupled zone: q = W/W
 gives the zone's terms at that star light (PopIIIMaterial.cpl_zone_q) and `CPLSL[]` carries S (Duals) to the NLOIT opacity during the material sweep.
 """
 const SL_SWEEP = Ref{Any}(nothing)
-const SLIMP = Ref(false); const CPL_ZONEQ = Ref{Any}(nothing); const CPLSL = Ref{Any}(nothing)
+const SLIMP = Ref(false); const CPL_ZONEQ = Ref{Any}(nothing); const CPLSL = Ref{Any}(nothing); const CPLMGQ = Ref{Any}(nothing)
 const SLIMPDBG = Ref(parse(Int, get(ENV, "SLIMPDBG", "0")))   # (diagnostic) report the first n non-finite SLIMP values in the residual
 const SLQBUF = Dict{Any,Any}()
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
@@ -698,17 +698,9 @@ end
     abs(val(x)) < 1e-6 && return Δτ * (φ + 0.5 * φ * (1 - φ) * x)
     return Δτ * log1p(expm1(x) * φ) / x
 end
-"""
-TIESMOOTH (popiii_m2c `TIESMOOTH=ε`, with SLABTIE; default 0 = off, off = bit-identical; docs/POPIII_MULTIGROUP.md §5, Newton fix 1): the
-max(h, 0) of SLABTIE's donor factor replaced by the C∞ ramp s(h) = ½(h + √(h² + ε²)) (≥ 0, → h for h ≫ ε, s(0) = ε/2), so that the
-row's derivative is continuous where the slab correction drives h through 0.
-"""
-const TIESM = Ref(0.0)
-@inline sramp(x, ε) = 0.5 * (x + sqrt(x * x + ε * ε))
 "SLABTIE: the outward donor factor h (see SLABTIE)."
 @inline function st_hdonor(hfs, fm, χm, χp, Mm, Mp)
     τi = st_tauint(χm, χp, Mm, Mp)
-    TIESM[] > 0 && return sramp(hfs + fm / (τi + 2fm) - fm / (χm * Mm + 2fm), TIESM[])
     return max(hfs + fm / (τi + 2fm) - fm / (χm * Mm + 2fm), 0.0)
 end
 @inline function excap(cc, κ, ρ, dt)
@@ -716,8 +708,13 @@ end
     return min(1.0, EXCAP[] / (cc * κ * ρ * dt))
 end
 include(joinpath(@__DIR__, "MGRad.jl"))                 # MGROUPS (default off)
-"(MGROUPS with SLIMP) (q, t) of zone k at the iterate from the grey E_r and group MGSLG's E_g, F_g, F_g+1 (PopIIIMaterial.sl_qt_mg)."
-const MGSLQ = Ref{Any}(nothing); const MGSLG = Ref(2)
+"""
+(MGROUPS, stage 2c) The star light of a coupled zone is its group fields at the Newton iterate. `MGSLQ[](Mg, k, T_c)` (the `mgqt` of `SL_SWEEP`) fills
+Mg.qs[1:G, k] with c u_g/c u_g(start of step) and returns that of group MGSLG (PopIIIMaterial.sl_qt_mg); `MGH2FN[](Mg, dn, tn, rn, un, x_H2, t, a, b)`
+the H₂ Lyman–Werner closure of the iterate (Mg.kh2, Mg.kh2g, Mg.qs[G+1, :]; PopIIIMaterial.mg_h2iter!); `MGZONEQ[](k, ρ, T, x1, x2, qv, t, g, dp)` the
+zone's terms in those fields (PopIIIMaterial.cpl_zone_qg). `CPLMGQ[]` carries Mg.qs to the NLOIT opacity during the material sweep (with `CPLSL[]`).
+"""
+const MGSLQ = Ref{Any}(nothing); const MGSLG = Ref(2); const MGH2FN = Ref{Any}(nothing); const MGZONEQ = Ref{Any}(nothing)
 
 """
 Limiter slope of the OLD level, from the old cell values with exactly the formula of the first loop of `advect!` (plain Float64: the old level is a constant
@@ -805,6 +802,8 @@ function compton_old!(ngrs, ngre)
     end
 end
 function material_opac end
+"MGROUPS: `material_opac`, and the zone's group record (MGRad.jl) into `o` in the number type of (ρ, T). Default: the grey record."
+material_opacg!(o, m, ρ, T) = (mg_default!(o); material_opac(m, ρ, T))
 "(PERF512) true if `material_opac(m, ρ::Float64, T::Float64)` has no side effects (no per-zone caches), so it may run on several tasks with the same ZONE[]."
 opac_pure(m) = false
 """
@@ -897,7 +896,7 @@ const MLT_HSDISC = Ref(false)
         W.pgn[k] = pg; W.egn[k] = eg; W.asn[k] = as_
         hassrc && (W.snuc[k] = material_source(m, dn[k], tn[k]))
         if c.lrad
-            χ, κE, κP = material_opac(m, dn[k], tn[k])
+            χ, κE, κP = MG[] ? material_opacg!(mg_gcol(eltype(W.chifn), k), m, dn[k], tn[k]) : material_opac(m, dn[k], tn[k])
             W.chifn[k] = χ; W.xken[k] = κE; W.xkpn[k] = κP
             t2 = tn[k] * tn[k]
             W.plfn[k] = P.csigr * (t2 * t2) / P.cpi
@@ -1238,8 +1237,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             s_ = get!(() -> (; q = Vector{T}(undef, length(xs1)), t = Vector{T}(undef, length(xs1)), fs = Vector{T}(undef, length(xs1)),
                                g = Vector{T}(undef, length(xs1)), ts = Vector{T}(undef, length(xs1)), wq = Vector{T}(undef, length(xs1)), dp = Vector{T}(undef, length(xs1))), SLQBUF, (T, length(xs1)))::SLState{T}
             @inbounds for k in eachindex(s_.q); s_.q[k] = one(T); s_.t[k] = one(T); s_.fs[k] = zero(T); s_.g[k] = one(T); s_.ts[k] = zero(T); s_.wq[k] = zero(T); s_.dp[k] = zero(T); end
+            Mg === nothing || fill!(Mg.qs, one(T))
             SL_SWEEP[](s_, ngrs, ngre, rn, dn, tn, un, ern, frn, xs1, xs2, cplz;
-                         mgqt = Mg === nothing ? nothing : (k -> (gq = MGSLG[]; MGSLQ[](k, ern[k], Mg.egn[gq][k], Mg.fgn[gq][k], Mg.fgn[gq][k+1]))))
+                         mgqt = Mg === nothing ? nothing : ((k, Tc) -> MGSLQ[](Mg, k, Tc)))      # MGROUPS: every group's field at the iterate against its start-of-step value
+            Mg === nothing || MGH2FN[] === nothing || MGH2FN[](Mg, dn, tn, rn, un, xs2, s_.t, ngrs, ngre)       # and the H₂ LW closure at the iterate
             if SLIMPDBG[] > 0
                 fin(v) = isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v)))
                 for k in ngrs:ngre
@@ -1247,7 +1248,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                     SLIMPDBG[] -= 1; println("SLIMPDBG star-light state non-finite zone $(k - ngrs + 1): q $(s_.q[k]) t $(s_.t[k]) fs $(s_.fs[k]) g $(s_.g[k]) E $(ern[k]) F $(frn[k]) $(frn[k+1])"); break
                 end
             end
-            CPLSL[] = s_
+            CPLSL[] = s_; CPLMGQ[] = Mg === nothing ? nothing : Mg.qs
             s_
         else
             nothing
@@ -1255,7 +1256,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
         finally
-            CPLW[] = nothing; CPLSL[] = nothing
+            CPLW[] = nothing; CPLSL[] = nothing; CPLMGQ[] = nothing
         end
         # (PERF512) the coupled zones' rates in the Jacobian's Dual numbers on MATTHREADS tasks (zones independent; the material sweep above
         # left their values and local Jacobians in the zones' cache entries); bit-identical. ZONE[] is not used here and is kept.
@@ -1263,14 +1264,17 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             try zone_sweep!(ngrs:ngre, k -> true) do k
                 @inbounds if cplz(k)
                     y = slst === nothing ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) :
-                        CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slst.q[k], slst.t[k], slst.fs[k], slst.g[k], slst.dp[k])
+                        Mg === nothing ? CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slst.q[k], slst.t[k], slst.fs[k], slst.g[k], slst.dp[k]) :
+                        MGZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], view(Mg.qs, :, k), slst.t[k], slst.g[k], slst.dp[k])
                     W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
                     if SLIMPDBG[] > 0 && !all(v -> isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v))), y)
                         SLIMPDBG[] -= 1; println("SLIMPDBG cpl zone $(k - ngrs + 1) non-finite: y ", y, " state ", slst === nothing ? 1 : (slst.q[k], slst.t[k], slst.fs[k], slst.g[k]))
                     end
                     W.cpQ[k] = y[6]; W.cpY[k] = y[7]
+                    Mg === nothing || (Mg.lcl[k] = y[8])
                 else
                     W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
+                    Mg === nothing || (Mg.lcl[k] = zero(T))
                 end
             end
             finally ZONE0[] = z0 end
@@ -1371,7 +1375,9 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         dfe[k] = P.sige == 0 ? zero(T) : P.sige * rmu[k] * (d[k] + d[k-1]) * (eg[k] - eg[k-1]) / (r[k+1] - r[k-1])
     end
     fedd = c.fedd; HEl = TD.HEDD; HXl = TD.HXEDD; FXl = TD.FXEDD; TWl = TD.TIEW; gedr = P.geddr
-    if AD_JV[] && c.lrad && T <: ForwardDiff.Dual && EDDFAC_DUAL[] !== nothing
+    if AD_JV[] && c.lrad && T <: ForwardDiff.Dual && EDDFAC_DUAL[] !== nothing && Mg !== nothing && MGVEFOK[]
+        fedd = mg_eddfac_dual!(Mg, c, P, W, ngrs, ngre, rn, dn, tn, dvoln, cplz)            # MGROUPS: each group's formal solution in Duals; the grey f of the total rows is their E_g-weighted mean
+    elseif AD_JV[] && c.lrad && T <: ForwardDiff.Dual && EDDFAC_DUAL[] !== nothing
         fedd, HEl, HXl, FXl, TWl, gedr = EDDFAC_DUAL[](c, P, ngrs, ngre, chifn, xkpn, plfn, dn, tn, ern, frn, rn, W.xs1, W.xs2, T, DBUF, SLQBUF, MATERIAL[], SLIMP[], cplz)
     elseif TD.CLOSJ[] && c.lrad && TD.CSENS.valid && TD.CSENS.a == ngrs && T <: ForwardDiff.Dual
         fedd, HEl, HXl, FXl, TWl, gedr = closure_lift(c, P, ngrs, ngre, chifn, xkpn, plfn, dn, tn, ern, rn, W.xs1, W.xs2, T)
@@ -1675,6 +1681,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
         isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
         cplz(k) && (θc = max(θ, CPL_THETA[]); w += (θc * W.cpL[k] + (1 - θc) * XLAMO[][k]) * dvol[k])   # COUPLED: the chemistry cooling, implicit
+        # MGROUPS: the line cooling is not lost, it is emitted into group MGLG (mg_rows!); a row that holds gas + radiation loses only the rest
+        if Mg !== nothing && cplz(k) && !(c.lrad && GASROW[] && !(c.etotal && !c.useint[k]))
+            θl = max(θ, CPL_THETA[]); w -= (θl * Mg.lcl[k] + (1 - θl) * MGLCO[][k]) * dvol[k]
+        end
         R[it, kb(k)] = w
     end
     R[it, 1] = X(it, k0)

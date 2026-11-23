@@ -1,4 +1,4 @@
-# ------------------------------------------------------------------ MGROUPS: implicit multigroup radiation (prototype)
+# ------------------------------------------------------------------ MGROUPS: implicit multigroup radiation
 # Included into TitanResidFast. Design and tests: docs/POPIII_MULTIGROUP.md. Everything here is behind MGROUPS (default off: MG[] is
 # false, no code path below runs and no existing path changes; bit-identical off).
 """
@@ -10,17 +10,16 @@ E_r = Σ_g E_g, F_r = Σ_g F_g (algebraic rows), so every term of the hydro that
 
 * per group the moment rows of TITAN's grey system (TitanResidFast RADIATION ENERGY / MOMENTUM, comoving frame, Mihalas & Mihalas
   1984; Gehmeyr & Mihalas 1994) with the group's exchange x_cap (c κ_E,g E_g − 4π κ_P,g B_g(T)) ρ ΔV, B_g = b_g(T) σT⁴/π, and its
-  interface opacity χ̄_g (harmonic, or SLABFLUX's χ_n of the group's χ_g, SUBZONE on top), the FLUXTIE closure with the grey h
+  interface opacity χ̄_g (harmonic, or SLABFLUX's χ_n of the group's χ_g, SUBZONE on top), the FLUXTIE closure with the group's h
   (SLABTIE: the donor h at the group's slab depth), the outer boundary F_g = c g E_g,s − π(2g+1) I_cmb b_g(T_cmb);
 * the radiation force on the gas is Σ_g χ̄_g F_g/c (the grey rows' χ̄ F/c is replaced; the energy rows need nothing: their work and
-  flux terms read E_r = Σ E_g and F_r = Σ F_g, with the grey f common to all groups in this version);
-* group opacities: κ_X,g = κ_X(iterate) × r_X,g, the grey means of the material at the Newton iterate (exact AD) times lagged group
-  ratios r_X,g (per step, PopIIIMaterial.mg_ratios!: G2 continuum per-group means over the code's own grey means of the same call;
-  1 in table zones, the diffusion-limit split), plus, in the ionizing group of lit network zones, the absolute H(1s) bound–free
-  absorption MGK1 (lagged; case B: no ground-state recombination emission, the network's own convention);
-* the chemistry's lagged energy moves (RAYQ, GASQ) come out of group MGQG (optical).
-Left for later stages (docs): per-group formal solution (f_g, g_g, h_g), Doppler shifts between groups, exact group opacities at the
-iterate, per-process star-light factors at the iterate.
+  flux terms read E_r = Σ E_g and F_r = Σ F_g);
+* group opacities and emissivities at the Newton iterate (stage 2b): the material returns, in the same call as the zone's grey means
+  and in the residual's number type, the group record of the zone (`material_opacg!`, `mg_default!`, `mg_level`): no lagged group
+  quantity enters a row. The old time level's record (MGVO) is the converged record of the previous step (TR stage only);
+* the line cooling of the coupled zones (H₂/HD line transfer, the gas row's Λ) is a source of group MGLG (IR) where the gas row is
+  the gas-only row, so the energy the lines carry out of the gas stays in the radiation field;
+* the chemistry's energy moves (RAYQ, GASQ) come out of group MGQG (optical).
 """
 const MG = Ref(false)
 const MGN = Ref(0)
@@ -28,45 +27,104 @@ const MGEDGE = Ref(Float64[])                   # interior edges [eV], ascending
 const MGI0 = Ref(9)
 const MGEVK = Ref(1.602176634e-12 / 1.380649e-16)   # eV / k_B [K]; set by the driver from ChemNet's constants
 const MGQG = Ref(2)                             # the group that carries RAYQ/GASQ (optical)
+const MGH2G = Ref(0)                            # the LW group with the H₂ photon-conserving absorption (stage 2c; 0: none)
+const MGH2T = Ref(0)                            # the group that receives the H₂ fluorescence (the one below the LW group)
 const MGBFLOOR = 1e-200                         # floor of a group's Planck fraction (energy 1e-200 aT⁴: none; keeps ln E_g finite)
-const MGCLAMP = Ref(3.0)                        # clamp of a correction of ln E_g per Newton iteration
+const MGCLAMP = 3.0                             # clamp of a correction of ln E_g per Newton iteration
 const MGEMIN = 1e-150                           # floor of E_g/E_r after an update (an underflowed group makes the Newton matrix singular)
-const MGCFL = Ref(1e-3)                         # convergence weight floor: |δ ln E_g| counts with E_g/(E_g + MGCFL·E_r)
-const MGEFL = Ref(1e-3)                         # TR-BDF2 error-norm floor: changes of a group below MGEFL·E_r do not limit Δt
-# (Tried and reverted, t_mg17/t_mg18: E_g ← E_g(1 + δ) (Newton in E_g, clamp [1e-6 − 1, 1e3]) with MGCFL = 1e-12: the ionising group then
-#  flip-flops between ~1e-22 and ~1e-49 of E_r at the photosphere from step to step and Δt fell to 446–2228 s (log update ~1e4 s);
-#  docs/POPIII_MULTIGROUP.md §10.)
+const MGCFL = 1e-3                              # convergence weight floor: |δ ln E_g| counts with E_g/(E_g + MGCFL·E_r)
+const MGEFL = 1e-3                              # TR-BDF2 error-norm floor: changes of a group below MGEFL·E_r do not limit Δt
+# (the unknown is ln E_g: why, and what these five numbers do, docs/POPIII_MULTIGROUP.md §10, §19)
 const MGTCMB = Ref(0.0)
 vvec(n, m) = [zeros(m) for _ in 1:n]
 const MGEN = Ref(Vector{Vector{Float64}}()); const MGFN = Ref(Vector{Vector{Float64}}())     # new level (Newton iterate base)
 const MGEO = Ref(Vector{Vector{Float64}}()); const MGFO = Ref(Vector{Vector{Float64}}())     # old level (start of the stage)
 const MGESO = Ref(Vector{Vector{Float64}}()); const MGFSO = Ref(Vector{Vector{Float64}}())   # limiter slopes of the old E_g/ρ and face F_g
 const MGFNOM = Ref(Vector{Vector{Float64}}())   # nominal F_g scale per interface (correction F_g += δ·nom)
-const MGRE = Ref(Vector{Vector{Float64}}()); const MGRP = Ref(Vector{Vector{Float64}}()); const MGRR = Ref(Vector{Vector{Float64}}())
-const MGK1 = Ref(Vector{Vector{Float64}}())     # absolute H(1s) absorption [cm² g⁻¹] per group (ionizing groups of lit network zones)
-const MGK1E = Ref(Vector{Vector{Float64}}())    # its Kirchhoff–Milne emission coefficient: MGK1 × n_1s*/n_1s (n_1s* = Saha with the zone's n_e n_p)
 """
-MGVEF (stage 2a, popiii_m2c `MGVEF=1`, the default with MGROUPS): every group's own Eddington factors from a formal solution with the group's
+The group opacity record of a zone (stage 2b): a vector of `mg_nv()` numbers that the material fills at the Newton iterate, in the
+residual's number type, in the same call that returns the zone's grey means (`material_opacg!`; PopIIIMaterial.nlo_it). Per group g
+(index `mgv(g, j)`): 1 r_E = κ_E,g/κ_E, 2 r_P = κ_P,g/κ_P, 3 r_R = χ_g/χ (ratios to the grey means of the same call; the grey means carry
+the run's calibration), 4 r_Ec: the continuum part of r_E (without the lines' share; enters the thin-zone flux mean, `mg_chif`),
+5 K_1: H(1s) (and n ≥ 2) bound–free absorption of case-B zones [cm² g⁻¹], 6 A_1: the H(1s) Milne emission coefficient
+(emission 4π A_1 X_g(T) σT⁴/π, X_g = e^{χ_H/kT} b_g(T), `mg_xfrac`), 7 κ_Ram. Per Raman pair p (`mgvp(p, j)`): 1 κ_Ram C, 2 κ_Ram ω. Last
+two entries (diagnostics): the three-level n = 2 density and the colour temperature T_w of the absorption means. Table zones and zones without a composition record: `mg_default!` (r_E = r_P = r_R = 1,
+rest 0: the grey field split by Planck fractions, the diffusion limit of the thick interior; the groups then sum to the grey rows).
+`MGVN`, `MGVO` [mg_nv() × zones]: the Float64 records of the new level (PopIIIMaterial fill_opac!, wherever TITAN refreshes chifn) and of
+the old level (copied at the start of a step, as chifo): the residual's θ-mix takes old-level group opacities from MGVO, exactly as the
+grey rows take chifo, xkeo, xkpo.
+"""
+const MGVN = Ref(zeros(0, 0)); const MGVO = Ref(zeros(0, 0))
+const MGXH = Ref(13.598434)                     # χ_H [eV] of the Milne emission (set by PopIIIMaterial to the G2 continuum's)
+const MGGH = Ref(typemax(Int))                  # first ionising group (role H)
+const MGLG = Ref(0)                             # group that receives the line cooling of the coupled zones (the H₂ rovibrational lines: IR)
+const MGLCO = Ref(Float64[])                    # old-level line cooling per volume [erg cm⁻³ s⁻¹] (as XLAMO)
+@inline mgv(g, j) = 7 * (g - 1) + j
+@inline mgvp(p, j) = 7 * MGN[] + 2 * (p - 1) + j
+mg_nv() = 7 * MGN[] + 2 * length(MGRAMP[]) + 2
+@inline function mg_default!(o)
+    fill!(o, zero(eltype(o)))
+    @inbounds for g in 1:MGN[]; o[mgv(g, 1)] = one(eltype(o)); o[mgv(g, 2)] = one(eltype(o)); o[mgv(g, 3)] = one(eltype(o)); end
+    o
+end
+"""
+Flux-mean extinction of a group in a zone of column m [g cm⁻²]. χ_R: the group's Rosseland-type mean (harmonic, weight ∂B_ν/∂T), exact
+where the zone is optically thick in the group (the flux has the diffusion spectrum; the groups then sum to the grey diffusion flux).
+Where the zone is thin the flux has the spectrum of the energy density, and the flux mean is the absorption mean κ_a the energy row
+removes (continuum κ_E,g + K_1 + κ_Ram): with a flux mean below it a streaming absorbing layer has (F/cE)² = κ_a/χ > 1 (steady moment
+equations, f = 1). Weight of the thin form: e^{−χ_R m}, the transmission of the zone in the Rosseland mean. (Stage 2a took
+max(χ_R, κ_E,g) everywhere with the line Planck mean in κ_E,g: 3–400 × the Rosseland mean in the stellar interior and below the
+photosphere, where the groups then no longer summed to the grey diffusion flux; docs §17.)
+"""
+@inline mg_chif(χR, κa, m) = val(κa) > val(χR) ? χR + exp(-χR * m) * (κa - χR) : χR
+"Column of zone k [g cm⁻²] from the density, the zone volume/(μ+1)-form and the face areas r^μ (0 where the faces vanish)."
+@inline mg_zcol(d, dvol, rmu, k) = (a = 0.5 * (rmu[k] + rmu[k+1]); (val(a) > 0 && val(dvol[k]) > 0) ? d[k] * dvol[k] / a : zero(d[k] * dvol[k]))
+"(κ_E,g, χ_g, κ_P,g, A_1) of group g (j = mgv(g, 1)) in zone k from the record gv and the grey (χ, κ_E, κ_P) of the same level; m: zone column."
+@inline function mg_level(gv, j, k, χ, κE, κP, m)
+    k1 = gv[j+4, k]
+    (κE * gv[j, k] + k1, mg_chif(χ * gv[j+2, k], κE * gv[j+3, k] + k1 + gv[j+6, k], m), κP * gv[j+1, k], gv[j+5, k])
+end
+"Size MGVN/MGVO (after the Raman pairs are set) and set every zone to the default record."
+function mg_valloc!(mgr)
+    nv = mg_nv()
+    for R_ in (MGVN, MGVO)
+        size(R_[]) == (nv, mgr) || (R_[] = zeros(nv, mgr); for k in 1:mgr; mg_default!(view(R_[], :, k)); end)
+    end
+    length(MGLCO[]) == mgr || (MGLCO[] = zeros(mgr))
+    empty!(MGWSC)                               # (workspaces are sized by mg_nv())
+    nothing
+end
+"""
+Raman scattering of H(1s) in a group gL between Lyα and the Lyman limit (docs §16; cross sections: HScatter, Kokubo 2024): H(1s) + γ(ν) ↔
+H(2s) + γ(ν − ν_Lyα) destroys the LW photon (the atom returns by two-photon decay) and its inverse creates one from an optical photon and
+an H(2s). `MGRAMP`: pairs (gL, g′, e1, e2) — the photons of gL between e1 and e2 [eV] have their Stokes partner in group g′. Per mass
+and per pair the transfer into gL is c κ_Ram (C E_g′ − ω E_gL) and the same out of g′ (energy moves between the two groups only),
+  ω = b(e1, e2; T_w)/b_gL(T_w)  (the pair's share of gL),   C = (n_2s/n_1s) e^{E_21/kT_w} b(e1, e2; T_w)/b_g′(T_w),
+T_w the colour temperature of the light in the zone (NLOPACJ): by detailed balance of the Kramers–Heisenberg rates the inverse-Raman
+source function is S_ν = (2hν³/c²)(n_2s/n_1s) n̄(ν − ν_Lyα) (g_1s = g_2s), in the Wien limit (n_2s/n_1s) e^{E_21/kT_w} W_g′ B_ν(T_w) for a
+partner field W_g′ B_ν′(T_w). In LTE (n_2s/n_1s = e^{−E_21/kT}, E_g = (4π/c) B_g(T)) every pair is in balance exactly.
+κ_Ram [cm² g⁻¹] from G2Opacity.group_fast; the zone's record (MGVN) holds κ_Ram C and κ_Ram ω per pair.
+"""
+const MGRAMP = Ref(Tuple{Int,Int,Float64,Float64}[])
+"Set the Raman pairs (PopIIIMaterial.mg_roles!)."
+mg_rampairs!(pairs) = (MGRAMP[] = pairs; nothing)
+"""
+Every group's own Eddington factors from a formal solution with the group's
 χ_g, κ_E,g, emission and background (popiii_m2c `mg_eddfac!`, run after the grey one wherever TITAN calls it: every Newton update with VEFIMP):
 f_g per zone (MGFEDD), the tie's h_g (MGHEDD) and weights (MGTIEW, from the group's own optical depth), the outer g_g (MGGEDDR). The grey
 array fedd then holds Σ_g f_g E_g / Σ_g E_g (the radiation pressure of the total rows, MLT, …). Frozen in the Jacobian, as the grey factors.
 """
-const MGVEF = Ref(false); const MGVEFOK = Ref(false)
 const MGFEDD = Ref(Vector{Vector{Float64}}()); const MGHEDD = Ref(Vector{Vector{Float64}}()); const MGTIEW = Ref(Vector{Vector{Float64}}())
 const MGGEDDR = Ref(Float64[])
+const MGVEFOK = Ref(false)                       # the group formal solutions have run (before the first one: the grey factors)
 const MGHPLUS = Ref(Vector{Vector{Float64}}())   # (diagnostic) outgoing half moment H⁺ of each group's formal solution per interface
-"(diagnostic) of the last residual: Σ_g E_g/E_r − 1 worst, the group luminosities through each interface are in MGEN/MGFN"
-const MGNEWTON = Ref(0)
 mgiE(g) = MGI0[] + 2g - 1; mgiF(g) = MGI0[] + 2g
 
 "Allocate the group arrays for mgr zones (values kept where present)."
 function mg_alloc!(mgr)
     G = MGN[]
-    for R_ in (MGEN, MGFN, MGEO, MGFO, MGESO, MGFSO, MGFNOM, MGK1, MGK1E)
+    for R_ in (MGEN, MGFN, MGEO, MGFO, MGESO, MGFSO, MGFNOM)
         (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = vvec(G, mgr))
-    end
-    for R_ in (MGRE, MGRP, MGRR)
-        (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = [ones(mgr) for _ in 1:G])
     end
     for R_ in (MGFEDD, MGHEDD, MGTIEW, MGHPLUS)
         (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = vvec(G, mgr))
@@ -111,6 +169,32 @@ of two tails (no cancellation); else of two lower integrals.
     end
     val(b) < MGBFLOOR ? MGBFLOOR + zero(b) : b
 end
+"Σₙ e^{xc − nx}(x³/n + 3x²/n² + 6x/n³ + 6/n⁴): mg_phigh(x) e^{xc} without overflow or underflow of either factor."
+@inline function mg_phs(x, xc)
+    s = zero(x); xv = val(x)
+    for n in 1:60
+        e = exp(xc - n * x)
+        s += e * (x^3 / n + 3x^2 / n^2 + 6x / n^3 + 6 / n^4)
+        exp(-n * xv) < 1e-18 && break
+    end
+    s
+end
+"""
+X_g(T) = e^{χ/kT} b_g(T) for a group g ≥ 2 and a threshold χ [eV] (no floor): the temperature factor of the Milne recombination emission
+of a bound–free continuum with threshold χ into group g, j_g = n_e n_i λ_e³ (g_n/2g_i) ⟨σ⟩_g e^{χ/kT} b_g(T) σT⁴/π. The two exponentials
+are combined term by term, so the product is exact where b_g alone underflows (cold gas): X_g → (15/π⁴)(χ/kT)³ e^{−(e_g − χ)/kT} there.
+"""
+@inline function mg_xfrac(g, T, χ, edges = MGEDGE[])
+    G = length(edges) + 1; s = MGEVK[] / T; xc = χ * s; xl = edges[g-1] * s
+    val(xl) >= 1 || return mg_bfrac(g, T, edges) * exp(xc)
+    b = mg_phs(xl, xc); g < G && (b -= mg_phs(edges[g] * s, xc))
+    b * (15 / π^4)
+end
+"Fraction of σT⁴/π between the photon energies e1 < e2 [eV] (no floor)."
+@inline function mg_band(e1, e2, T)
+    s = MGEVK[] / T; xl = e1 * s; xh = e2 * s
+    val(xl) >= 1 ? (mg_phigh(xl) - mg_phigh(xh)) * (15 / π^4) : mg_below(xh) - mg_below(xl)
+end
 
 # ---------------------------------------------------------------- Newton hooks (chained with the COUPLED ones by popiii_m2c)
 "Old-level limiter slopes of E_g/ρ (zones) and of the face value F_g·2/(ρ₋+ρ₊), as the species slopes (cpl_newstep!)."
@@ -131,9 +215,10 @@ function mg_slopes!()
     end
     nothing
 end
-"Start of a step: old := new, slopes, nominal flux scales."
+"Start of a step: old := new (fields and opacity records), slopes, nominal flux scales."
 function mg_newstep!()
     ngrs = gi(:ngrs); ngre = gi(:ngre)
+    size(MGVO[]) == size(MGVN[]) && copyto!(MGVO[], MGVN[])
     for g in 1:MGN[]
         copyto!(MGEO[][g], MGEN[][g]); copyto!(MGFO[][g], MGFN[][g])
         E = MGEN[][g]; F = MGFN[][g]; nom = MGFNOM[][g]
@@ -145,7 +230,8 @@ function mg_newstep!()
     nothing
 end
 "Reset after a failed iterate: new := old."
-mg_reset!() = (for g in 1:MGN[]; copyto!(MGEN[][g], MGEO[][g]); copyto!(MGFN[][g], MGFO[][g]); end; nothing)
+mg_reset!() = (for g in 1:MGN[]; copyto!(MGEN[][g], MGEO[][g]); copyto!(MGFN[][g], MGFO[][g]); end;
+               size(MGVO[]) == size(MGVN[]) && copyto!(MGVN[], MGVO[]); nothing)
 "Apply the Newton correction: E_g ← max(E_g e^δ, MGEMIN·E_r) (δ the correction of ln E_g, clamped to ±MGCLAMP in mg_dmax!), F_g ← F_g + δ·nom."
 function mg_update!(rhs, a, b)
     er = v(:ern)
@@ -165,14 +251,14 @@ end
 end
 "maxdel: clamp ln E_g corrections to ±MGCLAMP and return the convergence measure (|δ ln E_g| weighted by E_g/(E_g + MGCFL·E_r))."
 function mg_dmax!(rhs, a, b)
-    d = 0.0; cl = MGCLAMP[]; er = v(:ern)
+    d = 0.0; cl = MGCLAMP; er = v(:ern)
     @inbounds for g in 1:MGN[]
         E = MGEN[][g]; iE = mgiE(g)
         for k in a:b
             δ = rhs[iE, k]
             isfinite(δ) || (rhs[iE, k] = 0.0; d = Inf; continue)
             rhs[iE, k] = clamp(δ, -cl, cl)
-            w = E[k] / (E[k] + MGCFL[] * er[k])
+            w = E[k] / (E[k] + MGCFL * er[k])
             d = max(d, abs(rhs[iE, k]) * w)
         end
         for k in a:b+1; isfinite(rhs[mgiF(g), k]) || (rhs[mgiF(g), k] = 0.0; d = Inf); end
@@ -188,12 +274,25 @@ struct MGWS{T}
     frb::Vector{Vector{T}}; frsn::Vector{Vector{T}}; qF::Vector{Vector{T}}; qFo::Vector{Vector{T}}
     frc::Vector{T}                                  # Σ_g χ̄_g F_g at interfaces (radiation force)
     xch::Vector{T}                                  # Σ_g x_cap,g (c κ_E,g E_g − 4π κ_P,g B_g) per zone (the GASROW gas row's exchange, per mass)
+    xfer::Vector{Vector{T}}                         # energy gained from other groups per mass and time (Raman pairs; Σ_g = 0)
+    gv::Matrix{T}                                   # the zones' group opacity records at the iterate (see MGVN)
+    lcl::Vector{T}                                  # line cooling of the coupled zones at the iterate [erg cm⁻³ s⁻¹] (into group MGLG)
+    kh2::Vector{T}; kh2g::Vector{T}                 # H₂ Lyman–Werner absorption of group MGH2G at the iterate [cm² g⁻¹]: all of it, its share that heats the gas
+    qs::Matrix{T}                                   # (G+1) × zones: c u_g/c u_g(start of step) of every group, and the LW factor f_sh J(0)/J (MGSLQ, MGH2FN)
+    fdd::Vector{Vector{T}}; hde::Vector{Vector{T}}; tiw::Vector{Vector{T}}; gdr::Vector{T}   # the groups' Eddington factor f_g, tie h_g, tie weight and outer g_g in the Jacobian-vector product's Duals (mg_eddfac_dual!)
+    fwt::Vector{T}                                  # the grey f of the total rows there: Σ_g f_g E_g/Σ_g E_g
+    sc1::Vector{T}; sc2::Vector{T}; sc3::Vector{T}  # work: χ_g, κ_E,g, source of one group
 end
 const MGWSC = Dict{DataType,Any}()
 mgws(::Type{T}, mgr) where {T} = get!(MGWSC, T) do
-    G = MGN[]; z() = [zeros(T, mgr) for _ in 1:G]
-    MGWS{T}(z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), zeros(T, mgr), zeros(T, mgr))
+    G = MGN[]; z() = [zeros(T, mgr) for _ in 1:G]; gv = zeros(T, mg_nv(), mgr)
+    for k in 1:mgr; mg_default!(view(gv, :, k)); end
+    MGWS{T}(z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), zeros(T, mgr), zeros(T, mgr), z(), gv, zeros(T, mgr), zeros(T, mgr), zeros(T, mgr), ones(T, G + 1, mgr),
+          z(), z(), z(), zeros(T, G), zeros(T, mgr), zeros(T, mgr), zeros(T, mgr), zeros(T, mgr))
 end::MGWS{T}
+"The record column of zone k in the workspace of number type T (the material sweep writes it; zones are distinct per task)."
+@inline mg_gcol(::Type{T}, k) where {T} = view((MGWSC[T]::MGWS{T}).gv, :, k)
+"The line cooling of coupled zone k at the iterate (TitanResidFast's coupled-zone sweep)."
 
 "The group unknowns of the iterate (blocks k0 … ngre+2) into the workspace."
 function mg_iterate!(M::MGWS{T}, x, neqn, nb, k0, ngre) where {T}
@@ -209,25 +308,39 @@ function mg_iterate!(M::MGWS{T}, x, neqn, nb, k0, ngre) where {T}
 end
 
 """
-θ-level group quantities after the grey material (chif, xke, xkp, plf at the θ level, tn): χ_g, κ_E,g, emission 4π κ_P,g B_g(T)
-(θ-weighted B_g), interface opacity χ̄_g (harmonic, SLABFLUX, SUBZONE as the grey), and the advected face values.
+θ-level group quantities after the grey material (chifn, xken, xkpn, plfn of the iterate and their old-level copies): per level
+κ_E,g = κ_E r_E + K_1, χ_g = mg_chif(χ r_R, κ_E r_Ec + K_1 + κ_Ram), κ_P,g = κ_P r_P with the zone's record of that level (iterate: M.gv, in
+the residual's number type; old: MGVO), θ-mixed as the grey opacities; emission 4π[κ_P,g b_g(T) + A_1 X_g(T)] σT⁴/π with θ-weighted
+coefficients and θ-weighted Planck functions (as the grey row); interface opacity χ̄_g (harmonic, SLABFLUX, SUBZONE as the grey), the
+advected face values, and the Raman transfer between the pairs' groups.
 """
 function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
-    P = c.p; tn = W.tn; to = v(:to); dn = W.dn; dO = c.do_
+    P = c.p; tn = W.tn; to = v(:to); dn = W.dn; dO = c.do_; gv = M.gv; go = MGVO[]; xh = MGXH[]; gH = MGGH[]; mix = θ < 1
     @inbounds for g in 1:MGN[]
-        RE = MGRE[][g]; RP = MGRP[][g]; RR = MGRR[][g]; K1 = MGK1[][g]; K1E = MGK1E[][g]
         eg, fg, en, fn = M.eg[g], M.fg[g], M.egn[g], M.fgn[g]; EO = MGEO[][g]; FO = MGFO[][g]
         for k in ngrs-1:ngre+2
             eg[k] = θ * en[k] + (1 - θ) * EO[k]; fg[k] = θ * fn[k] + (1 - θ) * FO[k]
         end
-        chi = M.chif[g]; chn = M.chifn[g]; ke = M.xke[g]; em = M.emit[g]
+        chi = M.chif[g]; chn = M.chifn[g]; ke = M.xke[g]; em = M.emit[g]; j = mgv(g, 1)
         for k in ngrs-1:ngre+1
-            ke[k] = W.xke[k] * RE[k] + K1[k]
-            # extinction at least the absorption (χ_g is a harmonic-type mean, κ_E,g a Planck-type one: for the H(1s) group κ_E,g > χ_g otherwise)
-            chi[k] = max(W.chif[k] * RR[k], ke[k]); chn[k] = max(W.chifn[k] * RR[k], W.xken[k] * RE[k] + K1[k])
-            # emission per unit mass: 4π κ_P,g B_g, B_g = b_g(T) σT⁴/π at each level, θ-weighted (κ_P at the θ level as the grey row)
-            bn = mg_bfrac(g, tn[k]); bo = θ < 1 ? mg_bfrac(g, to[k]) : 0.0
-            em[k] = 4P.cpi * (W.xkp[k] * RP[k] + K1E[k]) * (θ * W.plfn[k] * bn + (1 - θ) * c.plfo[k] * bo)
+            m = mg_zcol(W.d, W.dvol, W.rmu, k)
+            keN, chN, kpN, a1N = mg_level(gv, j, k, W.chifn[k], W.xken[k], W.xkpn[k], m); bn = mg_bfrac(g, tn[k])
+            if mix
+                keO, chO, kpO, a1O = mg_level(go, j, k, c.chifo[k], c.xkeo[k], c.xkpo[k], m)
+                ke[k] = θ * keN + (1 - θ) * keO; chi[k] = θ * chN + (1 - θ) * chO
+                e_ = (θ * kpN + (1 - θ) * kpO) * (θ * W.plfn[k] * bn + (1 - θ) * c.plfo[k] * mg_bfrac(g, to[k]))
+                if g >= gH && (val(a1N) > 0 || a1O > 0)
+                    e_ += (θ * a1N + (1 - θ) * a1O) * (θ * W.plfn[k] * mg_xfrac(g, tn[k], xh) + (1 - θ) * c.plfo[k] * mg_xfrac(g, to[k], xh))
+                end
+            else
+                ke[k] = keN; chi[k] = chN; e_ = kpN * W.plfn[k] * bn
+                (g >= gH && val(a1N) > 0) && (e_ += a1N * W.plfn[k] * mg_xfrac(g, tn[k], xh))
+            end
+            chn[k] = chN; em[k] = 4P.cpi * e_
+        end
+        if g == MGH2G[]                              # H₂ Lyman–Werner absorption (new level; MGH2FN): extinction κ_H2, to the gas κ_H2,gas
+            kh = M.kh2; kg = M.kh2g
+            for k in ngrs:ngre; ke[k] += kg[k]; chi[k] += kh[k]; chn[k] += kh[k]; end
         end
         av = M.avchi[g]
         for k in ngrs:ngre+1; av[k] = 2 / (1 / chi[k-1] + 1 / chi[k]); end
@@ -253,9 +366,69 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
         for g in 1:MGN[]; ke = M.xke[g][k]; s += excap(cc, ke, W.d[k], dt) * (cc * ke * M.eg[g][k] - M.emit[g][k]); end
         xc[k] = s
     end
+    for g in 1:MGN[]; fill!(M.xfer[g], zero(T)); end
+    @inbounds for (p, pr_) in enumerate(MGRAMP[])                    # Raman pairs: group-to-group transfer (see MGRAMP)
+        gL, gp = pr_[1], pr_[2]; jc = mgvp(p, 1); jw = jc + 1
+        xl = M.xfer[gL]; xp = M.xfer[gp]; eL = M.eg[gL]; ep = M.eg[gp]
+        for k in ngrs:ngre
+            cθ = mix ? θ * gv[jc, k] + (1 - θ) * go[jc, k] : gv[jc, k]; wθ = mix ? θ * gv[jw, k] + (1 - θ) * go[jw, k] : gv[jw, k]
+            (val(cθ) > 0 || val(wθ) > 0) || continue
+            t = cc * (cθ * ep[k] - wθ * eL[k]); xl[k] += t; xp[k] -= t
+        end
+    end
+    if MGH2G[] > 0                                   # H₂ fluorescence: the absorbed LW energy that does not heat the gas, into group MGH2T
+        xl = M.xfer[MGH2G[]]; xt = M.xfer[MGH2T[]]; eL = M.eg[MGH2G[]]; kh = M.kh2; kg = M.kh2g
+        @inbounds for k in ngrs:ngre
+            t = cc * (kh[k] - kg[k]) * eL[k]; xt[k] += t; xl[k] -= t
+        end
+    end
     nothing
 end
 
+"""
+(MGROUPS, Jacobian-vector products of NKRYLOV) The groups' Eddington factors f_g, the tie's h_g and weights, the outer g_g, and the grey f of the total rows
+(Σ_g f_g E_g/Σ_g E_g) as functions of the iterate: the formal solution of each group in the residual's Duals (TitanCore.eddfac_dual), on exactly the
+arrays `mg_eddfac!` (popiii_m2c) swaps into the grey formal solution — χ_g, κ_E,g and the source (emission + Raman + H₂ fluorescence)/κ_E,g of the zone's
+group record at the iterate, E_g, F_g, I_cmb b_g(T_cmb). The same function the update! writes into MGFEDD, … — the product then differentiates what the
+finite difference through update! sees.
+"""
+function mg_eddfac_dual!(M::MGWS{T}, c, P, W, a, b, rn, dn, tn, dvoln, cplz) where {T}
+    G = MGN[]; V = M.gv; c4pi = P.cc / (4P.cpi); mu = c.mu
+    rmun(k) = rn[k]^mu
+    gH2 = MGH2G[]
+    for g in 1:G
+        j = mgv(g, 1); fg_ = M.fdd[g]; hg_ = M.hde[g]; tg_ = M.tiw[g]
+        @inbounds for k in eachindex(fg_); fg_[k] = T(MGFEDD[][g][k]); hg_[k] = T(MGHEDD[][g][k]); tg_[k] = T(MGTIEW[][g][k]); end
+        chi = M.sc1; kp = M.sc2; pl = M.sc3
+        @inbounds for k in a-1:b+1
+            m = (a_ = 0.5 * (rmun(k) + rmun(k + 1)); (val(a_) > 0 && val(dvoln[k]) > 0) ? dn[k] * dvoln[k] / a_ : zero(dn[k] * dvoln[k]))      # (mg_zcol on the new level)
+            kE, chg, kP, a1 = mg_level(V, j, k, W.chifn[k], W.xken[k], W.xkpn[k], m)
+            kE = max(kE, 1e-300); em = kP * W.plfn[k] * mg_bfrac(g, tn[k])
+            (g >= MGGH[] && val(a1) > 0) && (em += a1 * W.plfn[k] * mg_xfrac(g, tn[k], MGXH[]))
+            for (p_, pr_) in enumerate(MGRAMP[])
+                kc = V[mgvp(p_, 1), k]; kw = V[mgvp(p_, 2), k]; (val(kc) > 0 || val(kw) > 0) || continue
+                pr_[1] == g && (kE += kw; em += kc * c4pi * M.egn[pr_[2]][k])
+                pr_[2] == g && (kE += kc; em += kw * c4pi * M.egn[pr_[1]][k])
+            end
+            if gH2 > 0 && val(M.kh2[k]) > 0
+                g == gH2 && (kE += M.kh2[k]; chg += M.kh2[k])
+                g == MGH2T[] && (em += (M.kh2[k] - M.kh2g[k]) * c4pi * M.egn[gH2][k])
+            end
+            chi[k] = chg; kp[k] = kE; pl[k] = em / kE
+        end
+        fe, he, hx, fx, tw, gr = EDDFAC_DUAL[](c, P, a, b, chi, kp, pl, dn, tn, M.egn[g], M.fgn[g], rn, W.xs1, W.xs2, T, DBUF, SLQBUF, nothing, false, cplz; ximr = P.ximr * MGBCMB_[g])
+        @inbounds for k in a:b; fg_[k] = fe[k]; hg_[k] = he[k]; end
+        @inbounds for k in a+1:b; tg_[k] = tw[k]; end
+        M.gdr[g] = gr
+    end
+    fw = M.fwt
+    @inbounds for k in a-1:b+2
+        sE = zero(T); sF = zero(T)
+        for g in 1:G; e_ = M.egn[g][k]; sE += e_; sF += M.fdd[g][k] * e_; end
+        fw[k] = val(sE) > 0 ? sF / sE : T(c.fedd[k])
+    end
+    fw
+end
 "VEF_SPH outer-boundary energy density of a group (vef_esurf with the group's E, F, χ and background E_b,g)."
 @inline function mg_esurf(rn, en, chn, dn, fn, fedd, N, xmu, cc, Eb)
     rc = 0.5 * (rn[N] + rn[N+1]); Ex = en[N] - Eb
@@ -289,20 +462,28 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
         en, fn, eg, fg = M.egn[g], M.fgn[g], M.eg[g], M.fg[g]; EO = MGEO[][g]; FO = MGFO[][g]
         ke = M.xke[g]; em = M.emit[g]; erb = M.erb[g]; frb = M.frb[g]; av = M.avchi[g]
         qg = g == MGQG[]
-        vef = MGVEF[] && MGVEFOK[]
-        fedd = vef ? MGFEDD[][g] : c.fedd; HE = vef ? MGHEDD[][g] : TD.HEDD; TW = vef ? MGTIEW[][g] : TD.TIEW; gr = vef ? MGGEDDR[][g] : P.geddr
+        vef = MGVEFOK[]
+        if vef && AD_JV[] && T <: ForwardDiff.Dual      # Jacobian-vector product: the group's formal solution in Duals (mg_eddfac_dual!)
+            fedd = M.fdd[g]; HE = M.hde[g]; TW = M.tiw[g]; gr = M.gdr[g]
+        else
+            fedd = vef ? MGFEDD[][g] : c.fedd; HE = vef ? MGHEDD[][g] : TD.HEDD; TW = vef ? MGTIEW[][g] : TD.TIEW; gr = vef ? MGGEDDR[][g] : P.geddr
+        end
         # ---- energy
         for k in ngrs:ngre
             aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
             w = (en[k] * dvoln[k] - EO[k] * c.dvolo[k]) / dt + rmu[k+1] * fg[k+1] - rmu[k] * fg[k] +
                 fedd[k] * eg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * eg[k] * aur * dvol[k] +
-                excap(cc, ke[k], d[k], dt) * (cc * ke[k] * eg[k] - em[k]) * d[k] * dvol[k]
+                excap(cc, ke[k], d[k], dt) * (cc * ke[k] * eg[k] - em[k]) * d[k] * dvol[k] - M.xfer[g][k] * d[k] * dvol[k]
             if qg
                 isempty(RAYQ[]) || (w += RAYQ[][k] * dvol[k])
                 isempty(GASQ[]) || (w += GASQ[][k] * dvol[k])
                 w += (cqheat(k, W) + yqheat(k, W)) * dvol[k]
             end
+            # the coupled zones' line cooling (H₂ rovibrational lines, HD: LINEIMP at the iterate) is emitted into group MGLG, with the
+            # gas row's time weights: what the gas loses in lines the radiation field gains, in every zone (a gas row that holds
+            # gas + radiation — the total row, the lrad row without GASROW — takes the same term back, see the gas row)
+            (g == MGLG[] && cplz(k)) && (θc = max(θ, CPL_THETA[]); w -= (θc * M.lcl[k] + (1 - θc) * MGLCO[][k]) * dvol[k])
             if k == ngrs
                 w += -dmdt[k+1] * erb[k+1] - urel[k] * rmu[k] * eg[k]
             elseif k == ngre

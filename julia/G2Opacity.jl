@@ -261,6 +261,38 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, hbfP
     end
     (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
 end
+include(joinpath(@__DIR__, "HScatter.jl"))               # exact H(1s) Rayleigh + Raman cross sections (MGROUPS only; nothing computed unless used)
+"True if the band [lo, hi] (Hz) lies entirely inside the range of the H(1s) Rayleigh/Raman table (0.80 … 0.9996 χ_H: between Lyα and the Lyman limit)."
+lwband(lo, hi) = (νH = Z0.χH / COp.h; lo >= HScatter.EPS0 * νH && hi <= HScatter.EPS1 * νH)
+const LWSUB = Ref{Any}(nothing)
+"""
+Sub-grid of a group lying between Lyα and the Lyman limit (`lwband`; docs §16): cells of LWSTRIDE cells of the HScatter table each, with
+the H(1s) extinction σ_t = 1/⟨1/(σ_1s + σ_Ram)⟩ (harmonic over the cell: its transmission) and the Raman part σ_r = σ_t ⟨σ_Ram/(σ_1s + σ_Ram)⟩
+of it, and for the smooth rest of the extinction the bracketing G2 nodes of the group (linear interpolation in ν). Against the full table
+(7044 cells in 11.2 eV … χ_H(1 − 1/1600)) the group means of `group_fast` agree to 1e-3 where H(1s) dominates the extinction and to 2 %
+(χ_g) anywhere (docs §16). `edges`: interior group edges [Hz]. Per group `nothing` or (ν, st, sr, nodes, ia, wa).
+"""
+const LWSTRIDE = 32
+function lwsub(edges, gidx, G)
+    s = LWSUB[]; (s !== nothing && s.edges == edges) && return s.sub
+    F = fastgrid(); H = HScatter.table(); νH = Z0.χH / COp.h
+    sub = Vector{Any}(nothing, G)
+    for g in 2:G-1
+        lwband(edges[g-1], edges[g]) || continue
+        js = [j for j in eachindex(H.ε) if edges[g-1] <= H.ε[j] * νH < edges[g]]
+        nodes = [i for i in eachindex(F.ν) if gidx[i] == g]
+        (isempty(js) || length(nodes) < 2) && continue
+        νn = F.ν[nodes]; ν = Float64[]; st = Float64[]; sr = Float64[]; ia = Int[]; wa = Float64[]
+        for a in 1:LWSTRIDE:length(js)
+            c = js[a:min(a + LWSTRIDE - 1, length(js))]; h = sum(1 / (H.s1[j] + H.sr[j]) for j in c); x = sum(H.ε[j] for j in c) / length(c) * νH
+            push!(ν, x); push!(st, length(c) / h); push!(sr, sum(H.sr[j] / (H.s1[j] + H.sr[j]) for j in c) / h)
+            q = clamp(searchsortedlast(νn, x), 1, length(nodes) - 1)
+            push!(ia, q); push!(wa, clamp((x - νn[q]) / (νn[q+1] - νn[q]), 0.0, 1.0))
+        end
+        sub[g] = (; ν, st, sr, nodes, ia, wa)
+    end
+    LWSUB[] = (; edges = copy(edges), sub); sub
+end
 """
 MGROUPS (docs/POPIII_MULTIGROUP.md): per-group means of `means_fast`'s physics on the same nodes and with the same populations, plus the
 grey means of the same call (Float64 only). `gidx[i]` is the group of node i. In-group weights: emission B_ν(T), absorption B_ν(Tw),
@@ -269,13 +301,45 @@ weight underflows returns 0 and is taken as grey by the caller; its Planck fract
 temperature broke the emission identity below it: 1000 K cloud gas then over-emitted into the optical group by orders of magnitude, t_mg27.)
 Returns (κE_g, κP_g, χ_g, κ1s_g, κE, κP, χ): κ1s_g the H(1s) bound–free absorption per mass with the in-group shape B_ν(max(Tw, Tmin)) (the
 star's light, also in unlit cold gas where B_ν(Tw) of the ionising groups underflows), whether or not hbfP puts H bound–free into κE_g.
+With `edges` (interior group edges [Hz]) a group between Lyα and the Lyman limit (`lwsub`) takes the exact H(1s) Rayleigh + Raman cross
+sections (HScatter; Kokubo 2024) on the table's cells instead of the low-energy Rayleigh expansion of the G2 nodes (invalid above ~8 eV,
+docs §16): its χ_g is the harmonic mean of the total extinction (smooth extinction of the nodes + n_1s(σ_1s + σ_Raman)) with the weight
+∂B_ν/∂T at the shape temperature max(Tw, Tmin) of the light the group carries, and the 9th return value κ_Ram,g is the Raman absorption
+per mass in the in-group spectrum φ_ν ∝ B_ν/χ_ν of that harmonic mean, κ_Ram = ∫κ_Ram,ν φ_ν dν/∫φ_ν dν = χ_g ⟨σ_Ram n_1s/χ_ν⟩ (convergent
+in the unresolved line cores, where the photons are trapped and do not travel; 0 for every other group).
+8th return value: κ2_g, the bound–free absorption of H n ≥ 2 (and their dissolved levels) per mass with the shape of κ1s_g. 10th: σ̄_1s,g
+[cm² per ground-state atom], the mean of σ_1s(ν)(1 − e^{−hν/kT}) in the group with the emission weight B_ν(T): the Milne (detailed
+balance) emission of recombinations to the ground state into group g is 4π n_1* σ̄_1s,g b_g(T) σT⁴/π per volume, with the LTE (Saha)
+ground-state density n_1* = n_e n_p λ_e³ e^{χ_H/kT} (the Milne relation, Milne 1924, 1924PMag...47..209M; recombination continua of
+nebulae in this form: Brown & Mathews 1970, 1970ApJ...160..939B). Checks (docs §17): a Planck field in LTE is in exact balance with the
+absorption of the same group; the photon-number integral of the same cross-section gives α_1 = α_A − α_B.
 """
-function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, hbfP, Tw = T, Tmin = 3000.0)
-    F = fastgrid(); kB = COp.kB; h = COp.h; ρ = Float64(ρ); T = Float64(T); Tw = Float64(Tw); kT = kB * T
+group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, hbfP, Tw = T, Tmin = 3000.0, edges = nothing) =
+    _group_fast(fastgrid(), Float64(ρ), Float64(T), gidx, G, Float64(n1), Float64(n2), Float64(nH2), Float64(nHe), Float64(nHep), Float64(nHepp), Float64(nHp),
+                Float64(ne), Float64(nHm), hbfP, Float64(Tw), Float64(Tmin), edges)
+@inline _Bf(ν, t) = (u = COp.h * ν / (COp.kB * t); u > 700 ? 0.0 : 2COp.h * ν^3 / COp.c^2 / expm1(u))
+@inline _Df(ν, t) = (u = COp.h * ν / (COp.kB * t); u > 700 ? 0.0 : 2COp.h * ν^3 / COp.c^2 * u * exp(-u) / (t * (-expm1(-u))^2))
+"(Σ ∂B/∂T, Σ ∂B/∂T/χ_ν, Σ B/χ_ν, Σ n σ_Ram B/χ_ν) over the cells of an `lwsub` group at the shape temperature T1s (xo: the nodes' smooth extinction)."
+function _lwsums(ν::Vector{Float64}, st::Vector{Float64}, srm::Vector{Float64}, nodes::Vector{Int}, ia::Vector{Int}, wa::Vector{Float64}, xo::Vector{Float64}, ng::Float64, T1s::Float64)
+    sd = 0.0; sr = 0.0; sφ = 0.0; sφr = 0.0
+    @inbounds for m in eachindex(ν)
+        i0 = nodes[ia[m]]; i1 = nodes[ia[m]+1]
+        χν = (1 - wa[m]) * xo[i0] + wa[m] * xo[i1] + ng * st[m]; χν > 0 || continue
+        Dν = _Df(ν[m], T1s); Bν = _Bf(ν[m], T1s)
+        sd += Dν; sr += Dν / χν; sφ += Bν / χν; sφr += ng * srm[m] * Bν / χν
+    end
+    sd, sr, sφ, sφr
+end
+"Task-local work vectors of `_group_fast` (three of the grid's length): the evaluation runs in the threaded zone sweeps, where per-call vectors cost more in GC than the arithmetic."
+_g2scratch(N) = get!(() -> (zeros(N), zeros(N), zeros(N)), task_local_storage(), :G2O_group_scratch)::NTuple{3,Vector{Float64}}
+function _group_fast(F, ρ::Float64, T::Float64, gidx::Vector{Int}, G::Int, n1::Float64, n2::Float64, nH2::Float64, nHe::Float64, nHep::Float64, nHepp::Float64,
+                     nHp::Float64, ne::Float64, nHm::Float64, hbfP::Bool, Tw::Float64, Tmin::Float64, edges)     # (function barrier: F concrete)
+    kB = COp.kB; h = COp.h; kT = kB * T
     Ts = T; Tws = Tw; T1s = max(Tw, Tmin)
     Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
     χH = Z0.χH; χ2 = Z0.χHe2
-    wH = [Z0.occupation(n, 1, Nion, Nneu) for n in 1:NLEV]; wHe = [Z0.occupation(n, 2, Nion, Nneu) for n in 1:NLEV]
+    lwH = ntuple(n -> Z0.ln_occupation(n, 1, Nion, Nneu), NLEV)       # (as means_fast: the same populations, so Σ_g b_g κ_g is the grey mean)
+    wH = [exp(lwH[n]) for n in 1:NLEV]; wHe = [Z0.occupation(n, 2, Nion, Nneu) for n in 1:NLEV]
     pH = zeros(NLEV); pHe = zeros(NLEV); sx = 0.0
     for n in 2:NLEV; pH[n] = n2 * (n^2 / 4) * exp(-χH * (0.25 - 1 / n^2) / kT) * wH[n] / max(wH[2], 1e-300); sx += pH[n]; end
     ng = max(n1 - sx, 0.0); pH[1] = ng
@@ -284,19 +348,19 @@ function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, n
     for n in 1:NLEV; pHe[n] *= nHep / UHe; end
     x = clamp((log10(T) - FLT0) / FDLT, 0.0, FNT - 1 - 1e-9); j = floor(Int, x) + 1; a = clamp(x - (j - 1), 0.0, 1.0)
     wJ = Tw != T
-    N = length(F.ν); dis = zeros(N); dis1 = zeros(N)
+    N = length(F.ν); dis, dis1, xo = _g2scratch(N); fill!(dis, 0.0); fill!(dis1, 0.0)
     for (i, n, ns, σe) in F.DIS
-        d = 1 - Z0.occupation(ns, 1, Nion, Nneu) / max(wH[n], 1e-300)
+        d = 1 - exp(Z0.ln_occupation(ns, 1, Nion, Nneu) - lwH[n])
         d > 0 && (dis[i] += d * pH[n] * σe; n == 1 && (dis1[i] += d * pH[n] * σe))
     end
+    sub = edges === nothing ? nothing : lwsub(edges, gidx, G)                # (xo: every node is set in the loop below when sub is given)
     gE = zeros(G); gW = zeros(G); gP = zeros(G); gB = zeros(G); gR = zeros(G); gD = zeros(G); g1 = zeros(G); g1W = zeros(G); g2 = zeros(G)
     # the same with the floored shape temperature, used for a group whose actual weight underflows (cold gas, high groups): its Planck
     # fraction is then at the floor, so emission does not matter, but absorption and extinction of the light it carries (the star's) do —
     # a grey fallback gave the LW band the cold gas's H₂ CIA κ_E and absorbed it within a few zones (t_mg34)
     fE = zeros(G); fW = zeros(G); fP = zeros(G); fB = zeros(G); fR = zeros(G); fD = zeros(G); Tf = max(T, Tmin)
+    g1P = zeros(G); f1P = zeros(G)                                           # H(1s) bound–free with the emission weight B_ν(T) (Milne emission)
     sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0
-    Bf(ν, t) = (u = h * ν / (kB * t); u > 700 ? 0.0 : 2h * ν^3 / COp.c^2 / expm1(u))
-    Df(ν, t) = (u = h * ν / (kB * t); u > 700 ? 0.0 : 2h * ν^3 / COp.c^2 * u * exp(-u) / (t * (-expm1(-u))^2))
     @inbounds for i in 1:N
         ν = F.ν[i]; dν = F.w[i]; u = h * ν / kT; em = exp(-u); stim = 1 - em
         B = 2h * ν^3 / COp.c^2 * em / stim; D = B * u / (T * stim)
@@ -321,18 +385,27 @@ function group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, n
         aE = a0 + σhm * nHm + hb; aP = a0 + σhm * nHm + hb; ext = a0 + σhm * nHm + ab + sca
         sE += aE * BJ * dν; sW += BJ * dν; sP += aP * B * dν; sB += B * dν
         sR += D / max(ext, 1e-300) * dν; sD += D * dν
-        g = gidx[i]; Bs = Bf(ν, Ts); Bw = Bf(ν, Tws); Ds = Df(ν, Ts)
-        B1 = Bf(ν, T1s); Bfl = Bf(ν, Tf); Dfl = Df(ν, Tf)
+        g = gidx[i]; sub === nothing || (xo[i] = ext - F.ray1[i] * ng); Bs = _Bf(ν, Ts); Bw = _Bf(ν, Tws); Ds = _Df(ν, Ts)
+        B1 = _Bf(ν, T1s); Bfl = _Bf(ν, Tf); Dfl = _Df(ν, Tf)
         fE[g] += aE * B1 * dν; fW[g] += B1 * dν; fP[g] += aP * Bfl * dν; fB[g] += Bfl * dν; fR[g] += Dfl / max(ext, 1e-300) * dν; fD[g] += Dfl * dν
         gE[g] += aE * Bw * dν; gW[g] += Bw * dν; g1[g] += a1 * B1 * dν; g1W[g] += B1 * dν; g2[g] += a2 * B1 * dν
-        gP[g] += aP * Bs * dν; gB[g] += Bs * dν
+        gP[g] += aP * Bs * dν; gB[g] += Bs * dν; s1 = F.SH[1, i] * stim; g1P[g] += s1 * Bs * dν; f1P[g] += s1 * Bfl * dν
         gR[g] += Ds / max(ext, 1e-300) * dν; gD[g] += Ds * dν
     end
-    q(a_, b_) = b_ > 0 ? a_ / b_ / ρ : 0.0
-    uf(w) = !(w > 1e-280)                                                    # (the group's actual weight underflowed)
+    q = (a_, b_) -> b_ > 0 ? a_ / b_ / ρ : 0.0
+    uf = w -> !(w > 1e-280)                                                  # (the group's actual weight underflowed)
+    kram = zeros(G); χs = zeros(G)
+    if sub !== nothing
+        for g in 1:G
+            S = sub[g]; S === nothing && continue
+            sd, sr, sφ, sφr = _lwsums(S.ν, S.st, S.sr, S.nodes, S.ia, S.wa, xo, ng, T1s)::NTuple{4,Float64}
+            sr > 0 && (χs[g] = sd / sr / ρ); sφ > 0 && (kram[g] = sφr / sφ / ρ)
+        end
+    end
     ([uf(gW[g]) ? q(fE[g], fW[g]) : q(gE[g], gW[g]) for g in 1:G], [uf(gB[g]) ? q(fP[g], fB[g]) : q(gP[g], gB[g]) for g in 1:G],
-     [uf(gD[g]) ? (fR[g] > 0 ? fD[g] / fR[g] / ρ : 0.0) : (gR[g] > 0 ? gD[g] / gR[g] / ρ : 0.0) for g in 1:G],
-     [q(g1[g], g1W[g]) for g in 1:G], sE / sW / ρ, sP / sB / ρ, sD / sR / ρ, [q(g2[g], g1W[g]) for g in 1:G])
+     [χs[g] > 0 ? χs[g] : uf(gD[g]) ? (fR[g] > 0 ? fD[g] / fR[g] / ρ : 0.0) : (gR[g] > 0 ? gD[g] / gR[g] / ρ : 0.0) for g in 1:G],
+     [q(g1[g], g1W[g]) for g in 1:G], sE / sW / ρ, sP / sB / ρ, sD / sR / ρ, [q(g2[g], g1W[g]) for g in 1:G], kram,
+     [uf(gB[g]) ? (fB[g] > 0 ? f1P[g] / fB[g] : 0.0) : g1P[g] / gB[g] for g in 1:G])
 end
 "Group index of every fast node for interior edges `edges` [Hz] (ascending)."
 group_index(edges) = (F = fastgrid(); [searchsortedlast(edges, ν) + 1 for ν in F.ν])

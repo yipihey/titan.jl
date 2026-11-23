@@ -408,27 +408,27 @@ const VNAMES = Dict(1 => "r", 2 => "m", 3 => "rho", 4 => "u", 5 => "T", 6 => "E_
 
 "Conserved combinations of a state (arrays of the new or the old time level; xs = the two coupled species)."
 function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs, mg = nothing)
-    a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1; n = length(d)
-    C = Dict{Symbol,Vector{Float64}}(s => zeros(n) for s in (:m, :me, :xme, :r, :P))
+    a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1; n = length(d); T = eltype(d)
+    C = Dict{Symbol,Vector{T}}(s => zeros(T, n) for s in (:m, :me, :xme, :r, :P))
     m = C[:m]
     @inbounds for k in a:b; m[k] = d[k] * dv[k]; C[:me][k] = m[k] * eg[k]; end
     @inbounds for k in a-1:b+2; C[:xme][k] = xme[k]; C[:r][k] = rr[k]; end
     @inbounds for k in a+1:b; C[:P][k] = u[k] * (m[k-1] + m[k]); end
     TitanCore.FREE_OUTER[] && (C[:P][b+1] = u[b+1] * m[b])
     if lrad
-        C[:mer] = zeros(n); C[:EV] = zeros(n); C[:QF] = zeros(n)
+        C[:mer] = zeros(T, n); C[:EV] = zeros(T, n); C[:QF] = zeros(T, n)
         @inbounds for k in a:b; C[:mer][k] = m[k] * egr[k]; C[:EV][k] = er[k] * dv[k]; end
         @inbounds for k in a+1:b; C[:QF][k] = fr[k] * 2 * (m[k-1] + m[k]) / (d[k-1] + d[k]); end
     end
     if TX.COUPLED[]
         for i in 1:2
-            x = zeros(n); C[i == 1 ? :x1 : :x2] = x
+            x = zeros(T, n); C[i == 1 ? :x1 : :x2] = x
             @inbounds for k in a:b; TX.cplz(k) && (x[k] = m[k] * xs[i][k]); end
         end
     end
     if mg !== nothing                  # MGROUPS: E_g ΔV and the flux-row inertia of F_g
         for g in 1:TX.MGN[]
-            kE, kF = mgkeys(g); EV = zeros(n); QF = zeros(n); C[kE] = EV; C[kF] = QF; Eg = mg[1][g]; Fg = mg[2][g]
+            kE, kF = mgkeys(g); EV = zeros(T, n); QF = zeros(T, n); C[kE] = EV; C[kF] = QF; Eg = mg[1][g]; Fg = mg[2][g]
             @inbounds for k in a:b; EV[k] = Eg[k] * dv[k]; end
             @inbounds for k in a+1:b; QF[k] = Fg[k] * 2 * (m[k-1] + m[k]) / (d[k-1] + d[k]); end
         end
@@ -565,18 +565,43 @@ taken from the residual's own state evaluation (TitanResidFast.residual! at the 
 injected through the old arrays as for the first filter.
 """
 function refilter!(E1, Cs, δ0)
+    TX.MG[] && return refilter_mg!(E1, Cs, δ0)
     c = TX.context(); Wws = TX.getws(Float64, c.mgr); W = Wws.a; neqn, k0, nb = c.neqn, c.k0, c.nb; R = zeros(neqn, nb)
     x = zeros(neqn * nb); mx = 0.0
     @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = v; mx = max(mx, abs(v)); end
     ε = mx > 0 ? min(1.0, 1e-3 / mx) : 1.0
-    Wm = TX.MG[] ? TX.mgws(Float64, c.mgr) : nothing
-    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2), Wm === nothing ? nothing : (Wm.egn, Wm.fgn))
+    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2))
     TX.residual!(R, Wws, c, zeros(neqn * nb)); C0 = Dict(s_ => copy(v) for (s_, v) in stw())
     x .*= ε; TX.residual!(R, Wws, c, x); Cp = stw()
     Co = Dict{Symbol,Vector{Float64}}()
     for (s_, v0) in C0
         vs = Cs[s_]; vp = Cp[s_]; o = similar(v0)
         @inbounds for k in eachindex(v0); o[k] = vs[k] + (vp[k] - v0[k]) / ε; end
+        Co[s_] = o
+    end
+    old_from!(Co) || return false
+    rhs = TF.var(:rhs); r(:matgen); r(:matslv); TD.KRYLOV[] !== nothing && TD.KRYLOV[](); rhs .-= δ0
+    true
+end
+
+"""
+(MGROUPS) The second filter with the exact image ΔQ = Q_y Est: one evaluation of the residual's state in dual numbers with Est as the
+direction. The finite difference of `refilter!` takes its step from the largest entry of Est, ε = 10⁻³/max|Est|. With group unknowns
+that entry belongs to a group whose energy changes by many orders of magnitude within the step in some zone (the estimate is in
+δ ln E_g: 10⁸ and more); ε then falls below round-off for every other unknown, the difference is zero and so is the estimate: no error
+control (docs/POPIII_MULTIGROUP.md §20). The derivative has no step: a large entry stays in its own group.
+"""
+function refilter_mg!(E1, Cs, δ0)
+    c = TX.context(); neqn, k0, nb = c.neqn, c.k0, c.nb; FD = TX.ForwardDiff; D = FD.Dual{TX.JTag,Float64,1}
+    x = Vector{D}(undef, neqn * nb)
+    @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = D(0.0, FD.Partials((v,))); end
+    Wws = TX.getws(D, c.mgr); W = Wws.a; Wm = TX.mgws(D, c.mgr)
+    TX.residual!(Matrix{D}(undef, neqn, nb), Wws, c, x)
+    Cd = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2), (Wm.egn, Wm.fgn))
+    Co = Dict{Symbol,Vector{Float64}}()
+    for (s_, vd) in Cd
+        vs = Cs[s_]; o = similar(vs)
+        @inbounds for k in eachindex(vs); o[k] = vs[k] + FD.partials(vd[k], 1); isfinite(o[k]) || return false; end
         Co[s_] = o
     end
     old_from!(Co) || return false
@@ -606,7 +631,7 @@ function wnorm(rhs)
         if TX.MG[]                     # MGROUPS: δE_g against the group's own E_g with the grey floor plus MGEFL·E_r (minor groups do not set Δt)
             E = vf(:ern)[k]
             for g in 1:TX.MGN[]
-                Eg = TX.MGEN[][g][k]; acc(rhs[TX.mgiE(g), k] * Eg / (rt * (Eg + o.efl * 7.565723e-15 * tn[k]^4 + TX.MGEFL[] * E)), TX.mgiE(g), k)
+                Eg = TX.MGEN[][g][k]; acc(rhs[TX.mgiE(g), k] * Eg / (rt * (Eg + o.efl * 7.565723e-15 * tn[k]^4 + TX.MGEFL * E)), TX.mgiE(g), k)
             end
         end
     end
@@ -620,7 +645,7 @@ function wnorm(rhs)
             if TX.MG[]
                 for g in 1:TX.MGN[]
                     Fg = TX.MGFN[][g][k]
-                    acc(rhs[TX.mgiF(g), k] * TX.MGFNOM[][g][k] / (rt * max(abs(Fg), o.ffl * 2.99792458e10 * 0.5 * (ern[k-1] + ern[k]), TX.MGEFL[] * abs(frn[k]))), TX.mgiF(g), k)
+                    acc(rhs[TX.mgiF(g), k] * TX.MGFNOM[][g][k] / (rt * max(abs(Fg), o.ffl * 2.99792458e10 * 0.5 * (ern[k-1] + ern[k]), TX.MGEFL * abs(frn[k]))), TX.mgiF(g), k)
                 end
             end
         end
