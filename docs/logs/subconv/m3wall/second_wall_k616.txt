@@ -1,0 +1,29 @@
+# second wall: state ck616_k616 (fixed code, B2 restart step 616, before the 2-cycle failure of step 617), TR-stage probes (iterations; 26 = failed)
+# w1: probe 1 = throw-away (fills the residual workspace); TDCVARS: none|none|ap0|noQ|aD0|at0|wfrz|mltFc|ap0,aD0,noQ,wfrz|none|none at probe dt 4e5 x9, 2e5, 8e5
+NWPROBE variant 1: none
+NWPROBE step dt 4.0000e+05 (TR stage 2.3431e+05): converged false, iterations 26, final dmax 5.000e-01, 377.7 s
+NWPROBE variant 2: none
+NWPROBE step dt 4.0000e+05 (TR stage 2.3431e+05): converged false, iterations 26, final dmax 5.000e-01, 22.2 s
+NWPROBE variant 3: ap0
+NWPROBE step dt 4.0000e+05 (TR stage 2.3431e+05): converged true, iterations 10, final dmax 1.185e-07, 9.7 s
+NWPROBE variant 4: noQ
+NWPROBE step dt 4.0000e+05 (TR stage 2.3431e+05): converged true, iterations 10, final dmax 1.681e-05, 9.6 s
+NWPROBE variant 5: aD0
+NWPROBE step dt 4.0000e+05 (TR stage 2.3431e+05): converged false, iterations 26, final dmax 4.176e-01, 24.8 s
+NWPROBE variant 6: at0
+NWPROBE step dt 4.0000e+05 (TR stage 2.3431e+05): converged false, iterations 26, final dmax 5.000e-01, 22.0 s
+NWPROBE variant 7: wfrz
+NWPROBE step dt 4.0000e+05 (TR stage 2.3431e+05): converged true, iterations 8, final dmax 1.581e-05, 7.6 s
+NWPROBE variant 8: mltFc
+NWPROBE step dt 4.0000e+05 (TR stage 2.3431e+05): converged true, iterations 3, final dmax 8.345e-06, 4.1 s
+NWPROBE variant 9: ap0,aD0,noQ,wfrz
+NWPROBE step dt 4.0000e+05 (TR stage 2.3431e+05): converged false, iterations 26, final dmax 4.181e-01, 24.8 s
+NWPROBE variant 10: none
+NWPROBE step dt 2.0000e+05 (TR stage 1.1716e+05): converged true, iterations 6, final dmax 7.150e-07, 6.0 s
+NWPROBE variant 11: none
+NWPROBE step dt 8.0000e+05 (TR stage 4.6863e+05): converged true, iterations 5, final dmax 5.634e-05, 4.8 s
+# w2: TDC=0 (production MLT), probe dt 2e5, 4e5, 8e5, 1.6e6
+NWPROBE step dt 2.0000e+05 (TR stage 1.1716e+05): converged true, iterations 12, final dmax 4.496e-06, 274.5 s
+NWPROBE step dt 4.0000e+05 (TR stage 2.3431e+05): converged false, iterations 26, final dmax 5.000e-01, 2.7 s
+NWPROBE step dt 8.0000e+05 (TR stage 4.6863e+05): converged false, iterations 26, final dmax 5.000e-01, 2.8 s
+NWPROBE step dt 1.6000e+06 (TR stage 9.3726e+05): converged false, iterations 26, final dmax 5.000e-01, 2.7 s

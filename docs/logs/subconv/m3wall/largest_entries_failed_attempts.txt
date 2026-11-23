@@ -1,0 +1,4 @@
+unfixed B2 restart (base), failed attempts : failed attempts 8 ; Newton iterations 200 ; median global step fraction lambda 0.125
+  largest weighted delta0 entry (eq@zone): count [((7, 74), 69), ((9, 37), 65), ((7, 38), 39), ((8, 37), 27)]
+M3d fix (fix200), failed attempts so far : failed attempts 11 ; Newton iterations 275 ; median global step fraction lambda 0.741
+  largest weighted delta0 entry (eq@zone): count [((9, 38), 172), ((9, 37), 74), ((10, 38), 21), ((9, 39), 3), ((10, 34), 2), ((6, 39), 2), ((10, 36), 1)]

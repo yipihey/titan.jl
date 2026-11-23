@@ -1,0 +1,12 @@
+ 605 dt 2.42e+05 max w 2.031e+05 @36  #interfaces w>1e3: 5
+ 650 dt 7.33e+06 max w 2.087e+05 @37  #interfaces w>1e3: 3
+ 700 dt 8.92e+04 max w 1.913e+05 @38  #interfaces w>1e3: 3
+ 760 dt 3.67e+07 max w 3.259e+05 @38  #interfaces w>1e3: 3
+ 765 dt 1.58e+07 max w 2.230e+05 @38  #interfaces w>1e3: 2
+ 770 dt 1.50e+06 max w 1.576e+05 @38  #interfaces w>1e3: 2
+ 775 dt 2.61e+05 max w 1.528e+05 @38  #interfaces w>1e3: 2
+ 780 dt 6.21e+04 max w 1.510e+05 @38  #interfaces w>1e3: 2
+ 785 dt 4.99e+04 max w 1.495e+05 @38  #interfaces w>1e3: 2
+ 790 dt 1.89e+05 max w 1.477e+05 @38  #interfaces w>1e3: 2
+ 795 dt 2.62e+04 max w 1.466e+05 @38  #interfaces w>1e3: 2
+ 800 dt 8.21e+04 max w 1.476e+05 @39  #interfaces w>1e3: 2

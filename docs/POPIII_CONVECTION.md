@@ -562,3 +562,74 @@ Two checkpoints written from the M3b replay (`SAVE=… CKDUMP=…`, TDC, rp_k115
 - A principled fix belongs to the closure/globalisation work, not to M3: f's dependence on the iterate at τ ~ 1–10 cliffs (smoothing of the limiter/branch decisions of the formal solution, or a globalisation that follows the f-dependence: freezing f in the Newton solve is a lagged input, not acceptable as a method, M3 §1 of docs/POPIII_NEWTON_KRYLOV.md), after which the k115 TDC pilot should be re-run. Not attempted here: it changes production radiation transfer.
 - [open] `NITER=100/300` did not change the 26-iteration cap in these restarts (`hN1`, `hN2`): the iteration cap that the trace shows is not set by `NITER`; whether a larger cap would let the trust-region path converge was not tested.
 - [open] Why the TDC photosphere does not cycle (F_c carrying the flux up to τ ≈ 10 with a steady surface) was not investigated; B1 (MLTBUOY=1, τ weight, MLT_NOINFALL) ran the same restart without collapse and may differ exactly here.
+
+## M3d — The TDC Newton wall: the species' local initial guess omitted the turbulent mixing (23 Nov 2026; `TDCMIXGUESS`, default on inside `TDC=1`)
+
+Labels: [run] [test] [read] [derivation] [interpretation] [open]. Logs `docs/logs/subconv/m3wall/`; scripts `scripts/subconv/m3wall_*` (`m3wall_run.sh` restart from a checkpoint with `NWTRACE`, `m3wall_variants.sh` one process, one variant per probe,
+`m3wall_att.py`, `m3wall_attshow.sh`, `m3wall_dtnwt.py` trace readers). Code of the tests: scratch worktrees of the branch (TitanCore.jl of aace2a0, never committed); DEBUG knobs in `debug_knobs.patch` only (removed again).
+
+### M3d.1 The problem and the method [run]
+
+M4 lane B2 (TDC=1, `TDCPAR=1,1,1,1,0.01,1,0`, zie1 stack) advances at Δt = 1.6e4–7.3e4 s with a Newton-failure rejection every ~4 steps (dt ÷4, then regrowth ×2 per step to the same ~7e4). Start state of all tests:
+`m2c_B2S1_auto0` (B2 step 600, 0.29 M☉, R* = 59.9 R☉; the photospheric cliff of the layer is at zone 37: T 11 281 → 3 157 K, χ 122 → 3.4e-4 cm⁻¹, x_H⁺ 0.36 → 4.5e-6 → 3.8e-11 over zones 36 → 38,
+`profile_step605.txt`, `xHp_zone36_38.txt`). Tools: `NWTRACE` (every Newton iteration: largest weighted entry, λ, trust radius), `NWPROBE` (one trapezoidal-stage attempt from the live state at fixed Δt; stage = 0.586 Δt; 26 iterations = failed),
+`TDCDBG=noFc,mltFc,noQ,wfrz` and per-probe `TDCVARS` (DEBUG, scratch only): F_c → 0, F_c → the local-MLT value of the same sup, U, ℓ at the iterate (`kw_mlt_flux`), exchange Q → 0, the w row replaced by w = w_old; α_p, α_t, α_D through `TDCPAR`.
+
+### M3d.2 Findings [run]
+
+1. **The wall is a window in Δt, not a w-rows problem** (`probes.txt`; iterations of the stage Newton at probe Δt):
+
+| probe Δt [s] | 3e4 | 6e4 | 1e5 | 2e5 | 3e5 | 6e5 | 1e6 | 2e6 |
+|---|---|---|---|---|---|---|---|---|
+| TDC (M3b guess) | F | F | F | F | F | 3 | 4 | – |
+| TDC unset, same state | 5 | 5 | 6 | 10 | F | F | F | – |
+| TDC, α_D = 0 | 5 | 5 | 7 | 11 | F | F | F | F |
+| **TDC with the M3d guess** | F* | 2 | 2 | 2 | 2 | 3 | 4 | 8 |
+
+(F = 26 iterations, not converged; F* = first probe after a restart, see M3d.5.) The control step (B2 itself) fails at 6.4e4–7.3e4 s: the same threshold. The Newton is *not* made hard by the large step (at 6e5–1e6 s it converges in 3–4 iterations).
+2. **No TDC row is the cause** (`variants_dt3e4.txt`, probe Δt 3e4, 11 variants in one process): F_c off or → local MLT value, Q off, α_p = 0, α_t = 0 (each alone) all still fail (26); **α_D = 0 converges in 5, and every variant that has α_D = 0 converges in 5**
+(incl. α_p = α_D = 0, Q off, w frozen at w_old; F_c → 0). The w unknown is not involved: with the w row replaced by w = w_old (`wfrz`) the failure is the same, the iterations never have a w entry as the largest weighted correction (8 failed
+attempts, 200 Newton iterations: x_H⁺/x_H₂ at zone 37, F_r at zones 38 and 74; `largest_entries_failed_attempts.txt`), and |δw| ≤ 5e-3 `unom` per iteration with the weight 1/max(|w|, 0.01 c_s) of `tdc_dmax!`/`tdc_weight`, i.e. the scaling of
+w in the convergence measure and in the trust-region measure is not limiting.
+3. **First correction** (`first_iteration.txt`): the Newton direction of the first iteration from the start state is |δ₀|_W = 2.7 (TDC unset, TDC with α_D = 0) but **136** with α_D = 1: the largest weighted entry is the x_H⁺ row of zone 37, 143 at weight 0.24, i.e. δ ln x_H⁺ ≈ 6×10²,
+and the global step fraction λ = 0.019 (0.49 without D_mix). The trust region and the Armijo search scale the *whole* vector by one λ, so E_r, T, F_r and everything else of the system creep at 2 % per iteration (median λ of the 8 failed attempts 0.125): the step is lost to a single log-variable entry.
+4. **Where that entry comes from** (`xHp_row_terms.txt`, the terms of the x_H⁺ row of zone 37 at the first residual evaluations, Δt 3e4): the iterate the Newton starts from has x_H⁺ = 3.2e-7 against the old/converged 4.5e-6, because Newton's initial species are the **local solution of the zone's two
+species rows alone** (`cpl_local!`, `TitanResidFast.cpl_local_all!`: neighbours' x held, 2×2 Newton in ln x), and that solve contained advection and chemistry but **not the turbulent mixing term** that the residual rows carry since M3b (`F_{k+1} − F_k`, D = α_D ℓ w). In zone 37 the mixing influx from zone 36
+(x_H⁺ 0.355; D = ℓ w = 8.0e11 × 1.46e5 = 1.2e17 cm² s⁻¹ at interface 37) is 1.4e22 g s⁻¹ against storage −7.2e19, chemistry +3.9e19 and advection 9e17: 200× the largest other term of the row. Without the mixing the guess relaxes to 3e-7 (14× below the mixing-fed solution; [interpretation] recombination with t_rec ≪ Δt); in the
+row the x_H⁺ source from the neighbour does not depend on the zone's own x, so Newton in ln x from below sees δ ln x ≈ ½((x_eq/x)² − 1) [derivation for P = k x²], hundreds, against the ln 14 = 2.6 that is needed. [interpretation] This is a property of the log variable with a source independent of the zone's own value (the same would hold for the advective inflow of a species from an ionised neighbour), exposed here because the
+only large x-independent source into a cold, recombined zone is the D_mix flux across the cliff.
+5. **No physics requires Δt ~ 1e5 s** (`timescales_step605.txt`, step 605, interfaces 33–37 carry w = 8.5e3 … 2.0e5 cm/s): turnover ℓ/a = 5.7e5 … 1.1e6 s; KW growth time ℓ/(a√sup) = 4.2e6 s (36), 2.4e6 s (37); w advection across the CV Δr/|u| = 6.6e6 s (36), 2.1e6 s (37), 1.3e6 s (38); ℓ/w ≥ 4.4e6 s;
+diffusion Δr²/(α_t ℓ w) ≥ 8e8 s; radiative loss ℓ/(2Ua) = 2.5e6 s at the active interface 37 (≤ 700 s at 38–41, where w ≈ 0 and the damping of the linear w term is merely stiff, not a time scale of the solution). The smallest TDC time scale of the layer is 4e5 s, i.e. steps of 1e6 s are resolved and the 7e4 s steps are numerical, not physical.
+
+### M3d.3 Fix [read; code `cf584c8`]
+
+The local initial guess solves the same rows as the residual: `PopIIIMaterial.cpl_local!` (julia/PopIIIMaterial.jl:2213) adds `+ (c_k + c_k+1) x − c_k+1 x_{k+1} − c_k x_{k−1}` with the coefficients c_j = rmu_j ρ̄_j α_D ℓ_j w_j/Δr_c,j of `TitanResidFast.tdc_mix_coef` (julia/TitanResidFast.jl:970; w the iterate `WTN`,
+ℓ, r, rmu of the last residual evaluation, ρ the predicted one; zero at the boundaries). The hooks of w (`tdc_newstep!`, `tdc_reset!`) now run before the species hooks (julia/popiii_m2c.jl:2014) so that the guess sees the old w also after a failed attempt. Nothing in the rows, the Jacobian, the weights or the converged solution changes (Newton's start only); switch `TDCMIXGUESS=0` = M3b guess (inventory, docs/POPIII_SWITCH_INVENTORY.md).
+The two options the task names as candidates, w scaling and a missing derivative, are not involved (point 2, M3b.3(b)); the error estimate is discussed in M3d.5.
+
+### M3d.4 Tests [test/run]
+
+- **Probes** (table above, row "M3d guess"): 2 iterations at probe Δt 6e4 … 3e5, 3 at 6e5, 4 at 1e6, 8 at 2e6; first correction |δ₀|_W = 0.017 (against 136).
+- **200 steps from the checkpoint** (`fix200`, `dt_history_fix200.txt`, `attempts_*.txt`; same start, same cores): over the first 40 steps ΣΔt = 1.06e7 s against 1.18e6 s (×9), median Δt 1.7e5 against 3.4e4, 3 Newton-failed attempts against 8 (7.5 against 20 per 100 steps); over 200 steps ΣΔt = 7.6e8 s = 24.0 yr (before: 0.037 yr in the 40 steps, ≈ 0.2 yr per 200 steps extrapolated; B2 production 2 yr per 400 steps, 60 failures per 350 steps), 22 failed attempts (11 per 100 steps),
+median Δt 3.3e5 s, 25-step medians up to 9.4e6 s (steps 650–674) and 7.8e6 s (750–774) with maxima 3.7e7 s; wall 3.2e3 s for 200 steps (15.8 s/step against ≈ 25 s/step in B2).
+- **Bit-identity, TDC unset** (`bitid_ic40.txt`): IC, zie1 settings, 40 steps, SNAPEVERY=5, HEAD 00326c0 against HEAD + fix: 10 snapshots, 300 fields, 0 differences.
+- **NKCHECK:** no residual row, derivative, weight or measure was changed (initial guess and hook order only), so the J·v results of M3b.3(b) stand unchanged; not repeated.
+
+### M3d.5 What is left, and what was not done [run; interpretation; open]
+
+- **A second wall remains, and it is not in the TDC rows** (`second_wall_k616.txt`, `second_wall_k800.txt`). With the fix the Newton still fails at isolated Δt in the layer's cliff zone: 22 failed attempts in 200 steps, each retry (Δt ÷ 4) converges in 2 iterations, and the failing attempts show a **period-2 cycle**
+at the cliff zone (x_H2 ±0.3 … 0.5 at the cap, T ±3 %, E_r ±0.2, x_H⁺ ±16 %, alternating every iteration, λ 0.37/0.79; `fix200/nwt.txt` attempts 36, 49). It is dt-non-monotonic: from the state before step 617 the stage Newton converges at probe Δt 2e5 (6 it) and 8e5 (5) but fails at 4e5; from the state of step 800 (cliff now at zones 38–39) it fails
+at 1e5 and 1.6e6 and converges in 3, 3, 5 iterations at 2e5, 4e5, 8e5. With TDC unset from the same states: 12 it at 2e5 and failures at ≥ 4e5 (k616), 9/11/13 iterations at 1e5/2e5/4e5 and failures at ≥ 8e5 (k800), i.e. the TDC path is not worse than the production MLT path from the same state. Single TDC ingredients change which Δt fail
+(k616: α_p = 0, Q off, w frozen, F_c → local MLT each converge at 4e5 in 10, 10, 8, 3 iterations, while `ap0,aD0,noQ,wfrz` and α_D = 0, α_t = 0 alone fail), so there is no coupling to blame and no systematic effect: the signature is that of the closure/chemistry bistability at the one-zone photosphere of M3c (Eddington-factor branch decisions, x_H₂ switching),
+which the baseline passes with one ÷3–4 retry as well (M3c.3). It is not part of this fix [interpretation]. Its cost: two of the eight 25-step blocks (675–699, 775–799) still run at median Δt 9e4 and 5e4 s (the controller grows ×1.5 per step into the failing Δt ≈ 1e5 s window, fails, retreats ÷4), the other six at 1.6e5 … 9.4e6 s (`dt_history_fix200.txt`); the failing attempts of 775–799 are again x_H₂ of the cliff zone (99 of 100 first-entries at zone 39).
+- **The error estimate.** [read, M3b.3(5)] w is still not in DTERR's estimate. With the fix Δt reaches 2.7e7 s while the layer's w is quasi-steady (ℓ/a = 6e5 … 1e6 s ≪ Δt): backward Euler (L-stable) follows the steady target, which moves only as T, ρ, x of the zones move, and those are in the estimate; between snapshots 5 steps apart w changed by ≤ 10 % at interface 37 (27 % at the weak interface 35 in the first window at Δt ≈ 1e6 s, ≤ 3 % at 620–635, Δt 4e4 … 2e5 s; `wchg_fix200.txt`); the layer moves outward with the shock (interfaces 33–37 at step 605, 38–39 at step 800; R* 60 → 129 R☉ over the 200 steps). I have no failure or accuracy loss that points to w; adding m·w to `combos` is therefore left open (not needed for this wall), but the quasi-steady regime means a w-only truncation error would first matter
+at Δt ≳ ℓ/a with a *changing* source, which the T, x estimate bounds from the other side [interpretation, untested].
+- **First step after a restart** has no residual workspace yet, so its guess carries no mixing (`tdc_mix_coef` returns 0 until a Float64 residual has been evaluated; v3 probe 1: 26 iterations; fix200 attempt 1: 16 iterations, converged). Harmless in the 200-step run; a guess from the old state's ℓ would need the equation of state at the start, not done.
+- **D_mix magnitude** (α_D = 1: D = ℓ w, 1.2e17 cm² s⁻¹ at the cliff, mixing time of zone 37 5.6e6 s ≫ Δt) is a modelling input not tested here; with the fixed guess the α_D = 0 and α_D = 1 stage Newtons both converge at k800 (aD0: 9, α_D = 1: 3 iterations at 2e5).
+- **Denormals:** in dissolved parts of the layer w decays exponentially to |w| ~ 1e-320 (`wmax`/`wchg`; also slightly negative values: fb(w, F) with F > 0 gives w ≈ 0⁻ is allowed, nothing is clamped); not a convergence problem, a possible slowness of the Float64 arithmetic [open, not measured].
+- Not done: the complementary test of the same fix on the k115/k290/k650 pilots of M3b.3(d) (the k115 failure is the closure wall of M3c); a 200-step *unfixed* run (the before numbers are the 40-step restart `base` and the B2 lane).
+
+### M3d.6 Conclusion [interpretation]
+
+The Newton wall at Δt ≈ 7e4 s of the TDC path was a **starting-point defect, not a property of the TDC equations**: Newton's initial species were computed from rows without the turbulent mixing flux, and the mixing-fed, recombined cliff zone starts 14× too low in x_H⁺, which a log-variable Newton step answers with δ ln x ~ 6×10², and the
+shared trust-region fraction collapses to 2 %. Putting the same term in the local guess (a Newton-start change only) lowers the first correction 136 → 0.017, converges the stage Newton in 2–4 iterations over probe Δt = 6e4 … 1e6 s, and moves the 200-step run from Δt ≈ 3e4 s (20 failed attempts per 100 steps) to a median 3.3e5 s with phases of 1e7 s (24 yr in 200 steps, 11 failed attempts per 100 steps).

@@ -1,0 +1,73 @@
+# DEBUG knobs used in the M3d tests (scratch worktree only, not in the branch): TDCDBG=noFc,mltFc,noQ,wfrz (TitanResidFast), TDCVARS per-probe variants (Trbdf2 NWPROBE loop); then TDCPRT (species row print, second scratch tree)
+--- julia/TitanResidFast.jl	2026-11-23 05:37:56.945521653 -0800
++++ /zpool/nvme/data/tabel_scratch/titan_popiii/subconv/tests/m3wall/wt/julia/TitanResidFast.jl	2026-11-23 05:37:56.958521623 -0800
+@@ -926,6 +926,7 @@
+   species rows 8, 9 of a coupled zone   + F_k+1 − F_k, F_k = −rmu_k ρ_k D_k Δx/Δr_c, D = α_D ℓ w.
+ """
+ const TDC_ON = Ref(false)
++const TDCDBG = Set(split(get(ENV, "TDCDBG", ""), ","))   # DEBUG (m3wall, removed again): noFc, mltFc, noQ, wfrz
+ const WTN = Ref(Float64[]); const WTO = Ref(Float64[]); const SAVEW = Ref(Float64[])
+ const TDCP = Ref(TDCPar())
+ "face-value weight of the w advection (0 = first-order donor cell, 1 = centred; `TDC.tdc_facew`)"
+@@ -1060,9 +1061,11 @@
+     @inbounds begin
+         R[iw, kb(ngrs)] = tw[ngrs]; R[iw, kb(ngre+1)] = tw[ngre+1]
+         for k in ngrs+1:ngre
+-            R[iw, kb(k)] = tok[k] ? tdc_fb(tw[k], W.tF[k]) : tw[k]
++            R[iw, kb(k)] = tok[k] ? (("wfrz" in TDCDBG) ? tw[k] - two[k] : tdc_fb(tw[k], W.tF[k])) : tw[k]
+             if tok[k]
+                 fcv[k] = tdc_flux(tw[k], ta[k], tU[k], tsup[k], tell[k], trho[k], tcp[k], tT[k], tHP[k], par)
++                "noFc" in TDCDBG && (fcv[k] = z0)
++                "mltFc" in TDCDBG && (fcv[k] = ForwardDiff.value(tsup[k]) > 0 ? kw_mlt_flux(trho[k], tcp[k], tT[k], tg[k], tdel[k], tell[k], tHP[k], tU[k], tsup[k]) : z0)
+                 W.vcv[k] = tw[k]; W.tD[k] = tdc_dmix(tw[k], tell[k], par)
+             else
+                 W.tD[k] = z0
+@@ -1076,6 +1079,7 @@
+     @inbounds for j in ngrs:ngre
+         i = j - ngrs + 1
+         W.tgx[j] = 0.5 * (Q[i] + Q[i+1]) + (j == ngrs ? 0.5 * Q[1] : z0) + (j == ngre ? 0.5 * Q[nz+1] : z0)
++        "noQ" in TDCDBG && (W.tgx[j] = z0)
+     end
+     if T === Float64
+         mn(k) = 0.5 * ((k > ngrs ? W.tmzn[k-1] : 0.0) + (k <= ngre ? W.tmzn[k] : 0.0)); mo(k) = 0.5 * ((k > ngrs ? W.tmzo[k-1] : 0.0) + (k <= ngre ? W.tmzo[k] : 0.0))
+@@ -767,7 +767,13 @@ function step_err!()
+     rejected = false; err = NaN; info = ("", 0, NaN); Dnew = nothing; nrej = 0
+     if !isempty(NWPROBE[])        # (NWPROBE, diagnostic, default off) one trapezoidal-stage attempt at each given step size from this state, as a retry after a failure would start it
+         NWDUMP[] === nothing || NWDUMP[]()
+-        for dtp in NWPROBE[]
++        tvars = split(get(ENV, "TDCVARS", ""), "|"); tp0 = TX.TDCP[]      # DEBUG (m3wall): per-probe TDC knob variants
++        for (ip, dtp) in enumerate(NWPROBE[])
++            if ip <= length(tvars) && !isempty(tvars[ip])
++                kn = split(tvars[ip], ","); empty!(TX.TDCDBG); union!(TX.TDCDBG, kn); pp = tp0
++                pp = TX.TDCPar(A_s = pp.A_s, A_d = pp.A_d, A_c = pp.A_c, α_p = "ap0" in kn ? 0.0 : pp.α_p, α_t = "at0" in kn ? 0.0 : pp.α_t, α_D = "aD0" in kn ? 0.0 : pp.α_D, α_m = pp.α_m)
++                TX.TDCP[] = pp; println("NWPROBE variant ", ip, ": ", tvars[ip])
++            end
+             restore!(); s!(:thet, θ0); s!(:dtime, dtp); s!(:tfac, dtp / Δ0); r(:reset); s!(:timen, t0 + dtp)
+             TitanCore.predict!(; halve = false, dtscale = γ1)
+             s!(:thet, 0.5); s!(:dtime, γ * dtp); s!(:timen, t0 + γ * dtp)
+# ---- TDCPRT (wt2) vs wt
+--- /zpool/nvme/data/tabel_scratch/titan_popiii/subconv/tests/m3wall/wt/julia/TitanResidFast.jl	2026-11-23 05:37:56.958521623 -0800
++++ /zpool/nvme/data/tabel_scratch/titan_popiii/subconv/tests/m3wall/wt2/julia/TitanResidFast.jl	2026-11-23 05:37:56.971521592 -0800
+@@ -926,6 +926,7 @@
+   species rows 8, 9 of a coupled zone   + F_k+1 − F_k, F_k = −rmu_k ρ_k D_k Δx/Δr_c, D = α_D ℓ w.
+ """
+ const TDC_ON = Ref(false)
++const TDCPRT = Ref(parse(Int, get(ENV, "TDCPRT", "0")))
+ const TDCDBG = Set(split(get(ENV, "TDCDBG", ""), ","))   # DEBUG (m3wall, removed again): noFc, mltFc, noQ, wfrz
+ const WTN = Ref(Float64[]); const WTO = Ref(Float64[]); const SAVEW = Ref(Float64[])
+ const TDCP = Ref(TDCPar())
+@@ -2033,6 +2034,14 @@
+                         -rmu[j] * 0.5 * (dn[j-1] + dn[j]) * W.tD[j] * (q[j] - q[j-1]) / (0.5 * (r[j] + r[j+1]) - 0.5 * (r[j-1] + r[j]))
+                     w += fx(k + 1) - fx(k)
+                 end
++                if T === Float64 && TDCPRT[] > 0 && (k >= 39 && k <= 43) && i == 8
++                    TDCPRT[] -= 1
++                    stor = (dn[k] * q[k] * dvoln[k] - c.do_[k] * qo[k] * c.dvolo[k]) / dt
++                    src = -(θc * dn[k] * dvoln[k] * S_[k] + (1 - θc) * c.do_[k] * c.dvolo[k] * So[k])
++                    @printf("TDCPRT k %d iterT %g dt %.3e q %.4e qo %.4e rho %.4e rhoo %.4e dvol %.4e stor %.4e src %.4e S %.4e So %.4e adv %.4e mixL %.4e mixU %.4e Dlo %.3e Dhi %.3e R %.4e\n", k, ForwardDiff.value(tn[k]), dt, q[k], qo[k], dn[k], c.do_[k], dvoln[k], stor, src, S_[k], So[k],
++                        (k == ngre ? dmdt[k] * qb[k] : -dmdt[k+1] * qb[k+1] + dmdt[k] * qb[k]), -(k <= ngrs || k > ngre ? 0.0 : -rmu[k] * 0.5 * (dn[k-1] + dn[k]) * W.tD[k] * (q[k] - q[k-1]) / (0.5 * (r[k] + r[k+1]) - 0.5 * (r[k-1] + r[k]))),
++                        (k+1 > ngre ? 0.0 : -rmu[k+1] * 0.5 * (dn[k] + dn[k+1]) * W.tD[k+1] * (q[k+1] - q[k]) / (0.5 * (r[k+1] + r[k+2]) - 0.5 * (r[k] + r[k+1]))), W.tD[k], W.tD[k+1], w)
++                end
+                 R[i, kb(k)] = w
+             end
+         end

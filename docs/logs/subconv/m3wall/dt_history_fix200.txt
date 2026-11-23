@@ -1,0 +1,16 @@
+# dt history and Newton failures, steps 600-799 from the step-600 B2 checkpoint, M3d fix (fix200); per 25 steps
+# accepted step dt = dtime of the last converged trapezoidal attempt / (2 - sqrt 2)
+steps 600-624: median dt 1.84e+05 s, max 1.14e+06, sum 7.82e+06, failed Newton attempts 3
+steps 625-649: median dt 3.17e+05 s, max 8.33e+06, sum 3.73e+07, failed Newton attempts 0
+steps 650-674: median dt 9.36e+06 s, max 2.65e+07, sum 2.09e+08, failed Newton attempts 5
+steps 675-699: median dt 8.94e+04 s, max 2.18e+05, sum 2.43e+06, failed Newton attempts 2
+steps 700-724: median dt 1.59e+05 s, max 4.83e+06, sum 1.97e+07, failed Newton attempts 1
+steps 725-749: median dt 5.93e+06 s, max 1.73e+07, sum 1.81e+08, failed Newton attempts 2
+steps 750-774: median dt 7.76e+06 s, max 3.67e+07, sum 3.00e+08, failed Newton attempts 5
+steps 775-799: median dt 4.99e+04 s, max 2.61e+05, sum 1.68e+06, failed Newton attempts 4
+all 200 steps: sum dt 7.589e+08 s = 24.0 yr, mean 3.79e+06, median 3.25e+05, failed attempts 22
+
+# unfixed (base, 40 steps)
+steps 40 (600..639): sum dt 1.180e+06 s, mean 2.950e+04, median 3.364e+04, min 1.594e+04, max 6.095e+04 | Newton-failed attempts 8 (20.0 per 100 steps)
+# fix, same 40 steps
+steps 40 (600..639): sum dt 1.062e+07 s, mean 2.655e+05, median 1.699e+05, min 3.297e+04, max 1.141e+06 | Newton-failed attempts 3 (7.5 per 100 steps)
