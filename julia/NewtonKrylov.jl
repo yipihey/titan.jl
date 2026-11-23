@@ -741,6 +741,15 @@ function check!(S::Sys)
         kz = isempty(ks) ? 0 : ks[argmax([rel[ri[kb]] for kb in ks])]
         @printf("NKCHECK eq %-5s: max rel %.3e (zone %d) | zones %d..%d: max rel %.3e (zone %d)\n", i <= length(nm) ? nm[i] : string(i), rel[ri[kall]], zn(kall), z1, z2, kz == 0 ? NaN : rel[ri[kz]], kz == 0 ? 0 : zn(kz))
     end
+    if haskey(ENV, "NKEQ")           # NKEQ=<eq>[,<eq>...]: the row-by-row mismatch of these equations over the zones NKZ (M3b: the w rows, eq = neqn, with the iterate w)
+        for ie in parse.(Int, split(ENV["NKEQ"], ","))
+            for kb in 1:nb
+                zn = k0 + kb - 1 - a + 1; (z1 <= zn <= z2) || continue
+                r = (kb - 1) * ne + ie
+                @printf("NKCHECK row eq %-3d zone %3d: Jv %+.5e  J_b w %+.5e  rowscale %.3e  rel %.3e  w_iterate %.3e\n", ie, zn, y[r], z[r], sa[r], rel[r], TX.TDC_ON[] && ie == ne ? TX.WTN[][k0+kb-1] : NaN)
+            end
+        end
+    end
     for f in (1e-2, 1e-1, 10.0, 100.0)
         y2 = zeros(S.n); fdjv!(y2, S, v, ε * f); r2 = relof(y2); d2 = [ok[r] ? abs(y2[r] - y[r]) / sa[r] : 0.0 for r in 1:S.n]
         @printf("NKCHECK eps x%g (max|eps v| %.1e): vs J_b w: max %.3e median %.3e rows>1e-4 %d >1e-2 %d | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) %.3e, worst row (rel to rowscale) %.3e\n",
