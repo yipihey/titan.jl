@@ -270,7 +270,7 @@ ratios and logarithms exist where a group has underflowed or lies below its CMB 
 W_g = c u_g/(4σT_c⁴ b_g(T_c)). No free-streaming floor (SLWFLUX), no cap at 1, no W = 1 rule for thermalised zones: the group energies carry
 all of that (docs/POPIII_MULTIGROUP.md §18).
 """
-const MGCUFL = 1e-60       # [erg cm⁻² s⁻¹] (photo-rates below 1e-66 s⁻¹; products of four such factors in the rate partials stay representable: 1e-240 gave 0·∞)
+const MGCUFL = TX.MGCUFL  # (MGRad.jl: 1e-60) [erg cm⁻² s⁻¹] (photo-rates below 1e-66 s⁻¹; products of four such factors in the rate partials stay representable: 1e-240 gave 0·∞)
 mg_cu(k, Ecmb) = (E = TX.MGEN[]; ntuple(g -> max(CNn.c * (E[g][k] - Ecmb * TX.MGBCMB_[g]), MGCUFL), TX.MGN[]))
 mg_wg(cu, Tc) = (nrm = 4 * 5.670374419e-5 * Tc^4; ntuple(g -> (b = TX.mg_bfrac(g, Tc); b > 1e-180 ? cu[g] / (nrm * b) : zero(cu[g])), length(cu)))
 

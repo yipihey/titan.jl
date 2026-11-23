@@ -1398,3 +1398,51 @@ stack and belongs with the decision to switch production.
 | the grey q, t, g, dp slopes of the NLOIT ratio (`sq`, `st`, `sg`, `sdp` branch of `nlo_it`) | `PopIIIMaterial.jl` | the group-field branch (`mg_sl_slopes`) replaces it where a zone has a record |
 | `NLOPC` restart test in `nlost_restart!` | `PopIIIMaterial.jl` | defect (§18.4): the `MGON` branch is the fix; drop the test |
 | `CONV=1e-3` of `run.env` (not read by `popiii_m2c.jl`, §19.4), `SLIMPDBG` | env files, `TitanResidFast.jl`, `PopIIIMaterial.jl` | dead / debugging |
+
+## 22. Well-posed group unknowns (branch `mgeg`, from mgprod 4582e2a)
+
+Task (§21.4 item 1): replace the clamps and masks that keep an empty group from breaking the band solve (`MGCLAMP`, `MGEMIN`, `GWMIN`/`GMASK`) by a better unknown. **Status: the code change is in and
+gate-clean on zie1; the zie3 gate is NOT met** (below). Runs: `/zpool/nvme/data/tabel_scratch/titan_popiii/runs/t_mgeg`.
+
+### 22.1 Diagnosis (`MGPIV=1`, extended: it now prints the column and the row of the smallest pivots and the largest band corrections)
+
+At the zie3 restart (`fp3a1`, 298 zones) the smallest pivots are F_g4 of zones 267–273 (1e-186; median 0.2–0.3). The row-equilibrated row of F_g4 (momentum row of the empty ionising group) has its O(1) entries in the
+*grid and gas* columns (r, m: eq 1, 2 of the neighbouring zones, 0.1–0.4) and its own F column at 1e-50 … 1e-190; the columns of E_g4 and F_g4 are 1e-191 of their rows. Row equilibration cannot cure this: the
+row holds terms ∝ E_g4 (1e-169 erg cm⁻³ absolute) only, and the column scales are E_g4 (the chain factor of ln E_g) and the nominal flux 1e-3 c E_g4 — the group is not determined by any equation at the level of
+the other unknowns. The pivots are the product of two such tiny column scales. With the new unknowns (below) the smallest pivots on the same matrix were 2e-13 (E_g scale 1e-3 E_r), then 1.4e-50 at F_g4
+(Planck-scale variant); the band correction at the restart state dropped from 7e92 (mgprod) to 17 for the E_r-scaled variant.
+
+### 22.2 The change (touched: `MGRad.mg_update!`, `mg_dmax!`, `mg_iterate!`, `mg_newstep!` (+ new `mg_eofy`, `MGES`), `NewtonKrylov.weights`, `Trbdf2.wnorm` (group rows), `JuliaSolver.matslv!` (diagnostic only), `MGOpac` (`MGCUFL` now defined in MGRad))
+
+The unknown of E_g is y_g = asinh(E_g/s) with the constant `MGES` = MGCUFL/c = 3.3e-71 erg cm⁻³, the energy density below which the star-light closure (`MGCUFL` = 1e-60 erg cm⁻² s⁻¹ flux floor of
+q_g, T_c) no longer sees E_g. The unknown is the correction δ of y at the Newton iterate: E(δ) = E₀ cosh δ + √(E₀² + s²) sinh δ (`mg_eofy`; dE/dδ = √(E² + s²)). Above s this is ln E_g (the old unknown, to round-off:
+zie1 gates below), below it linear; E_g = 0 and small negative iterates are representable. It is a parametrisation: the discrete equations and their solution are unchanged. F_g keeps its linear unknown; its column
+scale is `nom = max(|F_g|, 1e-3 c ½(√(E₋²+s²) + √(E²+s²)))` (no 1e-300 floor). Deleted: `MGCLAMP`, `MGEMIN`, `MGCFL`, `GWMIN`, `GMASK` (and the Krylov update's masking of group entries).
+Convergence (`mg_dmax!`) and the TR-BDF2 error (`Trbdf2.wnorm`) measure |δ y_g| itself, no weight and no floor: for E_g ≫ s it is |δ ln E_g|, for E_g ≲ s |δE_g|/s, so the weight is the variable's own
+(the former weights E/(E + efl aT⁴ + MGEFL E_r) are gone; `MGEFL` remains only in the flux weights). Consequence: groups below 1e-3 E_r now count in the step size (ln E_4 limited the zie1 window before, too).
+
+### 22.3 Gates
+
+* MGROUPS off: bit-identical to mgprod: zie1 `S8_auto1`, 30 steps, `tstate` md5 09ce1d440694852b728938aebd08155f, `aux` md5 49955c55276492341e069dd39295910a (= `gA_ref`, §21.2a).
+* NKCHECK=2 (zie1 `S8_auto1`, MGROUPS=4, NKCHECKN=3): rows > 1e-4: 264 (mgprod 262/253/227), > 1e-2: 164 (163/141/121), 2-norm rel 4.26e-5 (4.3e-5); group rows outside the front zones identical to mgprod
+  (E_g1 5.7e-5, E_g2 6.1e-5, E_g3 1.5e-4, E_g4 7.2e-5, F_g1 7.4e-2, F_g4 1.9e-4; F_g2/F_g3 at the outermost interface 2.5 / 11 as before).
+* zie1 window, 300 steps from `S6_auto1`, MGROUPS=4 (box loaded as before): Newton failures 30 (mgprod 42), linear solves 5158 (J_b reused 2667) against 5378 (2006), matrix-vector products 10613 (13054),
+  limiter lines `ln E_4` 345 of 25 095 accepted TR-BDF2 steps (229 of 25 047), `x_H+` 21 369 (same). Simulated time ≈ 0.0095 yr against 0.0155 yr (Δt smaller by ~1.6: the minor groups now enter the error norm);
+  wall 2549 s against 4392 s (different load). Not worse in failures and work, worse in Δt.
+* **zie3, 40 steps from `fp3a1`, MGROUPS=4: not met.** With the new unknown the band correction is finite and the first Newton iteration "converges" (the Krylov step is ~1e-16 of weighted norm), but it does so
+  without solving the group rows: GMRES returns x ≈ 0 because the preconditioned operator has a direction (E_g4, zone 214: band correction ±4e56 in y, equilibrated rhs 1e-2, diagonal 1e-49 of the row maximum)
+  in which the band solve and the true J·v differ by many orders; the error estimate then sees no change and Δt grows ×5 per step (1.4e5 s … 5e10 s in 10 steps; run stopped). The old code fails loudly there
+  (Newton failures), the new one silently — an acceptance of an unsolved state, which is worse. Variants tried and rejected (all on this restart): s = 1e-3 E_r (band step 17, sane; but AD J·v 1e135 at E_g2,
+  zone 281 where FD gives 8e40, and GMRES again x ≈ 0; in the NKCHECK on zie1 the finite difference is NaN: an iterate with negative E_g gives NaN Eddington factors); s = Planck value b_g(T) a T⁴ (band step 1e265 in cold zones
+  where b_g = MGBFLOOR); s = max(Planck, MGES) (band step −4e56 at E_g4 zone 214, diagonal 1e-49 of the row: the source of the empty group there is the H(1s) Milne recombination emission, e^{χ/kT} b_g, not the
+  Planck value, so no Planck-based scale is the scale of the solution).
+
+### 22.4 What this shows, and what is needed
+
+1. The conditioning part of §21.4 item 1 is real and is cured by a linear variable for an empty group (pivots 1e-186 → 2e-13), but the empty group is also a problem for the Newton *step*: E_g4 must grow from 1e-150 E_r
+   to its emission balance (1e-37 … 1e-11 erg cm⁻³ in the outer cloud) while a log-like variable moves ≤ e^4 per iteration (`GLOB.deltamax`); only a linear variable with a scale at the solution (E_eq,g = emission/(c κ_E,g) at
+   the iterate, which includes the Milne term) takes it in one step. A scale that large exposes the 1/E structure of the closures at the floor (`MGCUFL`: q_g = max(c u, floor)/c u₀ with c u₀ at the floor; the
+   colour temperature; f_g(E_g) of the formal solution), which the log variable hid by the chain factor E_g.
+2. The consistent remedy is the exact band Jacobian (Task A: with J_b = J the preconditioner is exact and a Krylov x ≈ 0 cannot occur) together with a per-zone scale E_eq,g, and a convergence test on the residual,
+   not only on the applied step (`dmax`), so that an unsolved state is never accepted. Neither is in this branch.
+3. This branch keeps the zie1-clean unknown (constant s = MGES) because it deletes the five clamps/masks without changing zie1; it must not be used for zie3 until 22.4.2 is done.

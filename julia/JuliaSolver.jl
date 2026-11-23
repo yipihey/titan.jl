@@ -54,9 +54,26 @@ function matslv!()
     end
     if ABd !== nothing
         d = [abs(AB2[kl + ku + 1, c]) for c in 1:n]; idx = sortperm(d)[1:6]
+        for c in idx[1:2]                                  # the column and the row of the unknown: scaled entries, with the row's equilibration scale
+            col = [(r, ABd[kl + ku + 1 + r - c, c]) for r in max(1, c - ku):min(n, c + kl)]; sort!(col, by = x -> -abs(x[2]))
+            row = [(cc, ABd[kl + ku + 1 + c - cc, cc]) for cc in max(1, c - kl):min(n, c + ku)]; sort!(row, by = x -> -abs(x[2]))
+            nm(i) = "eq$((i - 1) % neqn + 1)@z$(k0 + (i - 1) ÷ neqn - ngrs + 1)"
+            println("MGPIV col of ", nm(c), " (sc[c]=", sc[c], "): ", join(("$(nm(r)):$(round(v, sigdigits = 2)) (sc $(round(sc[r], sigdigits = 2)))" for (r, v) in col[1:4]), "  "))
+            println("MGPIV row of ", nm(c), ": ", join(("$(nm(r)):$(round(v, sigdigits = 2))" for (r, v) in row[1:4]), "  "))
+        end
         println("MGPIV: smallest |U_ii| (row-equilibrated): ", join(("$(d[i]) @ eq $((i - 1) % neqn + 1) zone $(k0 + (i - 1) ÷ neqn - ngrs + 1)" for i in idx), " | "), "; median ", sort(d)[n ÷ 2])
     end
+    ABd !== nothing && (b0 = copy(b))
     LAPACK.gbtrs!('N', kl, ku, n, AB2, ipiv, reshape(b, n, 1))
+    if ABd !== nothing                                   # MGPIV=1: the unknowns with the largest band correction, with their equilibrated right-hand side and diagonal
+        idx = sortperm(abs.(b); rev = true)[1:4]
+        for c in idx[1:1]
+            row = [(cc, ABd[kl + ku + 1 + c - cc, cc]) for cc in max(1, c - kl):min(n, c + ku)]; sort!(row, by = x -> -abs(x[2]))
+            nm(i) = "eq$((i - 1) % neqn + 1)@z$(k0 + (i - 1) ÷ neqn - ngrs + 1)"
+            println("MGPIV row of ", nm(c), ": ", join(("$(nm(r)):$(round(v, sigdigits = 2))" for (r, v) in row[1:6]), "  "))
+        end
+        println("MGPIV: largest corrections: ", join(("$(b[i]) @ eq $((i - 1) % neqn + 1) zone $(k0 + (i - 1) ÷ neqn - ngrs + 1) (rhs $(b0[i]), diag $(ABd[kl + ku + 1, i]), U_ii $(AB2[kl + ku + 1, i]))" for i in idx), " | "))
+    end
     rhs = RHS[]
     @inbounds for kb in 1:nb, i in 1:neqn
         rhs[i, k0 + kb - 1] = b[(kb - 1) * neqn + i]

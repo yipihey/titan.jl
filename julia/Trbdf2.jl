@@ -628,11 +628,8 @@ function wnorm(rhs)
                 acc(rhs[i, k] * q[k] / (rt * (q[k] + o.xfl)), i, k)
             end
         end
-        if TX.MG[]                     # MGROUPS: δE_g against the group's own E_g with the grey floor plus MGEFL·E_r (minor groups do not set Δt)
-            E = vf(:ern)[k]
-            for g in 1:TX.MGN[]
-                Eg = TX.MGEN[][g][k]; acc(rhs[TX.mgiE(g), k] * Eg / (rt * (Eg + o.efl * 7.565723e-15 * tn[k]^4 + TX.MGEFL * E)), TX.mgiE(g), k)
-            end
+        if TX.MG[]                     # MGROUPS: the change of the group's unknown y_g = asinh(E_g/MGES) (δ ln E_g for E_g ≫ MGES, δE_g/MGES below: no floor)
+            for g in 1:TX.MGN[]; acc(rhs[TX.mgiE(g), k] / rt, TX.mgiE(g), k); end
         end
     end
     @inbounds for k in a+1:b
