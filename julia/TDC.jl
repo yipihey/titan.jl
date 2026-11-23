@@ -250,11 +250,11 @@ a zone and e = 0):
 
 with the zone-centre (outward positive) fluxes Fe_j = −Φ_j wb_j² (advective, the same face value as the row) and
 Fd_j = −α_t A_j ρ_j ℓ_j w̄_j (e_{j+1} − e_j)/Δr_j (diffusive), both zero outside the domain, and P_dV,k = (Pt_{k−1} dVdt_{k−1} + Pt_k dVdt_k)/2
-with Pt_j = α_p ρ_j ē_j. Q_k > 0: e gains net from the gas (production − dissipation, as realised by the row, including its
+with Pt_j = α_p ρ_j ē_j (keyword `Ptc` (M3b): the zone P_t the momentum row used, e.g. θ-centred between the old and new level, in the P_dV term only). Q_k > 0: e gains net from the gas (production − dissipation, as realised by the row, including its
 discretisation error). Telescoping: Σ_k Q_k Δt = Δ Σ_k m e + Δt Σ_j Pt_j dVdt_j exactly (`tdc_budget_check`). Returns Q and a
 NamedTuple of the pieces.
 """
-function tdc_exchange(w, wo, G::TDCGeom, B::TDCBack, dt, par::TDCPar; cen = 0.0)
+function tdc_exchange(w, wo, G::TDCGeom, B::TDCBack, dt, par::TDCPar; cen = 0.0, Ptc = nothing)
     nz = G.nz; r = G.r; dm = G.dmdt; T = promote_type(eltype(w), eltype(wo), eltype(G.mzn))
     Fe = zeros(T, nz); Fd = zeros(T, nz); Pt = zeros(T, nz)
     @inbounds for j in 1:nz
@@ -265,12 +265,13 @@ function tdc_exchange(w, wo, G::TDCGeom, B::TDCBack, dt, par::TDCPar; cen = 0.0)
         Pt[j] = tdc_pturb(w[j], w[j+1], B.rhoz[j], par)
     end
     Q = zeros(T, nz + 1); dedt = zeros(T, nz + 1); pdv = zeros(T, nz + 1)
+    Pc = Ptc === nothing ? Pt : Ptc          # M3b: the θ-centred zone P_t of the momentum row (default: the new-level P_t, as M3a)
     @inbounds for k in 1:nz+1
         mn = (k > 1 ? G.mzn[k-1] : 0.0) + (k <= nz ? G.mzn[k] : 0.0); mo = (k > 1 ? G.mzo[k-1] : 0.0) + (k <= nz ? G.mzo[k] : 0.0)
         mn *= 0.5; mo *= 0.5
         dedt[k] = (mn * w[k]^2 - mo * wo[k]^2) / dt
         fhe = k <= nz ? Fe[k] + Fd[k] : zero(T); fle = k > 1 ? Fe[k-1] + Fd[k-1] : zero(T)
-        pdv[k] = 0.5 * ((k > 1 ? Pt[k-1] * G.dVdt[k-1] : zero(T)) + (k <= nz ? Pt[k] * G.dVdt[k] : zero(T)))
+        pdv[k] = 0.5 * ((k > 1 ? Pc[k-1] * G.dVdt[k-1] : zero(T)) + (k <= nz ? Pc[k] * G.dVdt[k] : zero(T)))
         Q[k] = dedt[k] + (fhe - fle) + pdv[k]
     end
     return Q, (Fe = Fe, Fd = Fd, Pt = Pt, dedt = dedt, pdv = pdv)

@@ -57,10 +57,10 @@ mutable struct Snap
     gx::Float64
     taken::Bool
 end
-Snap() = Snap(Dict{Symbol,Array}(), Tuple{Vector{Float64},Vector{Float64}}[], Tuple{Array,Array}[], [Float64[] for _ in 1:6], 0.0, false)
+Snap() = Snap(Dict{Symbol,Array}(), Tuple{Vector{Float64},Vector{Float64}}[], Tuple{Array,Array}[], [Float64[] for _ in 1:7], 0.0, false)
 const SNAP = Snap()
 push!(TF.ON_SWITCH, () -> (empty!(SNAP.pairs1); empty!(SNAP.pairs_other); empty!(SNAP.arrs); SNAP.taken = false))
-extras() = (TD.HEDD, TD.HXEDD, TD.FXEDD, TD.TIEW, TX.XSN[][1], TX.XSN[][2])      # closure h, h_x, f_x, tie weight; species iterate
+extras() = (TD.HEDD, TD.HXEDD, TD.FXEDD, TD.TIEW, TX.XSN[][1], TX.XSN[][2], TX.WTN[])      # closure h, h_x, f_x, tie weight; species iterate; TDC: the turbulent velocity iterate (empty without TDC)
 function take!(S::Snap)
     if length(S.pairs1) + length(S.pairs_other) + length(SKIP) != length(TF.JSTATE)
         empty!(S.pairs1); empty!(S.pairs_other)
@@ -143,7 +143,7 @@ function activeset(c)
     act = falses(ne * nb)
     for kb in 1:nb, i in 1:ne
         k = k0 + kb - 1; cd = c.code[i]
-        act[(kb-1)*ne+i] = cd in (1, 2, 4, 7) ? a <= k <= b + 1 :
+        act[(kb-1)*ne+i] = cd in (1, 2, 4, 7, 8) ? a <= k <= b + 1 :
                            cd in (3, 5, 6) ? a <= k <= b :
                            (cd == 0 && i in (8, 9) && TC.CPLH[] !== nothing) ? (a <= k <= b && TX.cplz(k)) : false
     end
@@ -167,6 +167,7 @@ function weights(c, act)
         wt[r] = cd == 3 || cd == 5 ? 1.0 :
                 cd == 6 ? ern[k] / (ern[k] + o.efl * 7.565723e-15 * tn[k]^4) :
                 cd == 0 ? (q = TX.XSN[][i-7][k]; q / (q + o.xfl)) :
+                cd == 8 ? TX.tdc_weight(k, a, b) :
                 cd == 4 ? unom[k] / max(abs(un[k]), max(asn[max(k-1, a)], asn[min(k, b)])) :
                 cd == 2 ? xmen[k] / max(abs(xmen[k]), dn[max(k-1, a)] * dvn[max(k-1, a)], dn[min(k, b)] * dvn[min(k, b)]) :
                 cd == 1 ? (lag ? rn[k] / min(rn[k] - rn[max(k-1, a)], rn[min(k+1, b+1)] - rn[k]) : 1.0) :
@@ -246,7 +247,7 @@ function perturbed(S::Sys, v, s; realized = nothing, freeze = 2, inspect = nothi
             cnew = TX.context()
             for kb in 1:nb, i in 1:ne
                 cd = S.code[i]; k = k0 + kb - 1; r = (kb - 1) * ne + i
-                cd == 0 && (realized[r] = S.act[r] ? v[r] : 0.0; continue)       # species: applied as given
+                (cd == 0 || cd == 8) && (realized[r] = S.act[r] ? v[r] : 0.0; continue)       # species (and the TDC velocity w, linear): applied as given
                 nw = cnew.base[k, cd]; b0 = base[1][k, cd]
                 realized[r] = nw == b0 ? 0.0 : cd == 4 ? (nw - b0) / base[2][k] / s : cd == 7 ? (nw - b0) / base[3][k] / s : log(nw / b0) / s
             end

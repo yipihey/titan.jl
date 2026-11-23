@@ -379,6 +379,8 @@ isempty(RUNREC) || mkpath(RUNREC)
 # diagnostics (`convdiag_snap` below): MLT intermediates and gates per interface, frozen/equilibrium thermodynamics, N², timescales, the terms of the gas-energy row.
 const CONVDIAG = get(ENV, "CONVDIAG", "0") == "1"
 TX.CONVDIAG[] = CONVDIAG
+# TDC=1 (M3b, provisional, default off = bit-identical, neqn unchanged; docs/POPIII_CONVECTION.md M3b): time-dependent convection, the turbulent velocity w the last Newton unknown (TX.TDC_ON, installed below)
+const TDC = get(ENV, "TDC", "0") == "1"
 const REC = (on = !isempty(RUNREC), io = Ref{Any}(nothing), wall0 = time(), klast = Ref(-1), gct = Ref(Base.gc_num().total_time), gcb = Ref(Base.gc_bytes()),
              dtlim = Ref(""), mstar = Ref(NaN), rstar = Ref(NaN), spn = Ref{Vector{Symbol}}(Symbol[]))
 "ENV keys any of the julia/ sources reads (only these go into the meta file)."
@@ -448,6 +450,10 @@ function convdiag_snap(k, snap)
     d = Dict{Symbol,Vector{Float64}}(nm => I(nm) for nm in names)
     for nm in (:w_tau, :w_inf, :tau); d[nm] = I(nm); end
     for nm in (:e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res); d[nm] = Z(nm); end
+    if TX.TDC_ON[]       # M3b: w, D_mix, the exchange Q, a, U, the residual F of the w row (interfaces); P_t/P and the gas-energy source (zones)
+        for nm in (:tdc_w, :tdc_Dmix, :tdc_Q, :tdc_a, :tdc_U, :tdc_Fres); d[nm] = I(nm); end
+        for nm in (:tdc_PtP, :e_tdc); d[nm] = Z(nm); end
+    end
     for nm in (:nad_eq, :nad_fr, :del_eq, :del_fr, :nab_rad, :nab_mu, :nab_L, :N2_S, :N2_eq, :N2_L, :g_eff, :Ftot, :Fconv_over_Ftot, :Fpot_over_Ftot, :fpot_th, :w_th, :mach_i, :t_settle, :t_N, :t_turn, :cp_fr)
         d[nm] = NaNv(n + 1)
     end
@@ -502,6 +508,11 @@ function convdiag_snap(k, snap)
         else
             lay .= [NaN, NaN, 0.0, NaN, NaN, NaN, 0.0, Rst / 6.957e10]
         end
+    end
+    if TX.TDC_ON[]       # integrated turbulent energy E_t = Σ m_k w_k² [erg] (interface CV masses) and P_t/P at the post-shock zone (the zone inside R*; the max over the three zones inside R*)
+        w0 = [isnan(q) ? 0.0 : q for q in d[:tdc_w]]; mz = diff(m_); mk = [0.5 * ((j > 1 ? mz[j-1] : 0.0) + (j <= n ? mz[j] : 0.0)) for j in 1:n+1]
+        ptp = d[:tdc_PtP]; jz = js === nothing ? 0 : js - 1
+        d[:tdc_scal] = [sum(mk .* w0 .^ 2), jz >= 1 ? ptp[jz] : NaN, jz >= 1 ? maximum(filter(!isnan, ptp[max(1, jz-2):jz]); init = NaN) : NaN]
     end
     d[:layer] = lay; d[:branch] = br; d[:mach] = mach; d[:mu] = mu; d[:t_chem] = tch
     NamedTuple{Tuple(sort(collect(keys(d))))}(Tuple(d[nm] for nm in sort(collect(keys(d)))))
@@ -830,6 +841,7 @@ function checkpoint(name, k; jinc = 0)
         edd = (; HEDD = copy(TD.HEDD), HXEDD = copy(TD.HXEDD), FXEDD = copy(TD.FXEDD), TIEW = copy(TD.TIEW), HPLUS = copy(TC.HPLUS), GXEDD = TD.GXEDD[]),   # Eddington closure arrays held between steps
         geq = (; J0 = GEQJ0[], PREV = deepcopy(GEQPREV[]), HELD = deepcopy(TX.GRIDEQ[])), pswramp = (; J0 = PM.RAMPJ0[], K0 = PM.RAMPK0[]), PEXT = TX.PEXT[], env = Dict(k_ => v_ for (k_, v_) in ENV if k_ in CKENV))
     TX.MG[] && (ax = merge(ax, (; mg = (; edges = copy(TX.MGEDGE[]), E = deepcopy(TX.MGEN[]), F = deepcopy(TX.MGFN[])))))   # MGROUPS: the group fields
+    TX.TDC_ON[] && (ax = merge(ax, (; tdc = (; WTN = copy(TX.WTN[]), WTO = copy(TX.WTO[]), a = Int(TF.getscalar(:ngrs)), b = Int(TF.getscalar(:ngre))))))   # TDC: the turbulent velocity
     serialize(joinpath(CKDIR, "m2c_$(name).aux"), ax)
 end
 const GEQHELD = Ref{Any}(nothing)
@@ -1052,6 +1064,7 @@ function rebuild!(rI, ρz, Tz, uI, Er, Fr, matz)
     for k in 1:a-1; mat.x[k] = copy(mat.x[a]); mat.eqzone[k] = mat.eqzone[a]; end
     for k in b+1:length(mat.x); mat.x[k] = copy(mat.x[b]); mat.eqzone[k] = mat.eqzone[b]; mat.Λext[k] = 0.0; end; LINEIMP && li_inval!()
     TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "0"))
+    TX.TDC_ON[] && (fill!(TX.WTN[], 0.0); fill!(TX.WTO[], 0.0))      # TDC: a rebuilt mesh (RAD rebuild, rezoning) starts from w = 0
     TX.REGULAR_CENTRE[] = true; TX.XMINT[] = copy(TF.var(:xmn)::Vector{Float64})
     PS.install_julia!(BlockSolver)
     TX.PEXT[] = pext
@@ -1981,11 +1994,33 @@ try
             TD.STEPFN[] = () -> (PM.cpl_prepare!(mat); f0(); nothing)
         end
         @printf("COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn %d)\n", TF.PARAMS[:meqn])
-    elseif Int(TF.getscalar(:neqn)) == 9
+    elseif Int(TF.getscalar(:neqn)) in (9, 10)
         TF.setscalar!(:neqn, 7)                    # (restart from a COUPLED checkpoint)
     end
     COUPLED && !PM.MGON && Int(TF.getscalar(:neqn)) > 9 && TF.setscalar!(:neqn, 9)   # (restart from an MGROUPS checkpoint without groups)
     PM.MGON && mg_install!()
+    if TDC                                          # M3b: the turbulent velocity w as the last Newton unknown (neqn + 1), see TX.TDC_ON
+        COUPLED || error("TDC=1 needs COUPLED=1"); HOTON || error("TDC=1 needs HOT=1 (the convection material)"); TX.CONVECTION[] || error("TDC=1: convection is off")
+        Trbdf2.SCHEME[] === :trbdf2 || error("TDC=1: DTSCHEME=trbdf2 only (the old w of the other schemes' stages is not combined)")
+        isnan(TX.PEXT[]) || error("TDC=1: PEXT not supported")
+        nq_ = Int(TF.getscalar(:neqn)) + 1
+        TF.PARAMS[:meqn] >= nq_ || error("TDC=1: meqn = $(TF.PARAMS[:meqn]) < $nq_")
+        TF.setscalar!(:neqn, nq_); TX.TDC_ON[] = true; TX.tdc_alloc!(length(TF.var(:dn)))
+        tp_ = parse.(Float64, split(get(ENV, "TDCPAR", "1,1,1,1,0.01,1,0"), ","))      # A_s, A_d, A_c, α_p, α_t, α_D, α_m (B2 best estimate; α_m is not implemented, must be 0)
+        length(tp_) == 7 || error("TDCPAR = A_s,A_d,A_c,alpha_p,alpha_t,alpha_D,alpha_m"); tp_[7] == 0 || error("TDC: the eddy viscosity alpha_m is not implemented (TDCPAR 7th = 0)")
+        TX.TDCP[] = TX.TDC.TDCPar(; A_s = tp_[1], A_d = tp_[2], A_c = tp_[3], α_p = tp_[4], α_t = tp_[5], α_D = tp_[6], α_m = tp_[7])
+        TX.TDC_CEN[] = parse(Float64, get(ENV, "TDCCEN", "0"))
+        let h0 = TC.CPLH[]
+            TC.CPLH[] = (; newstep = () -> (h0.newstep(); TX.tdc_newstep!()), reset = () -> (h0.reset(); TX.tdc_reset!()),
+                         update = (rhs, a_, b_) -> (h0.update(rhs, a_, b_); TX.tdc_update!(rhs, a_, b_)),
+                         dmax = (rhs, a_, b_) -> max(h0.dmax(rhs, a_, b_), TX.tdc_dmax!(rhs, a_, b_)))
+        end
+        ax_ = CKAUX[]; src_ = "w = 0"
+        if ax_ !== nothing && hasproperty(ax_, :tdc) && length(ax_.tdc.WTN) == length(TX.WTN[]) && ax_.tdc.a == Int(TF.getscalar(:ngrs)) && ax_.tdc.b == Int(TF.getscalar(:ngre))
+            copyto!(TX.WTN[], ax_.tdc.WTN); copyto!(TX.WTO[], ax_.tdc.WTO); src_ = "the checkpoint's w"
+        end
+        pr("TDC: turbulent velocity w = unknown %d (neqn %d, meqn %d), A_s/A_d/A_c %g/%g/%g, alpha_p %g, alpha_t %g, alpha_D %g, face weight %g; start from %s\n", nq_, nq_, TF.PARAMS[:meqn], tp_[1], tp_[2], tp_[3], tp_[4], tp_[5], tp_[6], TX.TDC_CEN[], src_)
+    end
     if get(ENV, "EDIAG", "0") == "2"               # (diagnostic, default off) EDIAG=1 plus the per-zone breakdown (TX.zone_diag) to ediagz.jls
         let f_ = joinpath(get(ENV, "POPIII_OUT", "."), "ediag.csv"), fz = joinpath(get(ENV, "POPIII_OUT", "."), "ediagz.jls")
             isfile(f_) || open(io -> println(io, "jstep,kind,dt,imb,dE,fin,fout"), f_, "w")

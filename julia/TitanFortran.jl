@@ -112,6 +112,12 @@ function parse_params(path = joinpath(FSRC, "titan.par"))
                 get(ENV, "TITAN_NOLIB", "0") == "1" || error("MGROUPS needs TITAN_NOLIB=1")
                 P[:meqn] = max(P[:meqn], 9 + 2mg_ngroups(ENV["MGROUPS"]))
             end
+            # TDC=1 (TitanResidFast.TDC_ON, docs/POPIII_CONVECTION.md M3b): the turbulent velocity w is the LAST unknown, behind the species (and the groups)
+            if lowercase(k) == "meqn" && get(ENV, "TDC", "0") == "1"
+                get(ENV, "TITAN_NOLIB", "0") == "1" || error("TDC=1 needs TITAN_NOLIB=1")
+                get(ENV, "COUPLED", "0") == "1" || error("TDC=1 needs COUPLED=1 (the species rows 8, 9 carry the turbulent mixing)")
+                P[:meqn] = max(P[:meqn], 9 + (haskey(ENV, "MGROUPS") && ENV["MGROUPS"] != "0" ? 2mg_ngroups(ENV["MGROUPS"]) : 0) + 1)
+            end
         end
     end
     P

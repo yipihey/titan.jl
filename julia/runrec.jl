@@ -91,8 +91,10 @@ const CVFIELDS = [("cv_nab", "nabla = dlnT/dlnP used by MLT (after the MLT_HS bl
     ("cv_tchem", "MLTBUOY: chemical relaxation time at the interface [s] (mean of the two zones)"),
     ("cv_e_stor", "gas-energy row: storage [erg/s/g]"), ("cv_e_pdv", "pdV work"), ("cv_e_av", "artificial viscosity work"), ("cv_e_kin", "kinetic-energy correction"),
     ("cv_e_adv", "advection"), ("cv_e_dfe", "energy diffusion"), ("cv_e_rad", "gas-radiation exchange"), ("cv_e_conv", "convective-flux divergence"),
-    ("cv_e_chem", "chemistry cooling/heating"), ("cv_e_src", "nuclear source"), ("cv_e_res", "row residual")]
-const CVSCAL = ["cv_rin", "cv_rout", "cv_mlayer", "cv_N2td2", "cv_FconvFtot_max", "cv_FpotFtot_max", "cv_nlayer"]    # the sub-shock unstable layer (convdiag_snap), r in R_star, m in M_sun
+    ("cv_e_chem", "chemistry cooling/heating"), ("cv_e_src", "nuclear source"), ("cv_e_res", "row residual"),
+    ("cv_w", "TDC: turbulent velocity w at the interface [km/s] (NaN without TDC)"), ("cv_PtP", "TDC: turbulent pressure P_t/P of the zone"), ("cv_Dmix", "TDC: species mixing diffusivity D = alpha_D l w [cm^2/s]"),
+    ("cv_Q", "TDC: realised exchange gas -> turbulent energy Q of the interface CV [erg/s/sr]")]
+const CVSCAL = ["cv_rin", "cv_rout", "cv_mlayer", "cv_N2td2", "cv_FconvFtot_max", "cv_FpotFtot_max", "cv_nlayer", "cv_Et", "cv_PtP_ps", "cv_PtP_ps3"]    # the sub-shock unstable layer (convdiag_snap), r in R_star, m in M_sun
 hascd(x) = hasproperty(x, :cd) && x.cd !== nothing
 nanavg(v) = [(a_ = v[i]; b_ = v[i+1]; isnan(a_) ? b_ : isnan(b_) ? a_ : 0.5 * (a_ + b_)) for i in 1:length(v)-1]
 
@@ -107,7 +109,12 @@ function cvframe(x)
         "cv_logt_chem" => l10(c.t_chem))
     if hasproperty(c, :sup); F["cv_sup"] = nanavg(c.sup); F["cv_fchem"] = nanavg(c.fchem); F["cv_tchem"] = nanavg(c.tchem); else for nm in ("cv_sup", "cv_fchem", "cv_tchem"); F[nm] = fill(NaN, n); end; end
     for t in (:stor, :pdv, :av, :kin, :adv, :dfe, :rad, :conv, :chem, :src, :res); F["cv_e_$t"] = zg(getproperty(c, Symbol("e_", t))); end
-    F, Float64.(c.layer[1:7])
+    if hasproperty(c, :tdc_w)
+        F["cv_w"] = nanavg(c.tdc_w) ./ 1e5; F["cv_PtP"] = c.tdc_PtP; F["cv_Dmix"] = nanavg(c.tdc_Dmix); F["cv_Q"] = nanavg(c.tdc_Q)
+    else
+        for nm in ("cv_w", "cv_PtP", "cv_Dmix", "cv_Q"); F[nm] = fill(NaN, n); end
+    end
+    F, vcat(Float64.(c.layer[1:7]), hasproperty(c, :tdc_scal) ? Float64.(c.tdc_scal) : fill(NaN, 3))
 end
 
 const NUCSPEC = [("logXH", (:p,)), ("logXD", (:d,)), ("logXHe3", (:he3,)), ("logXHe4", (:he4,)), ("logXC", (:c12, :c13)),

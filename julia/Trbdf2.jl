@@ -57,8 +57,9 @@ const SAVE = Dict{Symbol,Vector{Float64}}()
 const SAVEX = [Float64[], Float64[]]
 save!() = (for s in OLD; copyto!(get!(() -> similar(vf(s)), SAVE, s), vf(s)); end;
            TX.COUPLED[] && for i in 1:2; length(SAVEX[i]) == length(TX.XSO[][i]) || (SAVEX[i] = similar(TX.XSO[][i])); copyto!(SAVEX[i], TX.XSO[][i]); end;
+           TX.TDC_ON[] && copyto!(TX.SAVEW[], TX.WTO[]);       # TDC: the old turbulent velocity
            TX.MG[] && mg_save!())
-restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:2; copyto!(TX.XSO[][i], SAVEX[i]); end;
+restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:2; copyto!(TX.XSO[][i], SAVEX[i]); end; TX.TDC_ON[] && copyto!(TX.WTO[], TX.SAVEW[]);
               TX.MG[] && mg_restore!(); isempty(TX.KSTAR[]) || (TX.KSTAR[] = Float64[]))
 # MGROUPS: the old group fields (TitanResidFast MGEO, MGFO) saved, restored and combined like E_r (on E ΔV) and F_r (on the flux-row inertia)
 const SAVEMG = [Vector{Vector{Float64}}(), Vector{Vector{Float64}}()]
@@ -223,6 +224,10 @@ function bdf_old!()
         do_[k] = ms[k] / dvo[k]
     end
     @inbounds for k in a-1:b+2; xmeo[k] = cb(xmen[k], xm0[k]); end
+    if TX.TDC_ON[]                     # TDC: the turbulent velocity w (linear in the row: w* = w_γ + B (w_γ − w_n), also on the interfaces a … b+1)
+        wn_, wo_, w0_ = TX.WTN[], TX.WTO[], TX.SAVEW[]
+        @inbounds for k in a:b+1; wo_[k] = cb(wn_[k], w0_[k]); end
+    end
     if TX.COUPLED[]                    # species on ρ x ΔV (the residual reads x_old only as ρ_old x_old ΔV_old)
         for i in 1:2
             xn_, xo_ = TX.XSN[][i], TX.XSO[][i]

@@ -19,6 +19,8 @@ import ..TitanDriver
 const TD = TitanDriver
 const TF = TD.TF
 include(joinpath(@__DIR__, "TDC.jl")); using .TDC: blob_sup, blob_f, gamma1_inv   # M2/M3: pure convection functions (docs/POPIII_CONVECTION.md)
+using .TDC: TDCPar, TDCGeom, TDCBack, tdc_ay, tdc_flux, tdc_pturb, tdc_dmix, tdc_F!, tdc_exchange, kw_mlt_flux, tdc_mlt_w
+using .TDC: fb as tdc_fb
 
 val(x) = ForwardDiff.value(x)
 gi(s) = Int(TD.g(s)); gf(s) = Float64(TD.g(s))
@@ -344,6 +346,7 @@ function context(; dt = nothing)
         (cde >= 6 && !lrad) && continue
         code[i] = cde
     end
+    TDC_ON[] && (code[neqn] = 8)               # TDC: the turbulent velocity w, the last unknown (code 8: linear, scale unom; its base is WTN, not a COMMON array)
     base = get!(() -> zeros(mgr, NV), BUFS, :base)::Matrix{Float64}
     for cde in 1:NV; copyto!(view(base, :, cde), v(VSYM[cde])); end
     P = Par(dt === nothing ? gf(:dtime) : Float64(dt), gf(:thet), gf(:cadv), gf(:epsadv), gf(:sigd), gf(:sige), gf(:phil0), gf(:phil2),
@@ -369,7 +372,7 @@ function convcoef(ngrs, ngre, base)
     mgr = TF.MGR
     cv = Tuple(get!(() -> zeros(mgr), BUFS, nm)::Vector{Float64} for nm in (:cvnad, :cvcp, :cvdel, :cvkap))
     foreach(a -> fill!(a, 0.0), cv)
-    CONVECTION[] || return cv
+    (CONVECTION[] && !TDC_ON[]) || return cv              # (TDC: no MLT coefficients and no τ gate, see _tdc!)
     m = MATERIAL[]; m === nothing && error("MLT convection needs a material with material_thermo (e.g. Z0Gas)")
     MLT_AD[] || @inbounds for k in ngrs+1:ngre       # lagged coefficients (not needed when MLT_AD)
         ρi = 0.5 * (base[k-1, 3] + base[k, 3]); Ti = 0.5 * (base[k-1, 5] + base[k, 5])
@@ -432,7 +435,8 @@ const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn
     :dso, :uso, :egrso, :egso, :erso, :frso, :xso1, :xso2,       # old-level limiter slopes (oldslope!)
     :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv,
     :mnad, :mcp, :mdl, :mkp,                # MLT coefficients of the threaded pre-pass (MATTHREADS)
-    :xs1, :xs2, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL, :cpQ, :cpY)     # COUPLED: species iterate, face values, slopes, rates, cooling
+    :xs1, :xs2, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL, :cpQ, :cpY,     # COUPLED: species iterate, face values, slopes, rates, cooling
+    :tw, :two, :ta, :tU, :tsup, :tell, :trhoz, :tellz, :tF, :tHP, :trho, :tT, :tcp, :tPt, :tgx, :tAz, :tmzn, :tmzo, :tdV, :tD, :tQ, :tdel, :tg)   # TDC (M3b): w, background, zone arrays, exchange
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
     xnuo::Vector{Float64}
@@ -892,6 +896,7 @@ const CONVDIAG = Ref(false)
 const CVD = Dict{Symbol,Vector{Float64}}(); const CVD_ON = Ref(false)
 const CVD_NAMES = (:rhoi, :Ti, :Pi, :g, :HP, :lmix, :frad, :lp_raw, :lph, :hs_w, :nab_raw, :nab, :nad_used, :cp_used, :del_used, :kap, :fpot, :vpot, :fconv, :vconv,
                    :sup, :fchem, :tchem, :delb, :cpb,
+                   :tdc_w, :tdc_PtP, :tdc_Dmix, :tdc_Q, :tdc_Fres, :tdc_a, :tdc_U, :e_tdc,
                    :e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res)
 @inline cvrec!(nm::Symbol, k, x) = (@inbounds CVD[nm][k] = Float64(ForwardDiff.value(x)); nothing)
 """
@@ -911,6 +916,164 @@ blending range (¼, ¾) of MLT_HS, and the blend weight (taken as a constant in 
 made Newton converge only linearly (factor ⅓ per iteration) in the central zone.
 """
 const MLT_HSDISC = Ref(false)
+"""
+TDC_ON (popiii_m2c `TDC=1`; M3b, provisional, default false = bit-identical, neqn unchanged): time-dependent convection (docs/POPIII_CONVECTION.md D2, M3a, M3b). The turbulent velocity
+w ≥ 0 [cm/s] on the interfaces is the LAST Newton unknown `iw` = neqn (behind the species 8, 9 of COUPLED and the MGROUPS groups), a linear variable w = WTN + δ·unom with its
+iterate WTN and the old level WTO (`TDC.tdc_rows!`: Fischer–Burmeister row, fb(w, F) with F the backward-Euler step of D2). Replaces the MLT block (no τ gate, no `MLT_NOINFALL`, no
+`MLT_HS`, no 1e30 placeholder): the buoyancy of M2 (`buoy_blob`) is the source, and at the iterate (everything differentiated, no held coefficients)
+  fcv[k] = F_c (`tdc_flux`)            gas energy row of zone j   + ½(Q_j + Q_j+1)  (Q = the realised exchange, `tdc_exchange`; boundary CVs wholly to their zone)
+  momentum row k   + rmu_k (P_t,k − P_t,k−1), P_t = α_p ρ ē (θ-centred like p_g; the same P_t, dV/dt enter Q)
+  species rows 8, 9 of a coupled zone   + F_k+1 − F_k, F_k = −rmu_k ρ_k D_k Δx/Δr_c, D = α_D ℓ w.
+"""
+const TDC_ON = Ref(false)
+const WTN = Ref(Float64[]); const WTO = Ref(Float64[]); const SAVEW = Ref(Float64[])
+const TDCP = Ref(TDCPar())
+"face-value weight of the w advection (0 = first-order donor cell, 1 = centred; `TDC.tdc_facew`)"
+const TDC_CEN = Ref(0.0)
+"weights only (convergence measure and GMRES norm of w): the correction of w is measured against max(w, TDC_WFLOOR · c_s); nothing is clamped"
+const TDC_WFLOOR = Ref(0.01)
+const TDCMON = Ref((Etn = 0.0, Eto = 0.0, SQ = 0.0, SQa = 0.0))     # (Float64 passes) E_t of the new/old level, Σ Q, Σ |Q| of the last evaluation, for ETOTMON
+function tdc_alloc!(mgr)
+    length(WTN[]) == mgr || (WTN[] = zeros(mgr)); length(WTO[]) == mgr || (WTO[] = zeros(mgr)); length(SAVEW[]) == mgr || (SAVEW[] = zeros(mgr))
+    nothing
+end
+"Start of a step (TitanCore.peq!): old w := iterate."
+tdc_newstep!() = (copyto!(WTO[], WTN[]); nothing)
+"Reset after a failed attempt (TitanCore.reset!): w iterate := old level (the species do the same)."
+tdc_reset!() = (copyto!(WTN[], WTO[]); nothing)
+"Apply the Newton correction (update!): w ← w + δ unom on the interfaces a … b+1 (linear; the Dirichlet rows give δ = −w = 0 at a and b+1)."
+function tdc_update!(rhs, a, b)
+    iw = gi(:neqn); unom = TF.var(:unom); w = WTN[]
+    @inbounds for k in a:b+1; w[k] += rhs[iw, k] * unom[k]; end
+    nothing
+end
+"maxdel's convergence measure of w: |δw| against max(|w|, TDC_WFLOOR c_s) (a weight, not a clamp); fills kx, dx of the equation."
+function tdc_dmax!(rhs, a, b)
+    iw = gi(:neqn); unom = TF.var(:unom); asn = TF.var(:asn); w = WTN[]; kx = TF.var(:kx); dx = TF.var(:dx); d = 0.0
+    kx[iw] = 0; dx[iw] = 0.0
+    @inbounds for k in a:b+1
+        abs(rhs[iw, k]) > abs(dx[iw]) && (kx[iw] = k - a + 1; dx[iw] = rhs[iw, k])
+        isfinite(rhs[iw, k]) || (rhs[iw, k] = 0.0; d = Inf)
+        cs = max(asn[max(k - 1, a)], asn[min(k, b)])
+        d = max(d, abs(rhs[iw, k]) * unom[k] / max(abs(w[k]), TDC_WFLOOR[] * cs))
+    end
+    d
+end
+"The w weight of NewtonKrylov's GMRES norm (as tdc_dmax!)."
+tdc_weight(k, a, b) = (unom = TF.var(:unom); asn = TF.var(:asn); unom[k] / max(abs(WTN[][k]), TDC_WFLOOR[] * max(asn[max(k - 1, a)], asn[min(k, b)])))
+
+"""
+    _tdc!(R, W, c, x, fedd, kb)
+
+The TDC block of `residual!` (before the GRID rows; M3b): the iterate's w (`tw`), the background of every interior interface from the iterate (ℓ as the MLT block, buoyancy `buoy_blob` of M2,
+κ = `avchi[k]`, P = p_gas + f E_r, g and H_P of the θ-centred state), the rows φ_k = fb(w_k, F_k) (`TDC.tdc_F!`) into R[iw, ·], and the couplings fcv, `tPt` (zone P_t, θ-centred), `tgx` (the gas-energy source of
+each zone, = + ½(Q_j + Q_j+1)) and `tD` (D_mix). Interfaces without gravity or an unphysical thermodynamic state get the trivial row w = 0 and no flux. The thermodynamics are Float64 (screening) where w and the
+old w vanish in the neighbourhood and sup ≤ 0 (then no row or flux depends on them: ∂φ/∂F = 0 at w = 0, F > 0; exact, as in M2), with the zones' Duals otherwise.
+"""
+function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
+    ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
+    P = c.p; θ = P.θ; dt = P.dt; xmu = Float64(mu); iw = neqn; par = TDCP[]
+    c.lrad || error("TDC needs the radiation field (κ = avchi)")
+    isnan(PEXT[]) || error("TDC: free surface (PEXT) not supported")
+    wtn = WTN[]; wto = WTO[]
+    r, u, xm, rmu, d, dvol, dvoln, dmdt, avchi = W.r, W.u, W.xm, W.rmu, W.d, W.dvol, W.dvoln, W.dmdt, W.avchi
+    dn, tn, ern, pgn = W.dn, W.tn, W.ern, W.pgn
+    tw, two, ta, tU, tsup, tell, trz, tez = W.tw, W.two, W.ta, W.tU, W.tsup, W.tell, W.trhoz, W.tellz
+    tHP, trho, tT, tcp, tdel, tg = W.tHP, W.trho, W.tT, W.tcp, W.tdel, W.tg
+    fcv = W.fcv; cvp = CVD_ON[] && T === Float64
+    @inbounds for k in k0:ngre+2
+        tw[k] = wtn[k] + x[(kb(k) - 1) * neqn + iw] * c.nomu[k]; two[k] = wto[k]
+    end
+    mgr = length(tw); tok = get!(() -> fill(false, mgr), BUFS, :tdcok)::Vector{Bool}; fill!(tok, false)
+    zv = Vector{Any}(nothing, ngre + 1); zd = T === Float64 ? zv : Vector{Any}(nothing, ngre + 1)
+    z0 = zero(T)
+    @inbounds for k in ngrs:ngre+1; fcv[k] = z0; W.vcv[k] = z0; W.lcv[k] = z0; W.nabv[k] = z0; W.nadv[k] = z0; ta[k] = one(T); tU[k] = z0; tsup[k] = z0; tell[k] = one(T); end
+    @inbounds for k in ngrs+1:ngre
+        Pm = pgn[k-1] + (AD_JV[] ? fedd[k-1] : c.fedd[k-1]) * ern[k-1]; Pp = pgn[k] + (AD_JV[] ? fedd[k] : c.fedd[k]) * ern[k]
+        Ti = 0.5 * (tn[k-1] + tn[k]); ρi = 0.5 * (dn[k-1] + dn[k]); Pi = 0.5 * (Pm + Pp)
+        gk = 2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g
+        ForwardDiff.value(gk) > 0 || continue                       # no gravity → no buoyancy: trivial row, no flux
+        HP = Pi / (ρi * gk); l = MLT_RCAP[] ? c.alpha / sqrt(1 / HP^2 + 1 / r[k]^2) : c.alpha * HP
+        tell[k] = l
+        for j in (k - 1, k)
+            zv[j] === nothing && ((ForwardDiff.value(dn[j]) > 0 && ForwardDiff.value(tn[j]) > 0) ? (zv[j] = _buoy_zone(MATERIAL[], W, dn, tn, j, Float64)) : (zv[j] = false))
+        end
+        (zv[k-1] === false || zv[k] === false) && continue          # unphysical iterate: trivial row (the step will be rejected)
+        κk = avchi[k]
+        lph = MLT_HSDISC[] ? ((GFV[] || GVAR[]) ? -(gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
+                                                   gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
+                                                   (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
+                              -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (r[k+1] - r[k-1]) / HP
+        ΔlnP = log(Pp / Pm); ΔlnT = log(tn[k] / tn[k-1]); Δlnρ = log(dn[k] / dn[k-1])
+        sup, δb, cpb, fbl = buoy_blob(zv[k-1], zv[k], ΔlnP, ΔlnT, Δlnρ, lph, l, gk, HP)      # screening: the zones' Float64 thermodynamics, sup's value is the true one
+        wnear = ForwardDiff.value(tw[k-1]) != 0 || ForwardDiff.value(tw[k]) != 0 || ForwardDiff.value(tw[k+1]) != 0 || two[k-1] != 0 || two[k] != 0 || two[k+1] != 0
+        if T !== Float64 && (ForwardDiff.value(sup) > 0 || wnear)  # with the zones' derivatives wherever a row or a flux can depend on them
+            for j in (k - 1, k); zd[j] === nothing && (zd[j] = _buoy_zone(MATERIAL[], W, dn, tn, j, T)); end
+            sup, δb, cpb, fbl = buoy_blob(zd[k-1], zd[k], ΔlnP, ΔlnT, Δlnρ, lph, l, gk, HP)
+        end
+        a, U = tdc_ay(l, gk, δb, HP, cpb, ρi, κk, Ti, 4P.csigr)
+        ta[k] = a; tU[k] = U; tsup[k] = sup; tHP[k] = HP; trho[k] = ρi; tT[k] = Ti; tcp[k] = cpb; tdel[k] = δb; tg[k] = gk; tok[k] = true
+        if cvp
+            cvrec!(:rhoi, k, ρi); cvrec!(:Ti, k, Ti); cvrec!(:Pi, k, Pi); cvrec!(:g, k, gk); cvrec!(:HP, k, HP); cvrec!(:lmix, k, l); cvrec!(:frad, k, W.fr[k])
+            cvrec!(:lp_raw, k, ΔlnP); cvrec!(:lph, k, lph); cvrec!(:sup, k, sup); cvrec!(:fchem, k, fbl); cvrec!(:tchem, k, 0.5 * (zv[k-1][2] + zv[k][2])); cvrec!(:delb, k, δb); cvrec!(:cpb, k, cpb)
+            cvrec!(:nab_raw, k, ΔlnT / ΔlnP); cvrec!(:kap, k, κk); cvrec!(:cp_used, k, cpb); cvrec!(:del_used, k, δb)
+            cvrec!(:fpot, k, sup > 0 ? kw_mlt_flux(ρi, cpb, Ti, gk, δb, l, HP, U, sup) : 0.0); cvrec!(:vpot, k, sup > 0 ? tdc_mlt_w(a, U, sup) : 0.0)
+            cvrec!(:tdc_a, k, a); cvrec!(:tdc_U, k, U)
+        end
+        W.nabv[k] = sup; W.lcv[k] = l
+    end
+    @inbounds begin
+        tell[ngrs] = tell[ngrs+1]; tell[ngre+1] = tell[ngre]
+        for j in ngrs:ngre
+            trz[j] = dn[j]; tez[j] = 0.5 * (tell[j] + tell[j+1])
+            W.tAz[j] = ((r[j] + r[j+1]) / 2)^xmu
+            W.tmzn[j] = dn[j] * dvoln[j]; W.tmzo[j] = c.do_[j] * c.dvolo[j]
+            W.tdV[j] = rmu[j+1] * u[j+1] - rmu[j] * u[j]
+            ptn = tdc_pturb(tw[j], tw[j+1], dn[j], par)
+            W.tPt[j] = θ == 1 ? ptn : θ * ptn + (1 - θ) * (par.α_p * c.do_[j] * 0.5 * (two[j]^2 + two[j+1]^2))
+        end
+    end
+    nz = ngre - ngrs + 1; ra = ngrs:ngre+1; za = ngrs:ngre
+    G = TDCGeom(nz, view(r, ra), view(W.tAz, za), view(W.tmzn, za), view(W.tmzo, za), view(dmdt, ra), view(W.tdV, za))
+    B = TDCBack(view(ta, ra), view(tU, ra), view(tsup, ra), view(tell, ra), view(trz, za), view(tez, za))
+    wv = view(tw, ra); wov = view(two, ra); Fv = view(W.tF, ra)
+    tdc_F!(Fv, wv, wov, G, B, dt, par; cen = TDC_CEN[])
+    @inbounds begin
+        R[iw, kb(ngrs)] = tw[ngrs]; R[iw, kb(ngre+1)] = tw[ngre+1]
+        for k in ngrs+1:ngre
+            R[iw, kb(k)] = tok[k] ? tdc_fb(tw[k], W.tF[k]) : tw[k]
+            if tok[k]
+                fcv[k] = tdc_flux(tw[k], ta[k], tU[k], tsup[k], tell[k], trho[k], tcp[k], tT[k], tHP[k], par)
+                W.vcv[k] = tw[k]; W.tD[k] = tdc_dmix(tw[k], tell[k], par)
+            else
+                W.tD[k] = z0
+            end
+        end
+        W.tD[ngrs] = z0; W.tD[ngre+1] = z0
+        for k in k0:ngrs-1; R[iw, kb(k)] = AD_JV[] ? z0 : x[(kb(k) - 1) * neqn + iw]; end
+        R[iw, kb(ngre+2)] = AD_JV[] ? z0 : x[(kb(ngre+2) - 1) * neqn + iw]
+    end
+    Q, _ = tdc_exchange(wv, wov, G, B, dt, par; cen = TDC_CEN[], Ptc = view(W.tPt, za))
+    @inbounds for j in ngrs:ngre
+        i = j - ngrs + 1
+        W.tgx[j] = 0.5 * (Q[i] + Q[i+1]) + (j == ngrs ? 0.5 * Q[1] : z0) + (j == ngre ? 0.5 * Q[nz+1] : z0)
+    end
+    if T === Float64
+        mn(k) = 0.5 * ((k > ngrs ? W.tmzn[k-1] : 0.0) + (k <= ngre ? W.tmzn[k] : 0.0)); mo(k) = 0.5 * ((k > ngrs ? W.tmzo[k-1] : 0.0) + (k <= ngre ? W.tmzo[k] : 0.0))
+        TDCMON[] = (Etn = sum(mn(k) * tw[k]^2 for k in ngrs:ngre+1), Eto = sum(mo(k) * two[k]^2 for k in ngrs:ngre+1), SQ = sum(Q), SQa = sum(abs, Q))
+    end
+    if cvp
+        for k in ngrs+1:ngre
+            tok[k] || continue
+            cvrec!(:fconv, k, fcv[k]); cvrec!(:vconv, k, tw[k]); cvrec!(:tdc_w, k, tw[k]); cvrec!(:tdc_Dmix, k, W.tD[k]); cvrec!(:tdc_Fres, k, W.tF[k])
+        end
+        for k in ngrs:ngre+1; cvrec!(:tdc_Q, k, Q[k-ngrs+1]); end
+        for j in ngrs:ngre
+            cvrec!(:tdc_PtP, j, W.tPt[j] / (pgn[j] + (AD_JV[] ? fedd[j] : c.fedd[j]) * ern[j])); cvrec!(:e_tdc, j, W.tgx[j])
+        end
+    end
+    nothing
+end
 "Function barrier: fills the n-level EOS/opacity workspace from the material (type-specialised loop)."
 @inline function _matzone!(m, W, c, P, dn, tn, ern, k, hassrc)
     @inbounds begin
@@ -1236,7 +1399,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         newv[cde][k] = c.base[k, cde]
     end
     @inbounds for j in 1:neqn
-        cde = c.code[j]; cde == 0 && continue; a = newv[cde]
+        cde = c.code[j]; (cde == 0 || cde == 8) && continue; a = newv[cde]
         if cde == 4
             for bb in 1:nb; k = k0 + bb - 1; a[k] = c.base[k, 4] + x[(bb-1)*neqn+j] * c.nomu[k]; end
         elseif cde == 7
@@ -1446,6 +1609,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     # ---------------------------------------------------------------- GRID
     kb(k) = k - k0 + 1
     X(i, k) = AD_JV[] ? zero(T) : x[(kb(k) - 1) * neqn + i]
+    TDC_ON[] && _tdc!(R, W, c, x, fedd, kb)          # M3b: the w rows, F_c, P_t, the exchange Q and D_mix at the iterate (before the momentum, energy and species rows that use them)
     if P.lgrid == 1
         α = P.alph * (1 + P.alph); gam = (P.tau / dt)^P.ibet
         xnu, xnc, ss, xnuo = W.xnu, W.xnc, W.ss, ws.xnuo
@@ -1577,6 +1741,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             fgk +
             r1 * (r3k * qf[k] - r3m * qf[k-1])
         c.lrad && (w -= (Mg === nothing ? avchi[k] * fr[k] : Mg.frc[k]) / cc * mk)   # (MGROUPS: Σ_g χ̄_g F_g)
+        TDC_ON[] && (w += rmu[k] * (W.tPt[k] - W.tPt[k-1]))                      # M3b: turbulent pressure, discretised as the p_g term
         R[iu, kb(k)] = w
     end
     R[iu, kb(ngrs)] = X(iu, ngrs); R[iu, kb(ngre+1)] = X(iu, ngre + 1); R[iu, 1] = X(iu, k0)
@@ -1604,8 +1769,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     # ---------------------------------------------------------------- MLT convective flux (Phase 7)
     fcv = W.fcv
     cvp = CVD_ON[] && T === Float64          # (CONVDIAG) diagnostic recording pass: see conv_diag_pass; never true in a solve
-    @inbounds for k in ngrs:ngre+1; fcv[k] = zero(T); W.vcv[k] = zero(T); W.lcv[k] = zero(T); W.nabv[k] = zero(T); W.nadv[k] = zero(T); end
-    if c.conv
+    TDC_ON[] || @inbounds for k in ngrs:ngre+1; fcv[k] = zero(T); W.vcv[k] = zero(T); W.lcv[k] = zero(T); W.nabv[k] = zero(T); W.nadv[k] = zero(T); end    # (TDC: filled by _tdc! above)
+    if c.conv && !TDC_ON[]
         nadv, cpv, δv, κv = c.cv; cvw = BUFS[:cvw]::Vector{Float64}
         arad = 4P.csigr / cc
         ntm = min(MAT_THREADS[], Threads.nthreads())
@@ -1803,6 +1968,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 w += -dmdt[k+1] * egb[k+1] + dmdt[k] * egb[k]
             end
         end
+        TDC_ON[] && (w += W.tgx[k])                                 # M3b: the gas gives the turbulent energy what the w row realised (+ ½(Q_k + Q_k+1))
         isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
         cplz(k) && (θc = max(θ, CPL_THETA[]); w += (θc * W.cpL[k] + (1 - θc) * XLAMO[][k]) * dvol[k])   # COUPLED: the chemistry cooling, implicit
         R[it, kb(k)] = w
@@ -1838,6 +2004,11 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                     P.leobc == 3 && (w += -dmdt[k+1] * qb[k+1])
                 else
                     w += -dmdt[k+1] * qb[k+1] + dmdt[k] * qb[k]
+                end
+                if TDC_ON[]            # M3b: turbulent mixing, F_j = −rmu_j ρ_j D_j (x_j − x_j−1)/(r_c,j − r_c,j−1) at the interfaces k, k+1 (none at the domain's boundaries)
+                    fx(j) = (j <= ngrs || j > ngre) ? zero(T) :
+                        -rmu[j] * 0.5 * (dn[j-1] + dn[j]) * W.tD[j] * (q[j] - q[j-1]) / (0.5 * (r[j] + r[j+1]) - 0.5 * (r[j-1] + r[j]))
+                    w += fx(k + 1) - fx(k)
                 end
                 R[i, kb(k)] = w
             end
@@ -2129,6 +2300,10 @@ function etot_monitor(dt)
         res = [R[it, k - c.k0 + 1] * dt for k in a:b]
         thrk = [abs(E(k) - Eo(k)) + dt * (abs(Φ[k-a+1]) + abs(Φ[k-a+2])) for k in a:b]
         thr = sum(thrk); imb = sum(res); dE = sum(E(k) - Eo(k) for k in a:b)
+        if TDC_ON[]      # M3b: the rows carry +ΣQ (the gas gives the turbulent energy what the w rows realised): book the turbulent energy E_t = Σ m_k w_k² instead, Q Δt = ΔE_t + Δt Σ P_t dV (docs M3b)
+            tm = TDCMON[]; dEt = tm.Etn - tm.Eto
+            imb += dEt - dt * tm.SQ; thr += abs(dEt) + dt * tm.SQa; dE += dEt
+        end
         fin, fout = Φ[1] * dt, Φ[end] * dt
         v = abs.(res) ./ max.(thrk, 1e-300); zm = argmax(v)
         s = abs.(res) ./ max(thr, 1e-300); zs = argmax(s)
@@ -2170,7 +2345,8 @@ function conv_diag_pass(dt)
         R = zeros(c.neqn, c.nb); ws = getws(Float64, c.mgr)
         residual!(R, ws, c, zeros(c.neqn * c.nb)); W = ws.a
         cp(x) = (y = fill(NaN, mg); n = min(length(x), mg); y[1:n] .= x[1:n]; y)
-        extra = (; w_tau = cp(BUFS[:cvwt]), w_inf = cp(BUFS[:cvwi]), tau = cp(BUFS[:cvtau]), cvw = cp(BUFS[:cvw]), fcv_w = cp(W.fcv), vcv_w = cp(W.vcv), lcv_w = cp(W.lcv),
+        gb(nm) = haskey(BUFS, nm) ? BUFS[nm] : Float64[]      # (TDC: no τ gate, the buffers of convcoef's gate are not filled)
+        extra = (; w_tau = cp(gb(:cvwt)), w_inf = cp(gb(:cvwi)), tau = cp(gb(:cvtau)), cvw = cp(gb(:cvw)), fcv_w = cp(W.fcv), vcv_w = cp(W.vcv), lcv_w = cp(W.lcv),
                  nabv_w = cp(W.nabv), nadv_w = cp(W.nadv))
         merge(NamedTuple{CVD_NAMES}(Tuple(copy(CVD[nm]) for nm in CVD_NAMES)), extra)
     finally
