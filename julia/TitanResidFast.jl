@@ -379,7 +379,7 @@ function context(; dt = nothing)
         (cde >= 6 && !lrad) && continue
         code[i] = cde
     end
-    TDC_ON[] && (code[neqn] = 8)               # TDC: the turbulent velocity w, the last unknown (code 8: linear, scale unom; its base is WTN, not a COMMON array)
+    TDC_ON[] && (code[neqn] = 10)              # TDC: the turbulent velocity w, the LAST unknown (neqn = 9 + 2G + 1 with MGROUPS; code 10: linear, scale unom; its base is WTN, not a COMMON array; 8, 9 are the group codes of NewtonKrylov.nkcode)
     base = get!(() -> zeros(mgr, NV), BUFS, :base)::Matrix{Float64}
     for cde in 1:NV; copyto!(view(base, :, cde), v(VSYM[cde])); end
     P = Par(dt === nothing ? gf(:dtime) : Float64(dt), gf(:thet), gf(:cadv), gf(:epsadv), gf(:sigd), gf(:sige), gf(:phil0), gf(:phil2),
@@ -927,7 +927,7 @@ convcoef keeps the τ and the inflow factor of `cvw` in `BUFS[:cvwt]`, `BUFS[:cv
 const CONVDIAG = Ref(false)
 const CVD = Dict{Symbol,Vector{Float64}}(); const CVD_ON = Ref(false)
 const CVD_NAMES = (:rhoi, :Ti, :Pi, :g, :HP, :lmix, :frad, :lp_raw, :lph, :hs_w, :nab_raw, :nab, :nad_used, :cp_used, :del_used, :kap, :fpot, :vpot, :fconv, :vconv,
-                   :sup, :fchem, :tchem, :delb, :cpb,
+                   :sup, :fchem, :tchem, :delb, :cpb, :kap_grey,
                    :tdc_w, :tdc_PtP, :tdc_Dmix, :tdc_Q, :tdc_Fres, :tdc_a, :tdc_U, :e_tdc,
                    :e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res)
 @inline cvrec!(nm::Symbol, k, x) = (@inbounds CVD[nm][k] = Float64(ForwardDiff.value(x)); nothing)
@@ -1012,6 +1012,24 @@ end
 tdc_weight(k, a, b) = (unom = TF.var(:unom); asn = TF.var(:asn); unom[k] / max(abs(WTN[][k]), TDC_WFLOOR[] * max(asn[max(k - 1, a)], asn[min(k, b)])))
 
 """
+M3e (MGROUPS with TDC or MLT_BUOY): the opacity of the radiative loss of an eddy, `κ_ed(k) = 1 / Σ_g w_g(T)/χ̄_g[k]`, the Rosseland-type mean of the groups' interface opacities χ̄_g (`Mg.avchi[g]`, the ones of
+the group flux rows, at the iterate, Duals included). The eddy loses heat by photon diffusion, F = −(4π/3) Σ_g (1/χ̄_g) ∂B_g/∂r with B_g = b_g(T) σT⁴/π: the diffusion fluxes of the groups add, and 1/κ_ed is the
+sum of 1/χ̄_g weighted with the group's share of ∂B/∂T: w_g = ∂(b_g T⁴)/∂T / (4T³) = b_g + (15/4π⁴)(h(x_l) − h(x_h)), h(x) = x⁴/(e^x − 1), x = e/kT at the group's lower and upper edge (h(0) = h(∞) = 0), Σ_g w_g = 1
+(the sum is divided out: the floor MGBFLOOR of b_g makes it 1 − O(1e-200)). It is the grey Rosseland mean of the same records where the groups' χ_g are Rosseland means of their bands (the thick limit in which the groups sum
+to the grey diffusion flux, docs/POPIII_MULTIGROUP.md §17); where a zone is thin in a group, χ̄_g is that group's flux mean (`mg_chif`), as in the group's own flux row. T: the interface temperature the caller uses.
+"""
+@inline function mg_kappa_eddy(Mg::MGWS, k, T)
+    edges = MGEDGE[]; G = length(edges) + 1; s = MGEVK[] / T; c = 15 / (4π^4)
+    hh(x) = x^4 * exp(-x) / (-expm1(-x))
+    num = zero(T); den = zero(T)
+    @inbounds for g in 1:G
+        hl = g == 1 ? zero(s) : hh(edges[g-1] * s); hu = g == G ? zero(s) : hh(edges[g] * s)
+        wg = mg_bfrac(g, T) + c * (hl - hu)
+        num += wg / Mg.avchi[g][k]; den += wg
+    end
+    den / num
+end
+"""
     _tdc!(R, W, c, x, fedd, kb)
 
 The TDC block of `residual!` (before the GRID rows; M3b): the iterate's w (`tw`), the background of every interior interface from the iterate (ℓ as the MLT block, buoyancy `buoy_blob` of M2,
@@ -1024,7 +1042,7 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
     P = c.p; θ = P.θ; dt = P.dt; xmu = Float64(mu); iw = neqn; par = TDCP[]
     c.lrad || error("TDC needs the radiation field (κ = avchi)")
     isnan(PEXT[]) || error("TDC: free surface (PEXT) not supported")
-    wtn = WTN[]; wto = WTO[]
+    wtn = WTN[]; wto = WTO[]; Mg_ = MG[] ? mgws(T, c.mgr) : nothing
     r, u, xm, rmu, d, dvol, dvoln, dmdt, avchi = W.r, W.u, W.xm, W.rmu, W.d, W.dvol, W.dvoln, W.dmdt, W.avchi
     dn, tn, ern, pgn = W.dn, W.tn, W.ern, W.pgn
     tw, two, ta, tU, tsup, tell, trz, tez = W.tw, W.two, W.ta, W.tU, W.tsup, W.tell, W.trhoz, W.tellz
@@ -1048,7 +1066,7 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
             zv[j] === nothing && ((ForwardDiff.value(dn[j]) > 0 && ForwardDiff.value(tn[j]) > 0) ? (zv[j] = _buoy_zone(MATERIAL[], W, dn, tn, j, Float64)) : (zv[j] = false))
         end
         (zv[k-1] === false || zv[k] === false) && continue          # unphysical iterate: trivial row (the step will be rejected)
-        κk = avchi[k]
+        κk = Mg_ === nothing ? avchi[k] : mg_kappa_eddy(Mg_, k, Ti)      # M3e: MGROUPS: the Rosseland-type mean of the groups' opacities (grey avchi otherwise)
         lph = MLT_HSDISC[] ? ((GFV[] || GVAR[]) ? -(gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
                                                    gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
                                                    (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
@@ -1063,7 +1081,7 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
         a, U = tdc_ay(l, gk, δb, HP, cpb, ρi, κk, Ti, 4P.csigr)
         ta[k] = a; tU[k] = U; tsup[k] = sup; tHP[k] = HP; trho[k] = ρi; tT[k] = Ti; tcp[k] = cpb; tdel[k] = δb; tg[k] = gk; tok[k] = true
         if cvp
-            cvrec!(:rhoi, k, ρi); cvrec!(:Ti, k, Ti); cvrec!(:Pi, k, Pi); cvrec!(:g, k, gk); cvrec!(:HP, k, HP); cvrec!(:lmix, k, l); cvrec!(:frad, k, W.fr[k])
+            cvrec!(:rhoi, k, ρi); cvrec!(:Ti, k, Ti); cvrec!(:Pi, k, Pi); cvrec!(:g, k, gk); cvrec!(:HP, k, HP); cvrec!(:lmix, k, l); cvrec!(:frad, k, Mg_ === nothing ? W.fr[k] : sum(Mg_.fg[g][k] for g in 1:MGN[])); cvrec!(:kap_grey, k, avchi[k])
             cvrec!(:lp_raw, k, ΔlnP); cvrec!(:lph, k, lph); cvrec!(:sup, k, sup); cvrec!(:fchem, k, fbl); cvrec!(:tchem, k, 0.5 * (zv[k-1][2] + zv[k][2])); cvrec!(:delb, k, δb); cvrec!(:cpb, k, cpb)
             cvrec!(:nab_raw, k, ΔlnT / ΔlnP); cvrec!(:kap, k, κk); cvrec!(:cp_used, k, cpb); cvrec!(:del_used, k, δb)
             cvrec!(:fpot, k, sup > 0 ? kw_mlt_flux(ρi, cpb, Ti, gk, δb, l, HP, U, sup) : 0.0); cvrec!(:vpot, k, sup > 0 ? tdc_mlt_w(a, U, sup) : 0.0)
@@ -1448,7 +1466,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         newv[cde][k] = c.base[k, cde]
     end
     @inbounds for j in 1:neqn
-        cde = c.code[j]; (cde == 0 || cde == 8) && continue; a = newv[cde]
+        cde = c.code[j]; (cde == 0 || cde == 10) && continue; a = newv[cde]
         if cde == 4
             for bb in 1:nb; k = k0 + bb - 1; a[k] = c.base[k, 4] + x[(bb-1)*neqn+j] * c.nomu[k]; end
         elseif cde == 7
@@ -1842,14 +1860,14 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             ForwardDiff.value(gk) > 0 || continue          # no gravity → no buoyancy
             HP = Pi / (ρi * gk); l = MLT_RCAP[] ? c.alpha / sqrt(1 / HP^2 + 1 / r[k]^2) : c.alpha * HP
             if cvp
-                cvrec!(:rhoi, k, ρi); cvrec!(:Ti, k, Ti); cvrec!(:Pi, k, Pi); cvrec!(:g, k, gk); cvrec!(:HP, k, HP); cvrec!(:lmix, k, l); cvrec!(:frad, k, fr[k])
+                cvrec!(:rhoi, k, ρi); cvrec!(:Ti, k, Ti); cvrec!(:Pi, k, Pi); cvrec!(:g, k, gk); cvrec!(:HP, k, HP); cvrec!(:lmix, k, l); cvrec!(:frad, k, Mg === nothing ? fr[k] : sum(Mg.fg[g][k] for g in 1:MGN[])); cvrec!(:kap_grey, k, avchi[k])
             end
             if MLT_BUOY[]                            # M2: buoyancy from the density contrast of a blob (design D1), thermodynamics of the two zones at the iterate
                 for j in (k - 1, k)
                     zv[j] === nothing && ((ForwardDiff.value(dn[j]) > 0 && ForwardDiff.value(tn[j]) > 0) ? (zv[j] = _buoy_zone(MATERIAL[], W, dn, tn, j, Float64)) : (zv[j] = false))
                 end
                 (zv[k-1] === false || zv[k] === false) && continue          # unphysical iterate: no MLT (the step will be rejected)
-                κk = c.lrad ? avchi[k] : (ZONE[] = k; material_opac(MATERIAL[], ρi, Ti)[1])      # the interface opacity of the radiative transport (harmonic mean of the zones' χ at the iterate); the NLOIT opacity at the interface mean state is NaN at some iterates
+                κk = c.lrad ? (Mg === nothing ? avchi[k] : mg_kappa_eddy(Mg, k, Ti)) : (ZONE[] = k; material_opac(MATERIAL[], ρi, Ti)[1])      # the interface opacity of the radiative transport (harmonic mean of the zones' χ at the iterate); the NLOIT opacity at the interface mean state is NaN at some iterates
                 lph = MLT_HSDISC[] ? ((GFV[] || GVAR[]) ? -(gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
                                                            gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
                                                            (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
@@ -2035,7 +2053,8 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         if cvp          # (CONVDIAG) chemistry heating/cooling terms (cycle heat, GASQ, BALSPLIT mean, implicit cooling of a coupled zone) and the row
             θc_ = max(θ, CPL_THETA[])
             cvrec!(:e_chem, k, -yqheat(k, W) * dvol[k] - (isempty(GASQ[]) ? 0.0 : GASQ[][k] * dvol[k]) - (isempty(CHEMB[]) ? 0.0 : d[k] * CHEMB[][k] * dvol[k]) +
-                               (cplz(k) ? (θc_ * W.cpL[k] + (1 - θc_) * XLAMO[][k]) * dvol[k] : 0.0))
+                               (cplz(k) ? (θc_ * W.cpL[k] + (1 - θc_) * XLAMO[][k]) * dvol[k] : 0.0) -
+                               ((Mg !== nothing && cplz(k) && !(c.lrad && GASROW[])) ? (max(θ, CPL_THETA[]) * Mg.lcl[k] + (1 - max(θ, CPL_THETA[])) * MGLCO[][k]) * dvol[k] : 0.0))     # (M3e: MGROUPS' line cooling re-emitted into the IR group, the term of the gas-only row above)
             cvrec!(:e_res, k, w)
         end
     end

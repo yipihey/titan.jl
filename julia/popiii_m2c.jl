@@ -446,7 +446,7 @@ function convdiag_snap(k, snap)
     end
     I(nm) = (v = NaNv(n + 1); for j in 2:n; v[j] = ps[nm][a+j-1]; end; v)       # pass quantity of interface k = a+j−1
     Z(nm) = (v = NaNv(n); for j in 1:n; v[j] = ps[nm][a+j-1]; end; v)
-    names = (:nab, :nab_raw, :hs_w, :nad_used, :cp_used, :del_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g, :sup, :fchem, :tchem, :delb, :cpb)
+    names = (:nab, :nab_raw, :hs_w, :nad_used, :cp_used, :del_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g, :sup, :fchem, :tchem, :delb, :cpb, :kap_grey)
     d = Dict{Symbol,Vector{Float64}}(nm => I(nm) for nm in names)
     for nm in (:w_tau, :w_inf, :tau); d[nm] = I(nm); end
     for nm in (:e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res); d[nm] = Z(nm); end
@@ -2030,10 +2030,9 @@ try
         TX.TDCP[] = TX.TDC.TDCPar(; A_s = tp_[1], A_d = tp_[2], A_c = tp_[3], α_p = tp_[4], α_t = tp_[5], α_D = tp_[6], α_m = tp_[7])
         TX.TDC_CEN[] = parse(Float64, get(ENV, "TDCCEN", "0")); atexit(() -> println(TX.buoy_summary()))
         let h0 = TC.CPLH[]
-            TC.CPLH[] = (; newstep = () -> (TX.tdc_newstep!(); h0.newstep()), reset = () -> (TX.tdc_reset!(); h0.reset()),     # (M3d: w first, the species' local initial guess uses it)
-                         
+            TC.CPLH[] = merge(h0, (; newstep = () -> (TX.tdc_newstep!(); h0.newstep()), reset = () -> (TX.tdc_reset!(); h0.reset()),     # (M3d: w first, the species' local initial guess uses it; M3e: merge keeps MGROUPS' `predicted`)
                          update = (rhs, a_, b_) -> (h0.update(rhs, a_, b_); TX.tdc_update!(rhs, a_, b_)),
-                         dmax = (rhs, a_, b_) -> max(h0.dmax(rhs, a_, b_), TX.tdc_dmax!(rhs, a_, b_)))
+                         dmax = (rhs, a_, b_) -> max(h0.dmax(rhs, a_, b_), TX.tdc_dmax!(rhs, a_, b_))))
         end
         ax_ = CKAUX[]; src_ = "w = 0"
         if ax_ !== nothing && hasproperty(ax_, :tdc) && length(ax_.tdc.WTN) == length(TX.WTN[]) && ax_.tdc.a == Int(TF.getscalar(:ngrs)) && ax_.tdc.b == Int(TF.getscalar(:ngre))
