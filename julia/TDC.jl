@@ -48,7 +48,7 @@ The blob is lighter than its surroundings, hence unstable, if A = Δln ρ − Δ
     A   = α_fr ΔlnP − δ_fr ΔlnT + φ_fr Δlnμ − ΔlnP/Γ₁,b,        sup = A/(δ_b |ΔlnP_hs|).
 
 [derivation] In a hydrostatic layer ΔlnP = ΔlnP_hs < 0, ΔlnT = ∇ ΔlnP, and with the frozen Γ₁ (f = 0, 1/Γ₁ = α − δ∇_ad):
-A = −δ ΔlnP (∇ − ∇_ad) + φ Δlnμ, so sup = (∇ − ∇_ad) + (φ/δ) ∇_μ with ∇_μ = Δlnμ/ΔlnP: the Ledoux form of the production
+A = −δ ΔlnP (∇ − ∇_ad) + φ Δlnμ, so sup = (∇ − ∇_ad) − (φ/δ) ∇_μ (|ΔlnP_hs| = −ΔlnP) with ∇_μ = Δlnμ/ΔlnP: the Ledoux form of the production
 ∇ − ∇_ad. Where ΔlnP is far from ΔlnP_hs (behind the accretion shock, ΔlnP → 0) the buoyancy A is still the true density contrast, and the
 hydrostatic |ΔlnP_hs| is only the (non-zero) normalisation that turns it into the dimension-less superadiabaticity the KW flux needs.
 
