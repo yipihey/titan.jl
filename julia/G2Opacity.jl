@@ -169,6 +169,9 @@ function fastgrid()
     FAST[] = (; ν, w, ν3 = ν .^ 3, σhm = COp.σ_Hm_bf.(λμ), ray2 = COp.σ_ray_H2.(λc .* 1e3), ray1 = COp.σ_ray_H.(λc .* 1e4),
                 σHeI = Z0.σHeI_ground.(ν), SH, SHe, DIS, G1, G2, HF, C1, C2, C3)
 end
+"B_ν(T_w) of the in-group shape: the plain form for Floats; a Dual T_w (T_c carrying its derivative) takes the form e^{-u}/(1 − e^{-u}), whose derivative does not overflow in the Wien tail (expm1² of u > 355)."
+@inline _bnuw(ν, T) = COp.Bν(ν, T)
+@inline _bnuw(ν, T::ForwardDiff.Dual) = (u = COp.h * ν / (COp.kB * T); u > 700 ? zero(u) : 2COp.h * ν^3 / COp.c^2 * exp(-u) / (-expm1(-u)))
 @inline function _tint(A, j, a, i)                                     # linear in log T between rows j, j+1
     (1 - a) * A[j, i] + a * A[j+1, i]
 end
@@ -255,11 +258,11 @@ function _means_fast(F, ρ, T, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, hbfP
         σhm = F.σhm[i] * stim
         sca = F.ray2[i] * nH2 + F.ray1[i] * ng + COp.σT * ne
         hb = hbfP ? ab : zero(ab)
-        BJ = wJ ? COp.Bν(ν, Tw) : B
+        BJ = wJ ? _bnuw(ν, Tw) : B
         sE += (a0 + σhm * nHm + hb) * BJ * dν; sW += BJ * dν; sP += (a0 + σhm * nHm + hb) * B * dν; sB += B * dν
         sR += D / max(a0 + σhm * nHm + ab + sca, 1e-300) * dν; sD += D * dν
     end
-    (sE / sW / ρ, sP / sB / ρ, sD / sR / ρ)
+    (_qd(sE, sW) / ρ, _qd(sP, sB) / ρ, _qd(sD, sR) / ρ)
 end
 include(joinpath(@__DIR__, "HScatter.jl"))               # exact H(1s) Rayleigh + Raman cross sections (MGROUPS only; nothing computed unless used)
 "True if the band [lo, hi] (Hz) lies entirely inside the range of the H(1s) Rayleigh/Raman table (0.80 … 0.9996 χ_H: between Lyα and the Lyman limit)."
@@ -315,13 +318,12 @@ nebulae in this form: Brown & Mathews 1970, 1970ApJ...160..939B). Checks (docs �
 absorption of the same group; the photon-number integral of the same cross-section gives α_1 = α_A − α_B.
 """
 group_fast(ρ, T, gidx, G; n1, n2, nH2, nHe, nHep = 0.0, nHepp = 0.0, nHp, ne, nHm, hbfP, Tw = T, Tmin = 3000.0, edges = nothing) =
-    _group_fast(fastgrid(), Float64(ρ), Float64(T), gidx, G, Float64(n1), Float64(n2), Float64(nH2), Float64(nHe), Float64(nHep), Float64(nHepp), Float64(nHp),
-                Float64(ne), Float64(nHm), hbfP, Float64(Tw), Float64(Tmin), edges)
-@inline _Bf(ν, t) = (u = COp.h * ν / (COp.kB * t); u > 700 ? 0.0 : 2COp.h * ν^3 / COp.c^2 / expm1(u))
+    _group_fast(fastgrid(), ρ, T, gidx, G, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, hbfP, Tw, Float64(Tmin), edges)
+@inline _Bf(ν, t) = (u = COp.h * ν / (COp.kB * t); u > 700 ? zero(u) : 2COp.h * ν^3 / COp.c^2 * exp(-u) / (-expm1(-u)))       # (= B_ν; the form e^{-u}/(1 − e^{-u}) keeps the Duals' derivative finite in the Wien tail, where expm1(u)² overflows)
 @inline _Df(ν, t) = (u = COp.h * ν / (COp.kB * t); u > 700 ? 0.0 : 2COp.h * ν^3 / COp.c^2 * u * exp(-u) / (t * (-expm1(-u))^2))
 "(Σ ∂B/∂T, Σ ∂B/∂T/χ_ν, Σ B/χ_ν, Σ n σ_Ram B/χ_ν) over the cells of an `lwsub` group at the shape temperature T1s (xo: the nodes' smooth extinction)."
-function _lwsums(ν::Vector{Float64}, st::Vector{Float64}, srm::Vector{Float64}, nodes::Vector{Int}, ia::Vector{Int}, wa::Vector{Float64}, xo::Vector{Float64}, ng::Float64, T1s::Float64)
-    sd = 0.0; sr = 0.0; sφ = 0.0; sφr = 0.0
+function _lwsums(ν::Vector{Float64}, st::Vector{Float64}, srm::Vector{Float64}, nodes::Vector{Int}, ia::Vector{Int}, wa::Vector{Float64}, xo::AbstractVector, ng, T1s)
+    sd = zero(ng * T1s * xo[1]); sr = sd; sφ = sd; sφr = sd
     @inbounds for m in eachindex(ν)
         i0 = nodes[ia[m]]; i1 = nodes[ia[m]+1]
         χν = (1 - wa[m]) * xo[i0] + wa[m] * xo[i1] + ng * st[m]; χν > 0 || continue
@@ -330,37 +332,53 @@ function _lwsums(ν::Vector{Float64}, st::Vector{Float64}, srm::Vector{Float64},
     end
     sd, sr, sφ, sφr
 end
+"""
+a/b with the derivative (a′ − (a/b) b′)/b: ForwardDiff's quotient divides by b², which underflows for the Planck weights of the Wien tail (1e-190: χ = ΣD/Σ(D/ext) of the ionising groups in cold gas).
+Floats: a/b.
+"""
+@inline _qd(a, b) = a / b
+@inline function _qd(a::ForwardDiff.Dual{T,V,N}, b::ForwardDiff.Dual{T,V,N}) where {T,V,N}
+    bv = ForwardDiff.value(b); v = ForwardDiff.value(a) / bv
+    ForwardDiff.Dual{T}(v, (ForwardDiff.partials(a) - v * ForwardDiff.partials(b)) / bv)
+end
+@inline _qd(a::ForwardDiff.Dual{T,V,N}, b::Real) where {T,V,N} = ForwardDiff.Dual{T}(ForwardDiff.value(a) / b, ForwardDiff.partials(a) / b)
+@inline _qd(a::Real, b::ForwardDiff.Dual{T,V,N}) where {T,V,N} = (bv = ForwardDiff.value(b); v = a / bv; ForwardDiff.Dual{T}(v, -v * ForwardDiff.partials(b) / bv))
 "Task-local work vectors of `_group_fast` (three of the grid's length): the evaluation runs in the threaded zone sweeps, where per-call vectors cost more in GC than the arithmetic."
-_g2scratch(N) = get!(() -> (zeros(N), zeros(N), zeros(N)), task_local_storage(), :G2O_group_scratch)::NTuple{3,Vector{Float64}}
-function _group_fast(F, ρ::Float64, T::Float64, gidx::Vector{Int}, G::Int, n1::Float64, n2::Float64, nH2::Float64, nHe::Float64, nHep::Float64, nHepp::Float64,
-                     nHp::Float64, ne::Float64, nHm::Float64, hbfP::Bool, Tw::Float64, Tmin::Float64, edges)     # (function barrier: F concrete)
+_g2scratch(::Type{Float64}, N) = get!(() -> (zeros(N), zeros(N), zeros(N)), task_local_storage(), :G2O_group_scratch)::NTuple{3,Vector{Float64}}
+_g2scratch(::Type{Tp}, N) where {Tp} = (zeros(Tp, N), zeros(Tp, N), zeros(Tp, N))
+"""
+`group_fast` is generic in the number type (ForwardDiff Duals in any of ρ, T, T_w and the populations): the means, the group means and their derivatives are
+exact derivatives of the Float64 evaluation (the node table is Float64; the node loop, the group sums and the quotients carry the Duals).
+"""
+function _group_fast(F, ρ, T, gidx::Vector{Int}, G::Int, n1, n2, nH2, nHe, nHep, nHepp, nHp, ne, nHm, hbfP::Bool, Tw, Tmin::Float64, edges)     # (function barrier: F concrete)
+    Tp = typeof(one(ρ) * one(T) * one(n1) * one(n2) * one(nH2) * one(nHe) * one(nHep) * one(nHepp) * one(nHp) * one(ne) * one(nHm) * one(Tw))
     kB = COp.kB; h = COp.h; kT = kB * T
     Ts = T; Tws = Tw; T1s = max(Tw, Tmin)
     Nion = nHp + nHep + nHepp; Nneu = n1 + nHe + nH2
     χH = Z0.χH; χ2 = Z0.χHe2
     lwH = ntuple(n -> Z0.ln_occupation(n, 1, Nion, Nneu), NLEV)       # (as means_fast: the same populations, so Σ_g b_g κ_g is the grey mean)
     wH = [exp(lwH[n]) for n in 1:NLEV]; wHe = [Z0.occupation(n, 2, Nion, Nneu) for n in 1:NLEV]
-    pH = zeros(NLEV); pHe = zeros(NLEV); sx = 0.0
+    pH = zeros(Tp, NLEV); pHe = zeros(Tp, NLEV); sx = zero(Tp)
     for n in 2:NLEV; pH[n] = n2 * (n^2 / 4) * exp(-χH * (0.25 - 1 / n^2) / kT) * wH[n] / max(wH[2], 1e-300); sx += pH[n]; end
-    ng = max(n1 - sx, 0.0); pH[1] = ng
-    UHe = 0.0
+    ng = max(n1 - sx, zero(Tp)); pH[1] = ng
+    UHe = zero(Tp)
     for n in 1:NLEV; pHe[n] = n^2 * exp(-χ2 * (1 - 1 / n^2) / kT) * wHe[n]; UHe += pHe[n]; end
     for n in 1:NLEV; pHe[n] *= nHep / UHe; end
-    x = clamp((log10(T) - FLT0) / FDLT, 0.0, FNT - 1 - 1e-9); j = floor(Int, x) + 1; a = clamp(x - (j - 1), 0.0, 1.0)
+    x = clamp((log10(T) - FLT0) / FDLT, 0.0, FNT - 1 - 1e-9); j = floor(Int, ForwardDiff_value(x)) + 1; a = clamp(x - (j - 1), 0.0, 1.0)
     wJ = Tw != T
-    N = length(F.ν); dis, dis1, xo = _g2scratch(N); fill!(dis, 0.0); fill!(dis1, 0.0)
+    N = length(F.ν); dis, dis1, xo = _g2scratch(Tp, N); fill!(dis, zero(Tp)); fill!(dis1, zero(Tp))
     for (i, n, ns, σe) in F.DIS
         d = 1 - exp(Z0.ln_occupation(ns, 1, Nion, Nneu) - lwH[n])
         d > 0 && (dis[i] += d * pH[n] * σe; n == 1 && (dis1[i] += d * pH[n] * σe))
     end
     sub = edges === nothing ? nothing : lwsub(edges, gidx, G)                # (xo: every node is set in the loop below when sub is given)
-    gE = zeros(G); gW = zeros(G); gP = zeros(G); gB = zeros(G); gR = zeros(G); gD = zeros(G); g1 = zeros(G); g1W = zeros(G); g2 = zeros(G)
+    gE = zeros(Tp, G); gW = zeros(Tp, G); gP = zeros(Tp, G); gB = zeros(Tp, G); gR = zeros(Tp, G); gD = zeros(Tp, G); g1 = zeros(Tp, G); g1W = zeros(Tp, G); g2 = zeros(Tp, G)
     # the same with the floored shape temperature, used for a group whose actual weight underflows (cold gas, high groups): its Planck
     # fraction is then at the floor, so emission does not matter, but absorption and extinction of the light it carries (the star's) do —
     # a grey fallback gave the LW band the cold gas's H₂ CIA κ_E and absorbed it within a few zones (t_mg34)
-    fE = zeros(G); fW = zeros(G); fP = zeros(G); fB = zeros(G); fR = zeros(G); fD = zeros(G); Tf = max(T, Tmin)
-    g1P = zeros(G); f1P = zeros(G)                                           # H(1s) bound–free with the emission weight B_ν(T) (Milne emission)
-    sE = 0.0; sP = 0.0; sB = 0.0; sR = 0.0; sD = 0.0; sW = 0.0
+    fE = zeros(Tp, G); fW = zeros(Tp, G); fP = zeros(Tp, G); fB = zeros(Tp, G); fR = zeros(Tp, G); fD = zeros(Tp, G); Tf = max(T, Tmin)
+    g1P = zeros(Tp, G); f1P = zeros(Tp, G)                                   # H(1s) bound–free with the emission weight B_ν(T) (Milne emission)
+    sE = zero(Tp); sP = zero(Tp); sB = zero(Tp); sR = zero(Tp); sD = zero(Tp); sW = zero(Tp)
     @inbounds for i in 1:N
         ν = F.ν[i]; dν = F.w[i]; u = h * ν / kT; em = exp(-u); stim = 1 - em
         B = 2h * ν^3 / COp.c^2 * em / stim; D = B * u / (T * stim)
@@ -381,7 +399,7 @@ function _group_fast(F, ρ::Float64, T::Float64, gidx::Vector{Int}, G::Int, n1::
         σhm = F.σhm[i] * stim
         sca = F.ray2[i] * nH2 + F.ray1[i] * ng + COp.σT * ne
         hb = hbfP ? ab : 0.0
-        BJ = wJ ? COp.Bν(ν, Tw) : B
+        BJ = wJ ? _Bf(ν, Tw) : B
         aE = a0 + σhm * nHm + hb; aP = a0 + σhm * nHm + hb; ext = a0 + σhm * nHm + ab + sca
         sE += aE * BJ * dν; sW += BJ * dν; sP += aP * B * dν; sB += B * dν
         sR += D / max(ext, 1e-300) * dν; sD += D * dν
@@ -392,20 +410,20 @@ function _group_fast(F, ρ::Float64, T::Float64, gidx::Vector{Int}, G::Int, n1::
         gP[g] += aP * Bs * dν; gB[g] += Bs * dν; s1 = F.SH[1, i] * stim; g1P[g] += s1 * Bs * dν; f1P[g] += s1 * Bfl * dν
         gR[g] += Ds / max(ext, 1e-300) * dν; gD[g] += Ds * dν
     end
-    q = (a_, b_) -> b_ > 0 ? a_ / b_ / ρ : 0.0
+    q = (a_, b_) -> b_ > 0 ? _qd(a_, b_) / ρ : zero(Tp)
     uf = w -> !(w > 1e-280)                                                  # (the group's actual weight underflowed)
-    kram = zeros(G); χs = zeros(G)
+    kram = zeros(Tp, G); χs = zeros(Tp, G)
     if sub !== nothing
         for g in 1:G
             S = sub[g]; S === nothing && continue
-            sd, sr, sφ, sφr = _lwsums(S.ν, S.st, S.sr, S.nodes, S.ia, S.wa, xo, ng, T1s)::NTuple{4,Float64}
-            sr > 0 && (χs[g] = sd / sr / ρ); sφ > 0 && (kram[g] = sφr / sφ / ρ)
+            sd, sr, sφ, sφr = _lwsums(S.ν, S.st, S.sr, S.nodes, S.ia, S.wa, xo, ng, T1s)
+            sr > 0 && (χs[g] = _qd(sd, sr) / ρ); sφ > 0 && (kram[g] = _qd(sφr, sφ) / ρ)
         end
     end
     ([uf(gW[g]) ? q(fE[g], fW[g]) : q(gE[g], gW[g]) for g in 1:G], [uf(gB[g]) ? q(fP[g], fB[g]) : q(gP[g], gB[g]) for g in 1:G],
-     [χs[g] > 0 ? χs[g] : uf(gD[g]) ? (fR[g] > 0 ? fD[g] / fR[g] / ρ : 0.0) : (gR[g] > 0 ? gD[g] / gR[g] / ρ : 0.0) for g in 1:G],
-     [q(g1[g], g1W[g]) for g in 1:G], sE / sW / ρ, sP / sB / ρ, sD / sR / ρ, [q(g2[g], g1W[g]) for g in 1:G], kram,
-     [uf(gB[g]) ? (fB[g] > 0 ? f1P[g] / fB[g] : 0.0) : g1P[g] / gB[g] for g in 1:G])
+     [χs[g] > 0 ? χs[g] : uf(gD[g]) ? (fR[g] > 0 ? _qd(fD[g], fR[g]) / ρ : zero(Tp)) : (gR[g] > 0 ? _qd(gD[g], gR[g]) / ρ : zero(Tp)) for g in 1:G],
+     [q(g1[g], g1W[g]) for g in 1:G], _qd(sE, sW) / ρ, _qd(sP, sB) / ρ, _qd(sD, sR) / ρ, [q(g2[g], g1W[g]) for g in 1:G], kram,
+     [uf(gB[g]) ? (fB[g] > 0 ? _qd(f1P[g], fB[g]) : zero(Tp)) : _qd(g1P[g], gB[g]) for g in 1:G])
 end
 "Group index of every fast node for interior edges `edges` [Hz] (ascending)."
 group_index(edges) = (F = fastgrid(); [searchsortedlast(edges, ν) + 1 for ν in F.ν])

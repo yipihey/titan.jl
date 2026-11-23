@@ -1398,3 +1398,72 @@ stack and belongs with the decision to switch production.
 | the grey q, t, g, dp slopes of the NLOIT ratio (`sq`, `st`, `sg`, `sdp` branch of `nlo_it`) | `PopIIIMaterial.jl` | the group-field branch (`mg_sl_slopes`) replaces it where a zone has a record |
 | `NLOPC` restart test in `nlost_restart!` | `PopIIIMaterial.jl` | defect (§18.4): the `MGON` branch is the fix; drop the test |
 | `CONV=1e-3` of `run.env` (not read by `popiii_m2c.jl`, §19.4), `SLIMPDBG` | env files, `TitanResidFast.jl`, `PopIIIMaterial.jl` | dead / debugging |
+
+### 21.6 The Krylov operator is the exact derivative (mgjac; §21.2 b, §21.4 item 3 and the outermost interface)
+
+Task: J·v of the Newton–Krylov solve (`NewtonKrylov.adjv!`, forward mode, one partial) must be the exact derivative at the iterate; reuse of local Jacobians (CPLJLAG) belongs to the
+band preconditioner only; no derivative left out. Result at the three restart states of §21.2/§21.3 and two states inside the zie1 window, grey and MGROUPS=4: **every row of the grey equations agrees with the finite difference to ≤ 1.3e-5 (median 3e-11, 2-norm 1.4e-10 – 1.6e-10) except F_r rows of the outermost interface (zone 101, 2.4e-3 – 3.9e-3; one row of 1.4e-4 at S6_auto1), and the same for MGROUPS=4 (2-norm 1.7e-10 – 1.8e-10) except the group fluxes F_g of zone 101 and the F_g4 rows at the ionisation front (zones 40–41, 2.6e-3, open, below)**.
+The 1e3 of §21.2 (b) was not a missing derivative of the code; three things were in it, two of them in the check:
+
+1. **The finite difference left its linear range** (x_H⁺ rows, zones 38–44). The species are x e^δ and the neutral fraction n_H/n_H,tot = 1 − x_H⁺ − 2x_H₂ of the ionised zones is 1e-6 … 1e-9: a relative step 1e-5 of x_H⁺ changes it by a factor ~10 or more
+   (and max(·, 0) clips it). `NKROWPROBE=2` (new: AD against FD column by column) at zone 40, CPLJLAG=0: diagonal element ∂R_{x_H⁺}/∂x_H⁺ AD 1.795e31, FD(ε) 2.292e34, FD(ε/10) 2.139e34; zone 43: AD 1.762e29, FD(ε) 2.260e32, FD(ε/10) 4.874e29: the
+   difference converges to the AD value as the step shrinks (it cannot be taken further: round-off). Every other column of those rows (T, E_r, u, m, ρ, r, neighbours) agreed to ≤ 3e-6 of the row scale (≤ 1e-9 apart from the x_H⁺ columns). The check now limits
+   the species steps to NKXS = 1e-2 of the neutral fraction (`NKCHECK=2`; NKXS=0 restores the old check), which is the only step the derivative of such a row can be tested on.
+2. **The check evaluated J·v at a lagged state.** The finite differences leave the Float data the residual reads from the last `update!` (opacities, star-light state) at x − εv, and the AD product that followed saw those. In the solver the products are taken at the iterate
+   right after its `update!`, so the Krylov operator was not affected, but the check was: T and E_r rows of zones 41–46 showed 1.6e-2 (grey) and 8.4e-3 (MGROUPS=4) of the row scale, independent of ε from 1e-9 to 1e-4 and of the window: with a zero-perturbation `update!`
+   before every AD product (`check!`'s `adj!`) the same rows agree to 8e-6 (grey) and 1e-6 (MGROUPS=4); for the T row of zone 41 AD 1.52744e43 before, 1.50384e43 after, FD 1.50384e43. Repeated products are identical (`AD repeat` line).
+3. **What was inexact in the product itself** (all removed; each is a derivative that was taken by finite difference, reused, or left out):
+   * `cpl_close`, `cpl_closeq`, `cpl_closeqg` (CPLJLAG): under `TX.AD_JV` a zone's local Jacobian is reused only at exactly the same point; the band Jacobian keeps CPLJLAG (the preconditioner). With the default CPLJLAG=3e-3,0.1 the product was the derivative at the point of the last refresh of each zone.
+   * the T_c (colour temperature) column of the local Jacobian was a central difference (`cpl_vjq`, `cpl_vjqg`: ln t, ε = 1e-3, "a Float in the photo-rate tables"). T_c is now a Dual all the way: `cpl_tq`, `cpl_tqg`, `mg_env`, `ChemNet.photorates_g`, `lj_stim`,
+     `photorates_lj_a0` (the Float64 casts), the quadrature nodes of the direct photo-rates (`ChemNet._xgrid`: a Dual end point), `balmer_mean`, `mg_wg`, `mg_lwshape`. The tables are interpolated in ln T_c, so this is the exact derivative of the interpolant.
+   * the opacity slopes in the star-light variables (grey q, t, g, deep weight: relative steps 1e-2, 1e-3, 1e-4 absolute; MGROUPS: `mg_sl_slopes`) and the record's slopes in (T, x_H⁺, x_H₂, ρ) (`mg_rec_slopes`, 1e-5 … 1e-6) are exact Duals now
+     (**§21.4 item 3**): `G2Opacity.group_fast`/`_group_fast`/`_lwsums` and `MGOpac.mg_pack`/`mg_lines` are generic in the number type (the value part of the Dual evaluation is bit-identical to the Float64 evaluation on four states), `nlo_slopes` returns the record's slopes
+     next to those of the ratios, `nlo_slq` (new) gives all star-light slopes in one Dual pass with 4 (grey) or G + 4 (MGROUPS) partials; `mg_rec_slopes`, `mg_sl_slopes`, `mg_slope` are deleted. The 26 extra record evaluations per zone and refresh are gone.
+     The star-light slopes are reused when the key (iterate and star-light state) is identical (before: recomputed at every product).
+   * `hbf_blend`, `mg_rec_blend`: a Dual deep weight at 0 or 1 takes the blend, so that its derivative is the one-sided one (the central difference of the old slope straddled the end).
+   * `MGRad.mg_esurf` (the outer boundary of the group fluxes): the factor f_x of the surface energy was taken from the *value* of (f E − E_b/3)/(E − E_b), i.e. its derivative with respect to f_g (the formal solution, global) and E_g was left out: a dropped term of the F_g rows of zone 101.
+     It is now a Dual (the clamp's active branch carries it).
+   Numerical hazards of the Dual evaluation that had to be removed (each gave NaN or 0 partials with correct values): B_ν and 1/expm1 in the Wien tail (the derivative divides by expm1², overflow for x > 355): `G2Opacity._Bf`, `_bnuw`, `PopIIIMaterial._bnu`/`_div_expm1`; ForwardDiff's quotient
+   divides by b² (underflow for the Planck weights of a cold gas, 1e-190): `G2Opacity._qd` (a/b with derivative (a′ − (a/b) b′)/b) in the group sums and the grey means. The values of the Float64 evaluation are unchanged except for rounding of the Wien-tail Planck function of `group_fast` (e^{-u}/(1 − e^{-u}) instead of 1/expm1(u)).
+
+**Unit test of the Dual `group_fast`** (`scratchpad/gf_dual_test.jl`, four states, with and without the H(1s) Rayleigh/Raman sub-grid): derivative of all 52 outputs along a random direction in (ρ, T, T_w, n₁, n₂, n_H₂, n_He, n_H⁺, n_e, n_H⁻) against a Richardson-extrapolated central difference: ≤ 7e-10 relative where the output is not a cancellation; the n ≥ 2 bound–free group
+sums k2_g (a difference of three sums, value 1e-5 of each) agree to 8e-5 (neutral gas) … 14 % (photosphere; the difference quotient itself is round-off there: it is 0.0 for some directions).
+
+**Gate (`NKCHECK=2 NKCHECKN=1`, iteration 2 of the first attempt, eps 1e-5, species steps ≤ 1e-2 of the neutral fraction; worst row per equation over all zones)**
+
+| state | rows > 1e-4 | median | 2-norm | r, m, ρ, u | T | E_r | x_H⁺ | x_H₂ | F_r (zone) |
+|---|---|---|---|---|---|---|---|---|---|
+| grey S8_auto1 (30300) | 13 | 3e-11 | 1.6e-10 | ≤ 8e-7 | 8.1e-6 | 5.6e-7 | 1.0e-5 | 2.3e-7 | 2.4e-3 (101) |
+| grey S6_auto1 (23300) | 1 | 3e-11 | 1.4e-10 | see log | 1.1e-6 | – | – | – | 1.4e-4 (82) |
+| grey window 23500 / 23600 | 13 / 8 | 3e-11 | 1.6e-10 | ≤ 8e-7 | 1.3e-6 / 1.2e-6 | 6.6e-7 / 4.8e-7 | 1.2e-5 / 5.3e-6 | 2.3e-7 | 2.6e-3 / 3.9e-3 (101) |
+
+MGROUPS=4 (S8_auto1; S6_auto1; window 23500; window 23600): 2-norm 1.7e-10, 1.7e-10, 1.8e-10, 1.7e-10; median 3e-11; r, m, ρ, u ≤ 2e-7 (6e-8 at ρ); T 1.1e-6, 2.0e-6, 3.0e-8, 3.3e-8; E_r ≤ 9e-11 (the grey E_r row is E_r − ΣE_g); x_H⁺ 9.0e-6, 3.2e-6, 4.0e-9, 3.2e-9;
+x_H₂ ≤ 3.6e-7; E_g1…E_g4 ≤ 1.1e-6 (all states); F_g1 1.5e-2 – 2.1e-2, F_g2 0.09 – 3.8, F_g3 2e-4 – 8.2, all zone 101 (F_g3: zone 70 in one state), F_g4 2.6e-3 – 2.7e-3 (zones 40/41, S8 and S6; 4e-5 inside the window).
+(The three states of the window are S6_auto1 (23300), `gwin1_auto1` (23500) and `gwin1_auto0` (23600); the final checkpoint of the window is the same state as `_auto0`.) The earlier "rows > 1e-4: 262" of §21.2 (b) are 1 – 17 now.
+
+**The exceptions, outermost interface (the row of the flux at the outer boundary, F_r and F_g, zone 101; §21.4 / §21.2 b: F_g2, F_g3 4.6 and 11, grey F_r 0.61):** these rows are differences of terms ~1e10 times the row scale (c E_surf …), and the finite difference quantises on the
+ulp of those terms. Evidence: (i) forward and backward one-sided differences differ by a factor 2 – 8 (F_g2: AD −0.379, forward −0.867, backward −6.84, central −3.85); (ii) the same value −0.2337 for the response of F_g2 to ρ and T of zones 35:46 (windows), where AD says 1e-6: a
+quantum, not a derivative; (iii) the error is not monotonic in ε (F_r zone 101: 3.9e-2, 8.6e-3, 3.9e-3, 3.3e-4, 1.3e-4 for ε/100 … 100ε); (iv) the column probe at the boundary (`NKROW=11,101;13,101 NKPZ=95:101`): the one column that carries the row, E_g1 of zone 100, AD −865.668,
+FD(ε/10) −865.650 (2e-5), FD(ε) −847.2; F_g2: column r of zone 101 AD 0.3507, FD(ε/10) 0.363, all other columns AD < 1e-8 against FD(ε) noise 0.1 – 0.3. F_g1 zone 101 is the same noise reproducing from state to state (−863.4 at two states) because the states are nearly identical.
+
+**Open (a real difference, not round-off): F_g4 at zones 40–41 (2.6e-3, S8 and S6)**, `NKROW=17,40 NKPZ=36:44`: column x_H⁺ zone 41 AD 9.960e29, FD 9.903e29 (0.57 %, FD(ε) = FD(ε/10)); AD has non-zero columns E_r zones 38, 41 and E_g2 zone 41 (−3.4e27 … +5.6e26) where the
+finite difference is exactly 0. The Float residual does not depend on δE_r there (E_r is rebuilt from the groups), the AD residual does (the star-light sweep and the group closures read `ern` of the Dual state): the unknown E_r of the MGROUPS Krylov system is redundant (row E_r − ΣE_g) and its column of the group rows is not
+the one `update!` implies. Not fixed in this round (it sits in `MGRad` rows / `mg_update!`, where the branch mgeg works); the size is 2.6e-3 of one row of one group.
+
+**Windows (production settings, cores 16–23, loaded box; the baselines are the runs of §21.3, `winstats.py` on both)**
+
+| zie1, 300 steps from S6_auto1 | grey before (mgprod 4582e2a) | grey now | MGROUPS=4 before | MGROUPS=4 now |
+|---|---|---|---|---|
+| Newton failures (`divergence`) | 62 | 62 | 42 | 43 |
+| TR-BDF2 failures fail_tr / fail_bdf (increments) | +12 / +31 | +15 / +27 | +21 / 0 | +24 / 0 |
+| linear solves (J_b reused), matrix-vector products | 11788 (2054), 20748 | 12247 (2079), 21726 | 5378 (2006), 13054 | 5285 (1986), 12913 |
+| Δt (DTERR lines every 20 steps), min – median – max | 8.5e5 – 1.6e6 – 2.6e7 s | 7.6e5 – 3.3e6 – 1.4e7 s | 6.0e2 – 1.2e3 – 2.3e3 s | 6.0e2 – 1.3e3 – 2.8e3 s |
+| simulated time in 300 steps | 25.9 yr | 31.7 yr | 0.011 yr | 0.010 yr |
+| wall, steps 23400 – 23600 | 1116 s | 725 s | 2138 s | 556 s |
+(The wall times are those of a box at load average 30; the code of the Krylov part, 844 s against 523 s of the grey run, is within that noise. The MGROUPS run's first 10 minutes are compilation in both.) Grey: no change in failures, the same step-size regime: the exact product does not change
+what the Newton does at these states, it only no longer depends on lagged data. MGROUPS=4: the step size is still set by ln E_4 in the ionised region (§21.4 item 2), unchanged.
+**zie3, 40 steps from fp3a1, MGROUPS=4: still does not run** (60 attempts at the first step fail): the Krylov start vector has a non-finite entry (band correction 1e92, §21.4 item 1; the star-light state of zone 92 inherits the NaN) — the empty-group conditioning of branch mgeg, not the product.
+
+**Touched functions** (so that the merge with mgeg is easy): `NewtonKrylov.check!` (new diagnostics; `adjv!`, `gmres`, `krylov!` untouched), `PopIIIMaterial`: `cpl_close`, `cpl_closeq`, `cpl_vjq`, `_cpl_g`, `cpl_tq`, `nlo_ratio` (Dual branch), `nlo_slopes`, `nlo_slq` (new), `nlo_it`, `hbf_blend`, `mg_rec_blend`, `hbf_pure` (new), `_bnu`, `_div_expm1` (new), `balmer_mean`; deleted `mg_rec_slopes`, `mg_sl_slopes`;
+`MGOpac`: `cpl_closeqg`, `cpl_vjqg`, `cpl_tqg`, `mg_env`, `mg_wg`, `mg_lwshape`, `mg_pack`, `mg_lines`, deleted `mg_slope`; `G2Opacity`: `group_fast`, `_group_fast`, `_lwsums`, `_Bf`, `_bnuw`, `_qd`, `_means_fast`; `ChemNet`: `photorates_g`, `lj_stim`, `photorates_lj_a0`, `_photorates_fast`, `_photorate_fast`, `_xgrid`;
+`MGRad`: `mg_esurf` only (one line). New diagnostics: `NKXS`, `NKROWPROBE=2` with `NKROW`, `NKPZ`, `NKPW`, `NKPROWS`, one-sided differences, ε scan to 100 ε and ε/1e4, the repeat test.

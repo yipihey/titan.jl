@@ -108,8 +108,8 @@ function mg_lines(ρ, T)
     L = MGLT[]; lt = log10(T)
     (L === nothing || lt <= MGLTB[1]) && return 0.0, MGNOV
     w = nlo_w(T); w > 0 || return 0.0, MGNOV
-    x = clamp((lt - L.t0) / L.dt, 0.0, L.nt - 1 - 1e-9); i = floor(Int, x) + 1; a = x - (i - 1)
-    y = clamp((log10(ρ) - L.r0) / L.dr, 0.0, L.nr - 1 - 1e-9); j = floor(Int, y) + 1; b = y - (j - 1)
+    x = clamp((lt - L.t0) / L.dt, 0.0, L.nt - 1 - 1e-9); i = floor(Int, _val(x)) + 1; a = x - (i - 1)
+    y = clamp((log10(ρ) - L.r0) / L.dr, 0.0, L.nr - 1 - 1e-9); j = floor(Int, _val(y)) + 1; b = y - (j - 1)
     w00 = (1 - a) * (1 - b); w10 = a * (1 - b); w01 = (1 - a) * b; w11 = a * b
     λ = w00 * L.λ[i, j] + w10 * L.λ[i+1, j] + w01 * L.λ[i, j+1] + w11 * L.λ[i+1, j+1]
     bl = clamp((lt - MGLTB[1]) / MGLTB[2], 0.0, 1.0); bl = bl * bl * (3 - 2bl)
@@ -142,8 +142,9 @@ to the ground state in detailed balance with K_1; in LTE, n_1 = n_e n_p λ_e³ e
 positive is 1 (grey).
 """
 function mg_pack(ρ, T, Tw, n1, ne, np, n2, hbf, y)
-    G = TX.MGN[]; o = zeros(TX.mg_nv()); r = MGROLE[]
+    G = TX.MGN[]; r = MGROLE[]
     κE, κP, χ, k1, gE, gP, gχ, k2, kram, s1 = y
+    o = zeros(typeof(one(ρ) * one(T) * one(Tw) * one(n1) * one(ne) * one(np) * one(n2) * one(gE)), TX.mg_nv())        # (generic in the number type: Duals give the record's exact slopes)
     ok(v) = isfinite(v) && v > 0
     φ, sh = mg_lines(ρ, T); ℓ = MGNOV; nrm = 0.0
     if φ > 0
@@ -184,8 +185,6 @@ function mg_pack(ρ, T, Tw, n1, ne, np, n2, hbf, y)
     o[end-1] = n2; o[end] = Tw
     o
 end
-"Elementwise logarithmic slope of two records (0 where an entry is not positive in both, or the records differ in length)."
-mg_slope(a, b, h) = length(a) == length(b) ? [(a[i] > 0 && b[i] > 0) ? log(a[i] / b[i]) / h : 0.0 for i in eachindex(a)] : zeros(length(b))
 "The new level's records of all zones (MGVN) from the present state (install, restart): the sweep of fill_opac! without touching TITAN's arrays."
 function mg_fill!(m::NetGas)
     OPAC[] === nothing && return nothing
@@ -272,7 +271,7 @@ all of that (docs/POPIII_MULTIGROUP.md §18).
 """
 const MGCUFL = 1e-60       # [erg cm⁻² s⁻¹] (photo-rates below 1e-66 s⁻¹; products of four such factors in the rate partials stay representable: 1e-240 gave 0·∞)
 mg_cu(k, Ecmb) = (E = TX.MGEN[]; ntuple(g -> max(CNn.c * (E[g][k] - Ecmb * TX.MGBCMB_[g]), MGCUFL), TX.MGN[]))
-mg_wg(cu, Tc) = (nrm = 4 * 5.670374419e-5 * Tc^4; ntuple(g -> (b = TX.mg_bfrac(g, Tc); b > 1e-180 ? cu[g] / (nrm * b) : zero(cu[g])), length(cu)))
+mg_wg(cu, Tc) = (nrm = 4 * 5.670374419e-5 * Tc^4; ntuple(g -> (b = TX.mg_bfrac(g, Tc); b > 1e-180 ? G2O._qd(cu[g], nrm * b) : zero(cu[g])), length(cu)))
 
 """
 (TX.MGSLQ, the callback `mgqt` of `sl_sweep!`) Zone k at the Newton iterate: q_g = c u_g/c u_g(start of step) of every group into M.qs[1:G, k] (M.egn: the
@@ -317,7 +316,7 @@ const MGKPH = Ref(0)                                          # the photosphere 
 const MGX2 = Ref(Float64[])                                   # x_H₂ of the zones at the star-light setup (for the zones whose species are not unknowns)
 const MGLWNU = 12.87 * EVERG / CNn.hP
 "φ(T_c) Δν_LW: F_ν(12.87 eV) Δν_LW / (c u_LW) for the in-group shape B_ν(T_c); 0 where the band's Planck fraction underflows."
-mg_lwshape(Tc) = (b = TX.mg_bfrac(MGROLE[].LW, Tc); (Tc > 0 && b > 1e-180) ? π * _bnu(MGLWNU, Tc) * MGLWDNU[] / (5.670374419e-5 * Tc^4 * b) : 0.0)
+mg_lwshape(Tc) = (b = TX.mg_bfrac(MGROLE[].LW, Tc); (Tc > 0 && b > 1e-180) ? G2O._qd(π * _bnu(MGLWNU, Tc) * MGLWDNU[], 5.670374419e-5 * Tc^4 * b) : 0.0)
 "Unshielded H₂ dissociation rate per molecule [s⁻¹] in the LW group field c u [erg cm⁻² s⁻¹] (AAZN97 k27 with F_ν = c u φ)."
 mg_klw(cu, Tc) = 1.1e8 * cu * mg_lwshape(Tc) / MGLWDNU[]
 "Effective H₂ column for the shielding: the static column from the photosphere, or the Sobolev column n_H₂ b/|du/dr| where that is smaller."
@@ -382,16 +381,16 @@ function mg_h2now()
 end
 
 "The photo-rate environment of a zone in the group fields cu at colour temperature Tc (ChemNet.photorates_mgq reads it)."
-mg_env(cu, W, Tc, h1) = (; Tc = Float64(Tc), cu, W, ehz = MGEHZ[], h1)
+mg_env(cu, W, Tc, h1) = (; Tc, cu, W, ehz = MGEHZ[], h1)
 """
 (stage 2c) The coupled zone's chemistry terms at the Newton iterate's group fields: qs[g] = c u_g/c u_g(record), s the LW factor f_sh J(0)/J,
 tc = T_c/T_c,record, g the velocity gradient of the Lyα escape, dp the deep weight (as `cpl_tq`). Every photo-process of the network takes its rate from
 the group that holds its photons: the photo list (H⁻, He, He⁺, Li, …) through ChemNet.photorates_mgq (the static field plus the group fields), the
 three-level atom's Balmer-continuum and Lyα terms from the groups of those bands, H(1s) from the ionising groups, H₂ from the LW group with the
-photon-conserving closure (`mg_fshJ`). The colour temperature enters as a Float (the photo-rate tables are Float in T_c).
+photon-conserving closure (`mg_fshJ`). The colour temperature enters in the number type of the iterate (the photo-rate tables are interpolated in ln T_c: exact slopes).
 """
 function cpl_tqg(t, ρ, T, x1, x2, qs, s, tc, g = nothing, dp = nothing; need_cool::Bool = true)
-    s_ = t.slq; p3_0 = s_.p3; r = s_.rec; G = TX.MGN[]; ro = MGROLE[]; Tc = r.Tc0 * Float64(ForwardDiff.value(tc))
+    s_ = t.slq; p3_0 = s_.p3; r = s_.rec; G = TX.MGN[]; ro = MGROLE[]; Tc = r.Tc0 * tc
     tenv0 = t.env
     tenv = if CNn.HM88 && hasproperty(tenv0, :hm) && s_.hm0 !== nothing       # HM88: the perturber densities of the iterate (as cpl_tq)
         nHt = ρ / CNn.μH(); merge(tenv0, (; hm = (nHt * (max(1 - x1 - 2x2, 0) + s_.hm0[1] + x2), nHt * (x1 + s_.hm0[2]))))
@@ -403,7 +402,7 @@ function cpl_tqg(t, ρ, T, x1, x2, qs, s, tc, g = nothing, dp = nothing; need_co
     cu = ntuple(i -> qs[i] * r.cu0[i], G); W = mg_wg(cu, Tc)
     zf(x) = iszero(ForwardDiff.value(x)) ? 0.0 : x              # (an exact 0 stays a Float 0: tl3_heat has 0/0 partials otherwise, see cpl_tq)
     mgq = mg_env(cu, W, Tc, r.kHon)
-    p3q = merge(p3_1, (; β = zf(W[ro.Ba] * beta2s_bb(Tc)), P12 = zf((RL + LAM2S) * W[ro.Lya] / expm1(E21 / (CNn.kB * Tc))), hν = balmer_mean(Tc), Tc, RL, mgq))
+    p3q = merge(p3_1, (; β = zf(W[ro.Ba] * beta2s_bb(Tc)), P12 = zf(_div_expm1((RL + LAM2S) * W[ro.Lya], E21 / (CNn.kB * Tc))), hν = balmer_mean(Tc), Tc, RL, mgq))
     env = merge(tenv, (; mgq, tl3 = p3q))
     ph_ = s_.ph::Vector{CNn.Photo}; pc = Ref{Any}(nothing)      # (the steady-state solves ask for the same T repeatedly: one evaluation per T)
     phq = Tv -> (c_ = pc[]; (c_ !== nothing && c_[1] === Tv) ? c_[2] : (v = _phvec(ph_, Tv, env); pc[] = (Tv, v); v))
@@ -415,14 +414,11 @@ function cpl_tqg(t, ρ, T, x1, x2, qs, s, tc, g = nothing, dp = nothing; need_co
 end
 "Has zone term set t a group-field star-light record (stage 2c)?"
 mg_hasrec(t) = t !== nothing && hasproperty(t, :slq) && (r = t.slq.rec) !== nothing && hasproperty(r, :cu0)
-@inline cpl_closeqg(vJ, v) = cpl_close(vJ, v) && all(abs(log(v[i] / vJ[i])) < CPLJLAG[1] for i in 5:length(v)-4) && abs(v[end-3] - vJ[end-3]) <= CPLJLAG[1] * max(v[end-3], vJ[end-3], 1e-3) &&
-                             abs(log(v[end-2] / vJ[end-2])) < CPLJLAG[1] && abs(v[end-1] - vJ[end-1]) <= CPLJLAG[1] && abs(log(v[end] / vJ[end])) < CPLJLAG[1]
-"(MGROUPS) local values and Jacobian at v = (ρ, T, x1, x2, q_1 … q_G, s, g, dp, t): AD in all but t (the last), central differences (ln t, 1e-3) in t."
+@inline cpl_closeqg(vJ, v) = cpl_close(vJ, v) && (TX.AD_JV[] || all(abs(log(v[i] / vJ[i])) < CPLJLAG[1] for i in 5:length(v)-4) && abs(v[end-3] - vJ[end-3]) <= CPLJLAG[1] * max(v[end-3], vJ[end-3], 1e-3) &&
+                             abs(log(v[end-2] / vJ[end-2])) < CPLJLAG[1] && abs(v[end-1] - vJ[end-1]) <= CPLJLAG[1] && abs(log(v[end] / vJ[end])) < CPLJLAG[1])
+"(MGROUPS) local values and Jacobian at v = (ρ, T, x1, x2, q_1 … q_G, s, g, dp, t): AD in all variables (T_c enters the photo-rate tables and the record as a Dual)."
 function cpl_vjqg(m, k, v)
-    y, J = cpl_vj(m, k, v); jt = length(v)
-    ε = 1e-3; zp = [v...]; zm = [v...]; zp[jt] = v[jt] * (1 + ε); zm[jt] = v[jt] / (1 + ε)
-    yp = cpl_g(m, k, zp); ym = cpl_g(m, k, zm)
-    for i in 1:8; J[i, jt] = (yp[i] - ym[i]) / (v[jt] * 2log1p(ε)); end
+    y, J = cpl_vj(m, k, v)
     if TX.SLIMPDBG[] > 0 && !all(isfinite, J)
         TX.SLIMPDBG[] -= 1; bad = [(i, j) for i in 1:8, j in 1:size(J, 2) if !isfinite(J[i, j])]
         println("SLIMPDBG cpl_vjqg zone $k v $v: non-finite J at $bad; y $y")

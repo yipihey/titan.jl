@@ -432,7 +432,7 @@ end
 "VEF_SPH outer-boundary energy density of a group (vef_esurf with the group's E, F, χ and background E_b,g)."
 @inline function mg_esurf(rn, en, chn, dn, fn, fedd, N, xmu, cc, Eb)
     rc = 0.5 * (rn[N] + rn[N+1]); Ex = en[N] - Eb
-    fx = ForwardDiff.value(Ex) != 0 ? clamp(ForwardDiff.value((fedd[N] * en[N] - Eb / 3) / Ex), 1 / 3, 1.0) : 1 / 3
+    fx = ForwardDiff.value(Ex) != 0 ? clamp((fedd[N] * en[N] - Eb / 3) / Ex, 1 / 3, 1.0) : 1 / 3        # (a Dual: the clamp's active branch carries the derivative, none at its ends)
     s = 0.5xmu * (3 - 1 / fx) * log(rn[N+1] / rc)
     Eb + exp(-s) * Ex - exp(-0.5s) * chn[N] * dn[N] * fn[N+1] * (rn[N+1] - rc) / (cc * fx)
 end

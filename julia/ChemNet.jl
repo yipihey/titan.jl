@@ -345,6 +345,9 @@ function reverse_k(r::Reaction; Tmin = 0.0)
     end
 end
 
+"The n + 1 nodes 0 … xe of the log-frequency quadrature of the photo-rates (a Dual end point, T_c a Dual: the nodes carry its derivative)."
+@inline _xgrid(xe, n) = range(0.0, xe, length = n + 1)
+@inline _xgrid(xe::ForwardDiff.Dual, n) = [xe * (i / n) for i in 0:n]
 "Photo-rate [s⁻¹] 4π∫σJ/(hν)dν and the Milne inverse coefficient α for A + e → X + γ (stimulated emission included)."
 function photorates(p::Photo, T, env; n = 200)
     pf = p.pf
@@ -360,7 +363,7 @@ function _photorates_fast(p::Photo, pf::PhotoFast{F1,F2}, T, env::E, n::Int) whe
     caseB0 = hasproperty(env, :caseB) && env.caseB && length(pf.Ex) > 1
     @inbounds for l in eachindex(pf.Ex)
         Ex = pf.Ex[l]; g = pf.g[l]; Eth = pf.Eth[l]
-        ν0 = Eth / hP; xs = range(0.0, log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), length = n + 1)
+        ν0 = Eth / hP; xs = _xgrid(log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), n)
         w = g / Z
         Rl, Al = l == 1 ? _photoRA_fast(pf.s1, env.J, ν0, xs, n, Ex, T, lnK) : _photoRA_fast(pf.srest[l-1], env.J, ν0, xs, n, Ex, T, lnK)
         # env.caseB (on the spot): recombinations directly to a level with Ex = 0 of a multi-level atom make a photon that is reabsorbed nearby, so they do not count
@@ -409,7 +412,7 @@ function _photorate_fast(p::Photo, pf::PhotoFast{F1,F2}, T, env::E, n::Int) wher
     Z = _photoZ(p, T); R = zero(ET)
     @inbounds for l in eachindex(pf.Ex)
         Ex = pf.Ex[l]; g = pf.g[l]; Eth = pf.Eth[l]
-        xs = range(0.0, log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), length = n + 1)
+        xs = _xgrid(log(1 + 60kB * max(T, env.Trad) / Eth + 30.0), n)
         Rl = l == 1 ? _photoR(pf.s1, env.J, Eth / hP, xs, n) : _photoR(pf.srest[l-1], env.J, Eth / hP, xs, n)
         w = g / Z
         R += w * exp(-Ex / (kB * T)) * Rl
@@ -550,7 +553,7 @@ end
 end
 @inline _ljidx(x, g) = (i = clamp(Int(floor((_ljv(x) - g[1]) / g[2])) + 1, 2, g[3] - 2); (i, (x - (g[1] + g[2] * (i - 1))) / g[2]))
 function photorates_lj_a0(p::Photo, T, env)
-    Tc = Float64(env.Trad); W = Float64(env.ljW); lT = log10(T); lc = log10(Tc); lTv = _ljv(lT)
+    Tc = env.Trad; W = Float64(env.ljW); lT = log10(T); lc = log10(Tc); lTv = _ljv(lT)
     okT = !(hasproperty(env, :caseB) && env.caseB) && LJ_T[1] + 2LJ_T[2] <= lTv <= LJ_T[1] + LJ_T[2] * (LJ_T[3] - 3)
     if okT && W == 0.0
         tb = lj_tables(p)
@@ -636,11 +639,11 @@ function lj_gtables(p::Photo, ehz::Vector{Float64})
         lQ
     end
 end
-"Σ_levels (g_l/Z) e^{−E_x/kT} Σ_g cu_g Q_{l,g}(T_c) [s⁻¹]: the photo-rate of process p in the group fields cu (see `lj_gtables`); T, cu may be Duals."
-function photorates_g(p::Photo, T, Tc::Float64, cu, ehz::Vector{Float64})
+"Σ_levels (g_l/Z) e^{−E_x/kT} Σ_g cu_g Q_{l,g}(T_c) [s⁻¹]: the photo-rate of process p in the group fields cu (see `lj_gtables`); T, T_c, cu may be Duals."
+function photorates_g(p::Photo, T, Tc, cu, ehz::Vector{Float64})
     tb = lj_gtables(p, ehz); G = length(ehz) + 1
-    x = clamp((log10(Tc) - LJG_C[1]) / LJG_C[2], 0.0, LJG_C[3] - 1.0); j = min(Int(floor(x)) + 1, LJG_C[3] - 1); w = x - (j - 1)
-    Z = p.Z(T); R = zero(T) * zero(cu[1])
+    x = clamp((log10(Tc) - LJG_C[1]) / LJG_C[2], 0.0, LJG_C[3] - 1.0); j = min(floor(Int, _ljv(x)) + 1, LJG_C[3] - 1); w = x - (j - 1)
+    Z = p.Z(T); R = zero(T) * zero(cu[1]) * zero(Tc)
     for (l, lv) in enumerate(p.levels)
         s = zero(R)
         for g in 1:G
@@ -652,7 +655,7 @@ function photorates_g(p::Photo, T, Tc::Float64, cu, ehz::Vector{Float64})
     R
 end
 "Stimulated part of the Milne coefficient in J = W B_ν(T_c) per unit W: α = α₀(T)(1 + W r(T, T_c)) of `photorates_lj`; 0 outside its tables."
-function lj_stim(p::Photo, T, Tc::Float64)
+function lj_stim(p::Photo, T, Tc)
     lT = log10(T); lc = log10(Tc); lTv = _ljv(lT)
     ok = LJ_T[1] + 2LJ_T[2] <= lTv <= LJ_T[1] + LJ_T[2] * (LJ_T[3] - 3) && LJ_2C[1] + 2LJ_2C[2] <= lc <= LJ_2C[1] + LJ_2C[2] * (LJ_2C[3] - 3) &&
          LJ_2T[1] + 2LJ_2T[2] <= lTv <= LJ_2T[1] + LJ_2T[2] * (LJ_2T[3] - 3)

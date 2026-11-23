@@ -755,10 +755,24 @@ against the Float64 residual.
 """
 function check!(S::Sys)
     ne, nb, k0 = S.ne, S.nb, S.k0; a = gi(:ngrs)
+    # The finite differences leave the lagged Float data of the residual (what the last update! wrote and the restore does not give back: opacities and star-light
+    # state of the last trial state) at x − εv: the exact product is evaluated after a zero-perturbation update!, i.e. at the state the solver's own products see.
+    adj!(y, S_, v_) = (perturbed(S_, zeros(S_.n), 0.0); adjv!(y, S_, v_))
     rnd = let st = UInt64(12345); () -> (st = st * 6364136223846793005 + 1442695040888963407; (Float64(st >> 11) / 2^53) * 2 - 1); end
     v = [S.act[r] ? rnd() : 0.0 for r in 1:S.n]
     y = zeros(S.n); wr = zeros(S.n)
     ε = OPT.eps / maximum(abs, v)
+    # NKXS (default 1e-2): the species perturbations of the finite difference stay within NKXS × the neutral fraction n_H/n_H,tot = 1 − x_H⁺ − 2x_H₂: the species are x e^δ
+    # and the neutral fraction of the ionised gas (1 − x_H⁺ ~ 1e-6 … 1e-9) is a difference, so a relative step of 1e-5 in x_H⁺ leaves the linear range of the derivative that the
+    # check compares (the difference converges to the AD product as the step shrinks: NKROWPROBE=2). NKXS=0: no restriction.
+    xsc = parse(Float64, get(ENV, "NKXS", "1e-2"))
+    function xcap(r, vr, ε)
+        xsc > 0 && (r - 1) % ne + 1 in (8, 9) && S.code[(r-1)%ne+1] == 0 || return vr
+        k = k0 + (r - 1) ÷ ne; x1 = TX.XSN[][1][k]; x2 = TX.XSN[][2][k]; xi = (r - 1) % ne + 1 == 8 ? x1 : 2x2
+        xi > 0 || return vr
+        sign(vr) * min(abs(vr), xsc * max(1 - x1 - 2x2, 1e-30) / (xi * ε))
+    end
+    for r in 1:S.n; S.act[r] && (v[r] = xcap(r, v[r], ε)); end
     fdjv!(y, S, v, ε; realized = wr)
     z, sa = bandmul(S, wr)
     ok = isfinite.(z) .& (sa .> 0) .& .!((y .== 0) .& (z .!= 0))       # (rows that are the correction itself, R = δ: the Dirichlet rows of the boundary interfaces, are not functions of the state)
@@ -768,13 +782,23 @@ function check!(S::Sys)
     @printf("NKCHECK ne %d nb %d active %d eps %.3e; rows compared %d (%d Dirichlet rows R = delta left out); |Jv - J_b w| / sum_j |J_b,ij w_j| per row: max %.3e, median %.3e, rows > 1e-4: %d, > 1e-2: %d\n",
             ne, nb, count(S.act), ε, count(ok), nd, maximum(rel), median(rel[ok]), count(>(1e-4), rel), count(>(1e-2), rel))
     nm = ("r", "m", "rho", "u", "T", "E_r", "F_r", "x_H+", "x_H2")
+    rr1 = zeros(S.n)
     if OPT.ad                          # the exact forward-mode product against the central finite difference through update! (same v): per row relative to the band row scale
-        ya = zeros(S.n); adjv!(ya, S, v)
-        for ef in (1.0, 0.1, 10.0)                      # (the FD at ε, ε/10, 10ε: the truncation and round-off of the difference itself)
+        ya = zeros(S.n); adj!(ya, S, v)
+        let ya2 = zeros(S.n); adj!(ya2, S, v); ya3 = zeros(S.n); adj!(ya3, S, v)         # (the product must not depend on how often it has been evaluated: repeat it)
+            d12 = [ok[r] ? abs(ya[r] - ya2[r]) / sa[r] : 0.0 for r in 1:S.n]; d23 = [ok[r] ? abs(ya2[r] - ya3[r]) / sa[r] : 0.0 for r in 1:S.n]
+            wr_ = sortperm(d12; rev = true)[1:5]
+            @printf("NKCHECK AD repeat: 1st vs 2nd call of J v: max %.3e (rows > 1e-4: %d); 2nd vs 3rd: max %.3e; worst rows of the first pair: %s\n", maximum(d12), count(>(1e-4), d12), maximum(d23),
+                    join((@sprintf("%s z%d %.2e", (i = (r - 1) % ne + 1; i <= length(nm) ? nm[i] : string(i)), k0 + (r - 1) ÷ ne - a + 1, d12[r]) for r in wr_), "; "))
+        end
+        worst1 = Int[]
+        for ef in (1.0, 0.1, 10.0, 100.0, 1e-2, 1e-3, 1e-4)      # (the FD at ε, ε/10, 10ε, … ε/1e4: the truncation and round-off of the difference itself; a kink of the residual at the iterate does not go away)
             yf = ef == 1.0 ? y : (yy = zeros(S.n); fdjv!(yy, S, v, ε * ef); yy)
             rr = [ok[r] ? abs(ya[r] - yf[r]) / sa[r] : 0.0 for r in 1:S.n]
             @printf("NKCHECK AD J v vs FD (eps x%g): per row |J v(AD) - J v(FD)| / row scale: max %.3e, median %.3e, rows > 1e-4: %d, > 1e-2: %d | 2-norm rel %.3e\n", ef, maximum(rr), median(rr[ok]),
                     count(>(1e-4), rr), count(>(1e-2), rr), norm(ya .- yf) / max(norm(yf), 1e-300))
+            ef == 1.0 && (worst1 = sortperm(rr; rev = true)[1:6])
+            ef == 1.0 || @printf("NKCHECK AD vs FD (eps x%g): the worst rows of the eps x1 list: %s\n", ef, join((@sprintf("%s z%d %.2e", (i = (r - 1) % ne + 1; i <= length(nm) ? nm[i] : string(i)), k0 + (r - 1) ÷ ne - a + 1, rr[r]) for r in worst1), "; "))
             if ef == 1.0                                 # the same outside the front zones NKZX (default 36:46: photosphere, H₂ and ionisation fronts, where the state is not smooth)
                 zx1, zx2 = parse.(Int, split(get(ENV, "NKZX", "36:46"), ":"))
                 out = [ok[r] && !(zx1 <= k0 + (r - 1) ÷ ne - a + 1 <= zx2) for r in 1:S.n]
@@ -789,12 +813,67 @@ function check!(S::Sys)
                 end
             end
             ef == 1.0 || continue
+            rr1 = rr
             for i in 1:ne
                 ri = [(kb - 1) * ne + i for kb in 1:nb]; kall = argmax([rr[r] for r in ri]); zn(kb) = k0 + kb - 1 - a + 1
                 nmi = i <= length(nm) ? nm[i] : (i - 9) % 2 == 1 ? "E_g$((i - 9 + 1) ÷ 2)" : "F_g$((i - 9) ÷ 2)"
                 @printf("NKCHECK AD vs FD eq %-6s: worst row %.3e (zone %d; J v AD %+.5e FD %+.5e; row scale %.3e)\n", nmi, rr[ri[kall]], zn(kall), ya[ri[kall]], yf[ri[kall]], sa[ri[kall]])
             end
         end
+    end
+    if get(ENV, "NKROWPROBE", "1") == "2" && OPT.ad       # AD against FD column by column (the exact product's own columns): which entries of the worst AD-vs-FD rows disagree
+        zp1, zp2 = get(ENV, "NKPZ", "34:48") == "all" ? (1, 0) : parse.(Int, split(get(ENV, "NKPZ", "34:48"), ":")); zq(kb) = k0 + kb - 1 - a + 1
+        rows = Int[]; for r in sortperm(rr1; rev = true); length(rows) >= parse(Int, get(ENV, "NKPROWS", "6")) && break; rr1[r] > 1e-4 && push!(rows, r); end
+        if haskey(ENV, "NKROW")                  # NKROW=eq,zone[;eq,zone...] (as the band probe): these rows too
+            for spec in split(ENV["NKROW"], ";")
+                f = split(spec, ","); ie = something(findfirst(==(f[1]), nm), tryparse(Int, f[1]), 0); zs = parse(Int, f[2]); kbs = zs + a - k0
+                (1 <= ie <= ne && 1 <= kbs <= nb) || error("NKROW=$(ENV["NKROW"]): no such row $spec")
+                push!(rows, (kbs - 1) * ne + ie)
+            end
+        end
+        let ya = zeros(S.n); adj!(ya, S, v)           # one-sided differences along v: a kink of the residual at the iterate shows as forward ≠ backward
+            R1 = copy(perturbed(S, v, ε)); R2 = copy(perturbed(S, v, -ε))
+            for r in rows
+                i = (r - 1) % ne + 1; @printf("NKCHECK AD/FD one-sided: row %s zone %d: AD %+.5e  forward %+.5e  backward %+.5e  central %+.5e (row scale %.3e)\n", i <= length(nm) ? nm[i] : string(i), zq((r - 1) ÷ ne + 1),
+                        ya[r], (R1[r] - S.R0[r]) / ε, (S.R0[r] - R2[r]) / ε, (R1[r] - R2[r]) / 2ε, sa[r])
+            end
+        end
+        if haskey(ENV, "NKPW")                    # NKPW=n: windows of n zones, the check vector restricted to each (all variables), then per variable in the worst window of each row: where are the columns that disagree?
+            nw = parse(Int, ENV["NKPW"]); zall = [zq(kb) for kb in 1:nb]; wins = [(z, min(z + nw - 1, maximum(zall))) for z in minimum(zall):nw:maximum(zall)]
+            wres = Dict(r => Tuple{Float64,Int}[] for r in rows)
+            for (iw, (w1, w2)) in enumerate(wins)
+                vw = [S.act[r] && w1 <= zq((r - 1) ÷ ne + 1) <= w2 ? v[r] : 0.0 for r in 1:S.n]; any(!iszero, vw) || continue
+                yA = zeros(S.n); adj!(yA, S, vw); yF = zeros(S.n); fdjv!(yF, S, vw, ε)
+                for r in rows; push!(wres[r], (abs(yA[r] - yF[r]) / sa[r], iw)); end
+            end
+            for r in rows
+                kb = (r - 1) ÷ ne + 1; i = (r - 1) % ne + 1; ws = sort!(wres[r]; rev = true)[1:min(4, length(wres[r]))]
+                @printf("NKCHECK AD/FD windows: row %s zone %d (rel %.3e): worst windows %s\n", i <= length(nm) ? nm[i] : string(i), zq(kb), rr1[r], join((@sprintf("%d:%d %.2e", wins[iw][1], wins[iw][2], d) for (d, iw) in ws), ", "))
+                w1, w2 = wins[ws[1][2]]
+                for j in 1:ne
+                    vj = [S.act[rr_] && w1 <= zq((rr_ - 1) ÷ ne + 1) <= w2 && (rr_ - 1) % ne + 1 == j ? v[rr_] : 0.0 for rr_ in 1:S.n]; any(!iszero, vj) || continue
+                    yA = zeros(S.n); adj!(yA, S, vj); yF = zeros(S.n); fdjv!(yF, S, vj, ε)
+                    d = abs(yA[r] - yF[r]) / sa[r]; d > 1e-6 && @printf("      variable %-5s in zones %d:%d: |AD-FD|/rowscale %.3e (AD %+.4e FD %+.4e)\n", j <= length(nm) ? nm[j] : string(j), w1, w2, d, yA[r], yF[r])
+                end
+            end
+            flush(stdout); return nothing
+        end
+        cols = [c for c in findall(S.act) if get(ENV, "NKPZ", "34:48") == "all" || zp1 <= zq((c - 1) ÷ ne + 1) <= zp2]
+        @printf("NKCHECK AD/FD column probe: %d rows, %d columns (zones %d:%d), FD at eps and eps/10\n", length(rows), length(cols), zp1, zp2); flush(stdout)
+        tab = Dict(r => Tuple{Float64,Int,Float64,Float64,Float64}[] for r in rows)
+        for c in cols
+            e = zeros(S.n); e[c] = xcap(c, 1.0, OPT.eps); yA = zeros(S.n); adj!(yA, S, e); yF = zeros(S.n); fdjv!(yF, S, e, OPT.eps); yG = zeros(S.n); fdjv!(yG, S, e, OPT.eps / 10)
+            for r in rows; push!(tab[r], (abs(yA[r] - yF[r]), c, yA[r], yF[r], yG[r])); end
+        end
+        for r in rows
+            kb = (r - 1) ÷ ne + 1; i = (r - 1) % ne + 1
+            @printf("NKCHECK AD/FD column probe: row %s zone %d (rowscale %.3e, rel %.3e)\n", i <= length(nm) ? nm[i] : string(i), zq(kb), sa[r], rr1[r])
+            for (d, c, yA_, yF_, yG_) in sort!(tab[r]; rev = true)[1:min(10, length(tab[r]))]
+                kc = (c - 1) ÷ ne + 1; jc = (c - 1) % ne + 1
+                @printf("   column %-5s zone %3d: AD %+.5e  FD(eps) %+.5e  FD(eps/10) %+.5e  |AD-FD| %.3e\n", jc <= length(nm) ? nm[jc] : string(jc), zq(kc), yA_, yF_, yG_, d)
+            end
+        end
+        flush(stdout)
     end
     for r in sortperm(rel; rev = true)[1:30]
         kb = (r - 1) ÷ ne + 1; i = (r - 1) % ne + 1
