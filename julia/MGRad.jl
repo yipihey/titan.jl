@@ -713,32 +713,38 @@ function mg_setup!(edges, evk, tcmb, i0, mgr)
 end
 
 """
-Initial group fields from the grey field (a restart from a grey checkpoint, or the IC): the CMB part partitioned at T_cmb, the excess at the
-shape temperature Ts[k] (the driver passes T_r inside the photosphere and the star's T_eff outside), F_g = F_r b_g(Ts at the interface).
+Initial group fields from the grey field (a restart from a grey checkpoint, or the IC), the same in every zone and without a threshold: the local emission balance of the group's own row,
+E_g ∝ b_g = j_g/(c κ_E,g) (j_g = κ_P,g b_g(T) σT⁴/π + the Milne term, κ_E,g: the emissivity and absorption of the energy row, `mg_rows!`/`mg_scales!`, from the zone's group record MGVN, which must be filled;
+the Raman and H₂ exchange with the partner groups are not in it: they have no partner field yet), rescaled so that Σ_g E_g = E_r. The flux F_g = F_r w_g/Σ w, w_g the mean of E_g of the two zones of the interface
+(each group carries the share of the field it has on that face; the groups then sum to F_r). Ghost zones take the balance of the nearest zone, with their own E_r. (Docs §25.)
 """
-function mg_init_from_grey!(Ts)
-    a = gi(:ngrs); b = gi(:ngre); er = v(:ern); fr = v(:frn)
-    arad = 4gf(:csigr) / gf(:cc); Ec = MGTCMB[] > 0 ? arad * MGTCMB[]^4 : 0.0
-    for g in 1:MGN[]
-        E = MGEN[][g]; F = MGFN[][g]; fill!(E, 0.0); fill!(F, 0.0)
-        for k in a-2:b+2
-            kk = clamp(k, a, b)
-            Ex = max(er[k] - Ec, 0.0)
-            E[k] = max(MGBCMB_[g] * min(er[k], Ec) + mg_bfrac(g, Ts[kk]) * Ex, MGBFLOOR * er[k])
-        end
-        for k in a+1:b+1; F[k] = fr[k] * mg_bfrac(g, Ts[min(k, b)]); end
-        mg_ghosts!(E, F, a, b)
-    end
-    # exact sums (the rows E_r = Σ E_g, F_r = Σ F_g): renormalise
+function mg_init_from_grey!()
+    a = gi(:ngrs); b = gi(:ngre); er = v(:ern); fr = v(:frn); G = MGN[]; gv = MGVN[]; cc = gf(:cc)
+    tn = v(:tn); plf = v(:plfn); chi = v(:chifn); xke = v(:xken); xkp = v(:xkpn)
+    bg = [zeros(b + 2) for _ in 1:G]
     for k in a-2:b+2
-        s = sum(MGEN[][g][k] for g in 1:MGN[]); s > 0 && for g in 1:MGN[]; MGEN[][g][k] *= er[k] / s; end
+        kk = clamp(k, a, b)
+        for g in 1:G
+            keO, _, kpO, a1O = mg_level(gv, mgv(g, 1), kk, chi[kk], xke[kk], xkp[kk], 0.0)
+            em = kpO * plf[kk] * mg_bfrac(g, tn[kk])
+            (g >= MGGH[] && a1O > 0) && (em += a1O * plf[kk] * mg_xfrac(g, tn[kk], MGXH[]))
+            bg[g][k] = em / (cc * max(keO, 1e-300))
+        end
+        s = sum(bg[g][k] for g in 1:G)
+        (isfinite(s) && s > 0) || error("mg_init_from_grey!: no emission balance in zone $kk (sum $s)")
+        for g in 1:G; MGEN[][g][k] = er[k] * bg[g][k] / s; end
     end
+    for g in 1:G; fill!(MGFN[][g], 0.0); end
     for k in a+1:b+1
-        s = sum(MGFN[][g][k] for g in 1:MGN[])
-        d = fr[k] - s; MGFN[][1][k] += d          # (the remainder, round-off, to the IR group)
+        w = [0.5 * (MGEN[][g][k-1] + MGEN[][g][k]) for g in 1:G]; s = sum(w)
+        for g in 1:G; MGFN[][g][k] = s > 0 ? fr[k] * w[g] / s : 0.0; end
+        MGFN[][1][k] += fr[k] - sum(MGFN[][g][k] for g in 1:G)          # (round-off only)
     end
-    for g in 1:MGN[]; mg_ghosts!(MGEN[][g], MGFN[][g], a, b); end
-    for g in 1:MGN[]; copyto!(MGEO[][g], MGEN[][g]); copyto!(MGFO[][g], MGFN[][g]); end
+    for k in a-2:b+2                                                    # exact sums (rows E_r = Σ E_g)
+        s = sum(MGEN[][g][k] for g in 1:G); s > 0 && for g in 1:G; MGEN[][g][k] *= er[k] / s; end
+    end
+    for g in 1:G; mg_ghosts!(MGEN[][g], MGFN[][g], a, b); end
+    for g in 1:G; copyto!(MGEO[][g], MGEN[][g]); copyto!(MGFO[][g], MGFN[][g]); end
     mg_newstep!()
     nothing
 end

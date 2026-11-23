@@ -761,6 +761,15 @@ function check!(S::Sys)
     adj!(y, S_, v_) = (perturbed(S_, zeros(S_.n), 0.0); adjv!(y, S_, v_))
     rnd = let st = UInt64(12345); () -> (st = st * 6364136223846793005 + 1442695040888963407; (Float64(st >> 11) / 2^53) * 2 - 1); end
     v = [S.act[r] ? rnd() : 0.0 for r in 1:S.n]
+    if TX.MG[]      # (diagnostic) the group energy unknown is δy in units of h = √(E² + s²) ≈ s for an empty group: ΔE = h ε v would exceed E itself (docs §25.2). Take the direction in units of the group's own E: ΔE = ε|E| v (the same v for AD, FD and the band product). (The same for the F rows made the rows worse, docs §25.2: not done)
+        a_ = gi(:ngrs)
+        for kb in 1:S.nb, g in 1:TX.MGN[]
+            r = (kb - 1) * ne + TX.mgiE(g); k = k0 + kb - 1
+            (S.act[r] && a_ <= k <= gi(:ngre)) || continue
+            E0 = TX.MGEN[][g][k]; h = hypot(E0, TX.MGSC[][g][k])
+            E0 != 0 && h > 0 && (v[r] *= abs(E0) / h)
+        end
+    end
     y = zeros(S.n); wr = zeros(S.n)
     ε = OPT.eps / maximum(abs, v)
     fdjv!(y, S, v, ε; realized = wr)

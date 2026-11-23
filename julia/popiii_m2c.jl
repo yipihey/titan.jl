@@ -1587,8 +1587,7 @@ end
 """
 MGROUPS (docs/POPIII_MULTIGROUP.md): G radiation groups as Newton unknowns 10 … 9 + 2G (TitanResidFast MGRad.jl), the group opacities and
 emissivities from the material at the Newton iterate (PopIIIMaterial material_opacg!, MGOpac.jl), the star-light rates from the group
-fields (starlight_setup), the pivoted banded solver. The group fields come from the checkpoint (MGAUX) or, the first time, from the grey field (CMB part at T_cmb, the excess at T_r
-inside the photosphere and at the star's T_eff outside it).
+fields (starlight_setup), the pivoted banded solver. The group fields come from the checkpoint (MGAUX) or, the first time, from the grey field (split by the local emission balance of each group, docs §25).
 """
 function mg_install!()
     COUPLED || error("MGROUPS needs COUPLED=1")
@@ -1621,21 +1620,8 @@ function mg_install!()
         for g in 1:G; copyto!(TX.MGEN[][g], ax.E[g]); copyto!(TX.MGFN[][g], ax.F[g]); copyto!(TX.MGEO[][g], ax.E[g]); copyto!(TX.MGFO[][g], ax.F[g]); end
         TX.mg_newstep!(); src = "the checkpoint"
     else
-        dn, rn, chi, er, fr = TF.var(:dn), TF.var(:rn), TF.var(:chifn), TF.var(:ern), TF.var(:frn)
-        arad = 7.565723e-15; τ = zeros(length(dn)); t_ = 0.0
-        for k in b_:-1:a_; t_ += chi[k] * dn[k] * (rn[k+1] - rn[k]); τ[k] = t_; end
-        kph = a_; for k in b_:-1:a_; τ[k] >= 2 / 3 && (kph = k; break); end
-        L = 4π * rn[kph+1]^2 * fr[kph+1]; Te = L > 0 ? (L / (4π * rn[kph+1]^2 * 5.670374419e-5))^0.25 : 0.0
-        # the excess over the CMB has the star's colour only where it is the star's light (at least half the free-streaming estimate
-        # L/(4π r² c)); farther out it is the cloud's own emission: T_s = the gas temperature there. (The T_eff shape everywhere put
-        # 0.1–0.3 E_CMB of optical light into the 1–143 pc cloud, which per-group free streaming then drained at up to 5e8 L☉, t_mg28.)
-        Ec_ = arad * parse(Float64, get(ENV, "TCMB", "0"))^4; tg = TF.var(:tn); rr = TF.var(:rn)
-        lit(k) = Te > 0 && k > kph && k < length(rr) && (er[k] - Ec_) >= 0.5 * L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10)
-        kend = kph + 1; while kend <= b_ && lit(kend); kend += 1; end          # one star-lit region from the photosphere out (no zone-to-zone switching)
-        Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : (k > kph && k < kend) ? max(Te, (max(er[k], 1e-300) / arad)^0.25) : max(tg[k], 1.0)
-              for k in eachindex(dn)]
-        TX.mg_init_from_grey!(Ts); src = @sprintf("the grey field (T_eff %.0f K outside zone %d)", Te, kph - a_ + 1)
-        # (this partition leaves a draining optical reservoir in the far cloud; the two alternatives tried failed the first step: docs/POPIII_MULTIGROUP.md §14, §19)
+        PM.nloc_reset!(length(mat.x)); PM.mg_fill!(mat)        # (the group records the balance split reads)
+        TX.mg_init_from_grey!(); src = "the grey field (split by the local emission balance of each group)"
     end
     PM.nloc_reset!(length(mat.x))                    # (a restart evaluated the opacities once before the groups existed: no group records in that cache)
     PM.mg_fill!(mat); copyto!(TX.MGVO[], TX.MGVN[])
