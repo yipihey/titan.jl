@@ -22,7 +22,7 @@ for f in fs
       w = hasproperty(c, :tdc_w) ? nz(c.tdc_w) : zeros(n + 1); jw = argmax(w)
       cs = sqrt.(5 / 3 .* s.pg ./ s.ρ); csi = [j == 1 || j == n + 1 ? NaN : 0.5 * (cs[j-1] + cs[j]) for j in 1:n+1]
       wcs = maximum(nz(w ./ csi))
-      mach = nz(c.mach_i); sup = [(mach[j] > 1 && u[j] < 0) ? w[j] : 0.0 for j in 1:n+1]
+      mach = nz(c.mach_i); sup = [(mach[j] > 2 && u[j] < 0) ? w[j] : 0.0 for j in 1:n+1]
       ptp = hasproperty(c, :tdc_PtP) ? nz(c.tdc_PtP) : zeros(n)
       sc = hasproperty(c, :tdc_scal) ? c.tdc_scal : [NaN, NaN, NaN]
       @printf("%6d %9.3e %7.1f %8.2e | %9.3g %6d %6.3g | %9.3e %5d | %9.3g %9.3g %9.3e | %9.3e\n", s.step, s.dt, Rst, Md, fo[jm], jm, wcs, w[jw], jw, sc[2], sc[3], maximum(sup), sc[1])
