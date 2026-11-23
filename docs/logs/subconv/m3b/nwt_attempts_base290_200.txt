@@ -1,0 +1,868 @@
+NWT head att 1 jstep 290 thet 0.5 dtime 17420.169706353856 niter 25
+NWT end att 1 ok true iter 3
+NWT head att 2 jstep 290 thet 1.0 dtime 8710.084853176932 niter 25
+NWT end att 2 ok true iter 2
+NWT head att 3 jstep 291 thet 0.5 dtime 13780.040560048872 niter 25
+NWT end att 3 ok true iter 4
+NWT head att 4 jstep 291 thet 1.0 dtime 6890.020280024438 niter 25
+NWT end att 4 ok true iter 3
+NWT head att 5 jstep 291 thet 0.5 dtime 11620.62941398621 niter 25
+NWT end att 5 ok true iter 3
+NWT head att 6 jstep 291 thet 1.0 dtime 5810.314706993107 niter 25
+NWT end att 6 ok true iter 2
+NWT head att 7 jstep 292 thet 0.5 dtime 10117.876192952133 niter 25
+NWT end att 7 ok true iter 4
+NWT head att 8 jstep 292 thet 1.0 dtime 5058.9380964760685 niter 25
+NWT end att 8 ok true iter 3
+NWT head att 9 jstep 293 thet 0.5 dtime 9792.365935068668 niter 25
+NWT end att 9 ok true iter 3
+NWT head att 10 jstep 293 thet 1.0 dtime 4896.182967534336 niter 25
+NWT end att 10 ok true iter 2
+NWT head att 11 jstep 294 thet 0.5 dtime 13728.838488805031 niter 25
+NWT end att 11 ok true iter 3
+NWT head att 12 jstep 294 thet 1.0 dtime 6864.419244402518 niter 25
+NWT end att 12 ok true iter 2
+NWT head att 13 jstep 295 thet 0.5 dtime 19570.042146132102 niter 25
+NWT end att 13 ok true iter 2
+NWT head att 14 jstep 295 thet 1.0 dtime 9785.021073066055 niter 25
+NWT end att 14 ok true iter 2
+NWT head att 15 jstep 296 thet 0.5 dtime 25208.79388556914 niter 25
+NWT end att 15 ok true iter 2
+NWT head att 16 jstep 296 thet 1.0 dtime 12604.396942784575 niter 25
+NWT end att 16 ok true iter 2
+NWT head att 17 jstep 297 thet 0.5 dtime 34622.27962107879 niter 25
+NWT end att 17 ok true iter 2
+NWT head att 18 jstep 297 thet 1.0 dtime 17311.139810539404 niter 25
+NWT end att 18 ok true iter 2
+NWT head att 19 jstep 298 thet 0.5 dtime 48200.529274736626 niter 25
+NWT end att 19 ok true iter 2
+NWT head att 20 jstep 298 thet 1.0 dtime 24100.26463736832 niter 25
+NWT end att 20 ok true iter 2
+NWT head att 21 jstep 299 thet 0.5 dtime 69462.8020217537 niter 25
+NWT end att 21 ok true iter 2
+NWT head att 22 jstep 299 thet 1.0 dtime 34731.40101087686 niter 25
+NWT end att 22 ok true iter 2
+NWT head att 23 jstep 300 thet 0.5 dtime 103497.3423727826 niter 25
+NWT end att 23 ok true iter 2
+NWT head att 24 jstep 300 thet 1.0 dtime 51748.67118639132 niter 25
+NWT end att 24 ok true iter 2
+NWT head att 25 jstep 301 thet 0.5 dtime 161232.05569943372 niter 25
+NWT end att 25 ok true iter 2
+NWT head att 26 jstep 301 thet 1.0 dtime 80616.02784971689 niter 25
+NWT end att 26 ok true iter 2
+NWT head att 27 jstep 302 thet 0.5 dtime 262348.64103426196 niter 25
+NWT end att 27 ok true iter 2
+NWT head att 28 jstep 302 thet 1.0 dtime 131174.32051713104 niter 25
+NWT end att 28 ok true iter 2
+NWT head att 29 jstep 303 thet 0.5 dtime 430035.3962388739 niter 25
+NWT end att 29 ok true iter 2
+NWT head att 30 jstep 303 thet 1.0 dtime 215017.69811943703 niter 25
+NWT end att 30 ok true iter 2
+NWT head att 31 jstep 304 thet 0.5 dtime 665724.0057898458 niter 25
+NWT end att 31 ok true iter 3
+NWT head att 32 jstep 304 thet 1.0 dtime 332862.0028949231 niter 25
+NWT end att 32 ok true iter 2
+NWT head att 33 jstep 305 thet 0.5 dtime 913148.2446800605 niter 25
+NWT end att 33 ok true iter 3
+NWT head att 34 jstep 305 thet 1.0 dtime 456574.12234003044 niter 25
+NWT end att 34 ok true iter 2
+NWT head att 35 jstep 306 thet 0.5 dtime 1.2596464009970487e6 niter 25
+NWT end att 35 ok true iter 3
+NWT head att 36 jstep 306 thet 1.0 dtime 629823.2004985246 niter 25
+NWT end att 36 ok true iter 3
+NWT head att 37 jstep 307 thet 0.5 dtime 1.6545152884397865e6 niter 25
+NWT end att 37 ok true iter 3
+NWT head att 38 jstep 307 thet 1.0 dtime 827257.6442198936 niter 25
+NWT end att 38 ok true iter 4
+NWT head att 39 jstep 308 thet 0.5 dtime 1.7922889451276793e6 niter 25
+NWT end att 39 ok true iter 10
+NWT head att 40 jstep 308 thet 1.0 dtime 896144.47256384 niter 25
+NWT end att 40 ok true iter 3
+NWT head att 41 jstep 309 thet 0.5 dtime 1.2078926349258882e6 niter 25
+NWT end att 41 ok true iter 3
+NWT head att 42 jstep 309 thet 1.0 dtime 603946.3174629443 niter 25
+NWT end att 42 ok true iter 3
+NWT head att 43 jstep 310 thet 0.5 dtime 1.6274726027061157e6 niter 25
+NWT end att 43 ok true iter 3
+NWT head att 44 jstep 310 thet 1.0 dtime 813736.3013530582 niter 25
+NWT end att 44 ok true iter 3
+NWT head att 45 jstep 311 thet 0.5 dtime 2.227108460370145e6 niter 25
+NWT end att 45 ok true iter 3
+NWT head att 46 jstep 311 thet 1.0 dtime 1.1135542301850729e6 niter 25
+NWT end att 46 ok true iter 2
+NWT head att 47 jstep 312 thet 0.5 dtime 2.731411172434918e6 niter 25
+NWT end att 47 ok true iter 3
+NWT head att 48 jstep 312 thet 1.0 dtime 1.3657055862174595e6 niter 25
+NWT end att 48 ok true iter 2
+NWT head att 49 jstep 313 thet 0.5 dtime 3.5457579218736216e6 niter 25
+NWT end att 49 ok true iter 3
+NWT head att 50 jstep 313 thet 1.0 dtime 1.7728789609368115e6 niter 25
+NWT end att 50 ok true iter 3
+NWT head att 51 jstep 314 thet 0.5 dtime 4.095628577047705e6 niter 25
+NWT end att 51 ok true iter 3
+NWT head att 52 jstep 314 thet 1.0 dtime 2.0478142885238533e6 niter 25
+NWT end att 52 ok true iter 3
+NWT head att 53 jstep 315 thet 0.5 dtime 5.086217820991821e6 niter 25
+NWT end att 53 ok true iter 3
+NWT head att 54 jstep 315 thet 1.0 dtime 2.5431089104959113e6 niter 25
+NWT end att 54 ok true iter 3
+NWT head att 55 jstep 316 thet 0.5 dtime 6.179855281630065e6 niter 25
+NWT end att 55 ok true iter 3
+NWT head att 56 jstep 316 thet 1.0 dtime 3.0899276408150336e6 niter 25
+NWT end att 56 ok true iter 3
+NWT head att 57 jstep 317 thet 0.5 dtime 7.779552819920396e6 niter 25
+NWT end att 57 ok true iter 3
+NWT head att 58 jstep 317 thet 1.0 dtime 3.8897764099602e6 niter 25
+NWT end att 58 ok true iter 3
+NWT head att 59 jstep 318 thet 0.5 dtime 1.039074317939211e7 niter 25
+NWT end att 59 ok true iter 3
+NWT head att 60 jstep 318 thet 1.0 dtime 5.195371589696057e6 niter 25
+NWT end att 60 ok true iter 3
+NWT head att 61 jstep 319 thet 0.5 dtime 1.3256995532934183e7 niter 25
+NWT end att 61 ok true iter 4
+NWT head att 62 jstep 319 thet 1.0 dtime 6.6284977664670935e6 niter 25
+NWT end att 62 ok true iter 4
+NWT head att 63 jstep 320 thet 0.5 dtime 1.4791607821181549e7 niter 25
+NWT end att 63 ok false iter 26
+NWT head att 64 jstep 320 thet 0.5 dtime 3.697901955295387e6 niter 25
+NWT end att 64 ok true iter 4
+NWT head att 65 jstep 320 thet 1.0 dtime 1.8489509776476943e6 niter 25
+NWT end att 65 ok true iter 9
+NWT head att 66 jstep 321 thet 0.5 dtime 3.697901955295387e6 niter 25
+NWT end att 66 ok true iter 6
+NWT head att 67 jstep 321 thet 1.0 dtime 1.8489509776476943e6 niter 25
+NWT end att 67 ok true iter 3
+NWT head att 68 jstep 322 thet 0.5 dtime 3.6670544437618414e6 niter 25
+NWT end att 68 ok true iter 2
+NWT head att 69 jstep 322 thet 1.0 dtime 1.8335272218809214e6 niter 25
+NWT end att 69 ok true iter 3
+NWT head att 70 jstep 323 thet 0.5 dtime 4.757620106852932e6 niter 25
+NWT end att 70 ok true iter 3
+NWT head att 71 jstep 323 thet 1.0 dtime 2.378810053426467e6 niter 25
+NWT end att 71 ok true iter 4
+NWT head att 72 jstep 324 thet 0.5 dtime 4.632915831550197e6 niter 25
+NWT end att 72 ok false iter 26
+NWT head att 73 jstep 324 thet 0.5 dtime 1.1582289578875492e6 niter 25
+NWT end att 73 ok false iter 26
+NWT head att 74 jstep 324 thet 0.5 dtime 289557.2394718873 niter 25
+NWT end att 74 ok true iter 1
+NWT head att 75 jstep 324 thet 1.0 dtime 144778.6197359437 niter 25
+NWT end att 75 ok true iter 1
+NWT head att 76 jstep 325 thet 0.5 dtime 289557.2394718873 niter 25
+NWT end att 76 ok true iter 3
+NWT head att 77 jstep 325 thet 1.0 dtime 144778.6197359437 niter 25
+NWT end att 77 ok true iter 2
+NWT head att 78 jstep 326 thet 0.5 dtime 304239.05161233316 niter 25
+NWT end att 78 ok true iter 3
+NWT head att 79 jstep 326 thet 1.0 dtime 152119.52580616664 niter 25
+NWT end att 79 ok true iter 2
+NWT head att 80 jstep 327 thet 0.5 dtime 440699.7662473054 niter 25
+NWT end att 80 ok false iter 26
+NWT head att 81 jstep 327 thet 0.5 dtime 110174.94156182634 niter 25
+NWT end att 81 ok true iter 3
+NWT head att 82 jstep 327 thet 1.0 dtime 55087.470780913194 niter 25
+NWT end att 82 ok true iter 2
+NWT head att 83 jstep 328 thet 0.5 dtime 110174.94156182634 niter 25
+NWT end att 83 ok true iter 3
+NWT head att 84 jstep 328 thet 1.0 dtime 55087.470780913194 niter 25
+NWT end att 84 ok true iter 2
+NWT head att 85 jstep 329 thet 0.5 dtime 139281.00455731846 niter 25
+NWT end att 85 ok false iter 26
+NWT head att 86 jstep 329 thet 0.5 dtime 34820.251139329615 niter 25
+NWT end att 86 ok true iter 2
+NWT head att 87 jstep 329 thet 1.0 dtime 17410.125569664815 niter 25
+NWT end att 87 ok true iter 1
+NWT head att 88 jstep 330 thet 0.5 dtime 34820.251139329615 niter 25
+NWT end att 88 ok true iter 1
+NWT head att 89 jstep 330 thet 1.0 dtime 17410.125569664815 niter 25
+NWT end att 89 ok true iter 1
+NWT head att 90 jstep 331 thet 0.5 dtime 64234.44914663891 niter 25
+NWT end att 90 ok true iter 1
+NWT head att 91 jstep 331 thet 1.0 dtime 32117.22457331947 niter 25
+NWT end att 91 ok true iter 1
+NWT head att 92 jstep 332 thet 0.5 dtime 89848.750021489 niter 25
+NWT end att 92 ok true iter 1
+NWT head att 93 jstep 332 thet 1.0 dtime 44924.375010744516 niter 25
+NWT end att 93 ok true iter 1
+NWT head att 94 jstep 333 thet 0.5 dtime 182891.12787801787 niter 25
+NWT end att 94 ok false iter 26
+NWT head att 95 jstep 333 thet 0.5 dtime 45722.78196950447 niter 25
+NWT end att 95 ok true iter 1
+NWT head att 96 jstep 333 thet 1.0 dtime 22861.39098475224 niter 25
+NWT end att 96 ok true iter 1
+NWT head att 97 jstep 334 thet 0.5 dtime 45722.78196950447 niter 25
+NWT end att 97 ok true iter 1
+NWT head att 98 jstep 334 thet 1.0 dtime 22861.39098475224 niter 25
+NWT end att 98 ok true iter 1
+NWT head att 99 jstep 335 thet 0.5 dtime 83803.99413937083 niter 25
+NWT end att 99 ok true iter 1
+NWT head att 100 jstep 335 thet 1.0 dtime 41901.99706968543 niter 25
+NWT end att 100 ok true iter 1
+NWT head att 101 jstep 336 thet 0.5 dtime 98813.27184397528 niter 25
+NWT end att 101 ok true iter 1
+NWT head att 102 jstep 336 thet 1.0 dtime 49406.635921987654 niter 25
+NWT end att 102 ok true iter 1
+NWT head att 103 jstep 337 thet 0.5 dtime 217134.60866781205 niter 25
+NWT end att 103 ok false iter 26
+NWT head att 104 jstep 337 thet 0.5 dtime 54283.65216695301 niter 25
+NWT end att 104 ok true iter 1
+NWT head att 105 jstep 337 thet 1.0 dtime 27141.826083476517 niter 25
+NWT end att 105 ok true iter 1
+NWT head att 106 jstep 338 thet 0.5 dtime 54283.65216695301 niter 25
+NWT end att 106 ok true iter 1
+NWT head att 107 jstep 338 thet 1.0 dtime 27141.826083476517 niter 25
+NWT end att 107 ok true iter 1
+NWT head att 108 jstep 339 thet 0.5 dtime 122035.67929355014 niter 25
+NWT end att 108 ok false iter 26
+NWT head att 109 jstep 339 thet 0.5 dtime 30508.919823387536 niter 25
+NWT end att 109 ok true iter 1
+NWT head att 110 jstep 339 thet 1.0 dtime 15254.459911693773 niter 25
+NWT end att 110 ok true iter 1
+NWT head att 111 jstep 340 thet 0.5 dtime 30508.919823387536 niter 25
+NWT end att 111 ok true iter 1
+NWT head att 112 jstep 340 thet 1.0 dtime 15254.459911693773 niter 25
+NWT end att 112 ok true iter 1
+NWT head att 113 jstep 341 thet 0.5 dtime 55655.433779202256 niter 25
+NWT end att 113 ok true iter 1
+NWT head att 114 jstep 341 thet 1.0 dtime 27827.71688960114 niter 25
+NWT end att 114 ok true iter 1
+NWT head att 115 jstep 342 thet 0.5 dtime 72543.34447917125 niter 25
+NWT end att 115 ok true iter 1
+NWT head att 116 jstep 342 thet 1.0 dtime 36271.67223958564 niter 25
+NWT end att 116 ok true iter 1
+NWT head att 117 jstep 343 thet 0.5 dtime 108169.4829984805 niter 25
+NWT end att 117 ok false iter 26
+NWT head att 118 jstep 343 thet 0.5 dtime 27042.370749620124 niter 25
+NWT end att 118 ok true iter 1
+NWT head att 119 jstep 343 thet 1.0 dtime 13521.185374810068 niter 25
+NWT end att 119 ok true iter 1
+NWT head att 120 jstep 344 thet 0.5 dtime 27042.370749620124 niter 25
+NWT end att 120 ok true iter 1
+NWT head att 121 jstep 344 thet 1.0 dtime 13521.185374810068 niter 25
+NWT end att 121 ok true iter 1
+NWT head att 122 jstep 345 thet 0.5 dtime 42676.36578080543 niter 25
+NWT end att 122 ok true iter 1
+NWT head att 123 jstep 345 thet 1.0 dtime 21338.182890402724 niter 25
+NWT end att 123 ok true iter 1
+NWT head att 124 jstep 346 thet 0.5 dtime 60319.21036337847 niter 25
+NWT end att 124 ok true iter 1
+NWT head att 125 jstep 346 thet 1.0 dtime 30159.605181689247 niter 25
+NWT end att 125 ok true iter 1
+NWT head att 126 jstep 347 thet 0.5 dtime 80784.11972302682 niter 25
+NWT end att 126 ok true iter 1
+NWT head att 127 jstep 347 thet 1.0 dtime 40392.05986151342 niter 25
+NWT end att 127 ok true iter 1
+NWT head att 128 jstep 348 thet 0.5 dtime 99136.96300727096 niter 25
+NWT end att 128 ok true iter 3
+NWT head att 129 jstep 348 thet 1.0 dtime 49568.4815036355 niter 25
+NWT end att 129 ok true iter 1
+NWT head att 130 jstep 349 thet 0.5 dtime 121548.92185911523 niter 25
+NWT end att 130 ok true iter 2
+NWT head att 131 jstep 349 thet 1.0 dtime 60774.460929557645 niter 25
+NWT end att 131 ok true iter 1
+NWT head att 132 jstep 350 thet 0.5 dtime 172021.83567448164 niter 25
+NWT end att 132 ok true iter 2
+NWT head att 133 jstep 350 thet 1.0 dtime 86010.91783724085 niter 25
+NWT end att 133 ok true iter 2
+NWT head att 134 jstep 351 thet 0.5 dtime 231450.36096473967 niter 25
+NWT end att 134 ok true iter 2
+NWT head att 135 jstep 351 thet 1.0 dtime 115725.18048236988 niter 25
+NWT end att 135 ok true iter 2
+NWT head att 136 jstep 352 thet 0.5 dtime 219599.09050476624 niter 25
+NWT end att 136 ok true iter 4
+NWT head att 137 jstep 352 thet 1.0 dtime 109799.54525238316 niter 25
+NWT end att 137 ok true iter 3
+NWT head att 138 jstep 353 thet 0.5 dtime 215935.4350536577 niter 25
+NWT end att 138 ok false iter 26
+NWT head att 139 jstep 353 thet 0.5 dtime 53983.85876341443 niter 25
+NWT end att 139 ok false iter 26
+NWT head att 140 jstep 353 thet 0.5 dtime 13495.964690853607 niter 25
+NWT end att 140 ok true iter 2
+NWT head att 141 jstep 353 thet 1.0 dtime 6747.982345426806 niter 25
+NWT end att 141 ok true iter 1
+NWT head att 142 jstep 354 thet 0.5 dtime 13495.964690853607 niter 25
+NWT end att 142 ok true iter 2
+NWT head att 143 jstep 354 thet 1.0 dtime 6747.982345426806 niter 25
+NWT end att 143 ok true iter 1
+NWT head att 144 jstep 355 thet 0.5 dtime 19252.2908940297 niter 25
+NWT end att 144 ok true iter 2
+NWT head att 145 jstep 355 thet 1.0 dtime 9626.145447014853 niter 25
+NWT end att 145 ok true iter 2
+NWT head att 146 jstep 356 thet 0.5 dtime 23724.560985086086 niter 25
+NWT end att 146 ok true iter 2
+NWT head att 147 jstep 356 thet 1.0 dtime 11862.280492543046 niter 25
+NWT end att 147 ok true iter 2
+NWT head att 148 jstep 357 thet 0.5 dtime 28119.036763801072 niter 25
+NWT end att 148 ok true iter 2
+NWT head att 149 jstep 357 thet 1.0 dtime 14059.518381900541 niter 25
+NWT end att 149 ok true iter 2
+NWT head att 150 jstep 358 thet 0.5 dtime 29470.999883613767 niter 25
+NWT end att 150 ok false iter 26
+NWT head att 151 jstep 358 thet 0.5 dtime 7367.749970903442 niter 25
+NWT end att 151 ok true iter 1
+NWT head att 152 jstep 358 thet 1.0 dtime 3683.8749854517223 niter 25
+NWT end att 152 ok true iter 1
+NWT head att 153 jstep 359 thet 0.5 dtime 7367.749970903442 niter 25
+NWT end att 153 ok true iter 1
+NWT head att 154 jstep 359 thet 1.0 dtime 3683.8749854517223 niter 25
+NWT end att 154 ok true iter 1
+NWT head att 155 jstep 360 thet 0.5 dtime 11075.006349122023 niter 25
+NWT end att 155 ok true iter 2
+NWT head att 156 jstep 360 thet 1.0 dtime 5537.503174561014 niter 25
+NWT end att 156 ok true iter 1
+NWT head att 157 jstep 361 thet 0.5 dtime 13637.632589643621 niter 25
+NWT end att 157 ok true iter 2
+NWT head att 158 jstep 361 thet 1.0 dtime 6818.816294821813 niter 25
+NWT end att 158 ok true iter 2
+NWT head att 159 jstep 362 thet 0.5 dtime 15955.787226722676 niter 25
+NWT end att 159 ok true iter 2
+NWT head att 160 jstep 362 thet 1.0 dtime 7977.8936133613415 niter 25
+NWT end att 160 ok true iter 2
+NWT head att 161 jstep 363 thet 0.5 dtime 16483.582680947857 niter 25
+NWT end att 161 ok true iter 3
+NWT head att 162 jstep 363 thet 1.0 dtime 8241.791340473932 niter 25
+NWT end att 162 ok true iter 2
+NWT head att 163 jstep 364 thet 0.5 dtime 13573.946493033836 niter 25
+NWT end att 163 ok false iter 26
+NWT head att 164 jstep 364 thet 0.5 dtime 3393.486623258459 niter 25
+NWT end att 164 ok true iter 2
+NWT head att 165 jstep 364 thet 1.0 dtime 1696.7433116292302 niter 25
+NWT end att 165 ok true iter 2
+NWT head att 166 jstep 365 thet 0.5 dtime 3393.486623258459 niter 25
+NWT end att 166 ok true iter 2
+NWT head att 167 jstep 365 thet 1.0 dtime 1696.7433116292302 niter 25
+NWT end att 167 ok true iter 2
+NWT head att 168 jstep 366 thet 0.5 dtime 4096.907046092009 niter 25
+NWT end att 168 ok true iter 2
+NWT head att 169 jstep 366 thet 1.0 dtime 2048.4535230460056 niter 25
+NWT end att 169 ok true iter 2
+NWT head att 170 jstep 367 thet 0.5 dtime 4335.109963874923 niter 25
+NWT end att 170 ok true iter 2
+NWT head att 171 jstep 367 thet 1.0 dtime 2167.5549819374623 niter 25
+NWT end att 171 ok true iter 2
+NWT head att 172 jstep 368 thet 0.5 dtime 4279.943466290177 niter 25
+NWT end att 172 ok true iter 2
+NWT head att 173 jstep 368 thet 1.0 dtime 2139.9717331450893 niter 25
+NWT end att 173 ok true iter 2
+NWT head att 174 jstep 369 thet 0.5 dtime 3959.248389082335 niter 25
+NWT end att 174 ok true iter 3
+NWT head att 175 jstep 369 thet 1.0 dtime 1979.6241945411682 niter 25
+NWT end att 175 ok true iter 3
+NWT head att 176 jstep 370 thet 0.5 dtime 4030.1197642805505 niter 25
+NWT end att 176 ok true iter 3
+NWT head att 177 jstep 370 thet 1.0 dtime 2015.059882140276 niter 25
+NWT end att 177 ok true iter 3
+NWT head att 178 jstep 371 thet 0.5 dtime 4970.361379472684 niter 25
+NWT end att 178 ok true iter 3
+NWT head att 179 jstep 371 thet 1.0 dtime 2485.180689736343 niter 25
+NWT end att 179 ok true iter 2
+NWT head att 180 jstep 372 thet 0.5 dtime 7702.02801916923 niter 25
+NWT end att 180 ok true iter 2
+NWT head att 181 jstep 372 thet 1.0 dtime 3851.0140095846164 niter 25
+NWT end att 181 ok true iter 2
+NWT head att 182 jstep 373 thet 0.5 dtime 10226.13079172127 niter 25
+NWT end att 182 ok true iter 2
+NWT head att 183 jstep 373 thet 1.0 dtime 5113.065395860637 niter 25
+NWT end att 183 ok true iter 2
+NWT head att 184 jstep 374 thet 0.5 dtime 13357.551398000282 niter 25
+NWT end att 184 ok true iter 2
+NWT head att 185 jstep 374 thet 1.0 dtime 6678.775699000143 niter 25
+NWT end att 185 ok true iter 2
+NWT head att 186 jstep 375 thet 0.5 dtime 17617.583589767066 niter 25
+NWT end att 186 ok true iter 2
+NWT head att 187 jstep 375 thet 1.0 dtime 8808.791794883537 niter 25
+NWT end att 187 ok true iter 2
+NWT head att 188 jstep 376 thet 0.5 dtime 23544.299258230796 niter 25
+NWT end att 188 ok true iter 2
+NWT head att 189 jstep 376 thet 1.0 dtime 11772.149629115404 niter 25
+NWT end att 189 ok true iter 2
+NWT head att 190 jstep 377 thet 0.5 dtime 32682.407362362977 niter 25
+NWT end att 190 ok true iter 2
+NWT head att 191 jstep 377 thet 1.0 dtime 16341.203681181494 niter 25
+NWT end att 191 ok true iter 2
+NWT head att 192 jstep 378 thet 0.5 dtime 46508.55542371788 niter 25
+NWT end att 192 ok true iter 2
+NWT head att 193 jstep 378 thet 1.0 dtime 23254.27771185895 niter 25
+NWT end att 193 ok true iter 2
+NWT head att 194 jstep 379 thet 0.5 dtime 64668.34080793805 niter 25
+NWT end att 194 ok true iter 2
+NWT head att 195 jstep 379 thet 1.0 dtime 32334.17040396904 niter 25
+NWT end att 195 ok true iter 2
+NWT head att 196 jstep 380 thet 0.5 dtime 93510.01357879411 niter 25
+NWT end att 196 ok true iter 2
+NWT head att 197 jstep 380 thet 1.0 dtime 46755.00678939707 niter 25
+NWT end att 197 ok true iter 2
+NWT head att 198 jstep 381 thet 0.5 dtime 136001.66776074228 niter 25
+NWT end att 198 ok true iter 2
+NWT head att 199 jstep 381 thet 1.0 dtime 68000.83388037117 niter 25
+NWT end att 199 ok true iter 2
+NWT head att 200 jstep 382 thet 0.5 dtime 203406.09786862714 niter 25
+NWT end att 200 ok true iter 2
+NWT head att 201 jstep 382 thet 1.0 dtime 101703.0489343136 niter 25
+NWT end att 201 ok true iter 2
+NWT head att 202 jstep 383 thet 0.5 dtime 314999.98642041616 niter 25
+NWT end att 202 ok true iter 2
+NWT head att 203 jstep 383 thet 1.0 dtime 157499.99321020814 niter 25
+NWT end att 203 ok true iter 2
+NWT head att 204 jstep 384 thet 0.5 dtime 499205.2321765722 niter 25
+NWT end att 204 ok true iter 2
+NWT head att 205 jstep 384 thet 1.0 dtime 249602.61608828622 niter 25
+NWT end att 205 ok true iter 2
+NWT head att 206 jstep 385 thet 0.5 dtime 743486.5021443872 niter 25
+NWT end att 206 ok true iter 2
+NWT head att 207 jstep 385 thet 1.0 dtime 371743.2510721937 niter 25
+NWT end att 207 ok true iter 2
+NWT head att 208 jstep 386 thet 0.5 dtime 1.0249145401865741e6 niter 25
+NWT end att 208 ok true iter 2
+NWT head att 209 jstep 386 thet 1.0 dtime 512457.2700932872 niter 25
+NWT end att 209 ok true iter 2
+NWT head att 210 jstep 387 thet 0.5 dtime 1.362951361218752e6 niter 25
+NWT end att 210 ok true iter 2
+NWT head att 211 jstep 387 thet 1.0 dtime 681475.6806093763 niter 25
+NWT end att 211 ok true iter 2
+NWT head att 212 jstep 388 thet 0.5 dtime 1.777134173740191e6 niter 25
+NWT end att 212 ok true iter 2
+NWT head att 213 jstep 388 thet 1.0 dtime 888567.0868700958 niter 25
+NWT end att 213 ok true iter 2
+NWT head att 214 jstep 389 thet 0.5 dtime 2.238599261147944e6 niter 25
+NWT end att 214 ok true iter 2
+NWT head att 215 jstep 389 thet 1.0 dtime 1.1192996305739724e6 niter 25
+NWT end att 215 ok true iter 2
+NWT head att 216 jstep 390 thet 0.5 dtime 2.83726438537111e6 niter 25
+NWT end att 216 ok true iter 3
+NWT head att 217 jstep 390 thet 1.0 dtime 1.4186321926855554e6 niter 25
+NWT end att 217 ok true iter 3
+NWT head att 218 jstep 391 thet 0.5 dtime 3.486832713981853e6 niter 25
+NWT end att 218 ok true iter 3
+NWT head att 219 jstep 391 thet 1.0 dtime 1.743416356990927e6 niter 25
+NWT end att 219 ok true iter 2
+NWT head att 220 jstep 392 thet 0.5 dtime 4.200529579115652e6 niter 25
+NWT end att 220 ok true iter 3
+NWT head att 221 jstep 392 thet 1.0 dtime 2.1002647895578267e6 niter 25
+NWT end att 221 ok true iter 3
+NWT head att 222 jstep 393 thet 0.5 dtime 5.16104330679932e6 niter 25
+NWT end att 222 ok true iter 2
+NWT head att 223 jstep 393 thet 1.0 dtime 2.580521653399661e6 niter 25
+NWT end att 223 ok true iter 2
+NWT head att 224 jstep 394 thet 0.5 dtime 6.180982187419641e6 niter 25
+NWT end att 224 ok true iter 3
+NWT head att 225 jstep 394 thet 1.0 dtime 3.090491093709822e6 niter 25
+NWT end att 225 ok true iter 2
+NWT head att 226 jstep 395 thet 0.5 dtime 7.382444448398185e6 niter 25
+NWT end att 226 ok true iter 3
+NWT head att 227 jstep 395 thet 1.0 dtime 3.691222224199094e6 niter 25
+NWT end att 227 ok true iter 3
+NWT head att 228 jstep 396 thet 0.5 dtime 8.720099050055727e6 niter 25
+NWT end att 228 ok true iter 3
+NWT head att 229 jstep 396 thet 1.0 dtime 4.360049525027866e6 niter 25
+NWT end att 229 ok true iter 3
+NWT head att 230 jstep 397 thet 0.5 dtime 1.1051592784584971e7 niter 25
+NWT end att 230 ok true iter 3
+NWT head att 231 jstep 397 thet 1.0 dtime 5.525796392292488e6 niter 25
+NWT end att 231 ok true iter 3
+NWT head att 232 jstep 398 thet 0.5 dtime 1.2345299968747895e7 niter 25
+NWT end att 232 ok true iter 3
+NWT head att 233 jstep 398 thet 1.0 dtime 6.1726499843739495e6 niter 25
+NWT end att 233 ok true iter 3
+NWT head att 234 jstep 399 thet 0.5 dtime 1.4992710284840835e7 niter 25
+NWT end att 234 ok true iter 3
+NWT head att 235 jstep 399 thet 1.0 dtime 7.496355142420421e6 niter 25
+NWT end att 235 ok true iter 4
+NWT head att 236 jstep 400 thet 0.5 dtime 1.6836741930062402e7 niter 25
+NWT end att 236 ok true iter 19
+NWT head att 237 jstep 400 thet 1.0 dtime 8.418370965031203e6 niter 25
+NWT end att 237 ok true iter 4
+NWT head att 238 jstep 401 thet 0.5 dtime 1.546737691755735e7 niter 25
+NWT end att 238 ok true iter 3
+NWT head att 239 jstep 401 thet 1.0 dtime 7.7336884587786775e6 niter 25
+NWT end att 239 ok true iter 3
+NWT head att 240 jstep 402 thet 0.5 dtime 2.4527176255946547e7 niter 25
+NWT end att 240 ok true iter 4
+NWT head att 241 jstep 402 thet 1.0 dtime 1.2263588127973279e7 niter 25
+NWT end att 241 ok true iter 4
+NWT head att 242 jstep 403 thet 0.5 dtime 2.0071125957144916e7 niter 25
+NWT end att 242 ok false iter 26
+NWT head att 243 jstep 403 thet 0.5 dtime 5.017781489286229e6 niter 25
+NWT end att 243 ok true iter 3
+NWT head att 244 jstep 403 thet 1.0 dtime 2.5088907446431154e6 niter 25
+NWT end att 244 ok true iter 2
+NWT head att 245 jstep 404 thet 0.5 dtime 5.017781489286229e6 niter 25
+NWT end att 245 ok false iter 26
+NWT head att 246 jstep 404 thet 0.5 dtime 1.2544453723215573e6 niter 25
+NWT end att 246 ok true iter 2
+NWT head att 247 jstep 404 thet 1.0 dtime 627222.6861607789 niter 25
+NWT end att 247 ok true iter 2
+NWT head att 248 jstep 405 thet 0.5 dtime 1.2544453723215573e6 niter 25
+NWT end att 248 ok true iter 3
+NWT head att 249 jstep 405 thet 1.0 dtime 627222.6861607789 niter 25
+NWT end att 249 ok true iter 2
+NWT head att 250 jstep 406 thet 0.5 dtime 1.3689268543685584e6 niter 25
+NWT end att 250 ok false iter 26
+NWT head att 251 jstep 406 thet 0.5 dtime 342231.7135921396 niter 25
+NWT end att 251 ok true iter 2
+NWT head att 252 jstep 406 thet 1.0 dtime 171115.8567960699 niter 25
+NWT end att 252 ok true iter 1
+NWT head att 253 jstep 407 thet 0.5 dtime 342231.7135921396 niter 25
+NWT end att 253 ok true iter 2
+NWT head att 254 jstep 407 thet 1.0 dtime 171115.8567960699 niter 25
+NWT end att 254 ok true iter 2
+NWT head att 255 jstep 408 thet 0.5 dtime 440492.6457866573 niter 25
+NWT end att 255 ok true iter 3
+NWT head att 256 jstep 408 thet 1.0 dtime 220246.32289332873 niter 25
+NWT end att 256 ok true iter 2
+NWT head att 257 jstep 409 thet 0.5 dtime 489876.12408235186 niter 25
+NWT end att 257 ok false iter 26
+NWT head att 258 jstep 409 thet 0.5 dtime 122469.03102058797 niter 25
+NWT end att 258 ok true iter 2
+NWT head att 259 jstep 409 thet 1.0 dtime 61234.51551029401 niter 25
+NWT end att 259 ok true iter 2
+NWT head att 260 jstep 410 thet 0.5 dtime 122469.03102058797 niter 25
+NWT end att 260 ok true iter 2
+NWT head att 261 jstep 410 thet 1.0 dtime 61234.51551029401 niter 25
+NWT end att 261 ok true iter 2
+NWT head att 262 jstep 411 thet 0.5 dtime 132877.24390554565 niter 25
+NWT end att 262 ok true iter 2
+NWT head att 263 jstep 411 thet 1.0 dtime 66438.62195277285 niter 25
+NWT end att 263 ok true iter 2
+NWT head att 264 jstep 412 thet 0.5 dtime 184050.3191756453 niter 25
+NWT end att 264 ok false iter 26
+NWT head att 265 jstep 412 thet 0.5 dtime 46012.579793911325 niter 25
+NWT end att 265 ok true iter 2
+NWT head att 266 jstep 412 thet 1.0 dtime 23006.28989695567 niter 25
+NWT end att 266 ok true iter 1
+NWT head att 267 jstep 413 thet 0.5 dtime 46012.579793911325 niter 25
+NWT end att 267 ok true iter 2
+NWT head att 268 jstep 413 thet 1.0 dtime 23006.28989695567 niter 25
+NWT end att 268 ok true iter 1
+NWT head att 269 jstep 414 thet 0.5 dtime 71556.24468527656 niter 25
+NWT end att 269 ok true iter 2
+NWT head att 270 jstep 414 thet 1.0 dtime 35778.12234263829 niter 25
+NWT end att 270 ok true iter 1
+NWT head att 271 jstep 415 thet 0.5 dtime 88942.50975428856 niter 25
+NWT end att 271 ok true iter 2
+NWT head att 272 jstep 415 thet 1.0 dtime 44471.254877144296 niter 25
+NWT end att 272 ok true iter 2
+NWT head att 273 jstep 416 thet 0.5 dtime 127646.38745510415 niter 25
+NWT end att 273 ok false iter 26
+NWT head att 274 jstep 416 thet 0.5 dtime 31911.596863776038 niter 25
+NWT end att 274 ok true iter 2
+NWT head att 275 jstep 416 thet 1.0 dtime 15955.798431888024 niter 25
+NWT end att 275 ok true iter 1
+NWT head att 276 jstep 417 thet 0.5 dtime 31911.596863776038 niter 25
+NWT end att 276 ok true iter 1
+NWT head att 277 jstep 417 thet 1.0 dtime 15955.798431888024 niter 25
+NWT end att 277 ok true iter 1
+NWT head att 278 jstep 418 thet 0.5 dtime 59307.95304158728 niter 25
+NWT end att 278 ok true iter 2
+NWT head att 279 jstep 418 thet 1.0 dtime 29653.97652079365 niter 25
+NWT end att 279 ok true iter 1
+NWT head att 280 jstep 419 thet 0.5 dtime 76667.18411599242 niter 25
+NWT end att 280 ok true iter 1
+NWT head att 281 jstep 419 thet 1.0 dtime 38333.592057996226 niter 25
+NWT end att 281 ok true iter 1
+NWT head att 282 jstep 420 thet 0.5 dtime 155039.6493329273 niter 25
+NWT end att 282 ok false iter 26
+NWT head att 283 jstep 420 thet 0.5 dtime 38759.91233323183 niter 25
+NWT end att 283 ok true iter 1
+NWT head att 284 jstep 420 thet 1.0 dtime 19379.95616661592 niter 25
+NWT end att 284 ok true iter 1
+NWT head att 285 jstep 421 thet 0.5 dtime 38759.91233323183 niter 25
+NWT end att 285 ok true iter 1
+NWT head att 286 jstep 421 thet 1.0 dtime 19379.95616661592 niter 25
+NWT end att 286 ok true iter 1
+NWT head att 287 jstep 422 thet 0.5 dtime 84269.81558250659 niter 25
+NWT end att 287 ok true iter 2
+NWT head att 288 jstep 422 thet 1.0 dtime 42134.90779125331 niter 25
+NWT end att 288 ok true iter 1
+NWT head att 289 jstep 423 thet 0.5 dtime 81450.24141466127 niter 25
+NWT end att 289 ok true iter 2
+NWT head att 290 jstep 423 thet 1.0 dtime 40725.12070733065 niter 25
+NWT end att 290 ok true iter 2
+NWT head att 291 jstep 424 thet 0.5 dtime 119026.85290559732 niter 25
+NWT end att 291 ok false iter 26
+NWT head att 292 jstep 424 thet 0.5 dtime 29756.71322639933 niter 25
+NWT end att 292 ok true iter 2
+NWT head att 293 jstep 424 thet 1.0 dtime 14878.35661319967 niter 25
+NWT end att 293 ok true iter 1
+NWT head att 294 jstep 425 thet 0.5 dtime 29756.71322639933 niter 25
+NWT end att 294 ok true iter 1
+NWT head att 295 jstep 425 thet 1.0 dtime 14878.35661319967 niter 25
+NWT end att 295 ok true iter 1
+NWT head att 296 jstep 426 thet 0.5 dtime 58518.39642624436 niter 25
+NWT end att 296 ok true iter 2
+NWT head att 297 jstep 426 thet 1.0 dtime 29259.198213122192 niter 25
+NWT end att 297 ok true iter 1
+NWT head att 298 jstep 427 thet 0.5 dtime 68322.79149352117 niter 25
+NWT end att 298 ok true iter 2
+NWT head att 299 jstep 427 thet 1.0 dtime 34161.3957467606 niter 25
+NWT end att 299 ok true iter 1
+NWT head att 300 jstep 428 thet 0.5 dtime 115125.81061334476 niter 25
+NWT end att 300 ok false iter 26
+NWT head att 301 jstep 428 thet 0.5 dtime 28781.45265333619 niter 25
+NWT end att 301 ok true iter 1
+NWT head att 302 jstep 428 thet 1.0 dtime 14390.7263266681 niter 25
+NWT end att 302 ok true iter 1
+NWT head att 303 jstep 429 thet 0.5 dtime 28781.45265333619 niter 25
+NWT end att 303 ok true iter 1
+NWT head att 304 jstep 429 thet 1.0 dtime 14390.7263266681 niter 25
+NWT end att 304 ok true iter 1
+NWT head att 305 jstep 430 thet 0.5 dtime 62000.97023767918 niter 25
+NWT end att 305 ok true iter 2
+NWT head att 306 jstep 430 thet 1.0 dtime 31000.485118839602 niter 25
+NWT end att 306 ok true iter 1
+NWT head att 307 jstep 431 thet 0.5 dtime 62981.1190186835 niter 25
+NWT end att 307 ok true iter 2
+NWT head att 308 jstep 431 thet 1.0 dtime 31490.55950934176 niter 25
+NWT end att 308 ok true iter 1
+NWT head att 309 jstep 432 thet 0.5 dtime 95047.34804450691 niter 25
+NWT end att 309 ok false iter 26
+NWT head att 310 jstep 432 thet 0.5 dtime 23761.83701112673 niter 25
+NWT end att 310 ok true iter 1
+NWT head att 311 jstep 432 thet 1.0 dtime 11880.91850556337 niter 25
+NWT end att 311 ok true iter 1
+NWT head att 312 jstep 433 thet 0.5 dtime 23761.83701112673 niter 25
+NWT end att 312 ok true iter 1
+NWT head att 313 jstep 433 thet 1.0 dtime 11880.91850556337 niter 25
+NWT end att 313 ok true iter 1
+NWT head att 314 jstep 434 thet 0.5 dtime 48966.47298109226 niter 25
+NWT end att 314 ok true iter 1
+NWT head att 315 jstep 434 thet 1.0 dtime 24483.23649054614 niter 25
+NWT end att 315 ok true iter 1
+NWT head att 316 jstep 435 thet 0.5 dtime 55727.532372539055 niter 25
+NWT end att 316 ok true iter 1
+NWT head att 317 jstep 435 thet 1.0 dtime 27863.76618626954 niter 25
+NWT end att 317 ok true iter 1
+NWT head att 318 jstep 436 thet 0.5 dtime 117147.02737380267 niter 25
+NWT end att 318 ok false iter 26
+NWT head att 319 jstep 436 thet 0.5 dtime 29286.75684345067 niter 25
+NWT end att 319 ok true iter 1
+NWT head att 320 jstep 436 thet 1.0 dtime 14643.37842172534 niter 25
+NWT end att 320 ok true iter 1
+NWT head att 321 jstep 437 thet 0.5 dtime 29286.75684345067 niter 25
+NWT end att 321 ok true iter 1
+NWT head att 322 jstep 437 thet 1.0 dtime 14643.37842172534 niter 25
+NWT end att 322 ok true iter 1
+NWT head att 323 jstep 438 thet 0.5 dtime 58305.50900002058 niter 25
+NWT end att 323 ok true iter 2
+NWT head att 324 jstep 438 thet 1.0 dtime 29152.754500010302 niter 25
+NWT end att 324 ok true iter 1
+NWT head att 325 jstep 439 thet 0.5 dtime 54438.07665736902 niter 25
+NWT end att 325 ok true iter 2
+NWT head att 326 jstep 439 thet 1.0 dtime 27219.03832868452 niter 25
+NWT end att 326 ok true iter 2
+NWT head att 327 jstep 440 thet 0.5 dtime 69644.1989950991 niter 25
+NWT end att 327 ok false iter 26
+NWT head att 328 jstep 440 thet 0.5 dtime 17411.049748774774 niter 25
+NWT end att 328 ok true iter 2
+NWT head att 329 jstep 440 thet 1.0 dtime 8705.52487438739 niter 25
+NWT end att 329 ok true iter 1
+NWT head att 330 jstep 441 thet 0.5 dtime 17411.049748774774 niter 25
+NWT end att 330 ok true iter 1
+NWT head att 331 jstep 441 thet 1.0 dtime 8705.52487438739 niter 25
+NWT end att 331 ok true iter 1
+NWT head att 332 jstep 442 thet 0.5 dtime 31765.743448133715 niter 25
+NWT end att 332 ok true iter 1
+NWT head att 333 jstep 442 thet 1.0 dtime 15882.871724066863 niter 25
+NWT end att 333 ok true iter 1
+NWT head att 334 jstep 443 thet 0.5 dtime 42741.70828155228 niter 25
+NWT end att 334 ok true iter 1
+NWT head att 335 jstep 443 thet 1.0 dtime 21370.854140776148 niter 25
+NWT end att 335 ok true iter 1
+NWT head att 336 jstep 444 thet 0.5 dtime 64874.41907300584 niter 25
+NWT end att 336 ok false iter 26
+NWT head att 337 jstep 444 thet 0.5 dtime 16218.60476825146 niter 25
+NWT end att 337 ok true iter 1
+NWT head att 338 jstep 444 thet 1.0 dtime 8109.302384125733 niter 25
+NWT end att 338 ok true iter 1
+NWT head att 339 jstep 445 thet 0.5 dtime 16218.60476825146 niter 25
+NWT end att 339 ok true iter 1
+NWT head att 340 jstep 445 thet 1.0 dtime 8109.302384125733 niter 25
+NWT end att 340 ok true iter 1
+NWT head att 341 jstep 446 thet 0.5 dtime 24855.95089553463 niter 25
+NWT end att 341 ok true iter 1
+NWT head att 342 jstep 446 thet 1.0 dtime 12427.975447767318 niter 25
+NWT end att 342 ok true iter 1
+NWT head att 343 jstep 447 thet 0.5 dtime 34562.01827807696 niter 25
+NWT end att 343 ok true iter 1
+NWT head att 344 jstep 447 thet 1.0 dtime 17281.009139038488 niter 25
+NWT end att 344 ok true iter 1
+NWT head att 345 jstep 448 thet 0.5 dtime 46940.87702006183 niter 25
+NWT end att 345 ok true iter 1
+NWT head att 346 jstep 448 thet 1.0 dtime 23470.438510030926 niter 25
+NWT end att 346 ok true iter 1
+NWT head att 347 jstep 449 thet 0.5 dtime 59284.54444799524 niter 25
+NWT end att 347 ok true iter 1
+NWT head att 348 jstep 449 thet 1.0 dtime 29642.272223997632 niter 25
+NWT end att 348 ok true iter 1
+NWT head att 349 jstep 450 thet 0.5 dtime 101859.81088453672 niter 25
+NWT end att 349 ok true iter 2
+NWT head att 350 jstep 450 thet 1.0 dtime 50929.905442268384 niter 25
+NWT end att 350 ok true iter 2
+NWT head att 351 jstep 451 thet 0.5 dtime 97100.33793330537 niter 25
+NWT end att 351 ok false iter 26
+NWT head att 352 jstep 451 thet 0.5 dtime 24275.084483326344 niter 25
+NWT end att 352 ok true iter 2
+NWT head att 353 jstep 451 thet 1.0 dtime 12137.542241663177 niter 25
+NWT end att 353 ok true iter 1
+NWT head att 354 jstep 452 thet 0.5 dtime 24275.084483326344 niter 25
+NWT end att 354 ok true iter 1
+NWT head att 355 jstep 452 thet 1.0 dtime 12137.542241663177 niter 25
+NWT end att 355 ok true iter 1
+NWT head att 356 jstep 453 thet 0.5 dtime 49274.216064150845 niter 25
+NWT end att 356 ok false iter 26
+NWT head att 357 jstep 453 thet 0.5 dtime 12318.554016037711 niter 25
+NWT end att 357 ok true iter 1
+NWT head att 358 jstep 453 thet 1.0 dtime 6159.277008018858 niter 25
+NWT end att 358 ok true iter 1
+NWT head att 359 jstep 454 thet 0.5 dtime 12318.554016037711 niter 25
+NWT end att 359 ok true iter 1
+NWT head att 360 jstep 454 thet 1.0 dtime 6159.277008018858 niter 25
+NWT end att 360 ok true iter 1
+NWT head att 361 jstep 455 thet 0.5 dtime 21146.66455784145 niter 25
+NWT end att 361 ok true iter 1
+NWT head att 362 jstep 455 thet 1.0 dtime 10573.33227892073 niter 25
+NWT end att 362 ok true iter 1
+NWT head att 363 jstep 456 thet 0.5 dtime 28536.567771935814 niter 25
+NWT end att 363 ok true iter 1
+NWT head att 364 jstep 456 thet 1.0 dtime 14268.283885967912 niter 25
+NWT end att 364 ok true iter 1
+NWT head att 365 jstep 457 thet 0.5 dtime 38258.36296531634 niter 25
+NWT end att 365 ok true iter 2
+NWT head att 366 jstep 457 thet 1.0 dtime 19129.181482658176 niter 25
+NWT end att 366 ok true iter 1
+NWT head att 367 jstep 458 thet 0.5 dtime 44251.77765752949 niter 25
+NWT end att 367 ok true iter 3
+NWT head att 368 jstep 458 thet 1.0 dtime 22125.888828764753 niter 25
+NWT end att 368 ok true iter 1
+NWT head att 369 jstep 459 thet 0.5 dtime 53841.59357859958 niter 25
+NWT end att 369 ok false iter 26
+NWT head att 370 jstep 459 thet 0.5 dtime 13460.398394649896 niter 25
+NWT end att 370 ok true iter 1
+NWT head att 371 jstep 459 thet 1.0 dtime 6730.199197324951 niter 25
+NWT end att 371 ok true iter 1
+NWT head att 372 jstep 460 thet 0.5 dtime 13460.398394649896 niter 25
+NWT end att 372 ok true iter 1
+NWT head att 373 jstep 460 thet 1.0 dtime 6730.199197324951 niter 25
+NWT end att 373 ok true iter 1
+NWT head att 374 jstep 461 thet 0.5 dtime 21935.777608997225 niter 25
+NWT end att 374 ok true iter 1
+NWT head att 375 jstep 461 thet 1.0 dtime 10967.888804498616 niter 25
+NWT end att 375 ok true iter 1
+NWT head att 376 jstep 462 thet 0.5 dtime 28049.77403101392 niter 25
+NWT end att 376 ok true iter 1
+NWT head att 377 jstep 462 thet 1.0 dtime 14024.887015506965 niter 25
+NWT end att 377 ok true iter 1
+NWT head att 378 jstep 463 thet 0.5 dtime 36981.77516486534 niter 25
+NWT end att 378 ok true iter 3
+NWT head att 379 jstep 463 thet 1.0 dtime 18490.88758243268 niter 25
+NWT end att 379 ok true iter 2
+NWT head att 380 jstep 464 thet 0.5 dtime 35045.92394377023 niter 25
+NWT end att 380 ok true iter 4
+NWT head att 381 jstep 464 thet 1.0 dtime 17522.96197188512 niter 25
+NWT end att 381 ok true iter 2
+NWT head att 382 jstep 465 thet 0.5 dtime 37162.35179590142 niter 25
+NWT end att 382 ok false iter 26
+NWT head att 383 jstep 465 thet 0.5 dtime 9290.587948975355 niter 25
+NWT end att 383 ok true iter 2
+NWT head att 384 jstep 465 thet 1.0 dtime 4645.293974487679 niter 25
+NWT end att 384 ok true iter 1
+NWT head att 385 jstep 466 thet 0.5 dtime 9290.587948975355 niter 25
+NWT end att 385 ok true iter 1
+NWT head att 386 jstep 466 thet 1.0 dtime 4645.293974487679 niter 25
+NWT end att 386 ok true iter 1
+NWT head att 387 jstep 467 thet 0.5 dtime 14176.931903923445 niter 25
+NWT end att 387 ok true iter 1
+NWT head att 388 jstep 467 thet 1.0 dtime 7088.465951961725 niter 25
+NWT end att 388 ok true iter 1
+NWT head att 389 jstep 468 thet 0.5 dtime 19071.34508916805 niter 25
+NWT end att 389 ok true iter 2
+NWT head att 390 jstep 468 thet 1.0 dtime 9535.67254458403 niter 25
+NWT end att 390 ok true iter 1
+NWT head att 391 jstep 469 thet 0.5 dtime 24961.709706127138 niter 25
+NWT end att 391 ok true iter 2
+NWT head att 392 jstep 469 thet 1.0 dtime 12480.854853063574 niter 25
+NWT end att 392 ok true iter 1
+NWT head att 393 jstep 470 thet 0.5 dtime 30026.32442627198 niter 25
+NWT end att 393 ok true iter 2
+NWT head att 394 jstep 470 thet 1.0 dtime 15013.162213135996 niter 25
+NWT end att 394 ok true iter 1
+NWT head att 395 jstep 471 thet 0.5 dtime 34187.751522218765 niter 25
+NWT end att 395 ok true iter 2
+NWT head att 396 jstep 471 thet 1.0 dtime 17093.87576110939 niter 25
+NWT end att 396 ok true iter 1
+NWT head att 397 jstep 472 thet 0.5 dtime 48315.23302189256 niter 25
+NWT end att 397 ok true iter 1
+NWT head att 398 jstep 472 thet 1.0 dtime 24157.616510946293 niter 25
+NWT end att 398 ok true iter 1
+NWT head att 399 jstep 473 thet 0.5 dtime 66494.15740655137 niter 25
+NWT end att 399 ok true iter 2
+NWT head att 400 jstep 473 thet 1.0 dtime 33247.0787032757 niter 25
+NWT end att 400 ok true iter 2
+NWT head att 401 jstep 474 thet 0.5 dtime 65910.47540549726 niter 25
+NWT end att 401 ok true iter 2
+NWT head att 402 jstep 474 thet 1.0 dtime 32955.237702748644 niter 25
+NWT end att 402 ok true iter 2
+NWT head att 403 jstep 475 thet 0.5 dtime 66275.75030515237 niter 25
+NWT end att 403 ok true iter 4
+NWT head att 404 jstep 475 thet 1.0 dtime 33137.8751525762 niter 25
+NWT end att 404 ok true iter 2
+NWT head att 405 jstep 476 thet 0.5 dtime 64008.49581047448 niter 25
+NWT end att 405 ok false iter 26
+NWT head att 406 jstep 476 thet 0.5 dtime 16002.12395261862 niter 25
+NWT end att 406 ok true iter 2
+NWT head att 407 jstep 476 thet 1.0 dtime 8001.061976309314 niter 25
+NWT end att 407 ok true iter 2
+NWT head att 408 jstep 477 thet 0.5 dtime 16002.12395261862 niter 25
+NWT end att 408 ok true iter 2
+NWT head att 409 jstep 477 thet 1.0 dtime 8001.061976309314 niter 25
+NWT end att 409 ok true iter 2
+NWT head att 410 jstep 478 thet 0.5 dtime 20018.65982933799 niter 25
+NWT end att 410 ok true iter 2
+NWT head att 411 jstep 478 thet 1.0 dtime 10009.329914668999 niter 25
+NWT end att 411 ok true iter 2
+NWT head att 412 jstep 479 thet 0.5 dtime 18921.138660057502 niter 25
+NWT end att 412 ok false iter 26
+NWT head att 413 jstep 479 thet 0.5 dtime 4730.284665014376 niter 25
+NWT end att 413 ok true iter 1
+NWT head att 414 jstep 479 thet 1.0 dtime 2365.1423325071887 niter 25
+NWT end att 414 ok true iter 1
+NWT head att 415 jstep 480 thet 0.5 dtime 4730.284665014376 niter 25
+NWT end att 415 ok true iter 1
+NWT head att 416 jstep 480 thet 1.0 dtime 2365.1423325071887 niter 25
+NWT end att 416 ok true iter 1
+NWT head att 417 jstep 481 thet 0.5 dtime 7036.1835645589435 niter 25
+NWT end att 417 ok true iter 2
+NWT head att 418 jstep 481 thet 1.0 dtime 3518.091782279473 niter 25
+NWT end att 418 ok true iter 1
+NWT head att 419 jstep 482 thet 0.5 dtime 8577.507873003338 niter 25
+NWT end att 419 ok true iter 2
+NWT head att 420 jstep 482 thet 1.0 dtime 4288.753936501671 niter 25
+NWT end att 420 ok true iter 2
+NWT head att 421 jstep 483 thet 0.5 dtime 10034.593850946158 niter 25
+NWT end att 421 ok true iter 2
+NWT head att 422 jstep 483 thet 1.0 dtime 5017.296925473081 niter 25
+NWT end att 422 ok true iter 2
+NWT head att 423 jstep 484 thet 0.5 dtime 10645.94786860191 niter 25
+NWT end att 423 ok true iter 2
+NWT head att 424 jstep 484 thet 1.0 dtime 5322.973934300957 niter 25
+NWT end att 424 ok true iter 2
+NWT head att 425 jstep 485 thet 0.5 dtime 10166.106108386897 niter 25
+NWT end att 425 ok true iter 3
+NWT head att 426 jstep 485 thet 1.0 dtime 5083.05305419345 niter 25
+NWT end att 426 ok true iter 2
+NWT head att 427 jstep 486 thet 0.5 dtime 8581.33785659295 niter 25
+NWT end att 427 ok true iter 3
+NWT head att 428 jstep 486 thet 1.0 dtime 4290.668928296477 niter 25
+NWT end att 428 ok true iter 3
+NWT head att 429 jstep 487 thet 0.5 dtime 7947.984972295878 niter 25
+NWT end att 429 ok true iter 3
+NWT head att 430 jstep 487 thet 1.0 dtime 3973.992486147941 niter 25
+NWT end att 430 ok true iter 3
+NWT head att 431 jstep 488 thet 0.5 dtime 9459.313520531701 niter 25
+NWT end att 431 ok true iter 3
+NWT head att 432 jstep 488 thet 1.0 dtime 4729.656760265852 niter 25
+NWT end att 432 ok true iter 2
+NWT head att 433 jstep 489 thet 0.5 dtime 14417.181208751785 niter 25
+NWT end att 433 ok true iter 2
+NWT head att 434 jstep 489 thet 1.0 dtime 7208.590604375895 niter 25
+NWT end att 434 ok true iter 2
