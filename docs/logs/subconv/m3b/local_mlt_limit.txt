@@ -1,0 +1,13 @@
+# local MLT limit (m3blocal.jl): F_c(TDC)/F_MLT(same sup) in subsonic interfaces
+== tdc2395_100 step 2495
+step 2495: interface, F_c [erg/s/cm2], F_MLT(same sup) , ratio, w [cm/s], w_MLT, ratio, sup, U, F_c/F_tot, mach
+   7  4.1887e+08  4.1442e+08  1.01074  1.7504e+02  1.7318e+02  1.01074  1.872e-06  1.142e-14   1.0000  0.000
+interfaces with F_c/F_tot > 0.01: 1, F_c/F_MLT min 1.01074 median 1.01074 max 1.01074
+== tdc650_200 step 810
+step 810: interface, F_c [erg/s/cm2], F_MLT(same sup) , ratio, w [cm/s], w_MLT, ratio, sup, U, F_c/F_tot, mach
+  42  1.8580e+10  1.8852e+10  0.98555  3.7885e+05  3.8453e+05  0.98521  6.598e-02  2.906e-03   0.9091  0.010
+interfaces with F_c/F_tot > 0.01: 1, F_c/F_MLT min 0.98555 median 0.98555 max 0.98555
+== tdc290_200 step 490
+step 490: interface, F_c [erg/s/cm2], F_MLT(same sup) , ratio, w [cm/s], w_MLT, ratio, sup, U, F_c/F_tot, mach
+  35  4.3821e+09  2.7540e+09  1.59121  1.0723e+05  6.7388e+04  1.59121  4.238e-03  1.084e-08   1.0000  0.018
+interfaces with F_c/F_tot > 0.01: 1, F_c/F_MLT min 1.59121 median 1.59121 max 1.59121

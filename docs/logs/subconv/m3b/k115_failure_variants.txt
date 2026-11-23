@@ -1,0 +1,26 @@
+# k115 Newton failure: restarts from dbg_k153 (TDC), 4 steps; TDCPAR variants (A_s,A_d,A_c,alpha_p,alpha_t,alpha_D,alpha_m); DTERR reject lines and 'NWT end' (ok iterations) per attempt
+== dbg_v0 TDCPAR=1,1,1,1,0.01,1,0
+DTERR reject jstep 154: dt 2.662e+04 Newton failure -> dt 6.656e+03 | network zones 74, co
+DTERR reject jstep 154: dt 6.656e+03 Newton failure -> dt 1.664e+03 | network zones 74, co
+DTERR reject jstep 154: dt 1.664e+03 Newton failure -> dt 4.160e+02 | network zones 74, co
+DTERR reject jstep 154: dt 4.160e+02 Newton failure -> dt 1.040e+02 | network zones 74, co
+DTERR reject jstep 154: dt 1.040e+02 Newton failure -> dt 2.600e+01 | network zones 74, co
+true/13 true/3 false/26 false/26 false/26 false/26 false/26 true/13 true/6 true/19 true/3 true/3 true/2 
+== dbg_v1 TDCPAR=1,1,1,0,0.01,1,0
+DTERR reject jstep 154: dt 2.682e+04 Newton failure -> dt 6.706e+03 | network zones 74, co
+DTERR reject jstep 154: dt 6.706e+03 Newton failure -> dt 1.676e+03 | network zones 74, co
+DTERR reject jstep 154: dt 1.676e+03 Newton failure -> dt 4.191e+02 | network zones 74, co
+DTERR reject jstep 154: dt 4.191e+02 Newton failure -> dt 1.048e+02 | network zones 74, co
+DTERR reject jstep 154: dt 1.048e+02 Newton failure -> dt 2.619e+01 | network zones 74, co
+true/13 true/3 false/26 false/26 false/26 false/26 false/26 true/13 true/6 true/19 true/3 true/3 true/2 
+== dbg_v2 TDCPAR=1,1,1,1,0.01,0,0
+DTERR reject jstep 153: dt 6.351e+03 Newton failure -> dt 1.588e+03 | network zones 74, co
+DTERR reject jstep 153: dt 1.588e+03 Newton failure -> dt 3.970e+02 | network zones 74, co
+true/2 false/26 true/3 false/26 true/3 true/5 true/2 true/2 true/1 true/1 true/1 true/1 
+== dbg_v3 TDCPAR=1,1,1,1,0,1,0
+DTERR reject jstep 154: dt 2.766e+04 Newton failure -> dt 6.916e+03 | network zones 74, co
+DTERR reject jstep 154: dt 6.916e+03 Newton failure -> dt 1.729e+03 | network zones 74, co
+DTERR reject jstep 154: dt 1.729e+03 Newton failure -> dt 4.323e+02 | network zones 74, co
+DTERR reject jstep 154: dt 4.323e+02 Newton failure -> dt 1.081e+02 | network zones 74, co
+DTERR reject jstep 154: dt 1.081e+02 Newton failure -> dt 2.702e+01 | network zones 74, co
+true/13 true/3 false/26 false/26 false/26 false/26 false/26 true/13 true/6 true/19 true/3 true/3 true/2 
