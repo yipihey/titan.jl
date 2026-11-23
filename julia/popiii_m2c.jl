@@ -2053,6 +2053,9 @@ try
             prev_ === nothing || prev_(kind, dt)
             m_ = TX.etot_monitor(dt)
             push!(EM.buf, (Int(TF.getscalar(:jstep)), kind, dt, m_))
+            haskey(ENV, "ETOTLOG") && open(ENV["ETOTLOG"], "a") do io_       # ETOTLOG=<file> (diagnostic): one line per converged stage, all attempts: jstep kind dt imb thr G dE fin fout (erg/sr; TDC: E_t included, TX.etot_monitor)
+                @printf(io_, "%d %s %.10e %.10e %.10e %.10e %.10e %.10e %.10e\n", Int(TF.getscalar(:jstep)), kind, dt, m_.imb, m_.thr, m_.G, m_.dE, m_.fin, m_.fout)
+            end
             abs(m_.G) > EM.pG && (EM.pG = abs(m_.G)); m_.vmax > EM.pv && (EM.pv = m_.vmax; EM.pz = m_.zmax)
             nothing
         end
