@@ -389,16 +389,16 @@ the group that holds its photons: the photo list (H⁻, He, He⁺, Li, …) thro
 three-level atom's Balmer-continuum and Lyα terms from the groups of those bands, H(1s) from the ionising groups, H₂ from the LW group with the
 photon-conserving closure (`mg_fshJ`). The colour temperature enters in the number type of the iterate (the photo-rate tables are interpolated in ln T_c: exact slopes).
 """
-function cpl_tqg(t, ρ, T, x1, x2, qs, s, tc, g = nothing, dp = nothing; need_cool::Bool = true)
+function cpl_tqg(t, ρ, T, x1, x2, qs, s, tc, g = nothing, dp = nothing; need_cool::Bool = true, xn = nothing)
     s_ = t.slq; p3_0 = s_.p3; r = s_.rec; G = TX.MGN[]; ro = MGROLE[]; Tc = r.Tc0 * tc
     tenv0 = t.env
     tenv = if CNn.HM88 && hasproperty(tenv0, :hm) && s_.hm0 !== nothing       # HM88: the perturber densities of the iterate (as cpl_tq)
-        nHt = ρ / CNn.μH(); merge(tenv0, (; hm = (nHt * (max(1 - x1 - 2x2, 0) + s_.hm0[1] + x2), nHt * (x1 + s_.hm0[2]))))
+        nHt = ρ / CNn.μH(); merge(tenv0, (; hm = (nHt * (max(xneut(x1, x2, xn), 0) + s_.hm0[1] + x2), nHt * (x1 + s_.hm0[2]))))
     else
         tenv0
     end
     p3_1 = dp === nothing ? p3_0 : merge(p3_0, (; deep = dp))          # TL3DEEP: the iterate's deep weight
-    RL = g === nothing ? p3_1.RL : lya_escape(ρ, x1, x2, g)
+    RL = g === nothing ? p3_1.RL : lya_escape(ρ, x1, x2, g; xn)
     cu = ntuple(i -> qs[i] * r.cu0[i], G); W = mg_wg(cu, Tc)
     zf(x) = iszero(ForwardDiff.value(x)) ? 0.0 : x              # (an exact 0 stays a Float 0: tl3_heat has 0/0 partials otherwise, see cpl_tq)
     mgq = mg_env(cu, W, Tc, r.kHon)
@@ -417,8 +417,8 @@ mg_hasrec(t) = t !== nothing && hasproperty(t, :slq) && (r = t.slq.rec) !== noth
 @inline cpl_closeqg(vJ, v) = cpl_close(vJ, v) && (TX.AD_JV[] || all(abs(log(v[i] / vJ[i])) < CPLJLAG[1] for i in 5:length(v)-4) && abs(v[end-3] - vJ[end-3]) <= CPLJLAG[1] * max(v[end-3], vJ[end-3], 1e-3) &&
                              abs(log(v[end-2] / vJ[end-2])) < CPLJLAG[1] && abs(v[end-1] - vJ[end-1]) <= CPLJLAG[1] && abs(log(v[end] / vJ[end])) < CPLJLAG[1])
 "(MGROUPS) local values and Jacobian at v = (ρ, T, x1, x2, q_1 … q_G, s, g, dp, t): AD in all variables (T_c enters the photo-rate tables and the record as a Dual)."
-function cpl_vjqg(m, k, v)
-    y, J = cpl_vj(m, k, v)
+function cpl_vjqg(m, k, v, xn = nothing)
+    y, J = cpl_vj(m, k, v, xn)
     if TX.SLIMPDBG[] > 0 && !all(isfinite, J)
         TX.SLIMPDBG[] -= 1; bad = [(i, j) for i in 1:8, j in 1:size(J, 2) if !isfinite(J[i, j])]
         println("SLIMPDBG cpl_vjqg zone $k v $v: non-finite J at $bad; y $y")
@@ -426,21 +426,21 @@ function cpl_vjqg(m, k, v)
     y, J
 end
 "(stage 2c) cpl_zone with the star-light state (q_1 … q_G, s) = qv, g, dp and t = T_c/T_c,start as local variables (see cpl_zone_q, cpl_tqg)."
-function cpl_zone_qg(m::NetGas, k, ρ, T, a, b, qv, tc, g, dp)
+function cpl_zone_qg(m::NetGas, k, ρ, T, a, b, qv, tc, g, dp, xn)
     V(x) = Float64(ForwardDiff.value(x)); n = length(qv)
     v = (V(ρ), V(T), V(a), V(b), ntuple(i -> V(qv[i]), n)..., V(g), V(dp), V(tc))
     needJ = any(x -> x isa ForwardDiff.Dual, (ρ, T, a, b, tc, g, dp)) || eltype(qv) <: ForwardDiff.Dual
     length(CPLCACHEQ[]) < k && (CPLCACHEQ[] = vcat(CPLCACHEQ[], Any[nothing for _ in length(CPLCACHEQ[])+1:k]))
     c = CPLCACHEQ[][k]
-    if c === nothing || c[1] != v
-        if needJ && !(c !== nothing && cpl_closeqg(c[3], v))
-            y, J = cpl_vjqg(m, k, v); c = (v, y, v, J)
+    if c === nothing || c[1] != v || c[5] != xn
+        if needJ && !(c !== nothing && cpl_closex(cpl_closeqg, c, v, xn))
+            y, J = cpl_vjqg(m, k, v, xn); c = (v, y, v, J, xn, xn)
         else
-            y = cpl_g(m, k, [v...]); c = c === nothing ? (v, y, nothing, nothing) : (v, y, c[3], c[4])
+            y = cpl_g(m, k, [v...]; xn); c = c === nothing ? (v, y, nothing, nothing, xn, nothing) : (v, y, c[3], c[4], xn, c[6])
         end
         CPLCACHEQ[][k] = c
-    elseif needJ && !cpl_closeqg(c[3], v)
-        y, J = cpl_vjqg(m, k, v); c = (v, y, v, J); CPLCACHEQ[][k] = c
+    elseif needJ && !cpl_closex(cpl_closeqg, c, v, xn)
+        y, J = cpl_vjqg(m, k, v, xn); c = (v, y, v, J, xn, xn); CPLCACHEQ[][k] = c
     end
     needJ ? cpl_liftq(c[2], c[4], ρ, T, a, b, ntuple(i -> qv[i], n)..., g, dp, tc) : Tuple(c[2])
 end

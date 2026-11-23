@@ -1607,8 +1607,8 @@ function mg_install!()
     TX.MGXH[] = PM.Z0Physics.χH / PM.EVERG; TX.MGGH[] = r_.H; TX.MGLG[] = 1
     TX.mg_valloc!(length(TF.var(:dn)))
     TX.MGSLQ[] = PM.sl_qt_mg; TX.MGH2FN[] = PM.mg_h2iter!
-    TX.MGZONEQ[] = (k, ρ, T, a, b, qv, t, g, dp) -> PM.mg_hasrec(PM.CPLTERMS[][k]) ? PM.cpl_zone_qg(mat, k, ρ, T, a, b, qv, t, g, dp) :
-                                                   PM.cpl_zone_q(mat, k, ρ, T, a, b, one(t), t, zero(t), g, dp)      # (a zone without a star-light record: the grey path)
+    TX.MGZONEQ[] = (k, ρ, T, a, b, qv, t, g, dp, xn) -> PM.mg_hasrec(PM.CPLTERMS[][k]) ? PM.cpl_zone_qg(mat, k, ρ, T, a, b, qv, t, g, dp, xn) :
+                                                   PM.cpl_zone_q(mat, k, ρ, T, a, b, one(t), t, zero(t), g, dp, xn)      # (a zone without a star-light record: the grey path)
     TD.ROUTINES[:matslv] = JuliaSolver.matslv!        # banded LU with partial pivoting (the block solver pivots only inside a block: diverges for neqn = 9 + 2G, t_mg23)
     let f0 = TC.EDDFAC[]; TC.EDDFAC[] = () -> mg_eddfac!(f0) end      # Eddington factors per group
     h0 = TC.CPLH[]
@@ -1869,10 +1869,10 @@ try
         mat isa PM.NetGas || error("COUPLED=1 needs the network gas (CHEM=net...)")
         TF.PARAMS[:meqn] >= 9 || error("COUPLED=1: meqn = $(TF.PARAMS[:meqn]) < 9")
         ChemNet.CK[] = true; TX.COUPLED[] = true; TF.setscalar!(:neqn, 9); TX.cpl_alloc!(length(TF.var(:dn)))
-        TX.CPL_ZONE[] = (k, ρ, T, a, b) -> PM.cpl_zone(mat, k, ρ, T, a, b)
+        TX.CPL_ZONE[] = (k, ρ, T, a, b, xn) -> PM.cpl_zone(mat, k, ρ, T, a, b, xn)
         if PM.SLIMP                                # SLIMP>0: the star light of the coupled zones at the Newton iterate (PM.sl_sweep!, cpl_zone_q)
             PM.SLBLEND[] || error("SLIMP needs SLBLEND=1 (the colour temperature and dilution of the iterate are the blend of PM.sl_sweep!)")
-            TX.SLIMP[] = true; TX.SL_SWEEP[] = PM.sl_sweep!; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t, fs, g, dp) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t, fs, g, dp)
+            TX.SLIMP[] = true; TX.SL_SWEEP[] = PM.sl_sweep!; TX.CPL_ZONEQ[] = (k, ρ, T, a, b, q, t, fs, g, dp, xn) -> PM.cpl_zone_q(mat, k, ρ, T, a, b, q, t, fs, g, dp, xn)
             pr("SLIMP: star light of the coupled zones at the Newton iterate: dilution W, colour temperature, Lyman-Werner shielding, Lyα escape (local variables of the zone's chemistry and NLOIT opacity)\n")
         end
         get(ENV, "CPLLOCAL", "1") == "1" && (TX.CPL_LOCAL[] = (k, dt) -> PM.cpl_local!(mat, k, dt))

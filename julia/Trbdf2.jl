@@ -54,11 +54,11 @@ const STICKY = Ref(10); const BE_LEFT = Ref(0)
 const OLD = (:do, :ego, :egro, :ero, :fro, :uo, :xmeo, :ro, :dvolo)
 const SAVE = Dict{Symbol,Vector{Float64}}()
 # COUPLED: the old species (TitanResidFast.XSO) are saved, restored and combined with the other old arrays
-const SAVEX = [Float64[], Float64[]]
+const SAVEX = [Float64[], Float64[], Float64[]]       # (x_H⁺, x_H₂, and the neutral hydrogen x_HI, XSN[3])
 save!() = (for s in OLD; copyto!(get!(() -> similar(vf(s)), SAVE, s), vf(s)); end;
-           TX.COUPLED[] && for i in 1:2; length(SAVEX[i]) == length(TX.XSO[][i]) || (SAVEX[i] = similar(TX.XSO[][i])); copyto!(SAVEX[i], TX.XSO[][i]); end;
+           TX.COUPLED[] && for i in 1:3; length(SAVEX[i]) == length(TX.XSO[][i]) || (SAVEX[i] = similar(TX.XSO[][i])); copyto!(SAVEX[i], TX.XSO[][i]); end;
            TX.MG[] && mg_save!())
-restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:2; copyto!(TX.XSO[][i], SAVEX[i]); end;
+restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:3; copyto!(TX.XSO[][i], SAVEX[i]); end;
               TX.MG[] && mg_restore!(); isempty(TX.KSTAR[]) || (TX.KSTAR[] = Float64[]))
 # MGROUPS: the old group fields (TitanResidFast MGEO, MGFO) saved, restored and combined like E_r (on E ΔV) and F_r (on the flux-row inertia)
 const SAVEMG = [Vector{Vector{Float64}}(), Vector{Vector{Float64}}()]
@@ -224,7 +224,7 @@ function bdf_old!()
     end
     @inbounds for k in a-1:b+2; xmeo[k] = cb(xmen[k], xm0[k]); end
     if TX.COUPLED[]                    # species on ρ x ΔV (the residual reads x_old only as ρ_old x_old ΔV_old)
-        for i in 1:2
+        for i in 1:3
             xn_, xo_ = TX.XSN[][i], TX.XSO[][i]
             @inbounds for k in rng; TX.cplz(k) && (xo_[k] = cb(mγ(k) * xn_[k], mn(k) * SAVEX[i][k]) / ms[k]); end
         end
@@ -369,7 +369,7 @@ dt 2.8e3 → 1.5e3 s, every attempt rejected).
     F_r: rtol·max(|F|, ffloor·c E_r);  x_me: rtol·max(x_me, adjacent zone masses) (TITAN's own measure, relative change of the mass coordinate; the zone masses
     themselves are controlled through ρ — weighting δx_me by the zone mass, a Courant-type test, held the production state, where the
     accretion shock crosses the fixed interfaces, at Δt ~ 1e5 s against the heuristic's 1.3e8 s);  r (moving grids): rtol·(smaller adjacent zone width);
-    x_H⁺, x_H₂ (COUPLED zones): rtol·(x + xfloor) on |δx| = |δ ln x|·x.
+    x_H₂ (COUPLED zones): rtol·(x + xfloor) on |δx| = |δ ln x|·x; the hydrogen ionisation's logit z = ln(x_H⁺/x_HI): rtol·(m + xfloor) on |δz|·m, m = min(x_H⁺, x_HI).
 Defaults: xfloor 1e-6, ffloor 1 (F_r measured on its causal scale cE: with 1e-2 the thin zones just outside the photosphere, where F crosses through small values, held Δt at ~400 s), efloor 0.
 
 **Controller** (DTERRCTL=safety,facmin,facmax, default 0.9,0.2,5; DTERRPI=1): accepted when err ≤ 1, then
@@ -404,9 +404,10 @@ const LIMHIST = Dict{String,Int}(); const LASTERR = Ref((NaN, "", 0)); const ERR
 const DIAG = Ref(parse(Int, get(ENV, "DTERRDIAG", "0")))   # (DTERRDIAG=n: stage derivatives of the limiting zone every n steps)   # (ERR0: norm of the converged state's remaining correction)
 "Extra text for the DTERR trace line (popiii_m2c: coverage of the COUPLED zones)."
 const TRACE_EXTRA = Ref{Any}(nothing)
-const VNAMES = Dict(1 => "r", 2 => "m", 3 => "rho", 4 => "u", 5 => "T", 6 => "E_r", 7 => "F_r", 8 => "x_H+", 9 => "x_H2")
+const VNAMES = Dict(1 => "r", 2 => "m", 3 => "rho", 4 => "u", 5 => "T", 6 => "E_r", 7 => "F_r", 8 => "z_H", 9 => "x_H2")
 
-"Conserved combinations of a state (arrays of the new or the old time level; xs = the two coupled species)."
+const XKEYS = (:x1, :x2, :x3)
+"Conserved combinations of a state (arrays of the new or the old time level; xs = the coupled species x_H⁺, x_H₂ and the neutral hydrogen x_HI)."
 function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs, mg = nothing)
     a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1; n = length(d); T = eltype(d)
     C = Dict{Symbol,Vector{T}}(s => zeros(T, n) for s in (:m, :me, :xme, :r, :P))
@@ -421,8 +422,8 @@ function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs, mg = nothing)
         @inbounds for k in a+1:b; C[:QF][k] = fr[k] * 2 * (m[k-1] + m[k]) / (d[k-1] + d[k]); end
     end
     if TX.COUPLED[]
-        for i in 1:2
-            x = zeros(T, n); C[i == 1 ? :x1 : :x2] = x
+        for i in 1:3
+            x = zeros(T, n); C[XKEYS[i]] = x
             @inbounds for k in a:b; TX.cplz(k) && (x[k] = m[k] * xs[i][k]); end
         end
     end
@@ -454,8 +455,8 @@ function old_from!(C)
     @inbounds for k in a:b; ego[k] = C[:me][k] / ms[k]; do_[k] = ms[k] / dvo[k]; end
     @inbounds for k in a-1:b+2; xmeo[k] = C[:xme][k]; end
     if TX.COUPLED[]
-        for i in 1:2
-            xo_ = TX.XSO[][i]; x = C[i == 1 ? :x1 : :x2]
+        for i in 1:3
+            xo_ = TX.XSO[][i]; x = C[XKEYS[i]]
             @inbounds for k in a:b; TX.cplz(k) && (xo_[k] = x[k] / ms[k]); end
         end
     end
@@ -570,7 +571,7 @@ function refilter!(E1, Cs, δ0)
     x = zeros(neqn * nb); mx = 0.0
     @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = v; mx = max(mx, abs(v)); end
     ε = mx > 0 ? min(1.0, 1e-3 / mx) : 1.0
-    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2))
+    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2, W.xsn))
     TX.residual!(R, Wws, c, zeros(neqn * nb)); C0 = Dict(s_ => copy(v) for (s_, v) in stw())
     x .*= ε; TX.residual!(R, Wws, c, x); Cp = stw()
     Co = Dict{Symbol,Vector{Float64}}()
@@ -597,7 +598,7 @@ function refilter_mg!(E1, Cs, δ0)
     @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = D(0.0, FD.Partials((v,))); end
     Wws = TX.getws(D, c.mgr); W = Wws.a; Wm = TX.mgws(D, c.mgr)
     TX.residual!(Matrix{D}(undef, neqn, nb), Wws, c, x)
-    Cd = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2), (Wm.egn, Wm.fgn))
+    Cd = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2, W.xsn), (Wm.egn, Wm.fgn))
     Co = Dict{Symbol,Vector{Float64}}()
     for (s_, vd) in Cd
         vs = Cs[s_]; o = similar(vs)
@@ -624,9 +625,10 @@ function wnorm(rhs)
             E = vf(:ern)[k]; acc(rhs[ie, k] * E / (rt * (E + o.efl * 7.565723e-15 * tn[k]^4)), ie, k)
         end
         if TX.COUPLED[] && TX.cplz(k)
-            for (i, q) in ((8, TX.XSN[][1]), (9, TX.XSN[][2]))
-                acc(rhs[i, k] * q[k] / (rt * (q[k] + o.xfl)), i, k)
-            end
+            # x_H₂: δ ln x_H₂ against x_H₂ + xfloor; the ionisation's logit z = ln(x_H⁺/x_HI): δz against m + xfloor, m = min(x_H⁺, x_HI) of the new state
+            # (δz is the relative error of whichever of the two is the trace species: of the neutral fraction in the ionised gas, of x_H⁺ in the neutral gas)
+            let q = TX.xmin1(TX.XSN[], k); acc(rhs[8, k] * q / (rt * (q + o.xfl)), 8, k) end
+            let q = TX.XSN[][2][k]; acc(rhs[9, k] * q / (rt * (q + o.xfl)), 9, k) end
         end
         if TX.MG[]                     # MGROUPS: δE_g against the group's own E_g with the grey floor plus MGEFL·E_r (minor groups do not set Δt)
             E = vf(:ern)[k]
@@ -661,7 +663,7 @@ function finite_new()
         v = vf(s_); @inbounds for k in a:b; isfinite(v[k]) || return false; end
     end
     if TX.COUPLED[]
-        for i in 1:2; q = TX.XSN[][i]; @inbounds for k in a:b; TX.cplz(k) && !isfinite(q[k]) && return false; end; end
+        for i in 1:3; q = TX.XSN[][i]; @inbounds for k in a:b; TX.cplz(k) && !isfinite(q[k]) && return false; end; end
     end
     if TX.MG[]
         for g in 1:TX.MGN[], q in (TX.MGEN[][g], TX.MGFN[][g]); @inbounds for k in a:b; isfinite(q[k]) || return false; end; end
