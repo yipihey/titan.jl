@@ -30,14 +30,19 @@ const MGQG = Ref(2)                             # the group that carries RAYQ/GA
 const MGH2G = Ref(0)                            # the LW group with the H₂ photon-conserving absorption (stage 2c; 0: none)
 const MGH2T = Ref(0)                            # the group that receives the H₂ fluorescence (the one below the LW group)
 const MGBFLOOR = 1e-200                         # floor of a group's Planck fraction (energy 1e-200 aT⁴: none; keeps ln E_g finite)
-const MGEFL = 1e-3                              # floor of the group fluxes' weight in the error/Newton norms: changes of F_g below MGEFL·|F_r| do not limit Δt (the weights of E_g need none: see MGES)
+const MGEFL = 1e-3                              # floor of the group fluxes' weight in the error/Newton norms: changes of F_g below MGEFL·|F_r| do not limit Δt (the weights of E_g need none: see MGSC)
 const MGCUFL = 1e-60                            # [erg cm⁻² s⁻¹] the star-light closure's flux floor: c u_g below it is not seen by the zone's photo-rates and colour temperature (MGOpac)
 """
-Reference scale of the group unknown: y_g = asinh(E_g/MGES), MGES = MGCUFL/c = 3.3e-71 erg cm⁻³, the energy density below which the star-light closure no longer sees E_g
-(its flux floor). A parametrisation, not a floor: E_g = 0 and small negative iterates are representable, the discrete equations and their solution are unchanged. Above MGES the unknown is
-ln E_g (the former unknown, to round-off); below it, linear: the column of an empty group is MGES·∂R/∂E, not 1e-150 E_r·∂R/∂E. docs/POPIII_MULTIGROUP.md §22.
+Scale of the group unknown, per zone and group (`MGSC[g][k]`): y_g,k = asinh(E_g,k/s_g,k), with s_g,k the energy density that the zone's own emission and absorption would give,
+the local emission balance s = j_g/(c κ_E,g) = 4π[κ_P,g b_g(T) + A_1 X_g(T)] σT⁴/π / (c κ_E,g) (`mg_scales!`), evaluated at the OLD state of the step (the state the step starts from) and held
+fixed through all the Newton iterations of the step (and the error estimate's solves). A parametrisation, not a floor and not a model: for any s > 0 the map y ↔ E = s sinh y is a bijection of the
+reals, so the discrete equations and their solution do not depend on s; s only fixes the unit in which the Newton iteration, its linear algebra and its convergence test see E_g. Above s the unknown is ln E_g, below it
+linear, and the column of E_g in its own rows is s ∂R/∂E_g, the size of the group's local source terms: an empty group (E_g ≪ s) is determined by its rows at the level of the other unknowns, where a global
+scale (the former constant MGES = MGCUFL/c = 3.3e-71, then 1e-150 E_r for ln E_g) left the diagonal at 1e-49 of the row's largest entry (docs §22.3, §23). `MGES` remains only as the value of s where the
+balance is undefined (no emission or no absorption in the group: s ≤ 0 or not finite), which is where the choice of s is immaterial by the bijection.
 """
 const MGES = MGCUFL / 2.99792458e10
+const MGSC = Ref(Vector{Vector{Float64}}())     # per-zone scale s_g,k of each group's unknown (see above)
 const MGTCMB = Ref(0.0)
 vvec(n, m) = [zeros(m) for _ in 1:n]
 const MGEN = Ref(Vector{Vector{Float64}}()); const MGFN = Ref(Vector{Vector{Float64}}())     # new level (Newton iterate base)
@@ -126,9 +131,10 @@ mgiE(g) = MGI0[] + 2g - 1; mgiF(g) = MGI0[] + 2g
 "Allocate the group arrays for mgr zones (values kept where present)."
 function mg_alloc!(mgr)
     G = MGN[]
-    for R_ in (MGEN, MGFN, MGEO, MGFO, MGESO, MGFSO, MGFNOM)
+    for R_ in (MGEN, MGFN, MGEO, MGFO, MGESO, MGFSO, MGFNOM, MGSC)
         (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = vvec(G, mgr))
     end
+    for a in MGSC[]; all(==(0.0), a) && fill!(a, MGES); end
     for R_ in (MGFEDD, MGHEDD, MGTIEW, MGHPLUS)
         (length(R_[]) == G && all(length(a) == mgr for a in R_[])) || (R_[] = vvec(G, mgr))
     end
@@ -218,46 +224,116 @@ function mg_slopes!()
     end
     nothing
 end
-"Start of a step: old := new (fields and opacity records), slopes, nominal flux scales."
-function mg_newstep!()
-    ngrs = gi(:ngrs); ngre = gi(:ngre)
-    size(MGVO[]) == size(MGVN[]) && copyto!(MGVO[], MGVN[])
-    for g in 1:MGN[]
-        copyto!(MGEO[][g], MGEN[][g]); copyto!(MGFO[][g], MGFN[][g])
-        E = MGEN[][g]; F = MGFN[][g]; nom = MGFNOM[][g]
-        @inbounds for k in ngrs-2:ngre+2          # F_g column scale c·√(E²+s²) (the flux bound c E_g, with the unknown's own scale), as the unknown E_g
-            nom[k] = max(abs(F[k]), 1e-3 * gf(:cc) * 0.5 * (hypot(E[max(k-1, 1)], MGES) + hypot(E[k], MGES)))
+"""
+Scales of the group unknowns at the state the step starts from (`MGSC`, see there; evaluated after the predictor, `mg_predicted!`, so that the opacity records are those of that state:
+after a restart from a grey checkpoint the old-level records are the defaults, which gave no Raman or Milne source at all): the energy density that the zone's own sources and sinks would give,
+s_g,k = 4π em_g / (c (κ_g + 1/(ρ Δr))),  em_g = κ_P,g b_g(T)(σT⁴/π) + A_1 X_g(T)(σT⁴/π) + Σ_pairs κ_Ram C (c/4π) Ê_partner,  κ_g = κ_E,g + the Raman absorption κ_Ram ω,
+with the group record (MGVN), the grey means, T, ρ and zone width Δr of that state: exactly the source and absorption of the group's formal solution (`mg_eddfac!`) at the old level.
+Two refinements, both observed necessary (docs §23.2): (1) the term 1/(ρΔr) is the zone's escape: a zone thin in the group has E = em Δr/c, not em/(cκ) (without it s sat 1e56 above the solution in the cold outer
+zones); (2) the Raman partner's energy density is Ê = √(E_old² + s_partner²) with the partner's own scale s_partner of the first pass (the emission balance without the Raman terms): a group fed by a partner
+must have the scale of what the partner will be, not of what it was (an empty partner, E = 1e-72, with s = 1e-24, put the column of the partner 1e51 above the group's own column in the group's row).
+Where the balance is undefined (no source or no sink: s not positive and finite) the scale is MGES, a choice that cannot enter the solution (bijection y ↔ E for every s > 0). Ghost zones take the scale of the nearest zone.
+The H₂ fluorescence, the chemistry's energy moves of group MGQG (RAYQ, GASQ, `cqheat`, `yqheat`) and the line cooling of MGLG are not in it (a scale only; at zie3 zones 214 and 255 RAYQ = 0, GASQ ≈ 1e-214, line cooling 1e-17 erg cm⁻³ s⁻¹: not the source of the correction in 23.6).
+"""
+function mg_scales!()
+    ngrs = gi(:ngrs); ngre = gi(:ngre); cc = gf(:cc); to = v(:tn); do_ = v(:dn); rn = v(:rn); gv = MGVN[]; xh = MGXH[]; gH = MGGH[]
+    chifo = v(:chifn); xkeo = v(:xken); xkpo = v(:xkpn); plfo = v(:plfn); c4pi = cc / (4π); G = MGN[]
+    em0 = [zeros(ngre + 2) for _ in 1:G]; ke0 = [zeros(ngre + 2) for _ in 1:G]
+    @inbounds for g in 1:G
+        j = mgv(g, 1); sc = MGSC[][g]
+        for k in ngrs:ngre
+            keO, _, kpO, a1O = mg_level(gv, j, k, chifo[k], xkeo[k], xkpo[k], 0.0)
+            em = kpO * plfo[k] * mg_bfrac(g, to[k])
+            (g >= gH && a1O > 0) && (em += a1O * plfo[k] * mg_xfrac(g, to[k], xh))
+            em0[g][k] = em; ke0[g][k] = keO + 1 / (do_[k] * (rn[k+1] - rn[k]))
+            s_ = 4π * em / (cc * ke0[g][k]); sc[k] = (isfinite(s_) && s_ > 0) ? s_ : MGES        # first pass: no Raman terms
         end
     end
+    isempty(MGRAMP[]) || begin
+        s0 = [copy(MGSC[][g]) for g in 1:G]
+        @inbounds for k in ngrs:ngre
+            em = [em0[g][k] for g in 1:G]; ke = [ke0[g][k] for g in 1:G]
+            for (p, pr_) in enumerate(MGRAMP[])
+                kc = gv[mgvp(p, 1), k]; kw = gv[mgvp(p, 2), k]; (kc > 0 || kw > 0) || continue
+                gL, gp = pr_[1], pr_[2]
+                ke[gL] += kw; em[gL] += kc * c4pi * hypot(MGEN[][gp][k], s0[gp][k])
+                ke[gp] += kc; em[gp] += kw * c4pi * hypot(MGEN[][gL][k], s0[gL][k])
+            end
+            for g in 1:G; s_ = 4π * em[g] / (cc * ke[g]); MGSC[][g][k] = (isfinite(s_) && s_ > 0) ? s_ : MGES; end
+        end
+    end
+    for g in 1:G
+        sc = MGSC[][g]
+        for k in ngrs-2:ngrs-1; sc[k] = sc[ngrs]; end
+        for k in ngre+1:ngre+2; sc[k] = sc[ngre]; end
+    end
+    nothing
+end
+"Start of a step: old := new (fields and opacity records), slopes; provisional scales (replaced by `mg_predicted!` once the predictor has refreshed the state)."
+function mg_newstep!()
+    size(MGVO[]) == size(MGVN[]) && copyto!(MGVO[], MGVN[])
+    for g in 1:MGN[]; copyto!(MGEO[][g], MGEN[][g]); copyto!(MGFO[][g], MGFN[][g]); end
     mg_slopes!()
+    mg_predicted!()
+end
+"""
+After the predictor (TitanCore.predict!, hook `CPLH.predicted`): the scales of the group unknowns (`mg_scales!`) and the nominal flux scale of each interface, F_g column scale
+c·√(E²+s²) (the flux bound c E_g, with the unknown's own scale) at least |F_g|·1, held fixed through the step's Newton iterations.
+"""
+function mg_predicted!()
+    ngrs = gi(:ngrs); ngre = gi(:ngre)
+    mg_scales!()
+    for g in 1:MGN[]
+        E = MGEN[][g]; F = MGFN[][g]; nom = MGFNOM[][g]; sc = MGSC[][g]
+        @inbounds for k in ngrs-2:ngre+2
+            km = max(k-1, 1)
+            nom[k] = max(abs(F[k]), 1e-3 * gf(:cc) * 0.5 * (hypot(E[km], sc[km]) + hypot(E[k], sc[k])))
+        end
+    end
+    if get(ENV, "MGPIV", "0") == "1"                  # (diagnostic) the scales, fields and nominal fluxes of the zones named by MGPIVZ (default 214,245)
+        for z in parse.(Int, split(get(ENV, "MGPIVZ", "214,245"), ',')), g in 1:MGN[]
+            k = ngrs + z - 1; (ngrs <= k <= ngre) || continue
+            println("MGPIV scales zone ", z, " group ", g, ": s ", MGSC[][g][k], " E ", MGEN[][g][k], " F ", MGFN[][g][k], " nom ", MGFNOM[][g][k], " T ", v(:tn)[k], " rho ", v(:dn)[k],
+                    " kappa_E,g ", MGVN[][mgv(g, 1), k], " r_P ", MGVN[][mgv(g, 2), k], " K1 ", MGVN[][mgv(g, 5), k], " A1 ", MGVN[][mgv(g, 6), k], " ", [(MGVN[][mgvp(p, 1), k], MGVN[][mgvp(p, 2), k]) for p in eachindex(MGRAMP[])])
+        end
+    end
     nothing
 end
 "Reset after a failed iterate: new := old."
 mg_reset!() = (for g in 1:MGN[]; copyto!(MGEN[][g], MGEO[][g]); copyto!(MGFN[][g], MGFO[][g]); end;
                size(MGVO[]) == size(MGVN[]) && copyto!(MGVN[], MGVO[]); nothing)
 """
-The group energy density as a function of its unknown: y = asinh(E/s), E = s sinh y (s = `MGES`). The Newton
-iterate is the base and the unknown is the correction δ of y: E(δ) = s sinh(asinh(E₀/s) + δ) = E₀ cosh δ + √(E₀² + s²) sinh δ; dE/dδ = √(E² + s²)
-(= E for E ≫ s, the old ln E_g; = s for E ≪ s, a linear unknown). Exactly E₀ at δ = 0 (also E₀ = 0 and E₀ < 0).
+The group energy density as a function of its unknown, the correction δ of y = asinh(E/s) at the Newton iterate E₀ (s the zone's scale `MGSC[g][k]`, h = √(E₀² + s²) = dE/dδ at δ = 0):
+growth (δ ≥ 0): E = E₀ + h δ, linear; decay (δ < 0): E = E₀ cosh δ + h sinh δ = s sinh(asinh(E₀/s) + δ), (= E₀ e^δ for E₀ ≫ s: positive; linear below s: E = 0 and small negative
+iterates representable). Both branches have the slope h at δ = 0 (the Jacobian columns are those of E itself in units of h). A Newton step that raises an empty group is a step of a linear row system and
+must be taken as such: the pure sinh map applies a correction δ of 1e11 (the band step of an empty group's LW energy at zie3) as E = s sinh(1e11) = ∞, and the box and trust region (|δ| ≤ 4) then allow
+only e⁴ per iteration. A parametrisation: the discrete equations and their solution do not depend on it (docs §23.2).
 """
-@inline mg_eofy(E0, s, δ) = E0 * cosh(δ) + hypot(E0, s) * sinh(δ)
-"Apply the Newton correction: E_g ← s sinh(asinh(E_g/s) + δ) (δ the correction of y_g), F_g ← F_g + δ·nom."
+@inline mg_eofy(E0, s, δ) = val(δ) >= 0 ? E0 + hypot(E0, s) * δ : E0 * cosh(δ) + hypot(E0, s) * sinh(δ)
+"Apply the Newton correction: E_g ← `mg_eofy(E_g, s, δ)` (δ the correction of y_g: linear growth, sinh decay), F_g ← F_g + δ·nom."
 function mg_update!(rhs, a, b)
     @inbounds for g in 1:MGN[]
         E = MGEN[][g]; F = MGFN[][g]; nom = MGFNOM[][g]; iE = mgiE(g); iF = mgiF(g)
-        for k in a:b; E[k] = mg_eofy(E[k], MGES, rhs[iE, k]); end
+        sc = MGSC[][g]
+        for k in a:b; E[k] = mg_eofy(E[k], sc[k], rhs[iE, k]); end
         for k in a+1:b+1; F[k] += rhs[iF, k] * nom[k]; end
         mg_ghosts!(E, F, a, b)
     end
+    if gi(:lrad) == 1               # E_r and F_r are the groups' sums (redundant unknowns, their rows are identities, see `mg_esum!`): the sums of the new group fields
+        er = v(:ern); fr = v(:frn)
+        @inbounds for k in a:b; s = 0.0; for g in 1:MGN[]; s += MGEN[][g][k]; end; er[k] = s; end
+        @inbounds for k in a:b+1; s = 0.0; for g in 1:MGN[]; s += MGFN[][g][k]; end; fr[k] = s; end
+    end
     nothing
 end
+
 "Ghost values of a group as its ghost rows: E copied, F antisymmetric at the centre (lribc = 2) and copied outside."
 @inline function mg_ghosts!(E, F, a, b)
     E[a-1] = E[a]; E[b+1] = E[b]; E[b+2] = E[b+1]
     F[a] = 0.0; F[a-1] = gi(:lribc) == 2 ? -F[a+1] : F[a-1]; F[b+2] = F[b+1]
     nothing
 end
-"maxdel: the convergence measure is the largest |δ y_g| (the correction of the unknown itself: |δ ln E_g| for E_g ≫ MGES, |δE_g|/MGES below; no weight, no clamp)."
+"maxdel: the convergence measure is the largest |δ y_g| (the correction of the unknown itself: |δ ln E_g| for E_g ≫ s_g,k, |δE_g|/s_g,k below, s the zone's local emission balance `MGSC`; no weight, no clamp)."
 function mg_dmax!(rhs, a, b)
     d = 0.0
     @inbounds for g in 1:MGN[]
@@ -296,6 +372,20 @@ mgws(::Type{T}, mgr) where {T} = get!(MGWSC, T) do
     MGWS{T}(z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), z(), zeros(T, mgr), zeros(T, mgr), z(), gv, zeros(T, mgr), zeros(T, mgr), zeros(T, mgr), ones(T, G + 1, mgr),
           z(), z(), z(), zeros(T, G), zeros(T, mgr), zeros(T, mgr), zeros(T, mgr), zeros(T, mgr))
 end::MGWS{T}
+"""
+E_r = Σ_g E_g and F_r = Σ_g F_g as functions of the iterate (MGROUPS): every use of the grey E_r, F_r in the residual (the gas and total energy rows, the radiation pressure, the grey momentum
+terms) reads the sums of the groups' unknowns, so E_r and F_r are not independent unknowns: their rows are the identities (δ_E_r = 0, δ_F_r = 0: `mg_rows!`) and `mg_update!` sets the arrays to the sums.
+(The former rows E_r − Σ E_g, F_r − Σ F_g left E_r a second, redundant unknown: Jacobian columns of E_r that a finite difference through `update!` never saw exactly, and a constraint that the
+nonlinear group update satisfied only to second order. Docs §23.4.)
+"""
+function mg_esum!(W, M::MGWS{T}, k0, ngre) where {T}
+    @inbounds for k in k0:ngre+2
+        se = zero(T); sf = zero(T)
+        for g in 1:MGN[]; se += M.egn[g][k]; sf += M.fgn[g][k]; end
+        W.ern[k] = se; W.frn[k] = sf
+    end
+    nothing
+end
 "The record column of zone k in the workspace of number type T (the material sweep writes it; zones are distinct per task)."
 @inline mg_gcol(::Type{T}, k) where {T} = view((MGWSC[T]::MGWS{T}).gv, :, k)
 "The line cooling of coupled zone k at the iterate (TitanResidFast's coupled-zone sweep)."
@@ -307,7 +397,7 @@ function mg_iterate!(M::MGWS{T}, x, neqn, nb, k0, ngre) where {T}
         for k in k0:ngre+2; en[k] = E[k]; fn[k] = F[k]; end
         for bb in 1:nb
             k = k0 + bb - 1
-            en[k] = mg_eofy(E[k], MGES, x[(bb-1)*neqn+iE]); fn[k] = F[k] + x[(bb-1)*neqn+iF] * nom[k]
+            en[k] = mg_eofy(E[k], MGSC[][g][k], x[(bb-1)*neqn+iE]); fn[k] = F[k] + x[(bb-1)*neqn+iF] * nom[k]
         end
     end
     nothing
@@ -357,8 +447,8 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
             qe[k] = en[k] / dn[k]; qeo[k] = EO[k] / dO[k]
             qF[k] = fn[k] * 2 / (dn[k] + dn[k-1]); qFo[k] = FO[k] * 2 / (dO[k] + dO[k-1])
         end
-        advect!(M.erb[g], M.ersn[g], qe, qeo, MGESO[][g], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 0)
-        advect!(M.frb[g], M.frsn[g], qF, qFo, MGFSO[][g], flu, θ, P.cadv, P.eps, ngrs, ngre, false, 0)
+        advect!(M.erb[g], M.ersn[g], qe, qeo, MGESO[][g], fle, θ, P.cadv, P.eps, ngrs, ngre, true, 30 + g)        # (own branch-decision ids per group: a shared id replays the last group's limiter/upwind decisions in the others, docs §23.2)
+        advect!(M.frb[g], M.frsn[g], qF, qFo, MGFSO[][g], flu, θ, P.cadv, P.eps, ngrs, ngre, false, 40 + g)
     end
     fc = M.frc
     @inbounds for k in ngrs:ngre+1
@@ -438,14 +528,17 @@ end
 "VEF_SPH outer-boundary energy density of a group (vef_esurf with the group's E, F, χ and background E_b,g)."
 @inline function mg_esurf(rn, en, chn, dn, fn, fedd, N, xmu, cc, Eb)
     rc = 0.5 * (rn[N] + rn[N+1]); Ex = en[N] - Eb
-    fx = ForwardDiff.value(Ex) != 0 ? clamp((fedd[N] * en[N] - Eb / 3) / Ex, 1 / 3, 1.0) : 1 / 3        # (a Dual: the clamp's active branch carries the derivative, none at its ends)
+    # f_x = (f E − E_b/3)/(E − E_b), evaluated in units of σ = max(|E|, |E_b|) (a constant of the evaluation: the same function). In Duals the quotient rule divides by (E − E_b)², which underflows to 0
+    # for an empty group at the outer boundary (E ~ 1e-208: (E − E_b)² ~ 1e-416) and gave the Inf/NaN entries of the F_g row's Jacobian there (docs §23.2).
+    σ = max(abs(ForwardDiff.value(en[N])), abs(ForwardDiff.value(Eb)))
+    fx = (ForwardDiff.value(Ex) != 0 && σ > 0) ? clamp(((fedd[N] * en[N] - Eb / 3) / σ) / (Ex / σ), 1 / 3, 1.0) : 1 / 3        # (a Dual: the clamp's active branch carries the derivative, none at its ends)
     s = 0.5xmu * (3 - 1 / fx) * log(rn[N+1] / rc)
     Eb + exp(-s) * Ex - exp(-0.5s) * chn[N] * dn[N] * fn[N+1] * (rn[N+1] - rc) / (cc * fx)
 end
 
 """
-The radiation rows with MGROUPS: the grey rows ie/iF become E_r − Σ E_g, F_r − Σ F_g (interior zones / interfaces and the outer boundary
-flux), and the group rows (energy per zone, momentum per interface, boundary and ghost rows as the grey ones).
+The radiation rows with MGROUPS: the grey rows ie/iF become identities in the (redundant) correction of E_r, F_r (interior zones / interfaces and the outer boundary
+flux; E_r, F_r read as the sums of the groups in the whole residual, `mg_esum!`), and the group rows (energy per zone, momentum per interface, boundary and ghost rows as the grey ones).
 """
 function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) where {T}
     ngrs, ngre, neqn, k0, nb = c.ngrs, c.ngre, c.neqn, c.k0, c.nb
@@ -454,14 +547,9 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
     ern, frn, rn, dn, dvoln, u, r, rmu, d, dvol, dmdt, urel = W.ern, W.frn, W.rn, W.dn, W.dvoln, W.u, W.r, W.rmu, W.d, W.dvol, W.dmdt, W.urel
     G = MGN[]
     # grey rows → sums
-    @inbounds for k in ngrs:ngre
-        s = zero(T); for g in 1:G; s += M.egn[g][k]; end
-        R[ie, kb(k)] = ern[k] - s
-    end
-    @inbounds for k in ngrs+1:ngre+1
-        s = zero(T); for g in 1:G; s += M.fgn[g][k]; end
-        R[iF, kb(k)] = frn[k] - s
-    end
+    # (identities, boundary and ghost rows included: E_r, F_r are the sums of the group unknowns, see `mg_esum!`; their grey ghost rows E_r(k±1) − E_r(k), … would read the sums too, leave the ghost
+    #  unknowns of E_r, F_r in no row, and the band matrix singular)
+    @inbounds for k in k0:ngre+2; R[ie, kb(k)] = X(ie, k); R[iF, kb(k)] = X(iF, k); end
     Tcmb = MGTCMB[]
     @inbounds for g in 1:G
         iE = mgiE(g); iFg = mgiF(g)

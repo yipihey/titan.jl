@@ -641,6 +641,17 @@ function globalize(S::Sys, s, rel)
     return λ
 end
 
+"True residual of the iterate: max over the active rows of |R_r| / (the row's largest band-Jacobian entry) (`Trbdf2.TRUERES`); a non-finite row counts as Inf."
+function trueres(S::Sys)
+    m = 0.0; rr = 0
+    @inbounds for r in 1:S.n
+        S.act[r] || continue
+        q = abs(S.sc[r] * S.R0[r]); isfinite(q) || (q = Inf)
+        q > m && (m = q; rr = r)
+    end
+    (m, rr == 0 ? 0 : (rr - 1) % S.ne + 1, rr == 0 ? 0.0 : Float64((rr - 1) ÷ S.ne + 1 + S.k0 - 1 - gi(:ngrs) + 1))
+end
+
 # ---------------------------------------------------------------- the hook (TD.KRYLOV[]), called after matslv
 function krylov!()
     t0 = time(); CNT.solves += 1
@@ -649,6 +660,7 @@ function krylov!()
     δ0 = copy(blk); S = nothing
     try
         S = setup()
+        Trbdf2.TRUERES[] = trueres(S)
         if OPT.check > 0 && gi(:iter) == OPT.check
             check!(S); flush(stdout); OPT.checkn -= 1
             OPT.checkn <= 0 && exit(0)
@@ -694,7 +706,7 @@ function krylov!()
             0.0
         end
         OPT_DIAG && diag!(S, b, x, λ, rel, m, conv, trunc)
-        Trbdf2.NWTRACE[] === nothing || println(Trbdf2.NWTRACE[], "NKR att ", Trbdf2.NWATT[], " it ", gi(:iter), " krylov its ", m, " converged ", conv, " rel residual ", rel, " |delta0|_W ", norm(b .* S.wt), " |delta|_W ", norm(x .* S.wt), " drift ", d, " largest weighted delta0 ", wtop(b, S, ne, k0), " largest weighted delta ", wtop(x, S, ne, k0), lsinfo)
+        Trbdf2.NWTRACE[] === nothing || println(Trbdf2.NWTRACE[], "NKR att ", Trbdf2.NWATT[], " it ", gi(:iter), " krylov its ", m, " converged ", conv, " rel residual ", rel, " |delta0|_W ", norm(b .* S.wt), " |delta|_W ", norm(x .* S.wt), " trueres ", Trbdf2.TRUERES[][1], " row ", Trbdf2.TRUERES[][2], "@", Trbdf2.TRUERES[][3], " drift ", d, " largest weighted delta0 ", wtop(b, S, ne, k0), " largest weighted delta ", wtop(x, S, ne, k0), lsinfo)
     catch ex
         ex isa InterruptException && rethrow()
         (S === nothing || !S.snap.taken) || restore!(S.snap)
@@ -880,6 +892,32 @@ function check!(S::Sys)
         y2 = zeros(S.n); fdjv!(y2, S, v, ε * f); r2 = relof(y2); d2 = [ok[r] ? abs(y2[r] - y[r]) / sa[r] : 0.0 for r in 1:S.n]
         @printf("NKCHECK eps x%g (max|eps v| %.1e): vs J_b w: max %.3e median %.3e rows>1e-4 %d >1e-2 %d | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) %.3e, worst row (rel to rowscale) %.3e\n",
                 f, OPT.eps * f, maximum(r2), median(r2[ok]), count(>(1e-4), r2), count(>(1e-2), r2), norm(y2 .- y) / norm(y), maximum(d2))
+    end
+    if haskey(ENV, "NKDUALPROBE")        # NKDUALPROBE=eq,zone[,thr]: J v of the unit vector at that unknown, then every Dual array of the residual workspaces whose partial exceeds thr (default 1e60) near that zone: where does a huge AD entry originate
+        f = split(ENV["NKDUALPROBE"], ","); ie = something(findfirst(==(f[1]), nm), tryparse(Int, f[1]), 0); zs = parse(Int, f[2]); thr = length(f) >= 3 ? parse(Float64, f[3]) : 1e60; kbs = zs + a - k0
+        e = zeros(S.n); e[(kbs - 1) * ne + ie] = 1.0; yA = zeros(S.n); adj!(yA, S, e)
+        D = ForwardDiff.Dual{NKTag,Float64,1}; kz = zs + a - 1
+        function scanw(obj, lab)
+            for fld in fieldnames(typeof(obj))
+                x = getfield(obj, fld)
+                if x isa AbstractVector{<:D}
+                    for k in max(1, kz - 3):min(length(x), kz + 3); (abs(ForwardDiff.partials(x[k], 1)) > thr) && @printf("   %s.%s[zone %d]: value %.4e partial %.4e\n", lab, fld, k - a + 1, ForwardDiff.value(x[k]), ForwardDiff.partials(x[k], 1)); end
+                elseif x isa AbstractVector && !isempty(x) && x[1] isa AbstractVector{<:D}
+                    for (g, xg) in enumerate(x), k in max(1, kz - 3):min(length(xg), kz + 3); (abs(ForwardDiff.partials(xg[k], 1)) > thr) && @printf("   %s.%s[%d][zone %d]: value %.4e partial %.4e\n", lab, fld, g, k - a + 1, ForwardDiff.value(xg[k]), ForwardDiff.partials(xg[k], 1)); end
+                elseif x isa AbstractMatrix{<:D}
+                    for k in max(1, kz - 3):min(size(x, 2), kz + 3), j in 1:size(x, 1); (abs(ForwardDiff.partials(x[j, k], 1)) > thr) && @printf("   %s.%s[%d, zone %d]: value %.4e partial %.4e\n", lab, fld, j, k - a + 1, ForwardDiff.value(x[j, k]), ForwardDiff.partials(x[j, k], 1)); end
+                end
+            end
+        end
+        @printf("NKCHECK dual probe: unit vector at %s zone %d; arrays with |partial| > %g (zones %d..%d):\n", f[1], zs, thr, zs - 3, zs + 3)
+        scanw(TX.getws(D, S.c.mgr), "WS"); TX.MG[] && scanw(TX.mgws(D, S.c.mgr), "MG")
+        if TX.MG[]                       # the values (not the partials) of the group-2-style advection inputs around the zone, for the group of the unit vector's unknown
+            g = ie >= TX.MGI0[] + 1 ? (ie - TX.MGI0[] + 1) ÷ 2 : 1; M_ = TX.mgws(D, S.c.mgr)
+            for k in max(1, kz - 3):kz + 3
+                @printf("   VAL g%d zone %d: E %.4e EO %.4e slopeO %.4e rho %.4e rhoO %.4e | dual: egn %.4e qe %.4e qeo %.4e erb %.4e ersn %.4e\n", g, k - a + 1, TX.MGEN[][g][k], TX.MGEO[][g][k], TX.MGESO[][g][k], vf(:dn)[k], vf(:do)[k],
+                        ForwardDiff.value(M_.egn[g][k]), ForwardDiff.value(M_.qe[g][k]), ForwardDiff.value(M_.qeo[g][k]), ForwardDiff.value(M_.erb[g][k]), ForwardDiff.value(M_.ersn[g][k]))
+            end
+        end
     end
     get(ENV, "NKROWPROBE", "1") == "0" && return nothing        # NKROWPROBE=0: skip the column-by-column probe (one finite-difference product per active column)
     rows = [argmax(rel)]

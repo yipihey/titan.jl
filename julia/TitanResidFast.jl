@@ -1222,7 +1222,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
     end
     Mg = MG[] ? mgws(T, c.mgr) : nothing          # MGROUPS: the group unknowns of the iterate
-    MG[] && mg_iterate!(Mg, x, neqn, nb, k0, ngre)
+    MG[] && (mg_iterate!(Mg, x, neqn, nb, k0, ngre); c.lrad && mg_esum!(W, Mg, k0, ngre))
     # EOS / opacity (TITAN built-in physics unless a material is installed, see TitanMaterials)
     Rg = P.ck / (P.cm0 * P.gmu); γ = P.gam
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn

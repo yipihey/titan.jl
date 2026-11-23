@@ -1515,3 +1515,88 @@ Convergence (`mg_dmax!`) and the TR-BDF2 error (`Trbdf2.wnorm`) measure |δ y_g|
 2. The consistent remedy is the exact band Jacobian (Task A: with J_b = J the preconditioner is exact and a Krylov x ≈ 0 cannot occur) together with a per-zone scale E_eq,g, and a convergence test on the residual,
    not only on the applied step (`dmax`), so that an unsolved state is never accepted. Neither is in this branch.
 3. This branch keeps the zie1-clean unknown (constant s = MGES) because it deletes the five clamps/masks without changing zie1; it must not be used for zie3 until 22.4.2 is done.
+
+## 23. MGROUPS at zie3: per-zone scales, a true-residual convergence test, and what the restart still needs (branch `mgprod`, mgeg merged; Task C1)
+
+Task: make `MGROUPS=4` run 40 steps from the zie3 restart `fp3a1`, without the silent false convergence of §22.3. **Status: zie3 does not run yet (below, 23.6), but its failure is now loud and located; every defect that made it silent
+or singular was found with a number and removed; grey is bit-identical; zie1 MG windows: see 23.5.** Runs: `/zpool/nvme/data/tabel_scratch/titan_popiii/runs/t_mgz3`.
+
+### 23.1 Merge and gate 1
+
+`mgeg` (92b6e31: y = asinh(E_g/MGES), MGCLAMP/MGEMIN/GWMIN/GMASK deleted) merged into `mgprod` (08bb63b, exact J·v): commit 7803fbf; the only conflict was the docs (both branches appended a section: kept both, §21.6 then §22). The one MGRad overlap
+(`mg_esurf`) merged without conflict. **MGROUPS off is bit-identical to 08bb63b**: 30 steps from `S8_auto1`, same box, same 8 cores/threads, both trees (`g1_ref` = 08bb63b archive, `g1_off` = merge): `aux` md5 5d5f20164137bc9830390d4c783fe678, uncompressed `tstate` md5
+ad9522a0446ffa9aad7f5d539fc1c256, 1135 Newton linear solves in both; and again with the final tree of this section (`g_fin`, TRTOL test active, 0 convergences refused). (The md5 pair of §21.2a/§22.3, 49955c55…/09ce1d44…, is not reproduced by 08bb63b itself on the box today:
+the first step's Δt differs at the 4th digit, 4.251e6 vs 4.249e6 s, from the first attempt on, with the same checkpoint md5 7de0d647…; so that pair belongs to the earlier state of the box (the EOS/opacity caches in the run directory), not to the code.
+The grey window of 23.3 reproduces the numbers of the task description exactly.)
+
+### 23.2 What the zie3 restart showed, in the order it was found (each item: symptom, number, change)
+
+The restart `fp3a1` is a grey checkpoint: the groups are initialised from the grey field (`mg_init_from_grey!`), with an outer cloud whose optical group alternates zone by zone between 1e-20 … 1e-24 erg cm⁻³ (zones with an excess over the CMB) and
+6.5e-72 (the CMB part alone). Every item below was measured on this state (`MGPIV=1`, `NKCHECK`, `NWTRACE`; runs `r1` … `r13`, `c_*`, `z3_fin`).
+
+1. **Scale of the unknown: per zone and group** (`MGRad.mg_scales!`, `mg_predicted!`; replaces the constant `MGES` as the scale; `MGES` stays only as the value where no scale exists). With the constant MGES the F_g rows of the cold outer zones
+   had pivots 1.2e-171 (zone 245; row-equilibrated, median 0.3). The scale is s_g,k = 4π em_g/(c(κ_g + 1/(ρΔr))): the energy density that the zone's own emission (κ_P b_g σT⁴/π + the H(1s) Milne term), absorption (with the Raman absorption of the pair) and escape across the zone
+   would give, with the Raman source evaluated at Ê = √(E² + s²) of the partner's first-pass scale. Both additions were forced by a measurement: the first version (emission/absorption only) left the optical group at s = 1.4e-16 against E = 6.5e-72 in the thin zone 245 (1.1e-24 with the escape term), and
+   an empty partner (E = 1e-72, s = 1e-24) put the partner's column 1e51 above the group's own column in the row of E_g3 (zone 232: absolute entries 1.5e6 against 1.6e-45; pivot of F_g3 there 3.6e-57). It is a parametrisation: for every s > 0, y = asinh(E/s) is a bijection of the reals, so
+   **the discrete equations and their solution do not depend on s**; s only sets the unit in which Newton, the linear algebra and the convergence measure see E_g. It is evaluated after the predictor (hook `CPLH.predicted` at the end of `TitanCore.predict!`), i.e. at the state the Newton iteration starts from and with that state's
+   opacity records (the earlier placement in `mg_newstep!`, from the old-level records, gave the same values at the zones inspected). Where em ≤ 0, κ + escape ≤ 0 or s is not finite the scale is MGES (no scale exists, the choice is immaterial by the bijection); there is no other lower bound.
+   Result at `fp3a1`: smallest pivots 1.3e-13 (F_r, zone 44), median 0.38 (§22.1: 1e-186 … 1e-171).
+2. **NaN band correction: the Jacobian of the outer-boundary row of an empty group** (`mg_esurf`). f_x = (f E − E_b/3)/(E − E_b) in Duals divides by (E − E_b)²: for E_g4 ~ 6.7e-208 at the outer zone that underflows to 0, 68 Inf/NaN entries in row F_g4 of the boundary interface (`MGPIV: non-finite matrix
+   entries 68`), the whole band solution NaN (mgprod §21.6: "band correction 1e92, non-finite Krylov start vector"). f_x is now evaluated in units of σ = max(|E|, |E_b|) (the same function, a constant of the evaluation). 0 non-finite entries afterwards.
+3. **The group advection used one branch-decision id for every group** (`advect!(…, 0)` in `mg_theta!`): the limiter/upwind decisions of the Jacobian-vector product (`FREEZE = 2` replays the decisions recorded at R(x)) are keyed by (kind, id), so group g replayed the decisions of
+   the last group written. Where the groups' fields are monotone alike (zie1) this is invisible; at zie3, where E_g2 alternates by 48 orders of magnitude between neighbouring zones, group 2's row replayed group 4's limiter: slope −1.5e49 and partials 4e101,
+   AD J v 1.6e121 against the finite difference 2e31 in the rows E_g2 zone 280 / F_g2 zone 281 (`NKCHECK AD vs FD`: 6.5e89 and 3.6e90 of the row scale; `NKDUALPROBE`, new: the Dual arrays whose partial exceeds a threshold: `MG.erb[2]`, `MG.ersn[2]`). Ids 30 + g (energy) and 40 + g
+   (flux) now. Afterwards the worst rows at zie3 are E_g1 3e-8, E_g2 9e-7 (was 6.5e89), E_g3 4.5e-5, E_g4 3.8e-6, F_g4 3e-7 (F_g1 7e-3, F_g3 2.3e-3 at zone 267 and F_g2 at the outermost interface: FD noise, 23.5), and the Krylov solve converges in 1 iteration (it did not converge in 30, x ≈ 0, before: the silent false convergence of §22.3).
+4. **Growth of an empty group is linear** (`mg_eofy`): the pure sinh map applies a correction δ = 8e11 (the band step of group 3, zone 214: the linear model wants E_g3 to rise to 4.6e-19 from 1.6e-84, s = 5e-31) as E = s sinh(8e11) = ∞, and the box/trust region (|δ| ≤ 4, radius 0.5) allow e⁴ at most.
+   Now E = E₀ + hδ for δ ≥ 0 (h = √(E₀² + s²) = dE/dδ), E₀ cosh δ + h sinh δ for δ < 0 (positive, = E₀ e^δ above s): the Jacobian columns are the same, only the large step differs. A parametrisation again.
+
+### 23.3 Convergence is tested on the true residual
+
+`newton0!` (Trbdf2.jl) declared convergence when the full Newton step was ≤ CONV, however the step was obtained. At zie3 (`r5`) the Krylov step had norm 3e-52 against a band step of 8e11 (GMRES rel. residual 0.99999 after 30 iterations), dmax = 1e-30, and Δt grew
+×5 per step: the rows were not solved. Now, after the step test is met, the boost iteration (a full Newton iteration whose base state is the state just reached) measures the **true residual of that state**: max over the active rows of |R_r|/max_c|J_b,rc|, the row in units of its own
+largest band-Jacobian entry, i.e. the smallest correction of its most sensitive unknown (δ ln x, δy_g, δF/nom) that would cancel it: the unit of `dmax`, no weight, no floor (`NewtonKrylov.trueres`, set in `krylov!`; row and zone in the `NWTRACE` lines). The solve is converged only if this is ≤ CONV
+(`Trbdf2.TRTOL` = 1, a constant); otherwise the iteration goes on from the boosted state (up to NITER; counted, `TRSTATS`, printed at the end of the run) and the accepted step's value is printed in the `DTERR` line (`Newton true residual`). The Newton failure is then loud.
+Choice of the row scale: the largest entry of the band row is what the solver itself equilibrates by (`bandlu`), it needs no model of the unknown's size, and a row whose only terms are ∝ an empty group's E_g (the row of §22.3) is judged by its own terms.
+**Grey window** (300 steps from `S6_auto1`, production settings; `w1_grey` measured with the test off, `w2_fin` with it on): in 643 converged Newton solves the residual of the converged state is median 2.0e-7, 99 % 2.1e-4, **max 1.35e-3 = CONV/7**; the test at CONV refuses none (0.1 CONV would refuse 1 of 643). With the test on (`w2_fin`) the window is the same run: 62 failure lines, 12 247 solves (2 079 reused), 21 726 products, Δt median 3.3e6 s, 31.72 yr, and the final checkpoint is byte-identical to `w1_grey` (`aux` md5 3686920287fa…, `tstate` md5 6b38ed27a226…): where the rows are solved the test changes nothing.
+
+### 23.4 E_r and F_r are not unknowns under MGROUPS (Task item 4)
+
+Finding (zie1 `S8_auto1`, MGROUPS=4, `NKCHECK=2 NKROWPROBE=2`, row F_g4 of zone 40, 2.6e-3 of the row scale): the exact product has columns of E_r (zones 38, 39, 40, 41: AD +5.6e26, −3.4e27, −4.6e26, +5.0e26) where the finite difference through `update!` has 0, −5.4e26, −1.5e27, 0 (FD(ε) and FD(ε/10) agree to 1e-3).
+E_r was a second, redundant unknown: the grey row was E_r − Σ E_g (linear, an identity to round-off after one Newton step of E_r(1 + δ), but not in the fields the nonlinear group update gave), and everything of the grey system that reads E_r read the unknown, while the group rows read
+the groups. **E_r (and F_r) is eliminated:** in the residual E_r = Σ_g E_g, F_r = Σ_g F_g wherever the grey system reads them (`MGRad.mg_esum!`, after `mg_iterate!`), their rows (interior, boundary and ghost: the ghost unknowns must stay in a row or the band matrix is singular, as the first version
+showed) are the identities R = δ, and `mg_update!` sets the arrays to the sums after the group update (E_r, F_r corrections are 0.0 in every `NWTRACE` line). The discrete solution is unchanged (the grey rows see the same sums); the Jacobian loses the E_r columns; nothing else of the matrix changes.
+Check (`c_mg2`, same state): the E_r columns of the row are gone (E_r, F_r: Dirichlet rows, 229 rows left out of the comparison instead of 25); the mismatch of F_g4 zone 40 remains, 3.5e-3, now on the group columns: E_g2 zones 39, 40, 41 (AD −2.1e27, −1.1e27, −6.2e26; FD −7.1e26, −1.9e27, 0) and E_g3 zone 39 (AD −4.6e26, FD −7.9e25), i.e.
+a dependence that the Dual evaluation has on the groups' fields of zones 39–41 that the Float64 `update!` path does not propagate to this row (not traced further; candidates: the star-light state of the coupled zones, refreshed once per update in Float64). The error norm of the TR-BDF2 step lost its E_r term (δE_r = 0): the group that carries E_r
+(E_g1 in the cloud, y = ln E_g1 above its scale) limits instead; limiter statistics of the MG window: E_g4 (unknown 16) 350 of 25 099 accepted steps (345 of 25 095 in §22.3), E_r 1001 (the history restored from the checkpoint, none added), so the control of Δt is where it was.
+
+### 23.5 Gates
+
+* **MGROUPS off**: bit-identical to 08bb63b (23.1), and with the final tree.
+* **NKCHECK=2, grey `S8_auto1`** (`c_grey`, 3 iterations): rows > 1e-4: 13 (11 at the second check), median 3.3e-11, 2-norm 1.6e-10, worst F_r zone 101 2.4e-3, every other equation ≤ 1.0e-5: the table of §21.6 unchanged.
+* **NKCHECK=2, MGROUPS=4 `S8_auto1`** (`c_mg`, `c_mg2`): every equation of the hydro and the energy rows ≤ 1.6e-6 (x_H⁺ 9.0e-6, x_H₂ 3.6e-7); the 2-norm of AD − FD is 4.5e-7 (it was 1.7e-10), **proportional to ε (4.5e-8 at ε/10, 5.2e-9 at ε/100, 4.5e-6 at 10ε)**: the finite difference of y_g = asinh(E/s) with s ≫ E (empty groups, s the local balance) is a step
+  of 1e-5 s in E, far beyond E itself, in the nonlinear star-light closures; the exact product is not the quantity that changed (the AD product is repeatable to 0). Outer-interface flux rows (F_g1 2.1e-2, F_g2 0.05 – 0.4, F_g3 0.8 – 8.2, zone 101): row scales 8e2, 9e-1, 2e-5; the finite difference
+  disagrees with itself there (F_g3 zone 101, column r zone 46: AD +1.4e-8, FD(ε) −4.6e-4, FD(ε/10) −8.8e-5): round-off of the formal solution (1e-6 of the field) against a row 1e-5 of the flux scale: FD noise, as in §21.6. F_g4 zone 40/41: 3.5e-3 / 2e-3 (23.4).
+* **zie1 windows (300 steps from `S6_auto1`, production settings, 8 cores, box loaded)**:
+
+| run | Newton failure lines | linear solves (J_b reused) | matrix-vector | Δt median / min / max [s] | simulated time | wall [s] | convergences refused |
+|---|---|---|---|---|---|---|---|
+| grey, 08bb63b (task description) | 62 | – | – | 3.3e6 | 31.7 yr | – | – |
+| grey, `w1_grey` (this tree, test measured, off) | 62 | 12 247 (2 079) | 21 726 | 3.3e6 / 7.6e5 / 1.4e7 | 31.72 yr | 1 439 (compile in the first 715 s) | – |
+| MGROUPS=4, mgprod 08bb63b (§21.3) | 43 | 5 378 (2 006) | 13 054 | 6e2 – 2.8e3 | 0.0155 yr | 4 392 | – |
+| MGROUPS=4, mgeg 92b6e31 (§22.3) | 30 | 5 158 (2 667) | 10 613 | – | 0.0095 yr | 2 549 | – |
+| MGROUPS=4, **this tree** (`mw_fin`) | 31 | 5 295 (2 671) | 10 491 | 240 / 7.4e-4 / 2.1e3 | 0.0090 yr | 1 449 (compile in the first 931 s) | 0 of 706 |
+| grey, **this tree**, test on (`w2_fin`) | 62 | 12 247 (2 079) | 21 726 | 3.3e6 / 7.6e5 / 1.4e7 | 31.72 yr | 1 425 | 0 of 643 |
+The MG window is not worse than mgeg's in failures (31 against 30) and work (5 295 against 5 158 solves, 10 491 against 10 613 products), and it passes through the same transient: the first step from `S6_auto1` needs 16 failed attempts (Δt 1.76e6 s ÷ 4 per attempt, accepted at 7.4e-4 s) in mgeg's window and in this one (7 in mgprod before mgeg), then Δt grows ×3 per 10 steps to 2.1e3 s. True residual of the converged states in this window (706 solves): median 3.9e-5, 99 % 7.4e-4, max 1.06e-3 = CONV/9; the test at CONV refused none.
+
+### 23.6 zie3: status and what is still missing
+
+`z3_fin` (the final tree; `fp3a1`, MGROUPS=4, 40 steps requested): **no step accepted.** Attempts 1 – 11 (Δt 1.63e4 s, ÷4 per attempt, down to 1.6e-2 s; the run was then stopped by hand, 60 attempts would follow at 1 min each) all fail after the 25 Newton iterations: GMRES converges in 1 iteration (relative residual 4e-10 – 6e-3 over the 273 Newton iterations of the 11 attempts), the step is cut by the trust region (λ = 0.125, radius 0.5; box |δy| = 4 reached at E_g2 zone 214, E_g3 zone 214/113) and the true residual of every iterate is 0.15 – 1.05 (rows: F_g2 zones 218 – 254 (153 of 273), E_g3 zone 214 (71), E_g2 zones 251 – 261 (28), F_g4 zone 114 (11)): the test refuses every convergence, as it must (before: dmax = 1e-30, "converged" at the first iteration of every attempt).
+The step is not small because the system asks for it: the band step is E_g3 zone 214: δy = 8.4e11 (E → 4.6e-19 from 1.6e-84; s = 5.4e-31) at Δt = 1.6e4 s, and still E_g2 zone 255: δy = 3e5 at Δt = 1 s (attempt 8 of `z3_fin`; the hydro corrections of that iteration are ≤ 7e-7). At Δt = 1 s the group rows must be nearly trivial, so a term of the rows is far
+above the scale s of those zones. Tested and excluded: the chemistry's energy moves of group 2 (RAYQ = 0, GASQ = 5e-214 erg cm⁻³ s⁻¹ at zones 214 and 255) and the line cooling of group 1 (1.2e-17 at 214), added to s by magnitude (`r14`: the first band step is unchanged, E_g3 zone 214: 8.4e11; the terms were removed again);
+the Raman balance (record at zone 214: κ_Ram C = 1.5e-19, κ_Ram ω = 0.103 cm² g⁻¹, partner E_g2 = 1.4e-11: s_3 = 5.4e-31 is that balance, escape included). What `MGPIV` shows is the structure of the row: the band diagonal of E_g3 zone 214 is 4.2e-16 of the row maximum (equilibrated rhs 4.1e-8), and the absolute entries of the E_g3 row at zone 232 are 1.5e6 in the column of E_g2 and 1.6e-45 in its own.
+**Not found**: which term of the E_g3 row has that size. Next step: the full row at zone 214 (`NKROWPROBE=1 NKROW=14,214` lists the band against the finite-difference entry of every column; it needs 4900 products, ~40 min: restrict it to a window of zones), then decide whether s must contain it or whether the initial group partition of a grey restart must be replaced. Until then use MGROUPS from a
+checkpoint that carries group fields (`aux` of a MGROUPS run), as zie1. (The first step of the zie1 window from `S6_auto1`, also a grey checkpoint, needs 16 failed attempts (accepted at Δt = 7.4e-4 s) in mgeg's window and in this tree alike, 7 in mgprod before mgeg: the same transient on a state where it ends.)
+
+**Touched functions**: `MGRad`: `mg_scales!` (new), `mg_predicted!` (new; `mg_newstep!` split), `mg_eofy`, `mg_update!`, `mg_dmax!` (doc), `mg_iterate!`, `mg_esum!` (new), `mg_esurf` (σ scaling), `mg_theta!` (advect ids), `mg_rows!` (E_r, F_r identities), `MGSC` (new), `mg_alloc!`; `TitanCore.predict!` (hook `predicted`);
+`TitanResidFast.residual!` (`mg_esum!`); `Trbdf2`: `newton0!` (true-residual test), `TRUERES`, `TRLAST`, `TRTOL`, `TRSTATS` (new), `wnorm` (comment), the `DTERR` line; `NewtonKrylov`: `trueres` (new), `krylov!`, `check!` (`NKDUALPROBE`, new); `JuliaSolver.matslv!` (`MGPIV` diagnostics); `popiii_m2c`: the CPLH tuple (`predicted`), the end-of-run report.
+No new environment switch (`MGPIV`, `MGPIVZ`, `NKDUALPROBE` are diagnostics; `TRTOL` is a constant).

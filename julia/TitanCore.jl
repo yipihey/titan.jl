@@ -594,6 +594,7 @@ function predict!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[](), halve::B
         lrobc == 3 && (frn[b+1] = frn[b] * (rn[b] / rn[b+1])^mu)
     end
     _ghost_and_derived!(:peq, eos!, opac!)
+    CPLH[] === nothing || !hasproperty(CPLH[], :predicted) || CPLH[].predicted()      # (MGROUPS: the group unknowns' scales at the state the Newton iteration starts from)
 end
 
 # ------------------------------------------------------------------ eddfac (eddfac.f, eddf.f, eddg.f)

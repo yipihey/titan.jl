@@ -43,6 +43,12 @@ function matslv!()
     sc = get!(() -> zeros(n), BUF, (:sc, n))::Vector{Float64}
     _assemble!(AB, b, sc, A3[], RHS[], neqn, k0, nb, kl, ku)
     ABd = get(ENV, "MGPIV", "0") == "1" ? copy(AB) : nothing
+    if ABd !== nothing                                   # MGPIV=1: non-finite matrix entries or right-hand sides (which unknown, which row)
+        nmx(i) = "eq$((i - 1) % neqn + 1)@z$(k0 + (i - 1) ÷ neqn - ngrs + 1)"
+        bad = [(r, c) for c in 1:n for r in max(1, c - ku):min(n, c + kl) if !isfinite(AB[kl + ku + 1 + r - c, c])]
+        println("MGPIV: non-finite matrix entries ", length(bad), isempty(bad) ? "" : ": " * join(("$(nmx(r)) col $(nmx(c))" for (r, c) in first(bad, 6)), "; "), " | non-finite rhs ", count(!isfinite, b),
+                count(!isfinite, b) == 0 ? "" : ": " * join((nmx(i) for i in first(findall(!isfinite, b), 6)), ", "))
+    end
     AB2, ipiv = try
         LAPACK.gbtrf!(kl, ku, n, AB)
     catch e
@@ -60,6 +66,11 @@ function matslv!()
             nm(i) = "eq$((i - 1) % neqn + 1)@z$(k0 + (i - 1) ÷ neqn - ngrs + 1)"
             println("MGPIV col of ", nm(c), " (sc[c]=", sc[c], "): ", join(("$(nm(r)):$(round(v, sigdigits = 2)) (sc $(round(sc[r], sigdigits = 2)))" for (r, v) in col[1:4]), "  "))
             println("MGPIV row of ", nm(c), ": ", join(("$(nm(r)):$(round(v, sigdigits = 2))" for (r, v) in row[1:4]), "  "))
+        end
+        for c in idx[1:2], rr in (c - 1, c)                # the absolute (unscaled) entries of the unknown's own row and of the row before it (E_g before F_g)
+            nm(i) = "eq$((i - 1) % neqn + 1)@z$(k0 + (i - 1) ÷ neqn - ngrs + 1)"
+            rowu = [(cc, ABd[kl + ku + 1 + rr - cc, cc] / sc[rr]) for cc in max(1, rr - kl):min(n, rr + ku)]; sort!(rowu, by = x -> -abs(x[2]))
+            println("MGPIV abs row of ", nm(rr), " (sc ", sc[rr], "): ", join(("$(nm(c_)):$(round(v, sigdigits = 3))" for (c_, v) in rowu[1:min(8, length(rowu))]), "  "))
         end
         println("MGPIV: smallest |U_ii| (row-equilibrated): ", join(("$(d[i]) @ eq $((i - 1) % neqn + 1) zone $(k0 + (i - 1) ÷ neqn - ngrs + 1)" for i in idx), " | "), "; median ", sort(d)[n ÷ 2])
     end

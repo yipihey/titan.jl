@@ -144,6 +144,12 @@ function newton_quality!(dm)
     f = isfinite(ϑ) && ϑ > 0 ? clamp(ϑreq / ϑ, 0.1, 1.0) : (isfinite(ϑ) ? 1.0 : 0.1)
     NQ[] = min(NQ[], f)
 end
+"""
+True residual of the Newton iterate (set by NewtonKrylov.krylov! at the base state of each iteration): (max_r |R_r|/max_c |J_b,rc|, row, zone) over the active rows. A row is measured
+in units of its own largest Jacobian entry, i.e. as the smallest correction of its most sensitive unknown that would cancel it (the unknowns' own units: δ ln x, δy_g, δF/nom),
+which is the unit of the convergence measure `dmax`; no floor, no weight. `TRTOL` = 1: the convergence needs this ≤ CONV (the largest residual of a converged state in the 300-step zie1 grey window is 1.35e-3 = CONV/7, docs §23.3). `TRSTATS`: Newton convergences refused by it.
+"""
+const TRUERES = Ref((0.0, 0, 0.0)); const TRLAST = Ref(0.0); const TRTOL = 1.0; const TRSTATS = Dict(:rejected => 0, :worst => 0.0)
 const JB_REUSE = Ref(get(ENV, "NKREUSEJB", "1") != "0")
 const LAST_KRYLOV_SOLVE = Ref((false, 0, 0.0))
 function _newton_linear!(reuse::Bool)
@@ -168,12 +174,18 @@ function newton0!()
             ls = LAST_KRYLOV_SOLVE[]
             reuse = !isempty(dm) && dm[end] < 0.35 && (length(dm) < 2 || dm[end] < 0.7 * dm[end-1]) && ls[1] && ls[2] <= 5 && ls[3] == 1.0
             _newton_linear!(reuse); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update); SDCLO && sd_clo(); push!(dm, g(:dmax))
-            g(:dmax) <= g(:conv) && break
+            if g(:dmax) <= g(:conv)
+                # The step is small: the boost iteration (a full Newton iteration whose base state is the state just reached) also measures the true residual there.
+                # A small step is evidence of convergence only if the rows are solved: a state whose residual exceeds the tolerance has not converged however small the step
+                # the linear solve returned (docs §23.3); the iteration then goes on from the boosted state.
+                ls = LAST_KRYLOV_SOLVE[]; reuse_b = ls[1] && ls[2] <= 5 && ls[3] == 1.0
+                TRUERES[] = (0.0, 0, 0.0); s!(:lboos, 1); _newton_linear!(reuse_b); r(:maxdel); r(:update); s!(:lboos, 0)
+                TRUERES[][1] <= TRTOL * g(:conv) && (TRLAST[] = TRUERES[][1]; break)
+                TRSTATS[:rejected] += 1; TRUERES[][1] > TRSTATS[:worst] && (TRSTATS[:worst] = TRUERES[][1])
+            end
             s!(:iter, g(:iter) + 1)
             g(:iter) > g(:niter) && (newton_quality!(dm); return false)
         end
-        ls = LAST_KRYLOV_SOLVE[]; reuse_b = ls[1] && ls[2] <= 5 && ls[3] == 1.0
-        s!(:lboos, 1); _newton_linear!(reuse_b); r(:maxdel); r(:update); s!(:lboos, 0)
         if ERESTOL[] > 0
             e = eres(); ERES[:checks] += 1
             while e > ERESTOL[]
@@ -628,7 +640,7 @@ function wnorm(rhs)
                 acc(rhs[i, k] * q[k] / (rt * (q[k] + o.xfl)), i, k)
             end
         end
-        if TX.MG[]                     # MGROUPS: the change of the group's unknown y_g = asinh(E_g/MGES) (δ ln E_g for E_g ≫ MGES, δE_g/MGES below: no floor)
+        if TX.MG[]                     # MGROUPS: the change of the group's unknown y_g = asinh(E_g/s_g,k), s the zone's local emission balance MGSC (δ ln E_g for E_g ≫ s, δE_g/s below: no floor)
             for g in 1:TX.MGN[]; acc(rhs[TX.mgiE(g), k] / rt, TX.mgiE(g), k); end
         end
     end
@@ -887,8 +899,8 @@ function step_err!()
     HEUR[] = g(:dtime); s!(:dtime, hn); s!(:tfac, hn / Δ)
     SDON && sd_state_print(Δ)
     if o.trace > 0 && ESTATS[:steps] % o.trace == 0
-        @printf("DTERR jstep %d t %.6e yr: dt %.3e err %.3g (max %.3g: %s zone %d; resid %.2g, 1st filter %.3g) next %.3e | heuristic %.3e | steps %d rej %d fail %d%s\n",
-            Int(g(:jstep)), g(:timen) / 3.156e7, Δ, err, info[3], info[1], info[2], ERR0[], ERR1[], hn, HEUR[], ESTATS[:steps], ESTATS[:rej_err], ESTATS[:fail_newton], etrace(:acc, Δ, err, info))
+        @printf("DTERR jstep %d t %.6e yr: dt %.3e err %.3g (max %.3g: %s zone %d; resid %.2g, 1st filter %.3g) next %.3e | heuristic %.3e | steps %d rej %d fail %d | Newton true residual %.2g%s\n",
+            Int(g(:jstep)), g(:timen) / 3.156e7, Δ, err, info[3], info[1], info[2], ERR0[], ERR1[], hn, HEUR[], ESTATS[:steps], ESTATS[:rej_err], ESTATS[:fail_newton], TRLAST[], etrace(:acc, Δ, err, info))
     end
     nothing
 end

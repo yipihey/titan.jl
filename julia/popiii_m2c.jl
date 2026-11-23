@@ -1614,7 +1614,7 @@ function mg_install!()
     h0 = TC.CPLH[]
     TC.CPLH[] = (; newstep = () -> (h0.newstep(); TX.mg_newstep!()), reset = () -> (h0.reset(); TX.mg_reset!()),
                  update = (rhs, a_, b_) -> (h0.update(rhs, a_, b_); TX.mg_update!(rhs, a_, b_)),
-                 dmax = (rhs, a_, b_) -> max(h0.dmax(rhs, a_, b_), TX.mg_dmax!(rhs, a_, b_)))
+                 dmax = (rhs, a_, b_) -> max(h0.dmax(rhs, a_, b_), TX.mg_dmax!(rhs, a_, b_)), predicted = TX.mg_predicted!)
     a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre))
     ax = MGAUX[]
     if ax !== nothing && ax.edges == TX.MGEDGE[]
@@ -2251,4 +2251,5 @@ pr("ALI line transfer: %d calls\n", NALICALL[])
 TD.STEPFN[] === Trbdf2.step! && pr("integrator TR-BDF2, statistics %s\n", string(Trbdf2.STATS))
 TD.KRYLOV[] === nothing || pr("%s\n", NewtonKrylov.summary_text())
 Trbdf2.ERRCTL[] && pr("DTERR statistics %s; limiting variable (accepted steps) %s; TR-BDF2 %s\n", string(Trbdf2.ESTATS), string(Trbdf2.LIMHIST), string(Trbdf2.STATS))
+Trbdf2.ERRCTL[] && pr("Newton true-residual test (converged only if max row |R|/(largest J_b entry of the row) <= CONV): %d convergences refused, largest refused residual %.3e\n", Trbdf2.TRSTATS[:rejected], Trbdf2.TRSTATS[:worst])
 close(io)
