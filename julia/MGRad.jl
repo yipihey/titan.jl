@@ -225,30 +225,71 @@ function mg_slopes!()
     nothing
 end
 """
+The other sources of each group's energy row at the start state, per mass [erg g⁻¹ s⁻¹] (`MGSC` adds them to the emission, see `mg_scales!`): exactly the terms of `mg_rows!` that do not contain
+the zone's own E_g — the chemistry and cycle heat cq + yq (booked, `CQB`/`YQB`) and RAYQ, GASQ of the group MGQG, the line cooling MGLCO of the coupled zones into the group MGLG, 
+(docs §24: zone 255 of group 2 saw cq + yq = 1.7e27 erg s⁻¹ against s = 1.3e-32). The energy carried in by the mass flux is `mg_advscale!`. A scale only: magnitudes, any s > 0 is the same discrete solution.
+"""
+function mg_sources!(G)
+    ngrs = gi(:ngrs); ngre = gi(:ngre)
+    q = [zeros(ngre + 2) for _ in 1:G]
+    @inbounds for k in ngrs:ngre
+        g = MGQG[]
+        g > 0 && (q[g][k] = (abs(isempty(CQB[]) ? 0.0 : CQB[][k]) + abs(isempty(YQB[]) ? 0.0 : YQB[][k]) + abs(isempty(RAYQ[]) ? 0.0 : RAYQ[][k]) + abs(isempty(GASQ[]) ? 0.0 : GASQ[][k])) / v(:dn)[k])
+        g = MGLG[]
+        (g > 0 && cplz(k)) && (q[g][k] += abs(MGLCO[][k]) / v(:dn)[k])
+    end
+    q
+end
+"""
+What reaches a zone from its neighbours, in the scale. The row has the advective terms ṁ_k (E/ρ)ᵇ_k (upwind value, `advect!`) of its two faces and the flux divergence of the neighbours' fields: a zone next to one holding energy
+gets E ≈ (ṁ (E/ρ)_up/m + c E_nb/(ρΔr))/(c κ_g) from them (zie3: the 1.2e-16 erg cm⁻³ of group 3 in zones 212–213 reach zone 214, which held 1.6e-84, in an outflow of 2.6e22 g s⁻¹, and zone 215 from 214, …:
+a scale without them left the correction y of those zones at 1e9 – 1e12 and the Newton step at the box |δy| ≤ 4 for 25 iterations). The neighbour's value is the one its own scale allows, √(E_old² + s²) (as the Raman partner of
+`mg_scales!`), a sweep up and down the grid chains it (either direction of ṁ). The free-streaming bound c E_nb/Δr is the largest inflow the faces can carry; the time term 1/(ρ c Δt) in the denominator (`mg_scales!`) is what limits it to c Δt/Δr
+of the neighbour per zone. Magnitudes at the start state; a scale only.
+"""
+function mg_advscale!(g, ke, base)
+    ngrs = gi(:ngrs); ngre = gi(:ngre); dt = gf(:dtime); xme = v(:xmen); xmo = v(:xmeo); dO = v(:do); cc = gf(:cc); rn = v(:rn)
+    E = MGEO[][g]; sc = MGSC[][g]
+    mdot(k) = -(xme[k] - xmo[k]) / dt                 # inward mass flux through face k (dmdt of the residual); flow = -ṁ: outward takes the inner zone
+    for order in (ngrs:ngre, ngre:-1:ngrs)
+        @inbounds for k in order
+            m = xme[k] - xme[k+1]; qa = 0.0
+            m > 0 || continue
+            mdot(k) < 0 && (qa += -mdot(k) * hypot(E[k-1], sc[k-1]) / dO[k-1])                # outflow through the lower face brings in the inner zone's energy
+            mdot(k + 1) > 0 && (qa += mdot(k + 1) * hypot(E[k+1], sc[k+1]) / dO[k+1])        # inflow through the upper face brings in the outer zone's
+            qr = cc * (hypot(E[k-1], sc[k-1]) + hypot(E[k+1], sc[k+1])) / (dO[k] * (rn[k+1] - rn[k]))      # free-streaming inflow bound from the two neighbours, per mass
+            s_ = base[k] + (qa / m + qr) / (cc * ke[k])
+            (isfinite(s_) && s_ > 0) && (sc[k] = s_)
+        end
+    end
+    nothing
+end
+"""
 Scales of the group unknowns at the state the step starts from (`MGSC`, see there; evaluated after the predictor, `mg_predicted!`, so that the opacity records are those of that state:
 after a restart from a grey checkpoint the old-level records are the defaults, which gave no Raman or Milne source at all): the energy density that the zone's own sources and sinks would give,
-s_g,k = 4π em_g / (c (κ_g + 1/(ρ Δr))),  em_g = κ_P,g b_g(T)(σT⁴/π) + A_1 X_g(T)(σT⁴/π) + Σ_pairs κ_Ram C (c/4π) Ê_partner,  κ_g = κ_E,g + the Raman absorption κ_Ram ω,
+s_g,k = (4π em_g + q_g) / (c (κ_g + 1/(ρ Δr) + 1/(c ρ Δt))),  (q_g: `mg_sources!`; + the neighbours' inflow, `mg_advscale!`)  em_g = κ_P,g b_g(T)(σT⁴/π) + A_1 X_g(T)(σT⁴/π) + Σ_pairs κ_Ram C (c/4π) Ê_partner,  κ_g = κ_E,g + the Raman absorption κ_Ram ω,
 with the group record (MGVN), the grey means, T, ρ and zone width Δr of that state: exactly the source and absorption of the group's formal solution (`mg_eddfac!`) at the old level.
 Two refinements, both observed necessary (docs §23.2): (1) the term 1/(ρΔr) is the zone's escape: a zone thin in the group has E = em Δr/c, not em/(cκ) (without it s sat 1e56 above the solution in the cold outer
 zones); (2) the Raman partner's energy density is Ê = √(E_old² + s_partner²) with the partner's own scale s_partner of the first pass (the emission balance without the Raman terms): a group fed by a partner
 must have the scale of what the partner will be, not of what it was (an empty partner, E = 1e-72, with s = 1e-24, put the column of the partner 1e51 above the group's own column in the group's row).
 Where the balance is undefined (no source or no sink: s not positive and finite) the scale is MGES, a choice that cannot enter the solution (bijection y ↔ E for every s > 0). Ghost zones take the scale of the nearest zone.
-The H₂ fluorescence, the chemistry's energy moves of group MGQG (RAYQ, GASQ, `cqheat`, `yqheat`) and the line cooling of MGLG are not in it (a scale only; at zie3 zones 214 and 255 RAYQ = 0, GASQ ≈ 1e-214, line cooling 1e-17 erg cm⁻³ s⁻¹: not the source of the correction in 23.6).
+The H₂ fluorescence is not in it. (The chemistry's energy moves of group MGQG, the line cooling of MGLG and the neighbours' inflow are, docs §24: the cq + yq of zone 255 was the source of 23.6's correction.)
 """
 function mg_scales!()
     ngrs = gi(:ngrs); ngre = gi(:ngre); cc = gf(:cc); to = v(:tn); do_ = v(:dn); rn = v(:rn); gv = MGVN[]; xh = MGXH[]; gH = MGGH[]
-    chifo = v(:chifn); xkeo = v(:xken); xkpo = v(:xkpn); plfo = v(:plfn); c4pi = cc / (4π); G = MGN[]
-    em0 = [zeros(ngre + 2) for _ in 1:G]; ke0 = [zeros(ngre + 2) for _ in 1:G]
+    dt = gf(:dtime); chifo = v(:chifn); xkeo = v(:xken); xkpo = v(:xkpn); plfo = v(:plfn); c4pi = cc / (4π); G = MGN[]
+    em0 = [zeros(ngre + 2) for _ in 1:G]; ke0 = [zeros(ngre + 2) for _ in 1:G]; qm = mg_sources!(G)
     @inbounds for g in 1:G
         j = mgv(g, 1); sc = MGSC[][g]
         for k in ngrs:ngre
             keO, _, kpO, a1O = mg_level(gv, j, k, chifo[k], xkeo[k], xkpo[k], 0.0)
             em = kpO * plfo[k] * mg_bfrac(g, to[k])
             (g >= gH && a1O > 0) && (em += a1O * plfo[k] * mg_xfrac(g, to[k], xh))
-            em0[g][k] = em; ke0[g][k] = keO + 1 / (do_[k] * (rn[k+1] - rn[k]))
-            s_ = 4π * em / (cc * ke0[g][k]); sc[k] = (isfinite(s_) && s_ > 0) ? s_ : MGES        # first pass: no Raman terms
+            em0[g][k] = em; ke0[g][k] = keO + 1 / (do_[k] * (rn[k+1] - rn[k])) + 1 / (cc * do_[k] * dt)
+            s_ = (4π * em + qm[g][k]) / (cc * ke0[g][k]); sc[k] = (isfinite(s_) && s_ > 0) ? s_ : MGES        # first pass: no Raman terms
         end
     end
+    kefin = [copy(ke0[g]) for g in 1:G]
     isempty(MGRAMP[]) || begin
         s0 = [copy(MGSC[][g]) for g in 1:G]
         @inbounds for k in ngrs:ngre
@@ -259,8 +300,14 @@ function mg_scales!()
                 ke[gL] += kw; em[gL] += kc * c4pi * hypot(MGEN[][gp][k], s0[gp][k])
                 ke[gp] += kc; em[gp] += kw * c4pi * hypot(MGEN[][gL][k], s0[gL][k])
             end
-            for g in 1:G; s_ = 4π * em[g] / (cc * ke[g]); MGSC[][g][k] = (isfinite(s_) && s_ > 0) ? s_ : MGES; end
+            for g in 1:G; s_ = (4π * em[g] + qm[g][k]) / (cc * ke[g]); MGSC[][g][k] = (isfinite(s_) && s_ > 0) ? s_ : MGES; kefin[g][k] = ke[g]; end
         end
+    end
+    for g in 1:G; mg_advscale!(g, kefin[g], copy(MGSC[][g])); end
+    for (g, z) in MGROWPROBE[]
+        k = ngrs + z - 1
+        println("MGSCALE g ", g, " zone ", z, " s ", MGSC[][g][k], " emit0 ", em0[g][k], " ke0 ", ke0[g][k], " E ", MGEN[][g][k], " T ", to[k], " rho ", do_[k], " plf ", plfo[k], " bfrac ", mg_bfrac(g, to[k]),
+                " raman ", [(p, gv[mgvp(p, 1), k], gv[mgvp(p, 2), k]) for p in eachindex(MGRAMP[])], " kappa_rec ", gv[mgv(g, 1), k], " H2g ", 0)
     end
     for g in 1:G
         sc = MGSC[][g]
@@ -554,7 +601,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
     @inbounds for g in 1:G
         iE = mgiE(g); iFg = mgiF(g)
         en, fn, eg, fg = M.egn[g], M.fgn[g], M.eg[g], M.fg[g]; EO = MGEO[][g]; FO = MGFO[][g]
-        ke = M.xke[g]; em = M.emit[g]; erb = M.erb[g]; frb = M.frb[g]; av = M.avchi[g]
+        ke = M.xke[g]; em = M.emit[g]; erb = M.erb[g]; frb = M.frb[g]; av = M.avchi[g]; qe_ = M.qe[g]; qeo_ = M.qeo[g]
         qg = g == MGQG[]
         vef = MGVEFOK[]
         if vef && AD_JV[] && T <: ForwardDiff.Dual      # Jacobian-vector product: the group's formal solution in Duals (mg_eddfac_dual!)
@@ -587,6 +634,16 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
                 w += -dmdt[k+1] * erb[k+1] + dmdt[k] * erb[k]
             end
             R[iE, kb(k)] = w
+            if T === Float64 && !isempty(MGROWPROBE[]) && (g, k - ngrs + 1) in MGROWPROBE[]      # (diagnostic, MGROWPROBE="g,zone;g,zone") the terms of the group energy row
+                tt = (en[k] * dvoln[k] - EO[k] * c.dvolo[k]) / dt; dv = rmu[k+1] * fg[k+1] - rmu[k] * fg[k]
+                ab = excap(cc, ke[k], d[k], dt) * cc * ke[k] * eg[k] * d[k] * dvol[k]; ei = excap(cc, ke[k], d[k], dt) * em[k] * d[k] * dvol[k]
+                println("MGROW g ", g, " zone ", k - ngrs + 1, " dt ", dt, " E ", en[k], " Eo ", EO[k], " s ", MGSC[][g][k], " time ", tt, " div ", dv, " adv ", fedd[k] * eg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) + (1 - 3fedd[k]) * 0.5 * xmu * eg[k] * aur * dvol[k],
+                        " absorb ", ab, " emit ", ei, " xfer ", M.xfer[g][k] * d[k] * dvol[k], " RAYQ ", isempty(RAYQ[]) ? 0.0 : RAYQ[][k] * dvol[k], " GASQ ", isempty(GASQ[]) ? 0.0 : GASQ[][k] * dvol[k],
+                        " heat ", qg ? (cqheat(k, W) + yqheat(k, W)) * dvol[k] : 0.0, " line ", (g == MGLG[] && cplz(k)) ? (max(θ, CPL_THETA[]) * M.lcl[k] + (1 - max(θ, CPL_THETA[])) * MGLCO[][k]) * dvol[k] : 0.0,
+                        " erb ", erb[k], " ke ", ke[k], " emit_density ", em[k], " T ", W.tn[k], " rho ", d[k], " dvol ", dvol[k], " kH2 ", g == MGH2G[] ? M.kh2g[k] : 0.0, " res ", w)
+                println("MGROWN g ", g, " zone ", k - ngrs + 1, " dmdt ", (dmdt[k], dmdt[k+1]), " erb ", (erb[k], erb[k+1]), " ersn ", (M.ersn[g][k], M.ersn[g][k+1]), " E(k-2:k+2) ", [en[j] for j in k-2:k+2], " EO ", [EO[j] for j in k-2:k+2],
+                        " rho ", [dn[j] for j in k-2:k+2], " rhoO ", [c.do_[j] for j in k-2:k+2], " slopeO ", [MGESO[][g][j] for j in k-2:k+2], " qe ", [qe_[j] for j in k-2:k+2], " qeo ", [qeo_[j] for j in k-2:k+2])
+            end
         end
         R[iE, 1] = X(iE, k0)
         R[iE, kb(ngrs-1)] = en[ngrs] - en[ngrs-1]
@@ -640,12 +697,15 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
 end
 "b_g(T_cmb) of the outer background (set with the edges)."
 const MGBCMB_ = Float64[]
+"(diagnostic) group-row probes (group, zone) from ENV MGROWPROBE=\"g,zone;g,zone\""
+const MGROWPROBE = Ref(Tuple{Int,Int}[])
 
 """
 Set up MGROUPS: edges [eV] (interior, ascending), the eV/k_B constant, T_cmb, the unknown offset i0 (9 with COUPLED). Allocates the arrays.
 """
 function mg_setup!(edges, evk, tcmb, i0, mgr)
     issorted(edges) && all(>(0), edges) || error("MGROUPS: edges must be positive and ascending (eV): $edges")
+    MGROWPROBE[] = [Tuple(parse.(Int, split(q, ','))) for q in split(get(ENV, "MGROWPROBE", ""), ';') if !isempty(q)]
     MG[] = true; MGN[] = length(edges) + 1; MGEDGE[] = collect(Float64, edges); MGEVK[] = evk; MGTCMB[] = tcmb; MGI0[] = i0
     empty!(MGBCMB_); for g in 1:MGN[]; push!(MGBCMB_, tcmb > 0 ? mg_bfrac(g, tcmb) : (g == 1 ? 1.0 : MGBFLOOR)); end
     mg_alloc!(mgr); empty!(MGWSC)

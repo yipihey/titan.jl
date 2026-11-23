@@ -1659,3 +1659,33 @@ checkpoint that carries group fields (`aux` of a MGROUPS run), as zie1. (The fir
 **Touched functions**: `MGRad`: `mg_scales!` (new), `mg_predicted!` (new; `mg_newstep!` split), `mg_eofy`, `mg_update!`, `mg_dmax!` (doc), `mg_iterate!`, `mg_esum!` (new), `mg_esurf` (σ scaling), `mg_theta!` (advect ids), `mg_rows!` (E_r, F_r identities), `MGSC` (new), `mg_alloc!`; `TitanCore.predict!` (hook `predicted`);
 `TitanResidFast.residual!` (`mg_esum!`); `Trbdf2`: `newton0!` (true-residual test), `TRUERES`, `TRLAST`, `TRTOL`, `TRSTATS` (new), `wnorm` (comment), the `DTERR` line; `NewtonKrylov`: `trueres` (new), `krylov!`, `check!` (`NKDUALPROBE`, new); `JuliaSolver.matslv!` (`MGPIV` diagnostics); `popiii_m2c`: the CPLH tuple (`predicted`), the end-of-run report.
 No new environment switch (`MGPIV`, `MGPIVZ`, `NKDUALPROBE` are diagnostics; `TRTOL` is a constant).
+
+## 24. zie3: the group scales omitted three sources (branch `mgprod`, mgxh merged; Task C3)
+
+### 24.1 Merge
+mgxh (54814fc, §21.7) merged into mgprod a1a2ff4 (9a4c8d3). Only this file conflicted (kept both sections, §21.7 before §22). Gates: grey NKCHECK=2 from `S6_auto1` = §21.7's (3 rows > 1e-4, 2-norm 1.5e-10, z_H worst 1.5e-10); the grey window is below. MGROUPS-off is not bit-identical to a1a2ff4 (mgxh changes the grey unknowns).
+
+### 24.2 The 1e12: the terms of the E_g rows that `mg_scales!` did not contain (probe `MGROWPROBE="g,zone;..."`: every term of the row at each Float64 evaluation, and the scale's inputs; diagnostic)
+`c3_b`, attempt 1, old state, Δt = 1.63e4 s (units erg s⁻¹ per zone):
+
+| row | time | div | absorb c κ E ρ V | emit | xfer (Raman) | **chem + cycle heat cq + yq** | **advection ṁ·erb** | s used |
+|---|---|---|---|---|---|---|---|---|
+| E_g2 z255 | 0 | 2.0e20 | 1.9e-33 | 1.1e15 | −1.6e-46 | **−1.70e27** (= res) | ~0 | 1.3e-32 |
+| E_g3 z214 | 0 | −3.7e-40 | 8.9e-45 | 2.6e-59 | 4.5e13 | 0 | **−3.8e22** (= res) | 5.4e-31 |
+
+* **E_g2 z255**: the row of the group MGQG (Lyα) carries the chemistry and cycle heat `cqheat + yqheat` (1.7e27 erg s⁻¹ = 4e-27 erg cm⁻³ s⁻¹ at T = 180 K, ρ = 8e-21): the whole residual. The scale (emission + Raman) did not contain it; §23.6 had tested RAYQ, GASQ and the line cooling, not cq/yq. E_eq = q Δr/c = 1.9e-20 against s = 1.3e-32: **1.4e12**. It is Δt-independent (at Δt = 1 s: δy = q Δt/s = 3e5): a source, not a time-step artefact.
+* **E_g3 z214**: the energy carried by the outflow of 2.6e22 g s⁻¹ (`dmdt`, upwind `erb` = the inner neighbour's E/ρ = 1.4 erg g⁻¹): zones 212 – 213 hold E_g3 = 1.7e-16, 1.2e-16 erg cm⁻³, zone 214 holds 1.6e-84, 215+ less (a photon front 68 decades high in one zone). The advective term is 3.8e22 erg s⁻¹ against an own-field coefficient c κ ρ V = 5e39: E ≈ 4e-19 against s = 5e-31. The Raman balance that §23.6 had identified as s was right and irrelevant.
+
+### 24.3 Change (scale only: any s > 0 is the same discrete solution, §22)
+`MGRad`: `mg_scales!` now has (i) `mg_sources!`: |cq + yq| (booked `CQB`, `YQB`), |RAYQ|, |GASQ| for the group MGQG and |MGLCO| for the coupled zones' line cooling into MGLG, per mass, added to 4π em; (ii) the time term in the denominator: κ_g + 1/(ρΔr) + 1/(cρΔt) (the zone's implicit one-step solution, the part of the balance that a step of length Δt can reach: at zie3 c κ ρ = 2e-7 s⁻¹ against 1/Δt = 6e-5 s⁻¹); (iii) `mg_advscale!`: the mass-flux inflow ṁ·(E/ρ)_up/m and the free-streaming bound c E_nb/(ρΔr) of the two neighbours, the neighbour's value √(E_old² + s²) (as the Raman partner), swept up and down the grid so that chains of zones are covered (the cascade 214 → 215 → 216 …: with the advection alone the next zone's step was 3.9e9 → 3e7, the time term and the transport bound bring it to O(1)). No clamp, floor or switch.
+Result at zie3 attempt 1 (`c3_f`): largest band step 3.9e9 (E_g3 z215) → 2 – 3 (all of E_g2/E_g3 O(1)); the E_g3 z214 and E_g2 z255 steps that were 8e11 and 3e5 are gone. **zie3 still does not run**, for a different reason, found with the probe:
+
+### 24.4 What remains at zie3: the trapezoid stage of TR-BDF2 and a partition that is 6 – 100 decades off equilibrium
+E_g4 zone 111 – 116 (`c3_g`): κ_E,g4 = 4.4e5 cm² g⁻¹ (neutral H), c κ ρ Δt = 1e11 ≫ 1, E_old = 2.6e-11 (the Planck fraction of the grey field at T_eff = 4831 K, `mg_init`), the group's balance s = 2.7e-17. The first stage is θ = 0.5: the discrete solution of the stiff absorption row is E_new = −E_old + 2E_eq ≈ −2.6e-11, i.e. **negative** and 1e6 above s. The unknown y = asinh(E/s) can represent it only as −asinh(…) → the requested δy grows 1.5× per iteration (−2, −2.65, −3.7 … −246 … −1.6e5 over 25 iterations, E_g4 zones 113 – 116, then 160 – 169) while the box (|δy| ≤ 4, radius 0.5 → λ = 0.125) lets E decay by e^{-0.5} per iteration. It is a property of the discrete system (the same row at an equilibrated start has E_new = E_old), not of the scale: **a grey restart needs an initial partition that is in local balance in the opaque zones** (E_g = balance value where the group's optical depth from the source ≫ 1, the Planck fraction of the grey T_eff only where it is thin), or a first stage with L-stable damping. That is physics of the restart, not a consistency bug: not changed here (brief: report first). Until then use MGROUPS from a checkpoint that carries group fields.
+
+### 24.5 Gates
+* NKCHECK=2, `S6_auto1`, grey (`k_g`): 3 rows > 1e-4, 2-norm 1.5e-10, z_H 1.5e-10, F_r 7.8e-4 (zone 101): **= mgxh**.
+* NKCHECK=2, MGROUPS=4 (`k_m`): rows > 1e-4: 259 (mgxh 70), 2-norm 4.5e-7 (1.8e-10): **not met as a match**: E_g3 zone 49 1.0e3 (AD +1.3e42, FD −3.5e45: the band row is ~0 there), z_H 2.5e-7, T 1.2e-6, x_H₂ 0.5 (zone 51); the other rows are mgxh's. Cause not verified: the larger s makes the FD perturbation (δy = 1e-5 in units of h ≈ s) a large fraction of E₀ ≪ s in the empty zones, where the rows are nonlinear in E (branch decisions of the limiter, the gas's star-light rates) — a finite-difference artefact of s/E₀, to be confirmed with ε/10 (not run).
+* zie1 window from `S6_auto1`, MGROUPS=4, 300 steps (`w_m`): 29 failures (mgxh 32, mgprod 43), Δt 7.2e-4 – 3.6e3 s, median 7.2e2 (1.2e3), 0.009 yr (0.011); linear solves 5012 (J_b reused 2555), matvecs 9402 (5142 / 2187 / 12600).
+* zie3 MG 40 steps (`c3_f`, `c3_g`): no step accepted (§24.4).
+Runs: `/zpool/nvme/data/tabel_scratch/titan_popiii/runs/t_mgz3` (`c3_a`…`c3_g`, `k_m`, `k_g`, `w_m`, `w_g`).
