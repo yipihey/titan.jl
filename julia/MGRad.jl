@@ -30,11 +30,14 @@ const MGQG = Ref(2)                             # the group that carries RAYQ/GA
 const MGH2G = Ref(0)                            # the LW group with the H₂ photon-conserving absorption (stage 2c; 0: none)
 const MGH2T = Ref(0)                            # the group that receives the H₂ fluorescence (the one below the LW group)
 const MGBFLOOR = 1e-200                         # floor of a group's Planck fraction (energy 1e-200 aT⁴: none; keeps ln E_g finite)
-const MGCLAMP = 3.0                             # clamp of a correction of ln E_g per Newton iteration
-const MGEMIN = 1e-150                           # floor of E_g/E_r after an update (an underflowed group makes the Newton matrix singular)
-const MGCFL = 1e-3                              # convergence weight floor: |δ ln E_g| counts with E_g/(E_g + MGCFL·E_r)
-const MGEFL = 1e-3                              # TR-BDF2 error-norm floor: changes of a group below MGEFL·E_r do not limit Δt
-# (the unknown is ln E_g: why, and what these five numbers do, docs/POPIII_MULTIGROUP.md §10, §19)
+const MGEFL = 1e-3                              # floor of the group fluxes' weight in the error/Newton norms: changes of F_g below MGEFL·|F_r| do not limit Δt (the weights of E_g need none: see MGES)
+const MGCUFL = 1e-60                            # [erg cm⁻² s⁻¹] the star-light closure's flux floor: c u_g below it is not seen by the zone's photo-rates and colour temperature (MGOpac)
+"""
+Reference scale of the group unknown: y_g = asinh(E_g/MGES), MGES = MGCUFL/c = 3.3e-71 erg cm⁻³, the energy density below which the star-light closure no longer sees E_g
+(its flux floor). A parametrisation, not a floor: E_g = 0 and small negative iterates are representable, the discrete equations and their solution are unchanged. Above MGES the unknown is
+ln E_g (the former unknown, to round-off); below it, linear: the column of an empty group is MGES·∂R/∂E, not 1e-150 E_r·∂R/∂E. docs/POPIII_MULTIGROUP.md §22.
+"""
+const MGES = MGCUFL / 2.99792458e10
 const MGTCMB = Ref(0.0)
 vvec(n, m) = [zeros(m) for _ in 1:n]
 const MGEN = Ref(Vector{Vector{Float64}}()); const MGFN = Ref(Vector{Vector{Float64}}())     # new level (Newton iterate base)
@@ -222,8 +225,8 @@ function mg_newstep!()
     for g in 1:MGN[]
         copyto!(MGEO[][g], MGEN[][g]); copyto!(MGFO[][g], MGFN[][g])
         E = MGEN[][g]; F = MGFN[][g]; nom = MGFNOM[][g]
-        @inbounds for k in ngrs-2:ngre+2
-            nom[k] = max(abs(F[k]), 1e-3 * gf(:cc) * 0.5 * (E[max(k-1, 1)] + E[k]), 1e-300)
+        @inbounds for k in ngrs-2:ngre+2          # F_g column scale c·√(E²+s²) (the flux bound c E_g, with the unknown's own scale), as the unknown E_g
+            nom[k] = max(abs(F[k]), 1e-3 * gf(:cc) * 0.5 * (hypot(E[max(k-1, 1)], MGES) + hypot(E[k], MGES)))
         end
     end
     mg_slopes!()
@@ -232,12 +235,17 @@ end
 "Reset after a failed iterate: new := old."
 mg_reset!() = (for g in 1:MGN[]; copyto!(MGEN[][g], MGEO[][g]); copyto!(MGFN[][g], MGFO[][g]); end;
                size(MGVO[]) == size(MGVN[]) && copyto!(MGVN[], MGVO[]); nothing)
-"Apply the Newton correction: E_g ← max(E_g e^δ, MGEMIN·E_r) (δ the correction of ln E_g, clamped to ±MGCLAMP in mg_dmax!), F_g ← F_g + δ·nom."
+"""
+The group energy density as a function of its unknown: y = asinh(E/s), E = s sinh y (s = `MGES`). The Newton
+iterate is the base and the unknown is the correction δ of y: E(δ) = s sinh(asinh(E₀/s) + δ) = E₀ cosh δ + √(E₀² + s²) sinh δ; dE/dδ = √(E² + s²)
+(= E for E ≫ s, the old ln E_g; = s for E ≪ s, a linear unknown). Exactly E₀ at δ = 0 (also E₀ = 0 and E₀ < 0).
+"""
+@inline mg_eofy(E0, s, δ) = E0 * cosh(δ) + hypot(E0, s) * sinh(δ)
+"Apply the Newton correction: E_g ← s sinh(asinh(E_g/s) + δ) (δ the correction of y_g), F_g ← F_g + δ·nom."
 function mg_update!(rhs, a, b)
-    er = v(:ern)
     @inbounds for g in 1:MGN[]
         E = MGEN[][g]; F = MGFN[][g]; nom = MGFNOM[][g]; iE = mgiE(g); iF = mgiF(g)
-        for k in a:b; E[k] = max(E[k] * exp(rhs[iE, k]), MGEMIN * er[k]); end
+        for k in a:b; E[k] = mg_eofy(E[k], MGES, rhs[iE, k]); end
         for k in a+1:b+1; F[k] += rhs[iF, k] * nom[k]; end
         mg_ghosts!(E, F, a, b)
     end
@@ -249,17 +257,15 @@ end
     F[a] = 0.0; F[a-1] = gi(:lribc) == 2 ? -F[a+1] : F[a-1]; F[b+2] = F[b+1]
     nothing
 end
-"maxdel: clamp ln E_g corrections to ±MGCLAMP and return the convergence measure (|δ ln E_g| weighted by E_g/(E_g + MGCFL·E_r))."
+"maxdel: the convergence measure is the largest |δ y_g| (the correction of the unknown itself: |δ ln E_g| for E_g ≫ MGES, |δE_g|/MGES below; no weight, no clamp)."
 function mg_dmax!(rhs, a, b)
-    d = 0.0; cl = MGCLAMP; er = v(:ern)
+    d = 0.0
     @inbounds for g in 1:MGN[]
-        E = MGEN[][g]; iE = mgiE(g)
+        iE = mgiE(g)
         for k in a:b
             δ = rhs[iE, k]
             isfinite(δ) || (rhs[iE, k] = 0.0; d = Inf; continue)
-            rhs[iE, k] = clamp(δ, -cl, cl)
-            w = E[k] / (E[k] + MGCFL * er[k])
-            d = max(d, abs(rhs[iE, k]) * w)
+            d = max(d, abs(δ))
         end
         for k in a:b+1; isfinite(rhs[mgiF(g), k]) || (rhs[mgiF(g), k] = 0.0; d = Inf); end
     end
@@ -301,7 +307,7 @@ function mg_iterate!(M::MGWS{T}, x, neqn, nb, k0, ngre) where {T}
         for k in k0:ngre+2; en[k] = E[k]; fn[k] = F[k]; end
         for bb in 1:nb
             k = k0 + bb - 1
-            en[k] = E[k] * exp(x[(bb-1)*neqn+iE]); fn[k] = F[k] + x[(bb-1)*neqn+iF] * nom[k]
+            en[k] = mg_eofy(E[k], MGES, x[(bb-1)*neqn+iE]); fn[k] = F[k] + x[(bb-1)*neqn+iF] * nom[k]
         end
     end
     nothing
