@@ -959,6 +959,25 @@ function tdc_dmax!(rhs, a, b)
     end
     d
 end
+"M3d (`TDCMIXGUESS`, default 1; 0 = the M3b initial guess without the mixing): the species' local initial guess contains the turbulent mixing of the rows (`tdc_mix_coef`)."
+const TDC_MIXGUESS = Ref(get(ENV, "TDCMIXGUESS", "1") != "0")
+"""
+M3d: coefficients of the turbulent species mixing of zones k (lower face) and k+1 (upper face) for the LOCAL initial guess of the species (`PopIIIMaterial.cpl_local!`): the rows of the species
+(coupled zones) carry + F_{k+1} − F_k, F_j = −c_j (x_j − x_{j−1}), c_j = rmu_j ρ̄_j D_j/Δr_c,j, D_j = α_D ℓ_j w_j (`_tdc!`); the guess solves the same rows for the zone's own x with the neighbours' x held, so it
+must contain the same term. c_j = 0 at and outside the domain's boundaries; w the iterate WTN, ℓ, r, rmu of the last residual evaluation (only the start of the Newton iteration, which the converged
+solution does not depend on), ρ the predicted one `dn`. Without TDC or with α_D = 0: (0, 0).
+"""
+function tdc_mix_coef(k, dn)
+    (TDC_ON[] && TDC_MIXGUESS[] && TDCP[].α_D != 0) || return (0.0, 0.0)
+    ws = get(WSCACHE, Float64, nothing); ws === nothing && return (0.0, 0.0)
+    W = ws.a; ngrs = gi(:ngrs); ngre = gi(:ngre); w = WTN[]
+    function c(j)
+        (j <= ngrs || j > ngre || j > length(w)) && return 0.0
+        den = 0.5 * (W.r[j+1] - W.r[j-1]); v = W.rmu[j] * 0.5 * (dn[j-1] + dn[j]) * TDCP[].α_D * W.tell[j] * w[j] / den
+        (den > 0 && isfinite(v)) ? v : 0.0
+    end
+    (c(k), c(k + 1))
+end
 "The w weight of NewtonKrylov's GMRES norm (as tdc_dmax!)."
 tdc_weight(k, a, b) = (unom = TF.var(:unom); asn = TF.var(:asn); unom[k] / max(abs(WTN[][k]), TDC_WFLOOR[] * max(asn[max(k - 1, a)], asn[min(k, b)])))
 

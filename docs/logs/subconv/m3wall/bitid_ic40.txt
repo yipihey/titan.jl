@@ -1,0 +1,3 @@
+# IC, zie1 settings, TDC unset, MAXSTEPS=40 SNAPEVERY=5: HEAD 00326c0 (A) against 00326c0 + M3d fix (B); branch TitanCore in both (scripts: m3wall bitid72.sh copy of bitid.sh on cores 72-79)
+snapshots compared: 10 (steps 1,2,5,10,15,20,25,30,35,40); fields compared: 300; fields with differences: 0; extra fields in B: 
+BIT-IDENTICAL

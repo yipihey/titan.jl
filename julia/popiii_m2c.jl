@@ -2011,7 +2011,8 @@ try
         TX.TDCP[] = TX.TDC.TDCPar(; A_s = tp_[1], A_d = tp_[2], A_c = tp_[3], α_p = tp_[4], α_t = tp_[5], α_D = tp_[6], α_m = tp_[7])
         TX.TDC_CEN[] = parse(Float64, get(ENV, "TDCCEN", "0")); atexit(() -> println(TX.buoy_summary()))
         let h0 = TC.CPLH[]
-            TC.CPLH[] = (; newstep = () -> (h0.newstep(); TX.tdc_newstep!()), reset = () -> (h0.reset(); TX.tdc_reset!()),
+            TC.CPLH[] = (; newstep = () -> (TX.tdc_newstep!(); h0.newstep()), reset = () -> (TX.tdc_reset!(); h0.reset()),     # (M3d: w first, the species' local initial guess uses it)
+                         
                          update = (rhs, a_, b_) -> (h0.update(rhs, a_, b_); TX.tdc_update!(rhs, a_, b_)),
                          dmax = (rhs, a_, b_) -> max(h0.dmax(rhs, a_, b_), TX.tdc_dmax!(rhs, a_, b_)))
         end

@@ -1,0 +1,24 @@
+# variants at probe dt 3e4 (stage 1.76e4), one process, TDCVARS order below (iterations, 26 = failed)
+TDCVARS: none | aD0 | ap0 | noQ | at0 | ap0,aD0,noQ | ap0,aD0,noQ,wfrz | mltFc | mltFc,ap0,aD0,noQ | noFc,ap0,aD0,noQ | aD0,wfrz
+NWPROBE variant 1: none
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged false, iterations 26, final dmax 3.933e-01, 378.1 s
+NWPROBE variant 2: aD0
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged true, iterations 5, final dmax 1.595e-06, 5.1 s
+NWPROBE variant 3: ap0
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged false, iterations 26, final dmax 3.926e-01, 22.2 s
+NWPROBE variant 4: noQ
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged false, iterations 26, final dmax 3.932e-01, 22.2 s
+NWPROBE variant 5: at0
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged false, iterations 26, final dmax 3.933e-01, 22.2 s
+NWPROBE variant 6: ap0,aD0,noQ
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged true, iterations 5, final dmax 1.285e-06, 5.0 s
+NWPROBE variant 7: ap0,aD0,noQ,wfrz
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged true, iterations 5, final dmax 1.272e-06, 5.1 s
+NWPROBE variant 8: mltFc
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged false, iterations 26, final dmax 3.860e-01, 22.2 s
+NWPROBE variant 9: mltFc,ap0,aD0,noQ
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged true, iterations 5, final dmax 1.188e-06, 5.0 s
+NWPROBE variant 10: noFc,ap0,aD0,noQ
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged true, iterations 5, final dmax 4.516e-07, 4.8 s
+NWPROBE variant 11: aD0,wfrz
+NWPROBE step dt 3.0000e+04 (TR stage 1.7574e+04): converged true, iterations 5, final dmax 1.443e-06, 5.0 s

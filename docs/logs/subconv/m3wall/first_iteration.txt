@@ -1,0 +1,13 @@
+# First Newton iteration (linear solve) of the first probe attempt: |delta0|_W = weighted norm of the Newton correction, largest weighted entry (eq@zone:value(weight)), global step fraction lambda
+== pf_off att 1: TDC unset (production MLT), probe dt 3e4
+NKR att 1 it 1 k 2 true rel 4.5598e-8 d0 2.700 d 2.610  largest weighted delta0 7@73:6.55(w 0.16) largest weighted delta 7@73:6.31(w 0.16) glob lambda 0.491318 radius 0.5
+NWT att 1 it 1 dmax 0.21748061393642287 | 1:1.52e-17@42 2:-8.564e-7@39 3:0.0002223@36 4:0.001717@34 5:0.007445@37 6:0.08897@40 7:11.71@84 8:0.2534@38 9:-0.1173@37
+== pf_tdc att 1: TDC=1, probe dt 3e4
+NKR att 1 it 1 k 2 true rel 1.6217e-7 d0 135.6 d 131.8  largest weighted delta0 8@37:143(w 0.24) largest weighted delta 6@39:27.7(w 1) glob lambda 0.0189098 radius 0.5
+NWT att 1 it 1 dmax 0.5243137004560494 | 1:-1.094e-16@49 2:-3.395e-8@38 3:8.678e-6@36 4:4.237e-5@38 5:0.03374@37 6:0.5243@39 7:-19.28@85 8:0.07564@37 9:-0.07564@37 10:-0.0005204@33
+== v1 att 2: TDC=1 alpha_D=0 (variant aD0), probe dt 3e4
+NKR att 2 it 1 k 2 true rel 4.6436e-8 d0 2.721 d 2.629  largest weighted delta0 7@73:6.55(w 0.16) largest weighted delta 7@73:6.31(w 0.16) glob lambda 0.491737 radius 0.5
+NWT att 2 it 1 dmax 0.2234284746885384 | 1:-8.917e-18@49 2:-8.572e-7@39 3:0.0002249@36 4:-0.0009522@15 5:0.008682@37 6:0.09445@40 7:11.68@84 8:0.2644@38 9:-0.1368@37 10:-0.01353@33
+== v3 att 2: TDC=1 with the M3d initial guess, probe dt 6e4
+NKR att 2 it 1 k 2 true rel 0.0028 d0 0.017 d 0.017  largest weighted delta0 10@34:-0.039(w 0.31) largest weighted delta 10@34:-0.039(w 0.31) glob lambda 1 radius 0.5
+NWT att 2 it 1 dmax 0.012041734459570422 | 1:-2.693e-19@33 2:-3.486e-6@39 3:0.0009144@36 4:-0.003384@17 5:0.0001461@34 6:0.00272@71 7:-0.4446@101 8:-0.01288@38 9:-0.002892@34 10:-0.05568@33

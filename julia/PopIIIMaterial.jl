@@ -2210,10 +2210,12 @@ function cpl_local!(m::NetGas, k, dt)
     ρ = dn[k]; T = tn[k]; mk = ρ * dvn[k]; mo = do_[k] * dvo[k]
     xo = (TX.XSO[][1][k], TX.XSO[][2][k]); xu = (TX.XSN[][1][k+1], TX.XSN[][2][k+1]); xd = (TX.XSN[][1][k-1], TX.XSN[][2][k-1])
     fo = dmdt[k+1]; fi = dmdt[k]                 # mass flux terms of the row: −ṁ_{k+1} x_b(k+1) + ṁ_k x_b(k); fle = −ṁ ≥ 0: outward
+    cl, cu = TX.tdc_mix_coef(k, dn)              # M3d: the turbulent mixing terms of the rows (TDC): + (c_k + c_k+1) x − c_k+1 x_{k+1} − c_k x_{k−1}; (0, 0) without TDC
     function R(z)
         x1 = exp(z[1]); x2 = exp(z[2]); S_ = cpl_g(m, k, [ρ + zero(x1), T + zero(x1), x1, x2])
         xs = (x1, x2)
-        ntuple(i -> (mk * xs[i] - mo * xo[i]) / dt - mk * S_[2+i] - fo * (-fo >= 0 ? xs[i] : xu[i]) + fi * (-fi >= 0 ? xd[i] : xs[i]), 2)
+        ntuple(i -> (mk * xs[i] - mo * xo[i]) / dt - mk * S_[2+i] - fo * (-fo >= 0 ? xs[i] : xu[i]) + fi * (-fi >= 0 ? xd[i] : xs[i]) +
+                    ((cl == 0 && cu == 0) ? 0.0 : (cu + cl) * xs[i] - cu * xu[i] - cl * xd[i]), 2)
     end
     z = [log(max(TX.XSN[][1][k], 1e-40)), log(max(TX.XSN[][2][k], 1e-40))]
     for it in 1:12
