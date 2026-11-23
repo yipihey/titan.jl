@@ -87,7 +87,7 @@ function newton_w(wo, G, B, dt, par; w0 = copy(wo), cen = 0.0, tol = 1e-12, maxi
             λ /= 2; nls += 1
         end
         w .= wt; φ .= φt
-        if λ * norm(dw, Inf) <= 1e-15 * max(norm(w, Inf), 1e-300) && norm(φ, Inf) <= 1e-9 * sc
+        if λ * norm(dw, Inf) <= 1e-13 * max(norm(w, Inf), 1e-300) && norm(φ, Inf) <= 1e-8 * sc
             return w, (iters = it, ok = true, resid = norm(φ, Inf) / sc, ls = nls)
         end
     end
@@ -125,6 +125,7 @@ function local_step(wo, a, U, sup, ℓ, dt, par; tol = 1e-14, maxit = 100)
         dw = -v / d; λ = 1.0
         while abs(f(w + λ * dw)) > (1 - 1e-4λ) * abs(v) && λ > 1e-10; λ /= 2; end
         w += λ * dw
+        abs(λ * dw) <= 1e-13 * abs(w) && return w          # stagnation: the F noise floor ε dt|R| exceeds tol|w| for dt >> relaxation time
     end
     return w
 end

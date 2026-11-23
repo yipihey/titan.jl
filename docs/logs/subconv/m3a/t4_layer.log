@@ -30,6 +30,7 @@ PASS T8 energy budget closes during the transient, U=0.7  max |Σ Q Δt − ΔΣ
 (iii) overshoot into the stable layer above the unstable layer (sup_u = 1)
     analytic (steady, U=0, plane, A=1): w'² = |s| a²/(2 α ℓ²) + w²/(3 α ℓ²)  =>  distance from w_e to 0:  Δ0 = ℓ√(3α) asinh(w_e/(a√(3|s|/2))),
     to w_e/e:  Δe = ℓ√(3α)[asinh(w_e/q) − asinh(w_e/(e q))], q = a√(3|s|/2);  compact support (w reaches 0 at finite distance, slope a√(|s|/2α)/ℓ)
+    estimate (balance of diffusion with the buoyancy damping a²|s|/ℓ): Δ ≈ ℓ√(2α_t) w_e/(a√|s|) for w_e ≪ q (small |s|…moderate), saturating at ℓ√(3α_t) for w_e ≫ q
     measured from the last unstable interface (w_e = its value); grid h = 0.05
     α_t   |s|    w_e/w_s   Δe num     Δe an      Δ0 num     Δ0 an      relerr Δe 
     0     0.1    1.0000    0.0316     0.0000     0.0000     0.0000     0.000
@@ -48,11 +49,11 @@ PASS T8 energy budget closes during the transient, U=0.7  max |Σ Q Δt − ΔΣ
     1     10     0.4765    0.1394     0.1342     0.1500     0.2126     0.039
     3     10     0.4504    0.2198     0.2198     0.3000     0.3481     0.000
 PASS overshoot distance within 15% of the analytic profile; no Newton failure  
-    |s| = 0.1  : Δe ∝ α_t^0.495 over α_t = 0.1..3 (asymptotic estimate for large w_e/q: 1/2)
-    |s| = 1    : Δe ∝ α_t^0.480 over α_t = 0.1..3 (asymptotic estimate for large w_e/q: 1/2)
-    |s| = 10   : Δe ∝ α_t^0.444 over α_t = 0.1..3 (asymptotic estimate for large w_e/q: 1/2)
-    α_t = 0.1 : Δe ∝ |s|^-0.464 over |s| = 0.1..10 (estimate for w_e ≫ q: ~0 (λ-limited), for w_e ≪ q: -1/2)
-    α_t = 1   : Δe ∝ |s|^-0.486 over |s| = 0.1..10 (estimate for w_e ≫ q: ~0 (λ-limited), for w_e ≪ q: -1/2)
+    |s| = 0.1  : Δe ∝ α_t^0.495 over α_t = 0.1..3 (analytic: ∝ α_t^(1/2) in both limits)
+    |s| = 1    : Δe ∝ α_t^0.480 over α_t = 0.1..3 (analytic: ∝ α_t^(1/2) in both limits)
+    |s| = 10   : Δe ∝ α_t^0.444 over α_t = 0.1..3 (analytic: ∝ α_t^(1/2) in both limits)
+    α_t = 0.1 : Δe ∝ |s|^-0.464 over |s| = 0.1..10 (analytic: w_e ≪ q = a√(1.5|s|): ∝ |s|^(-1/2) (damping–diffusion balance); w_e ≫ q: → λ(1−…) independent of |s|)
+    α_t = 1   : Δe ∝ |s|^-0.486 over |s| = 0.1..10 (analytic: w_e ≪ q = a√(1.5|s|): ∝ |s|^(-1/2) (damping–diffusion balance); w_e ≫ q: → λ(1−…) independent of |s|)
 
 (iv) spherical geometry (μ = 2) with the layer at R = 1000 ℓ: overshoot must reproduce the plane result
     max |w_sph − w_plane| = 2.37e-04 (curvature ~ h/R = 5e-5 .. ℓ/R = 1e-3); Newton fail 0/0

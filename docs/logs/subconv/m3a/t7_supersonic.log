@@ -27,5 +27,5 @@ T7: supersonic inflow through an unstable profile (sup = 1 everywhere, w_s = a�
     100    3      0     CFL nz   | 2.96911e-02  2.99910e-02  2.96911e-02  2.99910e-02  | 6, 0
     100    3      0.1   CFL 5    | 2.96914e-02  2.99910e-02  2.96914e-02  2.99910e-02  | 6, 0
     100    3      0.1   CFL nz   | 2.96914e-02  2.99910e-02  2.96914e-02  2.99910e-02  | 6, 0
-PASS w stays ≪ w_s (< tanh(w_s Ld/(uℓ)) estimate, max 0.1·w_s... see table), F_c/F_MLT = O(w/w_s), no Newton failure  
+PASS w <= w_s tanh(w_s Ld/(u ℓ)) (≪ w_s for u ≫ w_s Ld/ℓ), F_c/F_MLT <= same, no gate needed, no Newton failure  
 T7 failures: 0
