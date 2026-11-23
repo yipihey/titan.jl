@@ -327,6 +327,15 @@ zones evaluated at the Newton iterate with derivatives (`PopIIIMaterial.conv_the
 old one [test: bit-identity logs in docs/logs/subconv/m2/]. Removal plan: when M4 accepts it, it becomes the only MLT path (until the TDC of M3 replaces the MLT block);
 then delete the 1e30 placeholder in `material_thermo`, `COLDMLT` (+ `cold_thermo`) and `MLT_HS` (+ its blend, `ForwardDiff.value` weight) and this switch.
 
+**`TDC` (provisional, added 22 Nov 2026 on `popiii-subconv` for M3b, off by default; `TitanResidFast.TDC_ON`, `TDCPAR`, `TDCCEN`).** Time-dependent convection: the turbulent
+velocity w on the interfaces is the last Newton unknown (neqn + 1, only with `COUPLED=1`, `HOT=1`, `TITAN_NOLIB=1`, `DTSCHEME=trbdf2`), with the Fischer–Burmeister row of
+`TDC.tdc_rows!`, the enthalpy flux F_c in the gas-energy row (replacing the MLT flux), the realised exchange Q (gas ↔ turbulent energy), the turbulent pressure P_t in the momentum
+row and the turbulent mixing D = α_D ℓ w in the species rows 8, 9 (docs/POPIII_CONVECTION.md D2, M3a, M3b). Everything at the Newton iterate with derivatives; no gate, clamp or threshold
+(no τ weight, no `MLT_NOINFALL`, no `MLT_HS`, no 1e30 placeholder; the Dual thermodynamics are used only where a row or flux can depend on them, exactly). `TDCPAR=A_s,A_d,A_c,α_p,α_t,α_D,α_m`
+(default 1,1,1,1,0.01,1,0; α_m must be 0: not implemented). Off: `neqn`, the residual and the Newton system are unchanged [test: bit-identity logs in docs/logs/subconv/m3b/].
+Removal plan: once M4 accepts it, TDC becomes the convection path: delete the MLT block of `residual!`, `MLT_HS` (+ blend), `MLT_NOINFALL`, `COLDMLT` (+ `cold_thermo`), the 1e30 placeholder of
+`material_thermo`, `MLTBUOY` and its separate MLT path (its `buoy_blob`/`_buoy_zone` stay, they are the TDC source), `TAU_MLT` and `convcoef`'s τ weights; then the switch itself (w is always an unknown).
+
 ## 14. Switches outside the production path (120; test, benchmark and old-stage scripts)
 
 These are not read by `popiii_m2c.jl` or its includes. They have no bearing on the production run. Listed for completeness, by file.

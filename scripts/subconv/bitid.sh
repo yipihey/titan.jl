@@ -3,7 +3,7 @@
 # Usage: bitid.sh <name> <MAXSTEPS> [extra env words ...]     (extra e.g. CONVDIAG=1  or  RESTART=rp_k650 SAVE=x)
 # Output in $T/<name>; code from the worktree this script lives in. Pinned to 8 cores (80-87), 8 threads.
 set -u
-DATA=/zpool/nvme/data/tabel_scratch/titan_popiii; T=$DATA/subconv/tests; N=$1; MAX=$2; shift 2
+DATA=/zpool/nvme/data/tabel_scratch/titan_popiii; T=${BITT:-$DATA/subconv/tests}; N=$1; MAX=$2; shift 2
 WT=$(cd "$(dirname "$0")/../.." && pwd); R=$T/$N; mkdir -p $R/ck
 [ -f $R/eqeos_he_xe.jls ] || cp $DATA/runs/zie1/eqeos_he_xe.jls $R/
 RUNENV="$(cat $DATA/runs/zie1/run.env | sed 's/SNAPEVERY=50/SNAPEVERY=5/g')"
