@@ -563,7 +563,7 @@ Two checkpoints written from the M3b replay (`SAVE=… CKDUMP=…`, TDC, rp_k115
 - [open] `NITER=100/300` did not change the 26-iteration cap in these restarts (`hN1`, `hN2`): the iteration cap that the trace shows is not set by `NITER`; whether a larger cap would let the trust-region path converge was not tested.
 - [open] Why the TDC photosphere does not cycle (F_c carrying the flux up to τ ≈ 10 with a steady surface) was not investigated; B1 (MLTBUOY=1, τ weight, MLT_NOINFALL) ran the same restart without collapse and may differ exactly here.
 
-## M3d — The TDC Newton wall: the species' local initial guess omitted the turbulent mixing (23 Nov 2026; `TDCMIXGUESS`, default on inside `TDC=1`)
+## M3d — The TDC Newton wall: the species' local initial guess omitted the turbulent mixing (23 Nov 2026; unconditional inside `TDC=1`, the switch `TDCMIXGUESS` was removed)
 
 Labels: [run] [test] [read] [derivation] [interpretation] [open]. Logs `docs/logs/subconv/m3wall/`; scripts `scripts/subconv/m3wall_*` (`m3wall_run.sh` restart from a checkpoint with `NWTRACE`, `m3wall_variants.sh` one process, one variant per probe,
 `m3wall_att.py`, `m3wall_attshow.sh`, `m3wall_dtnwt.py` trace readers). Code of the tests: scratch worktrees of the branch (TitanCore.jl of aace2a0, never committed); DEBUG knobs in `debug_knobs.patch` only (removed again).

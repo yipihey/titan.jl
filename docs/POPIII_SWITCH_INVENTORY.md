@@ -336,10 +336,7 @@ row and the turbulent mixing D = α_D ℓ w in the species rows 8, 9 (docs/POPII
 Removal plan: once M4 accepts it, TDC becomes the convection path: delete the MLT block of `residual!`, `MLT_HS` (+ blend), `MLT_NOINFALL`, `COLDMLT` (+ `cold_thermo`), the 1e30 placeholder of
 `material_thermo`, `MLTBUOY` and its separate MLT path (its `buoy_blob`/`_buoy_zone` stay, they are the TDC source), `TAU_MLT` and `convcoef`'s τ weights; then the switch itself (w is always an unknown).
 
-**`TDCMIXGUESS` (provisional, added 23 Nov 2026 for M3d; `TitanResidFast.TDC_MIXGUESS`; only read with `TDC=1`; default 1).** The coupled species' local initial guess (`PopIIIMaterial.cpl_local!`, Newton's start) contains the
-turbulent mixing term of the species rows 8, 9 (`TitanResidFast.tdc_mix_coef`), i.e. it solves the same rows as the residual; 0 = the M3b guess (advection + chemistry only). It changes only where the Newton iteration starts, not the
-rows, the Jacobian or the converged solution. The switch is on by default inside the (itself default-off) TDC path because without it the TDC path has the Newton wall of docs/POPIII_CONVECTION.md M3d; with `TDC` unset the code is
-bit-identical to the commit before [test: docs/logs/subconv/m3wall/bitid_ic40.txt]. Removal plan: delete the switch together with `TDC` (the guess then always has the mixing).
+**`TDCMIXGUESS` (deleted 23 Nov 2026).** The M3d species initial guess with the turbulent mixing is now unconditional inside `TDC=1`; the M3b guess without it was inconsistent with the residual and is deleted.
 
 ## 14. Switches outside the production path (120; test, benchmark and old-stage scripts)
 
