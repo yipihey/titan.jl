@@ -10,7 +10,7 @@ R=$T/$C; mkdir -p $R/ck; log() { echo "$(date '+%F %T') $*" >> $R/procedure.log;
 [ -f $R/eqeos_he_xe.jls ] || cp $DATA/runs/zie1/eqeos_he_xe.jls $R/
 for e in aux tstate.gz; do [ -f $R/ck/m2c_$START.$e ] || cp $DATA/subconv/runs/zie1rp/ck/m2c_$START.$e $R/ck/; done
 RUNENV="$(cat $DATA/runs/zie1/run.env)"
-n=$(grep -c 'segment done' $R/procedure.log 2>/dev/null); ck=$START; [ "$n" -gt 0 ] && ck=$(grep 'segment done' $R/procedure.log | tail -1 | awk '{print $5}')
+n=$(grep -c "segment done" $R/procedure.log 2>/dev/null); n=${n:-0}; ck=$START; [ "$n" -gt 0 ] && ck=$(grep 'segment done' $R/procedure.log | tail -1 | awk '{print $5}')
 log "lane start: case $C from $ck, code $(git -C $WT rev-parse --short HEAD) (+TitanCore aace2a0), cores $PINC, env: $*"
 cd $WT/julia
 while [ $n -lt $NSEGMAX ]; do
