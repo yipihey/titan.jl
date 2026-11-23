@@ -512,7 +512,7 @@ function convdiag_snap(k, snap)
     if TX.TDC_ON[]       # integrated turbulent energy E_t = Σ m_k w_k² [erg] (interface CV masses) and P_t/P at the post-shock zone (the zone inside R*; the max over the three zones inside R*)
         w0 = [isnan(q) ? 0.0 : q for q in d[:tdc_w]]; mz = diff(m_); mk = [0.5 * ((j > 1 ? mz[j-1] : 0.0) + (j <= n ? mz[j] : 0.0)) for j in 1:n+1]
         ptp = d[:tdc_PtP]; jz = js === nothing ? 0 : js - 1
-        d[:tdc_scal] = [sum(mk .* w0 .^ 2), jz >= 1 ? ptp[jz] : NaN, jz >= 1 ? maximum(filter(!isnan, ptp[max(1, jz-2):jz]); init = NaN) : NaN]
+        d[:tdc_scal] = [sum(mk .* w0 .^ 2), jz >= 1 ? ptp[jz] : NaN, jz >= 1 ? maximum(filter(!isnan, ptp[max(1, jz-2):jz]); init = -Inf) : NaN]
     end
     d[:layer] = lay; d[:branch] = br; d[:mach] = mach; d[:mu] = mu; d[:t_chem] = tch
     NamedTuple{Tuple(sort(collect(keys(d))))}(Tuple(d[nm] for nm in sort(collect(keys(d)))))
