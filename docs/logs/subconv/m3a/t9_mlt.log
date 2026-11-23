@@ -1,0 +1,16 @@
+T9: steady local MLT limit (A_s=A_d=A_c=1)
+PASS local root == a*zeta, 525 cases (U 1e-3..1e3, sup 1e-8..1e2)  max rel err 4.08e-16
+PASS F_c(a zeta) == KW MLT flux (direct form), 104 cases with U²/sup<=1e3  max rel err 3.28e-13
+PASS F_c direct form within the cancellation bound eps*16U²/sup, all 240 cases  max err/bound 8.18e-02
+PASS F_c steady-root form == KW MLT flux, all 240 cases  max rel err 6.94e-16; max |R_loc|ℓ/(a²sup) 4.9e-16
+PASS harness long-time U=0.001 sup=0.3 seed=0.001 wref  steps 22  max rel err 2.63e-13  maxNewton 6
+PASS harness long-time U=0.001 sup=0.3 seed=4 wref  steps 23  max rel err 1.29e-13  maxNewton 6
+PASS harness long-time U=1 sup=0.05 seed=0.001 wref  steps 22  max rel err 2.28e-13  maxNewton 6
+PASS harness long-time U=1 sup=0.05 seed=4 wref  steps 23  max rel err 1.69e-13  maxNewton 6
+PASS harness long-time U=30 sup=0.001 seed=0.001 wref  steps 22  max rel err 2.27e-13  maxNewton 6
+PASS harness long-time U=30 sup=0.001 seed=4 wref  steps 23  max rel err 1.71e-13  maxNewton 6
+PASS harness long-time U=1000 sup=0.01 seed=0.001 wref  steps 22  max rel err 2.27e-13  maxNewton 6
+PASS harness long-time U=1000 sup=0.01 seed=4 wref  steps 23  max rel err 1.70e-13  maxNewton 6
+PASS harness long-time U=0.1 sup=5 seed=0.001 wref  steps 22  max rel err 2.61e-13  maxNewton 6
+PASS harness long-time U=0.1 sup=5 seed=4 wref  steps 23  max rel err 1.31e-13  maxNewton 6
+T9 failures: 0
