@@ -523,3 +523,42 @@ State: the replay from rp_k115 with TDC; at step 154 (R* = 10 R☉, the whole 0.
 6. Not implemented: α_m; species mixing of the non-coupled network species and of the hot-core `mix!` by D_mix; PEXT; DTSCHEME ≠ trbdf2; bit-identity of a *restart* with TDC unset against the commit before.
 7. Rezoning/RAD rebuild reset w to 0 (never exercised: REZONE = 0).
 8. The k2395 supersonic hot inflow (M = 4.3) is unstable in the buoyancy sense (sup = 0.014) with U = 4: w = 1.7×10⁴ (1.3 % of w_s) there, F_c ≤ 10⁻⁶ F_tot: harmless here, the physical suppression (Henyey thin-blob correction, M3a open item) is still missing.
+
+## M3c — The k115 Newton failure is not in the TDC rows (23 Nov 2026; no solver change)
+
+Labels: [run] [test] [read] [interpretation] [open]. Logs `docs/logs/subconv/m3dbg/` (`attempts.txt`: every Newton attempt of every run below; `interfaces_fA.trace.gz`: per-interface w, sup, F_c, D_mix, eqfail for each Float64 residual evaluation of the failing step; `nkscan_vscan_att3.txt`: NKSCAN of the first failing attempt; `debug_knobs.patch`: the temporary DEBUG knobs, removed again). Scripts `scripts/subconv/m3dbgrun.sh` (restart from a checkpoint, scratch worktree with TitanCore.jl of aace2a0), `m3dbgsync.sh`, `m3dbgsummary.sh`. Branch code at d891b47 for all runs.
+
+### M3c.1 Method [run]
+
+Two checkpoints written from the M3b replay (`SAVE=… CKDUMP=…`, TDC, rp_k115): `m3d_k154` (the state before step 154, the M3b failure) and `m3e_k140` (before step 140). All variants restart from the *same* state and compare the Newton attempts of the same step (the controller's dt sequence is identical until the first difference). The full TDC run is reproduced exactly (`fA`, `hA`: step 154 fails at dt 1.56e4, 3.9e3, 9.7e2, 2.4e2, 61 s with 26 iterations each, converges at 15 s; the original `tdc115_100` and `dbg_v0` sequences).
+
+### M3c.2 Hypotheses H1–H5 against the fixed state [run; `attempts.txt`]
+
+| test (state before step 154, 1 step) | result at dt = 1.56e4 … 61 s | 
+|---|---|
+| reference (`fA`) | 26-iteration failure at all five dt |
+| **H1** interfaces switching between table-available and unavailable | not seen in any of 151 residual evaluations of the step: `eqfail` occurs only at interfaces 86–100 (ρ < 1e-20), where w = 0, sup < 0 and no row or flux depends on it, and no interface changes state between iterates [`interfaces_fA.trace.gz`] |
+| **H2** production τ weight on F_c (earlier-trajectory run `vtau`, from dbg_k153) | same failures (the layer is optically thick, weight 1 where F_c ≠ 0) |
+| **H3** the centre: F_c off on interfaces 2–25 (`vE1`, trajectory) | same failures. At the failing state the Newton corrections are not at the centre: weighted b is dominated by E_r, F_r of zones 31–37 (`nkscan_vscan_att3.txt`: 6@32 −175, 6@31 +116, 7@33 −78, then decaying outward); the M3b reading "w, u at interface 2" was the largest *raw* entries of tiny rows |
+| **H4** F_c off at interface 29 (`fC`) or at 30…100 (`fD`) | identical iteration counts (26 ×5, then 13, 6) |
+| H4 D_mix off (α_D = 0, `fB`) | identical failures (converges at 15 s in 20 instead of 13 iterations) |
+| H4 all couplings off: no F_c, no Q, α_p = α_D = 0 (`fG2`) | identical failures |
+| **TDC unset** (`fG1`: restart without TDC, production MLT, neqn 9) | **identical failures, identical iteration counts (26 ×5, then 13, 6)** |
+| the same at the onset of the dt collapse, state before step 140 (`hA` TDC, `hG1` TDC unset) | both: step 141 fails at 1.8e5, 4.6e4, 1.1e4 s, converges at 2.9e3 s (11 iterations): identical |
+
+[interpretation] **None of the TDC rows or couplings (F_c, Q, P_t, D_mix, the w rows themselves) is the cause of the failure at the state, at step 154 or at its onset, step 141.** The earlier ablations that appeared to cure it (`vAc0`, `vE2`, `vE4`–`vE6`: F_c off in part of the layer, started from dbg_k153) change the trajectory from step 153 on (the controller then starts step 154 at dt 3.2e3 against 1.56e4 and with a different state) and do not test the state; the fixed-state runs above do. The "α_D = 0 moves it to step 153" of M3b.4 is the same trajectory effect.
+
+### M3c.3 Where it fails [run, NWTRACE/NKSCAN; interpretation]
+
+- The Krylov solve is accurate (rel. residual ≤ 5e-3, 1–2 products; NKCHECK ≤ 5e-6 for the TDC rows in M3b). The Newton direction is the problem: the first correction at dt = 1.56e4 s is 253 in the weighted norm (E_r of zones 31–32 changes by ~5× their value, with sign alternation E_r +, −, − … and F_r alternating in zones 32–36) and the radius-0.5 global step is λ ≈ 0.003–0.01. The line scan along the step: T/T0 = 0.67 at λ = 1/256 and an explosion (T/T0 = 1.5e4) at λ = 1/128 where E_r(32) would become non-positive. The iteration walks along a trust-region-limited path of the radiation block and does not converge in 25 iterations. The initial weighted correction scales as dt^1.7 → dt^0.25 (0.75, 8.6, 31, 76, 160, 253 for dt = 15, 61, 2.4e2, 9.7e2, 3.9e3, 1.56e4 s).
+- **The closure.** With the Eddington factor f held during the Newton solve (`NWFREEZE=f`, diagnostic of docs/POPIII_NEWTON_KRYLOV.md; `hF2`; all closure quantities `hF1`) step 141 converges at dt = 4.6e4 s in 18–19 iterations and at 2.3e4 in 18–19 (unfrozen: needs 2.9e3 s). So the nonlinear dependence of f (the formal solution at the iterate; non-local, with the branch decisions `lim`, `sgn` of the limiter flipping along the step) on a photosphere that is a one-zone cliff is what the globalised Newton cannot cross. That is the *known* radiation-closure Newton wall of docs/POPIII_NEWTON_KRYLOV.md §1 (the wall that made the Krylov solve necessary), not a convection effect.
+- **The state.** From step 141 (`tdc115_100` snapshots) the TDC run sits at a photosphere (first zone with κ < 1e-2) fixed at zone 30 with E_r(29)/E_r(30) = 60–98 and T(29) = 8.7–10 kK → T(30) = 3.05–3.17 kK, opacity 19–70 → 1.3e-4–2.3e-4 cm² g⁻¹, F_c/F_tot = 0.9–0.97 at the interface below; the baseline has the same size of cliff but it moves outward (jp 29 → 35, R* growth) and cycles (E_r ratio 6 ↔ 125, step 120–215). The TDC photosphere does not move for 75 steps (the dt is 10³–10⁴ times smaller) so the cliff stays at the ratio where f is stiff. At steps 153–155 the radiation flux in zones 30–36 rings (F_r = +1.15e9, −1.26e9, +5.7e9, −1.8e8, −1.8e8, +3.1e8 at step 155 against a smooth 1.0–2.3e9 at steps 145, 150, 205): an odd-even mode of the closure that the large steps cannot damp.
+- The baseline fails in the same way on this cycle (steps 132, 141, 143, 157 at dt 1e6, 1e6, 4e5, 1e6) and recovers after one factor-3–4 reduction; the TDC state needs 60× (141) and then 10⁴× (154).
+
+### M3c.4 Conclusion and what was not done [interpretation; open]
+
+- The cause of the k115 collapse is **not** in the TDC rows (H1–H5 refuted at the fixed state; TDC-unset restart reproduces it to the iteration), but in the **radiation-closure Newton wall at the one-zone photosphere**, reached because the TDC star does not do the baseline's photosphere cycle (the cliff stays at zone 30 where f is stiff). TDC influences the *state* through F_c = 0.9–1 F_tot below the photosphere; its rows are not part of the failing block.
+- **No solver change was made, nothing to verify against bit-identity or the k290/k650 pilots** (the branch is at d891b47 + docs). The DEBUG knobs (`TDCDBG=log,tau,noFc,noFcR,noQ`, per-interface trace) are in `debug_knobs.patch` only.
+- A principled fix belongs to the closure/globalisation work, not to M3: f's dependence on the iterate at τ ~ 1–10 cliffs (smoothing of the limiter/branch decisions of the formal solution, or a globalisation that follows the f-dependence: freezing f in the Newton solve is a lagged input, not acceptable as a method, M3 §1 of docs/POPIII_NEWTON_KRYLOV.md), after which the k115 TDC pilot should be re-run. Not attempted here: it changes production radiation transfer.
+- [open] `NITER=100/300` did not change the 26-iteration cap in these restarts (`hN1`, `hN2`): the iteration cap that the trace shows is not set by `NITER`; whether a larger cap would let the trust-region path converge was not tested.
+- [open] Why the TDC photosphere does not cycle (F_c carrying the flux up to τ ≈ 10 with a steady surface) was not investigated; B1 (MLTBUOY=1, τ weight, MLT_NOINFALL) ran the same restart without collapse and may differ exactly here.

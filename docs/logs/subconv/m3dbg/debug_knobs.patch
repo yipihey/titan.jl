@@ -1,0 +1,76 @@
+diff --git a/julia/TitanResidFast.jl b/julia/TitanResidFast.jl
+index 5e00d54..ac3f500 100644
+--- a/julia/TitanResidFast.jl
++++ b/julia/TitanResidFast.jl
+@@ -372,7 +372,7 @@ function convcoef(ngrs, ngre, base)
+     mgr = TF.MGR
+     cv = Tuple(get!(() -> zeros(mgr), BUFS, nm)::Vector{Float64} for nm in (:cvnad, :cvcp, :cvdel, :cvkap))
+     foreach(a -> fill!(a, 0.0), cv)
+-    (CONVECTION[] && !TDC_ON[]) || return cv              # (TDC: no MLT coefficients and no τ gate, see _tdc!)
++    (CONVECTION[] && (!TDC_ON[] || dbgknob("tau"))) || return cv              # (TDC: no MLT coefficients and no τ gate, see _tdc!)
+     m = MATERIAL[]; m === nothing && error("MLT convection needs a material with material_thermo (e.g. Z0Gas)")
+     MLT_AD[] || @inbounds for k in ngrs+1:ngre       # lagged coefficients (not needed when MLT_AD)
+         ρi = 0.5 * (base[k-1, 3] + base[k, 3]); Ti = 0.5 * (base[k-1, 5] + base[k, 5])
+@@ -926,6 +926,13 @@ iterate WTN and the old level WTO (`TDC.tdc_rows!`: Fischer–Burmeister row, fb
+   species rows 8, 9 of a coupled zone   + F_k+1 − F_k, F_k = −rmu_k ρ_k D_k Δx/Δr_c, D = α_D ℓ w.
+ """
+ const TDC_ON = Ref(false)
++# DEBUG (M3c, temporary): TDCDBG=<knob,...> (default empty = current behaviour); knobs: log (TDCDBGLOG=<file>: one line per interface per Float64 residual call), tau, noFc, noQ
++const TDCDBGR = Ref(let v = split(get(ENV, "TDCDBGR", "0:0"), ":"); (parse(Int, v[1]), parse(Int, v[2])) end)
++const TDCDBG = Ref{Any}(nothing); const TDCDBGIO = Ref{Any}(nothing); const TDCDBGN = Ref(0)
++function dbgknob(s)
++    d = TDCDBG[]; d === nothing && (d = TDCDBG[] = Set(split(get(ENV, "TDCDBG", ""), ",")))
++    s in d
++end
+ const WTN = Ref(Float64[]); const WTO = Ref(Float64[]); const SAVEW = Ref(Float64[])
+ const TDCP = Ref(TDCPar())
+ "face-value weight of the w advection (0 = first-order donor cell, 1 = centred; `TDC.tdc_facew`)"
+@@ -985,6 +992,7 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
+         tw[k] = wtn[k] + x[(kb(k) - 1) * neqn + iw] * c.nomu[k]; two[k] = wto[k]
+     end
+     mgr = length(tw); tok = get!(() -> fill(false, mgr), BUFS, :tdcok)::Vector{Bool}; fill!(tok, false)
++    efail = get!(() -> fill(false, mgr), BUFS, :tdcef)::Vector{Bool}; fill!(efail, false)
+     zv = Vector{Any}(nothing, ngre + 1); zd = T === Float64 ? zv : Vector{Any}(nothing, ngre + 1)
+     z0 = zero(T)
+     @inbounds for k in ngrs:ngre+1; fcv[k] = z0; W.vcv[k] = z0; W.lcv[k] = z0; W.nabv[k] = z0; W.nadv[k] = z0; ta[k] = one(T); tU[k] = z0; tsup[k] = z0; tell[k] = one(T); end
+@@ -1005,7 +1013,9 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
+                                                    (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
+                               -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (r[k+1] - r[k-1]) / HP
+         ΔlnP = log(Pp / Pm); ΔlnT = log(tn[k] / tn[k-1]); Δlnρ = log(dn[k] / dn[k-1])
++        ef0 = BUOYEQFAIL[]
+         sup, δb, cpb, fbl = buoy_blob(zv[k-1], zv[k], ΔlnP, ΔlnT, Δlnρ, lph, l, gk, HP)      # screening: the zones' Float64 thermodynamics, sup's value is the true one
++        efail[k] = BUOYEQFAIL[] != ef0
+         wnear = ForwardDiff.value(tw[k-1]) != 0 || ForwardDiff.value(tw[k]) != 0 || ForwardDiff.value(tw[k+1]) != 0 || two[k-1] != 0 || two[k] != 0 || two[k+1] != 0
+         if T !== Float64 && (ForwardDiff.value(sup) > 0 || wnear)  # with the zones' derivatives wherever a row or a flux can depend on them
+             for j in (k - 1, k); zd[j] === nothing && (zd[j] = _buoy_zone(MATERIAL[], W, dn, tn, j, T)); end
+@@ -1044,6 +1054,9 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
+             R[iw, kb(k)] = tok[k] ? tdc_fb(tw[k], W.tF[k]) : tw[k]
+             if tok[k]
+                 fcv[k] = tdc_flux(tw[k], ta[k], tU[k], tsup[k], tell[k], trho[k], tcp[k], tT[k], tHP[k], par)
++                dbgknob("tau") && (fcv[k] *= BUFS[:cvw][k])          # DEBUG: production τ weight
++                dbgknob("noFc") && (fcv[k] = z0)                       # DEBUG: no convective flux, w kept
++                (dbgknob("noFcR") && (kz = k - ngrs + 1; TDCDBGR[][1] <= kz <= TDCDBGR[][2])) && (fcv[k] = z0)     # DEBUG: no flux on interfaces lo:hi (TDCDBGR=lo:hi)
+                 W.vcv[k] = tw[k]; W.tD[k] = tdc_dmix(tw[k], tell[k], par)
+             else
+                 W.tD[k] = z0
+@@ -1054,10 +1067,20 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
+         R[iw, kb(ngre+2)] = AD_JV[] ? z0 : x[(kb(ngre+2) - 1) * neqn + iw]
+     end
+     Q, _ = tdc_exchange(wv, wov, G, B, dt, par; cen = TDC_CEN[], Ptc = view(W.tPt, za))
++    dbgknob("noQ") && (Q = zero.(Q))                                   # DEBUG: no exchange in the gas rows
+     @inbounds for j in ngrs:ngre
+         i = j - ngrs + 1
+         W.tgx[j] = 0.5 * (Q[i] + Q[i+1]) + (j == ngrs ? 0.5 * Q[1] : z0) + (j == ngre ? 0.5 * Q[nz+1] : z0)
+     end
++    if T === Float64 && dbgknob("log")
++        io = TDCDBGIO[]; io === nothing && (io = TDCDBGIO[] = open(ENV["TDCDBGLOG"], "a")); TDCDBGN[] += 1
++        println(io, "TDCT call ", TDCDBGN[], " att ", Int(TD.g(:jstep)), " it ", gi(:iter), " dt ", dt)
++        for k in ngrs+1:ngre
++            (tw[k] != 0 || two[k] != 0 || efail[k] || tsup[k] > 0) || continue
++            println(io, " k ", k - ngrs + 1, " w ", tw[k], " wo ", two[k], " F ", W.tF[k], " sup ", tsup[k], " eqfail ", efail[k], " a ", ta[k], " U ", tU[k], " l ", tell[k], " rho ", trho[k], " T ", tT[k], " Fc ", fcv[k], " ok ", tok[k], " D ", W.tD[k], " x1 ", ForwardDiff.value(W.xs1[k-1]), " ", ForwardDiff.value(W.xs1[k]), " chi ", avchi[k])
++        end
++        flush(io)
++    end
+     if T === Float64
+         mn(k) = 0.5 * ((k > ngrs ? W.tmzn[k-1] : 0.0) + (k <= ngre ? W.tmzn[k] : 0.0)); mo(k) = 0.5 * ((k > ngrs ? W.tmzo[k-1] : 0.0) + (k <= ngre ? W.tmzo[k] : 0.0))
+         TDCMON[] = (Etn = sum(mn(k) * tw[k]^2 for k in ngrs:ngre+1), Eto = sum(mo(k) * two[k]^2 for k in ngrs:ngre+1), SQ = sum(Q), SQa = sum(abs, Q))

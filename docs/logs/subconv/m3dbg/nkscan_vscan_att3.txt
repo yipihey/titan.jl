@@ -1,0 +1,292 @@
+NKSCAN A att 3 it 1 jstep 154 dtime 15594.9 theta 0.5 |b|_W 253.127 |x|_W 191.499
+NKSCAN A largest weighted x (eq@zone:value): 6@32:-132.5 6@31:87.74 7@33:-58.74 6@33:-57.29 6@34:-31.91 7@32:-27.43 7@34:-23.52 6@35:-22.93
+NKSCAN A largest weighted b: 6@32:-175.1 6@31:116 7@33:-77.65 6@33:-75.72 6@34:-42.18 7@32:-36.25 7@34:-31.09 6@35:-30.3
+NKSCAN B state (zone: r rho T E_r F_r x_H+ x_H2 u)
+NKSCAN B zone 26: r 3.229115e+11 rho 3.660483e-05 T 2.315606e+04 E_r 2.175251e+03 F_r 8.740488e+01 x_H+ 4.945433e-01 x_H2 3.801129e-05 u -2.996122e+04
+NKSCAN B zone 27: r 4.170561e+11 rho 1.389514e-05 T 1.975059e+04 E_r 1.151253e+03 F_r 2.147161e+02 x_H+ 4.189198e-01 x_H2 7.077949e-06 u -5.742577e+04
+NKSCAN B zone 28: r 5.386484e+11 rho 3.453774e-06 T 1.525943e+04 E_r 4.102079e+02 F_r 1.378329e+03 x_H+ 2.615779e-01 x_H2 1.194514e-05 u -1.831166e+05
+NKSCAN B zone 29: r 6.956908e+11 rho 8.265764e-07 T 8.910736e+03 E_r 4.769831e+01 F_r 1.047719e+05 x_H+ 1.082339e-02 x_H2 5.582159e-05 u -6.318931e+05
+NKSCAN B zone 30: r 8.985188e+11 rho 2.819525e-07 T 3.068720e+03 E_r 6.522154e-01 F_r 2.001411e+08 x_H+ 4.947190e-10 x_H2 2.714762e-01 u -1.301336e+06
+NKSCAN B zone 31: r 1.160481e+12 rho 1.250156e-07 T 2.713173e+03 E_r 1.115433e+00 F_r 4.646186e+09 x_H+ 7.715599e-12 x_H2 3.698249e-01 u -1.984608e+06
+NKSCAN B zone 32: r 1.498818e+12 rho 6.950798e-08 T 2.540086e+03 E_r 9.839982e-02 F_r -7.546240e+09 x_H+ 4.681630e-15 x_H2 4.056475e-01 u -2.461203e+06
+NKSCAN B zone 33: r 1.935797e+12 rho 5.196282e-08 T 2.481286e+03 E_r 9.521086e-02 F_r -2.233113e+09 x_H+ 1.267031e-15 x_H2 4.138030e-01 u -1.976408e+06
+NKSCAN B weights zone 29: r 1 m 1 rho 1 u 0.4343 T 1 E_r 1 F_r 1.526e-08 x_H+ 0.9999 x_H2 0.9824
+NKSCAN B weights zone 30: r 1 m 1 rho 1 u 1 T 1 E_r 1 F_r 0.0002761 x_H+ 0.0004945 x_H2 1
+NKSCAN B raw x (r m rho u T E_r F_r x_H+ x_H2)
+NKSCAN B raw x zone 27: 0.0000e+00 2.8794e-04 2.5472e-03 3.2501e-02 1.3680e-03 5.4720e-03 -6.8722e-03 3.5858e-03 -1.3573e-02
+NKSCAN B raw x zone 28: 0.0000e+00 3.7523e-04 5.5506e-03 3.2456e-02 2.7613e-03 1.1045e-02 -1.2946e-02 1.1178e-02 -1.3625e-02
+NKSCAN B raw x zone 29: 0.0000e+00 4.8667e-04 3.7789e-03 1.6742e-02 2.5041e-02 1.0017e-01 -1.4451e-01 2.3624e-01 -1.4506e-01
+NKSCAN B raw x zone 30: -4.8256e-18 5.2060e-04 3.0623e-03 1.1968e-02 -7.5929e-03 -6.0653e+00 9.7721e+01 1.0877e+03 3.9463e-02
+NKSCAN B raw x zone 31: -1.9570e-17 5.3907e-04 2.5607e-03 8.6210e-03 5.1739e-02 8.7743e+01 1.0472e+02 7.0196e+02 -1.4993e-01
+NKSCAN B raw x zone 32: 5.9991e-17 5.5304e-04 -9.7662e-04 -2.3738e-03 -1.4427e-02 -1.3250e+02 -6.6129e+01 -9.8497e+00 3.1077e-02
+NKSCAN C T0 253.127 (norm(b W) 253.127), |sc R0| 1.41249
+NKSCAN C lambda -1e-06 freeze 0 T 253.127 T/T0 1 linear |1-l| 1 |sc R| 1.41249 worst row 6@32 | R_sc[9@37] +1.0400e-10 P R[9@37] -1.3950e-03 P R[5@37] +8.9378e-04 P R[8@37] +3.0383e-02
+NKSCAN C lambda -1e-06 freeze 2 T 253.127 T/T0 1 linear |1-l| 1 |sc R| 1.41249 worst row 6@32 | R_sc[9@37] +1.0400e-10 P R[9@37] -1.3950e-03 P R[5@37] +8.9378e-04 P R[8@37] +3.0383e-02
+NKSCAN C lambda -1e-05 freeze 0 T 253.129 T/T0 1.00001 linear |1-l| 1.00001 |sc R| 1.41246 worst row 6@32 | R_sc[9@37] +1.0427e-10 P R[9@37] -1.3950e-03 P R[5@37] +8.9379e-04 P R[8@37] +3.0383e-02
+NKSCAN C lambda -1e-05 freeze 2 T 253.129 T/T0 1.00001 linear |1-l| 1.00001 |sc R| 1.41246 worst row 6@32 | R_sc[9@37] +1.0427e-10 P R[9@37] -1.3950e-03 P R[5@37] +8.9379e-04 P R[8@37] +3.0383e-02
+NKSCAN C lambda -0.0001 freeze 0 T 253.15 T/T0 1.00009 linear |1-l| 1.0001 |sc R| 1.41207 worst row 6@32 | R_sc[9@37] +1.0701e-10 P R[9@37] -1.3951e-03 P R[5@37] +8.9387e-04 P R[8@37] +3.0381e-02
+NKSCAN C lambda -0.0001 freeze 2 T 253.15 T/T0 1.00009 linear |1-l| 1.0001 |sc R| 1.41207 worst row 6@32 | R_sc[9@37] +1.0701e-10 P R[9@37] -1.3951e-03 P R[5@37] +8.9387e-04 P R[8@37] +3.0381e-02
+NKSCAN C lambda -0.001 freeze 0 T 253.327 T/T0 1.00079 linear |1-l| 1.001 |sc R| 1.40293 worst row 6@32 | R_sc[9@37] +1.3623e-10 P R[9@37] -1.3962e-03 P R[5@37] +8.9459e-04 P R[8@37] +3.0358e-02
+NKSCAN C lambda -0.001 freeze 2 T 253.327 T/T0 1.00079 linear |1-l| 1.001 |sc R| 1.40293 worst row 6@32 | R_sc[9@37] +1.3623e-10 P R[9@37] -1.3962e-03 P R[5@37] +8.9459e-04 P R[8@37] +3.0358e-02
+NKSCAN C lambda -0.00390625 freeze 0 T 253.929 T/T0 1.00317 linear |1-l| 1.00391 |sc R| 1.35001 worst row 6@32 | R_sc[9@37] +2.5344e-10 P R[9@37] -1.3998e-03 P R[5@37] +8.9686e-04 P R[8@37] +3.0244e-02
+NKSCAN C lambda -0.00390625 freeze 2 T 253.929 T/T0 1.00317 linear |1-l| 1.00391 |sc R| 1.35001 worst row 6@32 | R_sc[9@37] +2.5344e-10 P R[9@37] -1.3998e-03 P R[5@37] +8.9686e-04 P R[8@37] +3.0244e-02
+NKSCAN C lambda -0.0078125 freeze 0 T 254.884 T/T0 1.00694 linear |1-l| 1.00781 |sc R| 1.2826 worst row 6@32 | R_sc[9@37] +4.6612e-10 P R[9@37] -1.4047e-03 P R[5@37] +9.0000e-04 P R[8@37] +2.9994e-02
+NKSCAN C lambda -0.0078125 freeze 2 T 254.884 T/T0 1.00694 linear |1-l| 1.00781 |sc R| 1.2826 worst row 6@32 | R_sc[9@37] +4.6612e-10 P R[9@37] -1.4047e-03 P R[5@37] +9.0000e-04 P R[8@37] +2.9994e-02
+NKSCAN C lambda -0.015625 freeze 0 T 257.008 T/T0 1.01533 linear |1-l| 1.01562 |sc R| 1.24319 worst row 6@32 | R_sc[9@37] +1.0818e-09 P R[9@37] -1.4151e-03 P R[5@37] +9.0660e-04 P R[8@37] +2.9060e-02
+NKSCAN C lambda -0.015625 freeze 2 T 257.008 T/T0 1.01533 linear |1-l| 1.01562 |sc R| 1.24319 worst row 6@32 | R_sc[9@37] +1.0818e-09 P R[9@37] -1.4151e-03 P R[5@37] +9.0660e-04 P R[8@37] +2.9060e-02
+NKSCAN C lambda -0.03125 freeze 0 T 261.611 T/T0 1.03352 linear |1-l| 1.03125 |sc R| 1.78596 worst row 6@32 | R_sc[9@37] +3.0756e-09 P R[9@37] -1.4365e-03 P R[5@37] +9.2023e-04 P R[8@37] +2.3830e-02
+NKSCAN C lambda -0.03125 freeze 2 T 261.611 T/T0 1.03352 linear |1-l| 1.03125 |sc R| 1.78596 worst row 6@32 | R_sc[9@37] +3.0756e-09 P R[9@37] -1.4365e-03 P R[5@37] +9.2023e-04 P R[8@37] +2.3830e-02
+NKSCAN C lambda -0.0625 freeze 0 T 267.194 T/T0 1.05558 linear |1-l| 1.0625 |sc R| 2.81093 worst row 6@32 | R_sc[9@37] +1.0112e-08 P R[9@37] -1.4747e-03 P R[5@37] +9.4463e-04 P R[8@37] -5.7582e-01
+NKSCAN C lambda -0.0625 freeze 2 T 267.194 T/T0 1.05558 linear |1-l| 1.0625 |sc R| 2.81093 worst row 6@32 | R_sc[9@37] +1.0112e-08 P R[9@37] -1.4747e-03 P R[5@37] +9.4463e-04 P R[8@37] -5.7582e-01
+NKSCAN C lambda -0.125 freeze 0 T 283.868 T/T0 1.12145 linear |1-l| 1.125 |sc R| 67.7371 worst row 6@32 | R_sc[9@37] +3.6367e-08 P R[9@37] -1.5580e-03 P R[5@37] +9.9763e-04 P R[8@37] -3.0441e+02
+NKSCAN C lambda -0.125 freeze 2 T 283.868 T/T0 1.12145 linear |1-l| 1.125 |sc R| 67.7371 worst row 6@32 | R_sc[9@37] +3.6367e-08 P R[9@37] -1.5580e-03 P R[5@37] +9.9763e-04 P R[8@37] -3.0441e+02
+NKSCAN C lambda -0.25 freeze 0 T 301.597 T/T0 1.19149 linear |1-l| 1.25 |sc R| 20678.2 worst row 6@32 | R_sc[9@37] +1.3764e-07 P R[9@37] -1.7046e-03 P R[5@37] +1.0914e-03 P R[8@37] -9.9372e+04
+NKSCAN C lambda -0.25 freeze 2 T 301.597 T/T0 1.19149 linear |1-l| 1.25 |sc R| 20678.2 worst row 6@32 | R_sc[9@37] +1.3764e-07 P R[9@37] -1.7046e-03 P R[5@37] +1.0914e-03 P R[8@37] -9.9372e+04
+NKSCAN C lambda -0.5 freeze 0 T 346.074 T/T0 1.3672 linear |1-l| 1.5 |sc R| 4.53763e+06 worst row 6@32 | R_sc[9@37] +5.3549e-07 P R[9@37] -2.0051e-03 P R[5@37] +1.2836e-03 P R[8@37] -1.9422e+07
+NKSCAN C lambda -0.5 freeze 2 T 336.158 T/T0 1.32803 linear |1-l| 1.5 |sc R| 4.53763e+06 worst row 6@32 | R_sc[9@37] +5.3552e-07 P R[9@37] -1.9962e-03 P R[5@37] +1.2780e-03 P R[8@37] -1.9422e+07
+NKSCAN C lambda -1 freeze 0 T non-finite (5 non-finite residual rows): 5@29=NaN 5@30=NaN 10@30=NaN 5@31=NaN 10@31=NaN
+NKSCAN C   state after update (lambda -1.0 freeze 0): 1 flagged: x_H+@30=0
+NKSCAN C lambda -1 freeze 2 T non-finite (5 non-finite residual rows): 5@29=NaN 5@30=NaN 10@30=NaN 5@31=NaN 10@31=NaN
+NKSCAN C   state after update (lambda -1.0 freeze 2): 1 flagged: x_H+@30=0
+NKSCAN C lambda +1e-06 freeze 0 T 253.126 T/T0 0.999999 linear |1-l| 0.999999 |sc R| 1.4125 worst row 6@32 | R_sc[9@37] +1.0393e-10 P R[9@37] -1.3949e-03 P R[5@37] +8.9378e-04 P R[8@37] +3.0383e-02
+NKSCAN C lambda +1e-06 freeze 2 T 253.126 T/T0 0.999999 linear |1-l| 0.999999 |sc R| 1.4125 worst row 6@32 | R_sc[9@37] +1.0393e-10 P R[9@37] -1.3949e-03 P R[5@37] +8.9378e-04 P R[8@37] +3.0383e-02
+NKSCAN C lambda +1e-05 freeze 0 T 253.124 T/T0 0.99999 linear |1-l| 0.99999 |sc R| 1.41253 worst row 6@32 | R_sc[9@37] +1.0366e-10 P R[9@37] -1.3949e-03 P R[5@37] +8.9377e-04 P R[8@37] +3.0383e-02
+NKSCAN C lambda +1e-05 freeze 2 T 253.124 T/T0 0.99999 linear |1-l| 0.99999 |sc R| 1.41253 worst row 6@32 | R_sc[9@37] +1.0366e-10 P R[9@37] -1.3949e-03 P R[5@37] +8.9377e-04 P R[8@37] +3.0383e-02
+NKSCAN C lambda +0.0001 freeze 0 T 253.1 T/T0 0.999897 linear |1-l| 0.9999 |sc R| 1.41277 worst row 6@32 | R_sc[9@37] +1.0097e-10 P R[9@37] -1.3948e-03 P R[5@37] +8.9370e-04 P R[8@37] +3.0385e-02
+NKSCAN C lambda +0.0001 freeze 2 T 253.1 T/T0 0.999897 linear |1-l| 0.9999 |sc R| 1.41277 worst row 6@32 | R_sc[9@37] +1.0097e-10 P R[9@37] -1.3948e-03 P R[5@37] +8.9370e-04 P R[8@37] +3.0385e-02
+NKSCAN C lambda +0.001 freeze 0 T 252.549 T/T0 0.997717 linear |1-l| 0.999 |sc R| 1.4099 worst row 6@32 | R_sc[9@37] +7.5824e-11 P R[9@37] -1.3933e-03 P R[5@37] +8.9274e-04 P R[8@37] +3.0385e-02
+NKSCAN C lambda +0.001 freeze 2 T 252.549 T/T0 0.997717 linear |1-l| 0.999 |sc R| 1.4099 worst row 6@32 | R_sc[9@37] +7.5824e-11 P R[9@37] -1.3933e-03 P R[5@37] +8.9274e-04 P R[8@37] +3.0385e-02
+NKSCAN C lambda +0.00390625 freeze 0 T 169.257 T/T0 0.668665 linear |1-l| 0.996094 |sc R| 1.75489 worst row 6@32 | R_sc[9@37] +1.7337e-11 P R[9@37] -1.0105e-03 P R[5@37] +6.5526e-04 P R[8@37] +1.4112e-02
+NKSCAN C lambda +0.00390625 freeze 2 T 169.257 T/T0 0.668665 linear |1-l| 0.996094 |sc R| 1.75489 worst row 6@32 | R_sc[9@37] +1.7337e-11 P R[9@37] -1.0105e-03 P R[5@37] +6.5526e-04 P R[8@37] +1.4112e-02
+NKSCAN C lambda +0.0078125 freeze 0 T 3.8534e+06 T/T0 15223.2 linear |1-l| 0.992188 |sc R| 812.396 worst row 6@32 | R_sc[9@37] -7.2069e-12 P R[9@37] +3.4698e+00 P R[5@37] -2.1518e+00 P R[8@37] -1.4918e+02
+NKSCAN C lambda +0.0078125 freeze 2 T 3.8534e+06 T/T0 15223.2 linear |1-l| 0.992188 |sc R| 812.396 worst row 6@32 | R_sc[9@37] -7.2069e-12 P R[9@37] +3.4698e+00 P R[5@37] -2.1518e+00 P R[8@37] -1.4918e+02
+NKSCAN C lambda +0.015625 freeze 0 T 6.57831e+13 T/T0 2.59882e+11 linear |1-l| 0.984375 |sc R| 1.37146e+10 worst row 6@32 | R_sc[9@37] +1.3975e-10 P R[9@37] +5.9255e+07 P R[5@37] -3.6747e+07 P R[8@37] -2.5470e+09
+NKSCAN C lambda +0.015625 freeze 2 T 6.57831e+13 T/T0 2.59882e+11 linear |1-l| 0.984375 |sc R| 1.37146e+10 worst row 6@32 | R_sc[9@37] +1.3975e-10 P R[9@37] +5.9255e+07 P R[5@37] -3.6747e+07 P R[8@37] -2.5470e+09
+NKSCAN C lambda +0.03125 freeze 0 T 1.90993e+32 T/T0 7.54537e+29 linear |1-l| 0.96875 |sc R| 3.98188e+28 worst row 6@32 | R_sc[9@37] +1.4398e-09 P R[9@37] +1.7204e+26 P R[5@37] -1.0669e+26 P R[8@37] -7.3949e+27
+NKSCAN C lambda +0.03125 freeze 2 T 1.90993e+32 T/T0 7.54537e+29 linear |1-l| 0.96875 |sc R| 3.98188e+28 worst row 6@32 | R_sc[9@37] +1.4398e-09 P R[9@37] +1.7204e+26 P R[5@37] -1.0669e+26 P R[8@37] -7.3949e+27
+NKSCAN C lambda 0.0625 freeze 0 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C lambda 0.0625 freeze 2 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C lambda 0.125 freeze 0 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C lambda 0.125 freeze 2 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C lambda 0.25 freeze 0 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C lambda 0.25 freeze 2 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C lambda 0.5 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 7 has no route to lower states (reducible chain)
+NKSCAN C lambda 0.5 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 7 has no route to lower states (reducible chain)
+NKSCAN C lambda 1.0 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 1.0 freeze 0): 1 flagged: x_H+@30=Inf
+NKSCAN C lambda 1.0 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 1.0 freeze 2): 1 flagged: x_H+@30=Inf
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = v=x/|x|_W; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [v=x/|x|_W] 7@34: Ju -4.24075e-02 Jb u +6.02809e-05 diff -4.24678e-02 (sc 5.587e-24)
+NKSCAN E [v=x/|x|_W] 7@37: Ju +3.80873e-02 Jb u -6.27692e-05 diff +3.81501e-02 (sc 1.980e-24)
+NKSCAN E [v=x/|x|_W] 7@36: Ju +3.46713e-02 Jb u +3.97482e-05 diff +3.46316e-02 (sc 3.379e-24)
+NKSCAN E [v=x/|x|_W] 7@32: Ju -3.01520e-02 Jb u +2.47683e-03 diff -3.26288e-02 (sc 4.692e-25)
+NKSCAN E [v=x/|x|_W] 7@38: Ju +3.15430e-02 Jb u -1.06969e-04 diff +3.16500e-02 (sc 1.342e-24)
+NKSCAN E [v=x/|x|_W] 7@39: Ju +2.42660e-02 Jb u -1.06945e-04 diff +2.43729e-02 (sc 1.193e-24)
+NKSCAN E [v=x/|x|_W] 7@33: Ju -1.85622e-02 Jb u +1.87133e-03 diff -2.04335e-02 (sc 3.666e-24)
+NKSCAN E [v=x/|x|_W] 7@40: Ju +1.95403e-02 Jb u -9.47089e-05 diff +1.96350e-02 (sc 1.208e-24)
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = 6@32; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [6@32] 7@34: Ju +2.50858e-03 Jb u -4.60339e-03 diff +7.11197e-03 (sc 5.587e-24)
+NKSCAN E [6@32] 7@36: Ju -1.70900e-03 Jb u +0.00000e+00 diff -1.70900e-03 (sc 3.379e-24)
+NKSCAN E [6@32] 7@37: Ju -1.64581e-03 Jb u +0.00000e+00 diff -1.64581e-03 (sc 1.980e-24)
+NKSCAN E [6@32] 7@38: Ju -1.22360e-03 Jb u +0.00000e+00 diff -1.22360e-03 (sc 1.342e-24)
+NKSCAN E [6@32] 7@39: Ju -8.74289e-04 Jb u +0.00000e+00 diff -8.74289e-04 (sc 1.193e-24)
+NKSCAN E [6@32] 7@40: Ju -6.71681e-04 Jb u +0.00000e+00 diff -6.71681e-04 (sc 1.208e-24)
+NKSCAN E [6@32] 7@41: Ju -4.95509e-04 Jb u +0.00000e+00 diff -4.95509e-04 (sc 1.213e-24)
+NKSCAN E [6@32] 7@35: Ju -3.71448e-04 Jb u +0.00000e+00 diff -3.71448e-04 (sc 4.413e-24)
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = 6@31; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [6@31] 7@33: Ju +2.71046e-04 Jb u -3.43685e-04 diff +6.14731e-04 (sc 3.666e-24)
+NKSCAN E [6@31] 7@34: Ju +2.82521e-04 Jb u +0.00000e+00 diff +2.82521e-04 (sc 5.587e-24)
+NKSCAN E [6@31] 8@31: Ju -8.88607e-01 Jb u -8.88834e-01 diff +2.26964e-04 (sc 3.703e-16)
+NKSCAN E [6@31] 7@36: Ju -2.26567e-04 Jb u +0.00000e+00 diff -2.26567e-04 (sc 3.379e-24)
+NKSCAN E [6@31] 7@37: Ju -2.16911e-04 Jb u +0.00000e+00 diff -2.16911e-04 (sc 1.980e-24)
+NKSCAN E [6@31] 7@38: Ju -1.61030e-04 Jb u +0.00000e+00 diff -1.61030e-04 (sc 1.342e-24)
+NKSCAN E [6@31] 7@39: Ju -1.15008e-04 Jb u +0.00000e+00 diff -1.15008e-04 (sc 1.193e-24)
+NKSCAN E [6@31] 7@40: Ju -8.83163e-05 Jb u +0.00000e+00 diff -8.83163e-05 (sc 1.208e-24)
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = 7@33; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [7@33] 7@33: Ju +2.48499e-01 Jb u +2.48499e-01 diff -3.97642e-12 (sc 3.666e-24)
+NKSCAN E [7@33] 6@33: Ju -1.93611e-01 Jb u -1.93611e-01 diff +2.44258e-12 (sc 4.627e-35)
+NKSCAN E [7@33] 6@32: Ju +1.58329e-01 Jb u +1.58329e-01 diff -2.31878e-12 (sc 3.784e-35)
+NKSCAN E [7@33] 7@32: Ju -9.01085e-07 Jb u -9.01084e-07 diff -4.85774e-13 (sc 4.692e-25)
+NKSCAN E [7@33] 7@34: Ju +1.28813e-06 Jb u +1.28813e-06 diff +4.27179e-13 (sc 5.587e-24)
+NKSCAN E [7@33] 4@33: Ju -1.76343e-10 Jb u -1.76342e-10 diff -7.07788e-16 (sc 2.613e-33)
+NKSCAN E [7@33] 1@-1: Ju +0.00000e+00 Jb u +0.00000e+00 diff +0.00000e+00 (sc 1.000e+00)
+NKSCAN E [7@33] 2@-1: Ju +0.00000e+00 Jb u +0.00000e+00 diff +0.00000e+00 (sc 1.000e+00)
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = 6@33; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [6@33] 7@35: Ju +1.12531e-04 Jb u -1.66588e-02 diff +1.67714e-02 (sc 4.413e-24)
+NKSCAN E [6@33] 6@36: Ju -1.02005e-02 Jb u +0.00000e+00 diff -1.02005e-02 (sc 6.547e-35)
+NKSCAN E [6@33] 7@37: Ju -7.06419e-03 Jb u +0.00000e+00 diff -7.06419e-03 (sc 1.980e-24)
+NKSCAN E [6@33] 7@36: Ju -7.03134e-03 Jb u +0.00000e+00 diff -7.03134e-03 (sc 3.379e-24)
+NKSCAN E [6@33] 7@38: Ju -5.29769e-03 Jb u +0.00000e+00 diff -5.29769e-03 (sc 1.342e-24)
+NKSCAN E [6@33] 7@39: Ju -3.79499e-03 Jb u +0.00000e+00 diff -3.79499e-03 (sc 1.193e-24)
+NKSCAN E [6@33] 7@40: Ju -2.92140e-03 Jb u +0.00000e+00 diff -2.92140e-03 (sc 1.208e-24)
+NKSCAN E [6@33] 7@41: Ju -2.15873e-03 Jb u +0.00000e+00 diff -2.15873e-03 (sc 1.213e-24)
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = 6@34; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [6@34] 7@36: Ju -2.10313e-02 Jb u -4.00476e-02 diff +1.90163e-02 (sc 3.379e-24)
+NKSCAN E [6@34] 7@37: Ju -1.81073e-02 Jb u +0.00000e+00 diff -1.81073e-02 (sc 1.980e-24)
+NKSCAN E [6@34] 6@37: Ju -1.44891e-02 Jb u +0.00000e+00 diff -1.44891e-02 (sc 7.510e-35)
+NKSCAN E [6@34] 7@38: Ju -1.37746e-02 Jb u +0.00000e+00 diff -1.37746e-02 (sc 1.342e-24)
+NKSCAN E [6@34] 7@39: Ju -9.91646e-03 Jb u +0.00000e+00 diff -9.91646e-03 (sc 1.193e-24)
+NKSCAN E [6@34] 7@40: Ju -7.66125e-03 Jb u +0.00000e+00 diff -7.66125e-03 (sc 1.208e-24)
+NKSCAN E [6@34] 7@41: Ju -5.67695e-03 Jb u +0.00000e+00 diff -5.67695e-03 (sc 1.213e-24)
+NKSCAN E [6@34] 6@38: Ju -5.50894e-03 Jb u +0.00000e+00 diff -5.50894e-03 (sc 6.469e-35)
+NKSCAN A att 3 it 6 jstep 154 dtime 15594.9 theta 0.5 |b|_W 3126.23 |x|_W 2253.68
+NKSCAN A largest weighted x (eq@zone:value): 6@32:-1893 6@33:-866 6@34:-480.1 6@35:-330.5 6@36:-232.4 7@35:-176 6@37:-167.3 7@34:-150.9
+NKSCAN A largest weighted b: 6@32:-2654 6@33:-1168 6@34:-650.2 6@35:-467.1 6@36:-343.2 6@37:-255.1 7@35:-249.3 7@34:-211
+NKSCAN B state (zone: r rho T E_r F_r x_H+ x_H2 u)
+NKSCAN B zone 26: r 3.229115e+11 rho 3.660580e-05 T 2.315639e+04 E_r 2.175375e+03 F_r 8.740518e+01 x_H+ 4.945433e-01 x_H2 3.801129e-05 u -2.994673e+04
+NKSCAN B zone 27: r 4.170561e+11 rho 1.389600e-05 T 1.975125e+04 E_r 1.151407e+03 F_r 2.146799e+02 x_H+ 4.189566e-01 x_H2 7.075596e-06 u -5.738005e+04
+NKSCAN B zone 28: r 5.386484e+11 rho 3.454243e-06 T 1.526047e+04 E_r 4.103193e+02 F_r 1.377891e+03 x_H+ 2.616498e-01 x_H2 1.194113e-05 u -1.829710e+05
+NKSCAN B zone 29: r 6.956908e+11 rho 8.266530e-07 T 8.915900e+03 E_r 4.780897e+01 F_r 1.044210e+05 x_H+ 1.088258e-02 x_H2 5.563455e-05 u -6.316338e+05
+NKSCAN B zone 30: r 8.985188e+11 rho 2.819737e-07 T 3.066482e+03 E_r 6.214066e-01 F_r 5.915251e+08 x_H+ 5.409290e-10 x_H2 2.724880e-01 u -1.300956e+06
+NKSCAN B zone 31: r 1.160481e+12 rho 1.250233e-07 T 2.723594e+03 E_r 2.931127e+00 F_r 3.722672e+10 x_H+ 8.436287e-12 x_H2 3.656788e-01 u -1.984207e+06
+NKSCAN B zone 32: r 1.498818e+12 rho 6.950635e-08 T 2.537222e+03 E_r 9.375168e-02 F_r -4.962962e+10 x_H+ 4.281692e-15 x_H2 4.066327e-01 u -2.461323e+06
+NKSCAN B zone 33: r 1.935797e+12 rho 5.196175e-08 T 2.480397e+03 E_r 9.071335e-02 F_r -1.686504e+10 x_H+ 1.167336e-15 x_H2 4.140990e-01 u -1.976527e+06
+NKSCAN B weights zone 29: r 1 m 1 rho 1 u 0.4341 T 1 E_r 1 F_r 1.521e-08 x_H+ 0.9999 x_H2 0.9823
+NKSCAN B weights zone 30: r 1 m 1 rho 1 u 1 T 1 E_r 1 F_r 0.0008148 x_H+ 0.0005406 x_H2 1
+NKSCAN B raw x (r m rho u T E_r F_r x_H+ x_H2)
+NKSCAN B raw x zone 27: 0.0000e+00 3.5978e-04 3.1825e-03 4.0644e-02 1.7101e-03 6.8405e-03 -8.5932e-03 4.4829e-03 -1.6976e-02
+NKSCAN B raw x zone 28: 0.0000e+00 4.6885e-04 6.9343e-03 4.0598e-02 3.4850e-03 1.3940e-02 -1.6361e-02 1.4135e-02 -1.7296e-02
+NKSCAN B raw x zone 29: 0.0000e+00 6.0808e-04 4.7304e-03 2.0958e-02 2.4941e-02 9.9773e-02 -1.4458e-01 2.3367e-01 -1.4406e-01
+NKSCAN B raw x zone 30: 1.2257e-17 6.5065e-04 3.8768e-03 1.4775e-02 -9.7646e-02 -6.7482e+01 2.6865e+01 1.1197e+03 4.9451e-01
+NKSCAN B raw x zone 31: -2.0608e-15 6.7446e-04 3.0541e-03 9.1928e-03 5.4797e-01 1.4682e+01 1.0740e+02 1.7326e+05 -1.6442e+00
+NKSCAN B raw x zone 32: -2.2020e-14 6.8993e-04 -1.1421e-03 -1.1806e-03 -1.7331e-01 -1.8926e+03 -1.3353e+02 -1.2010e+02 3.7056e-01
+NKSCAN C T0 3126.23 (norm(b W) 3126.23), |sc R0| 2.68676
+NKSCAN C lambda -1e-06 freeze 0 T 3126.23 T/T0 1 linear |1-l| 1 |sc R| 2.68676 worst row 6@32 | R_sc[9@37] +3.7662e-09 P R[9@37] -4.4863e-03 P R[5@37] +2.8108e-03 P R[8@37] +1.4441e-01
+NKSCAN C lambda -1e-06 freeze 2 T 3126.23 T/T0 1 linear |1-l| 1 |sc R| 2.68676 worst row 6@32 | R_sc[9@37] +3.7662e-09 P R[9@37] -4.4863e-03 P R[5@37] +2.8108e-03 P R[8@37] +1.4441e-01
+NKSCAN C lambda -1e-05 freeze 0 T 3126.26 T/T0 1.00001 linear |1-l| 1.00001 |sc R| 2.68664 worst row 6@32 | R_sc[9@37] +3.7663e-09 P R[9@37] -4.4863e-03 P R[5@37] +2.8109e-03 P R[8@37] +1.4441e-01
+NKSCAN C lambda -1e-05 freeze 2 T 3126.26 T/T0 1.00001 linear |1-l| 1.00001 |sc R| 2.68664 worst row 6@32 | R_sc[9@37] +3.7663e-09 P R[9@37] -4.4863e-03 P R[5@37] +2.8109e-03 P R[8@37] +1.4441e-01
+NKSCAN C lambda -0.0001 freeze 0 T 3126.48 T/T0 1.00008 linear |1-l| 1.0001 |sc R| 2.68424 worst row 6@32 | R_sc[9@37] +3.7664e-09 P R[9@37] -4.4867e-03 P R[5@37] +2.8111e-03 P R[8@37] +1.4442e-01
+NKSCAN C lambda -0.0001 freeze 2 T 3126.48 T/T0 1.00008 linear |1-l| 1.0001 |sc R| 2.68424 worst row 6@32 | R_sc[9@37] +3.7664e-09 P R[9@37] -4.4867e-03 P R[5@37] +2.8111e-03 P R[8@37] +1.4442e-01
+NKSCAN C lambda -0.001 freeze 0 T 3128.25 T/T0 1.00065 linear |1-l| 1.001 |sc R| 2.66044 worst row 6@32 | R_sc[9@37] +3.7679e-09 P R[9@37] -4.4896e-03 P R[5@37] +2.8129e-03 P R[8@37] +1.4379e-01
+NKSCAN C lambda -0.001 freeze 2 T 3128.25 T/T0 1.00065 linear |1-l| 1.001 |sc R| 2.66044 worst row 6@32 | R_sc[9@37] +3.7679e-09 P R[9@37] -4.4896e-03 P R[5@37] +2.8129e-03 P R[8@37] +1.4379e-01
+NKSCAN C lambda -0.00390625 freeze 0 T 3134.53 T/T0 1.00266 linear |1-l| 1.00391 |sc R| 6.09592 worst row 6@32 | R_sc[9@37] +3.8148e-09 P R[9@37] -4.4990e-03 P R[5@37] +2.8189e-03 P R[8@37] -2.1245e-02
+NKSCAN C lambda -0.00390625 freeze 2 T 3134.53 T/T0 1.00266 linear |1-l| 1.00391 |sc R| 6.09574 worst row 6@32 | R_sc[9@37] +3.8148e-09 P R[9@37] -4.4990e-03 P R[5@37] +2.8189e-03 P R[8@37] -2.1245e-02
+NKSCAN C lambda -0.0078125 freeze 0 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.0078125 freeze 0): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.0078125 freeze 2 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.0078125 freeze 2): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.015625 freeze 0 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.015625 freeze 0): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.015625 freeze 2 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.015625 freeze 2): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.03125 freeze 0 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.03125 freeze 0): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.03125 freeze 2 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.03125 freeze 2): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.0625 freeze 0 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.0625 freeze 0): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.0625 freeze 2 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.0625 freeze 2): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.125 freeze 0 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.125 freeze 0): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.125 freeze 2 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.125 freeze 2): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.25 freeze 0 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.25 freeze 0): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.25 freeze 2 T non-finite (5 non-finite residual rows): 5@30=NaN 5@31=NaN 10@31=NaN 5@32=NaN 10@32=NaN
+NKSCAN C   state after update (lambda -0.25 freeze 2): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.5 freeze 0 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C   state after update (lambda -0.5 freeze 0): 1 flagged: x_H+@31=0
+NKSCAN C lambda -0.5 freeze 2 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C   state after update (lambda -0.5 freeze 2): 1 flagged: x_H+@31=0
+NKSCAN C lambda -1.0 freeze 0 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C   state after update (lambda -1.0 freeze 0): 2 flagged: x_H+@30=0 x_H+@31=0
+NKSCAN C lambda -1.0 freeze 2 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C   state after update (lambda -1.0 freeze 2): 2 flagged: x_H+@30=0 x_H+@31=0
+NKSCAN C lambda +1e-06 freeze 0 T 3126.23 T/T0 0.999999 linear |1-l| 0.999999 |sc R| 2.68675 worst row 6@32 | R_sc[9@37] +3.7662e-09 P R[9@37] -4.4863e-03 P R[5@37] +2.8108e-03 P R[8@37] +1.4441e-01
+NKSCAN C lambda +1e-06 freeze 2 T 3126.23 T/T0 0.999999 linear |1-l| 0.999999 |sc R| 2.68675 worst row 6@32 | R_sc[9@37] +3.7662e-09 P R[9@37] -4.4863e-03 P R[5@37] +2.8108e-03 P R[8@37] +1.4441e-01
+NKSCAN C lambda +1e-05 freeze 0 T 3126.19 T/T0 0.999986 linear |1-l| 0.99999 |sc R| 2.68621 worst row 6@32 | R_sc[9@37] +3.7662e-09 P R[9@37] -4.4862e-03 P R[5@37] +2.8108e-03 P R[8@37] +1.4441e-01
+NKSCAN C lambda +1e-05 freeze 2 T 3126.19 T/T0 0.999986 linear |1-l| 0.99999 |sc R| 2.68621 worst row 6@32 | R_sc[9@37] +3.7662e-09 P R[9@37] -4.4862e-03 P R[5@37] +2.8108e-03 P R[8@37] +1.4441e-01
+NKSCAN C lambda +0.0001 freeze 0 T 1.53314e+11 T/T0 4.90411e+07 linear |1-l| 0.9999 |sc R| 3.76284e+09 worst row 6@32 | R_sc[9@37] +3.7660e-09 P R[9@37] +1.6405e+05 P R[5@37] -1.0175e+05 P R[8@37] -6.2589e+06
+NKSCAN C lambda +0.0001 freeze 2 T 1.53327e+11 T/T0 4.90452e+07 linear |1-l| 0.9999 |sc R| 3.76089e+09 worst row 6@32 | R_sc[9@37] +3.7660e-09 P R[9@37] +1.6406e+05 P R[5@37] -1.0176e+05 P R[8@37] -6.2594e+06
+NKSCAN C lambda 0.001 freeze 0 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C lambda 0.001 freeze 2 EXCEPTION ArgumentError: ArgumentError: start and stop must be finite, got 0.0 and NaN
+NKSCAN C lambda 0.00390625 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 7 has no route to lower states (reducible chain)
+NKSCAN C lambda 0.00390625 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 7 has no route to lower states (reducible chain)
+NKSCAN C lambda 0.0078125 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.0078125 freeze 0): 1 flagged: x_H+@31=Inf
+NKSCAN C lambda 0.0078125 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.0078125 freeze 2): 1 flagged: x_H+@31=Inf
+NKSCAN C lambda 0.015625 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.015625 freeze 0): 1 flagged: x_H+@31=Inf
+NKSCAN C lambda 0.015625 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.015625 freeze 2): 1 flagged: x_H+@31=Inf
+NKSCAN C lambda 0.03125 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.03125 freeze 0): 1 flagged: x_H+@31=Inf
+NKSCAN C lambda 0.03125 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.03125 freeze 2): 1 flagged: x_H+@31=Inf
+NKSCAN C lambda 0.0625 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.0625 freeze 0): 1 flagged: x_H+@31=Inf
+NKSCAN C lambda 0.0625 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.0625 freeze 2): 1 flagged: x_H+@31=Inf
+NKSCAN C lambda 0.125 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.125 freeze 0): 1 flagged: x_H+@31=Inf
+NKSCAN C lambda 0.125 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.125 freeze 2): 1 flagged: x_H+@31=Inf
+NKSCAN C lambda 0.25 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.25 freeze 0): 2 flagged: x_H+@31=Inf E_r@32=0
+NKSCAN C lambda 0.25 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.25 freeze 2): 2 flagged: x_H+@31=Inf E_r@32=0
+NKSCAN C lambda 0.5 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 7 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.5 freeze 0): 3 flagged: x_H+@31=Inf E_r@32=0 E_r@33=0
+NKSCAN C lambda 0.5 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 7 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 0.5 freeze 2): 3 flagged: x_H+@31=Inf E_r@32=0 E_r@33=0
+NKSCAN C lambda 1.0 freeze 0 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 1.0 freeze 0): 5 flagged: x_H+@30=Inf x_H+@31=Inf E_r@32=0 E_r@33=0 E_r@34=0
+NKSCAN C lambda 1.0 freeze 2 EXCEPTION ErrorException: H2Levels.gth: state 13 has no route to lower states (reducible chain)
+NKSCAN C   state after update (lambda 1.0 freeze 2): 5 flagged: x_H+@30=Inf x_H+@31=Inf E_r@32=0 E_r@33=0 E_r@34=0
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = v=x/|x|_W; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [v=x/|x|_W] 7@102: Ju +0.00000e+00 Jb u +1.02306e-01 diff -1.02306e-01 (sc 5.254e+05)
+NKSCAN E [v=x/|x|_W] 7@38: Ju +6.50889e-04 Jb u -7.67344e-03 diff +8.32433e-03 (sc 1.374e-24)
+NKSCAN E [v=x/|x|_W] 7@39: Ju +2.96835e-04 Jb u -7.65281e-03 diff +7.94964e-03 (sc 1.221e-24)
+NKSCAN E [v=x/|x|_W] 7@40: Ju +1.37281e-04 Jb u -6.98978e-03 diff +7.12706e-03 (sc 1.237e-24)
+NKSCAN E [v=x/|x|_W] 7@41: Ju +1.04180e-04 Jb u -6.02705e-03 diff +6.13123e-03 (sc 1.337e-24)
+NKSCAN E [v=x/|x|_W] 7@35: Ju +6.06382e-04 Jb u +6.60322e-03 diff -5.99683e-03 (sc 4.655e-24)
+NKSCAN E [v=x/|x|_W] 7@37: Ju +1.16395e-03 Jb u -4.76516e-03 diff +5.92912e-03 (sc 2.055e-24)
+NKSCAN E [v=x/|x|_W] 7@42: Ju +1.22124e-04 Jb u -4.86138e-03 diff +4.98351e-03 (sc 1.468e-24)
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = 6@32; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [6@32] 7@34: Ju +9.69531e-04 Jb u -1.83954e-03 diff +2.80907e-03 (sc 2.433e-24)
+NKSCAN E [6@32] 7@36: Ju -1.65595e-03 Jb u +0.00000e+00 diff -1.65595e-03 (sc 3.698e-24)
+NKSCAN E [6@32] 7@37: Ju -1.51697e-03 Jb u +0.00000e+00 diff -1.51697e-03 (sc 2.055e-24)
+NKSCAN E [6@32] 7@38: Ju -1.11426e-03 Jb u +0.00000e+00 diff -1.11426e-03 (sc 1.374e-24)
+NKSCAN E [6@32] 7@39: Ju -7.96492e-04 Jb u +0.00000e+00 diff -7.96492e-04 (sc 1.221e-24)
+NKSCAN E [6@32] 7@40: Ju -6.12361e-04 Jb u +0.00000e+00 diff -6.12361e-04 (sc 1.237e-24)
+NKSCAN E [6@32] 7@41: Ju -4.86474e-04 Jb u +0.00000e+00 diff -4.86474e-04 (sc 1.337e-24)
+NKSCAN E [6@32] 7@42: Ju -3.80096e-04 Jb u +0.00000e+00 diff -3.80096e-04 (sc 1.468e-24)
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = 6@33; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [6@33] 7@35: Ju +2.56900e-04 Jb u -1.63196e-02 diff +1.65765e-02 (sc 4.655e-24)
+NKSCAN E [6@33] 6@36: Ju -9.92311e-03 Jb u +0.00000e+00 diff -9.92311e-03 (sc 6.536e-35)
+NKSCAN E [6@33] 7@36: Ju -7.19665e-03 Jb u +0.00000e+00 diff -7.19665e-03 (sc 3.698e-24)
+NKSCAN E [6@33] 7@37: Ju -6.89438e-03 Jb u +0.00000e+00 diff -6.89438e-03 (sc 2.055e-24)
+NKSCAN E [6@33] 7@38: Ju -5.11030e-03 Jb u +0.00000e+00 diff -5.11030e-03 (sc 1.374e-24)
+NKSCAN E [6@33] 7@39: Ju -3.66271e-03 Jb u +0.00000e+00 diff -3.66271e-03 (sc 1.221e-24)
+NKSCAN E [6@33] 7@40: Ju -2.82186e-03 Jb u +0.00000e+00 diff -2.82186e-03 (sc 1.237e-24)
+NKSCAN E [6@33] 7@41: Ju -2.24559e-03 Jb u +0.00000e+00 diff -2.24559e-03 (sc 1.337e-24)
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = 6@34; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [6@34] 7@36: Ju -2.13300e-02 Jb u -4.07754e-02 diff +1.94454e-02 (sc 3.698e-24)
+NKSCAN E [6@34] 7@37: Ju -1.75549e-02 Jb u +0.00000e+00 diff -1.75549e-02 (sc 2.055e-24)
+NKSCAN E [6@34] 6@37: Ju -1.40793e-02 Jb u +0.00000e+00 diff -1.40793e-02 (sc 7.501e-35)
+NKSCAN E [6@34] 7@38: Ju -1.32033e-02 Jb u +0.00000e+00 diff -1.32033e-02 (sc 1.374e-24)
+NKSCAN E [6@34] 7@39: Ju -9.51121e-03 Jb u +0.00000e+00 diff -9.51121e-03 (sc 1.221e-24)
+NKSCAN E [6@34] 6@38: Ju -7.70811e-03 Jb u +0.00000e+00 diff -7.70811e-03 (sc 9.308e-35)
+NKSCAN E [6@34] 7@40: Ju -7.35449e-03 Jb u +0.00000e+00 diff -7.35449e-03 (sc 1.237e-24)
+NKSCAN E [6@34] 7@41: Ju -5.86903e-03 Jb u +0.00000e+00 diff -5.86903e-03 (sc 1.337e-24)
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = 6@35; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [6@35] 7@38: Ju -2.15035e-02 Jb u +0.00000e+00 diff -2.15035e-02 (sc 1.374e-24)
+NKSCAN E [6@35] 7@39: Ju -1.57039e-02 Jb u +0.00000e+00 diff -1.57039e-02 (sc 1.221e-24)
+NKSCAN E [6@35] 7@40: Ju -1.22578e-02 Jb u +0.00000e+00 diff -1.22578e-02 (sc 1.237e-24)
+NKSCAN E [6@35] 7@41: Ju -9.84543e-03 Jb u +0.00000e+00 diff -9.84543e-03 (sc 1.337e-24)
+NKSCAN E [6@35] 7@42: Ju -7.75468e-03 Jb u +0.00000e+00 diff -7.75468e-03 (sc 1.468e-24)
+NKSCAN E [6@35] 7@37: Ju -3.33223e-02 Jb u -3.95970e-02 diff +6.27471e-03 (sc 2.055e-24)
+NKSCAN E [6@35] 7@43: Ju -5.81886e-03 Jb u +0.00000e+00 diff -5.81886e-03 (sc 1.586e-24)
+NKSCAN E [6@35] 7@44: Ju -4.12288e-03 Jb u +0.00000e+00 diff -4.12288e-03 (sc 1.668e-24)
+NKSCAN E rows with largest row-scaled |J u - J_b u| (u = 6@36; values times S.sc): row, J u, J_b u, diff
+NKSCAN E [6@36] 7@39: Ju -1.78815e-02 Jb u +0.00000e+00 diff -1.78815e-02 (sc 1.221e-24)
+NKSCAN E [6@36] 7@40: Ju -1.43154e-02 Jb u +0.00000e+00 diff -1.43154e-02 (sc 1.237e-24)
+NKSCAN E [6@36] 7@41: Ju -1.16851e-02 Jb u +0.00000e+00 diff -1.16851e-02 (sc 1.337e-24)
+NKSCAN E [6@36] 7@42: Ju -9.29876e-03 Jb u +0.00000e+00 diff -9.29876e-03 (sc 1.468e-24)
+NKSCAN E [6@36] 7@43: Ju -7.02600e-03 Jb u +0.00000e+00 diff -7.02600e-03 (sc 1.586e-24)
+NKSCAN E [6@36] 7@35: Ju -1.64630e-02 Jb u -2.22525e-02 diff +5.78953e-03 (sc 4.655e-24)
+NKSCAN E [6@36] 7@44: Ju -5.00169e-03 Jb u +0.00000e+00 diff -5.00169e-03 (sc 1.668e-24)
+NKSCAN E [6@36] 7@45: Ju -3.22818e-03 Jb u +0.00000e+00 diff -3.22818e-03 (sc 1.652e-24)
