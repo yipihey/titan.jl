@@ -420,3 +420,45 @@ All eight scripts pass (units ℓ = a = 1, g = 8, δ = H_P = ρ = c_P = T = 1 in
 6. **Boundary CVs and gas weights.** Interface 1 and nz+1 are Dirichlet w = 0 here; their Q (the flux into the wall) goes entirely to the adjacent zone. In TITAN's free-surface/inflow boundary variants the outer face flux of the boundary CV is nonzero and must be added to the budget.
 7. **Docstring sign in M2's `blob_sup`.** The derivation in the docstring (and D1) gives sup = (∇ − ∇_ad) + (φ/δ)∇_μ with ∇_μ = Δlnμ/ΔlnP; with |ΔlnP_hs| = −ΔlnP the algebra yields sup = (∇ − ∇_ad) − (φ/δ)∇_μ (the Ledoux criterion ∇ > ∇_ad + (φ/δ)∇_μ). The code is right (T5: a stabilising Δlnμ < 0 lowers sup from +0.05 to −0.05); only the printed "+" is a typo. Not edited (M2 text frozen).
 8. **ℓ, a, U at interfaces and ρ ℓ at zone centres** are inputs (`TDCBack`); the integration must supply zone ρ ℓ for the diffusion flux and the interface sup from `blob_sup` with the iterate (differentiated).
+
+## M3b — TDC in the implicit Newton system (22 Nov 2026, `TDC=1`, provisional, default off)
+
+Labels: [run] [test] [read] [derivation] [estimate] [interpretation]. Logs in `docs/logs/subconv/m3b/`; run scripts `scripts/subconv/m3brun.sh` (one run), `m3blane.sh` (a queue on one 8-core slot),
+analysis `m3bsnap.jl`, `m3bnwt.py`, `m3betot.py`. Branch `popiii-subconv`, TitanCore: see each log (restart tests: `TitanCore.jl` of aace2a0 in a scratch worktree, never committed; IC tests: the branch's).
+
+### M3b.1 What was added [read]
+
+| piece | where |
+|---|---|
+| `TDC=1` ⇒ `meqn` +1 (needs `COUPLED=1`, `TITAN_NOLIB=1`); with MGROUPS behind the groups | `TitanFortran.jl:115` |
+| Switch, iterate `WTN`, old level `WTO`, `SAVEW`, coefficients `TDCP`, face weight `TDC_CEN`, newton hooks `tdc_alloc!`, `tdc_newstep!` (old := iterate), `tdc_reset!`, `tdc_update!` (w ← w + δ·unom), `tdc_dmax!`/`tdc_weight` (|δw| against max(w, 0.01 c_s): a weight, nothing is clamped) | `TitanResidFast.jl:928–963` |
+| `_tdc!`: the block of `residual!` (before the GRID rows): the w rows φ_k = fb(w_k, F_k) (`TDC.tdc_F!`) into `R[iw, ·]`, F_c → `fcv`, zone P_t → `W.tPt`, exchange Q → `W.tgx`, D_mix → `W.tD` | `TitanResidFast.jl:973`; call `:1612` |
+| code 8 for the w column (linear, scale `unom`, base `WTN`); `convcoef` skipped (no τ weights); MLT block skipped | `:349`, `:375`, `:1772–1773` |
+| momentum row k: `+ rmu_k (P_t,k − P_t,k−1)`, θ-centred like p_g | `:1744` |
+| gas-energy row of zone j: `+ ½(Q_j + Q_j+1)` (boundary CVs wholly to their zone) | `:1971` |
+| species rows 8, 9 of a coupled zone: `+ F_k+1 − F_k`, F_k = −rmu_k ρ_k D_k (x_k − x_k−1)/(r_c,k − r_c,k−1) | `:2008` |
+| TR-BDF2: `WTO` saved/restored with the old arrays; the BDF2 stage's old w is w* = w_γ + B (w_γ − w_n) | `Trbdf2.jl:60–62, 227` |
+| Newton–Krylov: `WTN` in the snapshot (`extras`), code 8 active on interfaces a … b+1, weight of w, `realized` = applied as given | `NewtonKrylov.jl:63, 148, 169, 250` |
+| `TDCPAR`, install, `CPLH` hooks, checkpoint `tdc`, restart, rebuild reset | `popiii_m2c.jl:2002–2022, 844, 1067` |
+| ETOTMON: E_t = Σ m_k w_k² and Σ Q Δt into `etot_monitor` (`TDCMON`) | `TitanResidFast.jl:2303`; `ETOTLOG=<file>` per-stage lines `popiii_m2c.jl:2056` |
+| CONVDIAG records `tdc_w, tdc_PtP, tdc_Dmix, tdc_Q, tdc_Fres, tdc_a, tdc_U, e_tdc` (+ `fconv`, `vconv`, `fpot`, `vpot`, `sup` as for MLT); layer scalars E_t, P_t/P at the post-shock zone; runrec exports `cv_w, cv_PtP, cv_Dmix, cv_Q`, `cv_Et, cv_PtP_ps, cv_PtP_ps3` | `popiii_m2c.jl:453, 512`; `runrec.jl:95, 99` |
+| `tdc_exchange(…; Ptc)`: the P_t of the P_dV term may be the momentum row's θ-centred P_t | `TDC.jl:257` |
+| NKCHECK: `NKEQ=<eq,…>` row-by-row listing | `NewtonKrylov.jl:742` |
+
+### M3b.2 Choices [interpretation, with the reasons]
+
+1. **w is a linear unknown with the scale of u** (`unom`), last index `iw = neqn` (10 in the production stack). Dirichlet rows φ = w at the two boundary interfaces (w_base = 0 there), trivial rows (δ = 0) in the ghosts, and for an interface without gravity or with an unphysical thermodynamic state (φ = w ⇒ w = 0, no flux; the step is rejected by the other rows in the second case, as for MLT).
+2. **Everything at the iterate, nothing held.** The background (ρ, T, P = p_gas + f E_r, g, H_P, ℓ, κ = `avchi`, sup, δ_b, c_P,b) is evaluated inside the residual from the Newton iterate with Duals; ℓ, g, H_P, ΔlnP_hs exactly as the MLT block (MLT_RCAP, MLT_HSDISC); sup, δ_b, c_P,b from M2's `buoy_blob` (so TDC contains the D1 buoyancy of `MLTBUOY=1`, whatever that switch is). The equilibrium fraction keeps M2's a-based turnover time f = ℓ/(ℓ + t_chem a) (no fixed point in w; a ≥ w for sup ≤ 1, so f is a lower bound) [interpretation; an f with w would add one more column per row and is a candidate for M4].
+3. **Dual thermodynamics only where a row or flux can depend on them (exact, not a gate).** The zones' Float64 thermodynamics screen every interface (sup's value is the true one); the Dual thermodynamics are added where sup > 0 or w, wo ≠ 0 at k−1, k, k+1. Elsewhere w = 0 and F > 0 (sup ≤ 0, nothing turbulent near: F = Δt (A_s a² |sup|/ℓ) > 0): fb(0, F) has ∂φ/∂F = 0, so no partial of F, hence none of sup, enters the row, and fcv = ρ c_P T w ℓ Ỹ/2H_P has w = 0 as the factor.
+4. **Zone quantities**: ρ_j is the new-level zone density; ℓ_j is the mean of the two interface ℓ (the one-sided value at the first and last zone); the zone-centre area is ((r_j + r_j+1)/2)^μ (θ-centred radii).
+5. **w is backward Euler** in every stage (also the θ = ½ stage of TR-BDF2; as the species with `CPL_THETA = 1`), with the interface-CV mass fluxes, masses and donor-cell faces of the momentum row (`TDCCEN = 0`). The BDF2 stage's old state is the linear combination of w (w* = w_γ + B(w_γ − w_n)); it can be negative for a decaying w (then φ is the FB row with w_o < 0; not clamped). **w is not in DTERR's error estimate or in `combos`** (the estimator's filter solves keep WTO = y*); `DTSCHEME` ≠ trbdf2 stops with an error.
+6. **P_t**: α_p ρ ē with the θ-centred combination of the new and old level (old: ρ_o, w_o), discretised as the p_g term of the momentum row; the same P_t and dV/dt = rmu_j+1 u_j+1 − rmu_j u_j (θ-centred, the factor of the gas row's p_g term) enter Q (compatible energy). α_p = 1 [M3a.2: isotropic for our w].
+7. **Gas coupling**: Q_k = realised exchange of the interface CV (TDC.tdc_exchange); the gas row of zone j gets + ½(Q_j + Q_j+1), the boundary CVs wholly their zone, so Σ_j (gas source) = −Σ_k Q_k exactly.
+8. **Species**: only the coupled species 8, 9 get the diffusion flux (D = α_D ℓ w, interface ρ the mean of the two zones, new level); the flux through the domain boundaries is zero. The other network species are not mixed here (they are operator split; their mixing with the converged D_mix is not implemented) [open]. The hot-core `mix!` is untouched.
+9. **ETOTMON**: the rows carry + ΣQ; the monitor books E_t = Σ_k m_k w_k² instead (Q Δt = ΔE_t + Δt Σ P_t dV): imb → imb + ΔE_t − Δt ΣQ, thr → thr + |ΔE_t| + Δt Σ|Q|.
+10. **α_m (eddy viscosity) is not implemented** (`TDCPAR` 7th entry must be 0). Boundary CVs are Dirichlet (w = 0), no PEXT.
+11. **Checkpoint/restart**: the checkpoint's aux carries `tdc = (WTN, WTO, a, b)`; a restart restores them when TDC is on and the zone range matches, and starts from w = 0 for a checkpoint without them (or from a different mesh). A restart with TDC off ignores them (and resets neqn to 9). A RAD rebuild or rezoning (`rebuild!`) resets w to 0 (the mesh changes; REZONE = 0 in production).
+
+### How to run TDC
+
+`TDC=1` in the environment of the zie1 stack (needs `HOT=1 COUPLED=1 TITAN_NOLIB=1 DTERR=… NKRYLOV=1`; `RAD=1`); `TDCPAR=A_s,A_d,A_c,α_p,α_t,α_D,α_m` (default `1,1,1,1,0.01,1,0` = the B2 best estimate); `TDCCEN` face weight (0 = donor); `CONVDIAG=1 RUNREC=<dir>` records the diagnostics, `ETOTMON=1 ETOTLOG=<file>` the total-energy ledger, `NWTRACE=<file>` the Newton iterations. `scripts/subconv/m3brun.sh <name> <steps> RESTART=rp_k650 TDC=1 CONVDIAG=1`.
