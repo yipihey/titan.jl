@@ -1682,7 +1682,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
         cplz(k) && (θc = max(θ, CPL_THETA[]); w += (θc * W.cpL[k] + (1 - θc) * XLAMO[][k]) * dvol[k])   # COUPLED: the chemistry cooling, implicit
         # MGROUPS: the line cooling is not lost, it is emitted into group MGLG (mg_rows!); a row that holds gas + radiation loses only the rest
-        if Mg !== nothing && cplz(k) && !(c.lrad && GASROW[] && !(c.etotal && !c.useint[k]))
+        if Mg !== nothing && cplz(k) && !(c.lrad && GASROW[])
             θl = max(θ, CPL_THETA[]); w -= (θl * Mg.lcl[k] + (1 - θl) * MGLCO[][k]) * dvol[k]
         end
         R[it, kb(k)] = w

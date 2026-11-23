@@ -124,6 +124,10 @@ const LOGCODES = (0, 3, 5, 6, 8)    # equation codes of the strictly positive un
 const POSCODES = (3, 5, 6)          # (ρ, T, E_r: x ψ(δ); the species: x e^δ)
 "A finite-difference step changes a logarithmic unknown by at most this (δ ln x): an entry of weight ~1e-12 (a trace species) otherwise gets ε v ~ 1e5, x → 0 and NaN in the EOS."
 const FDCLIP = 0.1
+"MGROUPS: weight (Trbdf2.wnorm's) below which a group entry is left out of the Krylov system (see `weights`)."
+const GWMIN = 1e-60
+"The group entries left out of the Krylov system of the last `weights` (indices into the block vector); update! gets no correction for them."
+const GMASK = Ref(Int[])
 """
 Equation codes of the unknowns by row: those of the context (1–7 the state variables, 0 the species), and with MGROUPS 8 for the groups' ln E_g and 9 for their
 fluxes F_g (linear, scaled by the nominal flux): rows 10 … 9 + 2G (TitanResidFast.mgiE, mgiF). `update!` applies them through MGRad.mg_update!.
@@ -185,7 +189,7 @@ function weights(c, act)
     ne, nb, k0 = c.neqn, c.nb, c.k0; a, b = c.ngrs, c.ngre; o = Trbdf2.EOPT
     lag = gi(:lgrid) == 3 || TC.GRIDMOVE[]
     rn, xmen, dn, un, tn, unom, asn, dvn = (vf(s) for s in (:rn, :xmen, :dn, :un, :tn, :unom, :asn, :dvoln))
-    ern, frn, frnom = vf(:ern), vf(:frn), vf(:frnom); wt = ones(ne * nb); code = nkcode(c); mg = TX.MG[]
+    ern, frn, frnom = vf(:ern), vf(:frn), vf(:frnom); wt = ones(ne * nb); code = nkcode(c); mg = TX.MG[]; empty!(GMASK[])
     for kb in 1:nb, i in 1:ne
         r = (kb - 1) * ne + i; act[r] || continue; k = k0 + kb - 1; cd = code[i]
         wt[r] = cd == 3 || cd == 5 ? 1.0 :
@@ -197,6 +201,12 @@ function weights(c, act)
                 cd == 2 ? xmen[k] / max(abs(xmen[k]), dn[max(k-1, a)] * dvn[max(k-1, a)], dn[min(k, b)] * dvn[min(k, b)]) :
                 cd == 1 ? (lag ? rn[k] / min(rn[k] - rn[max(k-1, a)], rn[min(k+1, b+1)] - rn[k]) : 1.0) :
                 frnom[k] / max(abs(frn[k]), o.ffl * 2.99792458e10 * 0.5 * (ern[max(k-1, a)] + ern[min(k, b)]))
+    end
+    if mg                           # MGROUPS: a group entry whose weight is below GWMIN (E_g or the nominal F_g below 1e-60 of E_r, F_r: a group that is empty there) is no unknown of the
+        for r in eachindex(wt)      # Krylov system: the band correction of an empty group is R/J with J ∝ E_g ~ 1e-150 E_r (1e253 e-folds at 298 zones, zie3), and the floor of the weights then makes it
+            (act[r] && code[(r-1)%ne+1] >= 8 && isfinite(wt[r]) && abs(wt[r]) < GWMIN) || continue      # the whole norm and the trust-region radius (λ = 1e-98: no step); the weights of the
+            act[r] = false; wt[r] = 1.0; push!(GMASK[], r)                                                 # convergence test (Trbdf2.wnorm, MGROUPS mg_dmax!) are this small too: those entries hold neither
+        end                                                                                                 # the Newton iteration nor the step size, and update! leaves them as they are
     end
     [isfinite(x) ? max(abs(x), 1e-60) : 1.0 for x in wt]       # (a 0/0 at a boundary interface: weight 1)
 end
@@ -685,6 +695,7 @@ function krylov!()
         TitanCore.STEP_FRAC[] = λ
         blk .= δ0           # (the perturbed updates used `rhs` as scratch); entries update! ignores keep the band solution
         @inbounds for r in 1:S.n; S.act[r] && (blk[(r-1)%ne+1, (r-1)÷ne+1] = λ * x[r]); end
+        @inbounds for r in GMASK[]; blk[(r-1)%ne+1, (r-1)÷ne+1] = 0.0; end          # (the empty groups: no correction; the band solution of an empty group is not a step)
         d = if S.snap.taken
             Rf = resid(ne, nb)
             d_ = maximum(abs, Rf .- S.R0) / (maximum(abs, S.R0) + 1e-300)       # drift of the restored state
@@ -764,6 +775,19 @@ function check!(S::Sys)
             rr = [ok[r] ? abs(ya[r] - yf[r]) / sa[r] : 0.0 for r in 1:S.n]
             @printf("NKCHECK AD J v vs FD (eps x%g): per row |J v(AD) - J v(FD)| / row scale: max %.3e, median %.3e, rows > 1e-4: %d, > 1e-2: %d | 2-norm rel %.3e\n", ef, maximum(rr), median(rr[ok]),
                     count(>(1e-4), rr), count(>(1e-2), rr), norm(ya .- yf) / max(norm(yf), 1e-300))
+            if ef == 1.0                                 # the same outside the front zones NKZX (default 36:46: photosphere, H₂ and ionisation fronts, where the state is not smooth)
+                zx1, zx2 = parse.(Int, split(get(ENV, "NKZX", "36:46"), ":"))
+                out = [ok[r] && !(zx1 <= k0 + (r - 1) ÷ ne - a + 1 <= zx2) for r in 1:S.n]
+                if any(out)
+                    ro = [out[r] ? rr[r] : 0.0 for r in 1:S.n]
+                    @printf("NKCHECK AD vs FD outside zones %d:%d: %d rows, max %.3e, median %.3e, rows > 1e-4: %d, > 1e-2: %d\n", zx1, zx2, count(out), maximum(ro), median(rr[out]), count(>(1e-4), ro), count(>(1e-2), ro))
+                    for i in 1:ne
+                        ri = [(kb - 1) * ne + i for kb in 1:nb]; kall = argmax([ro[r] for r in ri])
+                        nmi = i <= length(nm) ? nm[i] : (i - 9) % 2 == 1 ? "E_g$((i - 9 + 1) ÷ 2)" : "F_g$((i - 9) ÷ 2)"
+                        @printf("NKCHECK AD vs FD outside eq %-6s: worst row %.3e (zone %d; J v AD %+.5e FD %+.5e)\n", nmi, ro[ri[kall]], k0 + kall - 1 - a + 1, ya[ri[kall]], yf[ri[kall]])
+                    end
+                end
+            end
             ef == 1.0 || continue
             for i in 1:ne
                 ri = [(kb - 1) * ne + i for kb in 1:nb]; kall = argmax([rr[r] for r in ri]); zn(kb) = k0 + kb - 1 - a + 1

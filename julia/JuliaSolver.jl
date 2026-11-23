@@ -42,7 +42,20 @@ function matslv!()
     b  = get!(() -> zeros(n), BUF, (:b, n))::Vector{Float64}
     sc = get!(() -> zeros(n), BUF, (:sc, n))::Vector{Float64}
     _assemble!(AB, b, sc, A3[], RHS[], neqn, k0, nb, kl, ku)
-    AB2, ipiv = LAPACK.gbtrf!(kl, ku, n, AB)
+    ABd = get(ENV, "MGPIV", "0") == "1" ? copy(AB) : nothing
+    AB2, ipiv = try
+        LAPACK.gbtrf!(kl, ku, n, AB)
+    catch e
+        if ABd !== nothing && e isa LAPACKException       # MGPIV=1 (diagnostic): which unknown has the zero pivot
+            i = e.info; kb = (i - 1) ÷ neqn + 1; eq = (i - 1) % neqn + 1
+            println("MGPIV: gbtrf zero pivot at unknown ", i, ": equation ", eq, ", zone ", k0 + kb - 1 - ngrs + 1, " (block ", kb, " of ", nb, ")")
+        end
+        rethrow()
+    end
+    if ABd !== nothing
+        d = [abs(AB2[kl + ku + 1, c]) for c in 1:n]; idx = sortperm(d)[1:6]
+        println("MGPIV: smallest |U_ii| (row-equilibrated): ", join(("$(d[i]) @ eq $((i - 1) % neqn + 1) zone $(k0 + (i - 1) ÷ neqn - ngrs + 1)" for i in idx), " | "), "; median ", sort(d)[n ÷ 2])
+    end
     LAPACK.gbtrs!('N', kl, ku, n, AB2, ipiv, reshape(b, n, 1))
     rhs = RHS[]
     @inbounds for kb in 1:nb, i in 1:neqn

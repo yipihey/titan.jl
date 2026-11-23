@@ -1277,3 +1277,124 @@ iteration corrections of one failing step in both stacks from the same state (a 
 multigroup). Until this is resolved **a multigroup run has to start from a grey checkpoint after protostar formation** — the
 configuration validated in §20.1–20.4 — and the science question at the earliest epoch (does LW or ionising light get ahead of
 the photosphere during protostar formation) is answered only from step 14400 on.
+
+## 21. MGROUPS on the production code (branch `mgprod`: logmass b482bdc + mg2b 9248fbf)
+
+Tom (22 Nov): production will always be multigroup from now on (non-LTE effects). `mgprod` brings the validated multigroup code (§10–§20) onto
+`logmass`, the code zie1 and zie3 run (NKRYLOV with AD J·v and the band preconditioner, log-mass predictor, ENVEUL/ENVCONS, ETOTMON,
+LOCALJ/NLOIT/SLIMP=2 …). Merge commit c9c0236 (mg2b merged into logmass; 135 commits on one side, 10 on the other); everything below is what had to
+be adapted, not bypassed. Production settings plus `MGROUPS=4` and nothing else.
+
+### 21.1 The port
+
+* **Star light of the coupled zone** (the one real conflict: logmass replaced the lagged star-light inputs by the sweep `sl_sweep!`, every non-local
+  quantity from the iterate; mg2b had its own q_g bookkeeping). The sweep gives T_src, w_q and T_c of the iterate exactly as in the grey path
+  (mg2b kept the prepare pass's); with MGROUPS its callback `mgqt(k, T_c)` fills every group's q_g = c u_g/c u_g(start of step) (`sl_qt_mg`) and the grey
+  q is that of group MGSLG. The H₂ Lyman–Werner closure (`mg_h2lw!`) is Dual-complete: the column from the photosphere is a prefix sum of values plus the Dual
+  corrections of the zones in the band window of the consumer zone (`winv`, as the grey LW columns) — all zones in the 1-partial product — and T_c enters as a Dual.
+* **Zone chemistry terms** `cpl_tqg(t, ρ, T, x₁, x₂, q_g, s, t, g, dp)`: `cpl_tq` with the group fields (static field + group fields through
+  `ChemNet.photorates_mgq`), plus what logmass added: R_Lyα of the iterate (g), the deep weight (dp), the HM88 perturbers. The zone's local Jacobian has
+  the variables (ρ, T, x₁, x₂, q₁…q_G, s, g, dp, t) (`cpl_zone_qg`, 8 outputs: the 8th is the line cooling alone, which the group rows take into the IR group).
+* **Opacities** (NLOIT with the group record): grey (R_E, R_P, R_R) and the zone's group record from one `group_fast` call (the groups sum to the grey mean:
+  `group_fast` takes logmass's H⁻ Kirchhoff, CIA at every node and ln-occupation ratios); the bound–free blend of the deep weight blends the records
+  (`mg_rec_blend`). Slopes: the grey ratios keep logmass's exact Dual slopes in (ρ, T, x_H⁺, x_H₂); the record's slopes in those and in the star-light
+  variables (q_g, s, t, g, dp) are central differences (relative 1e-5/1e-6 in T, ρ, x, 1e-2 in the star-light variables), because `group_fast`/`mg_pack` are Float64.
+* **NKRYLOV with groups** (`NewtonKrylov.jl`): E_g (log) and F_g (linear, scaled by the nominal flux) are unknowns 10 … 9 + 2G of the GMRES (codes 8 and 9; weights as
+  `Trbdf2.wnorm`: E_g/(E_g + E_floor + MGEFL E_r), F_g nominal/(max(|F_g|, F floor, MGEFL |F_r|))); `update!` applies them through `mg_update!`; the snapshot/restore
+  of the trial updates also carries E_g, F_g, f_g, h_g, tie weights, g_g and the opacity records. **Band width:** the band Jacobian has 5 block diagonals of neqn × neqn;
+  neqn goes 9 → 9 + 2G = 17 (G = 4), the LU bandwidth kl = ku = 3 neqn − 1 goes 26 → 50, n = neqn (N + 5) = 1785 against 945: the banded LU costs ∝ n kl (kl + ku), about 7× the grey one.
+* **J·v by AD includes the groups' Eddington factors**: `mg_eddfac_dual!` runs `TitanCore.eddfac_dual` once per group on exactly the arrays `mg_eddfac!` gives the Float formal
+  solution (χ_g, κ_E,g and the source from the zone record, Raman, H₂ fluorescence, E_g, F_g, I_cmb b_g), so f_g, h_g, the tie weights and g_g (and the grey f of the total rows,
+  Σ f_g E_g/Σ E_g) carry derivatives; the grey `eddfac_dual` is not used then. The second filter of TR-BDF2's error estimate is the exact one (`refilter_mg!`, §20.1) followed by the Krylov solve.
+* Small adaptations: the line cooling is subtracted from the gas row only where the row holds gas + radiation (`!(lrad && GASROW)`; logmass has no `etotal`);
+  `nlost_restart!`, `ChemNet.photorates_t`, `tl3env` (static field + group fields), `starlight_setup` unchanged in substance.
+* New diagnostics (default off): `NKCHECK=2 NKCHECKN=n NKROWPROBE=0` also compares the AD product with the central finite difference through `update!` (per row, per equation,
+  and outside the front zones `NKZX=36:46`).
+
+### 21.2 Gates
+
+**(a) MGROUPS unset is bit-identical to logmass.** 30 steps from zie1's `m2c_z19zie1S8_auto1` (jstep 30300, copy of 22 Nov 19:16), run from a worktree of b482bdc and from the
+merged tree, same 8 cores/threads: final `tstate` md5 09ce1d440694852b728938aebd08155f, `aux` md5 49955c55276492341e069dd39295910a in both; `tools/ckcompare.jl`: 568 of 568 quantities
+identical, 11 Newton failure lines in each; repeated on the final tree (tstate/aux md5 the same, 568 of 568 identical). The MG changes touch the grey path only through `TitanCore.eddfac_dual`'s keyword `ximr`
+(default `P.ximr`), `NewtonKrylov.nkcode` (a copy of `c.code`), the snapshot (empty without MGROUPS) and `check!`.
+
+**(b) AD J·v against the finite difference** (`NKCHECK=2 NKCHECKN=n`, same state, iteration 2 of the first attempts; row scale Σ_j |J_b,ij w_j|; eps 1e-5 in the weighted norm; ε/10 and 10ε give the same
+picture). All rows, production settings (CPLJLAG default 3e-3, 0.1):
+
+| | rows | rows > 1e-4 | rows > 1e-2 | 2-norm rel | worst row of x_H⁺ |
+|---|---|---|---|---|---|
+| grey (5 checks) | 845 | 113 131 110 98 115 (12–16 %) | 74 71 63 53 50 (6–9 %) | 3.6e-5 – 5.9e-5 | 1.3e3 (zone 40–43) |
+| MGROUPS=4 (3 checks) | 1645 | 262 253 227 (14–16 %) | 163 141 121 (7–10 %) | 4.3e-5 | 1.5e3 (zone 44) |
+
+The rows that fail are the same in both: zones 38–44 (photosphere, H₂ front, ionisation front; the iterate there is not smooth: the finite difference moves the species by orders of magnitude;
+x_H⁺ 1e3 × row scale, u 25–37, T 23–147, F_r 258 in grey). Outside the front zones (`NKZX=36:46`, CPLJLAG=0) the AD product is the finite difference to its own accuracy:
+
+| worst row per equation, outside zones 36–46 | r | m | ρ | u | T | E_r | F_r | x_H⁺ | x_H₂ |
+|---|---|---|---|---|---|---|---|---|---|
+| grey | 1.0e-5 | 3.0e-5 | 2.1e-4 | 3.3e-5 | 1.0e-4 | 1.0e-4 | 0.61 (zone 85) | 1.2e-5 | 1.6e-5 |
+| MGROUPS=4 | 1.0e-5 | 2.2e-5 | 2.2e-4 | 2.8e-5 | 7.2e-5 | 9.7e-6 | 3.5e-11 | 2.1e-5 | 7.3e-5 |
+
+MGROUPS=4, groups: E_g1 5.7e-5, E_g2 6.1e-5, E_g3 1.5e-4, E_g4 7.2e-5, F_g1 7.3e-2 (zone 76), F_g4 1.9e-4; F_g2 and F_g3 4.6 and 11 at zone 101, the outermost interface, where
+the group fluxes are 1e-5 … 1e-4 erg cm⁻² s⁻¹ and the row is a difference of terms of order 1 (the grey F_r row has 0.61 at zone 85 for the same reason); rows > 1e-4 outside the front: 57 of 746 (grey), 142 of 1458
+(MGROUPS=4). The group rows in the front zones (E_g 0.5–130, F_g 2–330 of the row scale) are as bad as grey's u, T, E_r, F_r rows there.
+
+**(c) Restart from a grey checkpoint with MGROUPS=4** (the §20 path). zie1 `S6_auto1` (jstep 23300, 100 zones): the first step fails 7 times (Δt 7.5e6 s, then ×¼ each: 1.9e6, 4.7e5, 1.2e5, 2.9e4, 7.3e3, 1.8e3)
+and is accepted at 4.5e2 s (first snapshot Δt 5.4e2 s); the group fields relax in the next ~15 steps (L 6.78e6 → 6.64e6 L☉ over 5e5 s). The same restart on zie1 `S8_auto1` (NKCHECK runs): 3 of 3 attempts fail at 7e6, 1.75e6, 4.4e5 s.
+zie3 `fp3a1` (298 zones): see 21.3.
+
+### 21.3 Windows (production settings, 8 cores, Julia -t 8, a loaded box: load average 30; wall includes ~10 min of compilation in the first 100 steps)
+
+**zie1, 300 steps from `S6_auto1`** (jstep 23300, t = 273441.8 yr, 100 zones, 193 M☉, L = 6.8e6 L☉; runs `gwin1` grey, `mwin1` MGROUPS=4; the zie1 snapshots every 5 steps).
+
+| | grey (logmass) | MGROUPS=4 |
+|---|---|---|
+| Newton failures (`divergence` lines) | 62 (brief: 64) | 42 (7 of them at the restart step) |
+| TR-BDF2 failures (fail_tr / fail_bdf) | +19 / +43 | +35 / +7 |
+| Newton linear solves (J_b reused), matrix-vector products | 11788 (2054), 20748 | 5378 (2006), 13054 |
+| Δt over snapshots, min – max (median) | 6.6e5 – 2.3e7 s (3.9e6) | 1.4e2 – 6.9e3 s (1.7e3) |
+| limiter of the error estimate (DTERR trace lines) | x_H⁺ 14, x_H₂ 1 | ln E_4 12, ln E_3 1, ln E_2 1, x_H₂ 1 (zones 44–50) |
+| simulated time, 300 steps | 34.48 yr = 1.088e9 s | 1.55e-2 yr = 4.9e5 s |
+| wall, steps 23400–23600 | 1116 s = 5.6 s/step | 2138 s = 10.7 s/step (12.4, then 9.0) |
+| wall per simulated yr (those steps; grey 25.5 yr, MG 1.06e-2 yr) | 44 s | 2.0e5 s (4600 ×) |
+
+Physics at the restart state (grey t = 273441.8 yr; MGROUPS after 4.9e5 s; the grey run's first snapshot is 10 yr later):
+T_c 1.4314e8 K in both; M* 193.347 (MG) against 193.350 M☉; R* 77.43 R☉ in both; L(r_ph) 6.640e6 against 6.799e6 L☉ (−2.3 %; MG median over the window 6.862e6 against 6.800e6, +0.9 %; the MG luminosity falls
+from 6.78e6 to 6.64e6 L☉ during the group relaxation of the first 100 steps); T_eff(L) 8154 against 8202 K; r_ph 1291.5 R☉ (the grid's interface radius) in both; r(x_H⁺ = 0.5) 2008 against 1983 R☉ (+1.3 %).
+The grey and the MG window cannot be compared at a matched later time: MG covers 0.0155 yr. A run with MGROUPS to the grey run's 34 yr is 1.3e10 s of wall at this Δt.
+
+**zie3, 40 steps from `fp3a1`** (jstep 5740, t = 236223.5 yr, 298 zones, L = 3.3e3 L☉, r_ph = 109 R☉, T_eff 4200 K, T_c 1.16e5 K; the old zie3 state of the `roots` work; runs `gz3`, `mz3b`).
+Grey: 7 Newton failures in 40 steps (all at zones 111–112: x_H⁺, T, E_r, F_r at zone 248–249; the cycles of `roots`), 1363 linear solves, Δt 4.9e3 – 3.1e4 s, 4.9e5 s (0.0156 yr) simulated, 5.5 s/step.
+MGROUPS=4: **does not run.** The first step at Δt = 1.6e4 s fails (the band correction has |δ|_W = 7e92, Krylov step λ = 1e-18), the second attempt is the zero pivot of §20.1 (`LAPACKException(5134)`), the third converges
+at 407 s but its BDF stage (Δt/2) does not; the step is accepted only at Δt ≈ 2e-6 s, the next ones at 1e-9 … 1e-8 s (21 failures in 6 steps; stopped by hand at jstep 5746, 1e-7 s simulated).
+It fails in the outer cloud (zones 210–221, F_g1/T/E_r rows; the smallest band pivots are F_g4 of zones 267–273), not at the front zone 111: §21.4 item 1. The first zie3 attempt, before the empty-group mask of NKRYLOV, failed all 60 attempts.
+The dt-continuation of `roots` (dense AD Jacobian, `Roots*.jl`, 800 lines of tooling for neqn 9) was not ported: with neqn 17 and the group rows it is not a cheap cherry-pick, and the MG zie3 start does not reach the front.
+
+### 21.4 Open items found in this round
+
+1. **A group that is empty at a restart breaks the band solve on a long grid (zie3, 298 zones to 1.4e6 R☉).** `MGPIV=1` (`JuliaSolver.matslv!`, diagnostic, default off) prints the smallest pivots of the row-equilibrated band matrix:
+   1e-186 at F_g4 (the ionising group's flux) of zones 267–273 (median pivot 0.3); in the first iteration the correction of the band solution is 1e92 (T of zone 213) … 1e132 (F_g1 of zone 216, weight 0.3), the Krylov step is cut to λ = 1e-18…1e-98
+   and the iteration fails; attempt 2 is the known zero pivot of §20.1 (`LAPACKException(5134)`, last ghost block). The columns of an empty group's flux are 1e-186 of their row: the unknown is not determined by any equation
+   (E_g4 ~ 1e-150 E_r, F_g4 nominal 1e-150). On zie1 (100 zones, `S6_auto1`) the same restart passes after 7 cut attempts. NKRYLOV now leaves an entry out of the Krylov system when its weight is below 1e-60 (`GWMIN`: E_g or the
+   nominal F_g below 1e-63 E_r, F_r; `GMASK`: they get no correction); that removed the 60 failures of the first zie3 attempt (the 1e-60 floor of the weights had made the band step of these entries the whole norm) but not the
+   conditioning of the band matrix itself. A cure belongs in the group unknowns (a linear, floor-scaled variable for a group below its floor instead of ln E_g) or in the restart partition; neither is in this round.
+2. **The step size under MGROUPS=4 on the zie1 window is set by ln E_4 in the ionised region** (zones 44–46, E_4/E_r 5e-4 … 1e-4, the Lyman-continuum photons absorbed by a neutral fraction of 1e-4 … 1e-6, τ_ion ~ 1 per zone): the error estimate
+   is 2–3 times the tolerance in ln E_4 for Δt above ~1e3 s while the grey run takes 4e6 s (limiter x_H⁺). x_H⁺ is the unknown, 1 − x_H⁺ = 1e-6 is a cancellation: an error of 1e-8 in x_H⁺ is 1 % of the neutral fraction and several per cent of ln E_4.
+   A neutral-fraction unknown (ln x_H) would remove it; not done.
+3. The record's slopes in the star-light variables and in (T, x, ρ) are central differences (`mg_rec_slopes`, `mg_sl_slopes`): the AD product is exact for the grey ratios only. Making `group_fast` and `mg_pack` generic in the number type removes the
+   26 extra record evaluations per zone and Jacobian refresh (the NLOIT sweep is the largest part of the MGROUPS cost).
+4. `MGCLAMP` (±3 in ln E_g per iteration, `mg_dmax!`), `MGEMIN`, `MGBFLOOR`, `MGCUFL` and the new `GWMIN` are clamps/floors in the sense of the design rules; they are the numerical parameters of §19.2, now with the Krylov mask added.
+
+### 21.5 Grey star-light closures that MGROUPS makes removable (listed, not deleted)
+
+With MGROUPS as the production path the group fields are the star light of every coupled zone (§18, §19.4); these grey closures then have no function. Deleting them changes the grey
+stack and belongs with the decision to switch production.
+
+| what | where | status with MGROUPS |
+|---|---|---|
+| bolometric dilution W of the star light: `STARLIGHT`, `SL3` rates `starlight_setup.rates` (W branch), `SLWFLUX`, `SLWFLUX` in `sl_sweep!` | `PopIIIMaterial.jl` | unused (the groups' c u_g); the colour temperature rule (`SLBLEND`, `SLEB`: T_src, w_q, T_c) stays: it is the in-group shape and the sweep's T_c |
+| Lyman–Werner shielding by columns: `SLSHIELD`, `fsh_h2`, `fsh_hi`, the LW part of `sl_sweep!` (`lwcols`, `sl_lwon`, prefix sums P1, P2, `S.fs`), `lwheat!` | `PopIIIMaterial.jl` | unused: `mg_h2lw!` (photon-conserving closure, Dual-complete) replaces it |
+| the grey zone terms: `cpl_tq`, `cpl_zone_q`, `cpl_vjq`, the 9-variable `cpl_liftq`, `cpl_closeq`, `TX.CPL_ZONEQ` (the zones without a star-light record still use them) | `PopIIIMaterial.jl`, `TitanResidFast.jl` | `cpl_tqg`, `cpl_zone_qg` replace them in star-lit zones |
+| `LOCALJ`, `LOCALJTAB`, `ljon`, `tl3env`'s `ljW`/`ljs` branch, `_phq_combine`, `ChemNet.photorates_lj`/`photorates_lj_a0` (the J = J_static + W B(T_c) of one dilution for all bands) | `PopIIIMaterial.jl`, `ChemNet.jl` | unused (`photorates_mgq`: static field + group fields; `lj_stim`, `lj_tables` stay for the Milne factor) |
+| the grey q, t, g, dp slopes of the NLOIT ratio (`sq`, `st`, `sg`, `sdp` branch of `nlo_it`) | `PopIIIMaterial.jl` | the group-field branch (`mg_sl_slopes`) replaces it where a zone has a record |
+| `NLOPC` restart test in `nlost_restart!` | `PopIIIMaterial.jl` | defect (§18.4): the `MGON` branch is the fix; drop the test |
+| `CONV=1e-3` of `run.env` (not read by `popiii_m2c.jl`, §19.4), `SLIMPDBG` | env files, `TitanResidFast.jl`, `PopIIIMaterial.jl` | dead / debugging |
