@@ -1,0 +1,62 @@
+# NKCHECK nk650b
+# code: branch popiii-subconv @ da98166 (log taken at commit aa96c83..96249d8, solver code unchanged since); TitanCore.jl of aace2a0 (scratch worktree, not committed); zie1 settings, restart from the replay checkpoint rp_k650, TDC unset (baseline)
+COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn 9)
+NKCHECK ne 9 nb 104 active 842 eps 1.001e-05; rows compared 853 (5 Dirichlet rows R = delta left out); |Jv - J_b w| / sum_j |J_b,ij w_j| per row: max 1.735e+01, median 1.676e-06, rows > 1e-4: 59, > 1e-2: 42
+   row F_r   zone  43: Jv +2.06657e+28  J_b w -3.44340e+26  rowscale 1.211e+27  rel 1.735e+01
+   row F_r   zone  44: Jv +6.37045e+27  J_b w -8.94696e+26  rowscale 1.065e+27  rel 6.824e+00
+   row F_r   zone  74: Jv +4.94788e+28  J_b w +8.17911e+27  rowscale 1.083e+28  rel 3.812e+00
+   row F_r   zone  72: Jv +1.77695e+28  J_b w -3.28681e+27  rowscale 6.598e+27  rel 3.191e+00
+   row F_r   zone  73: Jv +4.27637e+28  J_b w +1.23252e+28  rowscale 1.233e+28  rel 2.470e+00
+   row F_r   zone  71: Jv +1.46675e+28  J_b w +6.93929e+26  rowscale 6.150e+27  rel 2.272e+00
+   row F_r   zone  75: Jv +7.89821e+28  J_b w +2.66156e+28  rowscale 2.668e+28  rel 1.963e+00
+   row F_r   zone  70: Jv +7.94452e+27  J_b w -1.01364e+27  rowscale 5.184e+27  rel 1.728e+00
+   row F_r   zone  65: Jv +4.71562e+26  J_b w -2.89111e+26  rowscale 5.636e+26  rel 1.350e+00
+   row F_r   zone  76: Jv +9.91231e+28  J_b w +3.72028e+28  rowscale 4.631e+28  rel 1.337e+00
+   row F_r   zone  69: Jv +9.82519e+27  J_b w +4.23737e+27  rowscale 4.449e+27  rel 1.256e+00
+   row F_r   zone  45: Jv +3.79317e+27  J_b w +1.69099e+27  rowscale 1.748e+27  rel 1.203e+00
+   row F_r   zone  68: Jv +6.00910e+27  J_b w +2.57750e+27  rowscale 2.857e+27  rel 1.201e+00
+   row F_r   zone  67: Jv +8.57653e+26  J_b w -1.23264e+27  rowscale 1.771e+27  rel 1.180e+00
+   row F_r   zone  66: Jv +2.81974e+27  J_b w +1.55455e+27  rowscale 1.569e+27  rel 8.066e-01
+   row F_r   zone  47: Jv +5.88402e+25  J_b w -5.01858e+26  rowscale 8.127e+26  rel 6.899e-01
+   row F_r   zone  46: Jv -1.67543e+26  J_b w -1.19680e+27  rowscale 1.539e+27  rel 6.689e-01
+   row F_r   zone  77: Jv +9.70391e+27  J_b w -5.74579e+28  rowscale 1.075e+29  rel 6.247e-01
+   row F_r   zone  64: Jv -3.33131e+26  J_b w -7.90397e+26  rowscale 9.018e+26  rel 5.071e-01
+   row F_r   zone  49: Jv +3.14944e+26  J_b w +1.20182e+26  rowscale 4.401e+26  rel 4.426e-01
+   row F_r   zone  62: Jv +5.45062e+25  J_b w -1.10780e+26  rowscale 4.073e+26  rel 4.059e-01
+   row F_r   zone  78: Jv -1.23592e+29  J_b w -1.90205e+29  rowscale 1.905e+29  rel 3.498e-01
+   row F_r   zone  63: Jv -5.81072e+26  J_b w -8.55880e+26  rowscale 1.035e+27  rel 2.656e-01
+   row F_r   zone  61: Jv +2.16017e+26  J_b w +1.16357e+26  rowscale 3.865e+26  rel 2.578e-01
+   row F_r   zone  50: Jv -1.34309e+26  J_b w -2.51894e+26  rowscale 5.654e+26  rel 2.080e-01
+   row F_r   zone  48: Jv +1.62938e+27  J_b w +1.30492e+27  rowscale 1.702e+27  rel 1.907e-01
+   row F_r   zone  51: Jv +1.20760e+26  J_b w +4.95332e+25  rowscale 4.416e+26  rel 1.613e-01
+   row F_r   zone  53: Jv +1.60244e+26  J_b w +1.33066e+26  rowscale 2.354e+26  rel 1.155e-01
+   row F_r   zone  79: Jv +6.17747e+29  J_b w +5.56017e+29  rowscale 5.560e+29  rel 1.110e-01
+   row F_r   zone  80: Jv -5.43015e+29  J_b w -5.97483e+29  rowscale 5.977e+29  rel 9.113e-02
+NKCHECK eq r    : max rel 4.983e-06 (zone 30) | zones 34..44: max rel 4.870e-06 (zone 36)
+NKCHECK eq m    : max rel 3.883e-06 (zone 58) | zones 34..44: max rel 3.100e-06 (zone 42)
+NKCHECK eq rho  : max rel 4.724e-06 (zone 31) | zones 34..44: max rel 4.511e-06 (zone 41)
+NKCHECK eq u    : max rel 4.202e-06 (zone 5) | zones 34..44: max rel 3.020e-06 (zone 44)
+NKCHECK eq T    : max rel 1.706e-02 (zone 1) | zones 34..44: max rel 3.380e-06 (zone 38)
+NKCHECK eq E_r  : max rel 9.147e-04 (zone 42) | zones 34..44: max rel 9.147e-04 (zone 42)
+NKCHECK eq F_r  : max rel 1.735e+01 (zone 43) | zones 34..44: max rel 1.735e+01 (zone 43)
+NKCHECK eq x_H+ : max rel 2.748e-04 (zone 53) | zones 34..44: max rel 4.885e-06 (zone 44)
+NKCHECK eq x_H2 : max rel 3.758e-06 (zone 57) | zones 34..44: max rel 2.223e-06 (zone 42)
+NKCHECK eps x0.01 (max|eps v| 1.0e-07): vs J_b w: max 1.735e+01 median 1.654e-06 rows>1e-4 56 >1e-2 40 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 1.507e-07, worst row (rel to rowscale) 1.361e-01
+NKCHECK eps x0.1 (max|eps v| 1.0e-06): vs J_b w: max 1.735e+01 median 1.655e-06 rows>1e-4 56 >1e-2 40 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 1.492e-07, worst row (rel to rowscale) 2.431e-02
+NKCHECK eps x10 (max|eps v| 1.0e-04): vs J_b w: max 1.739e+01 median 1.782e-06 rows>1e-4 65 >1e-2 44 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 1.492e-05, worst row (rel to rowscale) 1.029e-01
+NKCHECK eps x100 (max|eps v| 1.0e-03): vs J_b w: max 2.247e+01 median 1.946e-06 rows>1e-4 108 >1e-2 51 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 1.524e-03, worst row (rel to rowscale) 5.118e+00
+NKCHECK row probe: finite-difference rows against the band rows, one unit vector per active column (842 products)
+NKCHECK row probe: row F_r of zone 43
+   column x_H+  zone  40 (offset -3): FD +4.0332e+28  band +0.0000e+00  |diff| 4.033e+28
+   column T     zone  40 (offset -3): FD +5.5743e+26  band +0.0000e+00  |diff| 5.574e+26
+   column r     zone  41 (offset -2): FD -7.2740e+26  band -3.1903e+26  |diff| 4.084e+26
+   column r     zone  40 (offset -3): FD +3.1888e+26  band +0.0000e+00  |diff| 3.189e+26
+   column rho   zone  40 (offset -3): FD -1.5710e+26  band +0.0000e+00  |diff| 1.571e+26
+   column r     zone  43 (offset +0): FD +1.9207e+26  band +2.6325e+26  |diff| 7.118e+25
+   column r     zone  42 (offset -1): FD +2.4324e+26  band +1.7377e+26  |diff| 6.947e+25
+   column r     zone  44 (offset +1): FD +2.0408e+25  band +2.2221e+25  |diff| 1.813e+24
+   column T     zone  41 (offset -2): FD -1.8633e+26  band -1.8620e+26  |diff| 1.292e+23
+   column E_r   zone  40 (offset -3): FD +8.4059e+22  band +0.0000e+00  |diff| 8.406e+22
+   column r     zone  45 (offset +2): FD +2.6474e+22  band +1.2794e+19  |diff| 2.646e+22
+   column T     zone  44 (offset +1): FD +1.9980e+22  band -1.6200e+19  |diff| 2.000e+22
+NKCHECK AD residual vs Float64 residual: max |diff| / max |R| = 3.700e-18

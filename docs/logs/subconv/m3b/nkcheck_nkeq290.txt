@@ -1,0 +1,101 @@
+# NKCHECK nkeq290
+# code: branch popiii-subconv @ da98166 (log taken at commit aa96c83..96249d8, solver code unchanged since); TitanCore.jl of aace2a0 (scratch worktree, not committed); zie1 settings, restart from the replay checkpoint tdc (20 TDC steps from rp_k290), NKEQ listing
+COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn 10)
+TDC: turbulent velocity w = unknown 10 (neqn 10, meqn 10), A_s/A_d/A_c 1/1/1, alpha_p 1, alpha_t 0.01, alpha_D 1, face weight 0; start from the checkpoint's w
+NKCHECK ne 10 nb 104 active 947 eps 1.001e-05; rows compared 959 (4 Dirichlet rows R = delta left out); |Jv - J_b w| / sum_j |J_b,ij w_j| per row: max 7.828e+07, median 1.807e-06, rows > 1e-4: 114, > 1e-2: 79
+   row 10    zone   3: Jv +4.31619e+05  J_b w +5.51344e-03  rowscale 5.513e-03  rel 7.828e+07
+   row 10    zone   2: Jv -2.80190e+05  J_b w -1.68116e-02  rowscale 1.681e-02  rel 1.667e+07
+   row 10    zone  58: Jv -2.13658e+11  J_b w -2.10300e+05  rowscale 2.103e+05  rel 1.016e+06
+   row 10    zone  57: Jv -3.06348e+11  J_b w -3.07630e+05  rowscale 3.076e+05  rel 9.958e+05
+   row 10    zone  59: Jv +1.99601e+11  J_b w +2.01338e+05  rowscale 2.013e+05  rel 9.914e+05
+   row 10    zone  60: Jv +1.30229e+11  J_b w +1.38004e+05  rowscale 1.380e+05  rel 9.437e+05
+   row 10    zone  56: Jv -7.76461e+10  J_b w -8.54098e+04  rowscale 8.541e+04  rel 9.091e+05
+   row 10    zone  61: Jv -2.31922e+11  J_b w -2.67439e+05  rowscale 2.674e+05  rel 8.672e+05
+   row 10    zone  55: Jv -5.06909e+10  J_b w -6.72027e+04  rowscale 6.720e+04  rel 7.543e+05
+   row 10    zone  62: Jv -1.60516e+11  J_b w -2.19149e+05  rowscale 2.191e+05  rel 7.325e+05
+   row 10    zone  54: Jv -7.90858e+10  J_b w -1.41367e+05  rowscale 1.414e+05  rel 5.594e+05
+   row 10    zone  63: Jv -1.22944e+11  J_b w -2.26799e+05  rowscale 2.268e+05  rel 5.421e+05
+   row 10    zone  53: Jv -1.46530e+11  J_b w -3.95014e+05  rowscale 3.950e+05  rel 3.709e+05
+   row 10    zone  64: Jv -7.95036e+10  J_b w -2.26160e+05  rowscale 2.262e+05  rel 3.515e+05
+   row 10    zone  52: Jv -5.11803e+10  J_b w -2.22586e+05  rowscale 2.226e+05  rel 2.299e+05
+   row 10    zone  65: Jv +1.32681e+10  J_b w +6.20002e+04  rowscale 6.200e+04  rel 2.140e+05
+   row 10    zone  51: Jv -1.66382e+10  J_b w -1.20609e+05  rowscale 1.206e+05  rel 1.380e+05
+   row 10    zone  66: Jv -1.81162e+09  J_b w -1.37784e+04  rowscale 1.378e+04  rel 1.315e+05
+   row 10    zone  50: Jv +3.14323e+10  J_b w +3.71101e+05  rowscale 3.711e+05  rel 8.470e+04
+   row 10    zone  67: Jv -2.31587e+09  J_b w -2.78600e+04  rowscale 2.786e+04  rel 8.312e+04
+   row 10    zone  68: Jv -6.50291e+09  J_b w -1.19362e+05  rowscale 1.194e+05  rel 5.448e+04
+   row 10    zone  49: Jv +2.99619e+09  J_b w +5.81544e+04  rowscale 5.815e+04  rel 5.152e+04
+   row 10    zone  69: Jv -3.17039e+08  J_b w -8.37962e+03  rowscale 8.380e+03  rel 3.783e+04
+   row 10    zone  48: Jv -2.18466e+10  J_b w -6.41450e+05  rowscale 6.415e+05  rel 3.406e+04
+   row 10    zone  70: Jv -3.82957e+09  J_b w -1.41110e+05  rowscale 1.411e+05  rel 2.714e+04
+   row 10    zone  47: Jv +1.16300e+10  J_b w +4.59023e+05  rowscale 4.590e+05  rel 2.534e+04
+   row 10    zone  46: Jv -3.83573e+09  J_b w -1.94436e+05  rowscale 1.944e+05  rel 1.973e+04
+   row 10    zone  71: Jv -1.77426e+09  J_b w -9.02760e+04  rowscale 9.028e+04  rel 1.965e+04
+   row 10    zone  45: Jv +1.85588e+10  J_b w +1.13826e+06  rowscale 1.138e+06  rel 1.630e+04
+   row 10    zone  72: Jv -4.16643e+08  J_b w -2.92828e+04  rowscale 2.928e+04  rel 1.423e+04
+NKCHECK eq r    : max rel 4.994e-06 (zone 62) | zones 32..42: max rel 4.678e-06 (zone 36)
+NKCHECK eq m    : max rel 4.547e-06 (zone 40) | zones 32..42: max rel 4.547e-06 (zone 40)
+NKCHECK eq rho  : max rel 4.929e-06 (zone 2) | zones 32..42: max rel 4.447e-06 (zone 35)
+NKCHECK eq u    : max rel 3.518e-06 (zone 41) | zones 32..42: max rel 3.518e-06 (zone 41)
+NKCHECK eq T    : max rel 4.583e-06 (zone 23) | zones 32..42: max rel 4.549e-06 (zone 39)
+NKCHECK eq E_r  : max rel 7.592e-05 (zone 37) | zones 32..42: max rel 7.592e-05 (zone 37)
+NKCHECK eq F_r  : max rel 1.988e-01 (zone 39) | zones 32..42: max rel 1.988e-01 (zone 39)
+NKCHECK eq x_H+ : max rel 1.599e-03 (zone 40) | zones 32..42: max rel 1.599e-03 (zone 40)
+NKCHECK eq x_H2 : max rel 4.286e-06 (zone 39) | zones 32..42: max rel 4.286e-06 (zone 39)
+NKCHECK eq 10   : max rel 7.828e+07 (zone 3) | zones 32..42: max rel 1.103e+04 (zone 42)
+NKCHECK row eq 10  zone  32: Jv -1.36914e+03  J_b w -1.36914e+03  rowscale 1.369e+03  rel 3.170e-11  w_iterate 0.000e+00
+NKCHECK row eq 10  zone  33: Jv +5.67873e+03  J_b w +5.67874e+03  rowscale 5.679e+03  rel 5.148e-07  w_iterate 0.000e+00
+NKCHECK row eq 10  zone  34: Jv -5.62843e+05  J_b w -5.62841e+05  rowscale 6.181e+05  rel 3.634e-06  w_iterate 9.720e+04
+NKCHECK row eq 10  zone  35: Jv -4.73516e+04  J_b w -4.73508e+04  rowscale 2.893e+05  rel 2.691e-06  w_iterate 1.589e+05
+NKCHECK row eq 10  zone  36: Jv -5.64909e+06  J_b w -5.64912e+06  rowscale 6.421e+06  rel 3.857e-06  w_iterate 1.812e+05
+NKCHECK row eq 10  zone  37: Jv -6.23553e+05  J_b w -6.19492e+05  rowscale 6.195e+05  rel 6.555e-03  w_iterate -5.417e-56
+NKCHECK row eq 10  zone  38: Jv +1.31320e+08  J_b w +1.41439e+08  rowscale 1.414e+08  rel 7.155e-02  w_iterate 2.077e+00
+NKCHECK row eq 10  zone  39: Jv -4.97585e+09  J_b w -1.54874e+09  rowscale 1.549e+09  rel 2.213e+00  w_iterate 1.247e-02
+NKCHECK row eq 10  zone  40: Jv -4.18211e+09  J_b w -7.27296e+05  rowscale 7.273e+05  rel 5.749e+03  w_iterate 2.460e-04
+NKCHECK row eq 10  zone  41: Jv -4.48998e+08  J_b w -8.97988e+08  rowscale 8.980e+08  rel 5.000e-01  w_iterate 6.539e-05
+NKCHECK row eq 10  zone  42: Jv +4.48514e+09  J_b w +4.06419e+05  rowscale 4.064e+05  rel 1.103e+04  w_iterate 0.000e+00
+NKCHECK eps x0.01 (max|eps v| 1.0e-07): vs J_b w: max 1.016e+06 median 1.792e-06 rows>1e-4 114 >1e-2 75 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 1.082e-09, worst row (rel to rowscale) 7.828e+07
+NKCHECK eps x0.1 (max|eps v| 1.0e-06): vs J_b w: max 1.016e+06 median 1.791e-06 rows>1e-4 111 >1e-2 77 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 3.813e-10, worst row (rel to rowscale) 7.828e+07
+NKCHECK eps x10 (max|eps v| 1.0e-04): vs J_b w: max 1.127e+08 median 1.953e-06 rows>1e-4 121 >1e-2 83 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 8.085e-09, worst row (rel to rowscale) 3.445e+07
+NKCHECK eps x100 (max|eps v| 1.0e-03): vs J_b w: max 1.163e+08 median 2.283e-06 rows>1e-4 167 >1e-2 94 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 8.130e-07, worst row (rel to rowscale) 4.240e+07
+NKCHECK row probe: finite-difference rows against the band rows, one unit vector per active column (947 products)
+NKCHECK row probe: row 10 of zone 45
+   column 10    zone  45 (offset +0): FD +2.0128e+10  band +1.2346e+06  |diff| 2.013e+10
+   column 10    zone 101 (offset +56): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column F_r   zone 101 (offset +56): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column u     zone 101 (offset +56): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column m     zone 101 (offset +56): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column r     zone 101 (offset +56): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column 10    zone 100 (offset +55): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column x_H2  zone 100 (offset +55): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column x_H+  zone 100 (offset +55): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column F_r   zone 100 (offset +55): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column E_r   zone 100 (offset +55): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column T     zone 100 (offset +55): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+NKCHECK row probe: row 10 of zone 50
+   column 10    zone  50 (offset +0): FD +5.3366e+10  band +6.3005e+05  |diff| 5.337e+10
+   column 10    zone 101 (offset +51): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column F_r   zone 101 (offset +51): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column u     zone 101 (offset +51): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column m     zone 101 (offset +51): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column r     zone 101 (offset +51): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column 10    zone 100 (offset +50): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column x_H2  zone 100 (offset +50): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column x_H+  zone 100 (offset +50): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column F_r   zone 100 (offset +50): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column E_r   zone 100 (offset +50): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+   column T     zone 100 (offset +50): FD +0.0000e+00  band +0.0000e+00  |diff| 0.000e+00
+NKCHECK row probe: row 10 of zone 38
+   column 10    zone  38 (offset +0): FD +5.8623e+08  band +6.3145e+08  |diff| 4.522e+07
+   column 10    zone  39 (offset +1): FD -1.5078e+05  band -1.5275e+05  |diff| 1.962e+03
+   column r     zone  39 (offset +1): FD +8.4556e+02  band +8.4460e+02  |diff| 9.596e-01
+   column r     zone  38 (offset +0): FD -1.3702e+03  band -1.3693e+03  |diff| 8.652e-01
+   column T     zone  37 (offset -1): FD -9.4902e+02  band -9.4950e+02  |diff| 4.824e-01
+   column T     zone  36 (offset -2): FD -2.7159e-01  band -3.2038e-02  |diff| 2.395e-01
+   column r     zone  37 (offset -1): FD -4.7255e+02  band -4.7237e+02  |diff| 1.822e-01
+   column r     zone  36 (offset -2): FD +1.6827e-01  band +2.7601e-02  |diff| 1.407e-01
+   column rho   zone  37 (offset -1): FD -1.3006e+03  band -1.3006e+03  |diff| 8.611e-02
+   column x_H+  zone  37 (offset -1): FD -6.7891e+01  band -6.7929e+01  |diff| 3.780e-02
+   column x_H2  zone  37 (offset -1): FD -1.2391e+01  band -1.2400e+01  |diff| 9.204e-03
+   column rho   zone  38 (offset +0): FD -3.6007e+02  band -3.6007e+02  |diff| 9.021e-03
+NKCHECK AD residual vs Float64 residual: max |diff| / max |R| = 5.222e-18
