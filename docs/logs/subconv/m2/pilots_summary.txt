@@ -1,0 +1,67 @@
+=== p650_base (TitanCore of aace2a0; 200 steps for p650, 100 for the others)
+run ended: (200, :maxsteps); jstep 850 jstepe 1e+07 timen 7.684723e+12 tmax 1.543789e+15
+DTERR statistics Dict(:neg_old => 2, :be => 0, :rej_err => 39, :nofsal => 1, :steps => 855, :fail_newton => 118, :nonfinite => 0, :repeat => 5, :nonfinite_est => 2)
+Newton-failure rejections: 33; min dt of accepted steps (s): 1.072e+05
+step 655 dt 4.696e+05  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.599,0.774,0.379,7.41,0,124,2,278; ncv(sup>0,wτ>0) 0
+step 675 dt 8.615e+06  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.599,0.774,0.382,3.94,0,432,2,278; ncv(sup>0,wτ>0) 0
+step 695 dt 5.528e+07  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.599,0.774,0.675,11.3,0,102,2,359; ncv(sup>0,wτ>0) 0
+step 715 dt 1.263e+05  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.599,0.774,0.68,8.43,0,100,2,359; ncv(sup>0,wτ>0) 0
+step 735 dt 2.318e+07  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.599,0.774,0.67,5.76,0,212,2,359; ncv(sup>0,wτ>0) 0
+step 755 dt 8.920e+08  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.774,0.774,0,1.46,0,4.83,1,359; ncv(sup>0,wτ>0) 0
+step 775 dt 1.235e+08  max Fconv/Ftot 1 at int 8; max sup -Inf; layer NaN,NaN,0,NaN,NaN,NaN,0,278; ncv(sup>0,wτ>0) 2
+step 795 dt 4.149e+05  max Fconv/Ftot 1 at int 8; max sup -Inf; layer NaN,NaN,0,NaN,NaN,NaN,0,278; ncv(sup>0,wτ>0) 2
+step 815 dt 5.077e+05  max Fconv/Ftot 1 at int 8; max sup -Inf; layer NaN,NaN,0,NaN,NaN,NaN,0,278; ncv(sup>0,wτ>0) 2
+step 835 dt 3.813e+05  max Fconv/Ftot 1 at int 8; max sup -Inf; layer NaN,NaN,0,NaN,NaN,NaN,0,278; ncv(sup>0,wτ>0) 2
+=== p650_buoy (TitanCore of aace2a0; 200 steps for p650, 100 for the others)
+run ended: (200, :maxsteps); jstep 850 jstepe 1e+07 timen 7.663656e+12 tmax 1.543789e+15
+DTERR statistics Dict(:neg_old => 1, :be => 0, :rej_err => 39, :nofsal => 1, :steps => 850, :fail_newton => 115, :nonfinite => 0, :nonfinite_est => 1)
+Newton-failure rejections: 30; min dt of accepted steps (s): 1.528e+05
+step 655 dt 3.944e+04  max Fconv/Ftot 0.999 at int 41; max sup 0.378; layer 0.599,0.774,0.378,6.8,0.999,0,2,278; ncv(sup>0,wτ>0) 2
+step 675 dt 8.679e+06  max Fconv/Ftot 0.999 at int 41; max sup 0.0454; layer 0.774,0.774,0,0.72,0.999,0,1,278; ncv(sup>0,wτ>0) 4
+step 695 dt 8.254e+06  max Fconv/Ftot 0.39 at int 41; max sup 0.0618; layer 0.599,0.774,0.49,12.1,0.39,0,2,359; ncv(sup>0,wτ>0) 2
+step 715 dt 2.451e+05  max Fconv/Ftot 0.183 at int 41; max sup 0.0817; layer 0.599,0.774,0.498,12.3,0.183,0,2,359; ncv(sup>0,wτ>0) 2
+step 735 dt 1.036e+06  max Fconv/Ftot 0.151 at int 41; max sup 0.0836; layer 0.599,0.774,0.498,8.29,0.151,0,2,359; ncv(sup>0,wτ>0) 2
+step 755 dt 1.258e+05  max Fconv/Ftot 0.0856 at int 41; max sup 0.0835; layer 0.599,0.774,0.499,8.34,0.0856,0,2,359; ncv(sup>0,wτ>0) 2
+step 775 dt 1.522e+05  max Fconv/Ftot 0.692 at int 42; max sup 0.166; layer 0.599,0.774,0.5,8.26,0.692,0,2,359; ncv(sup>0,wτ>0) 1
+step 795 dt 4.144e+07  max Fconv/Ftot 0.98 at int 42; max sup 0.0724; layer 0.599,0.774,0.512,5.13,0.98,0,2,359; ncv(sup>0,wτ>0) 2
+step 815 dt 1.510e+08  max Fconv/Ftot 0.665 at int 42; max sup 0.0456; layer 0.774,0.774,0,1.2,0.665,0,1,359; ncv(sup>0,wτ>0) 2
+step 835 dt 4.641e+06  max Fconv/Ftot 0.00575 at int 42; max sup 0.00446; layer 0.774,0.774,0,1.89,0.00575,0,1,359; ncv(sup>0,wτ>0) 1
+MLTBUOY zone thermodynamics: 632093 Float64 evaluations 100.0 s, 26319 with derivatives 59.3 s; equilibrium table unavailable at 600 interfaces
+=== p290_base (TitanCore of aace2a0; 200 steps for p650, 100 for the others)
+run ended: (100, :maxsteps); jstep 390 jstepe 1e+07 timen 7.649774e+12 tmax 1.543789e+15
+DTERR statistics Dict(:neg_old => 1, :be => 0, :rej_err => 38, :nofsal => 1, :steps => 390, :fail_newton => 43, :nonfinite => 0, :nonfinite_est => 1)
+Newton-failure rejections: 13; min dt of accepted steps (s): 1.258e+04
+step 295 dt 3.341e+04  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.464,0.774,0.0522,1.59,0,0,3,59.9; ncv(sup>0,wτ>0) 0
+step 315 dt 8.683e+06  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.774,0.774,0,0.81,0,0,1,59.9; ncv(sup>0,wτ>0) 0
+step 335 dt 1.431e+05  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.599,0.774,0.0419,0.492,0,0,2,77.4; ncv(sup>0,wτ>0) 0
+step 355 dt 3.287e+04  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.599,0.774,0.0426,0.282,0,0,2,77.4; ncv(sup>0,wτ>0) 0
+step 375 dt 3.008e+04  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.599,0.774,0.0426,0.251,0,0,2,77.4; ncv(sup>0,wτ>0) 0
+=== p290_buoy (TitanCore of aace2a0; 200 steps for p650, 100 for the others)
+run ended: (100, :maxsteps); jstep 390 jstepe 1e+07 timen 7.649759e+12 tmax 1.543789e+15
+DTERR statistics Dict(:neg_old => 1, :be => 0, :rej_err => 37, :nofsal => 1, :steps => 390, :fail_newton => 48, :nonfinite => 0, :nonfinite_est => 1)
+Newton-failure rejections: 18; min dt of accepted steps (s): 2.151e+04
+step 295 dt 6.044e+04  max Fconv/Ftot 1 at int 35; max sup 0.108; layer 0.464,0.774,0.0522,1.48,1,0,3,59.9; ncv(sup>0,wτ>0) 6
+step 315 dt 1.942e+06  max Fconv/Ftot 1 at int 35; max sup 0.112; layer NaN,NaN,0,NaN,NaN,NaN,0,59.9; ncv(sup>0,wτ>0) 9
+step 335 dt 1.112e+06  max Fconv/Ftot 1 at int 36; max sup 0.147; layer 0.599,0.774,0.0334,0.628,1,0,2,77.4; ncv(sup>0,wτ>0) 4
+step 355 dt 4.800e+04  max Fconv/Ftot 1 at int 36; max sup 0.144; layer 0.599,0.774,0.0342,0.382,1,0,2,77.4; ncv(sup>0,wτ>0) 4
+step 375 dt 2.877e+04  max Fconv/Ftot 1 at int 36; max sup 0.143; layer 0.599,0.774,0.0345,0.425,1,0,2,77.4; ncv(sup>0,wτ>0) 4
+MLTBUOY zone thermodynamics: 287668 Float64 evaluations 104.2 s, 26684 with derivatives 130.0 s; equilibrium table unavailable at 300 interfaces
+=== p115_base (TitanCore of aace2a0; 200 steps for p650, 100 for the others)
+run ended: (100, :maxsteps); jstep 215 jstepe 1e+07 timen 7.649544e+12 tmax 1.543789e+15
+DTERR statistics Dict(:neg_old => 1, :be => 0, :rej_err => 37, :nofsal => 1, :steps => 215, :fail_newton => 18, :nonfinite => 0, :nonfinite_est => 1)
+Newton-failure rejections: 12; min dt of accepted steps (s): 9.787e+04
+step 120 dt 1.397e+05  max Fconv/Ftot 1 at int 2; max sup -Inf; layer NaN,NaN,0,NaN,NaN,NaN,0,5.99; ncv(sup>0,wτ>0) 2
+step 140 dt 1.605e+06  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.599,0.774,0.00507,0.674,0,0,2,16.7; ncv(sup>0,wτ>0) 0
+step 160 dt 3.890e+05  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.774,0.774,0,0.00949,0,0,1,21.5; ncv(sup>0,wτ>0) 0
+step 180 dt 9.511e+04  max Fconv/Ftot 0 at int 1; max sup -Inf; layer 0.599,0.774,0.00826,1.2,0,0,2,35.9; ncv(sup>0,wτ>0) 0
+step 200 dt 3.149e+06  max Fconv/Ftot 1 at int 2; max sup -Inf; layer 0.599,0.774,0.0137,0.677,0,0,2,35.9; ncv(sup>0,wτ>0) 1
+=== p115_buoy (TitanCore of aace2a0; 200 steps for p650, 100 for the others)
+run ended: (100, :maxsteps); jstep 215 jstepe 1e+07 timen 7.649479e+12 tmax 1.543789e+15
+DTERR statistics Dict(:neg_old => 1, :be => 0, :rej_err => 36, :nofsal => 1, :steps => 215, :fail_newton => 19, :nonfinite => 0, :nonfinite_est => 1)
+Newton-failure rejections: 13; min dt of accepted steps (s): 6.858e+04
+step 120 dt 8.728e+04  max Fconv/Ftot 1 at int 2; max sup 0.114; layer 0.774,0.774,0,0.0651,0,0,1,4.64; ncv(sup>0,wτ>0) 11
+step 140 dt 6.072e+04  max Fconv/Ftot 1 at int 2; max sup 0.139; layer NaN,NaN,0,NaN,NaN,NaN,0,5.99; ncv(sup>0,wτ>0) 11
+step 160 dt 6.953e+04  max Fconv/Ftot 1 at int 28; max sup 0.164; layer NaN,NaN,0,NaN,NaN,NaN,0,7.74; ncv(sup>0,wτ>0) 6
+step 180 dt 2.061e+05  max Fconv/Ftot 1 at int 29; max sup 0.16; layer 0.774,0.774,0,0.183,0,0,1,10; ncv(sup>0,wτ>0) 6
+step 200 dt 7.494e+05  max Fconv/Ftot 1 at int 30; max sup 0.233; layer 0.599,0.774,0.00429,0.473,1,0,2,16.7; ncv(sup>0,wτ>0) 5
+MLTBUOY zone thermodynamics: 340085 Float64 evaluations 233.4 s, 39449 with derivatives 172.2 s; equilibrium table unavailable at 300 interfaces

@@ -284,3 +284,66 @@ The material caches (NLOC, CPLCACHE, …) are saved and restored around the extr
 - F_conv = 0 there. With all gates open the MLT flux would be 58 and 124 F_tot (step 655), 58 and 376 F_tot (step 670), [estimate: same ∇ and ℓ, frozen c_P and δ, no feedback]. Layer: 2 interfaces, 0.38 M☉, max(−N²)t_dyn² = 7.4 (step 655).
 - This confirms the M0 reading [run] that for M* ≳ 0.1 M☉ the gate, not τ or infall, switches MLT off in the layer, and that `COLDMLT` (table zones only) does not reach it.
 - Not exercised: hot-branch zones (T > 3e5 K is not reached at these epochs), so branch 3 of `conv_thermo` is untested [read only]; `conv_thermo` has not been called under an outer ForwardDiff.
+
+## M2 — Buoyancy and thermodynamics of the network gas (22 Nov 2026, `MLTBUOY=1`, provisional, default off)
+
+Labels: [run] [test] [read] [estimate] [interpretation]. Logs in `docs/logs/subconv/m2/`; run scripts `scripts/subconv/m2run.sh`, `m2snap.jl`.
+
+### M2.1 What was added [read]
+
+| piece | where |
+|---|---|
+| `TDC.jl`: `gamma1_inv/gamma1` (1/Γ₁ = α − δ∇_ad), `blob_f` (f = ℓ/(ℓ + t_chem a)), `blob_sup` (design D1; derivation in its docstring). Pure, number-type generic. Included in `TitanResidFast` | `julia/TDC.jl:18,27,55`; `TitanResidFast.jl` top |
+| `conv_thermo` returns also `alpha_eq/fr`, `gam1_eq/fr`; keywords `x` (the zone's iterate x_H⁺, x_H₂), `tablefr` (table zone: frozen := equilibrium), `fd` (EOS derivatives by central differences) | `PopIIIMaterial.jl:266` |
+| `conv_tchem(m, k, ρ, T)`: 1/max_i\|∂S_i/∂x_i\| from `cpl_g` rows 3, 4; 0 for table and hot zones, Inf for non-coupled network zones; does not touch `CPLCACHE` | `PopIIIMaterial.jl:314` |
+| `MLT_BUOY` switch, per-zone thermodynamics (`_buoy_zone`), `buoy_blob`, and the interface branch of the MLT block (before the old ∇ computation, so with the switch off the old path is untouched) | `TitanResidFast.jl:884, 945, 962`, branch in the MLT loop (~L1640) |
+| `MLTBUOY` env, exit summary | `popiii_m2c.jl:1022` |
+| `CONVDIAG` records `sup`, `fchem`, `tchem`, `delb`, `cpb` (`cd.sup…`; exported `cv_sup`, `cv_fchem`, `cv_tchem`) | `TitanResidFast.jl` `CVD_NAMES`, `popiii_m2c.jl convdiag_snap`, `runrec.jl` |
+
+### M2.2 Choices [interpretation, with the reasons]
+
+1. **Zone values, interface means.** α, δ, c_P, Γ₁ (equilibrium and frozen) are evaluated in each of the two zones at the zone's own (ρ, T, x_H⁺, x_H₂) of the Newton iterate, then averaged. So the Jacobian has the species and the state of both zones in every coefficient (no `ForwardDiff.value`).
+2. **Δlnμ.** The `Δlnμ` argument of `blob_sup` is the remainder of the actual density contrast, Δlnρ − α_fr ΔlnP + δ_fr ΔlnT (φ_fr = 1). Then A = Δlnρ − ΔlnP/Γ₁,b exactly; α_fr and δ_fr cancel in A. Reasons: (i) the linearisation α ΔlnP − δ ΔlnT has second-order errors of the size of the signal where ΔlnT ~ 1 (ΔlnT = −0.7 and −1.3 at interfaces 40, 41); (ii) a μ from the zones' EOS would count the fast species twice (they follow ρ, T in the CK expansion and are already in α, δ). In a hydrostatic layer it is the same sup = ∇ − ∇_ad + (φ/δ)∇_μ [derivation, `blob_sup` docstring].
+3. **f.** Per zone f_j = ℓ/(ℓ + t_chem,j a), a = ℓ√(gδ_fr/(8H_P)); interface f = mean of the two. It is smooth, finite where sup ≤ 0, and needs no velocity iteration (v = aζ would need a fixed point). a ≥ v for sup ≤ 1, so f is a lower bound of the f with the true turnover time. Table zones: t_chem = 0, f = 1. Non-coupled network zones: f = 0 (the equilibrium arguments are then not touched: NaN-safe).
+4. **Derivatives of the EOS by central differences, ln step 1e-3 (`THERMO_FD_H`).** `conv_thermo` with inner ForwardDiff under an outer ForwardDiff gives finite values but NaN partials through the CK expansion of `cpl_g` (it supports one level of Duals) [run: first MLTBUOY run, all Newton attempts failed with "non-finite J v"]. The stencil is differentiated exactly by the outer Duals, so the Jacobian is that of the discrete thermodynamics. Not yet quantified against the exact derivative on a state (the M1 `fd=false` form is still the diagnostic default) [open].
+5. **Dual thermodynamics only where sup > 0.** First every needed zone is evaluated in Float64 and the interface sup from its value; zones of interfaces with value(sup) > 0 are evaluated again with Duals. An interface with sup ≤ 0 has no flux and no derivative (the old code `continue`s at the same place), so this is exact, not a gate.
+6. **Opacity.** κ of the flux is the interface χ of the radiative transport, `avchi[k]` (harmonic mean of the zones' χ at the iterate). `material_opac` at the interface-mean state returns NaN at some iterates (NLOIT opacity of the zone, found at jstep 700 of the k650 restart); the old code evaluated it too, but never used it where ∇_ad = 1e30.
+7. **Kept as in production:** τ weight, `MLT_NOINFALL`, ℓ (MLT_RCAP), g, H_P, `MLT_HSDISC` form of ΔlnP_hs (taken from the discrete momentum row whatever `MLT_HS` is). Not applied: `MLT_HS` blend, the |ΔlnP| < 1e-12 skip, the 1e30 placeholder. Where the table cannot be evaluated (`EQ.eos` throws or NaN) f := 0 and the interface counts in `BUOYEQFAIL` (printed at exit).
+
+### M2.3 Tests
+
+[test] **Bit-identity, MLTBUOY unset** (`bitid_ic40.txt`): IC, zie1 settings, 40 steps, SNAPEVERY=5, HEAD bbb60b9 against the reference c523e91 (the commit before M2; worktree built and removed): 10 snapshots, 300 fields, 0 differences. Same TitanCore (the branch's) in both.
+
+[test] **NKCHECK=1** (finite-difference J v against the band J, restart rp_k650, dt 1e5 s, `NWPROBE=1.0e5 NWPROBEAT=0`, `NKZ=36:42`; iteration 1, because iteration 2 is not reached: the probe converges). `nkcheck_rp650_base.txt` (MLTBUOY unset) and `nkcheck_rp650_buoy.txt`:
+
+| equation | max rel, all zones: base / MLTBUOY | zones 36–42: base / MLTBUOY |
+|---|---|---|
+| r, m, ρ, u | 5.0e-6, 3.9e-6, 4.7e-6, 4.2e-6 / same | 4.9e-6, 3.1e-6, 4.5e-6, 1.8e-6 / same |
+| **T (gas energy)** | 1.706e-2 (zone 1) / 1.708e-2 (zone 1) | **3.380e-6 (zone 38) / 3.380e-6 (zone 38)** |
+| E_r, F_r | 9.6e-4, 17.6 (zone 43) / same | 9.6e-4, 1.2e-4 / same |
+| x_H⁺, x_H₂ | 2.7e-4, 3.8e-6 / same | 8.5e-7, 2.2e-6 / same |
+
+The gas-energy rows of the post-shock zones agree with the FD product at the noise floor of the product (ε = 1e-5), with and without the new flux; the large F_r rows (zone 43, 71–78) and T zone 1 are the same in both (closure rows, known in docs/POPIII_NEWTON_KRYLOV.md). The flux was active in that state: interfaces 40, 41 have sup = 0.147, 0.356, F_conv = 1.9e11, 5e10 erg s⁻¹ cm⁻² (first Newton iteration, same state) [run, debug print of an earlier build; not in a committed log]. All new rows go through the Duals of the iterate. The first version (inner ForwardDiff through `cpl_g`) was non-finite here; this is the version that passes [run]. The T row in zones 40–41 is not listed separately by `check!` [limitation].
+
+[run] **Pilot B1** (`pilots_summary.txt`; TitanCore.jl of aace2a0 for BOTH baseline and MLTBUOY=1, as the restarts are bit-identical to the replay only with it; commit HEAD code otherwise; CONVDIAG=1, SNAPEVERY=5, zie1 settings; 8 threads):
+
+| restart, steps | Newton-failure rejections base / buoy | smallest accepted dt base / buoy [s] | F_conv/F_tot in the layer base / buoy | sup in the layer buoy | max(−N²)t_dyn² (layer) base → buoy |
+|---|---|---|---|---|---|
+| k650 (3.2 M☉), 200 | 33 / 30 | 1.07e5 / 1.53e5 | 0 / 0.999 (step 655–680), later 0.09–0.98 | 0.38 → 0.045 in 25 steps, then 0.08, 0.17, 0.005 | 7.4 → 0.7 (680); 11–12 later (R* jumps 278 → 359 R☉, the layer moves to interface 41–42), 1.9 at 835 |
+| k290 (0.29 M☉), 100 | 13 / 18 | 1.3e4 / 2.2e4 | 0 / 1 (interfaces 35–36) | 0.14 | 1.6 → 0.4 / 0.25 → 0.4 (not reduced) |
+| k115 (0.017 M☉), 100 | 12 / 13 | 9.8e4 / 6.9e4 | 0–1 (table zones) / 1 (interface 2, 28–30) | 0.11–0.23 | 0.01–1.2 / 0.07–0.47 |
+
+[interpretation] In the 111-yr layer the flux switches on at once (F_conv/F_tot 0.999 from step 655) and drives sup from 0.38 to 0.045 within 25 steps (ca. 3×10⁷ s), with N²t_dyn² from 7 to 0.7: the layer is driven towards, but not onto, the adiabat while the flux carries the whole luminosity. After the shock moves outward (R* 278 → 359 R☉, steps 690–700) the layer is rebuilt by accretion and the cycle repeats. No Δt collapse, no runaway flux (F_conv/F_tot ≤ 1) with the corrected opacity, and Newton failures are as in the baseline (30 vs 33). At k290 the flux saturates (F_conv/F_tot = 1) at sup = 0.14: the layer stays superadiabatic, so N² is not reduced there. These are 100–200 steps; no claim on the later phases (that is M4).
+[run] The first pilot (κ from `material_opac` at the interface mean) collapsed: Newton failures at every Δt from step 700 on, Δt 5e-12 s at step 733, because κ = NaN at interface 42 (see choice 6) [run, not kept as a log].
+Cost [run]: thermodynamics 100 s (632 093 Float64 zone evaluations, 0.16 ms) plus 59 s (26 319 with derivatives, 2.3 ms) in the 200 steps of k650; wall time of the pilots 1.1–1.6× the baseline. [read] The Float64 evaluations are made at every needed zone of every residual evaluation, including the Krylov products; the table range is not covered at some interfaces (600 and 300 counts in k650, k290/k115 runs), where the blob is frozen.
+
+[run] **The 1e40 erg/s divergence of b8f0bd9** (T3): no checkpoint of the Nov 1 run (step ~14 700–14 850) exists. The checkpoints under `lib/popiii/ck` are `m2c_z19.aux` (step 9742, Oct 30), `m2c_z19_auto0/1` (≤ 9500) and `m2c_z19c3` (33 200, Nov 3); `runs/*/ck` start on Nov 11. Not run. Open: T3 needs a replay of that run on its commit.
+
+[read] **T2.** `popiii_regress.jl` only reads stored snapshots (lib/p2_runs) and does not run the solver; `noh_test.jl` uses Z0Gas with `CONVECTION` off and cannot be started here (TitanFortran library not loadable in this environment). Neither exercises the changed path (the MLT block is skipped when `c.conv` is false); not run.
+
+### M2.4 Open
+
+- The EOS derivatives by central differences (choice 4) are not compared with the exact derivative on a state.
+- The `NKCHECK` iteration was 1 (state converged at iteration 1 at dt 1e5 s); the T-row of the interfaces 40–41 alone is not extracted.
+- The cost of the Float64 screening (every residual evaluation) is a candidate for M3 (the TDC row replaces the MLT block); the Dual thermodynamics are only paid where sup > 0.
+- `BUOYT`/`BUOYEQFAIL` are global counters (not thread-safe; the MLT loop is serial).

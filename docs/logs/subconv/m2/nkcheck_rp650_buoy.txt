@@ -1,0 +1,10 @@
+NKCHECK ne 9 nb 104 active 842 eps 1.001e-05; rows compared 853 (5 Dirichlet rows R = delta left out); |Jv - J_b w| / sum_j |J_b,ij w_j| per row: max 1.757e+01, median 1.676e-06, rows > 1e-4: 59, > 1e-2: 42
+NKCHECK eq r    : max rel 4.983e-06 (zone 30) | zones 36..42: max rel 4.870e-06 (zone 36)
+NKCHECK eq m    : max rel 3.883e-06 (zone 58) | zones 36..42: max rel 3.100e-06 (zone 42)
+NKCHECK eq rho  : max rel 4.724e-06 (zone 31) | zones 36..42: max rel 4.511e-06 (zone 41)
+NKCHECK eq u    : max rel 4.202e-06 (zone 5) | zones 36..42: max rel 1.757e-06 (zone 39)
+NKCHECK eq T    : max rel 1.708e-02 (zone 1) | zones 36..42: max rel 3.380e-06 (zone 38)
+NKCHECK eq E_r  : max rel 9.566e-04 (zone 42) | zones 36..42: max rel 9.566e-04 (zone 42)
+NKCHECK eq F_r  : max rel 1.757e+01 (zone 43) | zones 36..42: max rel 1.172e-04 (zone 42)
+NKCHECK eq x_H+ : max rel 2.739e-04 (zone 53) | zones 36..42: max rel 8.523e-07 (zone 42)
+NKCHECK eq x_H2 : max rel 3.761e-06 (zone 57) | zones 36..42: max rel 2.223e-06 (zone 42)
