@@ -1468,6 +1468,65 @@ what the Newton does at these states, it only no longer depends on lagged data. 
 `MGOpac`: `cpl_closeqg`, `cpl_vjqg`, `cpl_tqg`, `mg_env`, `mg_wg`, `mg_lwshape`, `mg_pack`, `mg_lines`, deleted `mg_slope`; `G2Opacity`: `group_fast`, `_group_fast`, `_lwsums`, `_Bf`, `_bnuw`, `_qd`, `_means_fast`; `ChemNet`: `photorates_g`, `lj_stim`, `photorates_lj_a0`, `_photorates_fast`, `_photorate_fast`, `_xgrid`;
 `MGRad`: `mg_esurf` only (one line). New diagnostics: `NKXS`, `NKROWPROBE=2` with `NKROW`, `NKPZ`, `NKPW`, `NKPROWS`, one-sided differences, ε scan to 100 ε and ε/1e4, the repeat test.
 
+### 21.7 The hydrogen ionisation unknown is the logit z = ln(x_H⁺/x_HI) (branch `mgxh`, from mgprod 08bb63b; §21.4 item 2, §21.6 item 1)
+
+Problem: unknown 8 was ln x_H⁺ (x ← x e^δ). In the ionised gas 1 − x_H⁺ = 1e-6 … 1e-9, so a Newton or error-estimate correction of 1e-8 in x_H⁺ is 1 % of the neutral fraction; the convergence measure, the DTERR norm and the finite-difference
+check were all blind to the neutral fraction (a relative step of 1e-5 in x_H⁺ changed it by a factor 10), and x_HI = 1 − x_H⁺ − 2x_H₂ was formed from a rounded x_H⁺.
+
+**Change** (the discrete solution is the same; unknowns, weights and the bookkeeping of the state only):
+
+* The state carries the neutral hydrogen as a third array, `TX.XSN[3]`/`XSO[3]` = x_HI = 1 − x_H⁺ − 2x_H₂ (also `SAVEX[3]`, the conserved combination `:x3`, the Krylov snapshot). x_H⁺ + x_HI + 2x_H₂ = 1 to the rounding of the sum;
+  x_HI is never recomputed from x_H⁺ in a solve. `TX.hperturb(x₁, x₂, xn, δ, δ₉)` applies the corrections: x_H₂ ← x_H₂ e^{δ₉}, x_H⁺ = x₁ (c′/c)(x₁ + xn)/(x₁ + xn e^{−δ}), x_HI = xn (c′/c)(x₁ + xn)/(x₁ + xn e^{−δ}) e^{−δ}
+  (c = 1 − 2x_H₂ before, c′ after): x_H⁺ = c′σ(z), x_HI = c′σ(−z), z → z + δ. It is the identity (bitwise) at δ = δ₉ = 0, generic in Duals (the residual's `xs1, xs2, xsn` are built with it; the band Jacobian and J·v differentiate through it), and
+  x_H⁺ → 1 and x_H⁺ → 0 both keep their relative precision. `cpl_local!` (the initial guess of a step) solves in (z, ln x_H₂) (`TX.hlogit`).
+* Everything that formed x_HI as 1 − x₁ − 2x₂ takes the direct value: `ChemNet.ck_eval/ck_expand/dxdt_k!/fullvec!/full_fast/eos` got the keyword `xn` (H = xn − the fast species' H nuclei; `starlight_terms`' H(1s) photoionisation sees it too), the zone terms
+  `cpl_zone/cpl_zone_q/cpl_zone_qg` (new last argument; the cache key and the AD-exact reuse of the local Jacobian include it), `cpl_g`, `cpl_tq/cpl_tqg` (HM88 perturbers, R_Lyα via `lya_escape`), `nlo_comp/nlo_slopes/nlo_slq/nlo_it` (key of the slope reuse: also ln x_HI).
+  `xneut(x₁, x₂, xn)` = (1 − x₁ − 2x₂) with its value replaced by xn: values accurate, derivatives (−1, −2) exact. `cpl_prepare!` takes xn from the last `cpl_finish!` while m.x still holds that x_H⁺, x_H₂ (`XNKEEP`; the free vector cannot carry 1e-9 to better than 1e-7),
+  else 1 − 2x_H₂ − x_H⁺ with a floor 1e-40 (the existing species floor: z of a zone at x_H⁺ = 1 stays finite).
+* **Error norms.** DTERR (`Trbdf2.wnorm`) and the Krylov weights: z_H enters as δz·m/(m + xfloor), m = min(x_H⁺, x_HI) of the new state, xfloor the existing 1e-6 (x_H₂ unchanged: δ ln x_H₂·x_H₂/(x_H₂ + xfloor)). δz is the relative error of whichever species is the trace one
+  (the neutral fraction in the ionised gas, x_H⁺ in the neutral gas). Before, x_H⁺ ≈ 1 carried weight 1 on δ ln x_H⁺ ≈ δx_H⁺, i.e. an absolute 3e-2 on a neutral fraction of 1e-6: the ionised gas's neutral fraction was not controlled at all. `cpl_dmax!` (Newton convergence)
+  uses the same m (max of the iterate's and the old). No new floor or clamp. The variable is named `z_H` in traces (was `x_H+`).
+* The NKCHECK species cap NKXS (§21.6 item 1) is deleted: the check takes the default step.
+* H₂: checked, not changed. x_H₂ is ≪ 0.5 in the zones that matter here (zone 50, the step-limiting zone: x_H₂ = 3e-7, x_H⁺ = 0.05; not scanned zone by zone), so c = 1 − 2x_H₂ has no cancellation; a gas with x_H₂ → 0.5 (the dense core of the collapse stage) would need the three-species softmax
+  (x_HI, x_H⁺, 2x_H₂) instead of the logit: not needed for the star.
+
+**Touched functions.** `ChemNet`: `full_fast`, `fullvec!`, `eos`, `dxdt_k!`, `ck_expand!`, `ck_expand`, `ck_eval`, `_ck_eval_barrier`. `TitanResidFast`: `XSN/XSO` (3 arrays), `cpl_alloc!`, `cpl_local_all!`, `cpl_newstep!`, `cpl_reset!`, `cpl_update!`, `cpl_dmax!`, `hperturb`, `hlogit`, `xmin1` (new), the species block of `residual!` (`W.xsn`, `CPLW`, the three `CPL_ZONE*` calls).
+`PopIIIMaterial`: `material_gas0`, `starlight_terms`, `nlo_comp/_nlo_comp`, `nlo_slopes`, `nlo_slq`, `nlo_it`, `NloC`, `lya_escape`, `xneut` (new), `cpl_tq`, `_cpl_g/cpl_g`, `cpl_vj`, `cpl_vjq`, `cpl_zone`, `cpl_zone_q`, `cpl_closex` (new), `cpl_prepare!`, `cpl_finish!`, `cpl_local!`; `MGOpac`: `cpl_tqg`, `cpl_vjqg`, `cpl_zone_qg`.
+`Trbdf2`: `SAVEX`, `save!/restore!`, `combos`, `old_from!`, `wnorm`, `refilter!`, `refilter_mg!` call, `finite_new`, `VNAMES`; `NewtonKrylov`: `extras`, `Snap`, `weights`, `trial_ok`, `badstate`, `check!` (NKXS removed); `popiii_m2c`: the three zone callbacks; `StageCons`: loops over the species copies. Not touched: `MGRad.jl`, the Newton–Krylov convergence code.
+
+**Gates** (cores 24–31, runs `t_mgxh`):
+
+(1) MGROUPS off is not bit-identical to mgprod (meant to change grey: the unknown, the weights and the rounding of x_H⁺ differ); the grey windows are below.
+
+(2) NKCHECK=2, default finite-difference step (no NKXS), iteration 2 of the first attempt from `S6_auto1`, row scale Σ_j|J_b,ij w_j|:
+
+| | rows > 1e-4 | median | 2-norm | z_H worst row | x_H₂ | T | E_r | F_r |
+|---|---|---|---|---|---|---|---|---|
+| grey, mgprod (NKXS cap 1e-2) | 1 (S6), 13 (S8) | 3e-11 | 1.4e-10 | 1.0e-5 (S8) | 2.3e-7 | 1.1e-6 | – | 1.4e-4 (zone 82) |
+| grey, mgxh (no cap) | 3 | 3.0e-11 | 1.5e-10 | **1.5e-10** (zone 37) | 1.3e-9 | 1.2e-8 | 2.8e-9 | 7.8e-4 (zone 101, the outermost interface of §21.6) |
+| MGROUPS=4, mgxh | 70 | 3.5e-11 | 1.8e-10 | **7.1e-10** (zone 37) | 2.3e-9 | 1.5e-8 | 1.3e-10 | F_g1 2.1e-2, F_g2 1.4e-2, F_g3 7.9 (all zone 101, noise of §21.6), F_g4 6.3e-4 (zone 40; 2.6e-3 before) |
+
+Without the cap the x_H⁺ rows were 1e3 off in mgprod (§21.6): with z as the unknown the same rows agree to 1e-9 – 1e-10, (the F_r/F_g rows at zone 101 are the quantisation noise of §21.6; the ε/10 and 10ε runs show the same rows, F_r z101 3.8e-3 and 4.4e-4).
+
+(3) Windows from `S6_auto1`, 300 steps, production settings (`winstats.py`; baseline: mgprod 08bb63b windows of §21.6, 'now'):
+
+| | grey mgprod | grey mgxh | MGROUPS=4 mgprod | MGROUPS=4 mgxh |
+|---|---|---|---|---|
+| Newton failures (`divergence`) | 62 | 65 | 43 | **32** |
+| fail_tr / fail_bdf increments | +15 / +27 | +13 / +33 | +24 / 0 | +16 / 0 |
+| linear solves (J_b reused), matvecs | 12247 (2079), 21726 | 11905 (2125), 21811 | 5285 (1986), 12913 | 5142 (2187), 12600 |
+| Δt min – median – max (DTERR lines) | 7.6e5 – 3.3e6 – 1.4e7 s | 4.3e5 – 3.0e6 – 2.1e7 s | 6.0e2 – 1.3e3 – 2.8e3 s | 5.7e2 – 1.2e3 – 2.8e3 s |
+| limiter (DTERR trace, 15 lines) | x_H⁺ 14 | z_H 13 (zones 47–51) | ln E_4 12, … (zones 44–50) | z_H 11 (zones 45–46), x_H₂ 1, group fields 3 |
+| simulated time | 25.9 yr | 25.4 yr | 4.9e5 s | 3.5e5 s (0.011 yr) |
+
+Result: the unknown is now well-conditioned and the check is clean at the default step, the failure count drops under MGROUPS (43 → 32), but **the MGROUPS step size does not relax**: the limiter changes name (ln E_4 → z_H of the same zones 45–46) at the same Δt of 1e3 s. The estimate there scales as Δt^1.1 (4.1 at 2.6e3 s, 1.1 at 5.7e2 s), the
+first-order scaling of the backward-Euler chemistry (CPL_THETA = 1, §21 production) — it is the time-discretisation error of the neutral fraction in the front zones, which ln E_4 already measured, not round-off of 1 − x_H⁺. The cancellation hypothesis of §21.4 item 2 is refuted as the cause of the small Δt; it was the cause of the Newton/derivative trouble (the NKXS cap, §21.6) and is cured.
+Grey is unchanged within noise (the limiter is the same zones; 25.4 against 25.9 yr).
+
+zie3, `fp3a1`, MGROUPS=4 (run `mz3x`): still does not run (first step: 60 failed attempts, stopped by the driver). The unknown change does not touch §21.4 item 1 (the band conditioning of empty groups in the outer cloud), which is where that start fails.
+
+Runs: `/zpool/nvme/data/tabel_scratch/titan_popiii/runs/t_mgxh` (`chk_g1`, `chk_m1` NKCHECK; `gwin2`, `mwin2` windows; `mz3x`); the first window attempt `gwin1` died in `refilter!` (`W.xsn` missing from `combos` there; fixed before `gwin2`).
+
 ## 22. Well-posed group unknowns (branch `mgeg`, from mgprod 4582e2a)
 
 Task (§21.4 item 1): replace the clamps and masks that keep an empty group from breaking the band solve (`MGCLAMP`, `MGEMIN`, `GWMIN`/`GMASK`) by a better unknown. **Status: the code change is in and

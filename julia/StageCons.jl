@@ -250,7 +250,7 @@ end
 "new := old for the seven primary unknowns (a-1..b+2) and the species, then update! with a zero correction (ghost cells, EOS, opacities, closure)."
 function new_eq_old!(a, b)
     for (n_, o_) in (:rn => :ro, :xmen => :xmeo, :dn => :do, :un => :uo, :tn => :to, :ern => :ero, :frn => :fro); copyto!(view(vf(n_), a-1:b+2), view(vf(o_), a-1:b+2)); end
-    for i in 1:2; copyto!(TX.XSN[][i], TX.XSO[][i]); end
+    for i in 1:3; copyto!(TX.XSN[][i], TX.XSO[][i]); end
     TF.var(:rhs) .= 0.0; TD.r(:update)
 end
 "STAGEDUMP=zlo,zhi (with STAGECONS): the old state of zones zlo..zhi at every printed step start (T, rho, E_r, x_H+, x_H2, chi_f, kappa_E, f); STAGEONLY=1: nothing else is evaluated."
@@ -309,7 +309,7 @@ function peqcheck()
     try
         L = ((:pgo, :pgn), (:ego, :egn), (:aso, :asn), (:chifo, :chifn), (:xkeo, :xken), (:xkpo, :xkpn), (:plfo, :plfn), (:egro, :egrn), (:avchio, :avchin), (:xneo, :xnen))
         old = Dict(o => copy(vf(o)) for (o, _) in L)
-        for i in 1:2; copyto!(TX.XSN[][i], TX.XSO[][i]); end      # (cpl_newstep! has just replaced XSN by the local-chemistry guess of the new step; the old state's species are XSO)
+        for i in 1:3; copyto!(TX.XSN[][i], TX.XSO[][i]); end      # (cpl_newstep! has just replaced XSN by the local-chemistry guess of the new step; the old state's species are XSO)
         TF.var(:rhs) .= 0.0; TC._ghost_and_derived!(:peq, () -> TD.EOS[](), () -> TD.OPAC[]())
         cl1 = closure()
         for (o, n) in L

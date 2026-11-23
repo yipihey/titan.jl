@@ -789,8 +789,8 @@ end
     w = get(d, T, nothing)
     w === nothing ? (w2 = CKWS{T}(length(c.free), length(c.sp), length(c.R), c.nslow); d[T] = w2; w2) : (w::CKWS{T})
 end
-function full_fast(x, net)
-    c = compiled(net); T = eltype(x); z = zero(T)
+function full_fast(x, net; xn = nothing)
+    c = compiled(net); T = xn === nothing ? eltype(x) : promote_type(eltype(x), typeof(xn)); z = zero(T)
     iHp, iHm, iH2, iH2p, iLip, iHep, iHepp = c.ifree
     @inbounds begin
         Hp = iHp > 0 ? x[iHp] : z; Hm = iHm > 0 ? x[iHm] : z
@@ -799,10 +799,18 @@ function full_fast(x, net)
     end
     He = c.hasHe ? yHe - (z + Hep + Hepp) : yHe + z
     sh = z
-    @inbounds for i in eachindex(c.free)
-        el1 = Int(c.elH[i]); el1 > 0 && (sh += el1 * x[i])
+    if xn === nothing
+        @inbounds for i in eachindex(c.free)
+            el1 = Int(c.elH[i]); el1 > 0 && (sh += el1 * x[i])
+        end
+        H = 1 - sh
+    else                                   # xn: the neutral hydrogen of the slow species, 1 − x_H⁺ − 2x_H₂ given directly (no cancellation); the fast ones are subtracted
+        @inbounds for i in eachindex(c.free)
+            (i == iHp || i == iH2) && continue
+            el1 = Int(c.elH[i]); el1 > 0 && (sh += el1 * x[i])
+        end
+        H = xn - sh
     end
-    H = 1 - sh
     Li = c.hasLi ? yLi - (z + Lip) : z
     d0 = FullComp{T}(H, Hp, Hm, H2, H2p, z, He, Hep, Hepp, Li, Lip, c.hasHe, c.hasLi)
     e = z
@@ -812,11 +820,18 @@ function full_fast(x, net)
     FullComp{T}(H, Hp, Hm, H2, H2p, e, He, Hep, Hepp, Li, Lip, c.hasHe, c.hasLi)
 end
 "Full composition as a vector over compiled(net).sp (same elimination as `full`); entries of x behind the free species are ignored."
-function fullvec!(v::Vector{T}, x, c::Compiled) where {T}
+function fullvec!(v::Vector{T}, x, c::Compiled; xn = nothing) where {T}
     fill!(v, zero(T))
     @inbounds for (i, j) in enumerate(c.free); v[j] = x[i]; end
     v[c.iHe] = c.hasHe ? yHe - sum(c.elHe[i] * x[i] for i in eachindex(c.free)) : yHe
-    c.iH > 0 && (v[c.iH] = 1 - sum(c.elH[i] * x[i] for i in eachindex(c.free)))
+    if c.iH > 0
+        if xn === nothing
+            v[c.iH] = 1 - sum(c.elH[i] * x[i] for i in eachindex(c.free))
+        else                               # xn given: H = xn − (the fast species' H nuclei), the slow ones (H⁺, H₂) are inside xn
+            iHp, iH2 = c.ifree[1], c.ifree[3]
+            v[c.iH] = xn - sum((c.elH[i] * x[i] for i in eachindex(c.free) if i != iHp && i != iH2); init = zero(T))
+        end
+    end
     c.iLi > 0 && (v[c.iLi] = yLi - sum(c.elLi[i] * x[i] for i in eachindex(c.free)))
     c.ie > 0 && (v[c.ie] = sum(c.q[i] * x[i] for i in eachindex(c.free)))
     v
@@ -829,8 +844,8 @@ function echem(x, net)
     sum(v[j] * c.E0[j] for j in eachindex(v)) / μH()
 end
 "Internal energy per gram and pressure."
-function eos(ρ, T, x, net)
-    c = compiled(net); v = fullvec!(get_ckws(c, eltype(x)).veos, x, c); nH = ρ / μH()
+function eos(ρ, T, x, net; xn = nothing)
+    c = compiled(net); v = fullvec!(get_ckws(c, xn === nothing ? eltype(x) : promote_type(eltype(x), typeof(xn))).veos, x, c; xn); nH = ρ / μH()
     u = zero(T); N = zero(T)
     @inbounds for j in eachindex(v)
         u += v[j] * ((c.isH2[j] ? u_H2(T) : c.cv0[j]) * kB * T + c.E0[j])
@@ -924,8 +939,8 @@ function dxdt(x, nH, T, net, env, photo)
 end
 
 "dxdt with the rate coefficients precomputed: ks[ir] = k_ir(T, env) n_H^(n_R − 1) (as in `ck_expand`); same result as `dxdt`."
-function dxdt_k!(ws::CKWS{ET}, x, nH, net, c::Compiled, ph, ks) where {ET}
-    v = fullvec!(ws.v, x, c); dd = fill!(ws.dd, zero(ET))
+function dxdt_k!(ws::CKWS{ET}, x, nH, net, c::Compiled, ph, ks; xn = nothing) where {ET}
+    v = fullvec!(ws.v, x, c; xn); dd = fill!(ws.dd, zero(ET))
     @inbounds for ir in eachindex(net.reactions)
         Ri = c.R[ir]; rate = ks[ir]
         for j in Ri; rate *= v[j]; end
@@ -1051,22 +1066,24 @@ function _ck_ud_p(v, a, b, nH, net, c::Compiled, ph, ks)
     end
     up, dn
 end
-function ck_expand!(ws::CKWS{ET}, xs, T, nH, net, c::Compiled, ci::CKInfo, ph, ks::Vector{ET}, extra = nothing) where {ET}
+function ck_expand!(ws::CKWS{ET}, xs, T, nH, net, c::Compiled, ci::CKInfo, ph, ks::Vector{ET}, extra = nothing; xn = nothing) where {ET}
     x = fill!(ws.x, zero(ET))
     @inbounds for (k, i) in enumerate(ci.slow); x[i] = xs[k]; end
     # extra (star light, ray) in the H⁻/H₂⁺ rows, taken as a + b x_j: two calls, all fast singles at 0 and at 1
+    # (xn: the neutral hydrogen of the slow species, given directly; an `extra` that takes it is called extra(x, xn))
+    xex(f_, x_) = xn === nothing ? f_(x_) : f_(x_, xn)
     ea = eb = nothing
     if extra !== nothing && !isempty(ci.single)
-        xt = copyto!(ws.xt, x); ea = extra(xt); for (f, _) in ci.single; xt[f] = one(ET); end; eb = extra(xt) .- ea
+        xt = copyto!(ws.xt, x); ea = xex(extra, xt); for (f, _) in ci.single; xt[f] = one(ET); end; eb = xex(extra, xt) .- ea
     end
     for _ in 1:CKSWEEPS[]
         for (f, j) in ci.single
-            v = fullvec!(ws.v, x, c); C, L = _ck_cl_p(v, j, nH, net, c, ph, ks)
+            v = fullvec!(ws.v, x, c; xn); C, L = _ck_cl_p(v, j, nH, net, c, ph, ks)
             ea === nothing || (ea[f] > 0 && (C += ea[f]); eb[f] < 0 && (L -= eb[f]))
             x[f] = L > 0 ? C / L : zero(C)
         end
         for ch in ci.chains
-            v = fullvec!(ws.v, x, c); m = length(ch)
+            v = fullvec!(ws.v, x, c; xn); m = length(ch)
             ud1 = ws.ud1; ud2 = ws.ud2; w = ws.w
             @inbounds for k in 1:m-1
                 u_, d_ = _ck_ud_p(v, ch[k][2], ch[k+1][2], nH, net, c, ph, ks)
@@ -1088,11 +1105,11 @@ function ck_expand!(ws::CKWS{ET}, xs, T, nH, net, c::Compiled, ci::CKInfo, ph, k
     x
 end
 "Free abundances with the slow ones xs (over ckinfo(net).slow) and the fast ones from equilibrium at T."
-function ck_expand(xs, T, nH, net, ph, ks, extra = nothing)
+function ck_expand(xs, T, nH, net, ph, ks, extra = nothing; xn = nothing)
     c = compiled(net); ci = ckinfo(net)
     ET = promote_type(eltype(xs), typeof(T), eltype(ks))
     ws = get_ckws(c, ET)
-    copy(ck_expand!(ws, xs, T, nH, net, c, ci, ph, ET === eltype(ks) ? ks : copyto!(ws.ks, ks), extra))
+    copy(ck_expand!(ws, xs, T, nH, net, c, ci, ph, ET === eltype(ks) ? ks : copyto!(ws.ks, ks), extra; xn))
 end
 """
     ck_eval(xs, ρ, T, net; env, phc, extra) -> (x, f)
@@ -1102,11 +1119,11 @@ from `ck_expand`) and dx/dt of the slow species, at (ρ, T), generic in the numb
 three-level zone (env carries `tl3`) n_e of the Peebles C is n_H x_H⁺ of `xs` (self-consistent, as CHEMCKHSS). `phc(Tv)` returns the
 per-zone photo-rate tuples at the Float temperature Tv (lagged in T as in `step`).
 """
-function ck_eval(xs, ρ, T, net; env, phc, extra)
+function ck_eval(xs, ρ, T, net; env, phc, extra, xn = nothing)
     ph = phc(T)                                   # (a Dual T: the photo-rates carry ∂/∂T, see PopIIIMaterial.photo_cache)
-    _ck_eval_barrier(xs, ρ, T, net, env, ph, extra)
+    _ck_eval_barrier(xs, ρ, T, net, env, ph, extra, xn)
 end
-function _ck_eval_barrier(xs, ρ, T, net, env, ph::Vector{Tuple{Photo,TP,TP}}, extra) where {TP}
+function _ck_eval_barrier(xs, ρ, T, net, env, ph::Vector{Tuple{Photo,TP,TP}}, extra, xn) where {TP}
     nH = ρ / μH(); c = compiled(net); ci = ckinfo(net); sl = ci.slow
     kHp = ci.kHp
     tl3 = kHp > 0 && hasproperty(env, :tl3) && env.tl3 !== nothing
@@ -1119,18 +1136,18 @@ function _ck_eval_barrier(xs, ρ, T, net, env, ph::Vector{Tuple{Photo,TP,TP}}, e
     ET = promote_type(eltype(xs), typeof(ρ), typeof(T), TP)
     ws = get_ckws(c, ET)
     ks = _fill_ks!(ws.ks, c.ktup, c.nR1, T, ev, nH)
-    x = ck_expand!(ws, xs, T, nH, net, c, ci, ph, ks, extra)
-    dd = dxdt_k!(ws, x, nH, net, c, ph, ks)
+    x = ck_expand!(ws, xs, T, nH, net, c, ci, ph, ks, extra; xn)
+    dd = dxdt_k!(ws, x, nH, net, c, ph, ks; xn)
     fsl = ws.fsl
     if extra === nothing
         @inbounds for (k, i) in enumerate(sl); fsl[k] = dd[c.free[i]]; end
     else
-        ex = extra(x)
+        ex = xn === nothing ? extra(x) : extra(x, xn)
         @inbounds for (k, i) in enumerate(sl); fsl[k] = dd[c.free[i]] + ex[i]; end
     end
     x, fsl
 end
-function _ck_eval_barrier(xs, ρ, T, net, env, ph, extra)
+function _ck_eval_barrier(xs, ρ, T, net, env, ph, extra, xn)
     nH = ρ / μH(); c = compiled(net); ci = ckinfo(net); sl = ci.slow
     kHp = ci.kHp
     tl3 = kHp > 0 && hasproperty(env, :tl3) && env.tl3 !== nothing
@@ -1143,13 +1160,13 @@ function _ck_eval_barrier(xs, ρ, T, net, env, ph, extra)
     ET = promote_type(eltype(xs), typeof(ρ), typeof(T), eltype(ph) <: Tuple ? fieldtype(eltype(ph), 2) : typeof(T))
     ws = get_ckws(c, ET)
     ks = _fill_ks!(ws.ks, c.ktup, c.nR1, T, ev, nH)
-    x = ck_expand!(ws, xs, T, nH, net, c, ci, ph, ks, extra)
-    dd = dxdt_k!(ws, x, nH, net, c, ph, ks)
+    x = ck_expand!(ws, xs, T, nH, net, c, ci, ph, ks, extra; xn)
+    dd = dxdt_k!(ws, x, nH, net, c, ph, ks; xn)
     fsl = ws.fsl
     if extra === nothing
         @inbounds for (k, i) in enumerate(sl); fsl[k] = dd[c.free[i]]; end
     else
-        ex = extra(x)
+        ex = xn === nothing ? extra(x) : extra(x, xn)
         @inbounds for (k, i) in enumerate(sl); fsl[k] = dd[c.free[i]] + ex[i]; end
     end
     x, fsl

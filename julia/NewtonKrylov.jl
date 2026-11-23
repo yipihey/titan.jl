@@ -60,12 +60,12 @@ mutable struct Snap
     mg::Vector{Any}                  # MGROUPS: copies of the group arrays `update!` writes (mgarrs), the flag MGVEFOK
     mgflag::Bool
 end
-Snap() = Snap(Dict{Symbol,Array}(), Tuple{Vector{Float64},Vector{Float64}}[], Tuple{Array,Array}[], [Float64[] for _ in 1:6], 0.0, false, Any[], false)
+Snap() = Snap(Dict{Symbol,Array}(), Tuple{Vector{Float64},Vector{Float64}}[], Tuple{Array,Array}[], [Float64[] for _ in 1:7], 0.0, false, Any[], false)
 "MGROUPS: the group arrays that `update!` writes and `restore!` must give back: E_g, F_g, the group Eddington factors, tie h and weights, h⁺, g_g, the opacity records."
 mgarrs() = TX.MG[] ? vcat(Any[a for R in (TX.MGEN, TX.MGFN, TX.MGFEDD, TX.MGHEDD, TX.MGTIEW, TX.MGHPLUS) for a in R[]], Any[TX.MGGEDDR[], TX.MGVN[]]) : Any[]
 const SNAP = Snap()
 push!(TF.ON_SWITCH, () -> (empty!(SNAP.pairs1); empty!(SNAP.pairs_other); empty!(SNAP.arrs); SNAP.taken = false))
-extras() = (TD.HEDD, TD.HXEDD, TD.FXEDD, TD.TIEW, TX.XSN[][1], TX.XSN[][2])      # closure h, h_x, f_x, tie weight; species iterate
+extras() = (TD.HEDD, TD.HXEDD, TD.FXEDD, TD.TIEW, TX.XSN[][1], TX.XSN[][2], TX.XSN[][3])      # closure h, h_x, f_x, tie weight; species iterate (x_H⁺, x_H₂, x_HI)
 function take!(S::Snap)
     if length(S.pairs1) + length(S.pairs_other) + length(SKIP) != length(TF.JSTATE)
         empty!(S.pairs1); empty!(S.pairs_other)
@@ -192,7 +192,7 @@ function weights(c, act)
                 cd == 8 ? 1.0 :
                 cd == 9 ? (g = (i - TX.MGI0[]) ÷ 2; Fg = TX.MGFN[][g][k]; TX.MGFNOM[][g][k] / max(abs(Fg), o.ffl * 2.99792458e10 * 0.5 * (ern[max(k-1, a)] + ern[min(k, b)]), TX.MGEFL * abs(frn[k]))) :
                 cd == 6 ? ern[k] / (ern[k] + o.efl * 7.565723e-15 * tn[k]^4) :
-                cd == 0 ? (q = TX.XSN[][i-7][k]; q / (q + o.xfl)) :
+                cd == 0 ? (q = i == 8 ? TX.xmin1(TX.XSN[], k) : TX.XSN[][2][k]; q / (q + o.xfl)) :
                 cd == 4 ? unom[k] / max(abs(un[k]), max(asn[max(k-1, a)], asn[min(k, b)])) :
                 cd == 2 ? xmen[k] / max(abs(xmen[k]), dn[max(k-1, a)] * dvn[max(k-1, a)], dn[min(k, b)] * dvn[min(k, b)]) :
                 cd == 1 ? (lag ? rn[k] / min(rn[k] - rn[max(k-1, a)], rn[min(k+1, b+1)] - rn[k]) : 1.0) :
@@ -413,7 +413,7 @@ end
 # ---------------------------------------------------------------- NKSCAN (diagnostic, default off): what the true residual does along the GMRES step
 "NKSCAN=<att>,<it>[,<it>...]: at Newton iteration(s) <it> of attempt <att> (needs NWTRACE for the attempt counter) print the line scan, column probes and state; no effect on the solve."
 const SCAN = Ref((0, Int[]))
-const NMS = ("r", "m", "rho", "u", "T", "E_r", "F_r", "x_H+", "x_H2")
+const NMS = ("r", "m", "rho", "u", "T", "E_r", "F_r", "z_H", "x_H2")
 zname(S::Sys, r) = @sprintf("%d@%d", (r - 1) % S.ne + 1, (r - 1) ÷ S.ne + 1 + S.k0 - 1 - gi(:ngrs) + 1)
 toplist(S::Sys, v, n) = join((@sprintf("%s:%.4g", zname(S, r), v[r]) for r in sortperm(abs.(v); rev = true)[1:min(n, length(v))]), " ")
 function levelT(S::Sys, R)
@@ -427,7 +427,7 @@ function badstate(S::Sys)
     for k in a:b+1, (nm, v) in (("r", rn), ("m", xmen), ("u", un), ("F_r", frn))       # (r, m: only finiteness; m is an offset that is negative in the base state)
         q = v[k]; isfinite(q) || push!(out, @sprintf("%s@%d=%.5g", nm, k - a + 1, q))
     end
-    for k in a:b, (nm, v) in (("rho", dn), ("T", tn), ("E_r", ern), ("x_H+", x1), ("x_H2", x2))
+    for k in a:b, (nm, v) in (("rho", dn), ("T", tn), ("E_r", ern), ("x_H+", x1), ("x_HI", TX.XSN[][3]), ("x_H2", x2))
         q = v[k]; (!isfinite(q) || q <= 0) && push!(out, @sprintf("%s@%d=%.5g", nm, k - a + 1, q))
     end
     out
@@ -569,14 +569,14 @@ const TRR = Ref(0.5)           # current trust radius (weighted ‖·‖∞)
 "The trial state in the arrays: finite, ρ, T, E_r and the species positive, r increasing and m decreasing across the interfaces."
 function trial_ok()
     a, b = gi(:ngrs), gi(:ngre)
-    rn, xmen, un, frn, dn, tn, ern = (vf(s) for s in (:rn, :xmen, :un, :frn, :dn, :tn, :ern)); x1, x2 = TX.XSN[][1], TX.XSN[][2]
+    rn, xmen, un, frn, dn, tn, ern = (vf(s) for s in (:rn, :xmen, :un, :frn, :dn, :tn, :ern)); x1, x2, xn = TX.XSN[][1], TX.XSN[][2], TX.XSN[][3]
     @inbounds for k in a:b+1
         (isfinite(rn[k]) && isfinite(xmen[k]) && isfinite(un[k]) && isfinite(frn[k])) || return false
     end
     @inbounds for k in a:b
         rn[k+1] > rn[k] && xmen[k+1] <= xmen[k] || return false
         (isfinite(dn[k]) && dn[k] > 0 && isfinite(tn[k]) && tn[k] > 0 && isfinite(ern[k]) && ern[k] > 0) || return false
-        TX.cplz(k) && !(x1[k] > 0 && x2[k] > 0 && isfinite(x1[k]) && isfinite(x2[k])) && return false
+        TX.cplz(k) && !(x1[k] > 0 && x2[k] > 0 && xn[k] > 0 && isfinite(x1[k]) && isfinite(x2[k]) && isfinite(xn[k])) && return false
     end
     true
 end
@@ -763,17 +763,6 @@ function check!(S::Sys)
     v = [S.act[r] ? rnd() : 0.0 for r in 1:S.n]
     y = zeros(S.n); wr = zeros(S.n)
     ε = OPT.eps / maximum(abs, v)
-    # NKXS (default 1e-2): the species perturbations of the finite difference stay within NKXS × the neutral fraction n_H/n_H,tot = 1 − x_H⁺ − 2x_H₂: the species are x e^δ
-    # and the neutral fraction of the ionised gas (1 − x_H⁺ ~ 1e-6 … 1e-9) is a difference, so a relative step of 1e-5 in x_H⁺ leaves the linear range of the derivative that the
-    # check compares (the difference converges to the AD product as the step shrinks: NKROWPROBE=2). NKXS=0: no restriction.
-    xsc = parse(Float64, get(ENV, "NKXS", "1e-2"))
-    function xcap(r, vr, ε)
-        xsc > 0 && (r - 1) % ne + 1 in (8, 9) && S.code[(r-1)%ne+1] == 0 || return vr
-        k = k0 + (r - 1) ÷ ne; x1 = TX.XSN[][1][k]; x2 = TX.XSN[][2][k]; xi = (r - 1) % ne + 1 == 8 ? x1 : 2x2
-        xi > 0 || return vr
-        sign(vr) * min(abs(vr), xsc * max(1 - x1 - 2x2, 1e-30) / (xi * ε))
-    end
-    for r in 1:S.n; S.act[r] && (v[r] = xcap(r, v[r], ε)); end
     fdjv!(y, S, v, ε; realized = wr)
     z, sa = bandmul(S, wr)
     ok = isfinite.(z) .& (sa .> 0) .& .!((y .== 0) .& (z .!= 0))       # (rows that are the correction itself, R = δ: the Dirichlet rows of the boundary interfaces, are not functions of the state)
@@ -782,7 +771,7 @@ function check!(S::Sys)
     rel = relof(y)
     @printf("NKCHECK ne %d nb %d active %d eps %.3e; rows compared %d (%d Dirichlet rows R = delta left out); |Jv - J_b w| / sum_j |J_b,ij w_j| per row: max %.3e, median %.3e, rows > 1e-4: %d, > 1e-2: %d\n",
             ne, nb, count(S.act), ε, count(ok), nd, maximum(rel), median(rel[ok]), count(>(1e-4), rel), count(>(1e-2), rel))
-    nm = ("r", "m", "rho", "u", "T", "E_r", "F_r", "x_H+", "x_H2")
+    nm = ("r", "m", "rho", "u", "T", "E_r", "F_r", "z_H", "x_H2")
     rr1 = zeros(S.n)
     if OPT.ad                          # the exact forward-mode product against the central finite difference through update! (same v): per row relative to the band row scale
         ya = zeros(S.n); adj!(ya, S, v)
@@ -863,7 +852,7 @@ function check!(S::Sys)
         @printf("NKCHECK AD/FD column probe: %d rows, %d columns (zones %d:%d), FD at eps and eps/10\n", length(rows), length(cols), zp1, zp2); flush(stdout)
         tab = Dict(r => Tuple{Float64,Int,Float64,Float64,Float64}[] for r in rows)
         for c in cols
-            e = zeros(S.n); e[c] = xcap(c, 1.0, OPT.eps); yA = zeros(S.n); adj!(yA, S, e); yF = zeros(S.n); fdjv!(yF, S, e, OPT.eps); yG = zeros(S.n); fdjv!(yG, S, e, OPT.eps / 10)
+            e = zeros(S.n); e[c] = 1.0; yA = zeros(S.n); adj!(yA, S, e); yF = zeros(S.n); fdjv!(yF, S, e, OPT.eps); yG = zeros(S.n); fdjv!(yG, S, e, OPT.eps / 10)
             for r in rows; push!(tab[r], (abs(yA[r] - yF[r]), c, yA[r], yF[r], yG[r])); end
         end
         for r in rows
