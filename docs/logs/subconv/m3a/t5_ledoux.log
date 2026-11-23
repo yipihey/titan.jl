@@ -1,0 +1,22 @@
+T5: Ledoux — frozen blob (f = 0) stable, equilibrium blob (f = 1) unstable; units ℓ = a = 1
+    NO semiconvection model: a layer with sup(f=0) < 0 < sup(f=1) is convective or not purely according to f.
+    ΔlnP = -0.1 ∇ = 0.45 ∇_ad(frozen) = 0.4 Δlnμ = -0.01: Schwarzschild ∇−∇_ad = +0.05;  sup(f=0, frozen Ledoux) = -0.05000;  sup(f=1, equilibrium, Γ1_eq = 1/0.9, δ_eq = 1.5) = +0.16667
+PASS sup(f=0) < 0 < sup(f=1)  
+PASS f=0, w=0 start: w stays exactly 0 (200 steps)  max w = 0
+
+    decay of a seeded w0 = 0.6: dw/dt = −(a²|sup| + w²)/ℓ, w = w_c tan(atan(w0/w_c) − w_c t/ℓ), w_c = a√|sup| = 0.22361, analytic t* = 5.42945 ℓ/a (= (ℓ/w_c) atan(w0/w_c))
+    dt        t_hit (BE)   t*           rel diff   w after hit
+    0.2       6.00000      5.42945      1.05e-01   exactly 0 thereafter
+    0.1       5.70000      5.42945      4.98e-02   exactly 0 thereafter
+    0.05      5.60000      5.42945      3.14e-02   exactly 0 thereafter
+    0.02      5.48000      5.42945      9.31e-03   exactly 0 thereafter
+    0.01      5.45000      5.42945      3.78e-03   exactly 0 thereafter
+    0.005     5.44000      5.42945      1.94e-03   exactly 0 thereafter
+    0.001     5.43200      5.42945      4.69e-04   exactly 0 thereafter
+PASS f=0 seeded: reaches exactly 0 in finite time (first order: |t_hit - t*| <= 4 dt of the analytic t*, ~2.5 dt observed), stays 0  
+    max |w_BE − w_tan|/w0 for t < 0.9 t*, dt = 1e-3: 1.26e-04
+PASS BE follows the tan solution (dt = 1e-3)  
+
+    f=1 from w=0: w_s = a√sup = 0.40825, final w[5]/w_s = 0.99999975, max |w − tanh|/w_s = 1.50e-03 (BE, dt = 0.02)
+PASS f=1: convection grows to the tanh/MLT amplitude  
+T5 failures: 0
