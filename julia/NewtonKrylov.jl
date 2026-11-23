@@ -35,10 +35,11 @@ mutable struct Opts
     eta::Float64; mmax::Int; eps::Float64
     central::Bool                    # central (default) or one-sided differences for J v
     check::Int                       # NKCHECK=<Newton iteration>: matrix-vector check at that iteration of the first attempt, then exit (diagnostic)
+    checkn::Int                      # NKCHECKN=<n>: the check is made at the n first such iterations (default 1), then exit
     ad::Bool                         # NKAD=1 (default): exact 1-partial forward-mode Dual J v instead of central finite differences
     ew::Bool                         # NKEW=1 (default): Eisenstat-Walker adaptive GMRES tolerance on non-boost iterations
 end
-const OPT = Opts(1e-3, 30, 1e-5, true, 0, get(ENV, "NKAD", "1") != "0", get(ENV, "NKEW", "1") != "0")
+const OPT = Opts(1e-3, 30, 1e-5, true, 0, parse(Int, get(ENV, "NKCHECKN", "1")), get(ENV, "NKAD", "1") != "0", get(ENV, "NKEW", "1") != "0")
 mutable struct Count
     solves::Int; mv::Int; nonconv::Int; ndrift::Int; maxdrift::Float64; secs::Float64; jb_reused::Int
 end
@@ -56,11 +57,15 @@ mutable struct Snap
     extra::Vector{Vector{Float64}}
     gx::Float64
     taken::Bool
+    mg::Vector{Any}                  # MGROUPS: copies of the group arrays `update!` writes (mgarrs), the flag MGVEFOK
+    mgflag::Bool
 end
-Snap() = Snap(Dict{Symbol,Array}(), Tuple{Vector{Float64},Vector{Float64}}[], Tuple{Array,Array}[], [Float64[] for _ in 1:7], 0.0, false)
+Snap() = Snap(Dict{Symbol,Array}(), Tuple{Vector{Float64},Vector{Float64}}[], Tuple{Array,Array}[], [Float64[] for _ in 1:8], 0.0, false, Any[], false)
+"MGROUPS: the group arrays that `update!` writes and `restore!` must give back: E_g, F_g, the group Eddington factors, tie h and weights, h⁺, g_g, the opacity records."
+mgarrs() = TX.MG[] ? vcat(Any[a for R in (TX.MGEN, TX.MGFN, TX.MGFEDD, TX.MGHEDD, TX.MGTIEW, TX.MGHPLUS) for a in R[]], Any[TX.MGGEDDR[], TX.MGVN[]]) : Any[]
 const SNAP = Snap()
 push!(TF.ON_SWITCH, () -> (empty!(SNAP.pairs1); empty!(SNAP.pairs_other); empty!(SNAP.arrs); SNAP.taken = false))
-extras() = (TD.HEDD, TD.HXEDD, TD.FXEDD, TD.TIEW, TX.XSN[][1], TX.XSN[][2], TX.WTN[])      # closure h, h_x, f_x, tie weight; species iterate; TDC: the turbulent velocity iterate (empty without TDC)
+extras() = (TD.HEDD, TD.HXEDD, TD.FXEDD, TD.TIEW, TX.XSN[][1], TX.XSN[][2], TX.XSN[][3], TX.WTN[])      # closure h, h_x, f_x, tie weight; species iterate (x_H⁺, x_H₂, x_HI); TDC: the turbulent velocity iterate (empty without TDC)
 function take!(S::Snap)
     if length(S.pairs1) + length(S.pairs_other) + length(SKIP) != length(TF.JSTATE)
         empty!(S.pairs1); empty!(S.pairs_other)
@@ -87,6 +92,11 @@ function take!(S::Snap)
         copyto!(b, a)
     end
     S.gx = TD.GXEDD[]
+    if TX.MG[]
+        A = mgarrs(); length(S.mg) == length(A) && all(i -> size(S.mg[i]) == size(A[i]), eachindex(A)) || (S.mg = Any[similar(a) for a in A])
+        for (b, a) in zip(S.mg, A); copyto!(b, a); end
+        S.mgflag = TX.MGVEFOK[]
+    end
     S.taken = true
     nothing
 end
@@ -102,14 +112,29 @@ function restore!(S::Snap)
         copyto!(b, a)
     end
     TD.GXEDD[] = S.gx
+    if TX.MG[]
+        for (a, b) in zip(mgarrs(), S.mg); copyto!(a, b); end
+        TX.MGVEFOK[] = S.mgflag
+    end
     nothing
 end
 
 # ---------------------------------------------------------------- the unknowns, residual, preconditioner
-const LOGCODES = (0, 3, 5, 6)       # equation codes of the strictly positive unknowns: species, ρ, T, E_r
+const LOGCODES = (0, 3, 5, 6, 8)    # equation codes of the strictly positive unknowns: species, ρ, T, E_r, E_g (MGROUPS)
 const POSCODES = (3, 5, 6)          # (ρ, T, E_r: x ψ(δ); the species: x e^δ)
 "A finite-difference step changes a logarithmic unknown by at most this (δ ln x): an entry of weight ~1e-12 (a trace species) otherwise gets ε v ~ 1e5, x → 0 and NaN in the EOS."
 const FDCLIP = 0.1
+"""
+Equation codes of the unknowns by row: those of the context (1–7 the state variables, 0 the species), and with MGROUPS 8 for the groups' y_g = asinh(E_g/s_g) and 9 for their
+fluxes F_g (linear, scaled by the nominal flux): rows 10 … 9 + 2G (TitanResidFast.mgiE, mgiF). `update!` applies them through MGRad.mg_update!.
+"""
+function nkcode(c)
+    code = copy(c.code)
+    if TX.MG[]
+        for g in 1:TX.MGN[]; code[TX.mgiE(g)] = 8; code[TX.mgiF(g)] = 9; end
+    end
+    code
+end
 struct Sys
     ne::Int; nb::Int; k0::Int; n::Int
     c::TX.Ctx
@@ -140,14 +165,13 @@ end
 
 function activeset(c)
     ne, nb, k0 = c.neqn, c.nb, c.k0; a, b = c.ngrs, c.ngre
-    act = falses(ne * nb)
+    act = falses(ne * nb); code = nkcode(c)
     for kb in 1:nb, i in 1:ne
-        k = k0 + kb - 1; cd = c.code[i]
-        act[(kb-1)*ne+i] = cd in (1, 2, 4, 7, 8) ? a <= k <= b + 1 :
-                           cd in (3, 5, 6) ? a <= k <= b :
+        k = k0 + kb - 1; cd = code[i]
+        act[(kb-1)*ne+i] = cd in (1, 2, 4, 7, 9, 10) ? a <= k <= b + 1 :
+                           cd in (3, 5, 6, 8) ? a <= k <= b :
                            (cd == 0 && i in (8, 9) && TC.CPLH[] !== nothing) ? (a <= k <= b && TX.cplz(k)) : false
     end
-    TX.MG[] && error("NKRYLOV: MGROUPS is not supported")
     act
 end
 
@@ -161,13 +185,15 @@ function weights(c, act)
     ne, nb, k0 = c.neqn, c.nb, c.k0; a, b = c.ngrs, c.ngre; o = Trbdf2.EOPT
     lag = gi(:lgrid) == 3 || TC.GRIDMOVE[]
     rn, xmen, dn, un, tn, unom, asn, dvn = (vf(s) for s in (:rn, :xmen, :dn, :un, :tn, :unom, :asn, :dvoln))
-    ern, frn, frnom = vf(:ern), vf(:frn), vf(:frnom); wt = ones(ne * nb)
+    ern, frn, frnom = vf(:ern), vf(:frn), vf(:frnom); wt = ones(ne * nb); code = nkcode(c)
     for kb in 1:nb, i in 1:ne
-        r = (kb - 1) * ne + i; act[r] || continue; k = k0 + kb - 1; cd = c.code[i]
+        r = (kb - 1) * ne + i; act[r] || continue; k = k0 + kb - 1; cd = code[i]
         wt[r] = cd == 3 || cd == 5 ? 1.0 :
+                cd == 8 ? 1.0 :
+                cd == 9 ? (g = (i - TX.MGI0[]) ÷ 2; Fg = TX.MGFN[][g][k]; TX.MGFNOM[][g][k] / max(abs(Fg), o.ffl * 2.99792458e10 * 0.5 * (ern[max(k-1, a)] + ern[min(k, b)]), TX.MGEFL * abs(frn[k]))) :
                 cd == 6 ? ern[k] / (ern[k] + o.efl * 7.565723e-15 * tn[k]^4) :
-                cd == 0 ? (q = TX.XSN[][i-7][k]; q / (q + o.xfl)) :
-                cd == 8 ? TX.tdc_weight(k, a, b) :
+                cd == 0 ? (q = i == 8 ? TX.xmin1(TX.XSN[], k) : TX.XSN[][2][k]; q / (q + o.xfl)) :
+                cd == 10 ? TX.tdc_weight(k, a, b) :
                 cd == 4 ? unom[k] / max(abs(un[k]), max(asn[max(k-1, a)], asn[min(k, b)])) :
                 cd == 2 ? xmen[k] / max(abs(xmen[k]), dn[max(k-1, a)] * dvn[max(k-1, a)], dn[min(k, b)] * dvn[min(k, b)]) :
                 cd == 1 ? (lag ? rn[k] / min(rn[k] - rn[max(k-1, a)], rn[min(k+1, b+1)] - rn[k]) : 1.0) :
@@ -247,7 +273,7 @@ function perturbed(S::Sys, v, s; realized = nothing, freeze = 2, inspect = nothi
             cnew = TX.context()
             for kb in 1:nb, i in 1:ne
                 cd = S.code[i]; k = k0 + kb - 1; r = (kb - 1) * ne + i
-                (cd == 0 || cd == 8) && (realized[r] = S.act[r] ? v[r] : 0.0; continue)       # species (and the TDC velocity w, linear): applied as given
+                (cd == 0 || cd >= 8) && (realized[r] = S.act[r] ? v[r] : 0.0; continue)       # species, group fields, the TDC velocity w (linear): : applied as given
                 nw = cnew.base[k, cd]; b0 = base[1][k, cd]
                 realized[r] = nw == b0 ? 0.0 : cd == 4 ? (nw - b0) / base[2][k] / s : cd == 7 ? (nw - b0) / base[3][k] / s : log(nw / b0) / s
             end
@@ -313,8 +339,8 @@ function setup()
         lu_
     end
     wt = weights(c, act)
-    wtr = [c.code[(r-1)%ne+1] in LOGCODES ? 1.0 : wt[r] for r in 1:ne*nb]
-    Sys(ne, nb, k0, ne * nb, c, copy(c.code), act, wt, wtr, R0, snap, AB, ipiv, sc, kl, ku)
+    code = nkcode(c); wtr = [code[(r-1)%ne+1] in LOGCODES ? 1.0 : wt[r] for r in 1:ne*nb]
+    Sys(ne, nb, k0, ne * nb, c, code, act, wt, wtr, R0, snap, AB, ipiv, sc, kl, ku)
 end
 
 # ---------------------------------------------------------------- GMRES
@@ -388,7 +414,7 @@ end
 # ---------------------------------------------------------------- NKSCAN (diagnostic, default off): what the true residual does along the GMRES step
 "NKSCAN=<att>,<it>[,<it>...]: at Newton iteration(s) <it> of attempt <att> (needs NWTRACE for the attempt counter) print the line scan, column probes and state; no effect on the solve."
 const SCAN = Ref((0, Int[]))
-const NMS = ("r", "m", "rho", "u", "T", "E_r", "F_r", "x_H+", "x_H2")
+const NMS = ("r", "m", "rho", "u", "T", "E_r", "F_r", "z_H", "x_H2")
 zname(S::Sys, r) = @sprintf("%d@%d", (r - 1) % S.ne + 1, (r - 1) ÷ S.ne + 1 + S.k0 - 1 - gi(:ngrs) + 1)
 toplist(S::Sys, v, n) = join((@sprintf("%s:%.4g", zname(S, r), v[r]) for r in sortperm(abs.(v); rev = true)[1:min(n, length(v))]), " ")
 function levelT(S::Sys, R)
@@ -402,7 +428,7 @@ function badstate(S::Sys)
     for k in a:b+1, (nm, v) in (("r", rn), ("m", xmen), ("u", un), ("F_r", frn))       # (r, m: only finiteness; m is an offset that is negative in the base state)
         q = v[k]; isfinite(q) || push!(out, @sprintf("%s@%d=%.5g", nm, k - a + 1, q))
     end
-    for k in a:b, (nm, v) in (("rho", dn), ("T", tn), ("E_r", ern), ("x_H+", x1), ("x_H2", x2))
+    for k in a:b, (nm, v) in (("rho", dn), ("T", tn), ("E_r", ern), ("x_H+", x1), ("x_HI", TX.XSN[][3]), ("x_H2", x2))
         q = v[k]; (!isfinite(q) || q <= 0) && push!(out, @sprintf("%s@%d=%.5g", nm, k - a + 1, q))
     end
     out
@@ -544,14 +570,14 @@ const TRR = Ref(0.5)           # current trust radius (weighted ‖·‖∞)
 "The trial state in the arrays: finite, ρ, T, E_r and the species positive, r increasing and m decreasing across the interfaces."
 function trial_ok()
     a, b = gi(:ngrs), gi(:ngre)
-    rn, xmen, un, frn, dn, tn, ern = (vf(s) for s in (:rn, :xmen, :un, :frn, :dn, :tn, :ern)); x1, x2 = TX.XSN[][1], TX.XSN[][2]
+    rn, xmen, un, frn, dn, tn, ern = (vf(s) for s in (:rn, :xmen, :un, :frn, :dn, :tn, :ern)); x1, x2, xn = TX.XSN[][1], TX.XSN[][2], TX.XSN[][3]
     @inbounds for k in a:b+1
         (isfinite(rn[k]) && isfinite(xmen[k]) && isfinite(un[k]) && isfinite(frn[k])) || return false
     end
     @inbounds for k in a:b
         rn[k+1] > rn[k] && xmen[k+1] <= xmen[k] || return false
         (isfinite(dn[k]) && dn[k] > 0 && isfinite(tn[k]) && tn[k] > 0 && isfinite(ern[k]) && ern[k] > 0) || return false
-        TX.cplz(k) && !(x1[k] > 0 && x2[k] > 0 && isfinite(x1[k]) && isfinite(x2[k])) && return false
+        TX.cplz(k) && !(x1[k] > 0 && x2[k] > 0 && xn[k] > 0 && isfinite(x1[k]) && isfinite(x2[k]) && isfinite(xn[k])) && return false
     end
     true
 end
@@ -563,7 +589,7 @@ function stepsize(S::Sys, s, λ)
     @inbounds for r in 1:S.n
         S.act[r] || continue
         c = S.code[(r-1)%S.ne+1]; d = λ * s[r]
-        m = max(m, c in POSCODES ? (d >= 0 ? log1p(d) : -log(TitanCore.posfac(d))) : c == 0 ? abs(d) : abs(d) * S.wtr[r])
+        m = max(m, c in POSCODES ? (d >= 0 ? log1p(d) : -log(TitanCore.posfac(d))) : (c == 0 || c == 8) ? abs(d) : abs(d) * S.wtr[r])
     end
     m
 end
@@ -573,7 +599,7 @@ function capfraction(S::Sys, s, Δ)
     @inbounds for r in 1:S.n
         S.act[r] || continue
         c = S.code[(r-1)%S.ne+1]; d = s[r]; d == 0 && continue
-        f = min(f, c in POSCODES ? (d > 0 ? expm1(Δ) / d : TitanCore.psiinv(exp(-Δ)) / d) : c == 0 ? Δ / abs(d) : Δ / (abs(d) * S.wtr[r]))
+        f = min(f, c in POSCODES ? (d > 0 ? expm1(Δ) / d : TitanCore.psiinv(exp(-Δ)) / d) : (c == 0 || c == 8) ? Δ / abs(d) : Δ / (abs(d) * S.wtr[r]))
     end
     f
 end
@@ -588,7 +614,7 @@ function boxclip!(S::Sys, s)
     @inbounds for r in 1:S.n
         S.act[r] || continue
         c = S.code[(r-1)%S.ne+1]
-        c in POSCODES ? (s[r] = clamp(s[r], lo, hi)) : c == 0 ? (s[r] = clamp(s[r], -GLOB.deltamax, GLOB.deltamax)) : nothing
+        c in POSCODES ? (s[r] = clamp(s[r], lo, hi)) : (c == 0 || c == 8) ? (s[r] = clamp(s[r], -GLOB.deltamax, GLOB.deltamax)) : nothing
     end
     s
 end
@@ -616,6 +642,17 @@ function globalize(S::Sys, s, rel)
     return λ
 end
 
+"True residual of the iterate: max over the active rows of |R_r| / (the row's largest band-Jacobian entry) (`Trbdf2.TRUERES`); a non-finite row counts as Inf."
+function trueres(S::Sys)
+    m = 0.0; rr = 0
+    @inbounds for r in 1:S.n
+        S.act[r] || continue
+        q = abs(S.sc[r] * S.R0[r]); isfinite(q) || (q = Inf)
+        q > m && (m = q; rr = r)
+    end
+    (m, rr == 0 ? 0 : (rr - 1) % S.ne + 1, rr == 0 ? 0.0 : Float64((rr - 1) ÷ S.ne + 1 + S.k0 - 1 - gi(:ngrs) + 1))
+end
+
 # ---------------------------------------------------------------- the hook (TD.KRYLOV[]), called after matslv
 function krylov!()
     t0 = time(); CNT.solves += 1
@@ -624,7 +661,11 @@ function krylov!()
     δ0 = copy(blk); S = nothing
     try
         S = setup()
-        OPT.check > 0 && gi(:iter) == OPT.check && (check!(S); flush(stdout); exit(0))
+        Trbdf2.TRUERES[] = trueres(S)
+        if OPT.check > 0 && gi(:iter) == OPT.check
+            check!(S); flush(stdout); OPT.checkn -= 1
+            OPT.checkn <= 0 && exit(0)
+        end
         b = zeros(S.n)
         @inbounds for r in 1:S.n; S.act[r] && (b[r] = δ0[(r-1)%ne+1, (r-1)÷ne+1]); end
         gi(:iter) == 1 && (TRR[] = GLOB.delta0)
@@ -666,7 +707,7 @@ function krylov!()
             0.0
         end
         OPT_DIAG && diag!(S, b, x, λ, rel, m, conv, trunc)
-        Trbdf2.NWTRACE[] === nothing || println(Trbdf2.NWTRACE[], "NKR att ", Trbdf2.NWATT[], " it ", gi(:iter), " krylov its ", m, " converged ", conv, " rel residual ", rel, " |delta0|_W ", norm(b .* S.wt), " |delta|_W ", norm(x .* S.wt), " drift ", d, " largest weighted delta0 ", wtop(b, S, ne, k0), " largest weighted delta ", wtop(x, S, ne, k0), lsinfo)
+        Trbdf2.NWTRACE[] === nothing || println(Trbdf2.NWTRACE[], "NKR att ", Trbdf2.NWATT[], " it ", gi(:iter), " krylov its ", m, " converged ", conv, " rel residual ", rel, " |delta0|_W ", norm(b .* S.wt), " |delta|_W ", norm(x .* S.wt), " trueres ", Trbdf2.TRUERES[][1], " row ", Trbdf2.TRUERES[][2], "@", Trbdf2.TRUERES[][3], " drift ", d, " largest weighted delta0 ", wtop(b, S, ne, k0), " largest weighted delta ", wtop(x, S, ne, k0), lsinfo)
     catch ex
         ex isa InterruptException && rethrow()
         (S === nothing || !S.snap.taken) || restore!(S.snap)
@@ -688,7 +729,7 @@ function diag!(S::Sys, b, x, λ, rel, m, conv, trunc)
     @inbounds for r in 1:S.n
         S.act[r] || continue
         c = S.code[(r-1)%ne+1]; d = x[r]; d == 0 && continue
-        f = c in POSCODES ? (d > 0 ? expm1(TRR[]) / d : TitanCore.psiinv(exp(-TRR[])) / d) : c == 0 ? TRR[] / abs(d) : TRR[] / (abs(d) * S.wtr[r])
+        f = c in POSCODES ? (d > 0 ? expm1(TRR[]) / d : TitanCore.psiinv(exp(-TRR[])) / d) : (c == 0 || c == 8) ? TRR[] / abs(d) : TRR[] / (abs(d) * S.wtr[r])
         f < fcap && (fcap = f; rcap = r)
     end
     Rs = S.R0 .* S.sc
@@ -716,6 +757,9 @@ against the Float64 residual.
 """
 function check!(S::Sys)
     ne, nb, k0 = S.ne, S.nb, S.k0; a = gi(:ngrs)
+    # The finite differences leave the lagged Float data of the residual (what the last update! wrote and the restore does not give back: opacities and star-light
+    # state of the last trial state) at x − εv: the exact product is evaluated after a zero-perturbation update!, i.e. at the state the solver's own products see.
+    adj!(y, S_, v_) = (perturbed(S_, zeros(S_.n), 0.0); adjv!(y, S_, v_))
     rnd = let st = UInt64(12345); () -> (st = st * 6364136223846793005 + 1442695040888963407; (Float64(st >> 11) / 2^53) * 2 - 1); end
     v = [S.act[r] ? rnd() : 0.0 for r in 1:S.n]
     y = zeros(S.n); wr = zeros(S.n)
@@ -728,7 +772,100 @@ function check!(S::Sys)
     rel = relof(y)
     @printf("NKCHECK ne %d nb %d active %d eps %.3e; rows compared %d (%d Dirichlet rows R = delta left out); |Jv - J_b w| / sum_j |J_b,ij w_j| per row: max %.3e, median %.3e, rows > 1e-4: %d, > 1e-2: %d\n",
             ne, nb, count(S.act), ε, count(ok), nd, maximum(rel), median(rel[ok]), count(>(1e-4), rel), count(>(1e-2), rel))
-    nm = ("r", "m", "rho", "u", "T", "E_r", "F_r", "x_H+", "x_H2")
+    nm = ("r", "m", "rho", "u", "T", "E_r", "F_r", "z_H", "x_H2")
+    rr1 = zeros(S.n)
+    if OPT.ad                          # the exact forward-mode product against the central finite difference through update! (same v): per row relative to the band row scale
+        ya = zeros(S.n); adj!(ya, S, v)
+        let ya2 = zeros(S.n); adj!(ya2, S, v); ya3 = zeros(S.n); adj!(ya3, S, v)         # (the product must not depend on how often it has been evaluated: repeat it)
+            d12 = [ok[r] ? abs(ya[r] - ya2[r]) / sa[r] : 0.0 for r in 1:S.n]; d23 = [ok[r] ? abs(ya2[r] - ya3[r]) / sa[r] : 0.0 for r in 1:S.n]
+            wr_ = sortperm(d12; rev = true)[1:5]
+            @printf("NKCHECK AD repeat: 1st vs 2nd call of J v: max %.3e (rows > 1e-4: %d); 2nd vs 3rd: max %.3e; worst rows of the first pair: %s\n", maximum(d12), count(>(1e-4), d12), maximum(d23),
+                    join((@sprintf("%s z%d %.2e", (i = (r - 1) % ne + 1; i <= length(nm) ? nm[i] : string(i)), k0 + (r - 1) ÷ ne - a + 1, d12[r]) for r in wr_), "; "))
+        end
+        worst1 = Int[]
+        for ef in (1.0, 0.1, 10.0, 100.0, 1e-2, 1e-3, 1e-4)      # (the FD at ε, ε/10, 10ε, … ε/1e4: the truncation and round-off of the difference itself; a kink of the residual at the iterate does not go away)
+            yf = ef == 1.0 ? y : (yy = zeros(S.n); fdjv!(yy, S, v, ε * ef); yy)
+            rr = [ok[r] ? abs(ya[r] - yf[r]) / sa[r] : 0.0 for r in 1:S.n]
+            @printf("NKCHECK AD J v vs FD (eps x%g): per row |J v(AD) - J v(FD)| / row scale: max %.3e, median %.3e, rows > 1e-4: %d, > 1e-2: %d | 2-norm rel %.3e\n", ef, maximum(rr), median(rr[ok]),
+                    count(>(1e-4), rr), count(>(1e-2), rr), norm(ya .- yf) / max(norm(yf), 1e-300))
+            ef == 1.0 && (worst1 = sortperm(rr; rev = true)[1:6])
+            ef == 1.0 || @printf("NKCHECK AD vs FD (eps x%g): the worst rows of the eps x1 list: %s\n", ef, join((@sprintf("%s z%d %.2e", (i = (r - 1) % ne + 1; i <= length(nm) ? nm[i] : string(i)), k0 + (r - 1) ÷ ne - a + 1, rr[r]) for r in worst1), "; "))
+            if ef == 1.0                                 # the same outside the front zones NKZX (default 36:46: photosphere, H₂ and ionisation fronts, where the state is not smooth)
+                zx1, zx2 = parse.(Int, split(get(ENV, "NKZX", "36:46"), ":"))
+                out = [ok[r] && !(zx1 <= k0 + (r - 1) ÷ ne - a + 1 <= zx2) for r in 1:S.n]
+                if any(out)
+                    ro = [out[r] ? rr[r] : 0.0 for r in 1:S.n]
+                    @printf("NKCHECK AD vs FD outside zones %d:%d: %d rows, max %.3e, median %.3e, rows > 1e-4: %d, > 1e-2: %d\n", zx1, zx2, count(out), maximum(ro), median(rr[out]), count(>(1e-4), ro), count(>(1e-2), ro))
+                    for i in 1:ne
+                        ri = [(kb - 1) * ne + i for kb in 1:nb]; kall = argmax([ro[r] for r in ri])
+                        nmi = i <= length(nm) ? nm[i] : (i - 9) % 2 == 1 ? "E_g$((i - 9 + 1) ÷ 2)" : "F_g$((i - 9) ÷ 2)"
+                        @printf("NKCHECK AD vs FD outside eq %-6s: worst row %.3e (zone %d; J v AD %+.5e FD %+.5e)\n", nmi, ro[ri[kall]], k0 + kall - 1 - a + 1, ya[ri[kall]], yf[ri[kall]])
+                    end
+                end
+            end
+            ef == 1.0 || continue
+            rr1 = rr
+            for i in 1:ne
+                ri = [(kb - 1) * ne + i for kb in 1:nb]; kall = argmax([rr[r] for r in ri]); zn(kb) = k0 + kb - 1 - a + 1
+                nmi = i <= length(nm) ? nm[i] : (i - 9) % 2 == 1 ? "E_g$((i - 9 + 1) ÷ 2)" : "F_g$((i - 9) ÷ 2)"
+                @printf("NKCHECK AD vs FD eq %-6s: worst row %.3e (zone %d; J v AD %+.5e FD %+.5e; row scale %.3e)\n", nmi, rr[ri[kall]], zn(kall), ya[ri[kall]], yf[ri[kall]], sa[ri[kall]])
+            end
+        end
+    end
+    if get(ENV, "NKROWPROBE", "1") == "2" && OPT.ad       # AD against FD column by column (the exact product's own columns): which entries of the worst AD-vs-FD rows disagree
+        zp1, zp2 = get(ENV, "NKPZ", "34:48") == "all" ? (1, 0) : parse.(Int, split(get(ENV, "NKPZ", "34:48"), ":")); zq(kb) = k0 + kb - 1 - a + 1
+        rows = Int[]; for r in sortperm(rr1; rev = true); length(rows) >= parse(Int, get(ENV, "NKPROWS", "6")) && break; rr1[r] > 1e-4 && push!(rows, r); end
+        if haskey(ENV, "NKROW")                  # NKROW=eq,zone[;eq,zone...] (as the band probe): these rows too
+            for spec in split(ENV["NKROW"], ";")
+                f = split(spec, ","); ie = something(findfirst(==(f[1]), nm), tryparse(Int, f[1]), 0); zs = parse(Int, f[2]); kbs = zs + a - k0
+                (1 <= ie <= ne && 1 <= kbs <= nb) || error("NKROW=$(ENV["NKROW"]): no such row $spec")
+                push!(rows, (kbs - 1) * ne + ie)
+            end
+        end
+        let ya = zeros(S.n); adj!(ya, S, v)           # one-sided differences along v: a kink of the residual at the iterate shows as forward ≠ backward
+            R1 = copy(perturbed(S, v, ε)); R2 = copy(perturbed(S, v, -ε))
+            for r in rows
+                i = (r - 1) % ne + 1; @printf("NKCHECK AD/FD one-sided: row %s zone %d: AD %+.5e  forward %+.5e  backward %+.5e  central %+.5e (row scale %.3e)\n", i <= length(nm) ? nm[i] : string(i), zq((r - 1) ÷ ne + 1),
+                        ya[r], (R1[r] - S.R0[r]) / ε, (S.R0[r] - R2[r]) / ε, (R1[r] - R2[r]) / 2ε, sa[r])
+            end
+        end
+        if haskey(ENV, "NKPW")                    # NKPW=n: windows of n zones, the check vector restricted to each (all variables), then per variable in the worst window of each row: where are the columns that disagree?
+            nw = parse(Int, ENV["NKPW"]); zall = [zq(kb) for kb in 1:nb]; wins = [(z, min(z + nw - 1, maximum(zall))) for z in minimum(zall):nw:maximum(zall)]
+            wres = Dict(r => Tuple{Float64,Int}[] for r in rows)
+            for (iw, (w1, w2)) in enumerate(wins)
+                vw = [S.act[r] && w1 <= zq((r - 1) ÷ ne + 1) <= w2 ? v[r] : 0.0 for r in 1:S.n]; any(!iszero, vw) || continue
+                yA = zeros(S.n); adj!(yA, S, vw); yF = zeros(S.n); fdjv!(yF, S, vw, ε)
+                for r in rows; push!(wres[r], (abs(yA[r] - yF[r]) / sa[r], iw)); end
+            end
+            for r in rows
+                kb = (r - 1) ÷ ne + 1; i = (r - 1) % ne + 1; ws = sort!(wres[r]; rev = true)[1:min(4, length(wres[r]))]
+                @printf("NKCHECK AD/FD windows: row %s zone %d (rel %.3e): worst windows %s\n", i <= length(nm) ? nm[i] : string(i), zq(kb), rr1[r], join((@sprintf("%d:%d %.2e", wins[iw][1], wins[iw][2], d) for (d, iw) in ws), ", "))
+                w1, w2 = wins[ws[1][2]]
+                for j in 1:ne
+                    vj = [S.act[rr_] && w1 <= zq((rr_ - 1) ÷ ne + 1) <= w2 && (rr_ - 1) % ne + 1 == j ? v[rr_] : 0.0 for rr_ in 1:S.n]; any(!iszero, vj) || continue
+                    yA = zeros(S.n); adj!(yA, S, vj); yF = zeros(S.n); fdjv!(yF, S, vj, ε)
+                    d = abs(yA[r] - yF[r]) / sa[r]; d > 1e-6 && @printf("      variable %-5s in zones %d:%d: |AD-FD|/rowscale %.3e (AD %+.4e FD %+.4e)\n", j <= length(nm) ? nm[j] : string(j), w1, w2, d, yA[r], yF[r])
+                end
+            end
+            flush(stdout); return nothing
+        end
+        cols = [c for c in findall(S.act) if get(ENV, "NKPZ", "34:48") == "all" || zp1 <= zq((c - 1) ÷ ne + 1) <= zp2]
+        @printf("NKCHECK AD/FD column probe: %d rows, %d columns (zones %d:%d), FD at eps and eps/10\n", length(rows), length(cols), zp1, zp2); flush(stdout)
+        tab = Dict(r => Tuple{Float64,Int,Float64,Float64,Float64}[] for r in rows)
+        for c in cols
+            e = zeros(S.n); e[c] = 1.0; yA = zeros(S.n); adj!(yA, S, e); yF = zeros(S.n); fdjv!(yF, S, e, OPT.eps); yG = zeros(S.n); fdjv!(yG, S, e, OPT.eps / 10)
+            for r in rows; push!(tab[r], (abs(yA[r] - yF[r]), c, yA[r], yF[r], yG[r])); end
+        end
+        for r in rows
+            kb = (r - 1) ÷ ne + 1; i = (r - 1) % ne + 1
+            @printf("NKCHECK AD/FD column probe: row %s zone %d (rowscale %.3e, rel %.3e)\n", i <= length(nm) ? nm[i] : string(i), zq(kb), sa[r], rr1[r])
+            for (d, c, yA_, yF_, yG_) in sort!(tab[r]; rev = true)[1:min(10, length(tab[r]))]
+                kc = (c - 1) ÷ ne + 1; jc = (c - 1) % ne + 1
+                @printf("   column %-5s zone %3d: AD %+.5e  FD(eps) %+.5e  FD(eps/10) %+.5e  |AD-FD| %.3e\n", jc <= length(nm) ? nm[jc] : string(jc), zq(kc), yA_, yF_, yG_, d)
+            end
+        end
+        flush(stdout)
+    end
     for r in sortperm(rel; rev = true)[1:30]
         kb = (r - 1) ÷ ne + 1; i = (r - 1) % ne + 1
         @printf("   row %-5s zone %3d: Jv %+.5e  J_b w %+.5e  rowscale %.3e  rel %.3e\n", i <= length(nm) ? nm[i] : string(i), k0 + kb - 1 - a + 1, y[r], z[r], sa[r], rel[r])
@@ -755,6 +892,33 @@ function check!(S::Sys)
         @printf("NKCHECK eps x%g (max|eps v| %.1e): vs J_b w: max %.3e median %.3e rows>1e-4 %d >1e-2 %d | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) %.3e, worst row (rel to rowscale) %.3e\n",
                 f, OPT.eps * f, maximum(r2), median(r2[ok]), count(>(1e-4), r2), count(>(1e-2), r2), norm(y2 .- y) / norm(y), maximum(d2))
     end
+    if haskey(ENV, "NKDUALPROBE")        # NKDUALPROBE=eq,zone[,thr]: J v of the unit vector at that unknown, then every Dual array of the residual workspaces whose partial exceeds thr (default 1e60) near that zone: where does a huge AD entry originate
+        f = split(ENV["NKDUALPROBE"], ","); ie = something(findfirst(==(f[1]), nm), tryparse(Int, f[1]), 0); zs = parse(Int, f[2]); thr = length(f) >= 3 ? parse(Float64, f[3]) : 1e60; kbs = zs + a - k0
+        e = zeros(S.n); e[(kbs - 1) * ne + ie] = 1.0; yA = zeros(S.n); adj!(yA, S, e)
+        D = ForwardDiff.Dual{NKTag,Float64,1}; kz = zs + a - 1
+        function scanw(obj, lab)
+            for fld in fieldnames(typeof(obj))
+                x = getfield(obj, fld)
+                if x isa AbstractVector{<:D}
+                    for k in max(1, kz - 3):min(length(x), kz + 3); (abs(ForwardDiff.partials(x[k], 1)) > thr) && @printf("   %s.%s[zone %d]: value %.4e partial %.4e\n", lab, fld, k - a + 1, ForwardDiff.value(x[k]), ForwardDiff.partials(x[k], 1)); end
+                elseif x isa AbstractVector && !isempty(x) && x[1] isa AbstractVector{<:D}
+                    for (g, xg) in enumerate(x), k in max(1, kz - 3):min(length(xg), kz + 3); (abs(ForwardDiff.partials(xg[k], 1)) > thr) && @printf("   %s.%s[%d][zone %d]: value %.4e partial %.4e\n", lab, fld, g, k - a + 1, ForwardDiff.value(xg[k]), ForwardDiff.partials(xg[k], 1)); end
+                elseif x isa AbstractMatrix{<:D}
+                    for k in max(1, kz - 3):min(size(x, 2), kz + 3), j in 1:size(x, 1); (abs(ForwardDiff.partials(x[j, k], 1)) > thr) && @printf("   %s.%s[%d, zone %d]: value %.4e partial %.4e\n", lab, fld, j, k - a + 1, ForwardDiff.value(x[j, k]), ForwardDiff.partials(x[j, k], 1)); end
+                end
+            end
+        end
+        @printf("NKCHECK dual probe: unit vector at %s zone %d; arrays with |partial| > %g (zones %d..%d):\n", f[1], zs, thr, zs - 3, zs + 3)
+        scanw(TX.getws(D, S.c.mgr), "WS"); TX.MG[] && scanw(TX.mgws(D, S.c.mgr), "MG")
+        if TX.MG[]                       # the values (not the partials) of the group-2-style advection inputs around the zone, for the group of the unit vector's unknown
+            g = ie >= TX.MGI0[] + 1 ? (ie - TX.MGI0[] + 1) ÷ 2 : 1; M_ = TX.mgws(D, S.c.mgr)
+            for k in max(1, kz - 3):kz + 3
+                @printf("   VAL g%d zone %d: E %.4e EO %.4e slopeO %.4e rho %.4e rhoO %.4e | dual: egn %.4e qe %.4e qeo %.4e erb %.4e ersn %.4e\n", g, k - a + 1, TX.MGEN[][g][k], TX.MGEO[][g][k], TX.MGESO[][g][k], vf(:dn)[k], vf(:do)[k],
+                        ForwardDiff.value(M_.egn[g][k]), ForwardDiff.value(M_.qe[g][k]), ForwardDiff.value(M_.qeo[g][k]), ForwardDiff.value(M_.erb[g][k]), ForwardDiff.value(M_.ersn[g][k]))
+            end
+        end
+    end
+    get(ENV, "NKROWPROBE", "1") == "0" && return nothing        # NKROWPROBE=0: skip the column-by-column probe (one finite-difference product per active column)
     rows = [argmax(rel)]
     if haskey(ENV, "NKROW")           # NKROW=eq,zone[;eq,zone...] (eq: name or number; zone counted from the inner boundary as in the listing): probe these rows instead of the worst one
         rows = Int[]

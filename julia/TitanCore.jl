@@ -594,6 +594,7 @@ function predict!(; eos! = () -> TD.EOS[](), opac! = () -> TD.OPAC[](), halve::B
         lrobc == 3 && (frn[b+1] = frn[b] * (rn[b] / rn[b+1])^mu)
     end
     _ghost_and_derived!(:peq, eos!, opac!)
+    CPLH[] === nothing || !hasproperty(CPLH[], :predicted) || CPLH[].predicted()      # (MGROUPS: the group unknowns' scales at the state the Newton iteration starts from)
 end
 
 # ------------------------------------------------------------------ eddfac (eddfac.f, eddf.f, eddg.f)
@@ -900,7 +901,7 @@ function tiew!(a, b, dtau)
 end
 
 "Exact Dual formal solution (spherical mu = 2) for 1-partial forward-mode J*v."
-function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, xs2, ::Type{T}, dbuf, slqbuf, material, slimp::Bool, cplz) where {T}
+function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, xs2, ::Type{T}, dbuf, slqbuf, material, slimp::Bool, cplz; ximr = P.ximr) where {T}
     mgr = TF.MGR
     vbuf(nm, n) = get!(() -> zeros(T, n), dbuf, (:eddf_v, nm, T, n))::Vector{T}
     mbuf(nm, nr, lm) = get!(() -> zeros(T, nr, lm), dbuf, (:eddf_m, nm, T, nr, lm))::Matrix{T}
@@ -943,7 +944,7 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
             ((chi * ρ - csige * ne) * pl + csige * ne * E * cc / (4.0 * cpi)) / (chi * ρ)
         dtau[k] = chi * ρ * (rn[k+1] - rn[k])
     end
-    bg = TD.VEF_BG[] && lrobc == 1; Ib = bg ? P.ximr : 0.0; ep = edpos(); lo = bg ? -Ib : 0.0
+    bg = TD.VEF_BG[] && lrobc == 1; Ib = bg ? ximr : 0.0; ep = edpos(); lo = bg ? -Ib : 0.0
     bg && (@inbounds for k in a:b; sf[k] -= Ib; end)
     @inbounds for k in a:b-1; dsf[k] = sf[k] - sf[k+1]; end
     @inbounds for k in a+1:b-1
@@ -967,7 +968,7 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
     tie && fill!(HE, zero(T))
     @inbounds for j in 1:ncor; p[j] = Float64(j - 1) * rp[1] / Float64(ncor); end
     @inbounds for j in ncor+1:nray; p[j] = rp[j - ncor]; end
-    lrobc == 1 && (@inbounds for j in 1:nray; xim[j] = T(bg ? 0.0 : P.ximr); end)
+    lrobc == 1 && (@inbounds for j in 1:nray; xim[j] = T(bg ? 0.0 : ximr); end)
     for l in lmax-1:-1:1
         k = a + (l - 1) ÷ 2; nj = ncor + l
         @inbounds for j in 1:nj

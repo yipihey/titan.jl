@@ -54,12 +54,12 @@ const STICKY = Ref(10); const BE_LEFT = Ref(0)
 const OLD = (:do, :ego, :egro, :ero, :fro, :uo, :xmeo, :ro, :dvolo)
 const SAVE = Dict{Symbol,Vector{Float64}}()
 # COUPLED: the old species (TitanResidFast.XSO) are saved, restored and combined with the other old arrays
-const SAVEX = [Float64[], Float64[]]
+const SAVEX = [Float64[], Float64[], Float64[]]       # (x_H⁺, x_H₂, and the neutral hydrogen x_HI, XSN[3])
 save!() = (for s in OLD; copyto!(get!(() -> similar(vf(s)), SAVE, s), vf(s)); end;
-           TX.COUPLED[] && for i in 1:2; length(SAVEX[i]) == length(TX.XSO[][i]) || (SAVEX[i] = similar(TX.XSO[][i])); copyto!(SAVEX[i], TX.XSO[][i]); end;
+           TX.COUPLED[] && for i in 1:3; length(SAVEX[i]) == length(TX.XSO[][i]) || (SAVEX[i] = similar(TX.XSO[][i])); copyto!(SAVEX[i], TX.XSO[][i]); end;
            TX.TDC_ON[] && copyto!(TX.SAVEW[], TX.WTO[]);       # TDC: the old turbulent velocity
            TX.MG[] && mg_save!())
-restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:2; copyto!(TX.XSO[][i], SAVEX[i]); end; TX.TDC_ON[] && copyto!(TX.WTO[], TX.SAVEW[]);
+restore!() = (for s in OLD; copyto!(vf(s), SAVE[s]); end; TX.COUPLED[] && for i in 1:3; copyto!(TX.XSO[][i], SAVEX[i]); end; TX.TDC_ON[] && copyto!(TX.WTO[], TX.SAVEW[]);
               TX.MG[] && mg_restore!(); isempty(TX.KSTAR[]) || (TX.KSTAR[] = Float64[]))
 # MGROUPS: the old group fields (TitanResidFast MGEO, MGFO) saved, restored and combined like E_r (on E ΔV) and F_r (on the flux-row inertia)
 const SAVEMG = [Vector{Vector{Float64}}(), Vector{Vector{Float64}}()]
@@ -145,6 +145,12 @@ function newton_quality!(dm)
     f = isfinite(ϑ) && ϑ > 0 ? clamp(ϑreq / ϑ, 0.1, 1.0) : (isfinite(ϑ) ? 1.0 : 0.1)
     NQ[] = min(NQ[], f)
 end
+"""
+True residual of the Newton iterate (set by NewtonKrylov.krylov! at the base state of each iteration): (max_r |R_r|/max_c |J_b,rc|, row, zone) over the active rows. A row is measured
+in units of its own largest Jacobian entry, i.e. as the smallest correction of its most sensitive unknown that would cancel it (the unknowns' own units: δ ln x, δy_g, δF/nom),
+which is the unit of the convergence measure `dmax`; no floor, no weight. `TRTOL` = 1: the convergence needs this ≤ CONV (the largest residual of a converged state in the 300-step zie1 grey window is 1.35e-3 = CONV/7, docs §23.3). `TRSTATS`: Newton convergences refused by it.
+"""
+const TRUERES = Ref((0.0, 0, 0.0)); const TRLAST = Ref(0.0); const TRTOL = 1.0; const TRSTATS = Dict(:rejected => 0, :worst => 0.0)
 const JB_REUSE = Ref(get(ENV, "NKREUSEJB", "1") != "0")
 const LAST_KRYLOV_SOLVE = Ref((false, 0, 0.0))
 function _newton_linear!(reuse::Bool)
@@ -169,12 +175,18 @@ function newton0!()
             ls = LAST_KRYLOV_SOLVE[]
             reuse = !isempty(dm) && dm[end] < 0.35 && (length(dm) < 2 || dm[end] < 0.7 * dm[end-1]) && ls[1] && ls[2] <= 5 && ls[3] == 1.0
             _newton_linear!(reuse); r(:maxdel); NWTRACE[] === nothing || nwtrace_it(); r(:update); SDCLO && sd_clo(); push!(dm, g(:dmax))
-            g(:dmax) <= g(:conv) && break
+            if g(:dmax) <= g(:conv)
+                # The step is small: the boost iteration (a full Newton iteration whose base state is the state just reached) also measures the true residual there.
+                # A small step is evidence of convergence only if the rows are solved: a state whose residual exceeds the tolerance has not converged however small the step
+                # the linear solve returned (docs §23.3); the iteration then goes on from the boosted state.
+                ls = LAST_KRYLOV_SOLVE[]; reuse_b = ls[1] && ls[2] <= 5 && ls[3] == 1.0
+                TRUERES[] = (0.0, 0, 0.0); s!(:lboos, 1); _newton_linear!(reuse_b); r(:maxdel); r(:update); s!(:lboos, 0)
+                TRUERES[][1] <= TRTOL * g(:conv) && (TRLAST[] = TRUERES[][1]; break)
+                TRSTATS[:rejected] += 1; TRUERES[][1] > TRSTATS[:worst] && (TRSTATS[:worst] = TRUERES[][1])
+            end
             s!(:iter, g(:iter) + 1)
             g(:iter) > g(:niter) && (newton_quality!(dm); return false)
         end
-        ls = LAST_KRYLOV_SOLVE[]; reuse_b = ls[1] && ls[2] <= 5 && ls[3] == 1.0
-        s!(:lboos, 1); _newton_linear!(reuse_b); r(:maxdel); r(:update); s!(:lboos, 0)
         if ERESTOL[] > 0
             e = eres(); ERES[:checks] += 1
             while e > ERESTOL[]
@@ -229,7 +241,7 @@ function bdf_old!()
         @inbounds for k in a:b+1; wo_[k] = cb(wn_[k], w0_[k]); end
     end
     if TX.COUPLED[]                    # species on ρ x ΔV (the residual reads x_old only as ρ_old x_old ΔV_old)
-        for i in 1:2
+        for i in 1:3
             xn_, xo_ = TX.XSN[][i], TX.XSO[][i]
             @inbounds for k in rng; TX.cplz(k) && (xo_[k] = cb(mγ(k) * xn_[k], mn(k) * SAVEX[i][k]) / ms[k]); end
         end
@@ -374,7 +386,7 @@ dt 2.8e3 → 1.5e3 s, every attempt rejected).
     F_r: rtol·max(|F|, ffloor·c E_r);  x_me: rtol·max(x_me, adjacent zone masses) (TITAN's own measure, relative change of the mass coordinate; the zone masses
     themselves are controlled through ρ — weighting δx_me by the zone mass, a Courant-type test, held the production state, where the
     accretion shock crosses the fixed interfaces, at Δt ~ 1e5 s against the heuristic's 1.3e8 s);  r (moving grids): rtol·(smaller adjacent zone width);
-    x_H⁺, x_H₂ (COUPLED zones): rtol·(x + xfloor) on |δx| = |δ ln x|·x.
+    x_H₂ (COUPLED zones): rtol·(x + xfloor) on |δx| = |δ ln x|·x; the hydrogen ionisation's logit z = ln(x_H⁺/x_HI): rtol·(m + xfloor) on |δz|·m, m = min(x_H⁺, x_HI).
 Defaults: xfloor 1e-6, ffloor 1 (F_r measured on its causal scale cE: with 1e-2 the thin zones just outside the photosphere, where F crosses through small values, held Δt at ~400 s), efloor 0.
 
 **Controller** (DTERRCTL=safety,facmin,facmax, default 0.9,0.2,5; DTERRPI=1): accepted when err ≤ 1, then
@@ -409,31 +421,32 @@ const LIMHIST = Dict{String,Int}(); const LASTERR = Ref((NaN, "", 0)); const ERR
 const DIAG = Ref(parse(Int, get(ENV, "DTERRDIAG", "0")))   # (DTERRDIAG=n: stage derivatives of the limiting zone every n steps)   # (ERR0: norm of the converged state's remaining correction)
 "Extra text for the DTERR trace line (popiii_m2c: coverage of the COUPLED zones)."
 const TRACE_EXTRA = Ref{Any}(nothing)
-const VNAMES = Dict(1 => "r", 2 => "m", 3 => "rho", 4 => "u", 5 => "T", 6 => "E_r", 7 => "F_r", 8 => "x_H+", 9 => "x_H2")
+const VNAMES = Dict(1 => "r", 2 => "m", 3 => "rho", 4 => "u", 5 => "T", 6 => "E_r", 7 => "F_r", 8 => "z_H", 9 => "x_H2")
 
-"Conserved combinations of a state (arrays of the new or the old time level; xs = the two coupled species)."
+const XKEYS = (:x1, :x2, :x3)
+"Conserved combinations of a state (arrays of the new or the old time level; xs = the coupled species x_H⁺, x_H₂ and the neutral hydrogen x_HI)."
 function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs, mg = nothing)
-    a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1; n = length(d)
-    C = Dict{Symbol,Vector{Float64}}(s => zeros(n) for s in (:m, :me, :xme, :r, :P))
+    a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1; n = length(d); T = eltype(d)
+    C = Dict{Symbol,Vector{T}}(s => zeros(T, n) for s in (:m, :me, :xme, :r, :P))
     m = C[:m]
     @inbounds for k in a:b; m[k] = d[k] * dv[k]; C[:me][k] = m[k] * eg[k]; end
     @inbounds for k in a-1:b+2; C[:xme][k] = xme[k]; C[:r][k] = rr[k]; end
     @inbounds for k in a+1:b; C[:P][k] = u[k] * (m[k-1] + m[k]); end
     TitanCore.FREE_OUTER[] && (C[:P][b+1] = u[b+1] * m[b])
     if lrad
-        C[:mer] = zeros(n); C[:EV] = zeros(n); C[:QF] = zeros(n)
+        C[:mer] = zeros(T, n); C[:EV] = zeros(T, n); C[:QF] = zeros(T, n)
         @inbounds for k in a:b; C[:mer][k] = m[k] * egr[k]; C[:EV][k] = er[k] * dv[k]; end
         @inbounds for k in a+1:b; C[:QF][k] = fr[k] * 2 * (m[k-1] + m[k]) / (d[k-1] + d[k]); end
     end
     if TX.COUPLED[]
-        for i in 1:2
-            x = zeros(n); C[i == 1 ? :x1 : :x2] = x
+        for i in 1:3
+            x = zeros(T, n); C[XKEYS[i]] = x
             @inbounds for k in a:b; TX.cplz(k) && (x[k] = m[k] * xs[i][k]); end
         end
     end
     if mg !== nothing                  # MGROUPS: E_g ΔV and the flux-row inertia of F_g
         for g in 1:TX.MGN[]
-            kE, kF = mgkeys(g); EV = zeros(n); QF = zeros(n); C[kE] = EV; C[kF] = QF; Eg = mg[1][g]; Fg = mg[2][g]
+            kE, kF = mgkeys(g); EV = zeros(T, n); QF = zeros(T, n); C[kE] = EV; C[kF] = QF; Eg = mg[1][g]; Fg = mg[2][g]
             @inbounds for k in a:b; EV[k] = Eg[k] * dv[k]; end
             @inbounds for k in a+1:b; QF[k] = Fg[k] * 2 * (m[k-1] + m[k]) / (d[k-1] + d[k]); end
         end
@@ -459,8 +472,8 @@ function old_from!(C)
     @inbounds for k in a:b; ego[k] = C[:me][k] / ms[k]; do_[k] = ms[k] / dvo[k]; end
     @inbounds for k in a-1:b+2; xmeo[k] = C[:xme][k]; end
     if TX.COUPLED[]
-        for i in 1:2
-            xo_ = TX.XSO[][i]; x = C[i == 1 ? :x1 : :x2]
+        for i in 1:3
+            xo_ = TX.XSO[][i]; x = C[XKEYS[i]]
             @inbounds for k in a:b; TX.cplz(k) && (xo_[k] = x[k] / ms[k]); end
         end
     end
@@ -570,18 +583,43 @@ taken from the residual's own state evaluation (TitanResidFast.residual! at the 
 injected through the old arrays as for the first filter.
 """
 function refilter!(E1, Cs, δ0)
+    TX.MG[] && return refilter_mg!(E1, Cs, δ0)
     c = TX.context(); Wws = TX.getws(Float64, c.mgr); W = Wws.a; neqn, k0, nb = c.neqn, c.k0, c.nb; R = zeros(neqn, nb)
     x = zeros(neqn * nb); mx = 0.0
     @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = v; mx = max(mx, abs(v)); end
     ε = mx > 0 ? min(1.0, 1e-3 / mx) : 1.0
-    Wm = TX.MG[] ? TX.mgws(Float64, c.mgr) : nothing
-    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2), Wm === nothing ? nothing : (Wm.egn, Wm.fgn))
+    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2, W.xsn))
     TX.residual!(R, Wws, c, zeros(neqn * nb)); C0 = Dict(s_ => copy(v) for (s_, v) in stw())
     x .*= ε; TX.residual!(R, Wws, c, x); Cp = stw()
     Co = Dict{Symbol,Vector{Float64}}()
     for (s_, v0) in C0
         vs = Cs[s_]; vp = Cp[s_]; o = similar(v0)
         @inbounds for k in eachindex(v0); o[k] = vs[k] + (vp[k] - v0[k]) / ε; end
+        Co[s_] = o
+    end
+    old_from!(Co) || return false
+    rhs = TF.var(:rhs); r(:matgen); r(:matslv); TD.KRYLOV[] !== nothing && TD.KRYLOV[](); rhs .-= δ0
+    true
+end
+
+"""
+(MGROUPS) The second filter with the exact image ΔQ = Q_y Est: one evaluation of the residual's state in dual numbers with Est as the
+direction. The finite difference of `refilter!` takes its step from the largest entry of Est, ε = 10⁻³/max|Est|. With group unknowns
+that entry belongs to a group whose energy changes by many orders of magnitude within the step in some zone (the estimate is in
+δ ln E_g: 10⁸ and more); ε then falls below round-off for every other unknown, the difference is zero and so is the estimate: no error
+control (docs/POPIII_MULTIGROUP.md §20). The derivative has no step: a large entry stays in its own group.
+"""
+function refilter_mg!(E1, Cs, δ0)
+    c = TX.context(); neqn, k0, nb = c.neqn, c.k0, c.nb; FD = TX.ForwardDiff; D = FD.Dual{TX.JTag,Float64,1}
+    x = Vector{D}(undef, neqn * nb)
+    @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = D(0.0, FD.Partials((v,))); end
+    Wws = TX.getws(D, c.mgr); W = Wws.a; Wm = TX.mgws(D, c.mgr)
+    TX.residual!(Matrix{D}(undef, neqn, nb), Wws, c, x)
+    Cd = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2, W.xsn), (Wm.egn, Wm.fgn))
+    Co = Dict{Symbol,Vector{Float64}}()
+    for (s_, vd) in Cd
+        vs = Cs[s_]; o = similar(vs)
+        @inbounds for k in eachindex(vs); o[k] = vs[k] + FD.partials(vd[k], 1); isfinite(o[k]) || return false; end
         Co[s_] = o
     end
     old_from!(Co) || return false
@@ -604,15 +642,13 @@ function wnorm(rhs)
             E = vf(:ern)[k]; acc(rhs[ie, k] * E / (rt * (E + o.efl * 7.565723e-15 * tn[k]^4)), ie, k)
         end
         if TX.COUPLED[] && TX.cplz(k)
-            for (i, q) in ((8, TX.XSN[][1]), (9, TX.XSN[][2]))
-                acc(rhs[i, k] * q[k] / (rt * (q[k] + o.xfl)), i, k)
-            end
+            # x_H₂: δ ln x_H₂ against x_H₂ + xfloor; the ionisation's logit z = ln(x_H⁺/x_HI): δz against m + xfloor, m = min(x_H⁺, x_HI) of the new state
+            # (δz is the relative error of whichever of the two is the trace species: of the neutral fraction in the ionised gas, of x_H⁺ in the neutral gas)
+            let q = TX.xmin1(TX.XSN[], k); acc(rhs[8, k] * q / (rt * (q + o.xfl)), 8, k) end
+            let q = TX.XSN[][2][k]; acc(rhs[9, k] * q / (rt * (q + o.xfl)), 9, k) end
         end
-        if TX.MG[]                     # MGROUPS: δE_g against the group's own E_g with the grey floor plus MGEFL·E_r (minor groups do not set Δt)
-            E = vf(:ern)[k]
-            for g in 1:TX.MGN[]
-                Eg = TX.MGEN[][g][k]; acc(rhs[TX.mgiE(g), k] * Eg / (rt * (Eg + o.efl * 7.565723e-15 * tn[k]^4 + TX.MGEFL[] * E)), TX.mgiE(g), k)
-            end
+        if TX.MG[]                     # MGROUPS: the change of the group's unknown y_g = asinh(E_g/s_g,k), s the zone's local emission balance MGSC (δ ln E_g for E_g ≫ s, δE_g/s below: no floor)
+            for g in 1:TX.MGN[]; acc(rhs[TX.mgiE(g), k] / rt, TX.mgiE(g), k); end
         end
     end
     @inbounds for k in a+1:b
@@ -625,7 +661,7 @@ function wnorm(rhs)
             if TX.MG[]
                 for g in 1:TX.MGN[]
                     Fg = TX.MGFN[][g][k]
-                    acc(rhs[TX.mgiF(g), k] * TX.MGFNOM[][g][k] / (rt * max(abs(Fg), o.ffl * 2.99792458e10 * 0.5 * (ern[k-1] + ern[k]), TX.MGEFL[] * abs(frn[k]))), TX.mgiF(g), k)
+                    acc(rhs[TX.mgiF(g), k] * TX.MGFNOM[][g][k] / (rt * max(abs(Fg), o.ffl * 2.99792458e10 * 0.5 * (ern[k-1] + ern[k]), TX.MGEFL * abs(frn[k]))), TX.mgiF(g), k)
                 end
             end
         end
@@ -641,7 +677,7 @@ function finite_new()
         v = vf(s_); @inbounds for k in a:b; isfinite(v[k]) || return false; end
     end
     if TX.COUPLED[]
-        for i in 1:2; q = TX.XSN[][i]; @inbounds for k in a:b; TX.cplz(k) && !isfinite(q[k]) && return false; end; end
+        for i in 1:3; q = TX.XSN[][i]; @inbounds for k in a:b; TX.cplz(k) && !isfinite(q[k]) && return false; end; end
     end
     if TX.MG[]
         for g in 1:TX.MGN[], q in (TX.MGEN[][g], TX.MGFN[][g]); @inbounds for k in a:b; isfinite(q[k]) || return false; end; end
@@ -870,8 +906,8 @@ function step_err!()
     HEUR[] = g(:dtime); s!(:dtime, hn); s!(:tfac, hn / Δ)
     SDON && sd_state_print(Δ)
     if o.trace > 0 && ESTATS[:steps] % o.trace == 0
-        @printf("DTERR jstep %d t %.6e yr: dt %.3e err %.3g (max %.3g: %s zone %d; resid %.2g, 1st filter %.3g) next %.3e | heuristic %.3e | steps %d rej %d fail %d%s\n",
-            Int(g(:jstep)), g(:timen) / 3.156e7, Δ, err, info[3], info[1], info[2], ERR0[], ERR1[], hn, HEUR[], ESTATS[:steps], ESTATS[:rej_err], ESTATS[:fail_newton], etrace(:acc, Δ, err, info))
+        @printf("DTERR jstep %d t %.6e yr: dt %.3e err %.3g (max %.3g: %s zone %d; resid %.2g, 1st filter %.3g) next %.3e | heuristic %.3e | steps %d rej %d fail %d | Newton true residual %.2g%s\n",
+            Int(g(:jstep)), g(:timen) / 3.156e7, Δ, err, info[3], info[1], info[2], ERR0[], ERR1[], hn, HEUR[], ESTATS[:steps], ESTATS[:rej_err], ESTATS[:fail_newton], TRLAST[], etrace(:acc, Δ, err, info))
     end
     nothing
 end

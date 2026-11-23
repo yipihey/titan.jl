@@ -175,7 +175,9 @@ const CHEMB = Ref(Float64[]); const CHEMBON = Ref(Bool[])
 
 """
 COUPLED (popiii_m2c COUPLED=1; default false): the slow species of the reduced network (ChemNet CHEMCK: x_H⁺, x_H₂ per H nucleus) are
-unknowns 8 and 9 of the Newton system (neqn = 9, meqn ≥ 9), in logarithmic variables (x = base·e^δ, positive by construction), in the
+unknowns 8 and 9 of the Newton system (neqn = 9, meqn ≥ 9), in logarithmic variables (x_H₂ = base·e^δ₉, positive by construction; unknown 8 is the
+logit z = ln(x_H⁺/x_HI) of the hydrogen ionisation, see `hperturb`: the neutral fraction of the ionised gas and x_H⁺ of the neutral gas are
+both resolved; the state carries the neutral hydrogen x_HI = 1 − x_H⁺ − 2x_H₂ as the third array `XSN[3]`, never recomputed from x_H⁺), in the
 network zones below the hot branch at the start of the step (`CPLZ`); other zones carry them frozen (row δ = 0). Per coupled zone
   species row  (ρ x ΔV)ⁿ⁺¹ − (ρ x ΔV)ⁿ)/Δt + ṁ-fluxes of the face values (advect!, the scheme and mass fluxes of the energy row)
                − [θ ρⁿ⁺¹ΔVⁿ⁺¹ S(ρ, T, x) + (1 − θ) ρⁿΔVⁿ Sⁿ] = 0,       S = dx/dt of the CK-expanded composition (ChemNet.ck_eval)
@@ -186,9 +188,9 @@ Jacobian. The material provides (p, e, S₁, S₂, Λ) of a zone with their deri
 rates `XSRCO` and cooling `XLAMO` (θ < 1 stages only). Trbdf2 combines `XSO` on ρ x ΔV for its BDF2 stage.
 """
 const COUPLED = Ref(false)
-const XSN = Ref([Float64[], Float64[]]); const XSO = Ref([Float64[], Float64[]]); const XSSO = Ref([Float64[], Float64[]])
+const XSN = Ref([Float64[], Float64[], Float64[]]); const XSO = Ref([Float64[], Float64[], Float64[]]); const XSSO = Ref([Float64[], Float64[]])
 const XSRCO = Ref([Float64[], Float64[]]); const XLAMO = Ref(Float64[]); const CPLZ = Ref(Bool[])
-const CPLW = Ref{Any}(nothing)                  # (xs1, xs2) of the residual's iterate while the material is evaluated
+const CPLW = Ref{Any}(nothing)                  # (xs1, xs2, xn) of the residual's iterate while the material is evaluated
 const CPL_ZONE = Ref{Any}(nothing)              # (k, ρ, T, x1, x2) -> (p, e, S1, S2, Λ), set by the material
 """
 SLIMP (popiii_m2c `SLIMP=1`, with COUPLED): the star light of a coupled zone at the Newton iterate. `SL_SWEEP[](S, ...)` fills, from the
@@ -197,7 +199,7 @@ iterate's arrays, the state S = (q, t, fs, g, dp) of every coupled zone: q = W/W
 gives the zone's terms at that star light (PopIIIMaterial.cpl_zone_q) and `CPLSL[]` carries S (Duals) to the NLOIT opacity during the material sweep.
 """
 const SL_SWEEP = Ref{Any}(nothing)
-const SLIMP = Ref(false); const CPL_ZONEQ = Ref{Any}(nothing); const CPLSL = Ref{Any}(nothing)
+const SLIMP = Ref(false); const CPL_ZONEQ = Ref{Any}(nothing); const CPLSL = Ref{Any}(nothing); const CPLMGQ = Ref{Any}(nothing)
 const SLIMPDBG = Ref(parse(Int, get(ENV, "SLIMPDBG", "0")))   # (diagnostic) report the first n non-finite SLIMP values in the residual
 const SLQBUF = Dict{Any,Any}()
 const CPL_LOCAL = Ref{Any}(nothing)             # (k, dt) -> (x1, x2): the zone's species rows solved alone (initial guess), set by the material
@@ -212,7 +214,10 @@ const CPL_THETA = Ref(parse(Float64, get(ENV, "CPLTHETA", "1")))
 @inline cplz(k) = COUPLED[] && k <= length(CPLZ[]) && CPLZ[][k]
 "Size the species arrays to mgr (keeps values where present)."
 function cpl_alloc!(mgr)
-    for R_ in (XSN, XSO, XSSO, XSRCO), i in 1:2
+    for R_ in (XSN, XSO), i in 1:3
+        length(R_[][i]) == mgr || (R_[][i] = zeros(mgr))
+    end
+    for R_ in (XSSO, XSRCO), i in 1:2
         length(R_[][i]) == mgr || (R_[][i] = zeros(mgr))
     end
     length(XLAMO[]) == mgr || (XLAMO[] = zeros(mgr)); length(CPLZ[]) == mgr || (CPLZ[] = falses(mgr) |> collect)
@@ -229,19 +234,20 @@ function cpl_local_all!(dt)
     ngrs = gi(:ngrs); ngre = gi(:ngre)
     # (PERF512) the zones are independent (every one sees the old neighbours; the results are applied together): on MATTHREADS tasks
     # (zone_sweep!), bit-identical; ~10 % of the hydro step of the 512-zone mesh when serial
-    res = Vector{Union{Nothing,Tuple{Float64,Float64}}}(nothing, ngre); z0 = ZONE0[]
+    res = Vector{Union{Nothing,Tuple{Float64,Float64,Float64}}}(nothing, ngre); z0 = ZONE0[]
     try zone_sweep!(ngrs:ngre, cplz) do k
-        y = CPL_LOCAL[](k, dt); y === nothing || (res[k] = (Float64(y[1]), Float64(y[2])))
+        y = CPL_LOCAL[](k, dt); y === nothing || (res[k] = (Float64(y[1]), Float64(y[2]), Float64(y[3])))
     end
     finally ZONE0[] = z0 end                                             # (the serial loop did not touch ZONE[])
     for k in ngrs:ngre                                                   # (applied together: every zone saw the same neighbours)
-        y = res[k]; y === nothing || (XSN[][1][k] = y[1]; XSN[][2][k] = y[2])
+        y = res[k]; y === nothing || (XSN[][1][k] = y[1]; XSN[][2][k] = y[2]; XSN[][3][k] = y[3])
     end
     nothing
 end
 "Start of a step (TitanCore.peq!): old species := iterate, and their limiter slopes; then the initial guess (cpl_local_all!)."
 function cpl_newstep!()
     ngrs = gi(:ngrs); ngre = gi(:ngre); cadv = gf(:cadv); eps = gf(:epsadv)
+    copyto!(XSO[][3], XSN[][3])
     for i in 1:2
         copyto!(XSO[][i], XSN[][i]); q = XSO[][i]; qs = XSSO[][i]; fill!(qs, 0.0)
         @inbounds for k in ngrs:ngre+1
@@ -260,7 +266,7 @@ the shock whose x_H⁺ had fallen to 1e-9 asked for δ ln x = −1e76 in every r
 """
 const CPL_BAD = Set{Int}(); const CPL_BADDELTA = Ref(parse(Float64, get(ENV, "CPLBADDELTA", "100"))); const CPL_NDECOUPLED = Ref(0)
 function cpl_reset!()
-    for i in 1:2; copyto!(XSN[][i], XSO[][i]); end
+    for i in 1:3; copyto!(XSN[][i], XSO[][i]); end
     if !isempty(CPL_BAD)
         a = gi(:ngrs)
         for k in CPL_BAD
@@ -272,14 +278,40 @@ function cpl_reset!()
     end
     cpl_local_all!(gf(:dtime)); nothing
 end
-"Apply the Newton correction (update!): x ← x·e^δ in the coupled zones."
+"""
+The hydrogen ionisation state after the corrections δ (unknown 8: the logit z = ln(x_H⁺/x_HI), x_H⁺ = c σ(z), x_HI = c σ(−z), c = 1 − 2x_H₂) and δ₉ (x_H₂ ← x_H₂ e^{δ₉}),
+from the state (x₁, x₂, xn) = (x_H⁺, x_H₂, x_HI): x_H⁺ = x₁ (c′/c) (x₁ + xn)/(x₁ + xn e^{−δ}) and x_HI = xn (c′/c) (x₁ + xn)/(x₁ + xn e^{−δ}) e^{−δ}, c = 1 − 2x₂, c′ = 1 − 2x₂′.
+Neither species is a difference: x_H⁺ + x_HI + 2x_H₂ = 1 holds to round-off in the sum, the neutral fraction of the ionised gas (1e-6 … 1e-9) and x_H⁺ of the neutral gas
+(1e-30) both carry their full relative precision, and the state is the same as the iterate exactly for δ = δ₉ = 0 (generic in the number type: δ, δ₉ may be Duals).
+"""
+@inline function hperturb(x1, x2, xn, δ, δ9)
+    x2n = x2 * exp(δ9); f = (1 - 2x2n) / (1 - 2x2) * (x1 + xn) / (x1 + xn * exp(-δ))
+    x1 * f, x2n, xn * exp(-δ) * f
+end
+"""
+The logit state (x₁, xn) of z and x₂: x₁ = c σ(z), xn = c σ(−z), c = 1 − 2x₂ (each from its own exponential: no cancellation at either end).
+"""
+@inline function hlogit(z, x2)
+    c = 1 - 2x2
+    if ForwardDiff.value(z) >= 0
+        e = exp(-z); d = 1 + e; c / d, c * e / d
+    else
+        e = exp(z); d = 1 + e; c * e / d, c / d
+    end
+end
+"Apply the Newton correction (update!) in the coupled zones: x_H₂ ← x_H₂ e^{δ₉}, the hydrogen ionisation by its logit (`hperturb`)."
 function cpl_update!(rhs, a, b)
     @inbounds for k in a:b
         cplz(k) || continue
-        XSN[][1][k] *= exp(rhs[8, k]); XSN[][2][k] *= exp(rhs[9, k])
+        XSN[][1][k], XSN[][2][k], XSN[][3][k] = hperturb(XSN[][1][k], XSN[][2][k], XSN[][3][k], rhs[8, k], rhs[9, k])
     end
     nothing
 end
+"""
+The species' smaller hydrogen fraction min(x_H⁺, x_HI) of zone k in the iterate (`XSN`) or the old state (`XSO`): the abundance whose relative error the logit z carries
+(δz = δ ln x_H⁺ where x_H⁺ ≪ 1 and −δ ln x_HI where x_HI ≪ 1).
+"""
+@inline xmin1(X, k) = min(X[1][k], X[3][k])
 "maxdel: the species' weighted maximum correction (convergence measure; with it TITAN's dtol damping of the whole correction limits a species step like every other)."
 const CPLDM = Ref((0.0, 0, 0))     # (diagnostic, NWTRACE) the species' weighted convergence measure of the last cpl_dmax!, with its equation and zone
 function cpl_dmax!(rhs, a, b)
@@ -287,13 +319,14 @@ function cpl_dmax!(rhs, a, b)
     for i in 8:9; kx[i] = 0; dx[i] = 0.0; end
     @inbounds for k in a:b
         cplz(k) || continue
-        for (i, q) in ((8, XSN[][1]), (9, XSN[][2]))
+        for i in 8:9
             abs(rhs[i, k]) > abs(dx[i]) && (kx[i] = k - a + 1; dx[i] = rhs[i, k])     # (raw correction, for the divergence message)
             isfinite(rhs[i, k]) || (rhs[i, k] = 0.0; d = Inf)                        # a non-finite correction: no change, not converged
             abs(rhs[i, k]) > CPL_BADDELTA[] && push!(CPL_BAD, k)
             # weight by the larger of the iterate and the old abundance: a species the iterate drove to the floor (x_H⁺ 1e-40 next to the
-            # shock, from 1e-3) is not converged; only species that are trace at both ends are left out
-            xm_ = max(q[k], XSO[][i - 7][k]); d = max(d, abs(rhs[i, k]) * xm_ / (xm_ + f))
+            # shock, from 1e-3) is not converged; only species that are trace at both ends are left out. The ionisation's logit z is
+            # weighted by the smaller of x_H⁺ and x_HI (its relative error: the ionised gas's neutral fraction counts)
+            xm_ = i == 8 ? max(xmin1(XSN[], k), xmin1(XSO[], k)) : max(XSN[][2][k], XSO[][2][k]); d = max(d, abs(rhs[i, k]) * xm_ / (xm_ + f))
             w_ = abs(rhs[i, k]) * xm_ / (xm_ + f); w_ > wm_ && (wm_ = w_; wi_ = i; wk_ = k - a + 1)
         end
     end
@@ -435,7 +468,7 @@ const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn
     :dso, :uso, :egrso, :egso, :erso, :frso, :xso1, :xso2,       # old-level limiter slopes (oldslope!)
     :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv,
     :mnad, :mcp, :mdl, :mkp,                # MLT coefficients of the threaded pre-pass (MATTHREADS)
-    :xs1, :xs2, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL, :cpQ, :cpY,     # COUPLED: species iterate, face values, slopes, rates, cooling
+    :xs1, :xs2, :xsn, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL, :cpQ, :cpY,     # COUPLED: species iterate (x_H⁺, x_H₂, x_HI), face values, slopes, rates, cooling
     :tw, :two, :ta, :tU, :tsup, :tell, :trhoz, :tellz, :tF, :tHP, :trho, :tT, :tcp, :tPt, :tgx, :tAz, :tmzn, :tmzo, :tdV, :tD, :tQ, :tdel, :tg)   # TDC (M3b): w, background, zone arrays, exchange
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
@@ -709,17 +742,9 @@ end
     abs(val(x)) < 1e-6 && return Δτ * (φ + 0.5 * φ * (1 - φ) * x)
     return Δτ * log1p(expm1(x) * φ) / x
 end
-"""
-TIESMOOTH (popiii_m2c `TIESMOOTH=ε`, with SLABTIE; default 0 = off, off = bit-identical; docs/POPIII_MULTIGROUP.md §5, Newton fix 1): the
-max(h, 0) of SLABTIE's donor factor replaced by the C∞ ramp s(h) = ½(h + √(h² + ε²)) (≥ 0, → h for h ≫ ε, s(0) = ε/2), so that the
-row's derivative is continuous where the slab correction drives h through 0.
-"""
-const TIESM = Ref(0.0)
-@inline sramp(x, ε) = 0.5 * (x + sqrt(x * x + ε * ε))
 "SLABTIE: the outward donor factor h (see SLABTIE)."
 @inline function st_hdonor(hfs, fm, χm, χp, Mm, Mp)
     τi = st_tauint(χm, χp, Mm, Mp)
-    TIESM[] > 0 && return sramp(hfs + fm / (τi + 2fm) - fm / (χm * Mm + 2fm), TIESM[])
     return max(hfs + fm / (τi + 2fm) - fm / (χm * Mm + 2fm), 0.0)
 end
 @inline function excap(cc, κ, ρ, dt)
@@ -727,8 +752,13 @@ end
     return min(1.0, EXCAP[] / (cc * κ * ρ * dt))
 end
 include(joinpath(@__DIR__, "MGRad.jl"))                 # MGROUPS (default off)
-"(MGROUPS with SLIMP) (q, t) of zone k at the iterate from the grey E_r and group MGSLG's E_g, F_g, F_g+1 (PopIIIMaterial.sl_qt_mg)."
-const MGSLQ = Ref{Any}(nothing); const MGSLG = Ref(2)
+"""
+(MGROUPS, stage 2c) The star light of a coupled zone is its group fields at the Newton iterate. `MGSLQ[](Mg, k, T_c)` (the `mgqt` of `SL_SWEEP`) fills
+Mg.qs[1:G, k] with c u_g/c u_g(start of step) and returns that of group MGSLG (PopIIIMaterial.sl_qt_mg); `MGH2FN[](Mg, dn, tn, rn, un, x_H2, t, a, b)`
+the H₂ Lyman–Werner closure of the iterate (Mg.kh2, Mg.kh2g, Mg.qs[G+1, :]; PopIIIMaterial.mg_h2iter!); `MGZONEQ[](k, ρ, T, x1, x2, qv, t, g, dp)` the
+zone's terms in those fields (PopIIIMaterial.cpl_zone_qg). `CPLMGQ[]` carries Mg.qs to the NLOIT opacity during the material sweep (with `CPLSL[]`).
+"""
+const MGSLQ = Ref{Any}(nothing); const MGSLG = Ref(2); const MGH2FN = Ref{Any}(nothing); const MGZONEQ = Ref{Any}(nothing)
 
 """
 Limiter slope of the OLD level, from the old cell values with exactly the formula of the first loop of `advect!` (plain Float64: the old level is a constant
@@ -816,6 +846,8 @@ function compton_old!(ngrs, ngre)
     end
 end
 function material_opac end
+"MGROUPS: `material_opac`, and the zone's group record (MGRad.jl) into `o` in the number type of (ρ, T). Default: the grey record."
+material_opacg!(o, m, ρ, T) = (mg_default!(o); material_opac(m, ρ, T))
 "(PERF512) true if `material_opac(m, ρ::Float64, T::Float64)` has no side effects (no per-zone caches), so it may run on several tasks with the same ZONE[]."
 opac_pure(m) = false
 """
@@ -1108,7 +1140,7 @@ end
         W.pgn[k] = pg; W.egn[k] = eg; W.asn[k] = as_
         hassrc && (W.snuc[k] = material_source(m, dn[k], tn[k]))
         if c.lrad
-            χ, κE, κP = material_opac(m, dn[k], tn[k])
+            χ, κE, κP = MG[] ? material_opacg!(mg_gcol(eltype(W.chifn), k), m, dn[k], tn[k]) : material_opac(m, dn[k], tn[k])
             W.chifn[k] = χ; W.xken[k] = κE; W.xkpn[k] = κP
             t2 = tn[k] * tn[k]
             W.plfn[k] = P.csigr * (t2 * t2) / P.cpi
@@ -1125,7 +1157,7 @@ computed only for the zones of interfaces with sup > 0 (an interface with sup �
 function _buoy_zone(m, W, dn, tn, j, ::Type{S}) where {S}
     t0 = time_ns(); V(x) = S === Float64 ? Float64(ForwardDiff.value(x)) : x
     ZONE[] = j
-    x = COUPLED[] ? (V(W.xs1[j]), V(W.xs2[j])) : nothing
+    x = COUPLED[] ? (V(W.xs1[j]), V(W.xs2[j]), V(W.xsn[j])) : nothing      # (x_H⁺, x_H₂, x_HI) of the iterate (M3e: the neutral hydrogen of the mgxh state)
     r = (material_convthermo(m, j, V(dn[j]), V(tn[j]), x), material_tchem(m, j, V(dn[j]), V(tn[j]), x))
     BUOYT[S === Float64 ? 1 : 2] += 1; BUOYT[S === Float64 ? 3 : 4] += time_ns() - t0
     r
@@ -1469,23 +1501,25 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         end
     end
     Mg = MG[] ? mgws(T, c.mgr) : nothing          # MGROUPS: the group unknowns of the iterate
-    MG[] && mg_iterate!(Mg, x, neqn, nb, k0, ngre)
+    MG[] && (mg_iterate!(Mg, x, neqn, nb, k0, ngre); c.lrad && mg_esum!(W, Mg, k0, ngre))
     # EOS / opacity (TITAN built-in physics unless a material is installed, see TitanMaterials)
     Rg = P.ck / (P.cm0 * P.gmu); γ = P.gam
     pgn, egn, asn, chifn, xken, xkpn, plfn, egrn = W.pgn, W.egn, W.asn, W.chifn, W.xken, W.xkpn, W.plfn, W.egrn
     if COUPLED[]
-        xs1, xs2 = W.xs1, W.xs2; xn1, xn2 = XSN[]
-        @inbounds for k in k0:ngre+2; xs1[k] = xn1[k]; xs2[k] = xn2[k]; end
+        xs1, xs2, xsn = W.xs1, W.xs2, W.xsn; xn1, xn2, xn3 = XSN[]
+        @inbounds for k in k0:ngre+2; xs1[k] = xn1[k]; xs2[k] = xn2[k]; xsn[k] = xn3[k]; end
         @inbounds for bb in 1:nb
-            k = k0 + bb - 1; xs1[k] = xn1[k] * exp(x[(bb-1)*neqn+8]); xs2[k] = xn2[k] * exp(x[(bb-1)*neqn+9])
+            k = k0 + bb - 1; xs1[k], xs2[k], xsn[k] = hperturb(xn1[k], xn2[k], xn3[k], x[(bb-1)*neqn+8], x[(bb-1)*neqn+9])
         end
-        CPLW[] = (xs1, xs2)
+        CPLW[] = (xs1, xs2, xsn)
         slst::Union{Nothing,SLState{T}} = if SLIMP[] # SLIMP: the star-light state of the iterate (new-level r, ρ, T, u, E_r, F_r, species)
             s_ = get!(() -> (; q = Vector{T}(undef, length(xs1)), t = Vector{T}(undef, length(xs1)), fs = Vector{T}(undef, length(xs1)),
                                g = Vector{T}(undef, length(xs1)), ts = Vector{T}(undef, length(xs1)), wq = Vector{T}(undef, length(xs1)), dp = Vector{T}(undef, length(xs1))), SLQBUF, (T, length(xs1)))::SLState{T}
             @inbounds for k in eachindex(s_.q); s_.q[k] = one(T); s_.t[k] = one(T); s_.fs[k] = zero(T); s_.g[k] = one(T); s_.ts[k] = zero(T); s_.wq[k] = zero(T); s_.dp[k] = zero(T); end
+            Mg === nothing || fill!(Mg.qs, one(T))
             SL_SWEEP[](s_, ngrs, ngre, rn, dn, tn, un, ern, frn, xs1, xs2, cplz;
-                         mgqt = Mg === nothing ? nothing : (k -> (gq = MGSLG[]; MGSLQ[](k, ern[k], Mg.egn[gq][k], Mg.fgn[gq][k], Mg.fgn[gq][k+1]))))
+                         mgqt = Mg === nothing ? nothing : ((k, Tc) -> MGSLQ[](Mg, k, Tc)))      # MGROUPS: every group's field at the iterate against its start-of-step value
+            Mg === nothing || MGH2FN[] === nothing || MGH2FN[](Mg, dn, tn, rn, un, xs2, s_.t, ngrs, ngre)       # and the H₂ LW closure at the iterate
             if SLIMPDBG[] > 0
                 fin(v) = isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v)))
                 for k in ngrs:ngre
@@ -1493,7 +1527,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                     SLIMPDBG[] -= 1; println("SLIMPDBG star-light state non-finite zone $(k - ngrs + 1): q $(s_.q[k]) t $(s_.t[k]) fs $(s_.fs[k]) g $(s_.g[k]) E $(ern[k]) F $(frn[k]) $(frn[k+1])"); break
                 end
             end
-            CPLSL[] = s_
+            CPLSL[] = s_; CPLMGQ[] = Mg === nothing ? nothing : Mg.qs
             s_
         else
             nothing
@@ -1501,22 +1535,25 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
         finally
-            CPLW[] = nothing; CPLSL[] = nothing
+            CPLW[] = nothing; CPLSL[] = nothing; CPLMGQ[] = nothing
         end
         # (PERF512) the coupled zones' rates in the Jacobian's Dual numbers on MATTHREADS tasks (zones independent; the material sweep above
         # left their values and local Jacobians in the zones' cache entries); bit-identical. ZONE[] is not used here and is kept.
         let z0 = ZONE0[]
             try zone_sweep!(ngrs:ngre, k -> true) do k
                 @inbounds if cplz(k)
-                    y = slst === nothing ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k]) :
-                        CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slst.q[k], slst.t[k], slst.fs[k], slst.g[k], slst.dp[k])
+                    y = slst === nothing ? CPL_ZONE[](k, dn[k], tn[k], xs1[k], xs2[k], val(xsn[k])) :
+                        Mg === nothing ? CPL_ZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], slst.q[k], slst.t[k], slst.fs[k], slst.g[k], slst.dp[k], val(xsn[k])) :
+                        MGZONEQ[](k, dn[k], tn[k], xs1[k], xs2[k], view(Mg.qs, :, k), slst.t[k], slst.g[k], slst.dp[k], val(xsn[k]))
                     W.cpS1[k] = y[3]; W.cpS2[k] = y[4]; W.cpL[k] = y[5]
                     if SLIMPDBG[] > 0 && !all(v -> isfinite(ForwardDiff.value(v)) && (!(v isa ForwardDiff.Dual) || all(isfinite, ForwardDiff.partials(v))), y)
                         SLIMPDBG[] -= 1; println("SLIMPDBG cpl zone $(k - ngrs + 1) non-finite: y ", y, " state ", slst === nothing ? 1 : (slst.q[k], slst.t[k], slst.fs[k], slst.g[k]))
                     end
                     W.cpQ[k] = y[6]; W.cpY[k] = y[7]
+                    Mg === nothing || (Mg.lcl[k] = y[8])
                 else
                     W.cpS1[k] = zero(T); W.cpS2[k] = zero(T); W.cpL[k] = zero(T); W.cpQ[k] = zero(T); W.cpY[k] = zero(T)
+                    Mg === nothing || (Mg.lcl[k] = zero(T))
                 end
             end
             finally ZONE0[] = z0 end
@@ -1617,7 +1654,9 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         dfe[k] = P.sige == 0 ? zero(T) : P.sige * rmu[k] * (d[k] + d[k-1]) * (eg[k] - eg[k-1]) / (r[k+1] - r[k-1])
     end
     fedd = c.fedd; HEl = TD.HEDD; HXl = TD.HXEDD; FXl = TD.FXEDD; TWl = TD.TIEW; gedr = P.geddr
-    if AD_JV[] && c.lrad && T <: ForwardDiff.Dual && EDDFAC_DUAL[] !== nothing
+    if AD_JV[] && c.lrad && T <: ForwardDiff.Dual && EDDFAC_DUAL[] !== nothing && Mg !== nothing && MGVEFOK[]
+        fedd = mg_eddfac_dual!(Mg, c, P, W, ngrs, ngre, rn, dn, tn, dvoln, cplz)            # MGROUPS: each group's formal solution in Duals; the grey f of the total rows is their E_g-weighted mean
+    elseif AD_JV[] && c.lrad && T <: ForwardDiff.Dual && EDDFAC_DUAL[] !== nothing
         fedd, HEl, HXl, FXl, TWl, gedr = EDDFAC_DUAL[](c, P, ngrs, ngre, chifn, xkpn, plfn, dn, tn, ern, frn, rn, W.xs1, W.xs2, T, DBUF, SLQBUF, MATERIAL[], SLIMP[], cplz)
     elseif TD.CLOSJ[] && c.lrad && TD.CSENS.valid && TD.CSENS.a == ngrs && T <: ForwardDiff.Dual
         fedd, HEl, HXl, FXl, TWl, gedr = closure_lift(c, P, ngrs, ngre, chifn, xkpn, plfn, dn, tn, ern, rn, W.xs1, W.xs2, T)
@@ -1988,6 +2027,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         TDC_ON[] && (w += W.tgx[k])                                 # M3b: the gas gives the turbulent energy what the w row realised (+ ½(Q_k + Q_k+1))
         isempty(CHEMB[]) || (w -= d[k] * CHEMB[][k] * dvol[k])     # BALSPLIT: the chemistry's lagged mean heating (see CHEMB)
         cplz(k) && (θc = max(θ, CPL_THETA[]); w += (θc * W.cpL[k] + (1 - θc) * XLAMO[][k]) * dvol[k])   # COUPLED: the chemistry cooling, implicit
+        # MGROUPS: the line cooling is not lost, it is emitted into group MGLG (mg_rows!); a row that holds gas + radiation loses only the rest
+        if Mg !== nothing && cplz(k) && !(c.lrad && GASROW[])
+            θl = max(θ, CPL_THETA[]); w -= (θl * Mg.lcl[k] + (1 - θl) * MGLCO[][k]) * dvol[k]
+        end
         R[it, kb(k)] = w
         if cvp          # (CONVDIAG) chemistry heating/cooling terms (cycle heat, GASQ, BALSPLIT mean, implicit cooling of a coupled zone) and the row
             θc_ = max(θ, CPL_THETA[])
