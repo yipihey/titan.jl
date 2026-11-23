@@ -1,0 +1,11 @@
+T8: discrete turbulent-energy budget  Σ_k Q_k Δt = Δ Σ_k m e + Δt Σ_j Pt_j dVdt_j  (e = w², closed domain, w = 0 boundaries)
+    μ=0 nz=40 cen=0.0: |resid|/scale = 1.77e-17  (scale 76.8),  |Σ gas + Σ Q|/Σ|Q| = 2.28e-17
+    μ=2 nz=57 cen=0.0: |resid|/scale = 3.49e-17  (scale 8.25e+05),  |Σ gas + Σ Q|/Σ|Q| = 2.39e-17
+    μ=2 nz=57 cen=0.4: |resid|/scale = 3.30e-18  (scale 1.59e+06),  |Σ gas + Σ Q|/Σ|Q| = 0.00e+00
+    μ=2 nz=31 cen=1.0: |resid|/scale = 2.78e-17  (scale 1.6e+05),  |Σ gas + Σ Q|/Σ|Q| = 5.91e-17
+    μ=0 nz=25 cen=0.7: |resid|/scale = 5.13e-17  (scale 56.3),  |Σ gas + Σ Q|/Σ|Q| = 1.08e-17
+PASS random non-uniform grids, continuity-violating masses, both flow signs, μ = 0, 2, cen > 0: budget closes to round-off  max 5.13e-17 / gas 5.91e-17
+    steady MLT state: max |Q_k| interior = 0.00e+00 (should vanish: no storage, no flux divergence)
+PASS steady uniform MLT state: Q = 0 in the interior; growing w: Q > 0  
+PASS 3-colour tridiagonal Jacobian == dense ForwardDiff Jacobian (rows are 3-point)  max diff 0.00e+00
+T8 failures: 0
