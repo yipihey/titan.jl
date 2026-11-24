@@ -1,0 +1,17 @@
+# Checkpoint library for the gate (T1, T2). One state per line, whitespace-separated:
+#   name  ckdir  ckname  epoch  case  nkz  nwdt
+#   name   label used in metric keys          ckdir/ckname  files <ckdir>/m2c_<ckname>.{aux,tstate.gz}
+#   epoch  free text                          case  mesh/IC file cases/<case>.env (z100 = zie1, z298 = zie3)
+#   nkz    zone range a:b probed by NKCHECK (NKZ): shock / layer zones of that epoch
+#   mgck   (optional 8th column) checkpoint in <ckdir> that carries the MGROUPS group fields, for the MGROUPS=4 NKCHECK; '-' or absent: the gate
+#          advances the grey state GATE_MGWARM (20) steps with MGROUPS=4 first (needs ~20 failed attempts in the first step: slow)
+#   nwdt   NWPROBE time step [s] of the probe (the Newton iteration of NKCHECK needs a dt at which iteration 2 is reached)
+#
+# INITIAL CONTENTS: the zie1 REPLAY checkpoints (subconv/runs/zie1rp/ck). They restart bit-identically ONLY with aace2a0's TitanCore.jl;
+# with any other TitanCore they still run (smoke tests, NKCHECK) but are not a reproducibility reference.
+# TO BE REPLACED by the prototype's own library written by scripts/proto/make_library.sh (replay from the IC with the prototype code at 100
+# and 298 zones, CKDUMP at the standard epochs: 0 yr, 5 yr, 111 yr, 1.76 kyr in zie1, mass-matched for zie3). Then edit this file only.
+k115   /zpool/nvme/data/tabel_scratch/titan_popiii/subconv/runs/zie1rp/ck  rp_k115   0yr_(0.017Msun)   z100  20:30  1.5e4
+k295   /zpool/nvme/data/tabel_scratch/titan_popiii/subconv/runs/zie1rp/ck  rp_k295   5yr_(0.29Msun)    z100  33:43  1e5
+k655   /zpool/nvme/data/tabel_scratch/titan_popiii/subconv/runs/zie1rp/ck  rp_k655   111yr_(3.2Msun)   z100  34:44  1e5
+k2395  /zpool/nvme/data/tabel_scratch/titan_popiii/subconv/runs/zie1rp/ck  rp_k2395  1.76kyr_(34Msun)  z100  1:10   1e5

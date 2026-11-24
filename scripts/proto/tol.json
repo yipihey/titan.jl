@@ -1,0 +1,579 @@
+{
+ "_doc": "first matching rule wins; see compare_metrics.py and docs/POPIII_PROTO_GATE.md",
+ "rules": [
+  {
+   "pat": "t0.regress.failed",
+   "mode": "info",
+   "note": "popiii_regress.jl compares fresh pure-Julia runs with reference_runs/metrics_reference_fixed.csv; the stored references are STALE vs the subconv-mg code (24 Nov smoke: 5 FAIL lines, SUBC 895 vs 587 steps) -> only an increase of the FAIL count vs the reference metrics fails (t0.regress.fail_lines)"
+  },
+  {
+   "pat": "t0.regress.fail_lines",
+   "mode": "rise",
+   "tol": 0.0,
+   "atol": 0.0,
+   "note": "no new FAIL lines vs the reference run"
+  },
+  {
+   "pat": "t0.regress.exit",
+   "mode": "info"
+  },
+  {
+   "pat": "t0.regress.fail",
+   "mode": "info"
+  },
+  {
+   "pat": "t0.*.skipped",
+   "mode": "info",
+   "tol": "",
+   "note": "a SKIP is reported, not failed (reason in summary.txt)"
+  },
+  {
+   "pat": "t0.*.failed",
+   "mode": "zero",
+   "note": "unit failed: non-zero exit, FAIL line, or the done-line is missing"
+  },
+  {
+   "pat": "t0.*.fail",
+   "mode": "zero"
+  },
+  {
+   "pat": "t0.*.exit",
+   "mode": "zero"
+  },
+  {
+   "pat": "t0.*.done",
+   "mode": "lower",
+   "tol": 1
+  },
+  {
+   "pat": "t0.fail_lines_total",
+   "mode": "zero"
+  },
+  {
+   "pat": "t0.exit_nonzero_total",
+   "mode": "zero"
+  },
+  {
+   "pat": "t0.units_failed",
+   "mode": "zero"
+  },
+  {
+   "pat": "t0.regress.accept",
+   "mode": "lower",
+   "tol": 1
+  },
+  {
+   "pat": "t0.regress.*",
+   "mode": "info"
+  },
+  {
+   "pat": "t0.noh.shock_ratio",
+   "mode": "rel",
+   "tol": 0.02,
+   "note": "exact shock position |u0|t/3 (ratio 1 +- scheme)"
+  },
+  {
+   "pat": "t0.noh.T_over_TRH",
+   "mode": "rel",
+   "tol": 0.03
+  },
+  {
+   "pat": "t0.noh.rho_over_64rho0",
+   "mode": "rel",
+   "tol": 0.03
+  },
+  {
+   "pat": "t0.noh.*",
+   "mode": "info"
+  },
+  {
+   "pat": "t0.*.pass",
+   "mode": "info"
+  },
+  {
+   "pat": "nk.*.found",
+   "mode": "lower",
+   "tol": 1,
+   "note": "the NKCHECK listing must exist"
+  },
+  {
+   "pat": "nk.*.ad_resid",
+   "mode": "upper",
+   "tol": 1e-12,
+   "note": "AD pass vs Float64 residual (docs: 5e-18)"
+  },
+  {
+   "pat": "nk.*.nan_rows",
+   "mode": "info",
+   "note": "FD returns NaN in the cliff zones (mgprod 'iterate not smooth'); AD is finite"
+  },
+  {
+   "pat": "nk.*.iteration",
+   "mode": "info"
+  },
+  {
+   "pat": "nk.*.max",
+   "mode": "info",
+   "note": "global worst row is the known-noisy closure rows (up to 1e7)"
+  },
+  {
+   "pat": "nk.*.median",
+   "mode": "upper",
+   "tol": 1e-05
+  },
+  {
+   "pat": "nk.*.rows_gt1e-4",
+   "mode": "rise",
+   "tol": 0.5,
+   "atol": 25,
+   "note": "counts of rows above 1e-4 (114 at k290 in the docs, dominated by the closure rows)"
+  },
+  {
+   "pat": "nk.*.rows_gt1e-2",
+   "mode": "rise",
+   "tol": 0.5,
+   "atol": 15
+  },
+  {
+   "pat": "nk.*.grey.F_r.*",
+   "mode": "upper",
+   "tol": 1.0,
+   "note": "closure rows 27-34 of the Eddington factors: 5e-2 .. 17 documented"
+  },
+  {
+   "pat": "nk.*.grey.E_r.*",
+   "mode": "upper",
+   "tol": 0.001,
+   "note": "9.1e-4 documented"
+  },
+  {
+   "pat": "nk.*.grey.x_Hp.*",
+   "mode": "upper",
+   "tol": 0.01,
+   "note": "2.5e-3 documented"
+  },
+  {
+   "pat": "nk.*.grey.z_H.*",
+   "mode": "upper",
+   "tol": 0.01
+  },
+  {
+   "pat": "nk.*.grey.x_H2.*",
+   "mode": "upper",
+   "tol": 0.002,
+   "note": "iteration-2 chemistry row: 3.8e-4 measured at k295 (smoke, subconv-mg code); 4e-6 at iteration 1 in the docs"
+  },
+  {
+   "pat": "nk.*.grey.T.all",
+   "mode": "upper",
+   "tol": 0.05,
+   "note": "zone 1: 1.7e-2 / 2.6e-2 documented"
+  },
+  {
+   "pat": "nk.*.grey.w.*",
+   "mode": "info",
+   "note": "TDC rows: the FB kink rows with w << FD step are not FD-testable (0.5 or large); Stage 2 sets its own bounds"
+  },
+  {
+   "pat": "nk.*.mg.F_g2.*",
+   "mode": "upper",
+   "tol": 100000.0,
+   "note": "mgprod noise rows F_g2/F_g3 (0.12 .. 4e4)"
+  },
+  {
+   "pat": "nk.*.mg.F_g3.*",
+   "mode": "upper",
+   "tol": 100000.0
+  },
+  {
+   "pat": "nk.*.mg.F_r.*",
+   "mode": "upper",
+   "tol": 1.0
+  },
+  {
+   "pat": "nk.*.mg.E_r.*",
+   "mode": "upper",
+   "tol": 0.001
+  },
+  {
+   "pat": "nk.*.mg.F_g1.*",
+   "mode": "upper",
+   "tol": 0.001,
+   "note": "1.9e-4 documented"
+  },
+  {
+   "pat": "nk.*.mg.F_g4.*",
+   "mode": "upper",
+   "tol": 0.001
+  },
+  {
+   "pat": "nk.*.mg.w.*",
+   "mode": "info"
+  },
+  {
+   "pat": "nk.*.mg.*",
+   "mode": "upper",
+   "tol": 0.0001,
+   "note": "group rows E_g1-4, T, ...: 2.7e-5 documented"
+  },
+  {
+   "pat": "nk.*",
+   "mode": "upper",
+   "tol": 1e-05,
+   "note": "all other rows at the FD noise floor (<= 5e-6 documented)"
+  },
+  {
+   "pat": "etot.*.imb_over_thr",
+   "mode": "upper",
+   "tol": 0.01,
+   "warn": 0.008,
+   "note": "the stack's own ledger is 4e-3 .. 9.8e-3; warn above 8e-3 would be the default but is set below"
+  },
+  {
+   "pat": "etot.*.max_G",
+   "mode": "upper",
+   "tol": 0.05,
+   "note": "documented max |G| 1.0e-2"
+  },
+  {
+   "pat": "etot.*.median_G",
+   "mode": "upper",
+   "tol": 0.01
+  },
+  {
+   "pat": "etot.*.stages",
+   "mode": "info"
+  },
+  {
+   "pat": "etot.*.steps",
+   "mode": "info"
+  },
+  {
+   "pat": "t1.roundtrip.*.failed",
+   "mode": "zero"
+  },
+  {
+   "pat": "t1.roundtrip.*.fields_diff",
+   "mode": "zero"
+  },
+  {
+   "pat": "t1.roundtrip.*.snaps_compared",
+   "mode": "lower",
+   "tol": 1
+  },
+  {
+   "pat": "t1.roundtrip.*",
+   "mode": "info"
+  },
+  {
+   "pat": "t1.bitid.failed",
+   "mode": "zero"
+  },
+  {
+   "pat": "t1.bitid.fields_diff",
+   "mode": "zero"
+  },
+  {
+   "pat": "t1.bitid.snaps_compared",
+   "mode": "lower",
+   "tol": 1
+  },
+  {
+   "pat": "t1.bitid.*",
+   "mode": "info"
+  },
+  {
+   "pat": "t1.etot_*.*",
+   "mode": "info"
+  },
+  {
+   "pat": "pilot.*.stage_failed",
+   "mode": "zero"
+  },
+  {
+   "pat": "pilot.*.ended_maxsteps",
+   "mode": "lower",
+   "tol": 1,
+   "note": "the pilot must reach its step count"
+  },
+  {
+   "pat": "pilot.*.steps",
+   "mode": "lower",
+   "tol": 1
+  },
+  {
+   "pat": "pilot.*.newton_fail_rej",
+   "mode": "rise",
+   "tol": 0.5,
+   "atol": 3,
+   "warn": 0.25,
+   "note": "+50 %"
+  },
+  {
+   "pat": "pilot.*.err_rej",
+   "mode": "rise",
+   "tol": 0.5,
+   "atol": 3,
+   "warn": 0.25
+  },
+  {
+   "pat": "pilot.*.nwt_fail_frac",
+   "mode": "rise",
+   "tol": 0.5,
+   "atol": 0.02
+  },
+  {
+   "pat": "pilot.*.nwt_it_mean",
+   "mode": "rise",
+   "tol": 0.3,
+   "atol": 0.2
+  },
+  {
+   "pat": "pilot.*.nwt_it_median",
+   "mode": "rise",
+   "tol": 0.5,
+   "atol": 1
+  },
+  {
+   "pat": "pilot.*.nwt_gt10",
+   "mode": "rise",
+   "tol": 0.5,
+   "atol": 5
+  },
+  {
+   "pat": "pilot.*.nwt_it_max",
+   "mode": "rise",
+   "tol": 0.5,
+   "atol": 5
+  },
+  {
+   "pat": "pilot.*.nwt_attempts",
+   "mode": "info"
+  },
+  {
+   "pat": "pilot.*.wall_per_step",
+   "mode": "rise",
+   "tol": 0.3,
+   "warn": 0.15,
+   "note": "+30 %"
+  },
+  {
+   "pat": "pilot.*.wall_total_s",
+   "mode": "info"
+  },
+  {
+   "pat": "pilot.*.etot.imb_over_thr",
+   "mode": "upper",
+   "tol": 0.01,
+   "warn": 0.008
+  },
+  {
+   "pat": "pilot.*.etot.max_G",
+   "mode": "upper",
+   "tol": 0.05
+  },
+  {
+   "pat": "pilot.*.etot.*",
+   "mode": "info"
+  },
+  {
+   "pat": "pilot.*.t_sim_s",
+   "mode": "rel",
+   "tol": 0.15,
+   "note": "same steps from the same state: the dt history decides"
+  },
+  {
+   "pat": "pilot.*.dt_median",
+   "mode": "rel",
+   "tol": 0.3
+  },
+  {
+   "pat": "pilot.*.dt_last",
+   "mode": "rel",
+   "tol": 0.5
+  },
+  {
+   "pat": "pilot.*.dt_min",
+   "mode": "rel",
+   "tol": 0.5,
+   "note": "min snapshot dt is spiky (8 s .. 1e5 s at k115)"
+  },
+  {
+   "pat": "pilot.*.fc_ftot_max",
+   "mode": "rel",
+   "tol": 0.15,
+   "atol": 0.05
+  },
+  {
+   "pat": "pilot.*.pt_p_max",
+   "mode": "rel",
+   "tol": 0.3,
+   "atol": 0.02
+  },
+  {
+   "pat": "pilot.*.pt_p_ps_max",
+   "mode": "rel",
+   "tol": 0.3,
+   "atol": 0.02
+  },
+  {
+   "pat": "pilot.*.w_max",
+   "mode": "rel",
+   "tol": 0.3
+  },
+  {
+   "pat": "pilot.*.mach_max",
+   "mode": "rel",
+   "tol": 0.15
+  },
+  {
+   "pat": "pilot.*.rstar_rsun",
+   "mode": "rel",
+   "tol": 0.3,
+   "note": "the mesh has 29 % steps in r: R* moves by zones"
+  },
+  {
+   "pat": "pilot.*.mdot_msun_yr",
+   "mode": "rel",
+   "tol": 0.05
+  },
+  {
+   "pat": "pilot.*.mstar_msun",
+   "mode": "rel",
+   "tol": 0.05
+  },
+  {
+   "pat": "pilot.*",
+   "mode": "info"
+  },
+  {
+   "pat": "t3.*.M_final",
+   "mode": "lower",
+   "tol": 34.0,
+   "note": "reached M* >= 34 Msun"
+  },
+  {
+   "pat": "t3.*.Mdot1e4.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.02,
+   "note": "M4: spread <= 0.36 % at 1e4 Rsun"
+  },
+  {
+   "pat": "t3.*.Rstar.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.35,
+   "note": "one mesh zone (29 %)"
+  },
+  {
+   "pat": "t3.*.umin.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.15,
+   "note": "M4: spread <= 13 %"
+  },
+  {
+   "pat": "t3.*.Mdot_sh.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.12,
+   "note": "M4: 4-10 %"
+  },
+  {
+   "pat": "t3.*.s_ps.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.08,
+   "note": "M4: <= 6 %"
+  },
+  {
+   "pat": "t3.*.Tc.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.07,
+   "note": "M4: +2-5 %"
+  },
+  {
+   "pat": "t3.*.u_pk.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.15
+  },
+  {
+   "pat": "t3.*.T_ps.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.15
+  },
+  {
+   "pat": "t3.*.Teff.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.25
+  },
+  {
+   "pat": "t3.*.Lph.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.3
+  },
+  {
+   "pat": "t3.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.3
+  },
+  {
+   "pat": "t3.*.*.reldiff",
+   "mode": "absupper",
+   "tol": 0.3
+  },
+  {
+   "pat": "t3.*.run_newton_fail_rej",
+   "mode": "rise",
+   "tol": 0.5,
+   "atol": 10
+  },
+  {
+   "pat": "t3.*.run_err_rej",
+   "mode": "rise",
+   "tol": 0.5,
+   "atol": 10
+  },
+  {
+   "pat": "t3.*.run_wall_per_step",
+   "mode": "rise",
+   "tol": 0.3,
+   "warn": 0.15
+  },
+  {
+   "pat": "t3.*.run_*",
+   "mode": "info"
+  },
+  {
+   "pat": "t3.*.etot.imb_over_thr",
+   "mode": "upper",
+   "tol": 0.01,
+   "warn": 0.008
+  },
+  {
+   "pat": "t3.*.etot.max_G",
+   "mode": "upper",
+   "tol": 0.05
+  },
+  {
+   "pat": "t3.*.etot.*",
+   "mode": "info"
+  },
+  {
+   "pat": "t3.*.Rstar.M*",
+   "mode": "rel",
+   "tol": 0.3
+  },
+  {
+   "pat": "t3.*.Mdot1e4.M*",
+   "mode": "rel",
+   "tol": 0.02
+  },
+  {
+   "pat": "t3.*.M*",
+   "mode": "rel",
+   "tol": 0.1,
+   "note": "new T3 vs an earlier T3 metrics.json (Stage 2 vs Stage 1): observables at fixed M*"
+  },
+  {
+   "pat": "t3.*",
+   "mode": "info"
+  }
+ ]
+}

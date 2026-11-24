@@ -1,0 +1,16 @@
+# T0 unit tests run by gate.sh T0, one per line:  name | script (relative to julia/) | args | env words | done-regex (must appear in the output) | timeout s
+# Every unit runs in the T0 sandbox copy of julia/ (logs written by the tests stay out of the worktree) with the project $JLENV.
+# PASS = exit code 0 AND no line with a bare FAIL token AND the done-regex present. The counts are the lines starting with PASS/ok and FAIL.
+# --- TDC (docs/POPIII_CONVECTION.md M3a/M3b/M3e.3e): the turbulent-convection rows as pure functions, harness.jl-based (ForwardDiff, no TITAN state)
+tdc_t4_layer       | tdc_tests/t4_layer.jl       | | | T4 failures: 0           | 900
+tdc_t5_ledoux      | tdc_tests/t5_ledoux.jl      | | | T5 failures: 0           | 900
+tdc_t6_transit     | tdc_tests/t6_transit.jl     | | | T6 failures: 0           | 900
+tdc_t7_supersonic  | tdc_tests/t7_supersonic.jl  | | | T7 failures: 0           | 900
+tdc_t8_energy      | tdc_tests/t8_energy.jl      | | | T8 failures: 0           | 900
+tdc_t9_mlt         | tdc_tests/t9_mlt.jl         | | | T9 failures: 0           | 900
+tdc_mesa_compare   | tdc_tests/mesa_compare.jl   | | | MESA compare failures: 0 | 900
+tdc_t10_lresp      | tdc_tests/t10_lresp.jl      | | | T10 \(LResp\) failures: 0 | 900
+# --- other stand-alone tests of modules the prototype stack uses (no libtitan, no checkpoints)
+mg_groups          | mg_test.jl                  | | | all passed               | 600     # MGRad group fractions / group opacities, AD vs FD (MGROUPS=4 merge step)
+slabflux           | slabflux_test.jl            | | | all passed               | 600     # SLABFLUX interface opacity (in the stack: SLABFLUX/SLABTIE)
+subzone            | subzone_test.jl             | | | all passed               | 600     # SUBZONE front closure (in the stack: SUBZONE=1,2), Dual vs FD
