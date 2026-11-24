@@ -1,0 +1,60 @@
+NKCHECK AD/FD one-sided: row 15 zone 68: AD +Inf  forward +1.85422e+14  backward +1.34283e+19  central +6.71424e+18 (row scale 1.614e+16)
+NKCHECK AD/FD one-sided: row 18 zone 54: AD -9.80091e+05  forward -1.45796e+12  backward -9.80091e+05  central -7.28980e+11 (row scale 9.801e+05)
+NKCHECK AD/FD one-sided: row 18 zone 55: AD +2.25987e+05  forward +2.25987e+05  backward +3.26035e+11  central +1.63018e+11 (row scale 2.260e+05)
+NKCHECK AD/FD one-sided: row 18 zone 53: AD +8.63102e+05  forward +8.63101e+05  backward +1.12204e+12  central +5.61021e+11 (row scale 8.631e+05)
+NKCHECK AD/FD one-sided: row 18 zone 56: AD +1.64055e+05  forward +1.64055e+05  backward +1.98125e+11  central +9.90625e+10 (row scale 1.641e+05)
+NKCHECK AD/FD one-sided: row 18 zone 46: AD +3.69430e+06  forward +3.69429e+06  backward +4.19923e+12  central +2.09962e+12 (row scale 3.694e+06)
+NKCHECK AD/FD one-sided: row 18 zone 41: AD +4.11407e+05  forward +4.11325e+05  backward +3.95978e+04  central +2.25462e+05 (row scale 4.126e+05)
+NKCHECK AD/FD one-sided: row 18 zone 40: AD -1.10691e+03  forward +6.21693e+04  backward -1.10697e+03  central +3.05311e+04 (row scale 8.241e+04)
+NKCHECK AD/FD column probe: 8 rows, 198 columns (zones 36:46), FD at eps and eps/10
+NKCHECK AD/FD column probe: row 15 zone 68 (rowscale 1.614e+16, rel Inf)
+   column 18    zone  46: AD +NaN  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| NaN
+   column 17    zone  46: AD +NaN  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| NaN
+   column 16    zone  46: AD +NaN  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| NaN
+   column 15    zone  46: AD +NaN  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| NaN
+   column 14    zone  46: AD +NaN  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| NaN
+--
+NKCHECK AD/FD column probe: row 18 zone 54 (rowscale 9.801e+05, rel 7.438e+05)
+   column 18    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 17    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 16    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 15    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 14    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+--
+NKCHECK AD/FD column probe: row 18 zone 55 (rowscale 2.260e+05, rel 7.214e+05)
+   column 18    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 17    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 16    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 15    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 14    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+--
+NKCHECK AD/FD column probe: row 18 zone 53 (rowscale 8.631e+05, rel 6.500e+05)
+   column 18    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 17    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 16    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 15    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 14    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+--
+NKCHECK AD/FD column probe: row 18 zone 56 (rowscale 1.641e+05, rel 6.038e+05)
+   column 18    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 17    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 16    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 15    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 14    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+--
+NKCHECK AD/FD column probe: row 18 zone 46 (rowscale 3.694e+06, rel 5.683e+05)
+   column 18    zone  46: AD +3.99633e+06  FD(eps) +2.26863e+12  FD(eps/10) +2.26863e+12  |AD-FD| 2.269e+12
+   column 17    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 16    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 15    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+   column 14    zone  46: AD +0.00000e+00  FD(eps) +0.00000e+00  FD(eps/10) +0.00000e+00  |AD-FD| 0.000e+00
+--
+NKCHECK AD/FD column probe: row 18 zone 41 (rowscale 4.126e+05, rel 4.507e-01)
+   column m     zone  41: AD +2.70723e+05  FD(eps) +9.07948e+04  FD(eps/10) +1.86918e+05  |AD-FD| 1.799e+05
+   column m     zone  42: AD +2.76756e+05  FD(eps) +1.46406e+05  FD(eps/10) +2.18702e+05  |AD-FD| 1.304e+05
+   column m     zone  40: AD -3.09789e-03  FD(eps) -4.59438e+04  FD(eps/10) -2.21171e+04  |AD-FD| 4.594e+04
+   column rho   zone  40: AD -3.72951e+02  FD(eps) -3.72951e+02  FD(eps/10) -3.72951e+02  |AD-FD| 9.470e-05
+   column T     zone  41: AD -1.03802e+03  FD(eps) -1.03802e+03  FD(eps/10) -1.03802e+03  |AD-FD| 6.187e-05
+--
+NKCHECK AD/FD column probe: row 18 zone 40 (rowscale 8.241e+04, rel 3.839e-01)
+   column m     zone  39: AD -1.70668e-03  FD(eps) -3.21201e+04  FD(eps/10) -1.88742e+04  |AD-FD| 3.212e+04

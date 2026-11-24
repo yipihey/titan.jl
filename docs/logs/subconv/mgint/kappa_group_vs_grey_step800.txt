@@ -1,0 +1,5 @@
+step 800: interfaces with w > 1e3 cm/s
+  k      w[cm/s]   kap(group)  kap(grey)  ratio   Fconv/Ftot  frad[erg/s/cm2]  sup
+  40   6.863e+04  4.0338e+00  2.6958e+00  1.4963      0.992    2.12954e+08  1.463e-01
+  41   1.145e+05  1.8965e+00  1.8890e+00  1.0040      0.992    9.76250e+07  3.768e-01
+gas-energy row: max |sum of the 11 terms - e_res| / (largest term) over zones = 3.396e-16 (zone 66)

@@ -1,0 +1,37 @@
+t4_layer: PASS initial growth rate dw/dt = A_s a² sup/ℓ  numeric 1.00000000  analytic 1.00000000
+t4_layer: PASS BE converges to the tanh solution (first order)  
+t4_layer: PASS t90 N = atanh(0.9)√8 = 4.164 (sup = 1)  
+t4_layer: PASS interior saturation U=0.0 equals local MLT (23<x<27)  
+t4_layer: PASS T8 energy budget closes during the transient, U=0.0  max |Σ Q Δt − ΔΣme| / scale = 1.10e-16
+t4_layer: PASS interior saturation U=0.7 equals local MLT (23<x<27)  
+t4_layer: PASS T8 energy budget closes during the transient, U=0.7  max |Σ Q Δt − ΔΣme| / scale = 3.90e-17
+t4_layer: PASS overshoot distance within 15% of the analytic profile; no Newton failure  
+t4_layer: PASS spherical rows reproduce plane at R >> L  
+t5_ledoux: PASS sup(f=0) < 0 < sup(f=1)  
+t5_ledoux: PASS f=0, w=0 start: w stays exactly 0 (200 steps)  max w = 0
+t5_ledoux: PASS f=0 seeded: reaches exactly 0 in finite time (first order: |t_hit - t*| <= 4 dt of the analytic t*, ~2.5 dt observed), stays 0  
+t5_ledoux: PASS BE follows the tan solution (dt = 1e-3)  
+t5_ledoux: PASS f=1: convection grows to the tanh/MLT amplitude  
+t6_transit: PASS transit amplitude converges to w_s tanh(w_s L/(uℓ)) first order in h  
+t6_transit: PASS T8 energy budget (advective + diffusive e fluxes telescope) closes in every step of every T6 run  max |resid|/scale = 1.58e-16
+t6_transit: PASS outward flow, mirrored layer: same amplitude as inward flow  0.765618049802938 vs 0.765618049802938
+t7_supersonic: PASS w <= w_s tanh(w_s Ld/(u ℓ)) (≪ w_s for u ≫ w_s Ld/ℓ), F_c/F_MLT <= same, no gate needed, no Newton failure  
+t8_energy: PASS random non-uniform grids, continuity-violating masses, both flow signs, μ = 0, 2, cen > 0: budget closes to round-off  max 5.13e-17 / gas 5.91e-17
+t8_energy: PASS steady uniform MLT state: Q = 0 in the interior; growing w: Q > 0  
+t8_energy: PASS 3-colour tridiagonal Jacobian == dense ForwardDiff Jacobian (rows are 3-point)  max diff 0.00e+00
+t9_mlt: PASS local root == a*zeta, 525 cases (U 1e-3..1e3, sup 1e-8..1e2)  max rel err 4.08e-16
+t9_mlt: PASS F_c(a zeta) == KW MLT flux (direct form), 104 cases with U²/sup<=1e3  max rel err 3.28e-13
+t9_mlt: PASS F_c direct form within the cancellation bound eps*16U²/sup, all 240 cases  max err/bound 8.18e-02
+t9_mlt: PASS F_c steady-root form == KW MLT flux, all 240 cases  max rel err 6.94e-16; max |R_loc|ℓ/(a²sup) 4.9e-16
+t9_mlt: PASS harness long-time U=0.001 sup=0.3 seed=0.001 wref  steps 22  max rel err 2.63e-13  maxNewton 6
+t9_mlt: PASS harness long-time U=0.001 sup=0.3 seed=4 wref  steps 23  max rel err 1.29e-13  maxNewton 6
+t9_mlt: PASS harness long-time U=1 sup=0.05 seed=0.001 wref  steps 22  max rel err 2.28e-13  maxNewton 6
+t9_mlt: PASS harness long-time U=1 sup=0.05 seed=4 wref  steps 23  max rel err 1.69e-13  maxNewton 6
+t9_mlt: PASS harness long-time U=30 sup=0.001 seed=0.001 wref  steps 22  max rel err 2.27e-13  maxNewton 6
+t9_mlt: PASS harness long-time U=30 sup=0.001 seed=4 wref  steps 23  max rel err 1.71e-13  maxNewton 6
+t9_mlt: PASS harness long-time U=1000 sup=0.01 seed=0.001 wref  steps 22  max rel err 2.27e-13  maxNewton 6
+t9_mlt: PASS harness long-time U=1000 sup=0.01 seed=4 wref  steps 23  max rel err 1.70e-13  maxNewton 6
+t9_mlt: PASS harness long-time U=0.1 sup=5 seed=0.001 wref  steps 22  max rel err 2.61e-13  maxNewton 6
+t9_mlt: PASS harness long-time U=0.1 sup=5 seed=4 wref  steps 23  max rel err 1.31e-13  maxNewton 6
+mesa_compare: PASS MESA (12) == exact ODE (RK4) and plateau == our steady root; BE converges (tables)  
+mesa_compare: PASS decay: MESA (13) == exact ODE; finite-time zero reached by the FB step, first order in dt  
