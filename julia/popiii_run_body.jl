@@ -313,11 +313,10 @@ SNAPFILE = joinpath(OUTDIR, "snaps_$(get(ENV, "IC", "p100"))_$(cool)_n$(nsh)$(ge
 RUNREC = get(ENV, "RUNREC", "")
 isempty(RUNREC) || mkpath(RUNREC)
 # CONVDIAG=1 (diagnostic, default off; the solution is bit-identical on or off, docs/POPIII_CONVECTION.md M1): with RUNREC, every snapshot carries `cd`, the sub-shock convection
-# diagnostics (`convdiag_snap`): MLT intermediates and gates per interface, frozen/equilibrium thermodynamics, N², timescales, the terms of the gas-energy row.
+# diagnostics (`convdiag_snap`): TDC intermediates per interface, frozen/equilibrium thermodynamics, N², timescales, the terms of the gas-energy row.
 CONVDIAG = get(ENV, "CONVDIAG", "0") == "1"
 TX.CONVDIAG[] = CONVDIAG
-# TDC=1 (M3b, provisional, default off = bit-identical, neqn unchanged; docs/POPIII_CONVECTION.md M3b): time-dependent convection, the turbulent velocity w the last Newton unknown (TX.TDC_ON, installed below)
-TDC = get(ENV, "TDC", "0") == "1"
+# Convection = TDC (Stage 2: whenever convection is on, HOT=1; no switch): the turbulent velocity w is the last Newton unknown (TX.TDC_ON, installed below); TDCPAR = A_s,A_d,A_c,alpha_p,alpha_t,alpha_D,alpha_m.
 REC = (on = !isempty(RUNREC), io = Ref{Any}(nothing), wall0 = time(), klast = Ref(-1), gct = Ref(Base.gc_num().total_time), gcb = Ref(Base.gc_bytes()),
              dtlim = Ref(""), mstar = Ref(NaN), rstar = Ref(NaN), spn = Ref{Vector{Symbol}}(Symbol[]))
 # M3: the star's ionizing light (IonRay). RAY=1: spectrum from the photosphere (τ_R = 2/3), a blackbody at T_eff from L and r there; no source below RAYTMIN.
@@ -780,12 +779,12 @@ try
     end
     COUPLED && !PM.MGON && Int(TF.getscalar(:neqn)) > 9 && TF.setscalar!(:neqn, 9)   # (restart from an MGROUPS checkpoint without groups)
     PM.MGON && mg_install!()
-    if TDC                                          # M3b: the turbulent velocity w as the last Newton unknown (neqn + 1), see TX.TDC_ON
-        COUPLED || error("TDC=1 needs COUPLED=1"); HOTON || error("TDC=1 needs HOT=1 (the convection material)"); TX.CONVECTION[] || error("TDC=1: convection is off")
-        Trbdf2.SCHEME[] === :trbdf2 || error("TDC=1: DTSCHEME=trbdf2 only (the old w of the other schemes' stages is not combined)")
-        isnan(TX.PEXT[]) || error("TDC=1: PEXT not supported")
+    if TX.CONVECTION[]                              # M3b: the turbulent velocity w as the last Newton unknown (neqn + 1), see TX.TDC_ON
+        COUPLED || error("TDC (convection, HOT=1) needs COUPLED=1"); HOTON || error("TDC needs HOT=1 (the convection material)")
+        Trbdf2.SCHEME[] === :trbdf2 || error("TDC: DTSCHEME=trbdf2 only (the old w of the other schemes' stages is not combined)")
+        isnan(TX.PEXT[]) || error("TDC: PEXT not supported")
         nq_ = Int(TF.getscalar(:neqn)) + 1
-        TF.PARAMS[:meqn] >= nq_ || error("TDC=1: meqn = $(TF.PARAMS[:meqn]) < $nq_")
+        TF.PARAMS[:meqn] >= nq_ || error("TDC: meqn = $(TF.PARAMS[:meqn]) < $nq_")
         TF.setscalar!(:neqn, nq_); TX.TDC_ON[] = true; TX.tdc_alloc!(length(TF.var(:dn)))
         tp_ = parse.(Float64, split(get(ENV, "TDCPAR", "1,1,1,1,0.01,1,0"), ","))      # A_s, A_d, A_c, α_p, α_t, α_D, α_m (B2 best estimate; α_m is not implemented, must be 0)
         length(tp_) == 7 || error("TDCPAR = A_s,A_d,A_c,alpha_p,alpha_t,alpha_D,alpha_m"); tp_[7] == 0 || error("TDC: the eddy viscosity alpha_m is not implemented (TDCPAR 7th = 0)")

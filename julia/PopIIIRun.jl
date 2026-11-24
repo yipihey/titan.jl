@@ -35,7 +35,6 @@ global CONVDIAG::Bool = false     # CONVDIAG=1 (set by the body): snapshots carr
 global CPLPROF::Bool = false
 global CPLPROFEVERY::Int = 0
 global DTSTOP::Float64 = 0.0
-global TDC::Bool = false          # TDC=1 (set by the body): turbulent velocity w as the last Newton unknown
 global ENVCENTRE::Bool = false
 global ENVCORE::Vector{Float64} = Float64[]
 global ENVEUL = nothing
@@ -166,11 +165,10 @@ end
 CONVDIAG: the diagnostics `cd` of one snapshot, at the accepted state (a NamedTuple of Float64 vectors; zone vectors have length n = b−a+1, interface vectors n+1 with
 index j = k−a+1 for the interface k between zones k−1 and k, NaN at j = 1, n+1 and where MLT is not evaluated). The solver is not touched: `TX.conv_diag_pass` is one Float64
 residual evaluation (as `TX.step_diag`) with the material caches saved and restored around it. Definitions (docs/POPIII_CONVECTION.md M1):
-- nab, nab_raw, hs_w, nad_used, kap, fpot, vpot, fconv, vconv, lmix, HP, w_tau, w_inf: what the MLT block used (nab_raw before the MLT_HS blend, hs_w = its weight sw, 1 = untouched;
-  fpot/vpot the flux and velocity with w_tau = w_inf = 1 (0 where ∇ ≤ ∇_ad,used), fconv/vconv with the gate weights; w_tau, w_inf the two factors of cvw;
-  fpot_th (-> Fpot_over_Ftot): all gates open, i.e. also the thermodynamic gate: where ∇_ad,used = 1e30 the frozen ∇_ad, c_P, δ of conv_thermo in its place, with the same ∇, ℓ, H_P, κ).
-- nad_eq, nad_fr, del_*: `PM.conv_thermo` at the interface mean (ρ, T) with the composition of zone k (the one MLT uses); w_th = 1 if nad_used < 1e29 (network zones: 0).
-- nab_rad = 3 κ ρ F_rad H_P/(4 a c T⁴) (≡ 3κLP/(16π a c G m T⁴) with L = 4π r² F_rad, H_P = P/(ρ g)), F_rad the radiative flux of the interface (frn) actually present, κ the Rosseland κ MLT uses.
+- nab_raw (ΔlnT/ΔlnP), sup (the blob superadiabaticity of TDC), kap, fpot, vpot, fconv, vconv, lmix, HP: fconv = F_c and vconv = w of TDC; fpot/vpot the potential (equilibrium MLT) flux and velocity
+  of the same background (0 where sup ≤ 0); fpot_th (-> Fpot_over_Ftot) = fpot.
+- nad_eq, nad_fr, del_*: `PM.conv_thermo` at the interface mean (ρ, T) with the composition of zone k.
+- nab_rad = 3 κ ρ F_rad H_P/(4 a c T⁴) (≡ 3κLP/(16π a c G m T⁴) with L = 4π r² F_rad, H_P = P/(ρ g)), F_rad the radiative flux of the interface (frn) actually present, κ the Rosseland κ TDC uses.
 - N² of a zone-centre difference (no division by Δln P): N²_S = g_eff δ_fr (dlnT/dr − ∇_ad,fr dlnP/dr), N2_eq the same with the equilibrium ∇_ad, δ,
   N²_L = N²_S − g_eff φ dlnμ/dr; g_eff = −(P_k − P_k−1)/(ρ_i Δr), P = p_gas + f E_r; derivatives between the zone centres k−1, k (centre = mean of the faces). nab_mu = Δlnμ/ΔlnP, nab_L = nad_fr + φ/δ_fr nab_mu.
 - mach (zone) = |½(u_k+u_k+1)|/c_s, c_s = √(5/3 p_gas/ρ); mach_i at the interface (c_s of the mean of the two zones). t_settle = H_P/|u_i|, t_N = 1/√|N²_L|, t_turn = ℓ/v (potential v where fconv = 0), t_chem (coupled zones) = 1/max|∂S_i/∂x_i|.
@@ -200,21 +198,19 @@ function convdiag_snap(k, snap)
     end
     I(nm) = (v = NaNv(n + 1); for j in 2:n; v[j] = ps[nm][a+j-1]; end; v)       # pass quantity of interface k = a+j−1
     Z(nm) = (v = NaNv(n); for j in 1:n; v[j] = ps[nm][a+j-1]; end; v)
-    names = (:nab, :nab_raw, :hs_w, :nad_used, :cp_used, :del_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g, :sup, :gam1b, :gam1_0, :gam1_inf, :wtau, :tchem, :delb, :cpb, :kap_grey)
+    names = (:nab_raw, :cp_used, :del_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g, :sup, :gam1b, :gam1_0, :gam1_inf, :wtau, :tchem, :delb, :cpb, :kap_grey)
     d = Dict{Symbol,Vector{Float64}}(nm => I(nm) for nm in names)
-    for nm in (:w_tau, :w_inf, :tau); d[nm] = I(nm); end
     for nm in (:e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res); d[nm] = Z(nm); end
     if TX.TDC_ON[]       # M3b: w, D_mix, the exchange Q, a, U, the residual F of the w row (interfaces); P_t/P and the gas-energy source (zones)
         for nm in (:tdc_w, :tdc_Dmix, :tdc_Q, :tdc_a, :tdc_U, :tdc_Fres); d[nm] = I(nm); end
         for nm in (:tdc_PtP, :e_tdc); d[nm] = Z(nm); end
     end
-    for nm in (:nad_eq, :nad_fr, :del_eq, :del_fr, :nab_rad, :nab_mu, :nab_L, :N2_S, :N2_eq, :N2_L, :g_eff, :Ftot, :Fconv_over_Ftot, :Fpot_over_Ftot, :fpot_th, :w_th, :mach_i, :t_settle, :t_N, :t_turn, :cp_fr)
+    for nm in (:nad_eq, :nad_fr, :del_eq, :del_fr, :nab_rad, :nab_mu, :nab_L, :N2_S, :N2_eq, :N2_L, :g_eff, :Ftot, :Fconv_over_Ftot, :Fpot_over_Ftot, :fpot_th, :mach_i, :t_settle, :t_N, :t_turn, :cp_fr)
         d[nm] = NaNv(n + 1)
     end
     arad_ = 7.565723e-15; cc_ = 2.99792458e10
     for j in 2:n
         kk = a + j - 1; ρi = 0.5 * (ρ[j-1] + ρ[j]); Ti = 0.5 * (T[j-1] + T[j])
-        d[:w_th][j] = d[:nad_used][j] < 1e29 ? 1.0 : 0.0
         try
             th = PM.conv_thermo(mat, kk, ρi, Ti)
             d[:nad_eq][j] = th.nad_eq; d[:nad_fr][j] = th.nad_fr; d[:del_eq][j] = th.del_eq; d[:del_fr][j] = th.del_fr; d[:cp_fr][j] = th.cp_fr
@@ -226,18 +222,7 @@ function convdiag_snap(k, snap)
             d[:nab_mu][j] = log(mu[j] / mu[j-1]) / log(P[j] / P[j-1])
             d[:nab_L][j] = th.nad_fr + th.phi / th.del_fr * d[:nab_mu][j]
         catch; end
-        # all gates open: w_tau = w_inf = 1, and where the thermodynamic gate is closed (network zone, ∇_ad,used = 1e30) the frozen ∇_ad, c_P, δ in its place
-        try
-            th_ = PM.conv_thermo(mat, kk, ρi, Ti); open_ = d[:w_th][j] == 1.0
-            na_ = open_ ? d[:nad_used][j] : th_.nad_fr; cp_ = open_ ? d[:cp_used][j] : th_.cp_fr; dl_ = open_ ? d[:del_used][j] : th_.del_fr
-            g_ = d[:g][j]; HP_ = d[:HP][j]; l_ = d[:lmix][j]; sup_ = d[:nab][j] - na_
-            if sup_ > 0
-                U_ = 3 * arad_ * cc_ * Ti^3 / (cp_ * ρi^2 * d[:kap][j] * l_^2) * sqrt(8HP_ / (g_ * dl_)); ζ_ = sqrt(U_^2 + sup_) - U_
-                d[:fpot_th][j] = ρi * cp_ * Ti * sqrt(g_ * dl_) * l_^2 * ζ_^3 / (4sqrt(2.0) * HP_ * sqrt(HP_))
-            else
-                d[:fpot_th][j] = 0.0
-            end
-        catch; end
+        d[:fpot_th][j] = d[:fpot][j]          # the potential (MLT) flux of the TDC background: what the layer would carry at w = a·sqrt(sup)-equilibrium
         d[:nab_rad][j] = 3 * d[:kap][j] * ρi * d[:frad][j] * d[:HP][j] / (4 * arad_ * cc_ * Ti^4)
         Ft = d[:frad][j] + d[:fconv][j]; d[:Ftot][j] = Ft
         d[:Fconv_over_Ftot][j] = d[:fconv][j] / Ft; d[:Fpot_over_Ftot][j] = d[:fpot_th][j] / Ft
@@ -629,12 +614,8 @@ function radsettings!()
     TF.setscalar!(:ximr, Z0.σSB * Tb^4 / π)
     TF.setscalar!(:ltran, parse(Int, get(ENV, "LTRAN", "1")))      # 1: formal solution for f, g; 2: Eddington approximation f = 1/3, g = 1/2
     TC.ER_TAUMIN[] = parse(Float64, get(ENV, "ERTAUMIN", "1.0"))   # E_r of the optically thin envelope does not limit Δt
-    if HOTON                                          # convection (hot branch only: PM.material_thermo), as the S5 stars
-        TX.CONVECTION[] = true; TX.ALPHA_MLT[] = parse(Float64, get(ENV, "ALPHAMLT", "1.5")); TX.MLT_HSDISC[] = true; TX.MLT_RCAP[] = true
-        PM.COLDMLT[] = parse(Float64, get(ENV, "COLDMLT", "0")); PM.COLDMLT[] > 0 && (TX.MLT_NOINFALL[] = true)
-        # MLTBUOY=1 (M2, provisional, default off = bit-identical; docs/POPIII_CONVECTION.md M2): MLT superadiabaticity from the blob's density contrast with the zones' thermodynamics at the iterate (TX.MLT_BUOY)
-        TX.MLT_BUOY[] = get(ENV, "MLTBUOY", "0") == "1"
-        TX.MLT_BUOY[] && atexit(() -> println(TX.buoy_summary()))
+    if HOTON                                          # convection (TDC, Stage 2; hot branch only), as the S5 stars
+        TX.CONVECTION[] = true; TX.ALPHA_MLT[] = parse(Float64, get(ENV, "ALPHAMLT", "1.5"))      # convection = TDC (Stage 2: the only path; the w unknown is installed by the body)
     end
     TD.MSGIO[] = get(ENV, "MSG", "0") == "1" ? stdout : devnull
 end
@@ -1438,7 +1419,7 @@ if HOTON
         if !any(TF.var(:tn)[k] > PM.HOT[].T1 for k in a:b); sg.acc.nstage = 0; return 0.0; end
         sd = TX.step_diag(dt)
         HOTR[] = SM.burn!(sg; sd); EBURN[] += HOTR[].Ebur
-        HOTM[] = SM.mix!(sg; sd, capmix = false, bridge = 4, tmax = 0.02)
+        HOTM[] = SM.mix!(sg; sd, capmix = false, bridge = parse(Int, get(ENV, "MIXBRIDGE", "4")), tmax = parse(Float64, get(ENV, "MIXTMAX", "0.02")))   # TEMP Stage-2 test
         dt > 0 ? HOTR[].Ebur / dt : 0.0      # a step of zero duration (Δt below the Float64 spacing of t) burns nothing
     end
 end

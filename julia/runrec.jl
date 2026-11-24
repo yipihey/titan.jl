@@ -79,15 +79,15 @@ const SCAL = ["step", "t_yr", "dt_s", "logn_c", "T_c", "M_star", "R_star", "r_ph
 
 # CONVDIAG=1 runs: snapshots carry `cd` (popiii_m2c convdiag_snap). Exported as cv_* fields (cell-centred; interface quantities averaged onto the cells, NaN-aware) and cv_* scalars,
 # only if some snapshot has `cd`; a frame without it gets NaN. Runs without CONVDIAG export exactly the fields above.
-const CVFIELDS = [("cv_nab", "nabla = dlnT/dlnP used by MLT (after the MLT_HS blend)"), ("cv_nab_raw", "nabla before the MLT_HS blend"), ("cv_hs_w", "MLT_HS blend weight (1 = untouched)"),
-    ("cv_nad_used", "nabla_ad that material_thermo gave MLT (1e30 = network zone, gate closed)"), ("cv_nad_eq", "nabla_ad, equilibrium chemistry (table EOS)"), ("cv_nad_fr", "nabla_ad, frozen chemistry (zone's network EOS)"),
+const CVFIELDS = [("cv_nab_raw", "nabla = dlnT/dlnP"),
+    ("cv_nad_eq", "nabla_ad, equilibrium chemistry (table EOS)"), ("cv_nad_fr", "nabla_ad, frozen chemistry (zone's network EOS)"),
     ("cv_nab_rad", "nabla_rad from the radiative flux present"), ("cv_nab_mu", "dln mu/dlnP"), ("cv_nab_L", "Ledoux nabla_ad,fr + phi/delta nabla_mu"),
     ("cv_N2_S", "N^2 Schwarzschild, frozen [s^-2] (subsonic zones only meaningful)"), ("cv_N2_eq", "N^2 Schwarzschild, equilibrium chemistry [s^-2]"), ("cv_N2_L", "N^2 Ledoux, frozen [s^-2]"),
-    ("cv_Fconv_Ftot", "F_conv/(F_rad+F_conv), as used"), ("cv_Fpot_Ftot", "gate-free MLT flux / (F_rad + F_conv)"), ("cv_vconv", "MLT velocity as used [km/s]"), ("cv_lmix", "mixing length [R_sun]"),
-    ("cv_w_tau", "MLT optical-depth weight"), ("cv_w_inf", "MLT_NOINFALL factor"), ("cv_w_th", "thermodynamic gate (1: nabla_ad,used < 1e29)"), ("cv_mach", "|u|/c_s (zone), c_s = sqrt(5/3 p_gas/rho)"),
+    ("cv_Fconv_Ftot", "F_conv/(F_rad+F_conv), as used"), ("cv_Fpot_Ftot", "potential MLT flux of the TDC background / (F_rad + F_conv)"), ("cv_vconv", "TDC velocity w [km/s]"), ("cv_lmix", "mixing length [R_sun]"),
+    ("cv_mach", "|u|/c_s (zone), c_s = sqrt(5/3 p_gas/rho)"),
     ("cv_branch", "zone branch: 0 network, 1 coupled network, 2 table, 3 hot"), ("cv_logt_settle", "log10 t_settle = H_P/|u| [s]"), ("cv_logt_N", "log10 1/sqrt|N^2_L| [s]"),
     ("cv_logt_turn", "log10 l/v [s]"), ("cv_logt_chem", "log10 chemical time of the coupled species [s] (NaN: not coupled)"),
-    ("cv_sup", "MLTBUOY: blob superadiabaticity sup = A/(delta_b |dlnP_hs|) (NaN without MLTBUOY)"), ("cv_gam1b", "M6: Re Gamma_1,b(omega) of the blob (network linear response at omega = 1/t_turn)"), ("cv_gam1_0", "M6: Gamma_1(omega -> 0), the network equilibrium"), ("cv_gam1_inf", "M6: Gamma_1(omega -> inf), frozen composition"), ("cv_wtau", "M6: omega tau_max (tau_max the slowest relaxation time of J = dS/dx)"),
+    ("cv_sup", "TDC: blob superadiabaticity sup = A/(delta_b |dlnP_hs|)"), ("cv_gam1b", "M6: Re Gamma_1,b(omega) of the blob (network linear response at omega = 1/t_turn)"), ("cv_gam1_0", "M6: Gamma_1(omega -> 0), the network equilibrium"), ("cv_gam1_inf", "M6: Gamma_1(omega -> inf), frozen composition"), ("cv_wtau", "M6: omega tau_max (tau_max the slowest relaxation time of J = dS/dx)"),
     ("cv_tchem", "M6: tau_max = slowest relaxation time 1/|lambda| of J = dS/dx at the interface [s] (mean of the two zones; 0: no coupled network)"),
     ("cv_e_stor", "gas-energy row: storage [erg/s/g]"), ("cv_e_pdv", "pdV work"), ("cv_e_av", "artificial viscosity work"), ("cv_e_kin", "kinetic-energy correction"),
     ("cv_e_adv", "advection"), ("cv_e_dfe", "energy diffusion"), ("cv_e_rad", "gas-radiation exchange"), ("cv_e_conv", "convective-flux divergence"),
@@ -101,10 +101,10 @@ nanavg(v) = [(a_ = v[i]; b_ = v[i+1]; isnan(a_) ? b_ : isnan(b_) ? a_ : 0.5 * (a
 function cvframe(x)
     c = x.cd; n = length(x.ρ); dm = diff(x.m); l10(v) = [isfinite(q) && q > 0 ? log10(q) : NaN for q in v]
     zg(v) = 4π .* v ./ dm      # per steradian -> per gram
-    F = Dict("cv_nab" => nanavg(c.nab), "cv_nab_raw" => nanavg(c.nab_raw), "cv_hs_w" => nanavg(c.hs_w), "cv_nad_used" => nanavg(c.nad_used), "cv_nad_eq" => nanavg(c.nad_eq),
+    F = Dict("cv_nab_raw" => nanavg(c.nab_raw), "cv_nad_eq" => nanavg(c.nad_eq),
         "cv_nad_fr" => nanavg(c.nad_fr), "cv_nab_rad" => nanavg(c.nab_rad), "cv_nab_mu" => nanavg(c.nab_mu), "cv_nab_L" => nanavg(c.nab_L), "cv_N2_S" => nanavg(c.N2_S),
         "cv_N2_eq" => nanavg(c.N2_eq), "cv_N2_L" => nanavg(c.N2_L), "cv_Fconv_Ftot" => nanavg(c.Fconv_over_Ftot), "cv_Fpot_Ftot" => nanavg(c.Fpot_over_Ftot),
-        "cv_vconv" => nanavg(c.vconv) ./ 1e5, "cv_lmix" => nanavg(c.lmix) ./ Rs, "cv_w_tau" => nanavg(c.w_tau), "cv_w_inf" => nanavg(c.w_inf), "cv_w_th" => nanavg(c.w_th),
+        "cv_vconv" => nanavg(c.vconv) ./ 1e5, "cv_lmix" => nanavg(c.lmix) ./ Rs,
         "cv_mach" => c.mach, "cv_branch" => c.branch, "cv_logt_settle" => l10(nanavg(c.t_settle)), "cv_logt_N" => l10(nanavg(c.t_N)), "cv_logt_turn" => l10(nanavg(c.t_turn)),
         "cv_logt_chem" => l10(c.t_chem))
     for (nm, f) in (("cv_sup", :sup), ("cv_gam1b", :gam1b), ("cv_gam1_0", :gam1_0), ("cv_gam1_inf", :gam1_inf), ("cv_wtau", :wtau), ("cv_tchem", :tchem))     # (records of older runs lack the M6 fields)

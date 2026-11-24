@@ -230,26 +230,9 @@ number type, so ∂ε/∂T is in the Jacobian; 0 below T1).
 TX.has_source(::NetGas) = HOT[] !== nothing
 TX.material_source(::NetGas, ρ, T) = (h = HOT[]; ForwardDiff.value(T) > h.T1 ? h.eps(ρ, T, TX.ZONE[]) : zero(T))
 """
-S6-C1d (experiment): MLT also on the table EOS, in equilibrium zones with T > `COLDMLT[]` (0 = off, the default). `cold_thermo` is ∇_ad, c_P, δ of
-PopIIIEqEOS + equilibrium radiation, from derivatives of the table, generic in the number type.
-"""
-const COLDMLT = Ref(0.0)
-function cold_thermo(ρ, T)
-    arad = 7.565723e-15
-    pf(r, t) = EQ.eos(r, t)[2] + arad * t^4 / 3
-    ef(r, t) = EQ.eos(r, t)[1] + arad * t^4 / r
-    p = pf(ρ, T)
-    pT = ForwardDiff.derivative(t -> pf(ρ, t), T); pρ = ForwardDiff.derivative(r -> pf(r, T), ρ)
-    eT = ForwardDiff.derivative(t -> ef(ρ, t), T); eρ = ForwardDiff.derivative(r -> ef(r, T), ρ)
-    cP = eT - (eρ - p / ρ^2) * pT / pρ
-    δ = T / ρ * pT / pρ
-    return p * δ / (T * ρ * cP), cP, δ
-end
-"""
-CONVDIAG helper, generic in the number type and ForwardDiff-safe (it is also the thermodynamics of the M2 convection work). Not used by the solver; `material_thermo`
-is unchanged. Gas + equilibrium radiation (P_rad = aT⁴/3, e_rad = aT⁴/ρ, as `cold_thermo`) of zone k at (ρ, T):
+CONVDIAG helper, generic in the number type and ForwardDiff-safe (it is also the thermodynamics of the M2 convection work). Not used by the solver (Stage 2: the NetGas `material_thermo` with its 1e30 network placeholder and `cold_thermo`/COLDMLT are deleted). Gas + equilibrium radiation (P_rad = aT⁴/3, e_rad = aT⁴/ρ) of zone k at (ρ, T):
 
-- `nad_eq, cp_eq, del_eq`: equilibrium chemistry, from the table EOS (`PopIIIEqEOS.eos`), cold_thermo's formula.
+- `nad_eq, cp_eq, del_eq`: equilibrium chemistry, from the table EOS (`PopIIIEqEOS.eos`), the same formula.
 - `nad_fr, cp_fr, del_fr`: frozen chemistry, the zone's own network EOS at FIXED composition: a coupled zone (`TX.cplz(k)`) takes the CK EOS `cpl_g` at fixed (x₁, x₂) of
   the current iterate (`TX.XSN`; the faster species follow ρ, T through the CK expansion, as in the residual), otherwise `ChemNet.eos` at `m.x[k]`.
   Hot-branch zones (T > HOT.T1) take `HOT.thermo` for both.
@@ -263,7 +246,7 @@ M6: a Float64 diagnostic only (CONVDIAG); the solver's blob thermodynamics are `
 """
 function conv_thermo(m::NetGas, k, ρ, T; x = nothing, tablefr = false)
     arad = 7.565723e-15; kB = 1.380649e-16; mu_ = 1.66053906660e-24
-    function thermo_of(eosf, lab = "")               # eosf(r, t) -> (u_gas, p_gas); cold_thermo's formula (+ α = ∂ln ρ/∂ln P at fixed T, composition)
+    function thermo_of(eosf, lab = "")               # eosf(r, t) -> (u_gas, p_gas) (+ α = ∂ln ρ/∂ln P at fixed T, composition)
         pe(r, t) = (y = eosf(r, t); (y[2] + arad * t^4 / 3, y[1] + arad * t^4 / r))      # (P, e) with equilibrium radiation
         pf(r, t) = pe(r, t)[1]; ef(r, t) = pe(r, t)[2]
         p = pf(ρ, T)
@@ -305,15 +288,6 @@ end
 function conv_cache_restore!(sv)
     NLOC[] = sv.nloc; NLONED[] = sv.noned; XNEOLD[] = sv.xneold; CPLCACHE[] = sv.cplc; CPLCACHEQ[] = sv.cplq; NLOQC[] = sv.nloqc; NLOST[] = sv.nlost
     nothing
-end
-"""MLT thermodynamics: only the hot branch convects (and, with `COLDMLT[]` > 0, the hot equilibrium zones of the table EOS). Below T1 the huge ∇_ad switches the flux off in the chemistry gas: it must be
-out of reach (it was 10, and at a T jump inside the protostar ∇ = Δln T/Δln P crossed it: an MLT flux with this placeholder c_P
-of up to 1e40 erg/s between two zones, and Newton diverged)."""
-function TX.material_thermo(m::NetGas, ρ, T)
-    h = HOT[]
-    (h !== nothing && T > h.T1) && return h.thermo(ρ, T, TX.ZONE[])
-    (COLDMLT[] > 0 && T > COLDMLT[] && m.eqzone[TX.ZONE[]]) && return cold_thermo(ρ, T)
-    return (1e30, 1e9, 1.0)
 end
 # (PERF512) the zones are independent (each writes its own entries; the COUPLED zones their own CPLCACHE entry): on MATTHREADS tasks
 # through TitanResidFast.zone_sweep!, bit-identical to the serial loop. The coupled zones' CK expansion here (every update!) was ~45 % of
