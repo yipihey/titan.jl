@@ -51,8 +51,9 @@ mutable struct ScanState
     initsyms::Dict{String,Set{Symbol}}
     includes::Vector{String}               # nested include() files found (absolute)
     problems::Vector{String}
+    runtime::Set{String}                   # files whose function and lambda bodies are run-time only (see `scan`)
 end
-ScanState() = ScanState(Dict{String,Set{String}}(), Dict{Tuple{String,Symbol},Set{String}}(), Dict{Tuple{String,Symbol},Set{Symbol}}(), Set{Tuple{String,Symbol}}(), Dict{Tuple{String,Symbol},String}(), Dict{String,Set{String}}(), Dict{String,Set{Symbol}}(), String[], String[])
+ScanState() = ScanState(Dict{String,Set{String}}(), Dict{Tuple{String,Symbol},Set{String}}(), Dict{Tuple{String,Symbol},Set{Symbol}}(), Set{Tuple{String,Symbol}}(), Dict{Tuple{String,Symbol},String}(), Dict{String,Set{String}}(), Dict{String,Set{Symbol}}(), String[], String[], Set{String}())
 
 # collect identifiers and ENV keys in `ex` (a body: nothing is skipped). `keys` receives (key, line) pairs.
 function _collect!(ex, syms::Set{Symbol}, keys::Vector{Tuple{String,String}}, probs::Vector{String}, where_::String)
@@ -105,6 +106,8 @@ function _walk!(S::ScanState, ex, file::String, line::Int; allow_dynamic_include
     where_ = "$(basename(file)):$line"
     if ex.head === :function && length(ex.args) == 1
         return line                                        # `function f end`: a declaration without a body
+    elseif _isfuncdef(ex) && basename(file) in S.runtime
+        return line                                        # a run-time-only file (`scan`'s `runtime`): its function bodies are not scanned
     elseif _isfuncdef(ex)
         nm = _funcname(ex)
         syms = Set{Symbol}(); ks = Tuple{String,String}[]
@@ -120,6 +123,8 @@ function _walk!(S::ScanState, ex, file::String, line::Int; allow_dynamic_include
             union!(get!(S.fkeys, (file, nm), Set{String}()), (k for (k, _) in ks))
             union!(get!(S.fsyms, (file, nm), Set{Symbol}()), syms)
         end
+        return line
+    elseif (ex.head === :-> || ex.head === :quote) && basename(file) in S.runtime
         return line
     elseif ex.head === :-> || ex.head === :quote
         # lambda or quoted code: not executed at load; its keys count as the keys of an anonymous function that a load-time call may reach
@@ -204,8 +209,8 @@ function _static_path(a, file)
 end
 
 # the scan: parse `roots` and everything they include. Returns (keys, report)
-function scan(roots::Vector{String}; dynamic_include_ok::Set{String} = Set{String}(), skip::Set{String} = Set{String}(), reread = Tuple{String,String,Union{String,Nothing}}[])
-    S = ScanState(); seen = Set{String}(); queue = copy(roots); files = String[]
+function scan(roots::Vector{String}; dynamic_include_ok::Set{String} = Set{String}(), skip::Set{String} = Set{String}(), reread = Tuple{String,String,Union{String,Nothing}}[], runtime::Set{String} = Set{String}())
+    S = ScanState(); S.runtime = runtime; seen = Set{String}(); queue = copy(roots); files = String[]
     while !isempty(queue)
         f = popfirst!(queue); f in seen && continue; basename(f) in skip && continue; push!(seen, f); push!(files, f)
         isfile(f) || (push!(S.problems, "missing file $f"); continue)

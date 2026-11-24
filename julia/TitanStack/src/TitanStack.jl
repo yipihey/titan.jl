@@ -30,7 +30,8 @@ const MODULE_FILES = String[
     (WITH_MGROUPS ? ["JuliaSolver"] : String[])...,
     (WITH_HOT ? ["StellarEOS", "NucNet", "StellarMaterial", "StarMaterial"] : String[])...,
     "Trbdf2", "NewtonKrylov", "StageCons",
-    "H2Levels"]      # (popiii_m2c.jl includes it into Main after the driver's line functions; here it is part of the image, Main.H2Levels is bound to it)
+    "H2Levels", "GridEq",      # (popiii_m2c.jl includes it into Main; here it is part of the image, Main.H2Levels is bound to it)
+    "PopIIIRun"]     # the driver's definitions (popiii_m2c.jl is a thin script that calls PopIIIRun.main); its run statements (popiii_run_body.jl) are evaluated at run time
 
 # --- the guard: keys and the values they have now --------------------------------------------------------------------------------
 "Reviewed load-time uses of the thread count that an `__init__` of the same file recomputes (file, symbol, ENV key that feeds it): TitanResidFast.MAT_THREADS (MATTHREADS, default the thread count), H2Levels.POPWS_POOL and ChemNet.LNKMEMO (one cache per thread id). `scan` checks the `__init__`s exist."
@@ -39,7 +40,11 @@ const REREAD = Tuple{String,String,Union{String,Nothing}}[("TitanResidFast.jl", 
 path of the equilibrium-table cache, `PopIIIEqEOS.cache_path()`, called from the lazy `table()`). Each has a check that is run at build
 time, after the includes, and fails the build if the key could have been used at load time."""
 const RUNTIME_ONLY = Dict{String,Function}("EQEOS_CACHE" => () -> PopIIIEqEOS.TAB[] === nothing)     # the table was not built while loading
-const SCAN = scan(vcat([joinpath(SRC, f * ".jl") for f in MODULE_FILES], [@__FILE__]); dynamic_include_ok = Set(["TitanStack.jl"]), skip = Set(["envguard.jl"]), reread = REREAD)
+"""Files whose function and lambda bodies run only at run time, called from the run statements (popiii_run_body.jl) and from nothing that is
+evaluated while the modules load: PopIIIRun.jl (the driver). Their bodies read ENV with non-literal keys (the run's settings), which the scan would
+otherwise refuse; their load-time code (the declarations, `HOTON`) is scanned as usual."""
+const RUNTIME_FILES = Set(["PopIIIRun.jl"])
+const SCAN = scan(vcat([joinpath(SRC, f * ".jl") for f in MODULE_FILES], [@__FILE__]); dynamic_include_ok = Set(["TitanStack.jl"]), skip = Set(["envguard.jl"]), reread = REREAD, runtime = RUNTIME_FILES)
 isempty(SCAN.problems) || error("TitanStack: the environment scan failed, the image would not be safe:\n" * join(SCAN.problems, "\n"))
 "Every key (or pseudo-key) that the image's load-time state depends on, with the value it was built with."
 const BAKED = Pair{String,Union{String,Nothing}}[k => current(k) for k in SCAN.keys if !haskey(RUNTIME_ONLY, k)]
