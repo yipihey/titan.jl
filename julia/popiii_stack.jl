@@ -1,5 +1,5 @@
-# Stage-1 defaults (docs/POPIII_PROTO.md): the grey production configuration of the zie1/zie3 runs (run.env + stack defaults, NKRYLOV=1, TRTOL true-residual convergence, exact J·v are code defaults). Per-run settings (mesh, cloud, IC, run control) in scripts/proto/run_<run>.env.
-# z300mm (16 Nov 2026) as the defaults of popiii_m2c.jl. Included first by popiii_m2c.jl: every key that the environment does not set
+# Stage-1 defaults of the Pop III prototype (docs/POPIII_PROTO.md): the grey production configuration of the zie1/zie3 runs (their run.env, with later duplicate keys winning, plus the launcher's NKRYLOV/TITAN_NOLIB/TITAN_MGR; TRTOL true-residual convergence and exact J·v are code, not switches).
+# Descended from the main run z300mm (16 Nov 2026). Included first by popiii_m2c.jl: every key that the environment does not set
 # is set here, before any module reads ENV, so a run needs only its own settings (mesh, cloud, output) and the start. An explicit
 # setting still overrides (tests, other meshes). Not used by any other script (the S4/S5, quasi-star and harness scripts keep the
 # code defaults).

@@ -614,3 +614,16 @@ at the τ = 3 boundary (zone 81 of `t_c128c`, 6770 K, x_e 0.9995) κ_R is 4 % ab
   not a Jacobian error. The zone is fully ionized, x_H = 1 − x_H⁺ − … = 5.8e-7, below the check's step (1e-6 in ln x): the FD
   crosses the max(x_H, 0) clamp of tl3_heat. The AD value is the derivative at the point; the FD tends to the clamped side
   (129 → 82 for steps 1e-6 → 1e-2). The residual is non-smooth there, which Newton can feel in fully ionized coupled zones.
+
+
+## Stage 1 of the popiii-proto tree (24 Nov 2026): deletions (see docs/POPIII_PROTO.md)
+
+The inventory above is of 14 Nov (HEAD 326df84). In `popiii-proto` the following switches no longer exist; every other row stands.
+
+| Switch | Was | Now |
+|---|---|---|
+| ETOTAL, ETASW, ETASWTH, ETASWTIE, ETOTGRAVGRID, ERLAB, ECOMPAT | rows 225-229 above (dual-energy, verdict R/G5); since 21 Nov only an error guard in `popiii_m2c.jl` and in `noh_test.jl`, `phase6_run.jl`, `selfgrav_energy_test.jl` | guards deleted: the keys are no longer read anywhere on the production path (`ECOMPAT` stays a `TX.ECOMPAT` constant, always true; `ECOMPAT=1` stays only in `phase6_run.jl`, `noh_test.jl`, `selfgrav_energy_test.jl`) |
+| SLH | row 108, R (superseded by SL3) | deleted; `PM.STARLIGHT.pH` is always `nothing` (it already errored under SL3=1, which Stage 1 sets) |
+| TIEFRAME | provisional, default off | env read deleted: `TX.TIEFRAME[]` is set by the unconditional ECOMPAT block |
+
+Stage-1 default values changed in `popiii_stack.jl` (now the zie1/zie3 grey production values): CONV 1e-3 -> 0.01, DTERR 0.1 -> 0.03, GRIDEQ 1 -> off, SUBZONE 1,2 -> 0, MATTHREADS 8 -> 16; added NKRYLOV=1, SLABFLUX=1, SLABTIE=1.
