@@ -388,6 +388,7 @@ dt 2.8e3 → 1.5e3 s, every attempt rejected).
     F_r: rtol·max(|F|, ffloor·c E_r);  x_me: rtol·max(x_me, adjacent zone masses) (TITAN's own measure, relative change of the mass coordinate; the zone masses
     themselves are controlled through ρ — weighting δx_me by the zone mass, a Courant-type test, held the production state, where the
     accretion shock crosses the fixed interfaces, at Δt ~ 1e5 s against the heuristic's 1.3e8 s);  r (moving grids): rtol·(smaller adjacent zone width);
+    w (TDC, interfaces): rtol·max(|w|, TDC_WFLOOR·c_s) on δw (the convention of u and of the Newton measure `tdc_dmax!`; w is a combination like r: Est is formed from w_n, w_γ, w_n+1, y* = w_γ + B(w_γ − w_n));
     x_H₂ (COUPLED zones): rtol·(x + xfloor) on |δx| = |δ ln x|·x; the hydrogen ionisation's logit z = ln(x_H⁺/x_HI): rtol·(m + xfloor) on |δz|·m, m = min(x_H⁺, x_HI).
 Defaults: xfloor 1e-6, ffloor 1 (F_r measured on its causal scale cE: with 1e-2 the thin zones just outside the photosphere, where F crosses through small values, held Δt at ~400 s), efloor 0.
 
@@ -424,10 +425,11 @@ const DIAG = Ref(parse(Int, get(ENV, "DTERRDIAG", "0")))   # (DTERRDIAG=n: stage
 "Extra text for the DTERR trace line (popiii_m2c: coverage of the COUPLED zones)."
 const TRACE_EXTRA = Ref{Any}(nothing)
 const VNAMES = Dict(1 => "r", 2 => "m", 3 => "rho", 4 => "u", 5 => "T", 6 => "E_r", 7 => "F_r", 8 => "z_H", 9 => "x_H2")
+vname(i) = TX.TDC_ON[] && i == Int(g(:neqn)) ? "w" : get(VNAMES, i, string(i))      # (TDC: the last unknown is the turbulent velocity w)
 
 const XKEYS = (:x1, :x2, :x3)
 "Conserved combinations of a state (arrays of the new or the old time level; xs = the coupled species x_H⁺, x_H₂ and the neutral hydrogen x_HI)."
-function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs, mg = nothing)
+function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs, mg = nothing, wt = nothing)
     a, b = Int(g(:ngrs)), Int(g(:ngre)); lrad = Int(g(:lrad)) == 1; n = length(d); T = eltype(d)
     C = Dict{Symbol,Vector{T}}(s => zeros(T, n) for s in (:m, :me, :xme, :r, :P))
     m = C[:m]
@@ -446,6 +448,10 @@ function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs, mg = nothing)
             @inbounds for k in a:b; TX.cplz(k) && (x[k] = m[k] * xs[i][k]); end
         end
     end
+    if wt !== nothing                  # TDC: the turbulent velocity w on the interfaces a … b+1 (linear in the residual, like r and x_me)
+        w = zeros(T, n); C[:w] = w
+        @inbounds for k in a:b+1; w[k] = wt[k]; end
+    end
     if mg !== nothing                  # MGROUPS: E_g ΔV and the flux-row inertia of F_g
         for g in 1:TX.MGN[]
             kE, kF = mgkeys(g); EV = zeros(T, n); QF = zeros(T, n); C[kE] = EV; C[kF] = QF; Eg = mg[1][g]; Fg = mg[2][g]
@@ -455,9 +461,9 @@ function combos(d, dv, eg, egr, er, u, fr, xme, rr, xs, mg = nothing)
     end
     C
 end
-combos_new() = combos(vf(:dn), vf(:dvoln), vf(:egn), vf(:egrn), vf(:ern), vf(:un), vf(:frn), vf(:xmen), vf(:rn), TX.XSN[], TX.MG[] ? (TX.MGEN[], TX.MGFN[]) : nothing)
-combos_old() = combos(vf(:do), vf(:dvolo), vf(:ego), vf(:egro), vf(:ero), vf(:uo), vf(:fro), vf(:xmeo), vf(:ro), TX.XSO[], TX.MG[] ? (TX.MGEO[], TX.MGFO[]) : nothing)
-combos_saved() = combos(SAVE[:do], SAVE[:dvolo], SAVE[:ego], SAVE[:egro], SAVE[:ero], SAVE[:uo], SAVE[:fro], SAVE[:xmeo], SAVE[:ro], SAVEX, TX.MG[] ? (SAVEMG[1], SAVEMG[2]) : nothing)
+combos_new() = combos(vf(:dn), vf(:dvoln), vf(:egn), vf(:egrn), vf(:ern), vf(:un), vf(:frn), vf(:xmen), vf(:rn), TX.XSN[], TX.MG[] ? (TX.MGEN[], TX.MGFN[]) : nothing, TX.TDC_ON[] ? TX.WTN[] : nothing)
+combos_old() = combos(vf(:do), vf(:dvolo), vf(:ego), vf(:egro), vf(:ero), vf(:uo), vf(:fro), vf(:xmeo), vf(:ro), TX.XSO[], TX.MG[] ? (TX.MGEO[], TX.MGFO[]) : nothing, TX.TDC_ON[] ? TX.WTO[] : nothing)
+combos_saved() = combos(SAVE[:do], SAVE[:dvolo], SAVE[:ego], SAVE[:egro], SAVE[:ero], SAVE[:uo], SAVE[:fro], SAVE[:xmeo], SAVE[:ro], SAVEX, TX.MG[] ? (SAVEMG[1], SAVEMG[2]) : nothing, TX.TDC_ON[] ? TX.SAVEW[] : nothing)
 
 "Old arrays := the state with conserved combinations C (as bdf_old!, for any combination). false if a mass or volume is ≤ 0."
 function old_from!(C)
@@ -493,6 +499,7 @@ function old_from!(C)
     end
     @inbounds for k in a+1:b; uo[k] = C[:P][k] / (ms[k-1] + ms[k]); end
     TitanCore.FREE_OUTER[] && (uo[b+1] = C[:P][b+1] / ms[b])
+    if TX.TDC_ON[]; wo_ = TX.WTO[]; wc = C[:w]; @inbounds for k in a:b+1; wo_[k] = wc[k]; end; end      # TDC: old w = the combination's w
     true
 end
 
@@ -590,7 +597,7 @@ function refilter!(E1, Cs, δ0)
     x = zeros(neqn * nb); mx = 0.0
     @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = v; mx = max(mx, abs(v)); end
     ε = mx > 0 ? min(1.0, 1e-3 / mx) : 1.0
-    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2, W.xsn))
+    stw() = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2, W.xsn), nothing, TX.TDC_ON[] ? W.tw : nothing)
     TX.residual!(R, Wws, c, zeros(neqn * nb)); C0 = Dict(s_ => copy(v) for (s_, v) in stw())
     x .*= ε; TX.residual!(R, Wws, c, x); Cp = stw()
     Co = Dict{Symbol,Vector{Float64}}()
@@ -617,7 +624,7 @@ function refilter_mg!(E1, Cs, δ0)
     @inbounds for bb in 1:nb, i in 1:neqn; v = E1[i, k0+bb-1]; isfinite(v) || return false; x[(bb-1)*neqn+i] = D(0.0, FD.Partials((v,))); end
     Wws = TX.getws(D, c.mgr); W = Wws.a; Wm = TX.mgws(D, c.mgr)
     TX.residual!(Matrix{D}(undef, neqn, nb), Wws, c, x)
-    Cd = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2, W.xsn), (Wm.egn, Wm.fgn))
+    Cd = combos(W.dn, W.dvoln, W.egn, W.egrn, W.ern, W.un, W.frn, W.xmen, W.rn, (W.xs1, W.xs2, W.xsn), (Wm.egn, Wm.fgn), TX.TDC_ON[] ? W.tw : nothing)
     Co = Dict{Symbol,Vector{Float64}}()
     for (s_, vd) in Cd
         vs = Cs[s_]; o = similar(vs)
@@ -668,8 +675,14 @@ function wnorm(rhs)
             end
         end
     end
+    if TX.TDC_ON[]                     # TDC: w (interfaces), δw = rhs·unom against max(|w|, TDC_WFLOOR c_s): the weight convention of u (rtol·max(|u|, c_s)) and of tdc_dmax!
+        iw = Int(g(:neqn)); wn = TX.WTN[]
+        @inbounds for k in a+1:b
+            cs = max(asn[k-1], asn[k]); acc(rhs[iw, k] * unom[k] / (rt * max(abs(wn[k]), TX.TDC_WFLOOR[] * cs)), iw, k)
+        end
+    end
     err = o.maxnorm ? worst : sqrt(ssq / max(nn, 1))
-    (err, get(VNAMES, wv, string(wv)), wk, worst)
+    (err, vname(wv), wk, worst)
 end
 
 "All unknowns of the new time level finite (r, x_me, u, ρ, T, E_r, F_r and the coupled species)."
