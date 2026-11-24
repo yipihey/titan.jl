@@ -1,0 +1,77 @@
+t10_lresp_state: restart rp_k650 (3.2 Msun), TitanCore of the branch (not aace2a0); zones numbered from the inner boundary; HM88=1, SLIMP=2 stack, local variables (ρ, T, x_H⁺, x_H₂) at the start-of-step star-light terms
+coupled network zones tested: [33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
+
+(a-i) limits. Frozen: lresp_frozen of the AD data vs 4th-order FD of the CK EOS at fixed (x_H⁺, x_H₂, x_HI). Equilibrium: base state := the network's own equilibrium S(x) = 0 at the zone's (ρ, T)
+PASS zone 33 frozen: Γ₁ 1.64891119 δ 1.019501 c_P 3.62529e+08 vs FD, max rel diff 8.56e-13  
+PASS zone 33 equilibrium base (x_H⁺ 0.999118, x_H₂ 3.879e-16): lresp(ω=0) Γ₁ 1.64855523 δ 1.020224 c_P 3.62930e+08 vs equilibrium solves, max rel diff 6.19e-13 (frozen Γ₁ 1.64891119; τ_max 3.45e-11 s)  
+PASS zone 34 frozen: Γ₁ 1.65021979 δ 1.023344 c_P 3.64973e+08 vs FD, max rel diff 4.35e-12  
+PASS zone 34 equilibrium base (x_H⁺ 0.999305, x_H₂ 2.353e-16): lresp(ω=0) Γ₁ 1.64994195 δ 1.02392 c_P 3.65287e+08 vs equilibrium solves, max rel diff 4.14e-12 (frozen Γ₁ 1.65021979; τ_max 6.17e-11 s)  
+PASS zone 35 frozen: Γ₁ 1.64950593 δ 1.029226 c_P 3.69050e+08 vs FD, max rel diff 1.82e-13  
+PASS zone 35 equilibrium base (x_H⁺ 0.999447, x_H₂ 1.474e-16): lresp(ω=0) Γ₁ 1.64927807 δ 1.029689 c_P 3.69301e+08 vs equilibrium solves, max rel diff 4.61e-13 (frozen Γ₁ 1.64950593; τ_max 1.18e-10 s)  
+PASS zone 36 frozen: Γ₁ 1.64670837 δ 1.035783 c_P 3.74103e+08 vs FD, max rel diff 2.84e-13  
+PASS zone 36 equilibrium base (x_H⁺ 0.999546, x_H₂ 1.003e-16): lresp(ω=0) Γ₁ 1.64650384 δ 1.036162 c_P 3.74311e+08 vs equilibrium solves, max rel diff 3.71e-13 (frozen Γ₁ 1.64670837; τ_max 2.49e-10 s)  
+PASS zone 37 frozen: Γ₁ 1.63673572 δ 1.042546 c_P 3.81649e+08 vs FD, max rel diff 2.73e-12  
+PASS zone 37 equilibrium base (x_H⁺ 0.999614, x_H₂ 7.681e-17): lresp(ω=0) Γ₁ 1.63654369 δ 1.042877 c_P 3.81832e+08 vs equilibrium solves, max rel diff 2.59e-12 (frozen Γ₁ 1.63673572; τ_max 6.18e-10 s)  
+PASS zone 38 frozen: Γ₁ 1.5661019 δ 1.067679 c_P 4.25440e+08 vs FD, max rel diff 2.81e-11  
+PASS zone 38 equilibrium base (x_H⁺ 0.99967, x_H₂ 6.763e-17): lresp(ω=0) Γ₁ 1.5659385 δ 1.067972 c_P 4.25605e+08 vs equilibrium solves, max rel diff 2.80e-11 (frozen Γ₁ 1.5661019; τ_max 1.99e-09 s)  
+PASS zone 39 frozen: Γ₁ 1.41993191 δ 1.130167 c_P 5.57784e+08 vs FD, max rel diff 1.31e-10  
+PASS zone 39 equilibrium base (x_H⁺ 0.99976, x_H₂ 5.546e-17): lresp(ω=0) Γ₁ 1.41982462 δ 1.130397 c_P 5.57917e+08 vs equilibrium solves, max rel diff 1.31e-10 (frozen Γ₁ 1.41993191; τ_max 8.54e-09 s)  
+PASS zone 40 frozen: Γ₁ 1.55975631 δ 1.042941 c_P 3.98642e+08 vs FD, max rel diff 5.95e-11  
+PASS zone 40 equilibrium base (x_H⁺ 0.998549, x_H₂ 3.603e-14): lresp(ω=0) Γ₁ 1.55457442 δ 1.047929 c_P 4.03958e+08 vs equilibrium solves, max rel diff 5.30e-11 (frozen Γ₁ 1.55975631; τ_max 3.78e-07 s)  
+
+(a-iii) AD (outer Duals through lr_data's Hessian) vs central FD of the Float64 chain, Γ₁(ω), δ(ω), c_P(ω) in (ρ, T, x_H⁺, x_H₂); ω = 1/τ_max × (0.1, 1, 10)
+PASS zone 33 ω τ = 0.1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 2.39e-09 (var 3 row 3)  
+PASS zone 33 ω τ = 1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 3.58e-09 (var 2 row 1)  
+PASS zone 33 ω τ = 10: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 6.40e-09 (var 2 row 1)  
+PASS zone 36 ω τ = 0.1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 2.87e-09 (var 3 row 2)  
+PASS zone 36 ω τ = 1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 6.53e-09 (var 3 row 3)  
+PASS zone 36 ω τ = 10: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 4.75e-09 (var 3 row 2)  
+PASS zone 38 ω τ = 0.1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 2.71e-09 (var 3 row 3)  
+PASS zone 38 ω τ = 1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 1.01e-08 (var 3 row 3)  
+PASS zone 38 ω τ = 10: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 2.78e-08 (var 3 row 1)  
+PASS zone 40 ω τ = 0.1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 9.31e-10 (var 2 row 2)  
+PASS zone 40 ω τ = 1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 1.11e-09 (var 2 row 2)  
+PASS zone 40 ω τ = 10: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (9 resolved of 12, sensitivity ≥ 1e-9), worst 1.07e-09 (var 2 row 2)  
+PASS zone 41 ω τ = 0.1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 1.72e-08 (var 2 row 2)  
+PASS zone 41 ω τ = 1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 4.88e-09 (var 2 row 3)  
+PASS zone 41 ω τ = 10: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 9.28e-09 (var 2 row 1)  
+PASS zone 42 ω τ = 0.1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 1.77e-08 (var 2 row 1)  
+PASS zone 42 ω τ = 1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 1.12e-08 (var 2 row 1)  
+PASS zone 42 ω τ = 10: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 7.14e-08 (var 3 row 2)  
+PASS zone 43 ω τ = 0.1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 1.19e-08 (var 2 row 1)  
+PASS zone 43 ω τ = 1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 2.33e-08 (var 3 row 2)  
+PASS zone 43 ω τ = 10: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 7.70e-08 (var 3 row 2)  
+PASS zone 44 ω τ = 0.1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 1.83e-06 (var 3 row 2)  
+PASS zone 44 ω τ = 1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 5.60e-07 (var 3 row 2)  
+PASS zone 44 ω τ = 10: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 1.40e-07 (var 3 row 3)  
+PASS zone 46 ω τ = 0.1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 8.60e-07 (var 3 row 3)  
+PASS zone 46 ω τ = 1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 4.48e-07 (var 2 row 1)  
+PASS zone 46 ω τ = 10: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 2.14e-07 (var 2 row 1)  
+PASS zone 48 ω τ = 0.1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 5.63e-07 (var 2 row 1)  
+PASS zone 48 ω τ = 1: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 4.31e-07 (var 2 row 1)  
+PASS zone 48 ω τ = 10: d(Γ₁, δ, c_P)/d(ρ, T, x_H⁺, x_H₂) AD vs FD (12 resolved of 12, sensitivity ≥ 1e-9), worst 2.72e-07 (var 2 row 1)  
+
+(a-iv) interfaces of the layer (zones j−1, j both coupled): M6 Re Γ₁,b, δ_b, c_P,b against M2's blend f = ℓ/(ℓ + t_chem a) of the TABLE equilibrium and the CK-frozen values (conv_thermo, t_chem = 1/max|∂S_i/∂x_i|, as M2 coded it).
+      g = G M/r² with M = 3.2 Msun (approximate), H_P from the zones' p_gas + E_r/3, ω = √(g δ_fr/(8 H_P)); columns: interface j, T, ωτ_max, f (M2), Γ₁,fr, Γ₁,b (M6), Γ₁,b (M2), Γ₁(ω→0) network, Γ₁,eq (table), δ_b M6 / M2, c_P,b M6 / M2
+       34  T 119306.7  ωτ 3.658e-16  f 1.000  Γ₁fr 1.649565  Γ₁b M6 1.649249 M2 1.649169  Γ₁(0) 1.649249  Γ₁eq(table) 1.649169   δ 1.02207 / 1.03320   cP 3.6411e+08 / 3.6808e+08
+       35  T 111876.5  ωτ 4.327e-16  f 1.000  Γ₁fr 1.649863  Γ₁b M6 1.649610 M2 1.650805  Γ₁(0) 1.649610  Γ₁eq(table) 1.650805   δ 1.02680 / 1.03905   cP 3.6729e+08 / 3.7148e+08
+       36  T 101738.9  ωτ 5.742e-16  f 1.000  Γ₁fr 1.648107  Γ₁b M6 1.647891 M2 1.648568  Γ₁(0) 1.647891  Γ₁eq(table) 1.648568   δ 1.03293 / 1.04646   cP 3.7181e+08 / 3.7694e+08
+       37  T  88526.9  ωτ 9.150e-16  f 1.000  Γ₁fr 1.641722  Γ₁b M6 1.641524 M2 1.631351  Γ₁(0) 1.641524  Γ₁eq(table) 1.631351   δ 1.03952 / 1.04907   cP 3.7807e+08 / 3.8449e+08
+       38  T  72759.4  ωτ 1.947e-15  f 1.000  Γ₁fr 1.601419  Γ₁b M6 1.601241 M2 1.543412  Γ₁(0) 1.601241  Γ₁eq(table) 1.543412   δ 1.05542 / 1.10056   cP 4.0372e+08 / 4.6964e+08
+       39  T  56905.0  ωτ 5.769e-15  f 1.000  Γ₁fr 1.493017  Γ₁b M6 1.492882 M2 1.436523  Γ₁(0) 1.492882  Γ₁eq(table) 1.436523   δ 1.09918 / 1.15430   cP 4.9176e+08 / 5.7179e+08
+       40  T  37329.1  ωτ 1.828e-13  f 1.000  Γ₁fr 1.489844  Γ₁b M6 1.487200 M2 1.439384  Γ₁(0) 1.487200  Γ₁eq(table) 1.439384   δ 1.08916 / 1.13423   cP 4.8094e+08 / 5.4259e+08
+       41  T  15973.8  ωτ 4.828e-08  f 1.000  Γ₁fr 1.612093  Γ₁b M6 1.483271 M2 1.431174  Γ₁(0) 1.483271  Γ₁eq(table) 1.431174   δ 1.05022 / 1.08562   cP 3.2846e+08 / 3.7932e+08
+       42  T   5301.5  ωτ 3.650e-02  f 1.000  Γ₁fr 1.659059  Γ₁b M6 1.531245 M2 1.522086  Γ₁(0) 1.531244  Γ₁eq(table) 1.522086   δ 1.04301 / 1.04634   cP 2.1617e+08 / 2.2203e+08
+       43  T   3846.0  ωτ 3.090e-01  f 1.000  Γ₁fr 1.639901  Γ₁b M6 1.637464 M2 1.637638  Γ₁(0) 1.637408  Γ₁eq(table) 1.637638   δ 1.07602 / 1.07601   cP 1.9398e+08 / 1.9394e+08
+       44  T   2917.7  ωτ 1.672e+00  f 0.981  Γ₁fr 1.549874  Γ₁b M6 1.360151 M2 1.360002  Γ₁(0) 1.360141  Γ₁eq(table) 1.354413   δ 2.64709 / 2.54420   cP 2.3734e+09 / 2.2244e+09
+       45  T   1957.1  ωτ 3.449e+00  f 0.823  Γ₁fr 1.435606  Γ₁b M6 1.085398 M2 1.122568  Γ₁(0) 1.087062  Γ₁eq(table) 1.073474   δ 3.79150 / 3.48391   cP 3.8733e+09 / 3.4718e+09
+       46  T   1861.5  ωτ 4.334e+00  f 0.675  Γ₁fr 1.395579  Γ₁b M6 1.070049 M2 1.151086  Γ₁(0) 1.073607  Γ₁eq(table) 1.060677   δ 3.34176 / 2.99804   cP 3.1112e+09 / 2.6734e+09
+       47  T   1831.6  ωτ 5.200e+00  f 0.606  Γ₁fr 1.392121  Γ₁b M6 1.057351 M2 1.164150  Γ₁(0) 1.060828  Γ₁eq(table) 1.050576   δ 3.04625 / 2.83543   cP 2.6933e+09 / 2.4159e+09
+       48  T   1803.8  ωτ 6.267e+00  f 0.539  Γ₁fr 1.389851  Γ₁b M6 1.040758 M2 1.174821  Γ₁(0) 1.042180  Γ₁eq(table) 1.035478   δ 2.73575 / 2.69917   cP 2.2296e+09 / 2.1969e+09
+       49  T   1773.3  ωτ 7.612e+00  f 0.479  Γ₁fr 1.388833  Γ₁b M6 1.019561 M2 1.186653  Γ₁(0) 1.006239  Γ₁eq(table) 1.022545   δ 2.43724 / 2.64314   cP 1.7496e+09 / 2.0240e+09
+       50  T   1739.1  ωτ 8.895e+00  f 0.441  Γ₁fr 1.390427  Γ₁b M6 0.992419 M2 1.188709  Γ₁(0) 0.951539  Γ₁eq(table) 1.001591   δ 2.18511 / 2.61883   cP 1.2978e+09 / 1.8567e+09
+      interfaces compared: 17; in the ωτ_max < 1e-2 interfaces |Γ₁(0)_network − Γ₁,eq_table|/Γ₁ ≤ 3.92e-02 (the table-vs-network equilibrium difference)
+
+cost, zone 40, n = 4 local variables [s, min of 5]: Hessian + Jacobian (cache miss) 3.01e-04; cache hit 3.13e-06; Dual chain (4 partials) lr_zone + lresp, cache hit 1.20e-05; for comparison one ForwardDiff Jacobian of cpl_g 9.43e-05
+
+t10_lresp_state failures: 0

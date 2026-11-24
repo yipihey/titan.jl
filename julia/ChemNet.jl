@@ -885,9 +885,13 @@ const NHM = 80
 const A0CM = 5.29177211e-9; const ECGS = 4.80320471e-10; const RYDINF = 13.605693eV
 "HM88 occupation probability of level n of a hydrogenic ion of charge Z in neutral/ion perturbers (cm⁻³), eq. 4.71 (Z_p = 1)."
 @inline function w_hm(n, Z, Nneu, Nion)
+    exp(_lw_hm(n, Z, Nneu, Nion))
+end
+"ln w_n of `w_hm`, its exponent (the same expression: `w_hm` is bit-identical to before)."
+@inline function _lw_hm(n, Z, Nneu, Nion)
     χn = Z^2 * RYDINF / n^2; K = n <= 3 ? 1.0 : (16 / 3) * n / (n + 1)^2
     q = sqrt(Float64(Z)) * ECGS^2 / (sqrt(K) * χn); rn = n^2 * A0CM / Z
-    exp(-(4π / 3) * (16 * Nion * q^3 + Nneu * (rn + A0CM)^3))
+    -(4π / 3) * (16 * Nion * q^3 + Nneu * (rn + A0CM)^3)
 end
 "Z_w/2 of H I (ground weight 1, w_n/w_1)."
 function ZH_hm(T, Nneu, Nion)
@@ -897,10 +901,13 @@ function ZH_hm(T, Nneu, Nion)
 end
 "(⟨E_exc⟩, Σ P_n (−ln(w_n/w_1))) per H atom [erg, dimensionless] of the HM88 level distribution."
 function hm_exc(T, Nneu, Nion)
-    w1 = w_hm(1, 1, Nneu, Nion); z = zero(T) + zero(Nneu) + zero(Nion); e = z; q = z
+    w1 = w_hm(1, 1, Nneu, Nion); lw1 = _lw_hm(1, 1, Nneu, Nion); z = zero(T) + zero(Nneu) + zero(Nion); e = z; q = z
     for n in 1:NHM
         wr = w_hm(n, 1, Nneu, Nion) / w1; En = χH * (1 - 1 / n^2); t = n^2 * wr * exp(-En / (kB * T))
-        z += t; e += t * En; q -= t * log(max(wr, 1e-300))
+        # ln(w_n/w_1): log(wr) as ever where w_n/w_1 ≥ 1e-150; below, where w underflows towards 0 (the weight t ≤ 1e-143 there: far below one rounding of q) the exponents' difference, which
+        # stays finite to every derivative order (the second derivative of log(w) for w ≲ 1e-154 is Inf/NaN: w'² underflows). M6: exact nested ForwardDiff through the EOS.
+        lwr = wr >= 1e-150 ? log(wr) : _lw_hm(n, 1, Nneu, Nion) - lw1
+        z += t; e += t * En; q -= t * lwr
     end
     e / z, q / z
 end

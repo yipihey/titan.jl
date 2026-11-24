@@ -5,8 +5,9 @@ lp("    NO semiconvection model: a layer with sup(f=0) < 0 < sup(f=1) is convect
 # a Schwarzschild-unstable (∇ = 0.45 > ∇_ad = 0.4 of the frozen gas) layer with a stabilising composition gradient
 ΔlnP = -0.1; ∇ = 0.45; ΔlnT = ∇ * ΔlnP; Δlnμ = -0.01
 αfr = 1.0; δfr = 1.0; φfr = 1.0; Γfr = 1 / 0.6; Γeq = 1 / 0.9; δeq = 1.5
-sup0, _ = TDC.blob_sup(ΔlnP, ΔlnT, Δlnμ, αfr, δfr, φfr, NaN, Γfr, NaN, 0.0, ΔlnP)
-sup1, _ = TDC.blob_sup(ΔlnP, ΔlnT, Δlnμ, αfr, δfr, φfr, Γeq, Γfr, δeq, 1.0, ΔlnP)
+Δlnρ = αfr * ΔlnP - δfr * ΔlnT + φfr * Δlnμ      # M6: blob_sup takes the actual Δlnρ and the blob's Γ₁,b, δ_b
+sup0, _ = TDC.blob_sup(ΔlnP, Δlnρ, Γfr, δfr, ΔlnP)
+sup1, _ = TDC.blob_sup(ΔlnP, Δlnρ, Γeq, δeq, ΔlnP)
 supS = ∇ - 0.4
 lp(@sprintf("    ΔlnP = %g ∇ = %g ∇_ad(frozen) = 0.4 Δlnμ = %g: Schwarzschild ∇−∇_ad = %+g;  sup(f=0, frozen Ledoux) = %+.5f;  sup(f=1, equilibrium, Γ1_eq = 1/0.9, δ_eq = 1.5) = %+.5f", ΔlnP, ∇, Δlnμ, supS, sup0, sup1))
 check("sup(f=0) < 0 < sup(f=1)", sup0 < 0 < sup1)

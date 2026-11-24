@@ -1,0 +1,29 @@
+T10 (a-i) LResp against an independent complex-matrix implementation (synthetic ionising gas, ρ = 1e-9, T = 1.1e4, τ = 3e4 and 4e5 s)
+PASS ω = 0: Γ₁ 1.22463746 δ 2.54527 cP 3.54196e+09, max rel diff 4.51e-16  
+PASS ω = 1e-07: Γ₁ 1.22456675 δ 2.54494 cP 3.54181e+09, max rel diff 4.51e-16  
+PASS ω = 1e-06: Γ₁ 1.21862895 δ 2.51675 cP 3.52886e+09, max rel diff 3.64e-16  
+PASS ω = 1e-05: Γ₁ 1.18312924 δ 2.25323 cP 3.20806e+09, max rel diff 3.16e-16  
+PASS ω = 0.0001: Γ₁ 1.1629433 δ 1.22712 cP 6.78721e+08, max rel diff 1.19e-16  
+PASS ω = 0.001: Γ₁ 1.55211728 δ 1.10873 cP 3.84379e+08, max rel diff 4.29e-16  
+PASS ω = 0.1: Γ₁ 1.62923981 δ 1.10741 cP 3.81089e+08, max rel diff 4.09e-16  
+PASS ω = 10: Γ₁ 1.62924895 δ 1.10741 cP 3.81089e+08, max rel diff 4.09e-16  
+PASS ω → ∞ equals the frozen composition  Γ₁ frozen 1.62924895, ω = 1e12: 1.62924895
+PASS ω = 0 equals the equilibrium response  Γ₁(0) = 1.22463746 (frozen 1.62924895)
+
+T10 (a-ii) Debye form of the dynamic derivative (one species: dS1 = (S_ρ, 0, −1/τ, 0), no second species, base P_ρ small so that the increment is not lost in rounding)
+    ωτ = 0.001    Re P_ρ − P_ρ,fr = 4.4399955600e+03   Debye (P_ρ,eq − P_ρ,fr)/(1+ωτ²) = 4.4399955600e+03   rel 0.0e+00
+    ωτ = 0.1      Re P_ρ − P_ρ,fr = 4.3960396040e+03   Debye (P_ρ,eq − P_ρ,fr)/(1+ωτ²) = 4.3960396040e+03   rel 0.0e+00
+    ωτ = 0.5      Re P_ρ − P_ρ,fr = 3.5520000000e+03   Debye (P_ρ,eq − P_ρ,fr)/(1+ωτ²) = 3.5520000000e+03   rel 2.6e-16
+    ωτ = 1        Re P_ρ − P_ρ,fr = 2.2200000000e+03   Debye (P_ρ,eq − P_ρ,fr)/(1+ωτ²) = 2.2200000000e+03   rel 0.0e+00
+    ωτ = 2        Re P_ρ − P_ρ,fr = 8.8800000000e+02   Debye (P_ρ,eq − P_ρ,fr)/(1+ωτ²) = 8.8800000000e+02   rel 2.6e-16
+    ωτ = 10       Re P_ρ − P_ρ,fr = 4.3960396040e+01   Debye (P_ρ,eq − P_ρ,fr)/(1+ωτ²) = 4.3960396040e+01   rel 4.8e-16
+    ωτ = 1000     Re P_ρ − P_ρ,fr = 4.4399955600e-03   Debye (P_ρ,eq − P_ρ,fr)/(1+ωτ²) = 4.4399955600e-03   rel 3.3e-14
+PASS Re P_ρ^ω − P_ρ,fr follows the Debye form (P_ρ,eq − P_ρ,fr)/(1 + (ωτ)²)  max rel 3.28e-14
+PASS Im P_ρ^ω = −(P_ρ,eq − P_ρ,fr) ωτ/(1 + (ωτ)²)  max rel 3.88e-16
+PASS Re Γ₁(ω): ωτ = 1e-7 is the equilibrium value, ωτ = 1e7 the frozen one  Γ₁: 448.68608 (eq 448.68608) … -0.0042440482 (frozen -0.0042440484)
+
+T10 (a-iii) derivatives of Γ₁(ω), δ(ω), c_P(ω): ForwardDiff against central FD, and second-order (nested Dual) consistency
+PASS AD Jacobian of (Γ₁, δ, c_P) in the 21 inputs vs 4th-order central FD (h = 1e-3 relative)  worst relative difference 1.56e-09
+PASS nested ForwardDiff (Hessian of Γ₁ in ρ, T, ω against FD of the AD gradient)  worst relative difference 1.58e-08
+
+T10 (LResp) failures: 0

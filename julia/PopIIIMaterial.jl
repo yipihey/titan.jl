@@ -245,8 +245,6 @@ function cold_thermo(ρ, T)
     δ = T / ρ * pT / pρ
     return p * δ / (T * ρ * cP), cP, δ
 end
-"M2: relative step of the central differences of the EOS in `conv_thermo(...; fd = true)` and `conv_tchem(...; fd = true)` (the form the solver uses; `fd = false`: inner ForwardDiff, M1's diagnostics)."
-const THERMO_FD_H = Ref(1e-3)
 """
 CONVDIAG helper, generic in the number type and ForwardDiff-safe (it is also the thermodynamics of the M2 convection work). Not used by the solver; `material_thermo`
 is unchanged. Gas + equilibrium radiation (P_rad = aT⁴/3, e_rad = aT⁴/ρ, as `cold_thermo`) of zone k at (ρ, T):
@@ -260,24 +258,17 @@ is unchanged. Gas + equilibrium radiation (P_rad = aT⁴/3, e_rad = aT⁴/ρ, as
 - `branch`: 0 network, 1 coupled network, 2 table (equilibrium) zone, 3 hot — the order in which `material_gas0` selects.
 A table that cannot be evaluated (outside its range) gives NaN for the equilibrium values.
 
-M2 additions: `alpha_eq/fr` = (∂ln ρ/∂ln P)_{T,x}, `gam1_eq/fr` = Γ₁ = 1/(α − δ ∇_ad). Keywords: `x` = (x_H⁺, x_H₂) of the zone's iterate (default `TX.XSN`); `tablefr`: in a table zone frozen := equilibrium;
-`fd`: the EOS derivatives by central differences (`THERMO_FD_H`) instead of inner ForwardDiff, so that an outer ForwardDiff can differentiate the result (the CK expansion behind `cpl_g` supports only one level of Duals).
+M2 additions: `alpha_eq/fr` = (∂ln ρ/∂ln P)_{T,x}, `gam1_eq/fr` = Γ₁ = 1/(α − δ ∇_ad). Keywords: `x` = (x_H⁺, x_H₂) of the zone's iterate (default `TX.XSN`); `tablefr`: in a table zone frozen := equilibrium.
+M6: a Float64 diagnostic only (CONVDIAG); the solver's blob thermodynamics are `lr_zone` / `LResp` (the central-difference option `fd` is gone). `nad_eq` etc. are the TABLE equilibrium, not the network's own.
 """
-function conv_thermo(m::NetGas, k, ρ, T; x = nothing, tablefr = false, fd = false)
+function conv_thermo(m::NetGas, k, ρ, T; x = nothing, tablefr = false)
     arad = 7.565723e-15; kB = 1.380649e-16; mu_ = 1.66053906660e-24
     function thermo_of(eosf, lab = "")               # eosf(r, t) -> (u_gas, p_gas); cold_thermo's formula (+ α = ∂ln ρ/∂ln P at fixed T, composition)
         pe(r, t) = (y = eosf(r, t); (y[2] + arad * t^4 / 3, y[1] + arad * t^4 / r))      # (P, e) with equilibrium radiation
-        if fd                                        # central differences of the EOS in ln ρ, ln T (relative step THERMO_FD_H): the Duals of an outer ForwardDiff then give the exact
-            hh = THERMO_FD_H[]                      # derivative of the stencil (the CK expansion of `cpl_g` is differentiable once, not twice)
-            p, e0 = pe(ρ, T)
-            pTp, eTp = pe(ρ, T * (1 + hh)); pTm, eTm = pe(ρ, T * (1 - hh)); pρp, eρp = pe(ρ * (1 + hh), T); pρm, eρm = pe(ρ * (1 - hh), T)
-            pT = (pTp - pTm) / (2hh * T); eT = (eTp - eTm) / (2hh * T); pρ = (pρp - pρm) / (2hh * ρ); eρ = (eρp - eρm) / (2hh * ρ)
-        else
-            pf(r, t) = pe(r, t)[1]; ef(r, t) = pe(r, t)[2]
-            p = pf(ρ, T)
-            pT = ForwardDiff.derivative(t -> pf(ρ, t), T); pρ = ForwardDiff.derivative(r -> pf(r, T), ρ)
-            eT = ForwardDiff.derivative(t -> ef(ρ, t), T); eρ = ForwardDiff.derivative(r -> ef(r, T), ρ)
-        end
+        pf(r, t) = pe(r, t)[1]; ef(r, t) = pe(r, t)[2]
+        p = pf(ρ, T)
+        pT = ForwardDiff.derivative(t -> pf(ρ, t), T); pρ = ForwardDiff.derivative(r -> pf(r, T), ρ)
+        eT = ForwardDiff.derivative(t -> ef(ρ, t), T); eρ = ForwardDiff.derivative(r -> ef(r, T), ρ)
         cP = eT - (eρ - p / ρ^2) * pT / pρ
         δ = T / ρ * pT / pρ
         (p * δ / (T * ρ * cP), cP, δ, p / (ρ * pρ))
@@ -286,7 +277,7 @@ function conv_thermo(m::NetGas, k, ρ, T; x = nothing, tablefr = false, fd = fal
     h = HOT[]
     if h !== nothing && ForwardDiff.value(T) > h.T1
         th = h.thermo(ρ, T, k); pg = h.gas(ρ, T, k)[1]
-        pρ_ = fd ? (h.gas(ρ * (1 + THERMO_FD_H[]), T, k)[1] - h.gas(ρ * (1 - THERMO_FD_H[]), T, k)[1]) / (2THERMO_FD_H[] * ρ) : ForwardDiff.derivative(r -> h.gas(r, T, k)[1], ρ); α_ = (pg + arad * T^4 / 3) / (ρ * pρ_)       # (gas + radiation, as thermo_of)
+        pρ_ = ForwardDiff.derivative(r -> h.gas(r, T, k)[1], ρ); α_ = (pg + arad * T^4 / 3) / (ρ * pρ_)       # (gas + radiation, as thermo_of)
         return (; nad_eq = th[1], cp_eq = th[2], del_eq = th[3], nad_fr = th[1], cp_fr = th[2], del_fr = th[3], phi = one(th[1]),
                 mu = ρ * kB * T / (pg * mu_), branch = 3, alpha_eq = α_, alpha_fr = α_, gam1_eq = 1 / (α_ - th[3] * th[1]), gam1_fr = 1 / (α_ - th[3] * th[1]))
     end
@@ -306,30 +297,6 @@ function conv_thermo(m::NetGas, k, ρ, T; x = nothing, tablefr = false, fd = fal
        mu = ρ * kB * T / (pgas * mu_), branch = br, alpha_eq = eq[4], alpha_fr = fr[4],
        gam1_eq = 1 / (eq[4] - eq[3] * eq[1]), gam1_fr = 1 / (fr[4] - fr[3] * fr[1]))      # 1/Γ₁ = α − δ ∇_ad (TDC.gamma1)
 end
-"""
-M2: chemical relaxation time of zone k, `t_chem = 1/max_i |∂S_i/∂x_i|` (i = H⁺, H₂: the coupled species) from the zone's CK rates `cpl_g` at (ρ, T, x₁, x₂) (the same map `CPL_ZONE`
-caches; the rows 3, 4 of `cpl_g` are S₁, S₂). Generic in the number type: ∂S_i/∂x_i by ForwardDiff.derivative (its own tag) of a function of Dual arguments, so the outer Jacobian
-sees ρ, T, x₁, x₂. `x` = (x₁, x₂) of the iterate (default: `TX.XSN`). Table (equilibrium) and hot zones: 0 (equilibrium chemistry); network zones that are not coupled: `Inf` (frozen). Does not read or write
-`CPLCACHE` (cpl_g is evaluated directly).
-"""
-function conv_tchem(m::NetGas, k, ρ, T; x = nothing, fd = false)
-    h = HOT[]
-    (h !== nothing && ForwardDiff.value(T) > h.T1) && return 0.0
-    m.eqzone[k] && return 0.0
-    TX.cplz(k) || return Inf
-    x1 = x === nothing ? TX.XSN[][1][k] : x[1]; x2 = x === nothing ? TX.XSN[][2][k] : x[2]
-    xnv = ForwardDiff.value(x === nothing || length(x) < 3 ? TX.XSN[][3][k] : x[3])      # M3e: the neutral hydrogen of the state (mgxh); a perturbation of x_H⁺ (x_H₂) moves it by −δx₁ (−2δx₂): H nuclei conserved
-    if fd
-        hh = THERMO_FD_H[]; v_(a) = ForwardDiff.value(a)
-        d1 = (cpl_g(m, k, [promote(ρ, T, x1 * (1 + hh), x2)...]; xn = xnv - v_(x1) * hh)[3] - cpl_g(m, k, [promote(ρ, T, x1 * (1 - hh), x2)...]; xn = xnv + v_(x1) * hh)[3]) / (2hh * x1)
-        d2 = (cpl_g(m, k, [promote(ρ, T, x1, x2 * (1 + hh))...]; xn = xnv - 2v_(x2) * hh)[4] - cpl_g(m, k, [promote(ρ, T, x1, x2 * (1 - hh))...]; xn = xnv + 2v_(x2) * hh)[4]) / (2hh * x2)
-    else
-        d1 = ForwardDiff.derivative(a -> cpl_g(m, k, [promote(ρ, T, a, x2)...]; xn = xnv)[3], x1)
-        d2 = ForwardDiff.derivative(b -> cpl_g(m, k, [promote(ρ, T, x1, b)...]; xn = xnv)[4], x2)
-    end
-    mx = max(abs(d1), abs(d2))
-    return iszero(ForwardDiff.value(mx)) ? Inf : 1 / mx
-end
 "CONVDIAG: copies of the per-zone material caches (opacity iteration, CK Jacobian) before a diagnostic residual evaluation, so that the evaluation leaves them as they were."
 function conv_cache_save()
     (; nloc = Union{Nothing,NloC}[c === nothing ? nothing : deepcopy(c) for c in NLOC[]], noned = copy(NLONED[]), xneold = copy(XNEOLD[]),
@@ -342,8 +309,6 @@ end
 """MLT thermodynamics: only the hot branch convects (and, with `COLDMLT[]` > 0, the hot equilibrium zones of the table EOS). Below T1 the huge ∇_ad switches the flux off in the chemistry gas: it must be
 out of reach (it was 10, and at a T jump inside the protostar ∇ = Δln T/Δln P crossed it: an MLT flux with this placeholder c_P
 of up to 1e40 erg/s between two zones, and Newton diverged)."""
-TX.material_convthermo(m::NetGas, k, ρ, T, x) = conv_thermo(m, k, ρ, T; x, tablefr = true, fd = true)
-TX.material_tchem(m::NetGas, k, ρ, T, x) = conv_tchem(m, k, ρ, T; x, fd = true)
 function TX.material_thermo(m::NetGas, ρ, T)
     h = HOT[]
     (h !== nothing && T > h.T1) && return h.thermo(ρ, T, TX.ZONE[])
@@ -2074,8 +2039,10 @@ photo_cache(cache, ph_, env) = Tv -> (Tv isa ForwardDiff.Dual || (CNn.HM88 && ha
 @inline xneut(x1, x2, ::Nothing) = 1 - x1 - 2x2
 @inline function xneut(x1, x2, xn)
     r = 1 - x1 - 2x2
-    r + (xn - ForwardDiff.value(r))
+    r + (xn - _fullval(r))               # (M6: the value at every Dual nesting level, so that a nested ForwardDiff keeps the −1, −2 of the inner derivative)
 end
+@inline _fullval(x::ForwardDiff.Dual) = _fullval(ForwardDiff.value(x))
+@inline _fullval(x) = x
 """
 Lyα escape rate R_Lyα [s⁻¹] per 2p atom of the three-level model at the iterate: τ_S = 3A_21 λ_α³ n_1s / (8π g), n_1s = n_H x_H with
 x_H = 1 − x_H⁺ − 2x_H₂ (the slow species of the iterate; the fast ones are ≤ 1e-6), g the angle-mean velocity gradient
@@ -2272,6 +2239,100 @@ function cpl_zone_q(m::NetGas, k, ρ, T, a, b, q, tc, fs, g, dp, xn)
     end
     needJ ? cpl_liftq(c[2], c[4], ρ, T, a, b, q, tc, fs, g, dp) : Tuple(c[2])
 end
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# M6: the network's linear response for the convective blob (docs/POPIII_CONVECTION.md M6, LResp.jl)
+using ..TitanResidFast.LResp: lresp, lresp_frozen, lresp_tau       # (M6; the module is included by TitanResidFast)
+"""
+M6: per zone the exact local data of the blob thermodynamics at the local point v = (ρ, T, x₁, x₂, [radiation variables]) (the layout of `cpl_g`'s z): the values y = (p, u, S₁, S₂), the Jacobian J = ∂y/∂z (4×n),
+and, if requested, the Hessian H[i, j, l] = ∂²y_i/∂z_j ∂z_l (j = 1…4 the (ρ, T, x₁, x₂) of the response, l over every local variable: the outer Duals of the residual differentiate J through it).
+`ForwardDiff` of `cpl_g` at two nested levels (distinct tags). Cached per zone on the exact values (v, x_HI); no lag, no reuse at a nearby point.
+"""
+const LRCACHE = Ref(Any[]); const LRN = Threads.Atomic{Int}(0); const LRH = Threads.Atomic{Int}(0); const LRT = Threads.Atomic{Int}(0)    # (misses, hits, ns of the misses)
+function lr_data(m::NetGas, k, v::Vector{Float64}, xn, needH::Bool)
+    length(LRCACHE[]) < k && (LRCACHE[] = vcat(LRCACHE[], Any[nothing for _ in length(LRCACHE[])+1:k]))
+    c = LRCACHE[][k]
+    if c !== nothing && c.v == v && c.xn == xn && (!needH || c.H !== nothing)
+        Threads.atomic_add!(LRH, 1); return c
+    end
+    t0 = time_ns(); n = length(v)
+    f(z) = cpl_g(m, k, z; xn)[1:4]
+    res = ForwardDiff.DiffResults.JacobianResult(zeros(4), v); ForwardDiff.jacobian!(res, f, v)
+    y = copy(ForwardDiff.DiffResults.value(res)); J = copy(ForwardDiff.DiffResults.jacobian(res)); H = nothing
+    if needH
+        g(z) = vec(ForwardDiff.jacobian(w -> f(vcat(w, z[5:end])), z[1:4]))
+        H = reshape(ForwardDiff.jacobian(g, v), 4, 4, n)
+    end
+    c = (; v = copy(v), xn, y, J, H)
+    LRCACHE[][k] = c
+    Threads.atomic_add!(LRN, 1); Threads.atomic_add!(LRT, Int(time_ns() - t0))
+    c
+end
+"The local variables of coupled zone k in `cpl_g`'s layout from the residual's star-light state `rs = (slst, Mg)` (see `TitanResidFast.CPLRAD`); `rs === nothing` or no star-light state: (ρ, T, x₁, x₂)."
+function lr_ins(k, ρ, T, x1, x2, rs)
+    (rs === nothing || rs[1] === nothing) && return (ρ, T, x1, x2)
+    slst, Mg = rs
+    if Mg === nothing
+        return (ρ, T, x1, x2, slst.q[k], slst.t[k], slst.fs[k], slst.g[k], slst.dp[k])
+    elseif mg_hasrec(CPLTERMS[][k])
+        qv = view(Mg.qs, :, k)
+        return (ρ, T, x1, x2, ntuple(i -> qv[i], length(qv))..., slst.g[k], slst.dp[k], slst.t[k])
+    else
+        t = slst.t[k]
+        return (ρ, T, x1, x2, one(t), t, zero(t), slst.g[k], slst.dp[k])
+    end
+end
+"`LResp` input of a coupled zone: the data of `lr_data` lifted to the Duals of `ins` (values, first and second derivatives: d(J) = H·partials), so that the outer derivative of every response is exact."
+function lr_lift(c, ins)
+    n = length(ins); ρ, T = ins[1], ins[2]; y, J, H = c.y, c.J, c.H
+    D = promote_type(map(typeof, ins)...)
+    if D <: ForwardDiff.Dual
+        H === nothing && error("lr_lift: Hessian missing")
+        Ps = ntuple(l -> ForwardDiff.partials(D(ins[l])), n)
+        val = i -> D(y[i], sum(J[i, l] * Ps[l] for l in 1:n))
+        der = (i, j) -> D(J[i, j], sum(H[i, j, l] * Ps[l] for l in 1:n))
+    else
+        val = i -> y[i]; der = (i, j) -> J[i, j]
+    end
+    (; ρ = D(ρ), T = D(T), p = val(1), u = val(2), dp = ntuple(j -> der(1, j), 4), du = ntuple(j -> der(2, j), 4),
+       dS1 = ntuple(j -> der(3, j), 4), dS2 = ntuple(j -> der(4, j), 4))
+end
+"The (ρ, T) derivatives of a gas EOS eosf(r, t) -> (u, p) (table, non-coupled network or hot zone; no composition response) in `LResp`'s input form; ForwardDiff of the EOS (nested under the residual's Duals)."
+function lr_eosd(eosf, ρ, T)
+    u, p = eosf(ρ, T); z = zero(p)
+    pρ = ForwardDiff.derivative(r -> eosf(r, T)[2], ρ); pT = ForwardDiff.derivative(t -> eosf(ρ, t)[2], T)
+    uρ = ForwardDiff.derivative(r -> eosf(r, T)[1], ρ); uT = ForwardDiff.derivative(t -> eosf(ρ, t)[1], T)
+    (; ρ, T, p, u, dp = (pρ, pT, z, z), du = (uρ, uT, z, z), dS1 = (z, z, z, z), dS2 = (z, z, z, z))
+end
+"""
+M6: thermodynamics of zone k for the blob, `(; cpl, d, fr, tau)`: `d` the `LResp` input at the Newton iterate (ρ, T, x = (x_H⁺, x_H₂, x_HI) of the zone, `rs` the star-light state), `fr = lresp_frozen(d)`
+(the zone's own EOS at fixed composition), `cpl` whether the zone has a network response (`lresp(d, ω)`; the CK EOS and rates of the iterate), `tau` = τ_max of J (Float64 diagnostic, 0 where no response).
+Zone classes as `material_gas0` selects: hot (stellar EOS, T > HOT.T1) and table (equilibrium EOS) zones are in equilibrium by construction: frozen := their EOS, no response; a network zone that is not coupled has
+no rates in the hydro step: frozen. Coupled zones: the exact local derivatives (`lr_data`). `dual = false`: the values only (screening; no Hessian).
+"""
+function lr_zone(m::NetGas, k, ρ, T, x, rs, dual::Bool)
+    h = HOT[]
+    if h !== nothing && ForwardDiff.value(T) > h.T1
+        d = lr_eosd((r, t) -> (h.gas(r, t, k)[2], h.gas(r, t, k)[1]), ρ, T)
+        # (hot zone: the hydro's own EOS `h.gas` -> (p, e), differentiated; no response)
+        return (; cpl = false, d, fr = lresp_frozen(d), tau = 0.0)
+    end
+    if m.eqzone[k]
+        d = lr_eosd((r, t) -> EQ.eos(r, t), ρ, T)
+        return (; cpl = false, d, fr = lresp_frozen(d), tau = 0.0)
+    elseif x !== nothing && TX.cplz(k)
+        xn = _fullval(x[3]); ins = lr_ins(k, ρ, T, x[1], x[2], rs)
+        v = Float64[_fullval(a) for a in ins]
+        c = lr_data(m, k, v, xn, dual)
+        d = lr_lift(c, ins)
+        return (; cpl = true, d, fr = lresp_frozen(d), tau = Float64(lresp_tau((; dS1 = c.J[3, 1:4], dS2 = c.J[4, 1:4]))[1]))
+    else
+        xk = m.x[k]
+        d = lr_eosd((r, t) -> CNn.eos(r, t, xk, m.net), ρ, T)
+        return (; cpl = false, d, fr = lresp_frozen(d), tau = 0.0)
+    end
+end
+TX.material_lrzone(m::NetGas, k, ρ, T, x, rs, dual::Bool) = lr_zone(m, k, ρ, T, x, rs, dual)
+
 "Per zone (x_H⁺, x_H₂, x_HI) the last `cpl_finish!` wrote into the free vector m.x (whose entries cannot carry x_HI = 1e-9 to more than 1e-7): `cpl_prepare!` takes x_HI from it while m.x is unchanged."
 const XNKEEP = Ref(Any[])
 function cpl_prepare!(m::NetGas)

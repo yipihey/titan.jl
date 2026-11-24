@@ -18,7 +18,8 @@ using Printf
 import ..TitanDriver
 const TD = TitanDriver
 const TF = TD.TF
-include(joinpath(@__DIR__, "TDC.jl")); using .TDC: blob_sup, blob_f, gamma1_inv   # M2/M3: pure convection functions (docs/POPIII_CONVECTION.md)
+include(joinpath(@__DIR__, "TDC.jl")); using .TDC: blob_sup, gamma1_inv
+include(joinpath(@__DIR__, "LResp.jl")); using .LResp: lresp, lresp_frozen   # M6: the network linear response of the blob (docs/POPIII_CONVECTION.md)   # M2/M3: pure convection functions (docs/POPIII_CONVECTION.md)
 using .TDC: TDCPar, TDCGeom, TDCBack, tdc_ay, tdc_flux, tdc_pturb, tdc_dmix, tdc_F!, tdc_exchange, kw_mlt_flux, tdc_mlt_w
 using .TDC: fb as tdc_fb
 
@@ -874,11 +875,13 @@ end
 "`material_thermo(m, ρ, T) -> (∇_ad, c_P, δ)` of gas + equilibrium radiation (Float64), for the MLT flux."
 function material_thermo end
 """
-M2 (MLT_BUOY): `material_convthermo(m, k, ρ, T, x) -> NamedTuple` (∇_ad, c_P, δ, α, Γ₁ of the zone's equilibrium and frozen chemistry; `PopIIIMaterial.conv_thermo`) and
-`material_tchem(m, k, ρ, T, x) -> t_chem` of zone k at the Newton iterate, `x` = (x_H⁺, x_H₂) of the zone (or `nothing`). Number-type generic.
+M6 (MLT_BUOY, TDC): `material_lrzone(m, k, ρ, T, x, rs, dual) -> (; cpl, d, fr, tau)`: the blob thermodynamics of zone k at the Newton iterate (`PopIIIMaterial.lr_zone`, `LResp`): `d` the response input
+(EOS values and (ρ, T, x) derivatives, the rates' Jacobian), `fr` the frozen-composition thermodynamics, `cpl` whether the zone has a network response. `x` = (x_H⁺, x_H₂, x_HI) of the zone (or `nothing`), `rs` =
+`CPLRAD[]` (the star-light state of the residual), `dual = false`: values only. Number-type generic; exact (outer Duals through the second derivatives of the CK rates).
 """
-function material_convthermo end
-function material_tchem end
+function material_lrzone end
+"The residual's star-light state `(slst, Mg)` (set in `residual!` before the material sweep); read by `material_lrzone` for the local variables of the coupled zones."
+const CPLRAD = Ref{Any}(nothing)
 """
 MLT convection (Phase 7, Tom's choice: local, time-independent MLT). At interior interfaces
 F_conv = ρ c_P T √(gδ) ℓ² ζ³ / (4√2 H_P^{3/2}),  ζ = √(U² + ∇ − ∇_ad) − U  (0 if ∇ ≤ ∇_ad),
@@ -914,10 +917,10 @@ Default off (the earlier runs, with r_out = 1.2 R, did not need it).
 const MLT_NOINFALL = Ref(false)
 """
 MLT_BUOY[] (M2, provisional, default false = the production MLT block, bit-identical): the MLT superadiabaticity from the density contrast of a blob (TDC.blob_sup, design D1)
-instead of ∇ − ∇_ad: `sup = A/(δ_b |ΔlnP_hs|)`, with the thermodynamics of the two zones at the iterate (`material_convthermo`, Duals included), equilibrium/frozen blend f from
-t_chem (`material_tchem`), no ∇_ad placeholder, no MLT_HS blend. docs/POPIII_CONVECTION.md M2, docs/POPIII_SWITCH_INVENTORY.md.
+instead of ∇ − ∇_ad: `sup = A/(δ_b |ΔlnP_hs|)`, with the thermodynamics of the two zones at the iterate (`material_lrzone`, Duals included): M6, the network's own linear response at ω = 1/t_turn (`LResp`; replaced M2's
+equilibrium/frozen blend), no ∇_ad placeholder, no MLT_HS blend. docs/POPIII_CONVECTION.md M2, M6, docs/POPIII_SWITCH_INVENTORY.md.
 """
-const MLT_BUOY = Ref(false); const BUOYEQFAIL = Ref(0)      # (counter: interfaces where the equilibrium table could not be evaluated)
+const MLT_BUOY = Ref(false)
 """
 CONVDIAG (popiii_m2c `CONVDIAG=1`, default off; diagnostic only, the solution is bit-identical on or off): `conv_diag_pass` re-evaluates the Float64
 residual once at the accepted state with `CVD_ON[]` set. Only then do the blocks marked `cvp` write the MLT intermediates (raw and blended ∇,
@@ -927,7 +930,7 @@ convcoef keeps the τ and the inflow factor of `cvw` in `BUFS[:cvwt]`, `BUFS[:cv
 const CONVDIAG = Ref(false)
 const CVD = Dict{Symbol,Vector{Float64}}(); const CVD_ON = Ref(false)
 const CVD_NAMES = (:rhoi, :Ti, :Pi, :g, :HP, :lmix, :frad, :lp_raw, :lph, :hs_w, :nab_raw, :nab, :nad_used, :cp_used, :del_used, :kap, :fpot, :vpot, :fconv, :vconv,
-                   :sup, :fchem, :tchem, :delb, :cpb, :kap_grey,
+                   :sup, :gam1b, :gam1_0, :gam1_inf, :wtau, :tchem, :delb, :cpb, :kap_grey,
                    :tdc_w, :tdc_PtP, :tdc_Dmix, :tdc_Q, :tdc_Fres, :tdc_a, :tdc_U, :e_tdc,
                    :e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res)
 @inline cvrec!(nm::Symbol, k, x) = (@inbounds CVD[nm][k] = Float64(ForwardDiff.value(x)); nothing)
@@ -1072,17 +1075,17 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
                                                    (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
                               -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (r[k+1] - r[k-1]) / HP
         ΔlnP = log(Pp / Pm); ΔlnT = log(tn[k] / tn[k-1]); Δlnρ = log(dn[k] / dn[k-1])
-        sup, δb, cpb, fbl = buoy_blob(zv[k-1], zv[k], ΔlnP, ΔlnT, Δlnρ, lph, l, gk, HP)      # screening: the zones' Float64 thermodynamics, sup's value is the true one
+        sup, δb, cpb, Γb, ωb = buoy_blob(zv[k-1], zv[k], ΔlnP, Δlnρ, lph, gk, HP)      # screening: the zones' Float64 thermodynamics, sup's value is the true one
         wnear = ForwardDiff.value(tw[k-1]) != 0 || ForwardDiff.value(tw[k]) != 0 || ForwardDiff.value(tw[k+1]) != 0 || two[k-1] != 0 || two[k] != 0 || two[k+1] != 0
         if T !== Float64 && (ForwardDiff.value(sup) > 0 || wnear)  # with the zones' derivatives wherever a row or a flux can depend on them
             for j in (k - 1, k); zd[j] === nothing && (zd[j] = _buoy_zone(MATERIAL[], W, dn, tn, j, T)); end
-            sup, δb, cpb, fbl = buoy_blob(zd[k-1], zd[k], ΔlnP, ΔlnT, Δlnρ, lph, l, gk, HP)
+            sup, δb, cpb, Γb, ωb = buoy_blob(zd[k-1], zd[k], ΔlnP, Δlnρ, lph, gk, HP)
         end
         a, U = tdc_ay(l, gk, δb, HP, cpb, ρi, κk, Ti, 4P.csigr)
         ta[k] = a; tU[k] = U; tsup[k] = sup; tHP[k] = HP; trho[k] = ρi; tT[k] = Ti; tcp[k] = cpb; tdel[k] = δb; tg[k] = gk; tok[k] = true
         if cvp
             cvrec!(:rhoi, k, ρi); cvrec!(:Ti, k, Ti); cvrec!(:Pi, k, Pi); cvrec!(:g, k, gk); cvrec!(:HP, k, HP); cvrec!(:lmix, k, l); cvrec!(:frad, k, Mg_ === nothing ? W.fr[k] : sum(Mg_.fg[g][k] for g in 1:MGN[])); cvrec!(:kap_grey, k, avchi[k])
-            cvrec!(:lp_raw, k, ΔlnP); cvrec!(:lph, k, lph); cvrec!(:sup, k, sup); cvrec!(:fchem, k, fbl); cvrec!(:tchem, k, 0.5 * (zv[k-1][2] + zv[k][2])); cvrec!(:delb, k, δb); cvrec!(:cpb, k, cpb)
+            cvrec!(:lp_raw, k, ΔlnP); cvrec!(:lph, k, lph); cvrec!(:sup, k, sup); let bd = buoy_diag(zv[k-1], zv[k], ωb); cvrec!(:gam1b, k, Γb); cvrec!(:gam1_0, k, bd.gam1_0); cvrec!(:gam1_inf, k, bd.gam1_inf); cvrec!(:wtau, k, bd.wtau); cvrec!(:tchem, k, bd.tau); end; cvrec!(:delb, k, δb); cvrec!(:cpb, k, cpb)
             cvrec!(:nab_raw, k, ΔlnT / ΔlnP); cvrec!(:kap, k, κk); cvrec!(:cp_used, k, cpb); cvrec!(:del_used, k, δb)
             cvrec!(:fpot, k, sup > 0 ? kw_mlt_flux(ρi, cpb, Ti, gk, δb, l, HP, U, sup) : 0.0); cvrec!(:vpot, k, sup > 0 ? tdc_mlt_w(a, U, sup) : 0.0)
             cvrec!(:tdc_a, k, a); cvrec!(:tdc_U, k, U)
@@ -1168,39 +1171,39 @@ end
     true
 end
 """
-M2 (MLT_BUOY): zone thermodynamics next to the MLT interfaces, `(th, t_chem)` = `material_convthermo`, `material_tchem` at (ρ_j, T_j) and the zone's own species (x_H⁺, x_H₂)_j.
-`_buoy_zone_val`: Float64 (the values of the iterate), for the screening of which interfaces have sup > 0; `_buoy_zone_dual`: at the iterate with derivatives (Duals in a solve),
-computed only for the zones of interfaces with sup > 0 (an interface with sup ≤ 0 has no flux and no derivative, exactly as the branch `sup > 0` of the MLT block).
+M6 (MLT_BUOY, TDC): zone thermodynamics next to the interfaces, `material_lrzone` at (ρ_j, T_j) and the zone's own species (x_H⁺, x_H₂, x_HI)_j and star-light state of the iterate.
+`S = Float64`: the values of the iterate (screening of which interfaces have sup > 0, no second derivatives); `S` a Dual type: at the iterate with derivatives, computed only for the zones of interfaces
+with sup > 0 or a neighbouring w (an interface with sup ≤ 0 and no w has no flux and no derivative: exact, not a gate).
 """
 function _buoy_zone(m, W, dn, tn, j, ::Type{S}) where {S}
     t0 = time_ns(); V(x) = S === Float64 ? Float64(ForwardDiff.value(x)) : x
     ZONE[] = j
     x = COUPLED[] ? (V(W.xs1[j]), V(W.xs2[j]), V(W.xsn[j])) : nothing      # (x_H⁺, x_H₂, x_HI) of the iterate (M3e: the neutral hydrogen of the mgxh state)
-    r = (material_convthermo(m, j, V(dn[j]), V(tn[j]), x), material_tchem(m, j, V(dn[j]), V(tn[j]), x))
+    r = material_lrzone(m, j, V(dn[j]), V(tn[j]), x, CPLRAD[], S !== Float64)
     BUOYT[S === Float64 ? 1 : 2] += 1; BUOYT[S === Float64 ? 3 : 4] += time_ns() - t0
     r
 end
 const BUOYT = zeros(Int, 4)       # (calls, ns) of the Float64 and of the Dual zone thermodynamics
-buoy_summary() = @sprintf("MLTBUOY zone thermodynamics: %d Float64 evaluations %.1f s, %d with derivatives %.1f s; equilibrium table unavailable at %d interfaces",
-                          BUOYT[1], BUOYT[3] * 1e-9, BUOYT[2], BUOYT[4] * 1e-9, BUOYEQFAIL[])
+buoy_summary() = @sprintf("MLTBUOY zone thermodynamics: %d Float64 evaluations %.1f s, %d with derivatives %.1f s (incl. the cached local data)", BUOYT[1], BUOYT[3] * 1e-9, BUOYT[2], BUOYT[4] * 1e-9)
 """
-M2 (MLT_BUOY): the blob at one interface from the thermodynamics of its two zones `zA`, `zB` (each `(th, t_chem)`): interface values are means of the two zones' values, f = mean of
-the zones' ℓ/(ℓ + t_chem a) with a = ℓ√(gδ_fr/(8H_P)) (the turnover time of an eddy is ℓ/a: smooth, finite where sup ≤ 0, no velocity iteration), `TDC.blob_sup`.
-Δlnμ is the composition and EOS-curvature part of the actual density contrast, Δlnρ − α_fr ΔlnP + δ_fr ΔlnT (φ_fr = 1), so that A = Δlnρ − ΔlnP/Γ₁,b exactly.
-Returns (sup, δ_b, c_P,b, f).
+M6 (MLT_BUOY, TDC): the blob at one interface from the thermodynamics of its two zones `zA`, `zB` (`material_lrzone`). ω = 1/t_turn with t_turn = ℓ/a, a = ℓ√(gδ_fr/(8H_P)): ω = √(gδ_fr/(8H_P)) with δ_fr the mean
+of the zones' frozen δ (M2's a; smooth, finite where sup ≤ 0, no velocity iteration). Each coupled zone responds with its network's linear response at ω (`LResp.lresp`: Re Γ₁(ω), δ(ω), c_P(ω)); table, hot and non-coupled
+zones keep their frozen = equilibrium values. Interface values are the means of the two zones; `TDC.blob_sup` with the ACTUAL Δlnρ: A = Δlnρ − ΔlnP/Γ₁,b. Returns (sup, δ_b, c_P,b, Γ₁,b, ω).
 """
-function buoy_blob(zA, zB, ΔlnP, ΔlnT, Δlnρ, lph, l, gk, HP)
-    t1, tc1 = zA; t2, tc2 = zB; hm(a, b) = 0.5 * (a + b)
-    αfr = hm(t1.alpha_fr, t2.alpha_fr); δfr = hm(t1.del_fr, t2.del_fr); φfr = hm(t1.phi, t2.phi); cpfr = hm(t1.cp_fr, t2.cp_fr); Γfr = hm(t1.gam1_fr, t2.gam1_fr)
-    Γeq = hm(t1.gam1_eq, t2.gam1_eq); δeq = hm(t1.del_eq, t2.del_eq); cpeq = hm(t1.cp_eq, t2.cp_eq)
-    aML = l * sqrt(gk * δfr / (8HP))
-    fb = hm(blob_f(l, aML, tc1), blob_f(l, aML, tc2))
-    eqok = isfinite(ForwardDiff.value(Γeq)) && isfinite(ForwardDiff.value(δeq)) && isfinite(ForwardDiff.value(cpeq))
-    eqok || (fb = zero(fb); BUOYEQFAIL[] += 1)                # equilibrium data not available (table range): frozen blob
-    Δlnμ = (Δlnρ - αfr * ΔlnP + δfr * ΔlnT) / φfr
-    sup, δb = blob_sup(ΔlnP, ΔlnT, Δlnμ, αfr, δfr, φfr, Γeq, Γfr, δeq, fb, lph)
-    cpb = iszero(fb) ? cpfr : fb * cpeq + (1 - fb) * cpfr
-    sup, δb, cpb, fb
+function buoy_blob(zA, zB, ΔlnP, Δlnρ, lph, gk, HP)
+    hm(a, b) = 0.5 * (a + b)
+    ω = sqrt(gk * hm(zA.fr.del, zB.fr.del) / (8HP))
+    tA = zA.cpl ? lresp(zA.d, ω) : zA.fr; tB = zB.cpl ? lresp(zB.d, ω) : zB.fr
+    Γb = hm(tA.gam1, tB.gam1); δb = hm(tA.del, tB.del); cpb = hm(tA.cp, tB.cp)
+    sup, _ = blob_sup(ΔlnP, Δlnρ, Γb, δb, lph)
+    sup, δb, cpb, Γb, ω
+end
+"M6 CONVDIAG record of the blob at an interface (Float64): Γ₁(ω → 0) (the network equilibrium), Γ₁(ω → ∞) (frozen), ωτ_max (τ_max the slowest relaxation time of the coupled zones' J) and the mean τ_max."
+function buoy_diag(zA, zB, ω)
+    hm(a, b) = 0.5 * (a + b)
+    g0(z) = z.cpl ? lresp(z.d, 0.0).gam1 : z.fr.gam1
+    τ = hm(zA.tau, zB.tau)
+    (; gam1_0 = hm(g0(zA), g0(zB)), gam1_inf = hm(zA.fr.gam1, zB.fr.gam1), wtau = ω * max(zA.tau, zB.tau), tau = τ)
 end
 """
 MATTHREADS pre-pass of the MLT loop: ∇_ad, c_P, δ and κ_R at the interface state (the means of the two zones, as in the
@@ -1550,6 +1553,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         else
             nothing
         end
+        CPLRAD[] = (slst, Mg)               # (M6: the blob thermodynamics of `_tdc!`/the MLTBUOY block take the zones' local variables from it)
         try
             MATERIAL[] === nothing || _material!(MATERIAL[], W, c, P, dn, tn, ern, k0, ngre)
         finally
@@ -1873,13 +1877,13 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                                                            (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
                                       -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (rn[k+1] - rn[k-1]) / HP
                 ΔlnP = log(Pp / Pm); ΔlnT = log(tn[k] / tn[k-1]); Δlnρ = log(dn[k] / dn[k-1])
-                sup, δb, cpb, fb = buoy_blob(zv[k-1], zv[k], ΔlnP, ΔlnT, Δlnρ, lph, l, gk, HP)      # screening: Float64 zone thermodynamics, the value of sup is the true one
+                sup, δb, cpb, Γb, ωb = buoy_blob(zv[k-1], zv[k], ΔlnP, Δlnρ, lph, gk, HP)      # screening: Float64 zone thermodynamics, the value of sup is the true one
                 if ForwardDiff.value(sup) > 0 && T !== Float64     # the same with the zones' thermodynamics at the iterate, with derivatives (only where there is a flux)
                     for j in (k - 1, k); zd[j] === nothing && (zd[j] = _buoy_zone(MATERIAL[], W, dn, tn, j, T)); end
-                    sup, δb, cpb, fb = buoy_blob(zd[k-1], zd[k], ΔlnP, ΔlnT, Δlnρ, lph, l, gk, HP)
+                    sup, δb, cpb, Γb, ωb = buoy_blob(zd[k-1], zd[k], ΔlnP, Δlnρ, lph, gk, HP)
                 end
                 if cvp
-                    cvrec!(:lp_raw, k, ΔlnP); cvrec!(:lph, k, lph); cvrec!(:sup, k, sup); cvrec!(:fchem, k, fb); cvrec!(:tchem, k, 0.5 * (zv[k-1][2] + zv[k][2])); cvrec!(:delb, k, δb); cvrec!(:cpb, k, cpb)
+                    cvrec!(:lp_raw, k, ΔlnP); cvrec!(:lph, k, lph); cvrec!(:sup, k, sup); let bd = buoy_diag(zv[k-1], zv[k], ωb); cvrec!(:gam1b, k, Γb); cvrec!(:gam1_0, k, bd.gam1_0); cvrec!(:gam1_inf, k, bd.gam1_inf); cvrec!(:wtau, k, bd.wtau); cvrec!(:tchem, k, bd.tau); end; cvrec!(:delb, k, δb); cvrec!(:cpb, k, cpb)
                     cvrec!(:nab_raw, k, ΔlnT / ΔlnP); cvrec!(:kap, k, κk); cvrec!(:cp_used, k, cpb); cvrec!(:del_used, k, δb)
                 end
                 W.nabv[k] = sup                          # (diagnostic outputs of the step: the superadiabaticity used; ∇_ad part 0)

@@ -87,8 +87,8 @@ const CVFIELDS = [("cv_nab", "nabla = dlnT/dlnP used by MLT (after the MLT_HS bl
     ("cv_w_tau", "MLT optical-depth weight"), ("cv_w_inf", "MLT_NOINFALL factor"), ("cv_w_th", "thermodynamic gate (1: nabla_ad,used < 1e29)"), ("cv_mach", "|u|/c_s (zone), c_s = sqrt(5/3 p_gas/rho)"),
     ("cv_branch", "zone branch: 0 network, 1 coupled network, 2 table, 3 hot"), ("cv_logt_settle", "log10 t_settle = H_P/|u| [s]"), ("cv_logt_N", "log10 1/sqrt|N^2_L| [s]"),
     ("cv_logt_turn", "log10 l/v [s]"), ("cv_logt_chem", "log10 chemical time of the coupled species [s] (NaN: not coupled)"),
-    ("cv_sup", "MLTBUOY: blob superadiabaticity sup = A/(delta_b |dlnP_hs|) (NaN without MLTBUOY)"), ("cv_fchem", "MLTBUOY: equilibrium fraction f of the blob chemistry"),
-    ("cv_tchem", "MLTBUOY: chemical relaxation time at the interface [s] (mean of the two zones)"),
+    ("cv_sup", "MLTBUOY: blob superadiabaticity sup = A/(delta_b |dlnP_hs|) (NaN without MLTBUOY)"), ("cv_gam1b", "M6: Re Gamma_1,b(omega) of the blob (network linear response at omega = 1/t_turn)"), ("cv_gam1_0", "M6: Gamma_1(omega -> 0), the network equilibrium"), ("cv_gam1_inf", "M6: Gamma_1(omega -> inf), frozen composition"), ("cv_wtau", "M6: omega tau_max (tau_max the slowest relaxation time of J = dS/dx)"),
+    ("cv_tchem", "M6: tau_max = slowest relaxation time 1/|lambda| of J = dS/dx at the interface [s] (mean of the two zones; 0: no coupled network)"),
     ("cv_e_stor", "gas-energy row: storage [erg/s/g]"), ("cv_e_pdv", "pdV work"), ("cv_e_av", "artificial viscosity work"), ("cv_e_kin", "kinetic-energy correction"),
     ("cv_e_adv", "advection"), ("cv_e_dfe", "energy diffusion"), ("cv_e_rad", "gas-radiation exchange"), ("cv_e_conv", "convective-flux divergence"),
     ("cv_e_chem", "chemistry cooling/heating"), ("cv_e_src", "nuclear source"), ("cv_e_res", "row residual"),
@@ -107,7 +107,9 @@ function cvframe(x)
         "cv_vconv" => nanavg(c.vconv) ./ 1e5, "cv_lmix" => nanavg(c.lmix) ./ Rs, "cv_w_tau" => nanavg(c.w_tau), "cv_w_inf" => nanavg(c.w_inf), "cv_w_th" => nanavg(c.w_th),
         "cv_mach" => c.mach, "cv_branch" => c.branch, "cv_logt_settle" => l10(nanavg(c.t_settle)), "cv_logt_N" => l10(nanavg(c.t_N)), "cv_logt_turn" => l10(nanavg(c.t_turn)),
         "cv_logt_chem" => l10(c.t_chem))
-    if hasproperty(c, :sup); F["cv_sup"] = nanavg(c.sup); F["cv_fchem"] = nanavg(c.fchem); F["cv_tchem"] = nanavg(c.tchem); else for nm in ("cv_sup", "cv_fchem", "cv_tchem"); F[nm] = fill(NaN, n); end; end
+    for (nm, f) in (("cv_sup", :sup), ("cv_gam1b", :gam1b), ("cv_gam1_0", :gam1_0), ("cv_gam1_inf", :gam1_inf), ("cv_wtau", :wtau), ("cv_tchem", :tchem))     # (records of older runs lack the M6 fields)
+        F[nm] = hasproperty(c, f) ? nanavg(getproperty(c, f)) : fill(NaN, n)
+    end
     for t in (:stor, :pdv, :av, :kin, :adv, :dfe, :rad, :conv, :chem, :src, :res); F["cv_e_$t"] = zg(getproperty(c, Symbol("e_", t))); end
     if hasproperty(c, :tdc_w)
         F["cv_w"] = nanavg(c.tdc_w) ./ 1e5; F["cv_PtP"] = c.tdc_PtP; F["cv_Dmix"] = nanavg(c.tdc_Dmix); F["cv_Q"] = nanavg(c.tdc_Q)

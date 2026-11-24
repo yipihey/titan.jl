@@ -446,7 +446,7 @@ function convdiag_snap(k, snap)
     end
     I(nm) = (v = NaNv(n + 1); for j in 2:n; v[j] = ps[nm][a+j-1]; end; v)       # pass quantity of interface k = a+j−1
     Z(nm) = (v = NaNv(n); for j in 1:n; v[j] = ps[nm][a+j-1]; end; v)
-    names = (:nab, :nab_raw, :hs_w, :nad_used, :cp_used, :del_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g, :sup, :fchem, :tchem, :delb, :cpb, :kap_grey)
+    names = (:nab, :nab_raw, :hs_w, :nad_used, :cp_used, :del_used, :fpot, :vpot, :fconv, :vconv, :lmix, :HP, :kap, :frad, :g, :sup, :gam1b, :gam1_0, :gam1_inf, :wtau, :tchem, :delb, :cpb, :kap_grey)
     d = Dict{Symbol,Vector{Float64}}(nm => I(nm) for nm in names)
     for nm in (:w_tau, :w_inf, :tau); d[nm] = I(nm); end
     for nm in (:e_stor, :e_pdv, :e_av, :e_kin, :e_adv, :e_dfe, :e_rad, :e_conv, :e_chem, :e_src, :e_res); d[nm] = Z(nm); end
@@ -2004,6 +2004,10 @@ try
         if haskey(ENV, "CPLJCHECK")                # Jacobian test of the coupled rows (TitanResidFast.cpl_jcheck), once
             zs = parse.(Int, split(ENV["CPLJCHECK"], ",")); once = Ref(true); g0 = TD.ROUTINES[:matgen]
             TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; a_ = Int(TF.getscalar(:ngrs)); for z in zs; TX.cpl_jcheck(a_ + z - 1); TX.cplz(a_ + z - 1) && PM.cpl_gcheck(mat, a_ + z - 1); end); g0())
+        end
+        if haskey(ENV, "LRESPTEST")                # M6 test hook (diagnostic, default off): include the given script once at the first matgen of the run, with `mat` and the loaded modules in Main
+            once = Ref(true); g0 = TD.ROUTINES[:matgen]; global LRESP_MAT = mat
+            TD.ROUTINES[:matgen] = () -> (once[] && (once[] = false; Base.include(Main, ENV["LRESPTEST"])); g0())
         end
         if haskey(ENV, "SZJCHECK")                 # Jacobian test of the radiation and energy rows (TitanResidFast.rad_jcheck), once
             zs = parse.(Int, split(ENV["SZJCHECK"], ",")); once = Ref(true); g0 = TD.ROUTINES[:matgen]

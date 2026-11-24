@@ -7,7 +7,7 @@ convection (TDC) of M3 goes in here too). Nothing here reads global state: the a
 """
 module TDC
 
-export gamma1_inv, gamma1, blob_sup, blob_f
+export gamma1_inv, gamma1, blob_sup
 export TDCPar, TDCGeom, TDCBack, AC_CGS, fb, tdc_ay, tdc_local, tdc_flux, tdc_pturb, tdc_dmix, tdc_mlt_w, tdc_mlt_zeta, kw_mlt_flux
 export tdc_F!, tdc_rows!, tdc_exchange, tdc_gas_exchange, tdc_budget_check, tdc_facew
 
@@ -21,48 +21,19 @@ dln ρ = α dln P − δ dln T = (α − δ ∇_ad) dln P ≡ dln P/Γ₁.
 @inline gamma1(α, δ, nad) = inv(gamma1_inv(α, δ, nad))
 
 """
-    blob_f(ℓ, a, t_chem) = ℓ/(ℓ + t_chem a)
+    (sup, δ_b) = blob_sup(ΔlnP, Δlnρ, Γ1_b, δ_b, ΔlnP_hs)
 
-Fraction of equilibrium chemistry in a convective blob: t_turn/(t_turn + t_chem) with the turnover time ℓ/a. t_chem = 0 (equilibrium
-zone) gives 1, t_chem = ∞ (frozen composition) gives 0. For t_chem = Inf the result is the Float64 zero (no Inf·Dual).
+Superadiabaticity of the buoyancy of a blob across one interface, replacing ∇ − ∇_ad (design D1; M6 form). Differences are taken outwards (zone k−1 → k). The blob keeps the pressure of the
+surroundings and moves adiabatically with the thermodynamics of the network's own linear response at the turnover frequency (`LResp`, `PopIIIMaterial.cpl_lr`): dln ρ_b = ΔlnP/Γ₁,b, so it is lighter
+than its surroundings, hence unstable, if A = Δln ρ − ΔlnP/Γ₁,b > 0 (Δlnρ the ACTUAL density contrast), and
+
+    sup = A/(δ_b |ΔlnP_hs|).
+
+[derivation] In a hydrostatic layer ΔlnP = ΔlnP_hs < 0, Δlnρ = α ΔlnP − δ ΔlnT + φ Δlnμ and 1/Γ₁ = α − δ∇_ad (frozen): A = −δ ΔlnP (∇ − ∇_ad) + φ Δlnμ, so sup = (∇ − ∇_ad) − (φ/δ) ∇_μ
+(∇_μ = Δlnμ/ΔlnP): the Ledoux form of the production ∇ − ∇_ad. Where ΔlnP is far from ΔlnP_hs (behind the accretion shock) the buoyancy A is still the true density contrast and |ΔlnP_hs| is only the
+normalisation that turns it into the dimension-less superadiabaticity the KW flux needs. Returns (sup, δ_b).
 """
-@inline function blob_f(ℓ, a, t_chem)
-    isinf(t_chem) && return zero(ℓ * a)
-    return ℓ / (ℓ + t_chem * a)
-end
-
-"""
-    (sup, δ_b) = blob_sup(ΔlnP, ΔlnT, Δlnμ, α_fr, δ_fr, φ_fr, Γ1_eq, Γ1_fr, δ_eq, f, ΔlnP_hs)
-
-Superadiabaticity of the buoyancy of a blob across one interface, replacing ∇ − ∇_ad (design D1). Differences are taken outwards
-(zone k−1 → k). Background, from the frozen-composition EOS of the layer and the composition difference,
-
-    Δln ρ = α_fr ΔlnP − δ_fr ΔlnT + φ_fr Δlnμ,
-
-and the blob, which keeps the pressure of the surroundings and moves adiabatically with blended thermodynamics
-
-    dln ρ_b = ΔlnP/Γ₁,b,   1/Γ₁,b = f/Γ₁,eq + (1−f)/Γ₁,fr,   δ_b = f δ_eq + (1−f) δ_fr.
-
-The blob is lighter than its surroundings, hence unstable, if A = Δln ρ − Δln ρ_b > 0, so
-
-    A   = α_fr ΔlnP − δ_fr ΔlnT + φ_fr Δlnμ − ΔlnP/Γ₁,b,        sup = A/(δ_b |ΔlnP_hs|).
-
-[derivation] In a hydrostatic layer ΔlnP = ΔlnP_hs < 0, ΔlnT = ∇ ΔlnP, and with the frozen Γ₁ (f = 0, 1/Γ₁ = α − δ∇_ad):
-A = −δ ΔlnP (∇ − ∇_ad) + φ Δlnμ, so sup = (∇ − ∇_ad) − (φ/δ) ∇_μ (|ΔlnP_hs| = −ΔlnP) with ∇_μ = Δlnμ/ΔlnP: the Ledoux form of the production
-∇ − ∇_ad. Where ΔlnP is far from ΔlnP_hs (behind the accretion shock, ΔlnP → 0) the buoyancy A is still the true density contrast, and the
-hydrostatic |ΔlnP_hs| is only the (non-zero) normalisation that turns it into the dimension-less superadiabaticity the KW flux needs.
-
-Frozen blobs (f = 0) never touch the equilibrium arguments: pass anything (NaN is fine) for Γ1_eq, δ_eq then.
-"""
-@inline function blob_sup(ΔlnP, ΔlnT, Δlnμ, α_fr, δ_fr, φ_fr, Γ1_eq, Γ1_fr, δ_eq, f, ΔlnP_hs)
-    if iszero(f)                                   # frozen: structural (not a threshold), and keeps NaN equilibrium data out
-        invG = inv(Γ1_fr); δb = δ_fr
-    else
-        invG = f / Γ1_eq + (1 - f) / Γ1_fr; δb = f * δ_eq + (1 - f) * δ_fr
-    end
-    A = α_fr * ΔlnP - δ_fr * ΔlnT + φ_fr * Δlnμ - ΔlnP * invG
-    return A / (δb * abs(ΔlnP_hs)), δb
-end
+@inline blob_sup(ΔlnP, Δlnρ, Γ1_b, δ_b, ΔlnP_hs) = ((Δlnρ - ΔlnP / Γ1_b) / (δ_b * abs(ΔlnP_hs)), δ_b)
 
 
 # =====================================================================================================================
