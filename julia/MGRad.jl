@@ -88,6 +88,13 @@ photosphere, where the groups then no longer summed to the grey diffusion flux; 
 @inline mg_chif(χR, κa, m) = val(κa) > val(χR) ? χR + exp(-χR * m) * (κa - χR) : χR
 "Column of zone k [g cm⁻²] from the density, the zone volume/(μ+1)-form and the face areas r^μ (0 where the faces vanish)."
 @inline mg_zcol(d, dvol, rmu, k) = (a = 0.5 * (rmu[k] + rmu[k+1]); (val(a) > 0 && val(dvol[k]) > 0) ? d[k] * dvol[k] / a : zero(d[k] * dvol[k]))
+# SWDIAG census ids per group (TitanDriver.sw; side 1 = condition true)
+const SW_MGCHIF = [TD.swreg("mg_chif:ka>chiR@g$g") for g in 1:6]       # mg_chif: the line-absorption part exceeds the Rosseland χ_R (the flux mean is raised)
+const SW_MGBFL = [TD.swreg("mg_bfrac_floor@g$g") for g in 1:6]          # Planck fraction of the group at the floor MGBFLOOR (new level)
+const SW_MGTWT = [TD.swreg("mgtie_wt>0@g$g") for g in 1:6]; const SW_MGTHM = [TD.swreg("mgtie_HE[k-1]>0@g$g") for g in 1:6]
+const SW_MGTHP = [TD.swreg("mgtie_HE[k]<0@g$g") for g in 1:6]; const SW_MGTHD = [TD.swreg("mgtie_hd>0@g$g") for g in 1:6]
+const SW_MGFW = TD.swreg("mg_fw_sE>0"); const SW_MGKE = TD.swreg("mg_kE<1e-300")
+@inline mg_chif_on(gv, j, k, χ, κE) = val(κE * gv[j+3, k] + gv[j+4, k] + gv[j+6, k]) > val(χ * gv[j+2, k])
 "(κ_E,g, χ_g, κ_P,g, A_1) of group g (j = mgv(g, 1)) in zone k from the record gv and the grey (χ, κ_E, κ_P) of the same level; m: zone column."
 @inline function mg_level(gv, j, k, χ, κE, κP, m)
     k1 = gv[j+4, k]
@@ -469,6 +476,7 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
         for k in ngrs-1:ngre+1
             m = mg_zcol(W.d, W.dvol, W.rmu, k)
             keN, chN, kpN, a1N = mg_level(gv, j, k, W.chifn[k], W.xken[k], W.xkpn[k], m); bn = mg_bfrac(g, tn[k])
+            TD.SWON[] && (TD.sw(SW_MGCHIF[g], k, mg_chif_on(gv, j, k, W.chifn[k], W.xken[k])); TD.sw(SW_MGBFL[g], k, val(bn) == MGBFLOOR))
             if mix
                 keO, chO, kpO, a1O = mg_level(go, j, k, c.chifo[k], c.xkeo[k], c.xkpo[k], m)
                 ke[k] = θ * keN + (1 - θ) * keO; chi[k] = θ * chN + (1 - θ) * chO
@@ -547,6 +555,7 @@ function mg_eddfac_dual!(M::MGWS{T}, c, P, W, a, b, rn, dn, tn, dvoln, cplz) whe
         @inbounds for k in a-1:b+1
             m = (a_ = 0.5 * (rmun(k) + rmun(k + 1)); (val(a_) > 0 && val(dvoln[k]) > 0) ? dn[k] * dvoln[k] / a_ : zero(dn[k] * dvoln[k]))      # (mg_zcol on the new level)
             kE, chg, kP, a1 = mg_level(V, j, k, W.chifn[k], W.xken[k], W.xkpn[k], m)
+            TD.SWON[] && TD.sw(SW_MGKE, k, val(kE) < 1e-300)
             kE = max(kE, 1e-300); em = kP * W.plfn[k] * mg_bfrac(g, tn[k])
             (g >= MGGH[] && val(a1) > 0) && (em += a1 * W.plfn[k] * mg_xfrac(g, tn[k], MGXH[]))
             for (p_, pr_) in enumerate(MGRAMP[])
@@ -560,7 +569,9 @@ function mg_eddfac_dual!(M::MGWS{T}, c, P, W, a, b, rn, dn, tn, dvoln, cplz) whe
             end
             chi[k] = chg; kp[k] = kE; pl[k] = em / kE
         end
+        TD.SWGRP[] = g
         fe, he, hx, fx, tw, gr = EDDFAC_DUAL[](c, P, a, b, chi, kp, pl, dn, tn, M.egn[g], M.fgn[g], rn, W.xs1, W.xs2, T, DBUF, SLQBUF, nothing, false, cplz; ximr = P.ximr * MGBCMB_[g])
+        TD.SWGRP[] = 0
         @inbounds for k in a:b; fg_[k] = fe[k]; hg_[k] = he[k]; end
         @inbounds for k in a+1:b; tg_[k] = tw[k]; end
         M.gdr[g] = gr
@@ -569,6 +580,7 @@ function mg_eddfac_dual!(M::MGWS{T}, c, P, W, a, b, rn, dn, tn, dvoln, cplz) whe
     @inbounds for k in a-1:b+2
         sE = zero(T); sF = zero(T)
         for g in 1:G; e_ = M.egn[g][k]; sE += e_; sF += M.fdd[g][k] * e_; end
+        TD.SWON[] && TD.sw(SW_MGFW, k, val(sE) > 0)
         fw[k] = val(sE) > 0 ? sF / sE : T(c.fedd[k])
     end
     fw
@@ -666,10 +678,13 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
                 inert + rmu[k] * (qs * fedd[k] * eg[k] - fedd[k-1] * eg[k-1] / qs) + 0.5 * rmu[k] * (fg[k] / cc^2) * (u[k+1] - u[k-1]) + drag
             end
             wt = tie ? TW[k] : 0.0
+            TD.SWON[] && TD.sw(SW_MGTWT[g], k, wt > 0)
             if wt > 0
+                TD.SWON[] && (TD.sw(SW_MGTHM[g], k, val(HE[k-1]) > 0); TD.sw(SW_MGTHP[g], k, val(HE[k]) < 0))
                 rcm = (0.5 * (r[k-1] + r[k]))^c.mu; rcp = (0.5 * (r[k] + r[k+1]))^c.mu
                 hd = SLABTIE[] ? st_hdonor(max(HE[k-1], 0.0), fedd[k-1], chi[k-1], chi[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k]) :
                                  max(HE[k-1], 0.0)
+                TD.SWON[] && TD.sw(SW_MGTHD[g], k, val(hd) > 0)
                 B = rmu[k] * fg[k] / cc - (rcm * hd * eg[k-1] + rcp * min(HE[k], 0.0) * eg[k])
                 if TIEFRAME[]                        # F_g is the comoving flux, as the grey row (TitanResidFast.TIEFRAME), per group
                     hi = min(HE[k], 0.0)

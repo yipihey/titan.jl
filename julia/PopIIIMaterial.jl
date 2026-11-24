@@ -715,6 +715,7 @@ end
 const NLONED = Ref(Float64[])
 const XNEDIAG = Ref(parse(Int, get(ENV, "XNEDIAG", "0"))); const XNEOLD = Ref(Float64[])
 "(NLOIT) (χ, κ_E, κ_P) of network zone k at the iterate (see NLOIT)."
+const SW_THOM = TD.swreg("opac_thomson_floor_active")
 function nlo_it(m::NetGas, k, ρ, T, s, o = nothing)
     κR0, κP0 = OPAC[](ρ, T)
     cz = TX.cplz(k)
@@ -844,6 +845,7 @@ function nlo_it(m::NetGas, k, ρ, T, s, o = nothing)
         neL = get(TX.SLQBUF, (:locop_ne, typeof(ned)), nothing)
         neL !== nothing && k <= length(neL) && (@inbounds (neL::Vector{typeof(ned)})[k] = ned)
     end
+    TD.SWON[] && TD.sw(SW_THOM, k, ForwardDiff.value(COp.σT * ned / ρ) > ForwardDiff.value(κR0 * RR))      # (SWDIAG census) the Thomson floor of χ is active
     return chicap(max(κR0 * RR, COp.σT * ned / ρ), T), κP0 * RE, κP0 * RP
 end
 "(diagnostic, NLOITDIAG=n: n sweeps of fill_opac!) per network zone the NLOIT opacities against those the lagged NLOPAC ratio would give at the same state."

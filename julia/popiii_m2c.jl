@@ -1730,8 +1730,8 @@ function mg_eddfac!(f0)
                 kp[k] = kE; pl[k] = em / kE
             end
             copyto!(er, TX.MGEN[][g]); copyto!(fr, TX.MGFN[][g]); TF.setscalar!(:ximr, xi0 * TX.MGBCMB_[g])
-            TC.HPON[] = true
-            try f0() finally TC.HPON[] = false end
+            TC.HPON[] = true; TD.SWGRP[] = g
+            try f0() finally TC.HPON[] = false; TD.SWGRP[] = 0 end
             hp = TX.MGHPLUS[][g]; @inbounds for k in eachindex(hp); hp[k] = k <= length(TC.HPLUS) ? TC.HPLUS[k] : 0.0; end
             copyto!(TX.MGFEDD[][g], TF.var(:fedd))
             length(TD.HEDD) >= b_ + 1 && (h = TX.MGHEDD[][g]; @inbounds for k in eachindex(h); h[k] = k <= length(TD.HEDD) ? TD.HEDD[k] : 0.0; end)

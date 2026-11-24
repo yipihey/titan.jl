@@ -44,6 +44,8 @@ const A = 1 / (γ * (2 - γ)); const B = (1 - γ)^2 / (γ * (2 - γ)); const C2 
 # A y_γ − B y_n written as y_γ + B (y_γ − y_n) (A = 1 + B): exact when the two states coincide (a frozen x_me of 1e47 would
 # otherwise acquire round-off 1e31 and feed dm/dt ≠ 0 into the advective terms)
 @inline cb(yγ, yn) = yγ + B * (yγ - yn)
+"SWDIAGZ=lo:hi (SWDIAG census, default 43:48): the zones whose switch sides are printed by TitanDriver.swsnap!"
+const SWZ = let z = split(get(ENV, "SWDIAGZ", "43:48"), ':'); (parse(Int, z[1]), parse(Int, z[2])) end
 const TFAC = Ref(0.05)
 const STATS = Dict(:steps => 0, :fail_tr => 0, :fail_bdf => 0, :be_fallback => 0)
 "If either stage fails, retry the same Δ with backward Euler (θ = 1) before cutting Δ (default true). The implicit
@@ -815,12 +817,14 @@ function step_err!()
             ok, err, info, Dnew = attempt_alt!(Δ, t0, Cn)
         else
         s!(:thet, 0.5); s!(:dtime, γ * Δ); s!(:timen, t0 + γ * Δ)
+        TD.SWON[] && fill!(TD.SWCUR, Int8(0))                   # (SWDIAG census: a new attempt starts with an empty store)
         ok = newton!()
         ok && !finite_new() && (ok = false; ESTATS[:nonfinite] += 1)        # a non-finite stage is a failed attempt
         if !ok
             STATS[:fail_tr] += 1
         else
             TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:tr, γ * Δ)
+            TD.SWON[] && TD.swsnap!(:tr, SWZ[1] + Int(g(:ngrs)) - 1:SWZ[2] + Int(g(:ngrs)) - 1, Int(g(:jstep)), γ * Δ)
             STAGECONS_HOOK[] === nothing || STAGECONS_HOOK[](:tr, Δ, Cn)
             Cg = combos_new()
             if bdf_old!()
@@ -830,6 +834,7 @@ function step_err!()
                 ok && !finite_new() && (ok = false; ESTATS[:nonfinite] += 1)
                 if ok
                     TD.STAGE_HOOK[] === nothing || TD.STAGE_HOOK[](:bdf, C2 * Δ)
+                    TD.SWON[] && TD.swsnap!(:bdf, SWZ[1] + Int(g(:ngrs)) - 1:SWZ[2] + Int(g(:ngrs)) - 1, Int(g(:jstep)), C2 * Δ)
                     STAGECONS_HOOK[] === nothing || STAGECONS_HOOK[](:bdf, Δ, Cn)
                     C1 = combos_new(); Cs = combos_old()
                     Dnew = Dict(s_ => (C1[s_] .- Cs[s_]) ./ (dW * Δ) for s_ in keys(C1))
