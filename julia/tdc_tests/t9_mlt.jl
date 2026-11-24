@@ -1,6 +1,6 @@
 include(joinpath(@__DIR__, "harness.jl"))
 open_log("t9_mlt")
-lp("T9: steady local MLT limit (A_s=A_d=A_c=1)")
+lp("T9: steady local MLT limit (A_s=A_d=A_c=1); tdc_ay now carries the Henyey U (M7), tdc_ay_kw the KW U; the structure w²+2Uaw=a²sup is the same for both")
 par = TDCPar(A_s = 1.0, A_d = 1.0, A_c = 1.0, α_t = 0.0)
 # (1) pure local equation: Newton root of R_loc(w) = 0 vs a ζ, over a grid (sup, U)
 maxerr = 0.0; n = 0
@@ -35,6 +35,18 @@ let maxf = 0.0, maxw = 0.0, m = 0, worst = 0.0, maxfs = 0.0, mtight = 0
     check("F_c(a zeta) == KW MLT flux (direct form), $mtight cases with U²/sup<=1e3", maxf <= 1e-12, @sprintf("max rel err %.2e", maxf))
     check("F_c direct form within the cancellation bound eps*16U²/sup, all $m cases", worst <= 1, @sprintf("max err/bound %.2e", worst))
     check("F_c steady-root form == KW MLT flux, all $m cases", maxfs <= 1e-12, @sprintf("max rel err %.2e; max |R_loc|ℓ/(a²sup) %.1e", maxfs, maxw))
+end
+# (2b) the same identities with the KW U (tdc_ay_kw), and the Henyey/KW agreement in the thick limit
+let maxf = 0.0, m = 0
+    for κ in 10.0 .^ (-3:1.0:6), sup in 10.0 .^ (-6:1.0:1)
+        ρ = 3e-9; c_P = 2.5e8; T = 4e4; g = 1e5; δ = 1.1; H_P = 7e9; ℓ = H_P
+        a, U = tdc_ay_kw(ℓ, g, δ, H_P, c_P, ρ, κ, T); w = tdc_mlt_w(a, U, sup)
+        Fs = par.A_c * ρ * c_P * T * w * (ℓ / (2H_P)) * (par.A_d / par.A_s) * (w / a)^2
+        maxf = max(maxf, abs(Fs - kw_mlt_flux(ρ, c_P, T, g, δ, ℓ, H_P, U, sup)) / Fs); m += 1
+    end
+    check("KW-U variant: steady-root F_c == kw_mlt_flux, $m cases", maxf <= 1e-12, @sprintf("max rel err %.2e", maxf))
+    ρ = 3e-9; κ = 1e6 / (ρ * 7e9); a, U = tdc_ay(7e9, 1e5, 1.1, 7e9, 2.5e8, ρ, κ, 4e4); _, Uk = tdc_ay_kw(7e9, 1e5, 1.1, 7e9, 2.5e8, ρ, κ, 4e4)
+    check("Henyey U → KW U at ω = 1e6", abs(U / Uk - 1) <= 3e-12, @sprintf("%.2e", U / Uk - 1))
 end
 # (3) harness: uniform background, no advection/diffusion, long-time solution, from small seed and from a large seed
 for (U, sup) in ((1e-3, 0.3), (1.0, 0.05), (30.0, 1e-3), (1e3, 1e-2), (0.1, 5.0)), w0f in (1e-3, 4.0)

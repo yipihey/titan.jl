@@ -1,0 +1,25 @@
+T11: Henyey-Vardya-Bodenheimer (1965) thin-eddy radiative losses in tdc_ay (y = 1/3, nu = 8: MESA defaults)
+PASS AC_CGS = 4 σ_SB (a_rad c)  ratio-1 = 0.0e+00
+(i) omega >> 1: U_Henyey/U_KW (y=1/3) = omega^2/(omega^2+3) -> 1
+   omega=1e1  U_H/U_KW = 0.970873786408   1-ratio = 2.913e-02 (3/omega^2 = 3.000e-02)
+   omega=1e2  U_H/U_KW = 0.999700089973   1-ratio = 2.999e-04 (3/omega^2 = 3.000e-04)
+   omega=1e3  U_H/U_KW = 0.999997000009   1-ratio = 3.000e-06 (3/omega^2 = 3.000e-06)
+   omega=1e4  U_H/U_KW = 0.999999970000   1-ratio = 3.000e-08 (3/omega^2 = 3.000e-08)
+   omega=1e5  U_H/U_KW = 0.999999999700   1-ratio = 3.000e-10 (3/omega^2 = 3.000e-10)
+   omega=1e6  U_H/U_KW = 0.999999999997   1-ratio = 3.000e-12 (3/omega^2 = 3.000e-12)
+PASS U_H/U_KW = ω²/(ω²+3) to round-off, ω=1e1..1e6  max rel dev 5.6e-16, monotone true
+PASS ω=1e6: U_H == U_KW to 3e-12 (KW is the ω→∞ limit)  -3.00e-12
+PASS y = 3/(4π²): thick limit U_KW/(3y)  -1.32e-11
+(ii) omega << 1: U -> a_rad c T^3 kappa l/(c_P a) = 4 sigma T^3 kappa l/(c_P a)  <=>  Gamma_thin = 2 v t_loss/l, t_loss = c_P/(16 sigma T^3 kappa)
+PASS U = U_thin/(1+yω²), U_thin = 4σT³κℓ/(c_P a); ω=1e-1..1e-8, y∈{1/3,3/4π²}  max rel dev 2.2e-16
+PASS Γ = (1+yω²)·2 v t_loss/ℓ, t_loss = c_P/(16σT³κ) (thin: Γ_thin = 2 v t_loss/ℓ)  max rel dev 4.4e-16
+PASS ForwardDiff dU/dκ == centred FD (thin→thick)  1.0e-10
+PASS κ = 0: U = 0 finite (KW U diverges)  
+PASS (a) steady TDC a ζ(U_H, sup) == Henyey-MLT v (Ludwig A.1-2, independent of U), 352 cases (ω 1e-4..1e6, sup 1e-6..10, y∈{1/3,3/4π²}, ℓ∈{0.3,1}H_P)  max rel err 6.66e-16
+PASS (a) Γ = w/(2Ua) == Ludwig Γ(ω, v)  max rel err 1.11e-15
+PASS (a) F_c: kw_mlt_flux(U_H) and tdc_flux steady form == f2 ρ c_P v T Λ(∇−∇e)/H_P  max rel err 2.11e-15
+PASS (b) MESA/C&G cubic (a0(ω)): its (v, ∇) satisfies a ζ(U_H, ∇−∇ad) = v, 352 cases  max rel err 6.00e-15
+PASS (b) F_c flux of the cubic solution == kw_mlt_flux(U_H, ∇−∇ad)  max rel err 6.88e-15
+PASS local root == a ζ with Henyey U (ω 1e-3..1e4)  max rel err 2.96e-16
+PASS ω=1e-6, sup=1: ζ_Henyey ≈ √sup, ζ_KW suppressed  ζ_H/√sup = 0.997186, ζ_KW/√sup = 5.91e-11 (U_KW = 8.5e+09, U_H = 2.8e-03)
+T11 failures: 0
