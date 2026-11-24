@@ -182,6 +182,10 @@ struct TDCBack
     ellz::AbstractVector
 end
 
+# Default upwind decision of the zone-centre face j: the sign of the mass flux itself. The TITAN residual passes
+# `TitanResidFast.decide(:up, 30, …)` instead, so that the donor side is recorded at the base state and held during the Jacobian / FD
+# J·v evaluations, like every other upwind and limiter branch of the residual (`advect!`).
+@inline _upraw(j, x::Bool) = x
 """
     tdc_facew(Φ, wlo, whi, cen) 
 
@@ -189,10 +193,6 @@ Face value of w at a zone centre between the interfaces (wlo = lower index, whi 
 first-order upwind (donor) value, blended with the centred value by `cen` ∈ [0,1] (cen = 0: pure upwind, cen = 1: centred,
 2nd order; the θ-weighting of the momentum row). No limiter (the FB row keeps w ≥ 0 but a centred face can overshoot).
 """
-"""Default upwind decision of the zone-centre face j (local zone index): the sign of the mass flux itself. The TITAN residual passes
-`TitanResidFast.decide(:up, 30, …)` instead, so that the donor side is recorded at the base state and held during the Jacobian / FD
-J·v evaluations, like every other upwind and limiter branch of the residual (`advect!`)."""
-@inline _upraw(j, x::Bool) = x
 @inline function tdc_facew(Φ, wlo, whi, cen, isup::Bool = Φ >= 0)
     don = isup ? whi : wlo
     return cen == 0 ? don : (1 - cen) * don + cen * 0.5 * (wlo + whi)
