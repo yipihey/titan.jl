@@ -60,3 +60,7 @@ step,wall_s
    830 2.083e+06 |    0.0536    42 4.055e+05 |    0.0529    43 |   1.3975   1.3975   1.5441  2.04e-04
    840 3.226e+04 |    0.0284    42 3.418e+05 |    0.0558    43 |   1.3900   1.3900   1.5413  1.84e-04
    850 1.874e+06 |     0.051    42 4.020e+05 |    0.0536    43 |   1.3962   1.3962   1.5435  2.01e-04
+
+# wall time (START line of run.out to the last write of run.out; the two runs were concurrent on cores 112-119 (before) and 72-79 (after))
+pil_base: TART Tue Nov 24 11:32:08 PST 2026 -> 2026-11-24 12:50:26
+pil_new: TART Tue Nov 24 11:23:06 PST 2026 -> 2026-11-24 11:47:59
