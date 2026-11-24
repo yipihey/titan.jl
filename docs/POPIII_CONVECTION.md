@@ -674,3 +674,105 @@ Files/functions both sides touch: `NewtonKrylov.jl` (`Snap`/`extras` — array c
 Cause [read, found by the coordinator]: `TDC.tdc_facew` took the raw sign of the mass flux Φ for the donor side, whereas `advect!` routes every upwind/limiter branch through `TitanResidFast.decide(:up, id, …)` (recorded at the base state, held in the band Jacobian and the FD J·v: FREEZE). At ṁ ≈ 0 (layer at rest) the FD evaluations flipped the donor, the AD followed the base branch. Fix (popiii-subconv 4636f84, merged c42d4dc): `tdc_F!`/`tdc_exchange` take `up`, the residual passes `decide(:up, 30, ngrs+j-1, …)`. The merged TDC.jl did not load (two consecutive docstrings, `_upraw`); fixed by a comment (commit after c42d4dc).
 Re-test (scratch worktree of that commit; same checkpoint `ct`, MGROUPS=4, TDC=1, NWPROBE=1e4, NKCHECK=2, zones 34–46; `nkcheck_summary_fixed.txt`, `nkcheck_wrows_tdc_fixed.txt`): **w rows at the active interfaces: zone 40 (w = 2.2e4) rel 2.6e-9, zone 41 (w = 3.8e4) 1.4e-8** (before 0.38, 0.45); zone 39 (w = 0) 1.6e-8; zone 42 3.7e-3 (w = 1e-13, FB kink); zones 43–46 (w ≪ FD step) untestable by FD as in M3b.3(b). All other rows unchanged to the printed digits (u 3.6e-10, T 1.9e-5, z_H 2.8e-7, x_H₂ 1.3e-7, E_g1–4 ≤ 2.7e-5; F_g2/F_g3 baseline noise; FD NaN at 46–48 as before).
 Bit-identity with the convection switches unset, against mgprod 6f59f18, at the fixed commit: MGROUPS off IC 40 steps 300 fields 0 differences (`bitid_ic40_mgoff_c42d4dc.txt`); MGROUPS=4 restart rp_k650 40 steps 240 fields 0 differences (`bitid_mg_restart650_c42d4dc.txt`).
+
+## M4 — Bracket of the accretion history (22–24 Nov 2026)
+
+### Set-up [run]
+
+**Lanes.** All lanes start from replay checkpoint `rp_k290`: zie1, 5 yr after protostar formation, 0.29 M☉, 100 zones.
+- Lane runner: `scripts/subconv/m4run.sh`, which runs segments of 400 steps until M* ≥ 34 M☉.
+- Code: `wt_m4`, with the TitanCore of aace2a0 (as for every replay restart, M1/M3b).
+  - B1 ran on 4c026bc. The TDC lanes ran on dcb9bb8, which includes M3d and predates the decide() upwind fix of 4636f84. That fix changes only the Jacobian, not the residual.
+- Settings: zie1's run.env plus `CONVDIAG=1`.
+- Comparison: `scripts/subconv/m4compare.py`, giving `docs/logs/subconv/m4/compare_final_zie1.txt` (with its .png files) and `compare_final_zie3.txt`.
+
+**Why the 0-yr phase is not bracketed.** TDC from k115 meets the radiation-closure wall of M3c, which is not a convection effect.
+
+| case | definition | reached |
+|---|---|---|
+| B0 | production (replay zie1rp; no convection in the layer, M1) | 33.8 M☉ (step 2400) |
+| B1 | local MLT with the M2 buoyancy and thermodynamics (`MLTBUOY=1`) | 34.1 |
+| B2 | TDC best estimate, `TDCPAR=1,1,1,1,0.01,1,0` (α = 1.5, α_p = 1, α_t = 0.01, α_D = 1) | 45.9 |
+| B3a / B3b | B2 with α = 0.75 / 3.0 | 49.3 / 46.3 |
+| B3c | B2 without overshoot diffusion (α_t = 0) | 45.8 |
+| B4 | B2 without turbulent pressure (α_p = 0) | 45.8 |
+| B5 | efficient-convection proxy: B2 with α = 10 (ℓ ≫ H_P, so ∇ → ∇_ad, and D_mix ∝ ℓw large) | 7.2 (still running) |
+| B0z3 / B2z3 | B0 / B2 on zie3's 298-zone mesh, from zie3rp k775 (0.29 M☉) | 1.3 / 0.6 (running) |
+
+B5 approximates "forced adiabatic + full mixing" with large α; it does not literally impose ∇ = ∇_ad [interpretation].
+
+### Results [run, `compare_final_zie1.txt`; spread = (max − min)/B0 over B0–B5 at fixed M*]
+
+**The layer itself** (cv_ scalars):
+- In every convective case it carries the whole flux, F_conv/F_tot ≈ 1, up to about 2 M☉ (≈ 50 yr). It is intermittent after that and has mostly disappeared by 3–10 M☉. That is consistent with M1: the layer is unstable only early.
+- Turbulent pressure behind the shock, P_t/P: 2–17 % in B2, 3–11 % in B3b (2α), ≤ 5 % in B3a, and 22–59 % in B5.
+
+**Accretion:**
+- Ṁ through 10⁴ R☉ is unchanged: spread ≤ 0.36 % in all cases, at every M*.
+- Ṁ at the shock [P] varies by 4–10 %.
+
+**Infall and entropy:**
+- Peak infall speed u_min: spread ≤ 13 % without B5, and up to 23 % with B5 at 3–5 M☉ (faster infall onto a smaller star).
+- Post-shock entropy proxy s_ps [P]: spread ≤ 6 %.
+
+**The star:**
+- R*: B1–B4 differ by at most one zone (the mesh has 29 % steps in r). B5 is two zones smaller at 3–5 M☉ (−40 %).
+- T_c rises with convection efficiency: +2–5 % at 2–30 M☉ (B2 +5.4 % at 30 M☉; B5 +4.9 % at 5 M☉).
+- Deuterium: L_D at 10–30 M☉ differs by factors of 2–4 between cases, and ⟨X_D⟩ inside R* by 2 % at 30 M☉. Burning starts at the same mass; its rate is sensitive to T_c.
+- No case reaches pp or CNO onset (L > 1e-3 L_ph) by 46 M☉, so these onset masses are not bracketed.
+
+**Photosphere:**
+- B0's L_ph scatters by about 1 dex (rolling σ log L_ph ≈ 1.0–1.4) through 20 M☉, so the pointwise L_ph and T_eff differences are noise-dominated [P].
+- The TDC cases are quieter at 10–20 M☉ (σ 0.015–0.6). Convection in the layer damps the photospheric fluctuations of the 100-zone runs [run; mechanism not isolated].
+
+**Resolution** [run, `compare_final_zie3.txt`, 0.29–0.5 M☉ only]:
+- On the 298-zone mesh, TDC also convects with F_conv/F = 1 and P_t/P 1.3–1.8 %. Its effect is smaller than at 100 zones: R* −1.5 %, Ṁ_shock +1.8 %, s_ps −0.3 %, T_c +0.04 %.
+- The zie3 mesh itself (B0z3 vs B0) moves R* by more than the whole convection bracket does (46 vs 60 R☉ at 0.3 M☉).
+
+### Conclusion [interpretation]
+
+In 1D, convection in the sub-shock layer is real, and with the gate open it is efficient early on (≲ 2 M☉). It barely changes the accretion history:
+- the mass inflow is unchanged;
+- R* moves by about one zone;
+- infall speed changes by ~10 %, and by ~20 % in the efficient limit;
+- T_c rises by a few %, which shifts the deuterium-burning rate by factors of 2–4.
+
+The effect at 100 zones is of the same order as, or smaller than, the effect of the resolution itself, and on the 298-zone mesh it is smaller still.
+
+**What 1D cannot bracket:**
+- corrugation of the shock by plumes;
+- lateral transport;
+- turbulent pressure fluctuations in the jump.
+
+These need the multi-D calibration of M5. **Open:** B5 and the zie3 pair to 34 M☉ (running); the T10 resolution test at ~1000 effective zones; the 0-yr phase (blocked by the M3c closure wall).
+
+## M5 — Plan for the multi-D calibration (written plan only; not started, needs Tom's agreement)
+
+**Target.** A 2D wedge, later 3D, of the 111-yr state (rp_k655: R* = 278 R☉, 3.2 M☉). Radial range about 240–700 R☉: the unstable layer at 0.6–0.8 R*, the shock, and about 1.5 R* of inflow.
+
+**Resolution and domain.**
+- ≥ 20–30 zones per H_P in the layer. H_P/r ≈ 0.06–0.2 (M1), so Δr/r ≈ 3e-3: about 400 radial zones.
+- 90° in θ with comparable aspect ratio, i.e. about 500 θ zones. Periodic or reflecting in θ.
+
+**Physics.**
+- The run's EOS: a PopIIIEqEOS table in the equilibrium limit, which M1 shows applies to the layer (t_chem ≪ 1/N).
+- Gray flux-limited diffusion with the run's Rosseland/Planck means (G2/StellarOpacity tables).
+- Gravity from the enclosed mass.
+
+**Boundary conditions.**
+- Inflow at the outer boundary from the 1D profile (ρ, u, T).
+- Inner boundary at 240 R☉: a hydrostatic reflecting wall with the 1D luminosity.
+
+**Calibration quantities:**
+- the convective flux and the depth of the mixed layer, against α (A_s, A_d);
+- the turbulent pressure in the post-shock state, against α_p;
+- overshoot towards the shock, against α_t;
+- the mixing of the ionisation fraction, against α_D;
+- shock corrugation amplitude and SASI-like modes (1D cannot represent these);
+- convergence at 2× resolution.
+
+**Host code** (Tom to choose):
+- (a) **NestedTurbulence** (Julia/KernelAbstractions, GPU, Float32 per the A6000 rule). It needs gray FLD and a tabulated EOS.
+- (b) An external radiation-hydro code with FLD, e.g. Athena++ (implicit radiation) or a MESA-independent setup.
+
+[estimate] Cost: with (a), 2D at 400×500 is about 2e5 cells; to run ~10 turnovers (≈ 10⁷ s) at an FLD-limited Δt is hours on the GPU.

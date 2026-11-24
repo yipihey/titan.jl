@@ -123,6 +123,7 @@ def main():
     ap.add_argument('--out', default=None)
     ap.add_argument('--window', type=int, default=20)
     ap.add_argument('--smin', type=int, default=290)
+    ap.add_argument('--ref', default='B0', help='reference case for the relative differences')
     a = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
     out = a.out or os.path.join(here, '..', '..', 'docs', 'logs', 'subconv', 'm4')
@@ -152,7 +153,7 @@ def main():
     P('Onset masses: first M* where L_pp or L_CNO > 1e-3 L_ph for 3 consecutive frames (NaN: not reached). Fluctuations depend on snapshot cadence per case.')
     P('cv_* columns exist only for CONVDIAG=1 lanes (NaN for B0). Rel diff = (case-B0)/|B0| ; spread = (max-min)/|B0| over all cases (incl. B0).')
     P('')
-    ref = 'B0' if 'B0' in data else None
+    ref = a.ref if a.ref in data else None
     def table(xname, xkey, targets, fmt_x):
         P('=' * 110); P(f'TABLE vs {xname}'); P('=' * 110)
         for key, lab, prox, _, _ in QUANT:
