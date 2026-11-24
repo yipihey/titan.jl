@@ -704,3 +704,34 @@ The effect at 100 zones is of the same order as, or smaller than, the effect of 
 - turbulent pressure fluctuations in the jump.
 
 These need the multi-D calibration of M5. **Open:** B5 and the zie3 pair to 34 M☉ (running); the T10 resolution test at ~1000 effective zones; the 0-yr phase (blocked by the M3c closure wall).
+
+## M5 — Plan for the multi-D calibration (written plan only; not started, needs Tom's agreement)
+
+**Target.** A 2D wedge, later 3D, of the 111-yr state (rp_k655: R* = 278 R☉, 3.2 M☉). Radial range about 240–700 R☉: the unstable layer at 0.6–0.8 R*, the shock, and about 1.5 R* of inflow.
+
+**Resolution and domain.**
+- ≥ 20–30 zones per H_P in the layer. H_P/r ≈ 0.06–0.2 (M1), so Δr/r ≈ 3e-3: about 400 radial zones.
+- 90° in θ with comparable aspect ratio, i.e. about 500 θ zones. Periodic or reflecting in θ.
+
+**Physics.**
+- The run's EOS: a PopIIIEqEOS table in the equilibrium limit, which M1 shows applies to the layer (t_chem ≪ 1/N).
+- Gray flux-limited diffusion with the run's Rosseland/Planck means (G2/StellarOpacity tables).
+- Gravity from the enclosed mass.
+
+**Boundary conditions.**
+- Inflow at the outer boundary from the 1D profile (ρ, u, T).
+- Inner boundary at 240 R☉: a hydrostatic reflecting wall with the 1D luminosity.
+
+**Calibration quantities:**
+- the convective flux and the depth of the mixed layer, against α (A_s, A_d);
+- the turbulent pressure in the post-shock state, against α_p;
+- overshoot towards the shock, against α_t;
+- the mixing of the ionisation fraction, against α_D;
+- shock corrugation amplitude and SASI-like modes (1D cannot represent these);
+- convergence at 2× resolution.
+
+**Host code** (Tom to choose):
+- (a) **NestedTurbulence** (Julia/KernelAbstractions, GPU, Float32 per the A6000 rule). It needs gray FLD and a tabulated EOS.
+- (b) An external radiation-hydro code with FLD, e.g. Athena++ (implicit radiation) or a MESA-independent setup.
+
+[estimate] Cost: with (a), 2D at 400×500 is about 2e5 cells; to run ~10 turnovers (≈ 10⁷ s) at an FLD-limited Δt is hours on the GPU.
