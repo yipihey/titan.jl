@@ -1752,3 +1752,65 @@ Limiter (`c5_wm`, `c5_dA`): z_H, zones 45 and 46 (the ionisation front), 54 of t
 
 ### 26.6 Runs
 `/zpool/nvme/data/tabel_scratch/titan_popiii/runs/t_mgz3`: `c5_a` (first solve), `c5_z3`, `c5_z3b` (zie3), `c5_gnew`, `c5_kg`, `c5_km`, `c5_wm`, `c5_ic`…`c5_ic4` (IC), `c5_dA`, `c5_dB` (CPLTHETA 0.5), `c5_dC` (CONV 1e-3). Scripts in the agent scratchpad (`go_mgz3.sh`, `go_mgz3_ic.sh`, `chain_c5*.sh`, `ana_d.py`).
+
+## 27. Lag audit of the group closure; the period-2 front mode; MG from the IC (branch `mgprod` from 77a9ef5; Task C6)
+
+### 27.1 Lag audit: where every group quantity of R(y) is evaluated
+Order inside one Newton iteration (TitanCore.update!): the correction is applied to the Float arrays, the `CPLH.update` hook (`mg_update!`: E_g, F_g and the grey sums E_r, F_r := Σ_g) runs, then `_ghost_and_derived!` (EOS, opacities including the group records MGVN, then `EDDFAC[]` = `mg_eddfac!`), then the residual. In the Jacobian-vector product (`adjv!`) the Duals are fed through `mg_theta!` and `mg_eddfac_dual!`. Result: **§26.5's "frozen f_g and h_g" is wrong for the residual and for J·v; they are frozen only in the band matrix J_b (the preconditioner).**
+
+| quantity | Float64 residual (a step) | Dual residual (J·v) | lag? |
+|---|---|---|---|
+| f_g, h_g, tie weight, outer g_g | `mg_eddfac!` in every `update!` (VEF_ITER), from E_g, F_g, χ_g, κ_E,g, source, T of the iterate | `mg_eddfac_dual!`: the same formal solution in Duals on the iterate's arrays | none |
+| grey f of the total rows | Σ f_g E_g/Σ E_g of the iterate | `M.fwt`, the same in Duals | none |
+| formal-solution source (emission, Raman, H₂ fluorescence) | MGVN record, T, E_g' of the iterate | same, Duals | none |
+| group opacities χ_g, κ_E,g, κ_P,g, K_1, A_1, Raman κ | MGVN of the iterate (`nlo_it`, same call as the grey means); old level MGVO (θ-mix, prescribed) | `M.gv` in the residual's number type | none |
+| photoionisation / heating rates of the coupled zones | `cpl_tqg`: c u_g = q_g · c u_g(record), q_g = c(E_g − E_cmb b_g)/c u_g(record) of the iterate (`sl_qt_mg`), T_c/T_c,start, escape g, deep weight dp of the iterate; the record only normalises (q_g = 1 at the start) | same with Duals; the Jacobian cache is bypassed (`cpl_closeqg`, AD_JV) | none (but see the floor below) |
+| H₂ LW absorption κ_H₂, s | `mg_h2lw!` at the iterate | same; the non-local column only inside ±3 zones in the Dual (inexact J·v, exact residual; NKCHECK passes with it, §25.2) | J·v, not a lag |
+| chemistry/cycle heat cq, yq | coupled zones: `cpQ`, `cpY` of the iterate | same | none |
+| RAYQ, GASQ, CQB, YQB | zero under MGROUPS in the coupled zones (`lwheat!` is off with MGON, RAYQ only from IonRay); CQB, YQB booked per step only for zones that are **not** coupled (CPLBAND) | same | lagged by design in uncoupled zones only, outside the front |
+| s (scales) | `mg_scales!` at the step start | same | parametrisation |
+| old-level quantities (E_g,old, slopes MGESO/MGFSO, MGVO, MGLCO) | start of the step / the TR stage | same | prescribed by the time discretisation |
+
+Nothing in R(y) that is a function of the iterate is held. No frozen path exists to delete; no lag was removed; **the solver is unchanged by this task** (the added code is the diagnostics of 27.2 and is inactive unless `EIGSTEP` is set / adds columns to DTERRDIAG prints). Two items that are not lags but violate "no clamps, floors": (i) `MGCUFL = 1e-60` in `sl_qt_mg` and `mg_cu` (`max(c(E_g − E_cmb b_g), MGCUFL)`), which is what lets the chemistry's rates survive E_g ≤ 0 (rate below 1e-66 s⁻¹; inactive at positive fields above it); (ii) `EDD_POSITIVE` (the formal solution's `max(I, −I_b)` and the 1/3 substitute in the non-bg branch of `eddfac_dual`), an existing production clamp of the grey closure inherited by every group.
+
+### 27.2 Diagnostics added (no behaviour change)
+* `DTERRDIAG` now also prints the stage derivatives z1, z2, z3 of the group unknowns' conserved combinations `EVg` (E_g ΔV) and `QFg` (F_g inertia) for the zones of `DTERRDIAGZ` (Trbdf2.jl).
+* `EIGDIAG` (NewtonKrylov.jl; `EIGSTEP=<jstep>` `EIGITER=<n>` `EIGDTS=1e3,1e4` `EIGMAX=<calls>`; default off): the exact Jacobian of the whole active system (1638 entries at 100 zones, MGROUPS=4: one Dual J·v per unit vector, `adjv!`, with the zero identity rows of the grey E_r, F_r unknowns left out, 1635 kept) at that Newton iteration for dt = EIGDTS and dt = 1e30 (J_∞ = F′, the time terms removed). With J(dt) = F′ + K/dt the backward-Euler amplification of an old-state perturbation is A = I − J(dt)⁻¹ J_∞ (K/dt = J(dt) − J_∞); z = 1 − 1/a is dt·μ of the continuous linearisation. The TR-BDF2 stage function R(z) (γ = 2 − √2) is printed too. Caveat: J_∞ also drops the advective terms that carry (y − y_old)/dt, and the branches of `decide` are replayed (frozen) as in every J·v, so the analysis is of the continuous problem on one branch assignment. EIGDIAG evaluations leave the run unchanged: `c6_dec` (without) and `c6_eig3` (with) give identical DTERR lines for jstep 23420 … 23430.
+* TR-BDF2 facts used below: R(z) on the negative real axis lies in [−0.2071, 1] (minimum −(√2−1)/2 at z = −8.2), so a stiff or stable linear mode cannot sustain a period-2 oscillation; R = −1 needs an unstable continuous mode.
+
+### 27.3 The front mode (zones 44 – 47; restart `m2c_c5_dA`, jstep 23419, 100 zones, MGROUPS=4; runs `c6_eig3`, `c6_dec`)
+**(1) Which unknown rings.** `c6_dec`, 50 steps, rms over steps of z3/y_n (BDF-stage derivative over the conserved combination) and the number of sign flips between consecutive steps:
+
+| quantity | zone 45 | zone 46 | flips (of 49) |
+|---|---|---|---|
+| EV2 (E_g2, optical group, carries cq+yq) | 0.27 | 0.15 | 30, 30 |
+| EV1 (IR) | 0.074 | 0.039 | 32, 32 |
+| EV3 (H-ionising, drives z_H) | 0.0024 | 0.0049 | 34, 34 |
+| QF2 (F_g2) | 0.94 | 1.6 | 36, 34 |
+| QF3 (F_g3) | 0.0063 | 0.0086 | 32, 30 |
+| EV4 / QF4 (hard group, tiny energy) | 3.2 / 0.63 | 3.1 / 18 | 28 / 32, 28 / 27 |
+| me (gas energy) | 0.17 | 0.059 | 32, 32 |
+| x1 (z_H) | 5e-5 | 3e-4 | 32, 30 |
+
+The antiphase of zones 45 and 46 holds for EV (49/50 steps), EV2 (49/50), EV3 (46/50), EV1 (45/50), QF2 (41/50). The ring is in the optical group 2 (energy 27 %, flux of order 1 per step) and the IR group; the H-ionising group 3 whose rate drives the front's z_H moves by 0.2 – 0.9 % per step; the ionisation unknown follows (z_H is the limiter because its error norm is relative to x_H⁺ ≈ 1e-4 – 1e-3).
+
+**(2) The exact linearisation has no mode with amplification near −1.** `EIGDIAG` at jstep 23422 (Newton iteration 2 of the TR stage, dtime 1073 s, and of the BDF stage, dtime 537 s), for dt = 1e3 and 1e4 s, four evaluations:
+| dt | state | min Re a | max |a| | modes with Re a < −0.2 | modes with |a + 1| < 0.3 |
+|---|---|---|---|---|---|
+| 1e3 | TR | −0.0000 | 1.0157 | 0 | 0 |
+| 1e4 | TR | −0.0000 | 1.1109 | 0 | 0 |
+| 1e3 | BDF | −0.0000 | 1.0136 | 0 | 0 |
+| 1e4 | BDF | −0.0000 | 1.0735 | 0 | 0 |
+(1635 modes each; 56 modes have |Im a| > 0.1 at dt = 1e3, TR state; all have Re a ≥ −1e-5.) The modes with the largest |a| are slow growing ionisation-front modes at zones 48/49 (E_g4 and z_H, z = dt μ = 0.0155 at 1e3: e-folding 6.5e4 s). The slowest decaying front mode is z_H, x_H₂ of zones 42 – 45 (a = 0.487, z = −1.05 at dt = 1e3). The stiff modes (a ≈ 0) sit in z_H, x_H₂ of zones 39 – 42 (chemistry). **No eigenvector among the 1635 (dt = 1e3, TR state, checked offline) has E_g2 or F_g2 of zones 44 – 47 among its three largest components**, and none alternates from zone to zone in E_g, F_g: no spatial odd–even (checkerboard) mode. By inspection of the rows this is expected: E_g sits at zone centres and F_g at interfaces (staggered), the E row uses F_g(k+1) − F_g(k) and the F row f E_g(k) − f E_g(k−1); a two-zone mode is not a null space of that pair.
+So the period-2 mode is **not** a mode of the continuous linearisation at either dt, in either stage. Together with §26.5 (amplitude independent of dt; CONV 1e-3 unchanged; TR-BDF2 R ≥ −0.207 for stable modes) it is a property of the discrete, branched problem.
+
+**(3) Branches.** `c6_dec` (SDDEC=1, SDZONES=44:47) counts how often `decide()` returns a different value at a call than at the previous one, per kind and advect id (30 + g: E_g, 40 + g: F_g), zones 44 – 47, over 50 steps: slope-limiter branch `lim:42` (F_g2) flips in zones 44 – 47 in 46 of 50 steps (184 flips), the denominator sign branch `sgn:42` in 43 of 50 (151), grey `lim:5` 48/50, `lim:32` and `lim:31` (E_g2, E_g1) 12/50 (60), `lim:44` (F_g4) 10/50; **group 3 (ids 33, 43) never flips**, as group 3 is the quiet one. The exact J·v (and J_b) differentiates one branch assignment (`FREEZE` replays the recorded decisions), so a branch flip is invisible to the linear analysis of (2) and acts as a step-to-step switch of the group-2 flux advection `advect!(frb, …, ‖ id 42)` (the `a·b ≥ 0` limiter of `advect!` is not smooth). **Conjecture, not tested**: the period-2 ring is the nonlinear switching of the limited, upwinded advection of F_g2 (and E_g1, E_g2) at the front, where the group-2 field has a local extremum between zones 45 and 46. The test that decides it needs a change of the scheme (a smooth limiter, or first-order upwind, for the group flux advection) — **not implemented; Tom decides**. A cheaper pure diagnostic would be to freeze the branch assignment of ids 41/42 from the previous step through the step (not a solution, a test).
+
+### 27.4 MG from the initial conditions (`lines 128`, §26.4)
+Why the formal solution reads E_g at all: `TitanCore.eddfac_dual`/`eddfac!` take the scattering source as S = (κ_P B + (χ − κ_P) J)/χ with J = c E/4π (EDDSCAT, VEF lagged-Λ): E_g enters **only as the scattering source**, not as a normalisation. f = K/J is a ratio of two moments of the intensities that solve a linear transfer problem with source S(E) = S_em + σ E (σ = (χ_g − κ_E,g)/χ_g · c/4π), so f is homogeneous of degree 0 in (S_em, E) jointly and a function of E/S_em only. At the first Newton iterate of the steady solve the E_g2 rows of zones 1 – 5 (E = 4.9e-19, s = 4e-7) step in the linear regime of y = asinh(E/s) to E = −8e-10 (|δy| < 0.005): the linearised root is negative because the row's E-diagonal is dominated by the (negative) compression term f E ∇·u (−5.5e-6 against absorption 9e-16 at E_old). With E < 0 the scattering term (−0.5 in units of B-source) exceeds the emission by 10 orders, S < 0 in every zone, the ray intensities are clamped to `lo = −I_b = 0` (`EDD_POSITIVE`), J = K = 0 and `fedd = max(0, min((K − 2I_b/3)/(J − 2I_b), 1))` is 0/0 = NaN. (The non-background branch of `eddfac_dual` has the substitute `fedd = 1/3` for exactly this; the `bg` branch used with VEF_BG has none.) Writing f so that it is defined for every sign of E without changing it for E > 0 is not possible without a decision about the value of the closure: (a) removing the positivity clamp for the groups makes f = K/J of a negative field (a finite ratio, with poles where J crosses zero in zones where the sign of S changes), but the clamp is also active in valid E > 0 states with steep source jumps (the reason it was introduced, `EDD_POSITIVE` docs) so the discrete solution at zie1/zie3 changes; (b) the 1/3 substitute is a floor; (c) |S| is a kink. **Nothing implemented; the options are a closure choice (Tom).** Where the MG IC solve stands: unchanged, `c5_ic4`: fails at iteration 2.
+
+### 27.5 Gates
+No solver line changed: the diff to 77a9ef5 is Trbdf2 (DTERRDIAG list, printed only for `DTERRDIAG > 0`) and NewtonKrylov (EIGDIAG, active only for `EIGSTEP > 0`). MGROUPS off: no changed line is reached. NKCHECK=2: not rerun (no lag removed, nothing to gate); zie1/zie3 windows: not rerun for the same reason; EIGDIAG inertness: `c6_dec` and `c6_eig3` have identical DTERR lines (jstep 23420 – 23430).
+
+### 27.6 Runs
+`/zpool/nvme/data/tabel_scratch/titan_popiii/runs/t_mgz3`: `c6_eig3` (EIGDIAG, 12 steps from `c5_dA`), `c6_dec` (50 steps, DTERRDIAG with the group keys, SDDEC); `c6_eig`, `c6_eig2` (first versions; EIGDIAG failed on the zero identity rows). Scripts in the agent scratchpad: `go_mgz3.sh`, `ringan.py`, `eig_an.jl`.

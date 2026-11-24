@@ -561,7 +561,7 @@ function estimate!(Cn, Cg, C1, Cs, Δ)
     if DIAG[] > 0 && ESTATS[:steps] % DIAG[] == 0 && res[3] > 0       # stage derivatives of the limiting zone: smooth flow has z1 ≈ z2 ≈ z3
         for zd in unique(vcat(res[3], DIAGZ[]))      # (DTERRDIAGZ=z1,z2,..: these zones too, in addition to the limiting one)
           k = Int(g(:ngrs)) + zd - 1
-          for s_ in (:EV, :me, :m, :P, :QF, :x1, :x2)
+          for s_ in (:EV, :me, :m, :P, :QF, :x1, :x2, (TX.MG[] ? (mgkeys(g_)[j_] for g_ in 1:TX.MGN[] for j_ in 1:2) : ())...)       # (MGROUPS: the group unknowns' conserved combinations EVg, QFg too)
             haskey(C1, s_) || continue
             z1 = D === nothing ? NaN : Δ * get(D, s_, zeros(k))[k]; z3 = (C1[s_][k] - Cs[s_][k]) / dW; z2 = (Cg[s_][k] - Cn[s_][k]) / dW - z1
             @printf("DTERRDIAG jstep %d zone %d %s: y_n %.4e  z1 %.3e z2 %.3e z3 %.3e  est %.3e\n", Int(g(:jstep)), zd, s_, Cn[s_][k], z1, z2, z3, Co[s_][k] - Cs[s_][k])
