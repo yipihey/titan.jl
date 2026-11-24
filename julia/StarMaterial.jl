@@ -18,9 +18,8 @@ S4: `StarGas`, the TITAN material for a star whose composition is evolved: per-z
   (Newton, 1e-13): total energy (gas + cumulative nuclear release) is conserved to the Newton tolerance; `ledger` records Einj, Ebur
   (`dabs/Eabs` = Σ|Ebur − Einj|/Σ|Ebur| is the size of the operator-splitting correction, `resid` the energy error of the T re-solve).
 * `mix!(m)` after `burn!`: implicit conservative diffusion of all species on the Lagrangian mass grid,
-  ∂Y/∂t = ∂/∂m[(4πr²ρ)² D ∂Y/∂m], D = v ℓ/3 at interfaces with F_conv > 0 and MLT weight > 0, where
-  v = ℓ (gδ/(8H_P))^½ (∇−∇')^½ (Kippenhahn–Weigert eq. for the mean convective velocity; ζ² = ∇−∇' of the MLT block, same
-  ℓ = αH_P, same g, δ, ∇ as F_conv, so v ℓ²... consistent with F_conv = ρ c_P T (gδ)^½ ℓ² ζ³/(4√2 H_P^{3/2})). Tridiagonal, one
+  ∂Y/∂t = ∂/∂m[(4πr²ρ)² D ∂Y/∂m], D = α_D ℓ w at interfaces with w > 0 (Stage 2: the TDC turbulent velocity w = `sd.vcv` and mixing length ℓ = `sd.lcv`
+  of the converged state, α_D = `TX.TDCP[].α_D`, as the turbulent mixing of the coupled species in the residual rows; it was the MLT D = v ℓ/3). Tridiagonal, one
   factorisation for all species. Σ_k dm_k Y_k is conserved to round-off. Composition change at fixed e: T is re-solved at fixed
   ρ and the zone's gas energy e, so mixing changes no zone's energy (energy exactly conserved; nuclear binding energy moves with
   the material).
@@ -550,7 +549,7 @@ function mix!(m::StarGas; dt = TF.getscalar(:timen) - TF.getscalar(:timeo), sd =
     Di = zeros(n + 1)                       # Di[j] at the interface between zones a+j-2 and a+j-1 (j = 2..n)
     for j in 2:n
         k = a + j - 1
-        Di[j] = D === nothing ? (sd.fcv[k] > 0 && sd.vcv[k] > 0 ? sd.vcv[k] * sd.lcv[k] / 3 : 0.0) : D[k]
+        Di[j] = D === nothing ? (sd.vcv[k] > 0 ? TX.TDCP[].α_D * sd.lcv[k] * sd.vcv[k] : 0.0) : D[k]
     end
     if bridge > 0 && D === nothing      # convective regions are contiguous: fill gaps of ≤ `bridge` interfaces and extend a core to the centre
         jf = findfirst(>(0), view(Di, 2:n))
