@@ -2080,7 +2080,7 @@ function cpl_tq(t, ρ, T, x1, x2, q, tc, fs, g, dp = nothing; phc = t.phc, phc0 
                                                    merge(tenv, (; Trad = Tc, J = Jb, tl3 = p3b))) : merge(tenv, (; tl3 = p3b))
         ph_ = s_.ph::Vector{CNn.Photo}; phc1 = Tv -> _phvec(ph_, Tv, envb)
         if t.extra !== nothing
-            e1 = (Trad = Tc, J = Jb); Tv = Float64(ForwardDiff.value(T))
+            e1 = (Trad = Tc, J = Jb); Tv = Float64(_fullval(T))
             kHm = (sl.pHm === nothing || (LOCALJ && ljon(s_.p3))) ? 0.0 : CNn.photorate(sl.pHm, Tv, e1)
             kH = sl.pH === nothing ? 0.0 : CNn.photorate(sl.pH, Tv, e1)
             kLW = 1.1e8 * 4π * W0 * _bnu(12.87 * EVERG / CNn.hP, Tc) * fs
@@ -2320,7 +2320,7 @@ function lr_zone(m::NetGas, k, ρ, T, x, rs, dual::Bool)
         d = lr_eosd((r, t) -> EQ.eos(r, t), ρ, T)
         return (; cpl = false, d, fr = lresp_frozen(d), tau = 0.0)
     elseif x !== nothing && TX.cplz(k)
-        xn = _fullval(x[3]); ins = lr_ins(k, ρ, T, x[1], x[2], rs)
+        xn = _fullval(x[3]); ins = lr_ins(k, ρ, T, x[1], x[2], rs); dual || (ins = map(_fullval, ins))      # (values only: the star-light state of the residual carries Duals)
         v = Float64[_fullval(a) for a in ins]
         c = lr_data(m, k, v, xn, dual)
         d = lr_lift(c, ins)
