@@ -8,7 +8,7 @@ convection (TDC) of M3 goes in here too). Nothing here reads global state: the a
 module TDC
 
 export gamma1_inv, gamma1, blob_sup, blob_f
-export TDCPar, TDCGeom, TDCBack, AC_CGS, fb, tdc_ay, tdc_local, tdc_flux, tdc_pturb, tdc_dmix, tdc_mlt_w, tdc_mlt_zeta, kw_mlt_flux
+export TDCPar, TDCGeom, TDCBack, AC_CGS, HENYEY_Y, fb, tdc_ay, tdc_ay_kw, tdc_local, tdc_flux, tdc_pturb, tdc_dmix, tdc_mlt_w, tdc_mlt_zeta, kw_mlt_flux
 export tdc_F!, tdc_rows!, tdc_exchange, tdc_gas_exchange, tdc_budget_check, tdc_facew
 
 """
@@ -110,11 +110,30 @@ used. At exactly (0,0) the kink is resolved by the element (1,1) of the generali
 end
 
 """
-    (a, U) = tdc_ay(ℓ, g, δ, H_P, c_P, ρ, κ, T, ac = AC_CGS)
+    (a, U) = tdc_ay(ℓ, g, δ, H_P, c_P, ρ, κ, T, ac = AC_CGS; y = HENYEY_Y)
 
-a = ℓ√(gδ/(8H_P)) [cm/s], U = 3 a_rad c T³/(c_P ρ² κ ℓ²) √(8H_P/(gδ)) (dimensionless radiative-loss parameter of KW).
+a = ℓ√(gδ/(8H_P)) [cm/s] (ν = 8, f₁ = 1/8), and the Henyey–Vardya–Bodenheimer (1965) radiative-loss parameter
+
+    U = a_rad c T³ κ ℓ / (c_P a (1 + y ω²)),   ω = κ ρ ℓ  (optical thickness of the eddy).
+
+ω ≫ 1: U → U_KW/(3y) with U_KW = 3 a_rad c T³/(c_P ρ² κ ℓ²) √(8H_P/(gδ)) the Kippenhahn–Weigert (diffusion-limit) form (= `tdc_ay_kw`),
+exactly U_KW for y = 1/3 (MESA default). ω ≪ 1: U → a_rad c T³ κ ℓ/(c_P a) = 4σT³κℓ/(c_P a), the thin (Planck-cooling,
+t_loss = c_P/(16σT³κ)) limit, independent of y, finite as κ → 0. Derivation and sources: docs/POPIII_CONVECTION.md "M7".
 """
-@inline function tdc_ay(ℓ, g, δ, H_P, c_P, ρ, κ, T, ac = AC_CGS)
+const HENYEY_Y = 1 / 3
+@inline function tdc_ay(ℓ, g, δ, H_P, c_P, ρ, κ, T, ac = AC_CGS; y = HENYEY_Y)
+    a = ℓ * sqrt(g * δ / (8H_P))
+    ω = κ * ρ * ℓ
+    U = ac * T^3 * κ * ℓ / (c_P * a * (1 + y * ω^2))
+    return a, U
+end
+
+"""
+    (a, U) = tdc_ay_kw(ℓ, g, δ, H_P, c_P, ρ, κ, T, ac = AC_CGS)
+
+The previous (optically thick, Kippenhahn–Weigert) form U = 3acT³/(c_Pρ²κℓ²)√(8H_P/(gδ)); the ω → ∞ limit of `tdc_ay` for y = 1/3.
+"""
+@inline function tdc_ay_kw(ℓ, g, δ, H_P, c_P, ρ, κ, T, ac = AC_CGS)
     a = ℓ * sqrt(g * δ / (8H_P))
     U = 3ac * T^3 / (c_P * ρ^2 * κ * ℓ^2) * sqrt(8H_P / (g * δ))
     return a, U

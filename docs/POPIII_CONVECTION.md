@@ -776,3 +776,28 @@ These need the multi-D calibration of M5. **Open:** B5 and the zie3 pair to 34 M
 - (b) An external radiation-hydro code with FLD, e.g. Athena++ (implicit radiation) or a MESA-independent setup.
 
 [estimate] Cost: with (a), 2D at 400×500 is about 2e5 cells; to run ~10 turnovers (≈ 10⁷ s) at an FLD-limited Δt is hours on the GPU.
+
+## M7: Henyey thin-eddy radiative losses (24 Nov 2026; `julia/TDC.jl` `tdc_ay`, `tdc_ay_kw`; tests `t11_henyey.jl`, `t9_mlt.jl`; logs `docs/logs/subconv/henyey/`)
+
+### M7.1 Source and constants [read]
+- Henyey, Vardya & Bodenheimer 1965 (ApJ 142, 841) generalise the Böhm-Vitense/KW eddy loss to any optical thickness ω = κρℓ. The ADS scan is images only, so the constants were taken from two readable transcriptions of the same formulation: **Ludwig, Freytag & Steffen 1999 (A&A 346, 111), App. A, eqs. A.1–A.4 and Table A.1**, and **MESA `turb/private/mlt.f90` `calc_MLT`, option `'Henyey'`** (github MESAHub/mesa, main).
+  - Ludwig A.1: Γ ≡ (∇−∇e)/(∇e−∇ad) = ρ c_P v τ_e/(f₃σT³) · (1 + f₄/τ_e²), τ_e = χρΛ (χ = κ). A.2: v² = f₁Λ²gδ(∇−∇e)/H_P. A.3: F_c = f₂ρc_P v TΛ(∇−∇e)/H_P.
+  - Henyey row: f₁ = 1/ν = 1/8, f₂ = 1/2, f₃ = 8/y, f₄ = 1/y. MESA: `ff1 = 1/Henyey_MLT_nu_param, ff2 = 0.5, ff3 = 8/Henyey_MLT_y_param, ff4 = 1/Henyey_MLT_y_param`. The MESA comment says Ludwig's table has f₃ = f₄/8 where it should be 8 f₄, i.e. f₃ = 32π²/3, f₄ = 4π²/3, y = 3/(4π²) = 0.0760.
+  - **MESA defaults: `Henyey_MLT_nu_param = 8`, `Henyey_MLT_y_param = 0.33333333`** (controls.defaults). So the *default* is y = 1/3 (f₃ = 24, f₄ = 3), not 3/(4π²); with it the thick limit is exactly the ML1/KW one (a₀ = 9/4, MESA's 'Cox' branch). [read] I could not read HVB's own text to decide which y is "the" 1965 value; both are supported (`y` keyword), default y = 1/3 (MESA default; the only choice for which the ω→∞ limit is KW as asked).
+
+### M7.2 Mapping to the Riccati form (exact) [derivation]
+With ν = 8 our a = ℓ√(gδ/(8H_P)) (f₁ = 1/8) and Ỹ = ∇ − ∇e = sup Γ/(1+Γ) (∇ − ∇ad = sup given). Γ is linear in v, Γ = w/(2Ua) *defines* U; A.2 becomes w² = a² sup Γ/(1+Γ) = a² sup w/(w + 2Ua), i.e. **w² + 2Uaw = a² sup, unchanged**: ζ = √(U²+sup) − U, `tdc_mlt_w`, `tdc_mlt_zeta`, `kw_mlt_flux`, the Riccati rows and tdc_flux are exact for the Henyey MLT with only U replaced. With σ = a_rad c/4:
+
+    U = (f₃/24) U_KW/(1+f₄/ω²) = U_KW ω²/(3(1+yω²)) = a_rad c T³ κ ℓ / (c_P a (1 + y ω²)),   ω = κρℓ
+
+with U_KW = 3 a_rad cT³/(c_Pρ²κℓ²)√(8H_P/(gδ)) the former form (`tdc_ay_kw`). Limits: ω ≫ 1: U → U_KW/(3y) (= U_KW for y = 1/3; U_H/U_KW = ω²/(ω²+3)); ω ≪ 1: U → a_rad c T³κℓ/(c_P a) = 4σT³κℓ/(c_P a), **finite, independent of y, ∝ κ** (the KW U ∝ 1/κ diverges). Physical meaning of the thin limit: Γ_thin = 2 v t_loss/ℓ with t_loss = c_P/(16σT³κ) (linearised Planck emission 4κσT⁴ of a thin eddy, d/dT = 16κσT³). At fixed (∇, ω) the steady-state structure of the MLT changes only through U(ω); there is **no change in the cubic's structure for given ∇**. For given ∇_rad (the C&G 14.82 cubic a₀Γ³+Γ²+Γ−a₀B³ = 0, with ω-dependent a₀ = (3/16)f₂f₃/(1+f₄/ω²) and A of MESA) the flux-balance closure yields (v, ∇) that satisfy our relation a ζ(U_H, ∇−∇ad) = v exactly (test b below), so TDC fed with the actual ∇ reproduces Henyey-MLT with no deviation.
+`ν` is fixed at 8 (MESA default; f₁ is hard-wired in a and in `kw_mlt_flux`). `tdc_ay(...; y = HENYEY_Y)`; ForwardDiff-generic, no clamps/branches; U = 0 at κ = 0.
+
+### M7.3 Tests [test; `t11_henyey.jl`, 15 PASS; `t9_mlt.jl`, 16 PASS (was 14); logs in `docs/logs/subconv/henyey/`, `m3a/t9_mlt.log`]
+- (i) U_H/U_KW for ω = 1e1…1e6: 0.970874, 0.999700, 0.99999700, … 0.999999999997 = ω²/(ω²+3) to 5.6e-16; 1−ratio = 3/(ω²+3) to 1e-15 abs; y = 3/(4π²): thick limit U_KW/(3y) to 1.3e-11.
+- (ii) ω = 1e-1…1e-8, both y: U(1+yω²) = 4σT³κℓ/(c_P a) to 2.2e-16; Γ = (1+yω²)·2vt_loss/ℓ with t_loss = c_P/(16σT³κ) to 4.4e-16; ForwardDiff dU/dκ = centred FD to 1e-10; at ω = 1e-6, sup = 1: ζ_H/√sup = 0.997 while ζ_KW/√sup = 6e-11 (U_KW = 8.5e9 vs U_H = 2.8e-3).
+- (iii) 352 cases (ω 1e-4…1e6, sup 1e-6…10, two y, two ℓ). (a) Given ∇: Newton solution of Ludwig A.1–A.3 *without using U* = steady TDC a ζ: 6.7e-16 (v), 1.1e-15 (Γ), 2.1e-15 (F_c via kw_mlt_flux and via the steady tdc_flux form). (b) Given ∇_rad: MESA/C&G cubic root (bisection+Newton), its v and its ∇ (Zeta = Γ³/B³): a ζ(U_H, ∇−∇ad) = v to 6e-15, flux to 6.9e-15. The local Newton root of R_loc with the Henyey U = aζ to 3e-16.
+- (iv) the 7 existing tdc_tests: exit 0, PASS counts 9, 5, 3, 1, 3, 16 (T9, +2 new), 2 = as before (baseline 9, 5, 3, 1, 3, 14, 2).
+
+### M7.4 Consequence [interpretation]
+The Henyey U is finite and ∝ κ as κρℓ → 0, so a thin eddy with sup > 0 keeps ζ ≈ √sup (convects, losses negligible) instead of being killed by U_KW → ∞; this removes the reason for the τ gate (`TAU_MLT`) in the TDC path. Removing the gate itself in TitanResidFast is done later (not here). **Note:** `tdc_ay` now returns the Henyey U for every caller (`TitanResidFast.jl:1081` passes `4P.csigr` positionally and picks it up with y = 1/3); results change only where ω ≲ 3 (U_H/U_KW = 0.5 at ω = √3). `tdc_ay_kw` restores the old form.

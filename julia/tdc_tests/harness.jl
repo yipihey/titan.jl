@@ -6,7 +6,7 @@ using .TDC
 
 const LOGDIR = normpath(joinpath(@__DIR__, "..", "..", "docs", "logs", "subconv", "m3a"))
 const LOGIO = Ref{Union{IO,Nothing}}(nothing)
-open_log(name) = (mkpath(LOGDIR); LOGIO[] = open(joinpath(LOGDIR, name * ".log"), "w"); nothing)
+open_log(name; dir = LOGDIR) = (mkpath(dir); LOGIO[] = open(joinpath(dir, name * ".log"), "w"); nothing)
 close_log() = (LOGIO[] === nothing || close(LOGIO[]); LOGIO[] = nothing)
 function lp(args...)
     println(args...)
