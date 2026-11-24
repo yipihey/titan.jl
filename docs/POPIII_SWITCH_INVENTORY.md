@@ -318,14 +318,14 @@ Newton) or the ideal-gas ChemNet network. The decision is in PopIIIMaterial.jl:1
 one extra Float64 residual evaluation per snapshot at the accepted state (`TitanResidFast.conv_diag_pass`, as `step_diag`), with the material
 caches saved and restored (`PopIIIMaterial.conv_cache_save`); the recording blocks inside `residual!` are guarded by `CVD_ON[] && T === Float64`
 and are never active in a solve. Claim: the solution is bit-identical on or off [test: docs/logs/subconv/]. Removal plan: none; it is a read-only
-instrument and M2/M3 reuse `conv_thermo`. If the extra evaluation ever shows an effect, it must be fixed there, not by a clamp.
+instrument and M2/M3 reuse `conv_thermo`. If the extra evaluation ever shows an effect, it must be fixed there, not by a clamp. M3e: with `MGROUPS=4` the solution is also bit-identical on/off (restart from rp_k650, 40 steps, 240 fields; docs/logs/subconv/mgint/), `cd` additionally records `kap_grey`, F_rad as Σ_g F_g, and the MG line-cooling term in `e_chem`.
 
 **`MLTBUOY` (provisional, added 22 Nov 2026 on `popiii-subconv` for M2, off by default; `TitanResidFast.MLT_BUOY`).** The MLT superadiabaticity is built from the
 density contrast of a blob across the interface (`TDC.blob_sup`, design D1 of docs/POPIII_CONVECTION.md) instead of ∇ − ∇_ad, with the thermodynamics of the two
 zones evaluated at the Newton iterate with derivatives (`PopIIIMaterial.conv_thermo`, `conv_tchem`). In this mode the network placeholder ∇_ad = 1e30 of
 `material_thermo` is not used (all branches get real thermodynamics) and `MLT_HS` is not applied; the τ weight and `MLT_NOINFALL` stay (MLT is local). Off: the code path is the
 old one [test: bit-identity logs in docs/logs/subconv/m2/]. Removal plan: when M4 accepts it, it becomes the only MLT path (until the TDC of M3 replaces the MLT block);
-then delete the 1e30 placeholder in `material_thermo`, `COLDMLT` (+ `cold_thermo`) and `MLT_HS` (+ its blend, `ForwardDiff.value` weight) and this switch.
+then delete the 1e30 placeholder in `material_thermo`, `COLDMLT` (+ `cold_thermo`) and `MLT_HS` (+ its blend, `ForwardDiff.value` weight) and this switch. M3e: with `MGROUPS` the opacity of the eddy loss is the group Rosseland-type mean `mg_kappa_eddy` (not the grey `avchi`); the plain MLT path is unchanged (bit-identical to mgprod 6f59f18).
 
 **`TDC` (provisional, added 22 Nov 2026 on `popiii-subconv` for M3b, off by default; `TitanResidFast.TDC_ON`, `TDCPAR`, `TDCCEN`).** Time-dependent convection: the turbulent
 velocity w on the interfaces is the last Newton unknown (neqn + 1, only with `COUPLED=1`, `HOT=1`, `TITAN_NOLIB=1`, `DTSCHEME=trbdf2`), with the Fischer–Burmeister row of
@@ -334,7 +334,7 @@ row and the turbulent mixing D = α_D ℓ w in the species rows 8, 9 (docs/POPII
 (no τ weight, no `MLT_NOINFALL`, no `MLT_HS`, no 1e30 placeholder; the Dual thermodynamics are used only where a row or flux can depend on them, exactly). `TDCPAR=A_s,A_d,A_c,α_p,α_t,α_D,α_m`
 (default 1,1,1,1,0.01,1,0; α_m must be 0: not implemented). Off: `neqn`, the residual and the Newton system are unchanged [test: bit-identity logs in docs/logs/subconv/m3b/].
 Removal plan: once M4 accepts it, TDC becomes the convection path: delete the MLT block of `residual!`, `MLT_HS` (+ blend), `MLT_NOINFALL`, `COLDMLT` (+ `cold_thermo`), the 1e30 placeholder of
-`material_thermo`, `MLTBUOY` and its separate MLT path (its `buoy_blob`/`_buoy_zone` stay, they are the TDC source), `TAU_MLT` and `convcoef`'s τ weights; then the switch itself (w is always an unknown).
+`material_thermo`, `MLTBUOY` and its separate MLT path (its `buoy_blob`/`_buoy_zone` stay, they are the TDC source), `TAU_MLT` and `convcoef`'s τ weights; then the switch itself (w is always an unknown). M3e (merged with mgprod 6f59f18, docs/POPIII_CONVECTION.md M3e): works with `MGROUPS=4`: w is unknown 10 + 2G (neqn 18), equation code 10 in NewtonKrylov (groups use 8, 9), the eddy opacity is `mg_kappa_eddy` (Rosseland-type mean of the groups' χ̄_g), P = p_gas + Σ_g f_g E_g, the species rows use the hydrogen logit z with x_HI = XSN[3]. Off: bit-identical to mgprod with MGROUPS off and on [test: docs/logs/subconv/mgint/]. Open: mgprod's E_g4 wall at grey restarts limits MG pilots to ~1e5 s.
 
 **`TDCMIXGUESS` (deleted 23 Nov 2026).** The M3d species initial guess with the turbulent mixing is now unconditional inside `TDC=1`; the M3b guess without it was inconsistent with the residual and is deleted.
 
