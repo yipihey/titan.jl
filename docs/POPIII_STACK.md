@@ -44,10 +44,10 @@ These are the defaults (`julia/popiii_stack.jl`). The methods marked † are no 
 | chemistry | coupled implicit: x_H⁺, x_H₂ as Newton unknowns in every network zone (COUPLED†), reduced CK network, HD, He | `CHEMCK CHEMCKHSS CHEMSUB CHEMFBNET=16 CPLCLAMP=3 HDCHEM HECHEM` |
 | H₂ lines | ALI transfer every step (no escape-probability or hybrid mode; warm start from the previous step's populations), line cooling at the iterate (LINEIMP†), grey continuum absorption of line photons returned to the gas, incident CMB + photosphere | `LINEINC LINESRC=zone LINEQUAD=p2 LINECORE=8 LINEFAST` |
 | star light | H⁻, LW, three-level photo-processes from the photosphere, at the iterate | `STARLIGHT SLBLEND SLEB SLWFLUX SLSHIELD=sobolev LYABB LOCALJ SLIMP=2` |
-| radiation | grey E_r, F_r; Eddington factors at every Newton iterate, Auer sphericality form, CMB as background (VEFIMP); sub-zone front closure; flux tie in the thin outer zones | `VEFIMP EDDGMU0 EDDSCAT SUBZONE=1,2 FLUXTIE=0.1,1` |
-| energy | total-energy row (dual-energy switch), exchange cap | `ETOTAL ETASW=0.6 ETASWTH ETASWTIE EXCAP=1e8` |
+| radiation | grey E_r, F_r; Eddington factors at every Newton iterate, Auer sphericality form, CMB as background (VEFIMP); sub-zone front closure; flux tie in the thin outer zones | `VEFIMP EDDGMU0 EDDSCAT SUBZONE=0 SLABFLUX=1 SLABTIE=1 FLUXTIE=0.1,1` |
+| energy | internal energy only (compatible rows); exchange cap; total energy monitored | `EXCAP=1e8 ETOTMON=1` (the dual-energy switches ETOTAL/ETASW* are deleted) |
 | hydro | zone-width viscosity, no tension | `AVZONE=2 AVTENSION=0` |
-| step control | TR-BDF2 with its embedded error estimate (DTERR, required), respecting the mesh-motion bound (DT_BOUNDS) | `DTERR=0.1 NITER=25 NTRY=60` (TITAN's own rule, `CDYN`, `STOL`, is diagnostic only) |
+| step control | TR-BDF2 with its embedded error estimate (DTERR, required), respecting the mesh-motion bound (DT_BOUNDS) | `DTERR=0.03 CONV=0.01 NKRYLOV=1 NITER=25 NTRY=60` (TITAN's own rule, `CDYN`, `STOL`, is diagnostic only) |
 | run control | | `TSTOP=2e8 NSTOP=1e27 DTSTOP=1e-9 CKEVERY=100 SNAPEVERY=50 PRINTEVERY=100 MSG=1 FLUSHOUT=1` |
 
 Diagnostics and performance switches (DTDIAG, TIMING, CPLPROF, JACCHK, CPLJCHECK, SZJCHECK, NANSCAN, …) are listed in

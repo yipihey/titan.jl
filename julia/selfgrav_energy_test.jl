@@ -20,7 +20,6 @@ else
     PS.build!(; rI, rho = fill(ρ0, n), T = fill(T0, n), u = zeros(n + 1), geom = 2, lgrid = 2, inner = :wall, outer = :wall, selfgrav = true)
 end
 PS.install_julia!(BlockSolver); TD.MSGIO[] = devnull
-for k_ in ("ETOTAL", "ETASW"); haskey(ENV, k_) && error(k_ * " was removed (internal energy only; ECOMPAT=1 selects the compatible rows, ETOTMON=1 monitors the total energy)"); end
 etot = get(ENV, "ECOMPAT", "")
 etot == "1" && (TX.ECOMPAT[] = true; TX.GASROW[] = true)
 tff = sqrt(3π / (32Z0.G * ρ0)); TF.setscalar!(:dtime, 1e-4tff); TF.setscalar!(:tmax, fr * tff)

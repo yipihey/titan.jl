@@ -598,11 +598,11 @@ if get(ENV, "RAY", "0") == "1" && mat isa PM.NetGas
                 Ec = RG.Ec, Q = TX.RAYQ[], xmin = parse(Float64, get(ENV, "RAYXMIN", "1e-6")))
 end
 # M3a: the star's light below the Lyman edge in the network zones (PM.STARLIGHT): H⁻ photodetachment, H(n ≥ 2) photoionization, Lyman-Werner
-# H₂ dissociation with shielding. STARLIGHT=1; SLSHIELD = static (default) | sobolev | none (no shielding) | off (no LW); SLH=1 adds H(n ≥ 2) (energy-unsafe, see PM.STARLIGHT).
+# H₂ dissociation with shielding. STARLIGHT=1; SLSHIELD = static (default) | sobolev | none (no shielding) | off (no LW).
 if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
-    let ph = mat.photos, pH = ph[findfirst(p -> p.R === :H, ph)]
+    let ph = mat.photos
         PM.STARLIGHT[] = (; pHm = get(ENV, "SLHM", "1") == "1" ? ph[findfirst(p -> p.R === :Hm, ph)] : nothing,
-                          pH = get(ENV, "SLH", "0") == "1" ? ChemNet.Photo(pH.name * " (n ≥ 2)", :H, pH.P, pH.levels[2:end], pH.Z, false) : nothing,
+                          pH = nothing,
                           shield = Symbol(get(ENV, "SLSHIELD", "static")), tcmb = parse(Float64, get(ENV, "TCMB", "0")),
                           tl3 = get(ENV, "SL3", "0") == "1")
     end
@@ -613,7 +613,6 @@ if get(ENV, "STARLIGHT", "0") == "1" && mat isa PM.NetGas
         TX.CHEMB[] = zeros(length(mat.x)); TX.CHEMBON[] = fill(false, length(mat.x))
         pr("BALSPLIT: balanced splitting of the gas energy between hydro and network chemistry (lagged mean chemistry heating in both)\n")
     end
-    PM.STARLIGHT[].tl3 && PM.STARLIGHT[].pH !== nothing && error("SL3=1 replaces SLH=1 (the Boltzmann n ≥ 2 photoionization); set one")
     PM.STARLIGHT[].tl3 && pr("STARLIGHT: three-level H (Peebles C factor, Sobolev Lya escape, e collisions) in the lit network zones\n")
     PM.STARLIGHT[].tl3 && PM.LYART[] && pr("LYART: Lya transfer (Voigt, CRD core / coherent wings, ALI with the three-level atom) from tau >= %g outward\n", PM.LYATAU[])
     PM.LYART[] && !PM.STARLIGHT[].tl3 && error("LYART=1 needs STARLIGHT=1 SL3=1")
@@ -1417,11 +1416,7 @@ haskey(ENV, "CONV") && TF.setscalar!(:conv, parse(Float64, ENV["CONV"]))
 haskey(ENV, "NTRY") && TF.setscalar!(:ntry, parse(Float64, ENV["NTRY"]))
 if haskey(ENV, "FAILTFAC"); TD.FAIL_TFAC[] = parse(Float64, ENV["FAILTFAC"]); Trbdf2.TFAC[] = TD.FAIL_TFAC[]; end
 haskey(ENV, "ERTHICK") && (TC.ER_THICK[] = parse(Float64, ENV["ERTHICK"]))
-# One energy variable, the gas internal energy: the compatible rows (TX.ECOMPAT, below) are the only energy rows. The dual-energy switches are gone (docs/POPIII_ENERGY.md §11):
-# an old run.env that sets one must not silently select something else.
-for k_ in ("ETOTAL", "ETASW", "ETASWTH", "ETASWTIE", "ETOTGRAVGRID", "ERLAB", "ECOMPAT")
-    haskey(ENV, k_) && error(k_ * " is set: the dual-energy / total-energy-row switches were removed (internal energy only, docs/POPIII_ENERGY.md §11, §23); unset it. ETOTMON=1 monitors the total energy")
-end
+# One energy variable, the gas internal energy: the compatible rows (TX.ECOMPAT, below) are the only energy rows (docs/POPIII_ENERGY.md §11, §23); ETOTMON=1 monitors the total energy.
 haskey(ENV, "EXCAP") && (TX.EXCAP[] = parse(Float64, ENV["EXCAP"]))
 # SUBZONE=1[,τ_f] (default off): interface optical depth across an unresolved front from the two-layer sub-zone form (TX.SUBZONE)
 if get(ENV, "SUBZONE", "0") != "0"
@@ -1444,11 +1439,6 @@ if get(ENV, "SLABTIE", "0") == "1"
     (TX.SLABFLUX[] && isinf(TX.SFN[])) || error("SLABTIE=1 needs SLABFLUX=1 (n = Inf)")
     TX.SLABTIE[] = true
     pr("SLABTIE: FLUXTIE outward donor h = h_FS + f/(tau_i + 2f) - f/(a + 2f), tau_i the slab depth of the donor centre below the interface, a its half-zone depth\n")
-end
-# TIEFRAME=1 (provisional, default off): FLUXTIE and the outer boundary row in the frame of the unknowns (comoving), TX.TIEFRAME, docs/POPIII_ENERGY.md §3
-if get(ENV, "TIEFRAME", "0") == "1"
-    TX.TIEFRAME[] = true
-    pr("TIEFRAME: FLUXTIE closes the lab-frame flux, F_0 = [h c - (1 + f - 2 h^2) u] E_0 for the comoving unknowns; outer boundary row likewise\n")
 end
 # Compatible internal-energy rows in every zone, no row switching and no total-energy row (TX.ECOMPAT, docs/POPIII_ENERGY.md §4, §23); implies TIEFRAME
 TX.GASROW[] || error("the compatible energy rows need the gas-alone row (GASROW)")

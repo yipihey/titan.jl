@@ -41,7 +41,7 @@ f 10; a fixed-mesh checkpoint with its front in one zone: 26.5 for zdiagB's S5; 
 fixed-mesh checkpoint needs it: κ 30 would take ~30 crossing times of the front to adapt the mesh, while Δt stays at the fixed
 mesh's and the fixed-mesh run fails within ~30 steps. The next segment of the same run (mesh already adapted) does not ramp again.
 """
-const GRIDEQP = let v_ = get(ENV, "GRIDEQ", "off"); v_ in ("", "off") ? nothing : parse(Int, v_) end   # GRIDEQ=off: the fixed mesh (the stack default is 1)
+const GRIDEQP = let v_ = get(ENV, "GRIDEQ", "off"); v_ in ("", "off") ? nothing : parse(Int, v_) end   # GRIDEQ=off: the fixed mesh (the Stage-1 stack default, as in zie1/zie3)
 geqv(key, defs) = (v = haskey(ENV, key) ? parse.(Float64, split(ENV[key], ",")) : Float64[]; [i <= length(v) ? v[i] : defs[i] for i in eachindex(defs)])
 const GEQW = geqv("GEQW", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0])   # entry 8 wχ: ln(χρ) of the Newton iterate (mode 1; with wτ = 0 and GEQX off the monitor has no lagged term)
 const GEQC = geqv("GEQC", [100.0, 1.5, 30.0, 0.5, 0.5, 0.1, 1e4, 0.3, 0.0, 0.2])

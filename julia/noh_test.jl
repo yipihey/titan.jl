@@ -24,7 +24,6 @@ PS.build!(; rI, rho = fill(ρ0, n), T = fill(T0, n), u = uI, geom = 2, lgrid = 2
 avm == "prod" && (TX.AV_ZONE[] = parse(Float64, get(ENV, "AVZONE", "2")); TX.AV_TENSION[] = get(ENV, "AVTENSION", "0") == "1")
 INTEG == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
 PS.install_julia!(BlockSolver); TD.MSGIO[] = get(ENV, "NOHMSG", "0") == "1" ? stdout : devnull
-for k_ in ("ETOTAL", "ETASW"); haskey(ENV, k_) && error(k_ * " was removed (internal energy only; ECOMPAT=1 selects the compatible rows, ETOTMON=1 monitors the total energy)"); end
 etot = get(ENV, "ECOMPAT", "0")
 etot == "1" && (TX.ECOMPAT[] = true; TX.GASROW[] = true)
 mon = Any[]; get(ENV, "ETOTMON", "0") != "0" && (TD.STAGE_HOOK[] = (kind, dt) -> (push!(mon, TX.etot_monitor(dt)); nothing))

@@ -1,4 +1,4 @@
-# The one supported Pop III configuration (docs/POPIII_STACK.md, docs/POPIII_SWITCH_AUDIT2.md): the settings of the main run
+# Stage-1 defaults (docs/POPIII_PROTO.md): the grey production configuration of the zie1/zie3 runs (run.env + stack defaults, NKRYLOV=1, TRTOL true-residual convergence, exact J·v are code defaults). Per-run settings (mesh, cloud, IC, run control) in scripts/proto/run_<run>.env.
 # z300mm (16 Nov 2026) as the defaults of popiii_m2c.jl. Included first by popiii_m2c.jl: every key that the environment does not set
 # is set here, before any module reads ENV, so a run needs only its own settings (mesh, cloud, output) and the start. An explicit
 # setting still overrides (tests, other meshes). Not used by any other script (the S4/S5, quasi-star and harness scripts keep the
@@ -24,7 +24,7 @@ const POPIII_STACK = [
     # chemistry
     "COUPLED" => "1",   # (read by TitanFortran: meqn ≥ 9 for the two species rows; popiii_m2c always couples)
     "CHEMCK" => "1", "CHEMCKHSS" => "100", "CHEMSUB" => "1.3,3", "CHEMFBNET" => "16",
-    "HDCHEM" => "1", "HECHEM" => "1", "CHEMTHREADS" => "1", "MATTHREADS" => "8",
+    "HDCHEM" => "1", "HECHEM" => "1", "CHEMTHREADS" => "1", "MATTHREADS" => "16",
     # H₂ lines
     "LINEINC" => "1", "LINESRC" => "zone", "LINEQUAD" => "p2",
     "LINECORE" => "8", "LINEFAST" => "1",
@@ -32,16 +32,16 @@ const POPIII_STACK = [
     "STARLIGHT" => "1", "SL3" => "1", "SLBLEND" => "1", "SLEB" => "1", "SLWFLUX" => "1", "SLSHIELD" => "sobolev", "LYABB" => "1",
     "SLIMP" => "2",
     # radiation
-    "VEFIMP" => "1", "EDDGMU0" => "1", "EDDSCAT" => "1", "SUBZONE" => "1,2", "FLUXTIE" => "0.1,1", "ERTAUMIN" => "3000",
+    "SLABFLUX" => "1", "SLABTIE" => "1", "VEFIMP" => "1", "EDDGMU0" => "1", "EDDSCAT" => "1", "SUBZONE" => "0", "FLUXTIE" => "0.1,1", "ERTAUMIN" => "3000",
     # energy
     "EXCAP" => "1e8", "ETOTMON" => "1",   # one energy variable (internal energy, compatible rows, unconditional); ETOTMON only monitors the total
     # hydro
     "AVZONE" => "2", "AVTENSION" => "0",
     # mesh: 290 zones, Δln r 0.0794 from a regular centre (one central zone to 0.1 R☉); GRIDEQ moving mesh (iterate-only monitor)
     "ENVEUL" => "0,0.0793995,0.0793995,1e30", "ENVCORE" => "0.1,0.0793995,1e30", "ENVLIN" => "1", "ENVCONS" => "1",
-    "GRIDEQ" => "1", "GEQRAMP" => "1e-3,300,10,20", "GEQC" => "100,1.5,30,0.5,0.5,0.1,1e4,0.3,0.3", "GEQW" => "1,1,1,1,1,1,0,3",
+    "GRIDEQ" => "off", "GEQRAMP" => "1e-3,300,10,20", "GEQC" => "100,1.5,30,0.5,0.5,0.1,1e4,0.3,0.3", "GEQW" => "1,1,1,1,1,1,0,3",
     # step control: TR-BDF2 embedded error estimate (TITAN's rule below is then diagnostic only)
-    "DTERR" => "0.1", "CONV" => "1e-3", "NITER" => "25", "NTRY" => "60", "CDYN" => "3e5", "STOL" => "0.3", "FAILTFAC" => "0.5",
+    "DTERR" => "0.03", "CONV" => "0.01", "NKRYLOV" => "1", "NITER" => "25", "NTRY" => "60", "CDYN" => "3e5", "STOL" => "0.3", "FAILTFAC" => "0.5",
     # run control
     "TSTOP" => "2e8", "NSTOP" => "1e27", "DTSTOP" => "1e-9", "CKEVERY" => "100", "SNAPEVERY" => "50", "PRINTEVERY" => "100",
     "MSG" => "1", "FLUSHOUT" => "1",
