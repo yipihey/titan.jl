@@ -5,11 +5,11 @@
 # Usage: m4run.sh <case> <start rp_kNNN> <cores> [env words ...]
 set -u
 DATA=/zpool/nvme/data/tabel_scratch/titan_popiii; T=$DATA/subconv/m4; C=$1; START=$2; PINC=$3; shift 3
-SEG=${SEG:-400}; MSTOP=${MSTOP:-34}; NSEGMAX=${NSEGMAX:-40}; WT=${CODE:?set CODE}
+PROD=${PROD:-zie1}; SEG=${SEG:-400}; MSTOP=${MSTOP:-34}; NSEGMAX=${NSEGMAX:-40}; WT=${CODE:?set CODE}
 R=$T/$C; mkdir -p $R/ck; log() { echo "$(date '+%F %T') $*" >> $R/procedure.log; }
-[ -f $R/eqeos_he_xe.jls ] || cp $DATA/runs/zie1/eqeos_he_xe.jls $R/
-for e in aux tstate.gz; do [ -f $R/ck/m2c_$START.$e ] || cp $DATA/subconv/runs/zie1rp/ck/m2c_$START.$e $R/ck/; done
-RUNENV="$(cat $DATA/runs/zie1/run.env)"
+[ -f $R/eqeos_he_xe.jls ] || cp $DATA/runs/${PROD:-zie1}/eqeos_he_xe.jls $R/
+for e in aux tstate.gz; do [ -f $R/ck/m2c_$START.$e ] || cp $DATA/subconv/runs/${PROD}rp/ck/m2c_$START.$e $R/ck/; done
+RUNENV="$(cat $DATA/runs/$PROD/run.env)"
 n=$(grep -c "segment done" $R/procedure.log 2>/dev/null); n=${n:-0}; ck=$START; [ "$n" -gt 0 ] && ck=$(grep 'segment done' $R/procedure.log | tail -1 | awk '{print $5}')
 log "lane start: case $C from $ck, code $(git -C $WT rev-parse --short HEAD) (+TitanCore aace2a0), cores $PINC, env: $*"
 cd $WT/julia

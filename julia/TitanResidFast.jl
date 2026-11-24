@@ -1104,7 +1104,7 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
     G = TDCGeom(nz, view(r, ra), view(W.tAz, za), view(W.tmzn, za), view(W.tmzo, za), view(dmdt, ra), view(W.tdV, za))
     B = TDCBack(view(ta, ra), view(tU, ra), view(tsup, ra), view(tell, ra), view(trz, za), view(tez, za))
     wv = view(tw, ra); wov = view(two, ra); Fv = view(W.tF, ra)
-    tdc_F!(Fv, wv, wov, G, B, dt, par; cen = TDC_CEN[])
+    tdc_F!(Fv, wv, wov, G, B, dt, par; cen = TDC_CEN[], up = (j, x) -> decide(:up, 30, ngrs + j - 1, x))
     @inbounds begin
         R[iw, kb(ngrs)] = tw[ngrs]; R[iw, kb(ngre+1)] = tw[ngre+1]
         for k in ngrs+1:ngre
@@ -1120,7 +1120,7 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
         for k in k0:ngrs-1; R[iw, kb(k)] = AD_JV[] ? z0 : x[(kb(k) - 1) * neqn + iw]; end
         R[iw, kb(ngre+2)] = AD_JV[] ? z0 : x[(kb(ngre+2) - 1) * neqn + iw]
     end
-    Q, _ = tdc_exchange(wv, wov, G, B, dt, par; cen = TDC_CEN[], Ptc = view(W.tPt, za))
+    Q, _ = tdc_exchange(wv, wov, G, B, dt, par; cen = TDC_CEN[], Ptc = view(W.tPt, za), up = (j, x) -> decide(:up, 30, ngrs + j - 1, x))
     @inbounds for j in ngrs:ngre
         i = j - ngrs + 1
         W.tgx[j] = 0.5 * (Q[i] + Q[i+1]) + (j == ngrs ? 0.5 * Q[1] : z0) + (j == ngre ? 0.5 * Q[nz+1] : z0)
