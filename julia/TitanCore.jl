@@ -635,15 +635,33 @@ end
     end
     s1
 end
-"eddg.f: first moment / zeroth moment of xi over ang[1:n]."
-@inline function _eddg(n, ang, xi)
+"eddg.f: first and zeroth moment of xi over ang[1:n] (s1, s0)."
+@inline function _eddg_parts(n, ang, xi)
     s0 = zero(eltype(xi)); s1 = zero(eltype(xi))
     @inbounds for i in 1:n-1
         a, b = ang[i], ang[i+1]; x, y = xi[i], xi[i+1]
         s0 += 0.5 * (x + y) * (b - a)
         s1 += (x * b - y * a) * (a + b) / 2.0 + (y - x) * (a^2 + a * b + b^2) / 3.0
     end
+    (s1, s0)
+end
+"eddg.f: first moment / zeroth moment of xi over ang[1:n] (g of the inner boundary)."
+@inline function _eddg(n, ang, xi)
+    s1, s0 = _eddg_parts(n, ang, xi)
     s1 / s0
+end
+"""
+Outer-boundary factor g = num/den. Where the ratio is not finite (den = 0 or a non-finite quotient: J = K = 0, the
+0/0 of an empty outgoing hemisphere) g = 1/2, the value of an isotropic outgoing hemisphere; same condition and gate (edpos()) as f in eddfac.
+"""
+@inline function _gout(num, den)
+    r = num / den
+    edpos() && !(abs(den) > 0 && isfinite(r)) ? oftype(r, 0.5) : r
+end
+"g of the outer boundary from the formal solution (the non-bg branch: s1/s0)."
+@inline function _eddgr(n, ang, xi)
+    s1, s0 = _eddg_parts(n, ang, xi)
+    _gout(s1, s0)
 end
 cvmgp(a, b, c) = c < 0.0 ? b : a
 cvmgm(a, b, c) = c >= 0.0 ? b : a
@@ -736,7 +754,7 @@ function eddfac!()
             for j in 1:nang; xim[j] = xip[j]; end
             xmom0[k] = 0.0; xmom2[k] = 0.0
             _eddf!(nang, ang, xi0, xmom0, xmom2, k)
-            k == b && s!(:geddr, _eddg(nang, ang, xip))
+            k == b && s!(:geddr, _eddgr(nang, ang, xip))
         end
         lrobc == 1 && (xip[1:nang] .= gf(:ximr))
         for k in b:-1:a
@@ -862,9 +880,9 @@ function eddfac!()
                     s1 = _mom1(n_, xang, xip)
                     # (μ = xang decreases along the ray index, so ∫_0^1 I dμ = −s0 and ∫_0^1 I μ dμ = −s1; the background gives I_b, I_b/2)
                     TD.GXEDD[] = abs(s0) > 1e-10 * Ib && isfinite(s1 / s0) ? clamp(s1 / s0, 0.0, 1.0) : 0.5
-                    s!(:geddr, (-s1 + 0.5 * Ib) / (-s0 + Ib))
+                    s!(:geddr, _gout(-s1 + 0.5 * Ib, -s0 + Ib))
                 else
-                s!(:geddr, _eddg(EDDG_MU0[] ? nj + 1 : nj, xang, xip))
+                s!(:geddr, _eddgr(EDDG_MU0[] ? nj + 1 : nj, xang, xip))
                 end
             end
             s!(:geddr, max(0.5, min(gf(:geddr), 1.0)))
@@ -1048,9 +1066,9 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
                 n_ = EDDG_MU0[] ? nj + 1 : nj; s0 = zero(T)
                 @inbounds for i in 1:n_-1; s0 += 0.5 * (xip[i] + xip[i+1]) * (xang[i+1] - xang[i]); end
                 s1 = _mom1(n_, xang, xip)
-                geddr = (-s1 + 0.5 * Ib) / (-s0 + Ib)
+                geddr = _gout(-s1 + 0.5 * Ib, -s0 + Ib)
             else
-                geddr = _eddg(EDDG_MU0[] ? nj + 1 : nj, xang, xip)
+                geddr = _eddgr(EDDG_MU0[] ? nj + 1 : nj, xang, xip)
             end
             geddr = max(0.5, min(geddr, 1.0))
         end
@@ -1209,9 +1227,9 @@ function closure_sens_mt!(a, b, sf0, dtau0, chif0, base, base_g, arrs, cs, nt)
                                 n_ = mu0 ? nj + 1 : nj; s0 = 0.0
                                 @inbounds for j in 1:n_-1; s0 += 0.5 * (xip[j] + xip[j+1]) * (xang[j+1] - xang[j]); end
                                 s1 = _mom1(n_, xang, xip)
-                                gp = (-s1 + 0.5 * Ib) / (-s0 + Ib)
+                                gp = _gout(-s1 + 0.5 * Ib, -s0 + Ib)
                             else
-                                gp = _eddg(mu0 ? nj + 1 : nj, xang, xip)
+                                gp = _eddgr(mu0 ? nj + 1 : nj, xang, xip)
                             end
                             gp = max(0.5, min(gp, 1.0))
                         end
