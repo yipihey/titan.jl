@@ -847,7 +847,8 @@ function eddfac!()
                 tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
                 if bg      # excess moments; xmom0, xmom2 are −2J_x, −2K_x (μ decreases along the ray index), the background's −2I_b, −2I_b/3
                     FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : 1.0 / 3.0
-                    fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+                    fedd[k] = ep && !(abs(xmom0[k] - 2Ib) > 0 && isfinite((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib))) ? 1.0 / 3.0 :
+                              max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
                 else
                 fedd[k] = edpos() && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 :
                           max(0.0, min(xmom2[k] / xmom0[k], 1.0))
@@ -1034,7 +1035,8 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
             tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : zero(T))
             if bg
                 FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : T(1.0 / 3.0)
-                fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+                fedd[k] = ep && !(abs(xmom0[k] - 2Ib) > 0 && isfinite((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib))) ? T(1.0 / 3.0) :
+                              max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
             else
                 fedd[k] = ep && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? T(1.0 / 3.0) :
                           max(0.0, min(xmom2[k] / xmom0[k], 1.0))
@@ -1195,7 +1197,8 @@ function closure_sens_mt!(a, b, sf0, dtau0, chif0, base, base_g, arrs, cs, nt)
                             tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
                             if bg
                                 FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : 1.0 / 3.0
-                                fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+                                fedd[k] = ep && !(abs(xmom0[k] - 2Ib) > 0 && isfinite((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib))) ? 1.0 / 3.0 :
+                              max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
                             else
                                 fedd[k] = ep && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 : max(0.0, min(xmom2[k] / xmom0[k], 1.0))
                             end
