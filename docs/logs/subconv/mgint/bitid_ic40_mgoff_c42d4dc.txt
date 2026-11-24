@@ -1,0 +1,2 @@
+snapshots compared: 10 (steps 1,2,5,10,15,20,25,30,35,40); fields compared: 300; fields with differences: 0; extra fields in B: 
+BIT-IDENTICAL

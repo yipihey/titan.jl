@@ -1,0 +1,13 @@
+NKCHECK AD row eq 18  zone  34: Jv(AD) -4.45237e+01  Jv(FD) -4.45237e+01  rowscale 4.452e+01  rel 1.579e-12  w_iterate 0.000e+00
+NKCHECK AD row eq 18  zone  35: Jv(AD) +7.84279e+01  Jv(FD) +7.84279e+01  rowscale 7.843e+01  rel 6.032e-13  w_iterate 0.000e+00
+NKCHECK AD row eq 18  zone  36: Jv(AD) +1.45363e+02  Jv(FD) +1.45363e+02  rowscale 1.454e+02  rel 8.234e-12  w_iterate 0.000e+00
+NKCHECK AD row eq 18  zone  37: Jv(AD) +2.51236e+02  Jv(FD) +2.51236e+02  rowscale 2.512e+02  rel 5.280e-11  w_iterate 0.000e+00
+NKCHECK AD row eq 18  zone  38: Jv(AD) -5.57033e+02  Jv(FD) -5.57033e+02  rowscale 5.570e+02  rel 3.194e-11  w_iterate 0.000e+00
+NKCHECK AD row eq 18  zone  39: Jv(AD) -2.49056e+02  Jv(FD) -2.49056e+02  rowscale 2.491e+02  rel 1.554e-08  w_iterate 0.000e+00
+NKCHECK AD row eq 18  zone  40: Jv(AD) -1.10691e+03  Jv(FD) -1.10691e+03  rowscale 8.241e+04  rel 2.639e-09  w_iterate 2.246e+04
+NKCHECK AD row eq 18  zone  41: Jv(AD) +4.11407e+05  Jv(FD) +4.11407e+05  rowscale 4.126e+05  rel 1.372e-08  w_iterate 3.795e+04
+NKCHECK AD row eq 18  zone  42: Jv(AD) +6.50165e+05  Jv(FD) +6.52557e+05  rowscale 6.502e+05  rel 3.680e-03  w_iterate -1.058e-13
+NKCHECK AD row eq 18  zone  43: Jv(AD) -1.78147e+06  Jv(FD) -1.21213e+10  rowscale 1.781e+06  rel 6.803e+03  w_iterate 0.000e+00
+NKCHECK AD row eq 18  zone  44: Jv(AD) +1.21298e+11  Jv(FD) +6.06557e+10  rowscale 1.220e+11  rel 4.972e-01  w_iterate 5.071e-04
+NKCHECK AD row eq 18  zone  45: Jv(AD) -1.78003e+12  Jv(FD) -8.89405e+11  rowscale 1.795e+12  rel 4.963e-01  w_iterate 3.731e-06
+NKCHECK AD row eq 18  zone  46: Jv(AD) +3.69430e+06  Jv(FD) +2.09962e+12  rowscale 3.694e+06  rel 5.683e+05  w_iterate 0.000e+00
