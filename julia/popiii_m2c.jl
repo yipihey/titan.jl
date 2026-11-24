@@ -4,6 +4,29 @@
 #   julia --project=<env> popiii_m2c.jl lines <IC shells>      (start from the IC; RESTART=<checkpoint> continues a run)
 using Printf
 include(joinpath(@__DIR__, "popiii_stack.jl"))     # the one supported configuration: defaults for every unset stack key
+# TITAN_PKG (default off): load the module files as the precompiled package julia/TitanStack (no compile of the modules) instead of
+# including them; "1": fall back to the includes if the image was built with a different load-time environment, "strict": stop then.
+# The package needs the environment to have TitanStack developed (docs/POPIII_PRECOMPILE.md). Everything below is the same either way.
+const PKGMODE = get(ENV, "TITAN_PKG", "0")
+PKGMODE in ("0", "1", "strict") || error("TITAN_PKG=$PKGMODE: 0 (include the module files), 1 (the package, include path if its image does not match), strict (the package or stop)")
+function pkg_load(mode)       # true: the modules are Main's constants, from the package image
+    mode == "0" && return false
+    t0 = time()
+    try
+        Core.eval(Main, :(using TitanStack))
+        for nm in Core.eval(Main, :(TitanStack.MODULES)); Core.eval(Main, :(const $nm = getfield(TitanStack, $(QuoteNode(nm))))); end     # Main.<module>, as the includes define them (the H2Levels lookups of H2Lines/PopIIIMaterial go through Main)
+        println("TITAN_PKG: TitanStack image loaded in ", round(time() - t0, digits = 1), " s (", length(Core.eval(Main, :(TitanStack.BAKED))), " guarded environment keys, ", Core.eval(Main, :(TitanStack.PC_APPLIED))[][1], " precompile statements)")
+        return true
+    catch e
+        while !(e isa ErrorException) && (hasproperty(e, :error) || hasproperty(e, :ex)); e = hasproperty(e, :error) ? e.error : e.ex; end     # InitError / LoadError wrappers
+        msg = e isa ErrorException ? e.msg : sprint(showerror, e)
+        mode == "strict" && error("TITAN_PKG=strict: " * msg)
+        println("TITAN_PKG=1: not using the TitanStack image, falling back to the include path. Reason: ", msg)
+        return false
+    end
+end
+const PKGON = pkg_load(PKGMODE)
+if !PKGON
 include(joinpath(@__DIR__, "TitanDriver.jl")); include(joinpath(@__DIR__, "JuliaPhysics.jl"))
 include(joinpath(@__DIR__, "TitanResidFast.jl")); include(joinpath(@__DIR__, "BlockSolver.jl"))
 include(joinpath(@__DIR__, "TitanCore.jl")); include(joinpath(@__DIR__, "Z0Physics.jl")); include(joinpath(@__DIR__, "TitanMaterials.jl"))
@@ -17,16 +40,17 @@ haskey(ENV, "LINEGPU") && include(joinpath(@__DIR__, "h2lines_gpu.jl"))
 include(joinpath(@__DIR__, "StellarOpacity.jl")); include(joinpath(@__DIR__, "IonRay.jl"))
 # MGROUPS (docs/POPIII_MULTIGROUP.md; default off): the pivoted banded solver for the wider block system
 haskey(ENV, "MGROUPS") && ENV["MGROUPS"] != "0" && include(joinpath(@__DIR__, "JuliaSolver.jl"))
+end
 # S6-C1: HOT=1: stellar EOS, nuclear network and convective mixing in the hot core (T > HOTT1), see PopIIIMaterial.HOT
 const HOTON = get(ENV, "HOT", "0") == "1"
-if HOTON
+if HOTON && !PKGON
     for f in ("StellarEOS", "NucNet", "StellarMaterial", "StarMaterial"); include(joinpath(@__DIR__, f * ".jl")); end
 end
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const PC = PrimordialChem; const PM = PopIIIMaterial; const Z0 = Z0Physics
 using ForwardDiff
 # INTEGRATOR=trbdf2 (default) | theta: second-order L-stable TR-BDF2 (Trbdf2.jl, G2) or TITAN's theta scheme
-include(joinpath(@__DIR__, "Trbdf2.jl")); include(joinpath(@__DIR__, "NewtonKrylov.jl")); include(joinpath(@__DIR__, "StageCons.jl"))
+PKGON || (include(joinpath(@__DIR__, "Trbdf2.jl")); include(joinpath(@__DIR__, "NewtonKrylov.jl")); include(joinpath(@__DIR__, "StageCons.jl")))
 # default since G2b: θ = 0.55 lets the z = 19 core oscillate at 1e11–1e13 (three-body heating phase) where TR-BDF2 is smooth
 get(ENV, "INTEGRATOR", "trbdf2") == "trbdf2" && (TD.STEPFN[] = Trbdf2.step!)
 const Msun = 1.98847e33
@@ -585,7 +609,7 @@ function li_store!(Lc, dd, nh2, nl, zk, ncz, nz_)
     end
     nothing
 end
-include(joinpath(@__DIR__, "H2Levels.jl"))
+PKGON || include(joinpath(@__DIR__, "H2Levels.jl"))      # (with TITAN_PKG: Main.H2Levels is TitanStack.H2Levels, bound above)
 const HLV = H2Levels.load()
 """
 S6: H₂ line transfer outside the continuum photosphere only (RAD runs, LTAUCUT > 0 [10]): the zones deeper than continuum

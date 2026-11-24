@@ -1,4 +1,4 @@
-isdefined(Main, :H2Lines) || include(joinpath(@__DIR__, "H2Lines.jl"))
+isdefined(@__MODULE__, :H2Lines) || include(joinpath(@__DIR__, "H2Lines.jl"))
 """
     H2Levels
 
@@ -38,7 +38,7 @@ converged to 1e-9, starts at 3:1).
 module H2Levels
 
 using Printf
-import Main.H2Lines as HL
+import ..H2Lines as HL
 
 const h = HL.h; const c = HL.c; const kB = HL.kB
 const DIR = joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "H2coll", "cloudy", "c25.00_extract", "data", "h2")
@@ -180,6 +180,7 @@ function PopWS{T}(L::Levels) where {T}
 end
 PopWS(L::Levels) = PopWS{Float64}(L)
 const POPWS_POOL = [IdDict{Levels,Dict{DataType,Any}}() for _ in 1:Threads.maxthreadid()]
+__init__() = (resize!(POPWS_POOL, Threads.maxthreadid()); for i in eachindex(POPWS_POOL); isassigned(POPWS_POOL, i) || (POPWS_POOL[i] = IdDict{Levels,Dict{DataType,Any}}()); end)   # (when a precompiled TitanStack image is loaded: the build process has one thread)
 function popws(L::Levels, ::Type{T} = Float64) where {T}
     d0 = POPWS_POOL[Threads.threadid()]
     d = get!(d0, L) do; Dict{DataType,Any}(); end

@@ -209,6 +209,7 @@ mutable struct LnKMemo
 end
 const LNKMEMOON = get(ENV, "LNKMEMO", "1") != "0"     # (FIX-RACE) LNKMEMO=0: the direct sum (bit-identical)
 const LNKMEMO = [LnKMemo(NaN, Dict{Symbol,Float64}()) for _ in 1:Threads.maxthreadid()]
+__init__() = (resize!(LNKMEMO, Threads.maxthreadid()); for i in eachindex(LNKMEMO); isassigned(LNKMEMO, i) || (LNKMEMO[i] = LnKMemo(NaN, Dict{Symbol,Float64}())); end)   # (again when a precompiled TitanStack image is loaded: the build process has one thread)
 @inline _spterm(s::Species, T) = log(Ztr(s, T) * _zint(s, T)) - s.E0 / (kB * T)
 function _spterm_memo(m::LnKMemo, p::Symbol, T::Float64)
     t = get(m.v, p, NaN)
