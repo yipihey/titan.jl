@@ -189,8 +189,12 @@ Face value of w at a zone centre between the interfaces (wlo = lower index, whi 
 first-order upwind (donor) value, blended with the centred value by `cen` ∈ [0,1] (cen = 0: pure upwind, cen = 1: centred,
 2nd order; the θ-weighting of the momentum row). No limiter (the FB row keeps w ≥ 0 but a centred face can overshoot).
 """
-@inline function tdc_facew(Φ, wlo, whi, cen)
-    don = Φ >= 0 ? whi : wlo
+"""Default upwind decision of the zone-centre face j (local zone index): the sign of the mass flux itself. The TITAN residual passes
+`TitanResidFast.decide(:up, 30, …)` instead, so that the donor side is recorded at the base state and held during the Jacobian / FD
+J·v evaluations, like every other upwind and limiter branch of the residual (`advect!`)."""
+@inline _upraw(j, x::Bool) = x
+@inline function tdc_facew(Φ, wlo, whi, cen, isup::Bool = Φ >= 0)
+    don = isup ? whi : wlo
     return cen == 0 ? don : (1 - cen) * don + cen * 0.5 * (wlo + whi)
 end
 
@@ -208,13 +212,13 @@ The first bracket is the interface-CV advection exactly as in the GAS MOMENTUM r
 minus w_k times the discrete continuity residual, i.e. the advective form m_o(w_n − w_o) − Δt[Φ_hi (wb_hi − w_k) − Φ_lo (wb_lo − w_k)]
 when continuity closes. The diffusion is (1/ρ)∇·(α_t ρ ℓ w ∇w) + α_t ℓ |∇w|² of the doc.
 """
-function tdc_F!(F, w, wo, G::TDCGeom, B::TDCBack, dt, par::TDCPar; cen = 0.0)
+function tdc_F!(F, w, wo, G::TDCGeom, B::TDCBack, dt, par::TDCPar; cen = 0.0, up = _upraw)
     nz = G.nz; r = G.r; dm = G.dmdt
     F[1] = w[1]; F[nz+1] = w[nz+1]
     @inbounds for k in 2:nz
         mn = 0.5 * (G.mzn[k-1] + G.mzn[k]); mo = 0.5 * (G.mzo[k-1] + G.mzo[k])
         Φh = 0.5 * (dm[k] + dm[k+1]); Φl = 0.5 * (dm[k-1] + dm[k])
-        wbh = tdc_facew(Φh, w[k], w[k+1], cen); wbl = tdc_facew(Φl, w[k-1], w[k], cen)
+        wbh = tdc_facew(Φh, w[k], w[k+1], cen, up(k, Φh >= 0)); wbl = tdc_facew(Φl, w[k-1], w[k], cen, up(k - 1, Φl >= 0))
         adv = ((mn * w[k] - mo * wo[k]) - dt * (Φh * wbh - Φl * wbl) - w[k] * ((mn - mo) - dt * (Φh - Φl))) / mn
         gh = (w[k+1] - w[k]) / (r[k+1] - r[k]); gl = (w[k] - w[k-1]) / (r[k] - r[k-1])
         Gh = par.α_t * B.rhoz[k] * B.ellz[k] * 0.5 * (w[k] + w[k+1]) * gh
@@ -254,12 +258,12 @@ with Pt_j = α_p ρ_j ē_j (keyword `Ptc` (M3b): the zone P_t the momentum row u
 discretisation error). Telescoping: Σ_k Q_k Δt = Δ Σ_k m e + Δt Σ_j Pt_j dVdt_j exactly (`tdc_budget_check`). Returns Q and a
 NamedTuple of the pieces.
 """
-function tdc_exchange(w, wo, G::TDCGeom, B::TDCBack, dt, par::TDCPar; cen = 0.0, Ptc = nothing)
+function tdc_exchange(w, wo, G::TDCGeom, B::TDCBack, dt, par::TDCPar; cen = 0.0, Ptc = nothing, up = _upraw)
     nz = G.nz; r = G.r; dm = G.dmdt; T = promote_type(eltype(w), eltype(wo), eltype(G.mzn))
     Fe = zeros(T, nz); Fd = zeros(T, nz); Pt = zeros(T, nz)
     @inbounds for j in 1:nz
         Φ = 0.5 * (dm[j] + dm[j+1])
-        wb = tdc_facew(Φ, w[j], w[j+1], cen)
+        wb = tdc_facew(Φ, w[j], w[j+1], cen, up(j, Φ >= 0))
         Fe[j] = -Φ * wb^2
         Fd[j] = -par.α_t * G.Az[j] * B.rhoz[j] * B.ellz[j] * 0.5 * (w[j] + w[j+1]) * (w[j+1]^2 - w[j]^2) / (r[j+1] - r[j])
         Pt[j] = tdc_pturb(w[j], w[j+1], B.rhoz[j], par)
