@@ -322,10 +322,14 @@ instrument and M2/M3 reuse `conv_thermo`. If the extra evaluation ever shows an 
 
 **`MLTBUOY` (provisional, added 22 Nov 2026 on `popiii-subconv` for M2, off by default; `TitanResidFast.MLT_BUOY`).** The MLT superadiabaticity is built from the
 density contrast of a blob across the interface (`TDC.blob_sup`, design D1 of docs/POPIII_CONVECTION.md) instead of ∇ − ∇_ad, with the thermodynamics of the two
-zones evaluated at the Newton iterate with derivatives (`PopIIIMaterial.conv_thermo`, `conv_tchem`). In this mode the network placeholder ∇_ad = 1e30 of
+zones evaluated at the Newton iterate with derivatives (M6, 24 Nov 2026: the network's own linear response at ω = 1/t_turn, `PopIIIMaterial.lr_zone` + `LResp.lresp`; it replaced M2's equilibrium/frozen blend, `conv_tchem`, the central-difference EOS and the `BUOYEQFAIL` table fallback, docs/POPIII_CONVECTION.md M6; no new switch: `MLTBUOY` and `TDC` use it). In this mode the network placeholder ∇_ad = 1e30 of
 `material_thermo` is not used (all branches get real thermodynamics) and `MLT_HS` is not applied; the τ weight and `MLT_NOINFALL` stay (MLT is local). Off: the code path is the
 old one [test: bit-identity logs in docs/logs/subconv/m2/]. Removal plan: when M4 accepts it, it becomes the only MLT path (until the TDC of M3 replaces the MLT block);
 then delete the 1e30 placeholder in `material_thermo`, `COLDMLT` (+ `cold_thermo`) and `MLT_HS` (+ its blend, `ForwardDiff.value` weight) and this switch. M3e: with `MGROUPS` the opacity of the eddy loss is the group Rosseland-type mean `mg_kappa_eddy` (not the grey `avchi`); the plain MLT path is unchanged (bit-identical to mgprod 6f59f18).
+
+**`LRESPTEST=<script.jl>` (diagnostic hook, M6, 24 Nov 2026, off by default; `popiii_m2c.jl`).** Includes the given script once, at the first `matgen` of the run (state of the restart), in `Main` with `LRESP_MAT` (the material), `PM`, `TX`, `TF`; used by `julia/tdc_tests/t10_lresp_state.jl` and for debugging. Nothing is read or changed when unset. Removal plan: none (test harness).
+
+**Unconditional M6 edits outside the switches (bit-identical in Float64 and single-level Duals, claim [test: docs/logs/subconv/lresp/bitid_*]).** `ChemNet.hm_exc`: ln(w_n/w_1) is `log(wr)` as before where wr ≥ 1e-150 and the difference of the exponents `_lw_hm` below (a nested ForwardDiff through the HM88 pressure had Inf/NaN second derivatives from log of underflowing w; the terms there are ≤ 1e-143 and below one rounding of q); `PopIIIMaterial.xneut` takes the value of the neutral hydrogen at every Dual nesting level (`_fullval`; identical for ≤ 1 level); the Float temperature of the star-light terms in `cpl_tq` likewise. `LRCACHE` (per-zone local data of the blob thermodynamics, exact values as key) is cleared in `cpl_prepare!`.
 
 **`TDC` (provisional, added 22 Nov 2026 on `popiii-subconv` for M3b, off by default; `TitanResidFast.TDC_ON`, `TDCPAR`, `TDCCEN`).** Time-dependent convection: the turbulent
 velocity w on the interfaces is the last Newton unknown (neqn + 1, only with `COUPLED=1`, `HOT=1`, `TITAN_NOLIB=1`, `DTSCHEME=trbdf2`), with the Fischer–Burmeister row of

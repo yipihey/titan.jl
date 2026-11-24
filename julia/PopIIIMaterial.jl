@@ -2341,6 +2341,7 @@ function cpl_prepare!(m::NetGas)
     CPLHD0[] = HDCHEM[] ? Any[length(x) > nf ? hd_fracs(x[nf+1], x[nf+2]) : nothing for x in m.x] : Any[]
     length(CPLTERMS[]) == mgr || (CPLTERMS[] = Any[nothing for _ in 1:mgr]); fill!(CPLTERMS[], nothing)
     length(CPLCACHE[]) == mgr || (CPLCACHE[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHE[], nothing)
+    length(LRCACHE[]) == mgr || (LRCACHE[] = Any[nothing for _ in 1:mgr]); fill!(LRCACHE[], nothing)      # (M6: the local data of the blob thermodynamics belong to this step's CPLTERMS)
     SLIMP && (length(CPLCACHEQ[]) == mgr || (CPLCACHEQ[] = Any[nothing for _ in 1:mgr]); fill!(CPLCACHEQ[], nothing);
              length(SLW0[]) == mgr || (SLW0[] = Any[nothing for _ in 1:mgr]); fill!(SLW0[], nothing))
     fill!(TX.CPLZ[], false)                       # chem_core!'s closing fill_eos! uses m.x
