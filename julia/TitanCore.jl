@@ -614,6 +614,24 @@ broke up zone by zone (run K1 stopped at 9.5e7 s). On whenever a tabulated mater
 """
 const EDD_POSITIVE = Ref{Any}(:auto)        # :auto (follow EDD_MATERIAL_SOURCE), true or false
 edpos() = EDD_POSITIVE[] === :auto ? TD.EDD_MATERIAL_SOURCE[] : EDD_POSITIVE[]::Bool
+# SWDIAG census ids of the formal solution, per group (TitanDriver.swg, group TD.SWGRP[]; 0 = grey); side 1 = condition true
+const SW_CSLIM = TD.swreg_grp("cl_srcslope_limiter_prod>=0"); const SW_CSDEN = TD.swreg_grp("cl_srcslope_den_sm>=0"); const SW_CSCAT = TD.swreg_grp("cl_source_scat_branch")
+const SW_CCLS = TD.swreg_grp("cl_clamp_source"); const SW_CCLI = TD.swreg_grp("cl_clamp_ray_in"); const SW_CCLO = TD.swreg_grp("cl_clamp_ray_out")
+const SW_CFBAD = TD.swreg_grp("cl_f_guard_1/3"); const SW_CFLO = TD.swreg_grp("cl_f<0_clamped"); const SW_CFHI = TD.swreg_grp("cl_f>1_clamped")
+const SW_CHFIN = TD.swreg_grp("cl_h_nonfinite"); const SW_CHCL = TD.swreg_grp("cl_h_clamped"); const SW_CGBAD = TD.swreg_grp("cl_g_guard_1/2")
+const SW_CGLO = TD.swreg_grp("cl_g<0.5_clamped"); const SW_CGHI = TD.swreg_grp("cl_g>1_clamped")
+"SWDIAG: the sides of the f closure at zone k from the numerator and denominator of K/J (excess moments with VEF_BG), the guard of `edpos()` and the clamps to [0, 1]"
+@inline function _swf(k, num, den, ep)
+    r = ForwardDiff.value(num) / ForwardDiff.value(den); bad = ep && !(abs(ForwardDiff.value(den)) > 0 && isfinite(r))
+    TD.swg(SW_CFBAD, k, bad); bad || (TD.swg(SW_CFLO, k, r < 0); TD.swg(SW_CFHI, k, r > 1))
+end
+@inline function _swh(k, h)
+    hv = ForwardDiff.value(h); TD.swg(SW_CHFIN, k, !isfinite(hv)); isfinite(hv) && TD.swg(SW_CHCL, k, abs(hv) > 1)
+end
+@inline function _swg(k, num, den)
+    nv = ForwardDiff.value(num); dv = ForwardDiff.value(den); r = nv / dv; bad = edpos() && !(abs(dv) > 0 && isfinite(r))
+    TD.swg(SW_CGBAD, k, bad); bad || (TD.swg(SW_CGLO, k, r < 0.5); TD.swg(SW_CGHI, k, r > 1))
+end
 
 "eddf.f: accumulate the 0th and 2nd angular moments of xi over ang[1:n] into xmom0[k], xmom2[k]."
 @inline function _eddf!(n, ang, xi, xmom0, xmom2, k)
@@ -635,15 +653,57 @@ end
     end
     s1
 end
-"eddg.f: first moment / zeroth moment of xi over ang[1:n]."
-@inline function _eddg(n, ang, xi)
+"eddg.f: first and zeroth moment of xi over ang[1:n] (s1, s0)."
+@inline function _eddg_parts(n, ang, xi)
     s0 = zero(eltype(xi)); s1 = zero(eltype(xi))
     @inbounds for i in 1:n-1
         a, b = ang[i], ang[i+1]; x, y = xi[i], xi[i+1]
         s0 += 0.5 * (x + y) * (b - a)
         s1 += (x * b - y * a) * (a + b) / 2.0 + (y - x) * (a^2 + a * b + b^2) / 3.0
     end
+    (s1, s0)
+end
+"eddg.f: first moment / zeroth moment of xi over ang[1:n] (g of the inner boundary)."
+@inline function _eddg(n, ang, xi)
+    s1, s0 = _eddg_parts(n, ang, xi)
     s1 / s0
+end
+"""
+Quotient n/d for Duals. Where d² is a normal Float64 (d² ≥ floatmin) it is the stock quotient rule, `n / d`, bit for bit. Where d² underflows (the empty groups: d ~ 1e-198 .. 1e-214,
+d² = 0 → 0/0 partials, docs §29.1) the partials are formed in units of the denominator, (∂n − q ∂d)/d with q = n/d, never d². The value is n/d in both ranges (bit-identical to before).
+Same device as `mg_esurf` (MGRad.jl), whose quotient is evaluated in units of σ = max(|E|, |E_b|). The two forms are the same function (the exact derivative); only the arithmetic differs.
+Non-Dual arguments: plain n/d.
+"""
+@inline _qd(n, d) = n / d
+@inline function _qd(n::ForwardDiff.Dual{Tg}, d::ForwardDiff.Dual{Tg}) where {Tg}
+    dv = ForwardDiff.value(d)
+    dv * dv >= floatmin(dv) && return n / d
+    q = ForwardDiff.value(n) / dv
+    ForwardDiff.Dual{Tg}(q, (ForwardDiff.partials(n) - q * ForwardDiff.partials(d)) / dv)
+end
+@inline function _qd(n::ForwardDiff.Dual{Tg}, d::Real) where {Tg}
+    d * d >= floatmin(float(d)) && return n / d
+    q = ForwardDiff.value(n) / d
+    ForwardDiff.Dual{Tg}(q, ForwardDiff.partials(n) / d)
+end
+@inline function _qd(n::Real, d::ForwardDiff.Dual{Tg}) where {Tg}
+    dv = ForwardDiff.value(d)
+    dv * dv >= floatmin(dv) && return n / d
+    q = n / dv
+    ForwardDiff.Dual{Tg}(q, -q * ForwardDiff.partials(d) / dv)
+end
+"""
+Outer-boundary factor g = num/den. Where the ratio is not finite (den = 0 or a non-finite quotient: J = K = 0, the
+0/0 of an empty outgoing hemisphere) g = 1/2, the value of an isotropic outgoing hemisphere; same condition and gate (edpos()) as f in eddfac.
+"""
+@inline function _gout(num, den)
+    r = _qd(num, den)
+    edpos() && !(abs(den) > 0 && isfinite(r)) ? oftype(r, 0.5) : r
+end
+"g of the outer boundary from the formal solution (the non-bg branch: s1/s0)."
+@inline function _eddgr(n, ang, xi)
+    s1, s0 = _eddg_parts(n, ang, xi)
+    _gout(s1, s0)
 end
 cvmgp(a, b, c) = c < 0.0 ? b : a
 cvmgm(a, b, c) = c >= 0.0 ? b : a
@@ -678,7 +738,7 @@ function eddfac!()
     csige, cc, cpi, eps = gf(:csige), gf(:cc), gf(:cpi), gf(:epsedf)
     nang = gi(:nang); lribc, lrobc = gi(:lribc), gi(:lrobc)
     xkpn = vf(:xkpn); matsrc = TD.EDD_MATERIAL_SOURCE[]
-    source!(k) = (sf[k] = matsrc ?
+    source!(k) = (TD.SWON[] && TD.swg(SW_CSCAT, k, matsrc && EDD_SCATTER[] && chifn[k] * dn[k] > xkpn[k] * dn[k] + csige * xnen[k]); sf[k] = matsrc ?
                       (EDD_SCATTER[] && chifn[k] * dn[k] > xkpn[k] * dn[k] + csige * xnen[k] ?
                        (xkpn[k] * plfn[k] + (chifn[k] - xkpn[k]) * ern[k] * cc / (4.0 * cpi)) / chifn[k] :
                        (xkpn[k] * dn[k] * plfn[k] + csige * xnen[k] * ern[k] * cc / (4.0 * cpi)) / (xkpn[k] * dn[k] + csige * xnen[k])) :
@@ -690,6 +750,7 @@ function eddfac!()
         @inbounds for k in a+1:b-1
             dxm = 0.5 * (dtau[k-1] + dtau[k]); dxp = 0.5 * (dtau[k] + dtau[k+1])
             sm = dxm * dsf[k] + dxp * dsf[k-1]; prod = dsf[k-1] * dsf[k]
+            TD.SWON[] && (TD.swg(SW_CSLIM, k, prod >= 0); TD.swg(SW_CSDEN, k, sm >= 0))
             denom = cvmgm(sm - eps, sm + eps, sm)
             bsf[k] = cvmgp(2.0 * prod / denom, 0.0, prod)
             withasf && (asf[k] = sf[k] - 0.5 * dtau[k] * bsf[k])
@@ -736,7 +797,7 @@ function eddfac!()
             for j in 1:nang; xim[j] = xip[j]; end
             xmom0[k] = 0.0; xmom2[k] = 0.0
             _eddf!(nang, ang, xi0, xmom0, xmom2, k)
-            k == b && s!(:geddr, _eddg(nang, ang, xip))
+            k == b && s!(:geddr, _eddgr(nang, ang, xip))
         end
         lrobc == 1 && (xip[1:nang] .= gf(:ximr))
         for k in b:-1:a
@@ -771,6 +832,7 @@ function eddfac!()
             sl[l] = sf[k] + 0.5 * dtau[k] * bsf[k]; sr[l] = sf[k]
             sl[l+1] = sf[k]; sr[l+1] = sf[k] - 0.5 * dtau[k] * bsf[k]
             if ep     # a source function reconstructed linearly in τ must not go negative
+                TD.SWON[] && TD.swg(SW_CCLS, k, sl[l] < lo || sr[l+1] < lo)
                 sl[l] = max(sl[l], lo); sr[l+1] = max(sr[l+1], lo)
             end
         end
@@ -792,6 +854,7 @@ function eddfac!()
                 dtjl = dn[k] * chifn[k] * (xjlp1 - xjl); ex = exp(-dtjl)
                 em1 = -expm1(-dtjl); omd = omde_over(dtjl)
                 xip[j] = em1 * sl[l] + omd * (sr[l] - sl[l]) + ex * xim[j]
+                TD.SWON[] && ep && xip[j] < lo && (SWMARK[1, k] = true)
                 ep && (xip[j] = max(xip[j], lo))
                 xa = sqrt(1.0 - p[j]^2 / rp[l]^2)
                 xang[j] = xa
@@ -821,12 +884,14 @@ function eddfac!()
             if l < lmax
                 @inbounds for j in 1:nj
                     xip[j] = em1b[j, m] * sr[m] + omdb[j, m] * (sl[m] - sr[m]) + exb[j, m] * xim[j]
+                    TD.SWON[] && ep && xip[j] < lo && (SWMARK[2, a + (m - 1) ÷ 2] = true)
                     ep && (xip[j] = max(xip[j], lo))
                     xang[j] = xangb[j, l]
                 end
             else
                 @inbounds for j in 1:nj
                     xip[j] = em1b[j, m] * sr[m] + omdb[j, m] * (sl[m] - sr[m]) + exb[j, m] * xim[j]
+                    TD.SWON[] && ep && xip[j] < lo && (SWMARK[2, a + (m - 1) ÷ 2] = true)
                     ep && (xip[j] = max(xip[j], lo))
                     xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
                 end
@@ -844,13 +909,16 @@ function eddfac!()
                     HX = TD.HXEDD; length(HX) < length(fedd) && resize!(HX, length(fedd))
                     hx = (HE[k] + _mom1(nj + 1, xang, xim)) / xmom0[k]; HX[k] = isfinite(hx) ? clamp(hx, -1.0, 1.0) : 0.0
                 end
-                tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
+                tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); TD.SWON[] && _swh(k, h); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
                 if bg      # excess moments; xmom0, xmom2 are −2J_x, −2K_x (μ decreases along the ray index), the background's −2I_b, −2I_b/3
                     FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : 1.0 / 3.0
-                    fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+                    fedd[k] = ep && !(abs(xmom0[k] - 2Ib) > 0 && isfinite((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib))) ? 1.0 / 3.0 :
+                              max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+                    TD.SWON[] && _swf(k, xmom2[k] - 2Ib / 3, xmom0[k] - 2Ib, ep)
                 else
                 fedd[k] = edpos() && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 :
                           max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+                TD.SWON[] && _swf(k, xmom2[k], xmom0[k], edpos())
                 end
             end
             if l == lmax
@@ -861,19 +929,30 @@ function eddfac!()
                     s1 = _mom1(n_, xang, xip)
                     # (μ = xang decreases along the ray index, so ∫_0^1 I dμ = −s0 and ∫_0^1 I μ dμ = −s1; the background gives I_b, I_b/2)
                     TD.GXEDD[] = abs(s0) > 1e-10 * Ib && isfinite(s1 / s0) ? clamp(s1 / s0, 0.0, 1.0) : 0.5
-                    s!(:geddr, (-s1 + 0.5 * Ib) / (-s0 + Ib))
+                    TD.SWON[] && _swg(b, -s1 + 0.5 * Ib, -s0 + Ib)
+                    s!(:geddr, _gout(-s1 + 0.5 * Ib, -s0 + Ib))
                 else
-                s!(:geddr, _eddg(EDDG_MU0[] ? nj + 1 : nj, xang, xip))
+                TD.SWON[] && (let (s1_, s0_) = _eddg_parts(EDDG_MU0[] ? nj + 1 : nj, xang, xip); _swg(b, s1_, s0_) end)
+                s!(:geddr, _eddgr(EDDG_MU0[] ? nj + 1 : nj, xang, xip))
                 end
             end
             s!(:geddr, max(0.5, min(gf(:geddr), 1.0)))
         end
         tie && tiew!(a, b, dtau)
     end
+    TD.SWON[] && fill!(SWMARK, false)
     sweep2!()
-    CSENS_REQ[] && closure_sens!(sweep2!, a, b, sf, dtau, matsrc)
+    if TD.SWON[]
+        @inbounds for k in a:b; TD.swg(SW_CCLI, k, SWMARK[1, k]); TD.swg(SW_CCLO, k, SWMARK[2, k]); end
+    end
+    if CSENS_REQ[]
+        swon_ = TD.SWON[]; TD.SWON[] = false      # (the sensitivity sweeps are perturbed evaluations: not part of the census)
+        try closure_sens!(sweep2!, a, b, sf, dtau, matsrc) finally TD.SWON[] = swon_ end
+    end
     nothing
 end
+"SWDIAG scratch: per zone, a ray of the inward (row 1) / outward (row 2) sweep was clamped to −I_b (any layer of the zone)"
+const SWMARK = TD.SWON[] ? zeros(Bool, 2, TF.MGR) : zeros(Bool, 0, 0)
 const SWEEP_EX = Ref(zeros(0, 0))
 const SWEEP_EM1 = Ref(zeros(0, 0))
 const SWEEP_OMD = Ref(zeros(0, 0))
@@ -937,6 +1016,7 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
         chi = chiL[k]; kp = kpL[k]; pl = plfn[k]; ρ = dn[k]; E = ern[k]
         ne = (neL !== nothing && k <= length(neL::Vector{T})) ? (neL::Vector{T})[k] :
              xnen[k] * (ρ / ForwardDiff.value(ρ)) * (cplz(k) && ForwardDiff.value(xs1[k]) > 0 ? xs1[k] / ForwardDiff.value(xs1[k]) : one(T))
+        TD.SWON[] && TD.swg(SW_CSCAT, k, matsrc && scat && ForwardDiff.value(chi * ρ) > ForwardDiff.value(kp * ρ + csige * ne))
         sf[k] = matsrc ?
             (scat && chi * ρ > kp * ρ + csige * ne ?
              (kp * pl + (chi - kp) * E * cc / (4.0 * cpi)) / chi :
@@ -945,11 +1025,13 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
         dtau[k] = chi * ρ * (rn[k+1] - rn[k])
     end
     bg = TD.VEF_BG[] && lrobc == 1; Ib = bg ? ximr : 0.0; ep = edpos(); lo = bg ? -Ib : 0.0
+    TD.SWON[] && fill!(SWMARK, false)
     bg && (@inbounds for k in a:b; sf[k] -= Ib; end)
     @inbounds for k in a:b-1; dsf[k] = sf[k] - sf[k+1]; end
     @inbounds for k in a+1:b-1
         dxm = 0.5 * (dtau[k-1] + dtau[k]); dxp = 0.5 * (dtau[k] + dtau[k+1])
         sm = dxm * dsf[k] + dxp * dsf[k-1]; prod = dsf[k-1] * dsf[k]
+        TD.SWON[] && (TD.swg(SW_CSLIM, k, ForwardDiff.value(prod) >= 0); TD.swg(SW_CSDEN, k, ForwardDiff.value(sm) >= 0))
         denom = cvmgm(sm - eps, sm + eps, sm)
         bsf[k] = cvmgp(2.0 * prod / denom, zero(T), prod)
     end
@@ -960,6 +1042,7 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
         sl[l] = sf[k] + 0.5 * dtau[k] * bsf[k]; sr[l] = sf[k]
         sl[l+1] = sf[k]; sr[l+1] = sf[k] - 0.5 * dtau[k] * bsf[k]
         if ep
+            TD.SWON[] && TD.swg(SW_CCLS, k, ForwardDiff.value(sl[l]) < lo || ForwardDiff.value(sr[l+1]) < lo)
             sl[l] = max(sl[l], lo); sr[l+1] = max(sr[l+1], lo)
         end
     end
@@ -984,6 +1067,7 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
             dtjl = dn[k] * chiL[k] * (xjlp1 - xjl); ex = exp(-dtjl)
             em1 = -expm1(-dtjl); omd = omde_over(dtjl)
             xip[j] = em1 * sl[l] + omd * (sr[l] - sl[l]) + ex * xim[j]
+            TD.SWON[] && ep && xip[j] < lo && (SWMARK[1, k] = true)
             ep && (xip[j] = max(xip[j], lo))
             xang[j] = xa
             exb[j, l] = ex; em1b[j, l] = em1; omdb[j, l] = omd; xangb[j, l] = xa
@@ -1012,12 +1096,14 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
         if l < lmax
             @inbounds for j in 1:nj
                 xip[j] = em1b[j, m] * sr[m] + omdb[j, m] * (sl[m] - sr[m]) + exb[j, m] * xim[j]
+                TD.SWON[] && ep && xip[j] < lo && (SWMARK[2, a + (m - 1) ÷ 2] = true)
                 ep && (xip[j] = max(xip[j], lo))
                 xang[j] = xangb[j, l]
             end
         else
             @inbounds for j in 1:nj
                 xip[j] = em1b[j, m] * sr[m] + omdb[j, m] * (sl[m] - sr[m]) + exb[j, m] * xim[j]
+                TD.SWON[] && ep && xip[j] < lo && (SWMARK[2, a + (m - 1) ÷ 2] = true)
                 ep && (xip[j] = max(xip[j], lo))
                 xang[j] = sqrt(1.0 - p[j]^2 / rp[l]^2)
             end
@@ -1028,16 +1114,19 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
             xang[nj+1] = zero(T)
             _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
             if tie && bg && TD.TIEX[]
-                hx = (HE[k] + _mom1(nj + 1, xang, xim)) / xmom0[k]
+                hx = _qd(HE[k] + _mom1(nj + 1, xang, xim), xmom0[k])
                 HX[k] = isfinite(hx) ? clamp(hx, -1.0, 1.0) : zero(T)
             end
-            tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : zero(T))
+            tie && (h = _qd(HE[k] + _mom1(nj + 1, xang, xim), xmom0[k] - 2Ib); TD.SWON[] && _swh(k, h); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : zero(T))
             if bg
-                FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : T(1.0 / 3.0)
-                fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+                FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(_qd(xmom2[k], xmom0[k]), 1.0)) : T(1.0 / 3.0)
+                fedd[k] = ep && !(abs(xmom0[k] - 2Ib) > 0 && isfinite((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib))) ? T(1.0 / 3.0) :
+                              max(0.0, min(_qd(xmom2[k] - 2Ib / 3, xmom0[k] - 2Ib), 1.0))
+                TD.SWON[] && _swf(k, xmom2[k] - 2Ib / 3, xmom0[k] - 2Ib, ep)
             else
                 fedd[k] = ep && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? T(1.0 / 3.0) :
-                          max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+                          max(0.0, min(_qd(xmom2[k], xmom0[k]), 1.0))
+                TD.SWON[] && _swf(k, xmom2[k], xmom0[k], ep)
             end
         end
         if l == lmax
@@ -1046,9 +1135,11 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
                 n_ = EDDG_MU0[] ? nj + 1 : nj; s0 = zero(T)
                 @inbounds for i in 1:n_-1; s0 += 0.5 * (xip[i] + xip[i+1]) * (xang[i+1] - xang[i]); end
                 s1 = _mom1(n_, xang, xip)
-                geddr = (-s1 + 0.5 * Ib) / (-s0 + Ib)
+                TD.SWON[] && _swg(b, -s1 + 0.5 * Ib, -s0 + Ib)
+                geddr = _gout(-s1 + 0.5 * Ib, -s0 + Ib)
             else
-                geddr = _eddg(EDDG_MU0[] ? nj + 1 : nj, xang, xip)
+                TD.SWON[] && (let (s1_, s0_) = _eddg_parts(EDDG_MU0[] ? nj + 1 : nj, xang, xip); _swg(b, s1_, s0_) end)
+                geddr = _eddgr(EDDG_MU0[] ? nj + 1 : nj, xang, xip)
             end
             geddr = max(0.5, min(geddr, 1.0))
         end
@@ -1059,6 +1150,9 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
             τ += dtau[k]
             TW[k] = τ <= τ1 ? one(T) : τ >= τ2 ? zero(T) : (q = log(τ2 / τ) / log(τ2 / τ1); q * q * (3 - 2q))
         end
+    end
+    if TD.SWON[]
+        @inbounds for k in a:b; TD.swg(SW_CCLI, k, SWMARK[1, k]); TD.swg(SW_CCLO, k, SWMARK[2, k]); end
     end
     (fedd, HE, HX, FX, TW, geddr)
 end
@@ -1195,7 +1289,8 @@ function closure_sens_mt!(a, b, sf0, dtau0, chif0, base, base_g, arrs, cs, nt)
                             tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : 0.0)
                             if bg
                                 FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : 1.0 / 3.0
-                                fedd[k] = max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+                                fedd[k] = ep && !(abs(xmom0[k] - 2Ib) > 0 && isfinite((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib))) ? 1.0 / 3.0 :
+                              max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
                             else
                                 fedd[k] = ep && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? 1.0 / 3.0 : max(0.0, min(xmom2[k] / xmom0[k], 1.0))
                             end
@@ -1206,9 +1301,9 @@ function closure_sens_mt!(a, b, sf0, dtau0, chif0, base, base_g, arrs, cs, nt)
                                 n_ = mu0 ? nj + 1 : nj; s0 = 0.0
                                 @inbounds for j in 1:n_-1; s0 += 0.5 * (xip[j] + xip[j+1]) * (xang[j+1] - xang[j]); end
                                 s1 = _mom1(n_, xang, xip)
-                                gp = (-s1 + 0.5 * Ib) / (-s0 + Ib)
+                                gp = _gout(-s1 + 0.5 * Ib, -s0 + Ib)
                             else
-                                gp = _eddg(mu0 ? nj + 1 : nj, xang, xip)
+                                gp = _eddgr(mu0 ? nj + 1 : nj, xang, xip)
                             end
                             gp = max(0.5, min(gp, 1.0))
                         end

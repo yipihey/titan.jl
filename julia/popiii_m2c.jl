@@ -1711,8 +1711,7 @@ end
 """
 MGROUPS (docs/POPIII_MULTIGROUP.md): G radiation groups as Newton unknowns 10 … 9 + 2G (TitanResidFast MGRad.jl), the group opacities and
 emissivities from the material at the Newton iterate (PopIIIMaterial material_opacg!, MGOpac.jl), the star-light rates from the group
-fields (starlight_setup), the pivoted banded solver. The group fields come from the checkpoint (MGAUX) or, the first time, from the grey field (CMB part at T_cmb, the excess at T_r
-inside the photosphere and at the star's T_eff outside it).
+fields (starlight_setup), the pivoted banded solver. The group fields come from the checkpoint (MGAUX) or, the first time, from the grey field (split by the local emission balance of each group, docs §25).
 """
 function mg_install!()
     COUPLED || error("MGROUPS needs COUPLED=1")
@@ -1745,26 +1744,76 @@ function mg_install!()
         for g in 1:G; copyto!(TX.MGEN[][g], ax.E[g]); copyto!(TX.MGFN[][g], ax.F[g]); copyto!(TX.MGEO[][g], ax.E[g]); copyto!(TX.MGFO[][g], ax.F[g]); end
         TX.mg_newstep!(); src = "the checkpoint"
     else
-        dn, rn, chi, er, fr = TF.var(:dn), TF.var(:rn), TF.var(:chifn), TF.var(:ern), TF.var(:frn)
-        arad = 7.565723e-15; τ = zeros(length(dn)); t_ = 0.0
-        for k in b_:-1:a_; t_ += chi[k] * dn[k] * (rn[k+1] - rn[k]); τ[k] = t_; end
-        kph = a_; for k in b_:-1:a_; τ[k] >= 2 / 3 && (kph = k; break); end
-        L = 4π * rn[kph+1]^2 * fr[kph+1]; Te = L > 0 ? (L / (4π * rn[kph+1]^2 * 5.670374419e-5))^0.25 : 0.0
-        # the excess over the CMB has the star's colour only where it is the star's light (at least half the free-streaming estimate
-        # L/(4π r² c)); farther out it is the cloud's own emission: T_s = the gas temperature there. (The T_eff shape everywhere put
-        # 0.1–0.3 E_CMB of optical light into the 1–143 pc cloud, which per-group free streaming then drained at up to 5e8 L☉, t_mg28.)
-        Ec_ = arad * parse(Float64, get(ENV, "TCMB", "0"))^4; tg = TF.var(:tn); rr = TF.var(:rn)
-        lit(k) = Te > 0 && k > kph && k < length(rr) && (er[k] - Ec_) >= 0.5 * L / (4π * (0.5 * (rr[k] + rr[k+1]))^2 * 2.99792458e10)
-        kend = kph + 1; while kend <= b_ && lit(kend); kend += 1; end          # one star-lit region from the photosphere out (no zone-to-zone switching)
-        Ts = [(τ[k] >= 2 / 3 || Te <= 0) ? (max(er[k], 1e-300) / arad)^0.25 : (k > kph && k < kend) ? max(Te, (max(er[k], 1e-300) / arad)^0.25) : max(tg[k], 1.0)
-              for k in eachindex(dn)]
-        TX.mg_init_from_grey!(Ts); src = @sprintf("the grey field (T_eff %.0f K outside zone %d)", Te, kph - a_ + 1)
-        # (this partition leaves a draining optical reservoir in the far cloud; the two alternatives tried failed the first step: docs/POPIII_MULTIGROUP.md §14, §19)
+        PM.nloc_reset!(length(mat.x)); PM.mg_fill!(mat)        # (the group records the balance split reads)
+        TX.mg_init_from_grey!(); src = "the grey field (split by the local emission balance of each group, then solved: docs §26)"
+        let f1 = TD.STEPFN[], first = Ref(true)       # the radiation-row solve runs once, inside the first step call: the chemistry's per-step preparation (cpl_prepare!) must have run
+            TD.STEPFN[] = function ()
+                first[] && (first[] = false; PM.cpl_prepare!(mat); mg_radsolve!())
+                f1()
+            end
+        end
     end
     PM.nloc_reset!(length(mat.x))                    # (a restart evaluated the opacities once before the groups existed: no group records in that cache)
     PM.mg_fill!(mat); copyto!(TX.MGVO[], TX.MGVN[])
     pr("MGROUPS: %d groups, edges %s eV, unknowns 10..%d (neqn %d, meqn %d), q from group %d, chemistry energy from group %d; fields from %s\n",
        G, join((@sprintf("%.4g", e) for e in edges), ","), 9 + 2G, 9 + 2G, TF.PARAMS[:meqn], TX.MGSLG[], TX.MGQG[], src)
+    nothing
+end
+"""
+(MGROUPS, restart from a checkpoint without group fields; docs §26) Solve the radiation rows alone at the held gas state: the unknowns E_g, F_g of all groups and zones, the gas
+state (ρ, T, u, r, m, x_H⁺, x_H₂, E_r, F_r) held, to the true-residual tolerance of the Newton iteration. The residual is the group rows of the step (`mg_rows!`) with their own time
+derivatives removed (`TX.MGSTEADY`: Δt → ∞ in the E_g time term, the flux inertia and the tie's grid term), at θ = 1; the band Jacobian is that of the full system with the rows and columns of the
+non-radiation unknowns removed (`TX.mg_restrict_band!`), the Krylov iteration (exact J·v by AD) runs on the group unknowns only (`NewtonKrylov.RADONLY`). The split of `mg_init_from_grey!` is the Newton
+initial guess. Afterwards the old level is the new one (groups and the grey E_r, F_r), and the report line gives ΣE_g − E_r against the gas and the total energy.
+"""
+function mg_radsolve!()
+    a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); G = TX.MGN[]
+    ern = TF.var(:ern); frn = TF.var(:frn); dvn = TF.var(:dvoln); dn = TF.var(:dn); un = TF.var(:un); egn = TF.var(:egn); cc = TF.getscalar(:cc)
+    Er0 = [ern[k] for k in 1:length(ern)]; Fr0 = copy(frn)
+    split_ = [copy(TX.MGEN[][g]) for g in 1:G]; fsplit = [copy(TX.MGFN[][g]) for g in 1:G]
+    thet0 = TF.getscalar(:thet); dt0 = TF.getscalar(:dtime); nit0 = TF.getscalar(:niter)
+    pr("MGRADSOLVE: start; timeo %.6e timen %.6e dtime %.4e thet %.3f conv %.3g niter %d | max|xmen-xmeo|/xmen %.3e\n", TF.getscalar(:timeo), TF.getscalar(:timen), dt0, thet0, TF.getscalar(:conv), Int(nit0),
+       maximum(abs((TF.var(:xmen)[k] - TF.var(:xmeo)[k]) / max(abs(TF.var(:xmen)[k]), 1e-300)) for k in a_:b_))
+    TX.mg_predicted!()                                 # scales at the state the solve starts from (records after cpl_prepare!)
+    g0 = TD.ROUTINES[:matgen]; ok = false; t0 = time()
+    TX.MGSTEADY[] = true; NewtonKrylov.RADONLY[] = true
+    TD.ROUTINES[:matgen] = () -> (g0(); TX.mg_restrict_band!())
+    chk0 = NewtonKrylov.OPT.check; NewtonKrylov.OPT.check = 0           # (NKCHECK belongs to the first step's iteration, not to this solve)
+    TF.setscalar!(:thet, 1.0); TF.setscalar!(:niter, typeof(nit0)(parse(Int, get(ENV, "MGRSNITER", "1000"))))
+    try
+        ok = Trbdf2.newton0!()
+    finally
+        TX.MGSTEADY[] = false; NewtonKrylov.RADONLY[] = false; TD.ROUTINES[:matgen] = g0; NewtonKrylov.OPT.check = chk0
+        TF.setscalar!(:thet, thet0); TF.setscalar!(:dtime, dt0); TF.setscalar!(:niter, nit0)
+    end
+    pr("MGRADSOLVE: newton %s in %d iterations, true residual %.3e (conv %.3g), last dmax %.3e, %.1f s\n", ok ? "converged" : "FAILED", Int(TF.getscalar(:iter)), Trbdf2.TRLAST[], TF.getscalar(:conv), TF.getscalar(:dmax), time() - t0)
+    ok || error("MGRADSOLVE: the steady radiation solve did not converge")
+    for g in 1:G; copyto!(TX.MGEO[][g], TX.MGEN[][g]); copyto!(TX.MGFO[][g], TX.MGFN[][g]); end
+    copyto!(TF.var(:ero), ern); copyto!(TF.var(:fro), frn)
+    size(TX.MGVO[]) == size(TX.MGVN[]) && copyto!(TX.MGVO[], TX.MGVN[])
+    TX.mg_newstep!()
+    # report
+    ΔEr = sum((ern[k] - Er0[k]) * dvn[k] for k in a_:b_); Er = sum(Er0[k] * dvn[k] for k in a_:b_)
+    Eg = sum(dn[k] * dvn[k] * egn[k] for k in a_:b_); Ek = sum(dn[k] * dvn[k] * 0.25 * (un[k]^2 + un[k+1]^2) for k in a_:b_)
+    pr("MGRADSOLVE: sum_k dV (sum_g E_g - E_r) = %.6e erg of E_r(grey) %.6e (%.3e); gas internal energy %.6e (%.3e), gas internal + kinetic + radiation %.6e (%.3e)\n", ΔEr, Er, ΔEr / Er,
+       Eg, ΔEr / Eg, Eg + Ek + Er, ΔEr / (Eg + Ek + Er))
+    let (mz, mg_, mk) = (0.0, 0, 0), (rz, rg, rk) = (0.0, 0, 0), (sz, sg, sk) = (0.0, 0, 0)
+        for k in a_:b_
+            for g in 1:G
+                d_ = abs(TX.MGEN[][g][k] - split_[g][k]) / max(abs(split_[g][k]), 1e-300); d_ > mz && (mz = d_; mg_ = g; mk = k - a_ + 1)
+            end
+        end
+        for k in a_+1:b_, g in 1:G
+            q = abs(TX.MGFN[][g][k]) / (cc * max(0.5 * (TX.MGEN[][g][k-1] + TX.MGEN[][g][k]), 1e-300)); q > rz && (rz = q; rg = g; rk = k - a_ + 1)
+            q = abs(TX.MGFN[][g][k]) / (cc * max(TX.MGEN[][g][k-1], TX.MGEN[][g][k], 1e-300)); q > sz && (sz = q; sg = g; sk = k - a_ + 1)
+        end
+        pr("MGRADSOLVE: largest |F_g|/(c E_g) (E_g the mean of the interface's two zones) %.4g (group %d, interface %d); with the larger of the two zones %.4g (group %d, interface %d); largest relative change of E_g against the split %.3e (group %d, zone %d)\n",
+           rz, rg, rk, sz, sg, sk, mz, mg_, mk)
+        for g in 1:G
+            pr("MGRADSOLVE: group %d: sum E dV %.6e (split %.6e) erg; max|F|/cE %.3e\n", g, sum(TX.MGEN[][g][k] * dvn[k] for k in a_:b_), sum(split_[g][k] * dvn[k] for k in a_:b_),
+               maximum(abs(TX.MGFN[][g][k]) / (cc * max(0.5 * (TX.MGEN[][g][k-1] + TX.MGEN[][g][k]), 1e-300)) for k in a_+1:b_))
+        end
+    end
     nothing
 end
 """
@@ -1805,8 +1854,8 @@ function mg_eddfac!(f0)
                 kp[k] = kE; pl[k] = em / kE
             end
             copyto!(er, TX.MGEN[][g]); copyto!(fr, TX.MGFN[][g]); TF.setscalar!(:ximr, xi0 * TX.MGBCMB_[g])
-            TC.HPON[] = true
-            try f0() finally TC.HPON[] = false end
+            TC.HPON[] = true; TD.SWGRP[] = g
+            try f0() finally TC.HPON[] = false; TD.SWGRP[] = 0 end
             hp = TX.MGHPLUS[][g]; @inbounds for k in eachindex(hp); hp[k] = k <= length(TC.HPLUS) ? TC.HPLUS[k] : 0.0; end
             copyto!(TX.MGFEDD[][g], TF.var(:fedd))
             length(TD.HEDD) >= b_ + 1 && (h = TX.MGHEDD[][g]; @inbounds for k in eachindex(h); h[k] = k <= length(TD.HEDD) ? TD.HEDD[k] : 0.0; end)

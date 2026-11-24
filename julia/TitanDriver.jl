@@ -182,6 +182,44 @@ and from `Trbdf2` `:tr` (stage 1), `:bdf` (stage 2) and `:be` (backward-Euler fa
 energy injected by the nuclear source and the energy lost through the boundary with the weights of the scheme.
 """
 const STAGE_HOOK = Ref{Any}(nothing)
+"""
+SWDIAG=1 (diagnostic, default off; read-only: nothing is printed and no number changes when it is off or on): census of the non-smooth switches (branches on the
+state) of the residual path. `swreg(name)` registers a switch and returns its id; `sw(id, k, cond)` returns `cond` unchanged and, with SWDIAG, stores the side taken
+(1 = cond true, 2 = false) at zone index k; `swsnap!(tag, ks)` (called by Trbdf2.step_err! after every converged stage, :tr and :bdf) prints one line `SWD jstep J stage S
+dt DT name=sides ...` with the sides of zones ks of every switch that was evaluated since the last snapshot ('.' = not evaluated there), then clears the store.
+`SWGRP[]` is the group number (0 = grey) of the closure being evaluated; the closure switches are registered once per group.
+"""
+const SWON = Ref(get(ENV, "SWDIAG", "0") == "1")
+const SWNAMES = String[]; const SWMAX = 1000
+const SWCUR = SWON[] ? zeros(Int8, SWMAX, TF.MGR) : zeros(Int8, 0, 0)
+const SWGRP = Ref(0)
+function swreg(name::AbstractString)
+    push!(SWNAMES, String(name)); length(SWNAMES) <= SWMAX || error("swreg: too many switches")
+    length(SWNAMES)
+end
+"ids of a switch registered for the grey solution and each of 6 groups (index group + 1)"
+swreg_grp(name::AbstractString) = [swreg(string(name, "@g", g)) for g in 0:6]
+@inline function sw(id::Int, k::Int, c::Bool)
+    SWON[] && (@inbounds SWCUR[id, k] = c ? Int8(1) : Int8(2))
+    c
+end
+"sw for a switch registered per group (ids from `swreg_grp`), group SWGRP[]"
+@inline swg(ids::Vector{Int}, k::Int, c::Bool) = sw(ids[SWGRP[] + 1], k, c)
+const SWDEC = Dict{Tuple{Symbol,Int},Int}()
+let ks = (:sgn, :lim, :up); for kd in ks, id in 0:60; SWDEC[(kd, id)] = swreg(string("dec:", kd, ":", id)); end
+    for id in 0:1; SWDEC[(:vis, id)] = swreg(string("dec:vis:", id)); end end
+"print the sides of zones ks since the last snapshot and clear"
+function swsnap!(stage::Symbol, ks::UnitRange{Int}, jstep, dt)
+    SWON[] || return nothing
+    io = IOBuffer(); n = length(SWNAMES)
+    for id in 1:n
+        any(!=(0), view(SWCUR, id, ks)) || continue
+        print(io, ' ', SWNAMES[id], '=', join((SWCUR[id, k] == 0 ? '.' : SWCUR[id, k] == 1 ? '1' : '2' for k in ks)))
+    end
+    fill!(SWCUR, Int8(0))
+    println("SWD jstep ", jstep, " stage ", stage, " dt ", dt, String(take!(io)))
+    nothing
+end
 "The full step size Δ of the step being solved (TR-BDF2 solves stages of γΔ, (1−γ)/(2−γ)Δ; `dtime` is the stage size). Set by `step!` and `Trbdf2.step!`; read by StarMaterial's source."
 const FULL_DT = Ref(0.0)
 "Factor on dtime after a Newton failure in `step!` (TITAN: 0.05; S5 star runs: 0.5, so that dt hovers near the largest step Newton can take instead of dropping 20×)."

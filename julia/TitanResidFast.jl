@@ -519,6 +519,7 @@ function sd_dec_text(ks)
 end
 @inline function decide(kind::Symbol, id::Int, k::Int, x::Bool)
     m = FREEZE[]
+    TD.SWON[] && (i_ = get(TD.SWDEC, (kind, id), 0); i_ > 0 && TD.sw(i_, k, x))     # (SWDIAG census, read only)
     m == 0 && (SDDEC[] && sd_dec(kind, id, k, x); return x)
     v = get!(() -> fill(false, TF.MGR), DEC, (kind, id))
     m == 1 && (@inbounds v[k] = x; return x)
@@ -1458,6 +1459,10 @@ const SLState{T} = NamedTuple{(:q, :t, :fs, :g, :ts, :wq, :dp), NTuple{7, Vector
 const AD_JV = Ref(false)
 const EDDFAC_DUAL = Ref{Any}(nothing)
 
+# SWDIAG census ids (TitanDriver.sw): the side `1` is the condition true
+const SW_TIEWT = TD.swreg("tie_wt>0"); const SW_TIEHM = TD.swreg("tie_HT[k-1]>0"); const SW_TIEHP = TD.swreg("tie_HT[k]<0"); const SW_TIEHD = TD.swreg("tie_hd>0")
+const SW_MLTW = TD.swreg("mlt_wtau>0"); const SW_MLTG = TD.swreg("mlt_g>0"); const SW_MLTLP = TD.swreg("mlt_|lp|<1e-12"); const SW_MLTHS = TD.swreg("mlt_hs_sw<1")
+const SW_MLTCP = TD.swreg("mlt_cpk>0"); const SW_MLTSUP = TD.swreg("mlt_sup>0"); const SW_CPLZ = TD.swreg("cplz(k)")
 function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}) where {T}
     ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
     P = c.p; θ = P.θ; dt = P.dt; xmu = Float64(mu); xmup1 = xmu + 1; cc = P.cc
@@ -1521,6 +1526,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             P.lrobc == 3 && (ern[k] = ern[k-1]; ern[k+1] = ern[k]; frn[k+1] = frn[k] * (rn[k] / rn[k+1])^mu)
         end
     end
+    TD.SWON[] && for k in ngrs:ngre; TD.sw(SW_CPLZ, k, cplz(k)); end       # (SWDIAG census)
     Mg = MG[] ? mgws(T, c.mgr) : nothing          # MGROUPS: the group unknowns of the iterate
     MG[] && (mg_iterate!(Mg, x, neqn, nb, k0, ngre); c.lrad && mg_esum!(W, Mg, k0, ngre))
     # EOS / opacity (TITAN built-in physics unless a material is installed, see TitanMaterials)
@@ -1858,9 +1864,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         zv = MLT_BUOY[] ? Vector{Any}(nothing, ngre + 1) : nothing; zd = MLT_BUOY[] ? (T === Float64 ? zv : Vector{Any}(nothing, ngre + 1)) : nothing
         @inbounds for k in ngrs+1:ngre
             Pm = pgn[k-1] + (AD_JV[] ? fedd[k-1] : c.fedd[k-1]) * ern[k-1]; Pp = pgn[k] + (AD_JV[] ? fedd[k] : c.fedd[k]) * ern[k]
-            wτ = cvw[k]; wτ > 0 || cvp || continue          # optically thin: no MLT flux (the recording pass goes on: it records the gate-free flux)
+            wτ = cvw[k]; TD.SWON[] && TD.sw(SW_MLTW, k, wτ > 0); wτ > 0 || cvp || continue          # optically thin: no MLT flux (the CONVDIAG recording pass goes on: it records the gate-free flux)
             Ti = 0.5 * (tn[k-1] + tn[k]); ρi = 0.5 * (dn[k-1] + dn[k]); Pi = 0.5 * (Pm + Pp)
             gk = 2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g
+            TD.SWON[] && TD.sw(SW_MLTG, k, ForwardDiff.value(gk) > 0)
             ForwardDiff.value(gk) > 0 || continue          # no gravity → no buoyancy
             HP = Pi / (ρi * gk); l = MLT_RCAP[] ? c.alpha / sqrt(1 / HP^2 + 1 / r[k]^2) : c.alpha * HP
             if cvp
@@ -1914,8 +1921,10 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                                       -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)) : -0.5 * (rn[k+1] - rn[k-1]) / HP
                 q = clamp((ForwardDiff.value(lp / lph) - 0.25) / 0.5, 0.0, 1.0); sw = q * q * (3 - 2q)
                 cvp && (cvrec!(:lph, k, lph); cvrec!(:hs_w, k, sw))
+                TD.SWON[] && TD.sw(SW_MLTHS, k, sw < 1)
                 sw < 1 && (lp = sw * lp + (1 - sw) * lph)
             end
+            TD.SWON[] && TD.sw(SW_MLTLP, k, abs(ForwardDiff.value(lp)) < 1e-12)
             abs(ForwardDiff.value(lp)) < 1e-12 && continue
             ∇ = log(tn[k] / tn[k-1]) / lp
             cvp && cvrec!(:nab, k, ∇)
@@ -1929,11 +1938,13 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 end
             else                                     # lagged: from the Newton iterate, constant in the Jacobian
                 nad, cpk, δk, κk = nadv[k], cpv[k], δv[k], κv[k]
+                TD.SWON[] && TD.sw(SW_MLTCP, k, cpk > 0)
                 cpk > 0 || continue
             end
             W.nabv[k] = ∇; W.nadv[k] = nad
             cvp && (cvrec!(:nad_used, k, nad); cvrec!(:cp_used, k, cpk); cvrec!(:del_used, k, δk); cvrec!(:kap, k, κk))
             sup = ∇ - nad                            # superadiabaticity (not `x`: that is the Newton vector)
+            TD.SWON[] && TD.sw(SW_MLTSUP, k, ForwardDiff.value(sup) > 0)
             ForwardDiff.value(sup) > 0 || (cvp && (cvrec!(:fpot, k, 0.0); cvrec!(:vpot, k, 0.0); cvrec!(:fconv, k, 0.0); cvrec!(:vconv, k, 0.0)); continue)
             U = 3arad * cc * Ti^3 / (cpk * ρi^2 * κk * l^2) * sqrt(8HP / (gk * δk))
             ζ = sqrt(U^2 + sup) - U
@@ -2161,6 +2172,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
             end
             wt = tie ? TWl[k] : 0.0
             SDW[1] > 0 && SDW[1] <= k - ngrs + 1 <= SDW[2] && tie && (wt = SDW[3])      # stalldiag (SDW=lo:hi:w): tie weight forced at interfaces lo..hi (zone numbers)
+            TD.SWON[] && TD.sw(SW_TIEWT, k, wt > 0)
             if wt > 0                                # FLUXTIE: F = h c E (TitanDriver.FLUXTIE)
                 rcm = (0.5 * (r[k-1] + r[k]))^mu; rcp = (0.5 * (r[k] + r[k+1]))^mu
                 # upwind (donor cell): outward light from the zone inside, inward from the zone outside, diluted as r^-2. The centred
@@ -2168,6 +2180,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                 # TIEX (TitanDriver.TIEX): the closure is for the excess over the isotropic background, h_x (E − E_b)
                 tx = TD.TIEX[] && TD.VEF_BG[] && length(TD.HXEDD) >= ngre + 1 && length(TD.FXEDD) >= ngre + 1
                 HT = tx ? HXl : HEl; Ebg = tx ? 4P.cpi * P.ximr / cc : 0.0; em = er[k-1] - Ebg; ep = er[k] - Ebg
+                TD.SWON[] && (TD.sw(SW_TIEHM, k, val(HT[k-1]) > 0); TD.sw(SW_TIEHP, k, val(HT[k]) < 0))
                 if !SLABTIE[]
                 B = rmu[k] * fr[k] / cc - (rcm * max(HT[k-1], 0.0) * em + rcp * min(HT[k], 0.0) * ep)
                 else                                 # SLABTIE: outward donor h from the slab depth of the donor's centre below the interface
@@ -2179,6 +2192,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
                         isnan(SDFRZV[k]) && (SDFRZV[k] = val(_fm / (_ti + 2_fm) - _fm / (chif[k-1] * _Mm + 2_fm)))
                         hd = max(max(HT[k-1], 0.0) + SDFRZV[k], 0.0)
                     end
+                    TD.SWON[] && TD.sw(SW_TIEHD, k, val(hd) > 0)
                     B = rmu[k] * fr[k] / cc - (rcm * hd * em + rcp * min(HT[k], 0.0) * ep)
                     if SDHD    # stalldiag: the argument of SLABTIE's max(h, 0) (raw h), h_FS, h_slab terms at the last residual evaluation
                         _fm = tx ? FXl[k-1] : fedd[k-1]; _Mm = 0.5 * d[k-1] * dvol[k-1] / rmu[k]; _Mp = 0.5 * d[k] * dvol[k] / rmu[k]

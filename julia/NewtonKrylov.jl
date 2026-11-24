@@ -23,7 +23,7 @@ Then the unchanged `maxdel!`, `update!`.
 """
 module NewtonKrylov
 
-using LinearAlgebra, Printf, Statistics, ForwardDiff
+using LinearAlgebra, Printf, Statistics, ForwardDiff, Serialization
 import ..TitanDriver, ..TitanCore, ..TitanResidFast, ..Trbdf2, ..BlockSolver
 const TD = TitanDriver; const TF = TD.TF; const TC = TitanCore; const TX = TitanResidFast
 TX.EDDFAC_DUAL[] = TC.eddfac_dual
@@ -163,6 +163,7 @@ function resid(ne, nb; rbuf::Union{Nothing,Matrix{Float64}} = nothing)
     TX.residual!(R, ws, c, XZ_BUF); vec(R)
 end
 
+const RADONLY = Ref(false)      # true only inside the steady solve of the initial group fields (popiii_m2c mg_radsolve!, docs §26): only the group unknowns (codes 8, 9) are active
 function activeset(c)
     ne, nb, k0 = c.neqn, c.nb, c.k0; a, b = c.ngrs, c.ngre
     act = falses(ne * nb); code = nkcode(c)
@@ -171,6 +172,7 @@ function activeset(c)
         act[(kb-1)*ne+i] = cd in (1, 2, 4, 7, 9, 10) ? a <= k <= b + 1 :
                            cd in (3, 5, 6, 8) ? a <= k <= b :
                            (cd == 0 && i in (8, 9) && TC.CPLH[] !== nothing) ? (a <= k <= b && TX.cplz(k)) : false
+        RADONLY[] && !(cd in (8, 9)) && (act[(kb-1)*ne+i] = false)
     end
     act
 end
@@ -662,6 +664,11 @@ function krylov!()
     try
         S = setup()
         Trbdf2.TRUERES[] = trueres(S)
+        if EIGSTEP > 0 && gi(:jstep) >= EIGSTEP && gi(:iter) == EIGITER && EIGMAX[] > 0
+            EIGMAX[] -= 1
+            try eigdiag!(S) catch ex; ex isa InterruptException && rethrow(); println("EIGDIAG failed: ", first(sprint(showerror, ex, catch_backtrace()), 1500)) end
+            TX.FREEZE[] = 0; TX.AD_JV[] = false; S.snap.taken && restore!(S.snap)
+        end
         if OPT.check > 0 && gi(:iter) == OPT.check
             check!(S); flush(stdout); OPT.checkn -= 1
             OPT.checkn <= 0 && exit(0)
@@ -749,6 +756,62 @@ function diag!(S::Sys, b, x, λ, rel, m, conv, trunc)
     flush(io)
 end
 
+# ---------------------------------------------------------------- EIGDIAG (diagnostic, default off; no behaviour change)
+"""
+EIGDIAG (ENV `EIGSTEP=<jstep>`, `EIGITER=<Newton iteration>` (default 3), `EIGDTS=1e3,1e4`, `EIGMAX=<n>` calls (default 2)): the exact Jacobian of the whole active system (J v by forward-mode Duals, one unit
+vector per active entry) at the state of that Newton iteration, for the time step values `EIGDTS` and for dt = 1e30 (J_inf: the time-derivative terms removed, the spatial/algebraic part F').
+With J(dt) = F' + K/dt the amplification matrix of the backward-Euler step for a perturbation of the old state is A = I - J(dt)^-1 J_inf (K/dt = J(dt) - J_inf); its eigenvalues a give z = 1 - 1/a (z = dt mu of the
+continuous linearisation K dy/dt = -F' dy), and the TR-BDF2 amplification R(z) (stage 1 trapezoid, stage 2 BDF2, gamma = 2 - sqrt 2). Prints the modes with Re a < -0.2 or |R| > 0.5, the largest |a|, and the zone/entry
+of the dominant eigenvector components. (Caveat: the advective terms carry (y - y_old)/dt at fixed y, y_old: J_inf removes them too.)
+"""
+const EIGSTEP = parse(Int, get(ENV, "EIGSTEP", "0")); const EIGITER = parse(Int, get(ENV, "EIGITER", "3")); const EIGMAX = Ref(parse(Int, get(ENV, "EIGMAX", "2")))
+const EIGDTS = parse.(Float64, split(get(ENV, "EIGDTS", "1e3,1e4"), ","))
+trbdf2_R(z, γ = 2 - sqrt(2)) = ((1 / (γ * (2 - γ))) * (1 + γ * z / 2) / (1 - γ * z / 2) - (1 - γ)^2 / (γ * (2 - γ))) / (1 - ((1 - γ) / (2 - γ)) * z)
+function eigdiag!(S::Sys)
+    ne, nb, k0 = S.ne, S.nb, S.k0; a = gi(:ngrs); idx = findall(S.act); na = length(idx)
+    nm = NMS; G = TX.MGN[]
+    lab(r) = (i = (r - 1) % ne + 1; k = k0 + (r - 1) ÷ ne; z = k - a + 1;
+              nme = i <= 9 ? nm[i] : (TX.MG[] && i > TX.MGI0[] ? (g = (i - TX.MGI0[] + 1) ÷ 2; (i - TX.MGI0[]) % 2 == 1 ? "E$g" : "F$g") : string(i)); (nme, z))
+    @printf("EIGDIAG jstep %d att %d it %d dtime %.6g theta %g: %d active entries\n", gi(:jstep), Trbdf2.NWATT[], gi(:iter), TD.g(:dtime), TD.g(:thet), na); flush(stdout)
+    function jmat(Δ)
+        c2 = TX.context(dt = Δ); S2 = Sys(S.ne, S.nb, S.k0, S.n, c2, S.code, S.act, S.wt, S.wtr, S.R0, S.snap, S.AB, S.ipiv, S.sc, S.kl, S.ku)
+        perturbed(S2, zeros(S.n), 0.0)
+        J = zeros(na, na); y = zeros(S.n); v = zeros(S.n)
+        for (j, r) in enumerate(idx)
+            v[r] = 1.0; adjv!(y, S2, v); v[r] = 0.0
+            @inbounds for (i, q) in enumerate(idx); J[i, j] = y[q]; end
+        end
+        J
+    end
+    Jinf = jmat(1e30)
+    isfinite(sum(abs, Jinf)) || (println("EIGDIAG: J_inf not finite"); return)
+    try serialize(joinpath(get(ENV, "POPIII_OUT", "."), @sprintf("eig_%d_%d_inf.jls", gi(:jstep), gi(:iter))), (; Jinf, idx, ne, k0, a, dt = 1e30)) catch end
+    for Δ in EIGDTS
+        J = jmat(Δ)
+        try serialize(joinpath(get(ENV, "POPIII_OUT", "."), @sprintf("eig_%d_%d_%.0e.jls", gi(:jstep), gi(:iter), Δ)), (; J, Jinf, idx, ne, k0, a, dt = Δ)) catch end
+        # (the identity rows of the grey E_r, F_r unknowns are zero in a Dual pass, AD_JV: their rows and columns are left out)
+        keep = [j for j in 1:na if maximum(abs, view(J, :, j)) > 0 && maximum(abs, view(J, j, :)) > 0]
+        J = J[keep, keep]; Jinf_k = Jinf[keep, keep]; idx_k = idx[keep]; na_k = length(keep)
+        na_s = na; na = na_k; idx_s = idx; idx = idx_k
+        Jinf_s = Jinf; Jinf = Jinf_k
+        dr = [1 / max(maximum(abs, view(J, i, :)), maximum(abs, view(Jinf, i, :)), 1e-300) for i in 1:na]; dc = [1 / max(maximum(abs, view(J .* dr, :, j)), 1e-300) for j in 1:na]
+        Js = (J .* dr) .* dc'; Is = (Jinf .* dr) .* dc'
+        F = lu(Js); η = F \ Is; A = Matrix(I, na, na) - η
+        ev = eigen(A); λ = ev.values
+        z = [1 - 1 / l for l in λ]; Rt = [trbdf2_R(zz) for zz in z]
+        @printf("EIGDIAG dt %.3g: BE amplification a = eig(I - J^-1 J_inf): %d modes; min Re a %.4f, max |a| %.4f; modes with Re a < -0.2: %d; |a + 1| < 0.3: %d; TR-BDF2 |R| > 0.5: %d (max |R| %.4f), R < -0.2: %d\n",
+                Δ, na, minimum(real, λ), maximum(abs, λ), count(l -> real(l) < -0.2, λ), count(l -> abs(l + 1) < 0.3, λ), count(r_ -> abs(r_) > 0.5, Rt), maximum(abs, Rt), count(r_ -> real(r_) < -0.2, Rt))
+        ord = sortperm(λ, by = l -> real(l))
+        for m in unique(vcat(ord[1:min(6, na)], sortperm(Rt, by = r_ -> -abs(r_))[1:min(6, na)]))
+            vm = ev.vectors[:, m] ./ dc; w = abs.(vm) ./ maximum(abs, vm); top = sortperm(w, rev = true)[1:min(6, na)]
+            @printf("EIGDIAG dt %.3g mode a = %+.4f%+.4fi  z = dt*mu = %+.4g%+.4gi  R_TRBDF2 = %+.4f%+.4fi | top comps: %s\n", Δ, real(λ[m]), imag(λ[m]), real(z[m]), imag(z[m]), real(Rt[m]), imag(Rt[m]),
+                    join((@sprintf("%s z%d %.2f", lab(idx[t])..., w[t]) for t in top), ", "))
+        end
+        flush(stdout)
+        na = na_s; idx = idx_s; Jinf = Jinf_s
+    end
+    nothing
+end
 # ---------------------------------------------------------------- matrix-vector check (NKCHECK, diagnostic)
 """
 At Newton iteration `OPT.check` (with NWPROBE): for a random v over the active entries, the finite-difference J v against J_b applied to the change `update!` actually
@@ -762,6 +825,15 @@ function check!(S::Sys)
     adj!(y, S_, v_) = (perturbed(S_, zeros(S_.n), 0.0); adjv!(y, S_, v_))
     rnd = let st = UInt64(12345); () -> (st = st * 6364136223846793005 + 1442695040888963407; (Float64(st >> 11) / 2^53) * 2 - 1); end
     v = [S.act[r] ? rnd() : 0.0 for r in 1:S.n]
+    if TX.MG[]      # (diagnostic) the group energy unknown is δy in units of h = √(E² + s²) ≈ s for an empty group: ΔE = h ε v would exceed E itself (docs §25.2). Take the direction in units of the group's own E: ΔE = ε|E| v (the same v for AD, FD and the band product). (The same for the F rows made the rows worse, docs §25.2: not done)
+        a_ = gi(:ngrs)
+        for kb in 1:S.nb, g in 1:TX.MGN[]
+            r = (kb - 1) * ne + TX.mgiE(g); k = k0 + kb - 1
+            (S.act[r] && a_ <= k <= gi(:ngre)) || continue
+            E0 = TX.MGEN[][g][k]; h = hypot(E0, TX.MGSC[][g][k])
+            E0 != 0 && h > 0 && (v[r] *= abs(E0) / h)
+        end
+    end
     y = zeros(S.n); wr = zeros(S.n)
     ε = OPT.eps / maximum(abs, v)
     fdjv!(y, S, v, ε; realized = wr)

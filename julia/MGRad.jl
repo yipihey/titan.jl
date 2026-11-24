@@ -42,6 +42,7 @@ scale (the former constant MGES = MGCUFL/c = 3.3e-71, then 1e-150 E_r for ln E_g
 balance is undefined (no emission or no absorption in the group: s ≤ 0 or not finite), which is where the choice of s is immaterial by the bijection.
 """
 const MGES = MGCUFL / 2.99792458e10
+const MGSTEADY = Ref(false)                     # true only inside `mg_radsolve!` (popiii_m2c): the group rows without their time derivatives (docs §26)
 const MGSC = Ref(Vector{Vector{Float64}}())     # per-zone scale s_g,k of each group's unknown (see above)
 const MGTCMB = Ref(0.0)
 vvec(n, m) = [zeros(m) for _ in 1:n]
@@ -87,6 +88,13 @@ photosphere, where the groups then no longer summed to the grey diffusion flux; 
 @inline mg_chif(χR, κa, m) = val(κa) > val(χR) ? χR + exp(-χR * m) * (κa - χR) : χR
 "Column of zone k [g cm⁻²] from the density, the zone volume/(μ+1)-form and the face areas r^μ (0 where the faces vanish)."
 @inline mg_zcol(d, dvol, rmu, k) = (a = 0.5 * (rmu[k] + rmu[k+1]); (val(a) > 0 && val(dvol[k]) > 0) ? d[k] * dvol[k] / a : zero(d[k] * dvol[k]))
+# SWDIAG census ids per group (TitanDriver.sw; side 1 = condition true)
+const SW_MGCHIF = [TD.swreg("mg_chif:ka>chiR@g$g") for g in 1:6]       # mg_chif: the line-absorption part exceeds the Rosseland χ_R (the flux mean is raised)
+const SW_MGBFL = [TD.swreg("mg_bfrac_floor@g$g") for g in 1:6]          # Planck fraction of the group at the floor MGBFLOOR (new level)
+const SW_MGTWT = [TD.swreg("mgtie_wt>0@g$g") for g in 1:6]; const SW_MGTHM = [TD.swreg("mgtie_HE[k-1]>0@g$g") for g in 1:6]
+const SW_MGTHP = [TD.swreg("mgtie_HE[k]<0@g$g") for g in 1:6]; const SW_MGTHD = [TD.swreg("mgtie_hd>0@g$g") for g in 1:6]
+const SW_MGFW = TD.swreg("mg_fw_sE>0"); const SW_MGKE = TD.swreg("mg_kE<1e-300")
+@inline mg_chif_on(gv, j, k, χ, κE) = val(κE * gv[j+3, k] + gv[j+4, k] + gv[j+6, k]) > val(χ * gv[j+2, k])
 "(κ_E,g, χ_g, κ_P,g, A_1) of group g (j = mgv(g, 1)) in zone k from the record gv and the grey (χ, κ_E, κ_P) of the same level; m: zone column."
 @inline function mg_level(gv, j, k, χ, κE, κP, m)
     k1 = gv[j+4, k]
@@ -468,6 +476,7 @@ function mg_theta!(M::MGWS{T}, c, W, θ, ngrs, ngre, fle, flu) where {T}
         for k in ngrs-1:ngre+1
             m = mg_zcol(W.d, W.dvol, W.rmu, k)
             keN, chN, kpN, a1N = mg_level(gv, j, k, W.chifn[k], W.xken[k], W.xkpn[k], m); bn = mg_bfrac(g, tn[k])
+            TD.SWON[] && (TD.sw(SW_MGCHIF[g], k, mg_chif_on(gv, j, k, W.chifn[k], W.xken[k])); TD.sw(SW_MGBFL[g], k, val(bn) == MGBFLOOR))
             if mix
                 keO, chO, kpO, a1O = mg_level(go, j, k, c.chifo[k], c.xkeo[k], c.xkpo[k], m)
                 ke[k] = θ * keN + (1 - θ) * keO; chi[k] = θ * chN + (1 - θ) * chO
@@ -546,6 +555,7 @@ function mg_eddfac_dual!(M::MGWS{T}, c, P, W, a, b, rn, dn, tn, dvoln, cplz) whe
         @inbounds for k in a-1:b+1
             m = (a_ = 0.5 * (rmun(k) + rmun(k + 1)); (val(a_) > 0 && val(dvoln[k]) > 0) ? dn[k] * dvoln[k] / a_ : zero(dn[k] * dvoln[k]))      # (mg_zcol on the new level)
             kE, chg, kP, a1 = mg_level(V, j, k, W.chifn[k], W.xken[k], W.xkpn[k], m)
+            TD.SWON[] && TD.sw(SW_MGKE, k, val(kE) < 1e-300)
             kE = max(kE, 1e-300); em = kP * W.plfn[k] * mg_bfrac(g, tn[k])
             (g >= MGGH[] && val(a1) > 0) && (em += a1 * W.plfn[k] * mg_xfrac(g, tn[k], MGXH[]))
             for (p_, pr_) in enumerate(MGRAMP[])
@@ -559,7 +569,9 @@ function mg_eddfac_dual!(M::MGWS{T}, c, P, W, a, b, rn, dn, tn, dvoln, cplz) whe
             end
             chi[k] = chg; kp[k] = kE; pl[k] = em / kE
         end
+        TD.SWGRP[] = g
         fe, he, hx, fx, tw, gr = EDDFAC_DUAL[](c, P, a, b, chi, kp, pl, dn, tn, M.egn[g], M.fgn[g], rn, W.xs1, W.xs2, T, DBUF, SLQBUF, nothing, false, cplz; ximr = P.ximr * MGBCMB_[g])
+        TD.SWGRP[] = 0
         @inbounds for k in a:b; fg_[k] = fe[k]; hg_[k] = he[k]; end
         @inbounds for k in a+1:b; tg_[k] = tw[k]; end
         M.gdr[g] = gr
@@ -568,6 +580,7 @@ function mg_eddfac_dual!(M::MGWS{T}, c, P, W, a, b, rn, dn, tn, dvoln, cplz) whe
     @inbounds for k in a-1:b+2
         sE = zero(T); sF = zero(T)
         for g in 1:G; e_ = M.egn[g][k]; sE += e_; sF += M.fdd[g][k] * e_; end
+        TD.SWON[] && TD.sw(SW_MGFW, k, val(sE) > 0)
         fw[k] = val(sE) > 0 ? sF / sE : T(c.fedd[k])
     end
     fw
@@ -593,6 +606,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
     X(i, k) = x[(kb(k) - 1) * neqn + i]
     ern, frn, rn, dn, dvoln, u, r, rmu, d, dvol, dmdt, urel = W.ern, W.frn, W.rn, W.dn, W.dvoln, W.u, W.r, W.rmu, W.d, W.dvol, W.dmdt, W.urel
     G = MGN[]
+    dts = MGSTEADY[] ? Inf : dt                     # the group rows' own time derivatives (E_g, the flux inertia, the grid term of the tie): 0 in the steady solve of the initial state (`MGSTEADY`)
     # grey rows → sums
     # (identities, boundary and ghost rows included: E_r, F_r are the sums of the group unknowns, see `mg_esum!`; their grey ghost rows E_r(k±1) − E_r(k), … would read the sums too, leave the ghost
     #  unknowns of E_r, F_r in no row, and the band matrix singular)
@@ -612,7 +626,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
         # ---- energy
         for k in ngrs:ngre
             aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
-            w = (en[k] * dvoln[k] - EO[k] * c.dvolo[k]) / dt + rmu[k+1] * fg[k+1] - rmu[k] * fg[k] +
+            w = (en[k] * dvoln[k] - EO[k] * c.dvolo[k]) / dts + rmu[k+1] * fg[k+1] - rmu[k] * fg[k] +
                 fedd[k] * eg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * eg[k] * aur * dvol[k] +
                 excap(cc, ke[k], d[k], dt) * (cc * ke[k] * eg[k] - em[k]) * d[k] * dvol[k] - M.xfer[g][k] * d[k] * dvol[k]
@@ -653,7 +667,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
         qF, qFo = M.qF[g], M.qFo[g]; chi = M.chif[g]
         for k in ngrs+1:ngre
             inert = (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
-                     qFo[k] * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
+                     qFo[k] * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dts) -
                     ((dmdt[k] + dmdt[k+1]) * frb[k] - (dmdt[k-1] + dmdt[k]) * frb[k-1]) / (2cc^2)
             drag = 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * av[k] * fg[k] / cc
             w = if !sph
@@ -664,15 +678,18 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
                 inert + rmu[k] * (qs * fedd[k] * eg[k] - fedd[k-1] * eg[k-1] / qs) + 0.5 * rmu[k] * (fg[k] / cc^2) * (u[k+1] - u[k-1]) + drag
             end
             wt = tie ? TW[k] : 0.0
+            TD.SWON[] && TD.sw(SW_MGTWT[g], k, wt > 0)
             if wt > 0
+                TD.SWON[] && (TD.sw(SW_MGTHM[g], k, val(HE[k-1]) > 0); TD.sw(SW_MGTHP[g], k, val(HE[k]) < 0))
                 rcm = (0.5 * (r[k-1] + r[k]))^c.mu; rcp = (0.5 * (r[k] + r[k+1]))^c.mu
                 hd = SLABTIE[] ? st_hdonor(max(HE[k-1], 0.0), fedd[k-1], chi[k-1], chi[k], 0.5 * d[k-1] * dvol[k-1] / rmu[k], 0.5 * d[k] * dvol[k] / rmu[k]) :
                                  max(HE[k-1], 0.0)
+                TD.SWON[] && TD.sw(SW_MGTHD[g], k, val(hd) > 0)
                 B = rmu[k] * fg[k] / cc - (rcm * hd * eg[k-1] + rcp * min(HE[k], 0.0) * eg[k])
                 if TIEFRAME[]                        # F_g is the comoving flux, as the grey row (TitanResidFast.TIEFRAME), per group
                     hi = min(HE[k], 0.0)
                     egup = decide(:up, 21 + g, k, val(rn[k]) >= c.ro[k]) ? eg[k] : eg[k-1]
-                    B += (-dmdt[k] * erb[k] + (rn[k]^(c.mu + 1) - c.ro[k]^(c.mu + 1)) / ((c.mu + 1) * dt) * egup +
+                    B += (-dmdt[k] * erb[k] + (rn[k]^(c.mu + 1) - c.ro[k]^(c.mu + 1)) / ((c.mu + 1) * dts) * egup +
                           rmu[k] * u[k] * 0.5 * (fedd[k-1] * eg[k-1] + fedd[k] * eg[k]) -
                           2u[k] * (rcm * hd^2 * eg[k-1] + rcp * hi^2 * eg[k])) / cc
                 end
@@ -713,35 +730,59 @@ function mg_setup!(edges, evk, tcmb, i0, mgr)
 end
 
 """
-Initial group fields from the grey field (a restart from a grey checkpoint, or the IC): the CMB part partitioned at T_cmb, the excess at the
-shape temperature Ts[k] (the driver passes T_r inside the photosphere and the star's T_eff outside), F_g = F_r b_g(Ts at the interface).
+Initial group fields from the grey field (a restart from a grey checkpoint, or the IC), the same in every zone and without a threshold: the local emission balance of the group's own row,
+E_g ∝ b_g = j_g/(c κ_E,g) (j_g = κ_P,g b_g(T) σT⁴/π + the Milne term, κ_E,g: the emissivity and absorption of the energy row, `mg_rows!`/`mg_scales!`, from the zone's group record MGVN, which must be filled;
+the Raman and H₂ exchange with the partner groups are not in it: they have no partner field yet), rescaled so that Σ_g E_g = E_r. The flux F_g = F_r w_g/Σ w, w_g the mean of E_g of the two zones of the interface
+(each group carries the share of the field it has on that face; the groups then sum to F_r). Ghost zones take the balance of the nearest zone, with their own E_r. (Docs §25.)
 """
-function mg_init_from_grey!(Ts)
-    a = gi(:ngrs); b = gi(:ngre); er = v(:ern); fr = v(:frn)
-    arad = 4gf(:csigr) / gf(:cc); Ec = MGTCMB[] > 0 ? arad * MGTCMB[]^4 : 0.0
-    for g in 1:MGN[]
-        E = MGEN[][g]; F = MGFN[][g]; fill!(E, 0.0); fill!(F, 0.0)
-        for k in a-2:b+2
-            kk = clamp(k, a, b)
-            Ex = max(er[k] - Ec, 0.0)
-            E[k] = max(MGBCMB_[g] * min(er[k], Ec) + mg_bfrac(g, Ts[kk]) * Ex, MGBFLOOR * er[k])
-        end
-        for k in a+1:b+1; F[k] = fr[k] * mg_bfrac(g, Ts[min(k, b)]); end
-        mg_ghosts!(E, F, a, b)
-    end
-    # exact sums (the rows E_r = Σ E_g, F_r = Σ F_g): renormalise
+function mg_init_from_grey!()
+    a = gi(:ngrs); b = gi(:ngre); er = v(:ern); fr = v(:frn); G = MGN[]; gv = MGVN[]; cc = gf(:cc)
+    tn = v(:tn); plf = v(:plfn); chi = v(:chifn); xke = v(:xken); xkp = v(:xkpn)
+    bg = [zeros(b + 2) for _ in 1:G]
     for k in a-2:b+2
-        s = sum(MGEN[][g][k] for g in 1:MGN[]); s > 0 && for g in 1:MGN[]; MGEN[][g][k] *= er[k] / s; end
+        kk = clamp(k, a, b)
+        for g in 1:G
+            keO, _, kpO, a1O = mg_level(gv, mgv(g, 1), kk, chi[kk], xke[kk], xkp[kk], 0.0)
+            em = kpO * plf[kk] * mg_bfrac(g, tn[kk])
+            (g >= MGGH[] && a1O > 0) && (em += a1O * plf[kk] * mg_xfrac(g, tn[kk], MGXH[]))
+            bg[g][k] = em / (cc * max(keO, 1e-300))
+        end
+        s = sum(bg[g][k] for g in 1:G)
+        (isfinite(s) && s > 0) || error("mg_init_from_grey!: no emission balance in zone $kk (sum $s)")
+        for g in 1:G; MGEN[][g][k] = er[k] * bg[g][k] / s; end
     end
+    for g in 1:G; fill!(MGFN[][g], 0.0); end
     for k in a+1:b+1
-        s = sum(MGFN[][g][k] for g in 1:MGN[])
-        d = fr[k] - s; MGFN[][1][k] += d          # (the remainder, round-off, to the IR group)
+        w = [0.5 * (MGEN[][g][k-1] + MGEN[][g][k]) for g in 1:G]; s = sum(w)
+        for g in 1:G; MGFN[][g][k] = s > 0 ? fr[k] * w[g] / s : 0.0; end
+        MGFN[][1][k] += fr[k] - sum(MGFN[][g][k] for g in 1:G)          # (round-off only)
     end
-    for g in 1:MGN[]; mg_ghosts!(MGEN[][g], MGFN[][g], a, b); end
-    for g in 1:MGN[]; copyto!(MGEO[][g], MGEN[][g]); copyto!(MGFO[][g], MGFN[][g]); end
+    for k in a-2:b+2                                                    # exact sums (rows E_r = Σ E_g)
+        s = sum(MGEN[][g][k] for g in 1:G); s > 0 && for g in 1:G; MGEN[][g][k] *= er[k] / s; end
+    end
+    for g in 1:G; mg_ghosts!(MGEN[][g], MGFN[][g], a, b); end
+    for g in 1:G; copyto!(MGEO[][g], MGEN[][g]); copyto!(MGFO[][g], MGFN[][g]); end
     mg_newstep!()
     nothing
 end
 
 "(diagnostic) group luminosities L_g = 4π r² F_g at interface k (values of the new level)."
 mg_lum(k) = [4π * v(:rn)[k]^2 * MGFN[][g][k] for g in 1:MGN[]]
+
+"""
+Restrict the band Jacobian and the residual in COMMON to the radiation unknowns (the steady solve of the initial group fields, docs §26): every row of a non-radiation unknown (1 … MGI0: the
+state variables, E_r, F_r, the coupled species) becomes the identity with a zero right-hand side (its correction is 0: the gas state is held), and the columns of those unknowns are zeroed in the group
+rows. What remains is the Jacobian of the group rows (E_g, F_g of all zones, ghosts included) with respect to the group unknowns, exactly the entries the full band matrix holds.
+"""
+function mg_restrict_band!()
+    E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); rhs = v(:rhs); i0 = MGI0[]; ne = gi(:neqn)
+    k0 = gi(:ngrs) - 2; k1 = gi(:ngre) + 2
+    @inbounds for k in k0:k1
+        for M in E
+            for j in 1:ne, i in 1:i0; M[i, j, k] = 0.0; end
+            for j in 1:i0, i in i0+1:ne; M[i, j, k] = 0.0; end
+        end
+        for i in 1:i0; E[3][i, i, k] = 1.0; rhs[i, k] = 0.0; end
+    end
+    nothing
+end
