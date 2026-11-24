@@ -1,0 +1,5 @@
+Precompiling packages...
+ 100045.8 ms  ✓ Pkg (serial)
+  1 dependency successfully precompiled in 100 seconds
+TitanStack image built in 372.9 s
+build done 0

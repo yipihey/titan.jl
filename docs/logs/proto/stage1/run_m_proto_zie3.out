@@ -1,0 +1,227 @@
+abn02red: DM line z19 (log rho_DM = 4.38396 GeV cm^-3 at log r = -1.05769 pc and inside)
+abn02red: central plateau of n(r) to log r = -2.03419 pc (vertex 2): n_A = 10^5.81065, M_B = 0.09049 Msun; uniform core rho = 1.852e-18 g cm^-3
+abn02red: log r = -5.0 pc  log M panel B -9.941  n(r) 1.22 m_H integral NaN
+abn02red: log r = -4.0 pc  log M panel B -6.941  n(r) 1.22 m_H integral NaN
+abn02red: log r = -3.0 pc  log M panel B -3.941  n(r) 1.22 m_H integral -4.087
+abn02red: log r = -2.0 pc  log M panel B -0.957  n(r) 1.22 m_H integral -1.088
+abn02red: log r = -1.0 pc  log M panel B 1.769  n(r) 1.22 m_H integral 1.68
+abn02red: log r = 0.0 pc  log M panel B 2.823  n(r) 1.22 m_H integral 2.784
+abn02red: log r = 1.0 pc  log M panel B 3.591  n(r) 1.22 m_H integral 3.569
+abn02red: inner uniform core n = 1.106e6 m_H cm^-3 (panel A n_c = 10^5.81065, i.e. mu_c = 1.711)
+abn02red: x_e(M = 10^-3.0 Msun) = 1.58e-7 (recombined for one t_ff from XE0)
+abn02red: x_e(M = 10^-2.0 Msun) = 1.58e-7 (recombined for one t_ff from XE0)
+abn02red: x_e(M = 10^-1.0 Msun) = 1.58e-7 (recombined for one t_ff from XE0)
+abn02red: x_e(M = 10^0.0 Msun) = 1.65e-7 (recombined for one t_ff from XE0)
+abn02red: x_e(M = 10^1.0 Msun) = 1.77e-7 (recombined for one t_ff from XE0)
+abn02red: x_e(M = 10^2.0 Msun) = 3.21e-7 (recombined for one t_ff from XE0)
+abn02red: x_e(M = 10^3.0 Msun) = 6.28e-6 (recombined for one t_ff from XE0)
+abn02red: x_e(M = 10^4.0 Msun) = 0.000135 (recombined for one t_ff from XE0)
+M2c collapse [IC abn02red]: cooling lines, 128 shells (q = 1.1897, dm1 = 3e-7 Msun), R = 6.957e+19 cm, rho_c/rho_edge = 554822.2, T_edge = 1116.7 K, p_ext = 2.498e-13
+theta = 0.55, C_dyn = 300000, k5 = pss, chemistry netmodernli, equilibrium table where p ≥ 1e+30, AV ql1 = 0.15 cq2 = 1, central t_ff0 = 4.892e+04 yr
+   step  log n_c     t [yr]       T_c  ON98 T_c     f_H2,c u_c [km/s]  max dT/T    dt [s]
+STARLIGHT: three-level H (Peebles C factor, Sobolev Lya escape, e collisions) in the lit network zones
+LYABB: three-level H bound-bound (Lya pumping / collisional de-excitation, collisional excitation / Lya + 2-photon escape) heat in the chemistry
+NLOPACJ: kappa_E of network zones weighted with the star light's B_nu(T_c)
+SLEB: star-light colour temperature T_r at tau + 2/3 (Eddington-Barbier), not the photosphere's T_eff
+SLBLEND: star-light colour temperature T_eff (tau <= 0.3) to T_r (tau >= 3), smooth in log tau
+PSWSTAY=0: below the pressure switch a table zone stays on the table only by the tau rule
+NLOPAC: non-LTE opacity in the three-level network zones (no H bound-free in kappa_P; n=2 of the three-level atom in kappa_R)
+NLOIT: network-zone opacities from the Newton iterate's own populations (table x continuum-code ratio at the iterate; NLOIMPT, NLODAMP, CPLNLOX, NLOFIX, NLOTMAX inactive there)
+STARLIGHT: H- detachment, LW (shield sobolev) from the star's light in network zones
+LINEIMP: H2 line cooling of each zone from its own state (populations at the iterate's T, radiative rates of the last transfer call); no t_cool cap, no IMPCOOL slope
+HOT: stellar branch above T1 = 3e+05 K (full at 9e+05 K), Delta0 = 1.0920e+13 erg/g, D/H = 2.50e-05
+XMZERO: mass zero point at the centre, xmtot 1.0391e+08 (was 2.3553e+36) g/sr; x_m,e at the interfaces 4..7: 3.1173e+08 1.0391e+08 -1.0391e+08 -1.6450e+08; grid mass 7137.000000 Msun
+ICEUL: initial condition on the fixed mesh: 298 zones, r 0, 0.01 R_sun .. 22.54 pc (dln r 0.0853), grid mass 7137.00 Msun (cloud 7137.00), rho_c 1.8516e-18 T_c 254.1, tau_R(centre) 3.680e-12, 297 interfaces falling, dt0 1.544e+09 s, M_shell0 7.137e+03 Msun
+NKRYLOV: Newton corrections by GMRES on the true Jacobian (eta 0.001, Krylov dimension 30, eps 1e-05), band Jacobian as preconditioner
+SLABFLUX: interface opacity from the steady slab solution, profile kappa ~ (tau + tau0)^n, n = Inf (exponential in tau)
+SLABTIE: FLUXTIE outward donor h = h_FS + f/(tau_i + 2f) - f/(a + 2f), tau_i the slab depth of the donor centre below the interface, a its half-zone depth
+ECOMPAT: TIEFRAME switched on
+ECOMPAT: first-law gas row adjoint to the momentum row in every zone, lab-frame radiation energy row
+FLUXTIE: radiation momentum row -> F = h c E (h = H/J of the formal solution) where tau from the outer boundary <= 0.1, blended to the moment equation by tau = 1
+VEFIMP=1: Eddington factors f, g and the flux tie's h of the formal solution at every Newton iterate (not lagged); radiation momentum row and outer boundary in Auer's sphericality-factor form (exact for chi = 0); the CMB only as the isotropic background, added to the formal solution's moments analytically
+SLIMP: star light of the coupled zones at the Newton iterate: dilution W, colour temperature, Lyman-Werner shielding, Lyα escape (local variables of the zone's chemistry and NLOIT opacity)
+COUPLED: x_H+ and x_H2 of the network zones are unknowns 8 and 9 of the hydro Newton (neqn 9, meqn 9)
+ETOTMON: total-energy rows of every converged solve (TX.etot_monitor) -> ETOT text on the DTERR trace lines, etot_* columns of perf.csv
+DTERR: error-controlled TR-BDF2 (rtol 0.03, conv 0.01, x floor 1e-06, F floor 1 cE, E floor 0 aT^4, rms norm, PI true, safety/facmin/facmax 0.9/0.2/5, Newton-failure factor 0.25, BE retry false); TITAN's heuristic and caps are diagnostic only
+HDCHEM: (x_D+, x_HD) set in 298 zones (HDINIT=eq, D/H = 2.5e-05)
+PSWRAMP: from step 0, table zones from 0 inwards leave one every 10 steps
+        ALI call 5.3 s (ALI iterations 1, converged true, warm start yes)
+        LEDGER k 1: sum V Lambda_coll 2.080282e+33 = L_esc 2.080282e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.038e+19 (relative to sum V Lambda_coll -4.99e-15)
+        line cap: t_cool 1.315e+13 s at zone 204 (m 4.7216e-02 Msun, T 254.2, n 9.073e+05, e+U 1.631e+12, Lambda 3.599e-21); dtime before 1.544e+09, smax 1.027e-03
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+  divergence. jtry = 1
+    last Newton corrections per equation (zone, value): (299, 1.72e-16) (292, -1.52e-11) (290, -3.48e-10) (292, 1.43e-5) (290, -0.393) (298, 6.18e-6) (296, 2.35) (297, -0.000173) (298, -2.82e-6)
+DTERR reject jstep 1: dt 1.544e+09 Newton failure -> dt 3.859e+08 | network zones 298, coupled 298 | line cap 1.315e+13 | NK 1.38 Krylov its/Newton it, 40.0 mv/step, nonconv 0 | ETOT 2 solves: G(last bdf) +3.61e-06, sum +7.22e-07, max|G| 3.61e-06 (step 0 bdf); worst zone/own throughput z289 1.00e+00 (step 0 tr), largest share z297 1.43e-01 (step 0 tr)
+  divergence. jtry = 2
+    last Newton corrections per equation (zone, value): (118, -7.520000000000001e-29) (293, -1.89e-13) (292, -4.66e-12) (293, 7.29e-7) (292, -0.393) (298, 9.72e-7) (296, 0.399) (292, -1.39e-5) (298, -7.2e-8)
+DTERR reject jstep 1: dt 3.859e+08 Newton failure -> dt 9.649e+07 | network zones 298, coupled 298 | line cap 1.315e+13 | NK 1.28 Krylov its/Newton it, 0.0 mv/step, nonconv 0
+  divergence. jtry = 3
+    last Newton corrections per equation (zone, value): (39, 4.920000000000001e-21) (2, 2.5e-7) (208, 2.83e-7) (208, 0.000293) (297, -0.393) (297, 1.03e-8) (76, 0.00944) (298, -0.00176) (218, 1.29e-8)
+DTERR reject jstep 1: dt 9.649e+07 Newton failure -> dt 2.412e+07 | network zones 298, coupled 298 | line cap 1.315e+13 | NK 1.27 Krylov its/Newton it, 0.0 mv/step, nonconv 0 | ETOT 1 solves: G(last tr) +7.61e-08, sum +7.61e-08, max|G| 7.61e-08 (step 1 tr); worst zone/own throughput z286 1.53e-04 (step 1 tr), largest share z286 5.08e-08 (step 1 tr)
+        ALI call 1.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 2: sum V Lambda_coll 1.551615e+33 = L_esc 1.551615e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.018e+19 (relative to sum V Lambda_coll -1.30e-14)
+        line cap: t_cool 1.315e+13 s at zone 204 (m 4.7217e-02 Msun, T 254.2, n 9.073e+05, e+U 1.631e+12, Lambda 3.599e-21); dtime before 2.412e+07, smax 3.166e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 3: sum V Lambda_coll 1.507259e+33 = L_esc 1.507259e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.902e+19 (relative to sum V Lambda_coll -1.26e-14)
+        line cap: t_cool 1.314e+13 s at zone 204 (m 4.7217e-02 Msun, T 254.2, n 9.073e+05, e+U 1.631e+12, Lambda 3.599e-21); dtime before 9.884e+07, smax 4.026e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.6 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 4: sum V Lambda_coll 1.423607e+33 = L_esc 1.423607e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -8.070e+18 (relative to sum V Lambda_coll -5.67e-15)
+        line cap: t_cool 1.314e+13 s at zone 204 (m 4.7218e-02 Msun, T 254.2, n 9.073e+05, e+U 1.631e+12, Lambda 3.599e-21); dtime before 1.095e+08, smax 7.579e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.6 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 5: sum V Lambda_coll 1.384572e+33 = L_esc 1.384572e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -8.070e+18 (relative to sum V Lambda_coll -5.83e-15)
+        line cap: t_cool 1.314e+13 s at zone 204 (m 4.7220e-02 Msun, T 254.2, n 9.074e+05, e+U 1.631e+12, Lambda 3.600e-21); dtime before 2.407e+08, smax 3.696e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 6: sum V Lambda_coll 1.340334e+33 = L_esc 1.340334e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.239e+19 (relative to sum V Lambda_coll -9.25e-15)
+        line cap: t_cool 1.314e+13 s at zone 204 (m 4.7223e-02 Msun, T 254.2, n 9.074e+05, e+U 1.631e+12, Lambda 3.600e-21); dtime before 3.563e+08, smax 4.456e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.2 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 7: sum V Lambda_coll 1.307553e+33 = L_esc 1.307553e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.153e+18 (relative to sum V Lambda_coll -8.82e-16)
+        line cap: t_cool 1.314e+13 s at zone 204 (m 4.7229e-02 Msun, T 254.2, n 9.075e+05, e+U 1.631e+12, Lambda 3.601e-21); dtime before 6.494e+08, smax 3.572e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 8: sum V Lambda_coll 1.276458e+33 = L_esc 1.276458e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.499e+19 (relative to sum V Lambda_coll -1.17e-14)
+        line cap: t_cool 1.314e+13 s at zone 204 (m 4.7238e-02 Msun, T 254.3, n 9.077e+05, e+U 1.631e+12, Lambda 3.603e-21); dtime before 1.061e+09, smax 3.684e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 9: sum V Lambda_coll 1.250220e+33 = L_esc 1.250220e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.104e+19 (relative to sum V Lambda_coll -1.68e-14)
+        line cap: t_cool 1.312e+13 s at zone 208 (m 1.2327e-01 Msun, T 254.9, n 7.111e+05, e+U 1.631e+12, Lambda 2.833e-21); dtime before 1.840e+09, smax 3.391e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.2 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 10: sum V Lambda_coll 1.226419e+33 = L_esc 1.226419e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.081e+19 (relative to sum V Lambda_coll -8.81e-15)
+        line cap: t_cool 1.301e+13 s at zone 208 (m 1.2334e-01 Msun, T 255.6, n 7.143e+05, e+U 1.631e+12, Lambda 2.878e-21); dtime before 3.099e+09, smax 3.351e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 11: sum V Lambda_coll 1.205517e+33 = L_esc 1.205517e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.859e+19 (relative to sum V Lambda_coll -1.54e-14)
+        line cap: t_cool 1.276e+13 s at zone 208 (m 1.2346e-01 Msun, T 257.2, n 7.217e+05, e+U 1.631e+12, Lambda 2.985e-21); dtime before 5.312e+09, smax 3.214e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 12: sum V Lambda_coll 1.187004e+33 = L_esc 1.187004e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.882e+19 (relative to sum V Lambda_coll -2.43e-14)
+        line cap: t_cool 1.221e+13 s at zone 208 (m 1.2368e-01 Msun, T 260.8, n 7.384e+05, e+U 1.632e+12, Lambda 3.235e-21); dtime before 9.020e+09, smax 3.147e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 13: sum V Lambda_coll 1.171137e+33 = L_esc 1.171137e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.398e+19 (relative to sum V Lambda_coll -1.19e-14)
+        line cap: t_cool 1.125e+13 s at zone 208 (m 1.2412e-01 Msun, T 267.8, n 7.702e+05, e+U 1.632e+12, Lambda 3.759e-21); dtime before 1.494e+10, smax 4.309e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 14: sum V Lambda_coll 1.158399e+33 = L_esc 1.158399e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.542e+19 (relative to sum V Lambda_coll -1.33e-14)
+        line cap: t_cool 1.009e+13 s at zone 208 (m 1.2513e-01 Msun, T 277.4, n 8.149e+05, e+U 1.633e+12, Lambda 4.595e-21); dtime before 2.141e+10, smax 6.273e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.2 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 15: sum V Lambda_coll 1.150046e+33 = L_esc 1.150046e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.931e+19 (relative to sum V Lambda_coll -1.68e-14)
+        line cap: t_cool 9.405e+12 s at zone 208 (m 1.2701e-01 Msun, T 283.7, n 8.470e+05, e+U 1.634e+12, Lambda 5.240e-21); dtime before 2.781e+10, smax 5.503e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.2 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 16: sum V Lambda_coll 1.145766e+33 = L_esc 1.145766e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.758e+19 (relative to sum V Lambda_coll -1.53e-14)
+        line cap: t_cool 9.551e+12 s at zone 208 (m 1.2907e-01 Msun, T 282.2, n 8.453e+05, e+U 1.634e+12, Lambda 5.122e-21); dtime before 3.132e+10, smax 7.921e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 17: sum V Lambda_coll 1.145024e+33 = L_esc 1.145024e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.816e+19 (relative to sum V Lambda_coll -1.59e-14)
+        line cap: t_cool 9.920e+12 s at zone 208 (m 1.3020e-01 Msun, T 278.6, n 8.346e+05, e+U 1.633e+12, Lambda 4.808e-21); dtime before 3.400e+10, smax 9.829e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 18: sum V Lambda_coll 1.146836e+33 = L_esc 1.146836e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.297e+19 (relative to sum V Lambda_coll -1.13e-14)
+        line cap: t_cool 9.686e+12 s at zone 208 (m 1.3156e-01 Msun, T 280.7, n 8.498e+05, e+U 1.634e+12, Lambda 5.051e-21); dtime before 2.879e+10, smax 1.643e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 19: sum V Lambda_coll 1.149674e+33 = L_esc 1.149674e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.614e+19 (relative to sum V Lambda_coll -1.40e-14)
+        line cap: t_cool 9.478e+12 s at zone 208 (m 1.3320e-01 Msun, T 282.5, n 8.640e+05, e+U 1.634e+12, Lambda 5.283e-21); dtime before 2.626e+10, smax 3.035e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+DTERR jstep 19 t 6.588134e+03 yr: dt 2.626e+10 err 0.469 (max 1.92: m zone 3; resid 1.7e-09, 1st filter 0.431) next 2.516e+10 | heuristic 1.559e+10 | steps 20 rej 0 fail 3 | Newton true residual 5.5e-07 | network zones 298, coupled 298 | line cap 9.478e+12 | NK 2.48 Krylov its/Newton it, 23.3 mv/step, nonconv 0 | ETOT 38 solves: G(last bdf) +3.16e-06, sum +1.00e-06, max|G| 1.93e-04 (step 9 tr); worst zone/own throughput z297 1.59e-03 (step 1 bdf), largest share z297 2.67e-04 (step 1 bdf)
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 20: sum V Lambda_coll 1.152965e+33 = L_esc 1.152965e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.666e+19 (relative to sum V Lambda_coll -2.31e-14)
+        line cap: t_cool 9.592e+12 s at zone 208 (m 1.3441e-01 Msun, T 281.3, n 8.635e+05, e+U 1.634e+12, Lambda 5.195e-21); dtime before 2.516e+10, smax 4.826e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 21: sum V Lambda_coll 1.156587e+33 = L_esc 1.156587e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -3.070e+19 (relative to sum V Lambda_coll -2.65e-14)
+        line cap: t_cool 4.879e+12 s at zone 3 (m 3.5770e-24 Msun, T 349.6, n 1.481e+06, e+U 1.640e+12, Lambda 2.176e-20); dtime before 2.255e+10, smax 1.460e+00
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 22: sum V Lambda_coll 1.160128e+33 = L_esc 1.160128e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.205e+19 (relative to sum V Lambda_coll -1.90e-14)
+        line cap: t_cool 5.802e+12 s at zone 10 (m 1.9578e-23 Msun, T 330.4, n 1.352e+06, e+U 1.639e+12, Lambda 1.579e-20); dtime before 1.956e+10, smax 1.254e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 23: sum V Lambda_coll 1.163386e+33 = L_esc 1.163386e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.147e+19 (relative to sum V Lambda_coll -1.85e-14)
+        line cap: t_cool 1.036e+13 s at zone 208 (m 1.3409e-01 Msun, T 274.1, n 8.416e+05, e+U 1.633e+12, Lambda 4.566e-21); dtime before 3.405e+10, smax 5.716e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+DTERR reject jstep 23: dt 3.405e+10 err 1.16 (max 3.87: m zone 3; resid 4.2e-10, 1st filter 0.938) -> dt 2.915e+10 | network zones 298, coupled 298 | line cap 1.036e+13 | NK 2.30 Krylov its/Newton it, 35.3 mv/step, nonconv 0 | ETOT 8 solves: G(last bdf) +3.11e-06, sum +3.17e-06, max|G| 3.20e-06 (step 20 tr); worst zone/own throughput z285 1.18e-04 (step 20 tr), largest share z285 2.20e-06 (step 20 tr)
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 24: sum V Lambda_coll 1.168506e+33 = L_esc 1.168506e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.436e+19 (relative to sum V Lambda_coll -2.08e-14)
+        line cap: t_cool 1.024e+13 s at zone 208 (m 1.3367e-01 Msun, T 275.1, n 8.514e+05, e+U 1.633e+12, Lambda 4.689e-21); dtime before 1.839e+10, smax 5.175e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 25: sum V Lambda_coll 1.171884e+33 = L_esc 1.171884e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -3.516e+19 (relative to sum V Lambda_coll -3.00e-14)
+        line cap: t_cool 9.984e+12 s at zone 208 (m 1.3388e-01 Msun, T 277.3, n 8.652e+05, e+U 1.633e+12, Lambda 4.930e-21); dtime before 2.030e+10, smax 1.302e+00
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.2 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 26: sum V Lambda_coll 1.175744e+33 = L_esc 1.175744e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.859e+19 (relative to sum V Lambda_coll -1.58e-14)
+        line cap: t_cool 7.402e+12 s at zone 2 (m 2.3329e-24 Msun, T 304.9, n 1.247e+06, e+U 1.636e+12, Lambda 1.054e-20); dtime before 2.883e+10, smax 8.567e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 27: sum V Lambda_coll 1.181447e+33 = L_esc 1.181447e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -8.503e+18 (relative to sum V Lambda_coll -7.20e-15)
+        line cap: t_cool 9.087e+12 s at zone 208 (m 1.3611e-01 Msun, T 285.8, n 9.152e+05, e+U 1.634e+12, Lambda 5.903e-21); dtime before 2.144e+10, smax 2.619e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 28: sum V Lambda_coll 1.185851e+33 = L_esc 1.185851e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.340e+19 (relative to sum V Lambda_coll -1.13e-14)
+        line cap: t_cool 8.907e+12 s at zone 208 (m 1.3698e-01 Msun, T 287.5, n 9.286e+05, e+U 1.634e+12, Lambda 6.148e-21); dtime before 2.800e+10, smax 3.784e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 29: sum V Lambda_coll 1.191791e+33 = L_esc 1.191791e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.873e+19 (relative to sum V Lambda_coll -1.57e-14)
+        line cap: t_cool 9.168e+12 s at zone 208 (m 1.3749e-01 Msun, T 284.8, n 9.205e+05, e+U 1.634e+12, Lambda 5.864e-21); dtime before 3.953e+10, smax 1.652e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.2 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 30: sum V Lambda_coll 1.200513e+33 = L_esc 1.200513e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.853e+19 (relative to sum V Lambda_coll -2.38e-14)
+        line cap: t_cool 1.011e+13 s at zone 208 (m 1.3838e-01 Msun, T 275.7, n 8.843e+05, e+U 1.633e+12, Lambda 4.946e-21); dtime before 4.355e+10, smax 3.670e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 31: sum V Lambda_coll 1.210560e+33 = L_esc 1.210560e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.493e+19 (relative to sum V Lambda_coll -2.06e-14)
+        line cap: t_cool 7.943e+12 s at zone 2 (m 2.2828e-24 Msun, T 297.5, n 1.220e+06, e+U 1.635e+12, Lambda 9.377e-21); dtime before 3.456e+10, smax 8.454e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 32: sum V Lambda_coll 1.218843e+33 = L_esc 1.218843e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.960e+19 (relative to sum V Lambda_coll -1.61e-14)
+        line cap: t_cool 7.293e+12 s at zone 2 (m 2.3970e-24 Msun, T 305.7, n 1.282e+06, e+U 1.636e+12, Lambda 1.102e-20); dtime before 3.681e+10, smax 7.959e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.2 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 33: sum V Lambda_coll 1.227972e+33 = L_esc 1.227972e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.291e+19 (relative to sum V Lambda_coll -1.87e-14)
+        line cap: t_cool 8.520e+12 s at zone 208 (m 1.4852e-01 Msun, T 291.0, n 9.956e+05, e+U 1.635e+12, Lambda 6.976e-21); dtime before 4.799e+10, smax 2.912e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.2 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 34: sum V Lambda_coll 1.240404e+33 = L_esc 1.240404e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.643e+19 (relative to sum V Lambda_coll -1.32e-14)
+        line cap: t_cool 7.706e+12 s at zone 207 (m 1.2421e-01 Msun, T 300.5, n 1.083e+06, e+U 1.635e+12, Lambda 8.661e-21); dtime before 5.111e+10, smax 2.502e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.2 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 35: sum V Lambda_coll 1.254236e+33 = L_esc 1.254236e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -1.239e+19 (relative to sum V Lambda_coll -9.88e-15)
+        line cap: t_cool 7.009e+12 s at zone 207 (m 1.3199e-01 Msun, T 309.6, n 1.145e+06, e+U 1.636e+12, Lambda 1.037e-20); dtime before 5.205e+10, smax 3.713e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 36: sum V Lambda_coll 1.268820e+33 = L_esc 1.268820e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -4.179e+19 (relative to sum V Lambda_coll -3.29e-14)
+        line cap: t_cool 5.484e+12 s at zone 3 (m 3.6558e-24 Msun, T 334.6, n 1.513e+06, e+U 1.639e+12, Lambda 1.893e-20); dtime before 4.889e+10, smax 7.561e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 37: sum V Lambda_coll 1.282956e+33 = L_esc 1.282956e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -2.018e+19 (relative to sum V Lambda_coll -1.57e-14)
+        line cap: t_cool 5.393e+12 s at zone 4 (m 4.8204e-24 Msun, T 336.1, n 1.545e+06, e+U 1.639e+12, Lambda 1.974e-20); dtime before 4.792e+10, smax 4.856e-02
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.2 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 38: sum V Lambda_coll 1.297220e+33 = L_esc 1.297220e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -3.531e+19 (relative to sum V Lambda_coll -2.72e-14)
+        line cap: t_cool 8.568e+12 s at zone 207 (m 1.3115e-01 Msun, T 289.5, n 1.075e+06, e+U 1.634e+12, Lambda 7.447e-21); dtime before 7.128e+10, smax 2.901e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 39: sum V Lambda_coll 1.319271e+33 = L_esc 1.319271e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual -6.341e+18 (relative to sum V Lambda_coll -4.81e-15)
+        line cap: t_cool 8.726e+12 s at zone 217 (m 1.6660e+00 Msun, T 291.0, n 1.135e+06, e+U 1.635e+12, Lambda 7.764e-21); dtime before 6.832e+10, smax 3.552e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+DTERR jstep 39 t 3.052285e+04 yr: dt 6.832e+10 err 0.186 (max 0.746: m zone 3; resid 5.5e-10, 1st filter 0.158) next 7.127e+10 | heuristic 7.545e+10 | steps 40 rej 1 fail 3 | Newton true residual 2.1e-06 | network zones 298, coupled 298 | line cap 8.726e+12 | NK 3.04 Krylov its/Newton it, 30.4 mv/step, nonconv 0 | ETOT 34 solves: G(last bdf) +2.92e-06, sum +3.05e-06, max|G| 3.18e-06 (step 23 tr); worst zone/own throughput z297 1.34e-04 (step 34 bdf), largest share z285 2.10e-06 (step 23 tr)
+        ALI call 0.1 s (ALI iterations 2, converged true, warm start yes)
+        LEDGER k 40: sum V Lambda_coll 1.341180e+33 = L_esc 1.341180e+33 + absorbed by continuum 0.000000e+00 (merged core 0.000e+00); residual 2.018e+19 (relative to sum V Lambda_coll 1.50e-14)
+        line cap: t_cool 8.545e+12 s at zone 217 (m 1.7189e+00 Msun, T 292.7, n 1.157e+06, e+U 1.635e+12, Lambda 8.128e-21); dtime before 7.127e+10, smax 1.852e-01
+        LINEIMP: 298 zone line models (ALI rates); no t_cool cap
+run ended: (40, :maxsteps); jstep 40 jstepe 1e+07 timen 9.633012e+11 tmax 1.543789e+15
+NLOIT: 1778088 opacity-ratio evaluations (465.9 s), 847512 slope refreshes; CK expansions 285.5 s
+ALI line transfer: 40 calls
+NKRYLOV (eta 0.001, mmax 30, eps 1e-05): 474 Newton linear solves (213 J_b reused), 1170 matrix-vector products (2.47 per solve), 0 GMRES non-convergences, 0 state-drift events (max 0.00e+00), 107.3 s | NKGLOB: 473 globalised steps, 0 Krylov-truncated, 73 trust-region capped, 0 backtracked, 0 failed, 0 merit evaluations (0 trial states rejected)
+DTERR statistics Dict(:neg_old => 0, :be => 0, :rej_err => 1, :nofsal => 1, :steps => 40, :fail_newton => 3, :nonfinite => 0, :nonfinite_est => 0); limiting variable (accepted steps) Dict("T" => 14, "m" => 15, "u" => 4, "rho" => 6); TR-BDF2 Dict(:fail_tr => 2, :fail_bdf => 1, :steps => 40, :be_fallback => 0)
+Newton true-residual test (converged only if max row |R|/(largest J_b entry of the row) <= CONV): 5 convergences refused, largest refused residual 8.864e-02
+NKRYLOV (eta 0.001, mmax 30, eps 1e-05): 474 Newton linear solves (213 J_b reused), 1170 matrix-vector products (2.47 per solve), 0 GMRES non-convergences, 0 state-drift events (max 0.00e+00), 107.3 s | NKGLOB: 473 globalised steps, 0 Krylov-truncated, 73 trust-region capped, 0 backtracked, 0 failed, 0 merit evaluations (0 trial states rejected)
+===== EXIT 0 wall 846.033040943 =====
