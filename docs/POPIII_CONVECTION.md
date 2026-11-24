@@ -633,3 +633,74 @@ at Δt ≳ ℓ/a with a *changing* source, which the T, x estimate bounds from t
 
 The Newton wall at Δt ≈ 7e4 s of the TDC path was a **starting-point defect, not a property of the TDC equations**: Newton's initial species were computed from rows without the turbulent mixing flux, and the mixing-fed, recombined cliff zone starts 14× too low in x_H⁺, which a log-variable Newton step answers with δ ln x ~ 6×10², and the
 shared trust-region fraction collapses to 2 %. Putting the same term in the local guess (a Newton-start change only) lowers the first correction 136 → 0.017, converges the stage Newton in 2–4 iterations over probe Δt = 6e4 … 1e6 s, and moves the 200-step run from Δt ≈ 3e4 s (20 failed attempts per 100 steps) to a median 3.3e5 s with phases of 1e7 s (24 yr in 200 steps, 11 failed attempts per 100 steps).
+
+## M4 — Bracket of the accretion history (22–24 Nov 2026)
+
+### Set-up [run]
+
+**Lanes.** All lanes start from replay checkpoint `rp_k290`: zie1, 5 yr after protostar formation, 0.29 M☉, 100 zones.
+- Lane runner: `scripts/subconv/m4run.sh`, which runs segments of 400 steps until M* ≥ 34 M☉.
+- Code: `wt_m4`, with the TitanCore of aace2a0 (as for every replay restart, M1/M3b).
+  - B1 ran on 4c026bc. The TDC lanes ran on dcb9bb8, which includes M3d and predates the decide() upwind fix of 4636f84. That fix changes only the Jacobian, not the residual.
+- Settings: zie1's run.env plus `CONVDIAG=1`.
+- Comparison: `scripts/subconv/m4compare.py`, giving `docs/logs/subconv/m4/compare_final_zie1.txt` (with its .png files) and `compare_final_zie3.txt`.
+
+**Why the 0-yr phase is not bracketed.** TDC from k115 meets the radiation-closure wall of M3c, which is not a convection effect.
+
+| case | definition | reached |
+|---|---|---|
+| B0 | production (replay zie1rp; no convection in the layer, M1) | 33.8 M☉ (step 2400) |
+| B1 | local MLT with the M2 buoyancy and thermodynamics (`MLTBUOY=1`) | 34.1 |
+| B2 | TDC best estimate, `TDCPAR=1,1,1,1,0.01,1,0` (α = 1.5, α_p = 1, α_t = 0.01, α_D = 1) | 45.9 |
+| B3a / B3b | B2 with α = 0.75 / 3.0 | 49.3 / 46.3 |
+| B3c | B2 without overshoot diffusion (α_t = 0) | 45.8 |
+| B4 | B2 without turbulent pressure (α_p = 0) | 45.8 |
+| B5 | efficient-convection proxy: B2 with α = 10 (ℓ ≫ H_P, so ∇ → ∇_ad, and D_mix ∝ ℓw large) | 7.2 (still running) |
+| B0z3 / B2z3 | B0 / B2 on zie3's 298-zone mesh, from zie3rp k775 (0.29 M☉) | 1.3 / 0.6 (running) |
+
+B5 approximates "forced adiabatic + full mixing" with large α; it does not literally impose ∇ = ∇_ad [interpretation].
+
+### Results [run, `compare_final_zie1.txt`; spread = (max − min)/B0 over B0–B5 at fixed M*]
+
+**The layer itself** (cv_ scalars):
+- In every convective case it carries the whole flux, F_conv/F_tot ≈ 1, up to about 2 M☉ (≈ 50 yr). It is intermittent after that and has mostly disappeared by 3–10 M☉. That is consistent with M1: the layer is unstable only early.
+- Turbulent pressure behind the shock, P_t/P: 2–17 % in B2, 3–11 % in B3b (2α), ≤ 5 % in B3a, and 22–59 % in B5.
+
+**Accretion:**
+- Ṁ through 10⁴ R☉ is unchanged: spread ≤ 0.36 % in all cases, at every M*.
+- Ṁ at the shock [P] varies by 4–10 %.
+
+**Infall and entropy:**
+- Peak infall speed u_min: spread ≤ 13 % without B5, and up to 23 % with B5 at 3–5 M☉ (faster infall onto a smaller star).
+- Post-shock entropy proxy s_ps [P]: spread ≤ 6 %.
+
+**The star:**
+- R*: B1–B4 differ by at most one zone (the mesh has 29 % steps in r). B5 is two zones smaller at 3–5 M☉ (−40 %).
+- T_c rises with convection efficiency: +2–5 % at 2–30 M☉ (B2 +5.4 % at 30 M☉; B5 +4.9 % at 5 M☉).
+- Deuterium: L_D at 10–30 M☉ differs by factors of 2–4 between cases, and ⟨X_D⟩ inside R* by 2 % at 30 M☉. Burning starts at the same mass; its rate is sensitive to T_c.
+- No case reaches pp or CNO onset (L > 1e-3 L_ph) by 46 M☉, so these onset masses are not bracketed.
+
+**Photosphere:**
+- B0's L_ph scatters by about 1 dex (rolling σ log L_ph ≈ 1.0–1.4) through 20 M☉, so the pointwise L_ph and T_eff differences are noise-dominated [P].
+- The TDC cases are quieter at 10–20 M☉ (σ 0.015–0.6). Convection in the layer damps the photospheric fluctuations of the 100-zone runs [run; mechanism not isolated].
+
+**Resolution** [run, `compare_final_zie3.txt`, 0.29–0.5 M☉ only]:
+- On the 298-zone mesh, TDC also convects with F_conv/F = 1 and P_t/P 1.3–1.8 %. Its effect is smaller than at 100 zones: R* −1.5 %, Ṁ_shock +1.8 %, s_ps −0.3 %, T_c +0.04 %.
+- The zie3 mesh itself (B0z3 vs B0) moves R* by more than the whole convection bracket does (46 vs 60 R☉ at 0.3 M☉).
+
+### Conclusion [interpretation]
+
+In 1D, convection in the sub-shock layer is real, and with the gate open it is efficient early on (≲ 2 M☉). It barely changes the accretion history:
+- the mass inflow is unchanged;
+- R* moves by about one zone;
+- infall speed changes by ~10 %, and by ~20 % in the efficient limit;
+- T_c rises by a few %, which shifts the deuterium-burning rate by factors of 2–4.
+
+The effect at 100 zones is of the same order as, or smaller than, the effect of the resolution itself, and on the 298-zone mesh it is smaller still.
+
+**What 1D cannot bracket:**
+- corrugation of the shock by plumes;
+- lateral transport;
+- turbulent pressure fluctuations in the jump.
+
+These need the multi-D calibration of M5. **Open:** B5 and the zie3 pair to 34 M☉ (running); the T10 resolution test at ~1000 effective zones; the 0-yr phase (blocked by the M3c closure wall).

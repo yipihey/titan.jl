@@ -1,0 +1,171 @@
+M4 accretion-history comparison  tag=final_zie3  window=20 frames  steps >= 775  t0 = 242378.256758 yr
+cases with data: ['B0z3', 'B2z3']; without snapshots yet / skipped: []
+  B0z3: 1149 frames, steps 780..6520, M* 0.290..1.261, t-t0 -6181.75..-6154.46 yr, median dstep 5
+  B2z3: 220 frames, steps 780..1875, M* 0.290..0.600, t-t0 -6181.75..-6173.89 yr, median dstep 5
+[P] = proxy / approximate quantity. s_ps: ln(T^1.5/rho) (cgs) of the zone just inside the shock (not a true entropy: no ionisation/H2/radiation).
+Mdot_shock: cell-centred 4 pi r^2 rho |u| at the zone just outside R* (R* = first zone with u<-2 km/s). max|u|: max infall speed in [R*,3R*].
+Onset masses: first M* where L_pp or L_CNO > 1e-3 L_ph for 3 consecutive frames (NaN: not reached). Fluctuations depend on snapshot cadence per case.
+cv_* columns exist only for CONVDIAG=1 lanes (NaN for B0). Rel diff = (case-B0)/|B0| ; spread = (max-min)/|B0| over all cases (incl. B0).
+
+==============================================================================================================
+TABLE vs M* [Msun]
+==============================================================================================================
+-- R* [Rsun]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3        46.42      65.28      91.82        nan        nan        nan        nan        nan        nan
+   B2z3        46.42      64.29        nan        nan        nan        nan        nan        nan        nan
+   dB2z3           0    -0.0152        nan        nan        nan        nan        nan        nan        nan
+   spread          0     0.0152          0        nan        nan        nan        nan        nan        nan
+-- r_ph [Rsun]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3        51.59       71.1        100        nan        nan        nan        nan        nan        nan
+   B2z3        50.55       71.1        nan        nan        nan        nan        nan        nan        nan
+   dB2z3     -0.0203          0        nan        nan        nan        nan        nan        nan        nan
+   spread     0.0203          0          0        nan        nan        nan        nan        nan        nan
+-- T_eff [K]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3         1936       4528       4316        nan        nan        nan        nan        nan        nan
+   B2z3        832.2       4559        nan        nan        nan        nan        nan        nan        nan
+   dB2z3       -0.57    0.00692        nan        nan        nan        nan        nan        nan        nan
+   spread       0.57    0.00692          0        nan        nan        nan        nan        nan        nan
+-- L_ph [Lsun]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3        371.5       1915       3126        nan        nan        nan        nan        nan        nan
+   B2z3        1.407       1971        nan        nan        nan        nan        nan        nan        nan
+   dB2z3      -0.996     0.0291        nan        nan        nan        nan        nan        nan        nan
+   spread      0.996     0.0291          0        nan        nan        nan        nan        nan        nan
+-- Mdot(1e4 Rsun) [Msun/yr]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3      0.01887    0.01973    0.02189        nan        nan        nan        nan        nan        nan
+   B2z3      0.01887    0.01973        nan        nan        nan        nan        nan        nan        nan
+   dB2z3    4.59e-06   5.35e-05        nan        nan        nan        nan        nan        nan        nan
+   spread   4.59e-06   5.35e-05          0        nan        nan        nan        nan        nan        nan
+-- Mdot_shock 4pi r2 rho|u| [Msun/yr] [P]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3       0.0476    0.04086    0.03697        nan        nan        nan        nan        nan        nan
+   B2z3      0.04779     0.0416        nan        nan        nan        nan        nan        nan        nan
+   dB2z3      0.0039     0.0183        nan        nan        nan        nan        nan        nan        nan
+   spread     0.0039     0.0183          0        nan        nan        nan        nan        nan        nan
+-- u_min [km/s]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3       -39.43     -43.47     -52.14        nan        nan        nan        nan        nan        nan
+   B2z3       -39.33     -43.48        nan        nan        nan        nan        nan        nan        nan
+   dB2z3     0.00255   -0.00022        nan        nan        nan        nan        nan        nan        nan
+   spread    0.00255    0.00022          0        nan        nan        nan        nan        nan        nan
+-- max|u| in [R*,3R*] [km/s] [P]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3        38.25      42.77      50.46        nan        nan        nan        nan        nan        nan
+   B2z3         38.2      42.75        nan        nan        nan        nan        nan        nan        nan
+   dB2z3    -0.00141   -0.00045        nan        nan        nan        nan        nan        nan        nan
+   spread    0.00141    0.00045          0        nan        nan        nan        nan        nan        nan
+-- s_ps = ln(T^1.5/rho) post-shock zone [P]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3        30.27      31.21      31.38        nan        nan        nan        nan        nan        nan
+   B2z3        30.29       31.1        nan        nan        nan        nan        nan        nan        nan
+   dB2z3    0.000689   -0.00347        nan        nan        nan        nan        nan        nan        nan
+   spread   0.000689    0.00347          0        nan        nan        nan        nan        nan        nan
+-- T post-shock zone [K]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3    1.346e+04  1.167e+04   1.22e+04        nan        nan        nan        nan        nan        nan
+   B2z3    1.366e+04  1.251e+04        nan        nan        nan        nan        nan        nan        nan
+   dB2z3      0.0143      0.072        nan        nan        nan        nan        nan        nan        nan
+   spread     0.0143      0.072          0        nan        nan        nan        nan        nan        nan
+-- rho post-shock [g/cc]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3     1.13e-07  3.517e-08  3.174e-08        nan        nan        nan        nan        nan        nan
+   B2z3    1.125e-07  4.806e-08        nan        nan        nan        nan        nan        nan        nan
+   dB2z3    -0.00511      0.367        nan        nan        nan        nan        nan        nan        nan
+   spread    0.00511      0.367          0        nan        nan        nan        nan        nan        nan
+-- <X_D> mass-weighted inside R* [P]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3     3.75e-05   3.75e-05   3.75e-05        nan        nan        nan        nan        nan        nan
+   B2z3     3.75e-05   3.75e-05        nan        nan        nan        nan        nan        nan        nan
+   dB2z3   -3.61e-16   3.61e-16        nan        nan        nan        nan        nan        nan        nan
+   spread   3.61e-16   3.61e-16          0        nan        nan        nan        nan        nan        nan
+-- L_D [Lsun]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3            0          0          0        nan        nan        nan        nan        nan        nan
+   B2z3            0          0        nan        nan        nan        nan        nan        nan        nan
+   dB2z3         nan        nan        nan        nan        nan        nan        nan        nan        nan
+   spread        nan        nan        nan        nan        nan        nan        nan        nan        nan
+-- sigma(log10 L_ph), rolling [P]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3       0.6925     0.5202     0.3885        nan        nan        nan        nan        nan        nan
+   B2z3          nan     0.7534        nan        nan        nan        nan        nan        nan        nan
+   dB2z3         nan      0.448        nan        nan        nan        nan        nan        nan        nan
+   spread          0      0.448          0        nan        nan        nan        nan        nan        nan
+-- sigma(log10 Teff), rolling [P]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3       0.1728     0.1286    0.09383        nan        nan        nan        nan        nan        nan
+   B2z3          nan     0.1822        nan        nan        nan        nan        nan        nan        nan
+   dB2z3         nan      0.417        nan        nan        nan        nan        nan        nan        nan
+   spread          0      0.417          0        nan        nan        nan        nan        nan        nan
+-- T_c [K]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3    1.094e+05  1.118e+05  1.148e+05        nan        nan        nan        nan        nan        nan
+   B2z3    1.094e+05  1.119e+05        nan        nan        nan        nan        nan        nan        nan
+   dB2z3    1.72e-05    0.00038        nan        nan        nan        nan        nan        nan        nan
+   spread   1.72e-05    0.00038          0        nan        nan        nan        nan        nan        nan
+-- max Fconv/F in layer
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3            0          0          0        nan        nan        nan        nan        nan        nan
+   B2z3            1          1        nan        nan        nan        nan        nan        nan        nan
+   dB2z3         inf        inf        nan        nan        nan        nan        nan        nan        nan
+   spread        inf        inf        nan        nan        nan        nan        nan        nan        nan
+-- layer extent r_out-r_in [R*]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3      0.03353      0.194     0.2654        nan        nan        nan        nan        nan        nan
+   B2z3            0    0.01392        nan        nan        nan        nan        nan        nan        nan
+   dB2z3          -1     -0.928        nan        nan        nan        nan        nan        nan        nan
+   spread          1      0.928          0        nan        nan        nan        nan        nan        nan
+-- layer mass [Msun]
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3     0.001932    0.02415    0.08997        nan        nan        nan        nan        nan        nan
+   B2z3            0   0.001056        nan        nan        nan        nan        nan        nan        nan
+   dB2z3          -1     -0.956        nan        nan        nan        nan        nan        nan        nan
+   spread          1      0.956          0        nan        nan        nan        nan        nan        nan
+-- integrated E_t (runrec cv_Et)
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3          nan        nan        nan        nan        nan        nan        nan        nan        nan
+   B2z3    3.105e+41  8.731e+41        nan        nan        nan        nan        nan        nan        nan
+   dB2z3         nan        nan        nan        nan        nan        nan        nan        nan        nan
+   spread        nan        nan        nan        nan        nan        nan        nan        nan        nan
+-- P_t/P post-shock
+   case          0.3        0.5          1          2          3          5         10         20         30
+   B0z3          nan        nan        nan        nan        nan        nan        nan        nan        nan
+   B2z3      0.01273    0.01842        nan        nan        nan        nan        nan        nan        nan
+   dB2z3         nan        nan        nan        nan        nan        nan        nan        nan        nan
+   spread        nan        nan        nan        nan        nan        nan        nan        nan        nan
+
+==============================================================================================================
+TABLE vs t - t0 [yr]
+==============================================================================================================
+-- R* [Rsun]: all NaN
+-- r_ph [Rsun]: all NaN
+-- T_eff [K]: all NaN
+-- L_ph [Lsun]: all NaN
+-- Mdot(1e4 Rsun) [Msun/yr]: all NaN
+-- Mdot_shock 4pi r2 rho|u| [Msun/yr] [P]: all NaN
+-- u_min [km/s]: all NaN
+-- max|u| in [R*,3R*] [km/s] [P]: all NaN
+-- s_ps = ln(T^1.5/rho) post-shock zone [P]: all NaN
+-- T post-shock zone [K]: all NaN
+-- rho post-shock [g/cc]: all NaN
+-- <X_D> mass-weighted inside R* [P]: all NaN
+-- L_D [Lsun]: all NaN
+-- sigma(log10 L_ph), rolling [P]: all NaN
+-- sigma(log10 Teff), rolling [P]: all NaN
+-- T_c [K]: all NaN
+-- max Fconv/F in layer: all NaN
+-- layer extent r_out-r_in [R*]: all NaN
+-- layer mass [Msun]: all NaN
+-- integrated E_t (runrec cv_Et): all NaN
+-- P_t/P post-shock: all NaN
+
+==============================================================================================================
+ONSET MASSES [Msun] (first M* with L > 1e-3 L_ph)
+==============================================================================================================
+   case    pp         CNO
+   B0z3    nan        nan       
+   B2z3    nan        nan       
+
