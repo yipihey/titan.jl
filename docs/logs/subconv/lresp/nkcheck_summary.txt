@@ -1,0 +1,22 @@
+# M6 NKCHECK (AD J v vs central FD, eps 1e-5), zones 34-46; summary by scripts/subconv/lresp_nksummary.sh (worst relative row per equation)
+## nk_mg: MGROUPS=4 TDC=1, state ct (M3e.3c), code f574e76 (scratch worktree wt_new)
+u 3.6e-10(z34) | T 1.7e-05(z45)+1NaN | z_H 2.8e-07(z40) | x_H2 1.3e-07(z41) | E_g1 2.7e-05(z46) | F_g1 1.9e-04(z43) | E_g2 1.5e-05(z46) | F_g2 1.2e-01(z42) | E_g3 1.2e-05(z46) | F_g3 2.8e+02(z43) | E_g4 8.7e-07(z42) | F_g4 1.8e-09(z39) | w 6.8e+03(z43) | 
+NKCHECK AD row eq 18  zone  39: Jv(AD) -2.49056e+02  Jv(FD) -2.49056e+02  rowscale 2.491e+02  rel 6.480e-09  w_iterate 0.000e+00
+NKCHECK AD row eq 18  zone  40: Jv(AD) -1.28580e+03  Jv(FD) -1.28580e+03  rowscale 8.223e+04  rel 4.525e-10  w_iterate 2.245e+04
+NKCHECK AD row eq 18  zone  41: Jv(AD) +4.09142e+05  Jv(FD) +4.09142e+05  rowscale 4.115e+05  rel 1.482e-08  w_iterate 3.792e+04
+NKCHECK AD row eq 18  zone  42: Jv(AD) +6.50165e+05  Jv(FD) +6.52481e+05  rowscale 6.502e+05  rel 3.562e-03  w_iterate -1.058e-13
+## nk_off: MGROUPS off TDC=1, restart tdc20 (20 TDC steps from rp_k650)
+u 3.0e-10(z45) | T 1.6e-06(z46) | z_H 1.2e-09(z46) | x_H2 2.5e-09(z43) | w 2.2e+04(z43) | 
+NKCHECK AD row eq 10  zone  38: Jv(AD) -2.07527e+02  Jv(FD) -2.07527e+02  rowscale 2.075e+02  rel 1.344e-11  w_iterate 0.000e+00
+NKCHECK AD row eq 10  zone  39: Jv(AD) -3.36322e+03  Jv(FD) -3.36322e+03  rowscale 3.363e+03  rel 3.913e-08  w_iterate 0.000e+00
+NKCHECK AD row eq 10  zone  40: Jv(AD) +8.03914e+05  Jv(FD) +8.03914e+05  rowscale 8.523e+05  rel 1.733e-09  w_iterate 2.382e+05
+NKCHECK AD row eq 10  zone  41: Jv(AD) +1.30853e+03  Jv(FD) +1.30853e+03  rowscale 1.724e+05  rel 1.353e-10  w_iterate 2.602e+05
+NKCHECK AD row eq 10  zone  42: Jv(AD) +1.50679e+07  Jv(FD) +1.50678e+07  rowscale 1.507e+07  rel 5.929e-06  w_iterate 4.660e+03
+## nk_ctl: NEGATIVE CONTROL = nk_mg with the first-order lift only (derivative of the local Jacobian dropped, scratch worktree wt_ctl)
+u 3.6e-10(z34) | T 1.7e-05(z45)+1NaN | z_H 2.8e-07(z40) | x_H2 1.3e-07(z41) | E_g1 2.7e-05(z46) | F_g1 1.9e-04(z43) | E_g2 1.5e-05(z46) | F_g2 1.2e-01(z42) | E_g3 1.2e-05(z46) | F_g3 2.8e+02(z43) | E_g4 8.7e-07(z42) | F_g4 1.8e-09(z39) | w 6.8e+03(z43) | 
+NKCHECK AD row eq 18  zone  39: Jv(AD) -2.49056e+02  Jv(FD) -2.49056e+02  rowscale 2.491e+02  rel 6.480e-09  w_iterate 0.000e+00
+NKCHECK AD row eq 18  zone  40: Jv(AD) -4.81044e+02  Jv(FD) -1.28581e+03  rowscale 8.245e+04  rel 9.760e-03  w_iterate 2.245e+04
+NKCHECK AD row eq 18  zone  41: Jv(AD) +4.11119e+05  Jv(FD) +4.09142e+05  rowscale 4.121e+05  rel 4.798e-03  w_iterate 3.792e+04
+NKCHECK AD row eq 18  zone  42: Jv(AD) +6.50165e+05  Jv(FD) +6.52481e+05  rowscale 6.502e+05  rel 3.562e-03  w_iterate -1.058e-13
+## M3e baseline (nk5_tdc, code e5adb45, docs/logs/subconv/mgint/nkcheck_summary_fixed.txt) for reference
+u 3.6e-10(z34) | T 1.9e-05(z45)+1NaN | z_H 2.8e-07(z40) | x_H2 1.3e-07(z41) | E_g1 2.7e-05(z46) | F_g1 1.9e-04(z43) | E_g2 1.5e-05(z46) | F_g2 1.2e-01(z42) | E_g3 1.2e-05(z46) | F_g3 2.8e+02(z43) | E_g4 8.7e-07(z42) | F_g4 1.8e-09(z39) | w 5.7e+05(z46) | 
