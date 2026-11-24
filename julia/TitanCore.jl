@@ -669,11 +669,35 @@ end
     s1 / s0
 end
 """
+Quotient n/d for Duals. Where d² is a normal Float64 (d² ≥ floatmin) it is the stock quotient rule, `n / d`, bit for bit. Where d² underflows (the empty groups: d ~ 1e-198 .. 1e-214,
+d² = 0 → 0/0 partials, docs §29.1) the partials are formed in units of the denominator, (∂n − q ∂d)/d with q = n/d, never d². The value is n/d in both ranges (bit-identical to before).
+Same device as `mg_esurf` (MGRad.jl), whose quotient is evaluated in units of σ = max(|E|, |E_b|). The two forms are the same function (the exact derivative); only the arithmetic differs.
+Non-Dual arguments: plain n/d.
+"""
+@inline _qd(n, d) = n / d
+@inline function _qd(n::ForwardDiff.Dual{Tg}, d::ForwardDiff.Dual{Tg}) where {Tg}
+    dv = ForwardDiff.value(d)
+    dv * dv >= floatmin(dv) && return n / d
+    q = ForwardDiff.value(n) / dv
+    ForwardDiff.Dual{Tg}(q, (ForwardDiff.partials(n) - q * ForwardDiff.partials(d)) / dv)
+end
+@inline function _qd(n::ForwardDiff.Dual{Tg}, d::Real) where {Tg}
+    d * d >= floatmin(float(d)) && return n / d
+    q = ForwardDiff.value(n) / d
+    ForwardDiff.Dual{Tg}(q, ForwardDiff.partials(n) / d)
+end
+@inline function _qd(n::Real, d::ForwardDiff.Dual{Tg}) where {Tg}
+    dv = ForwardDiff.value(d)
+    dv * dv >= floatmin(dv) && return n / d
+    q = n / dv
+    ForwardDiff.Dual{Tg}(q, -q * ForwardDiff.partials(d) / dv)
+end
+"""
 Outer-boundary factor g = num/den. Where the ratio is not finite (den = 0 or a non-finite quotient: J = K = 0, the
 0/0 of an empty outgoing hemisphere) g = 1/2, the value of an isotropic outgoing hemisphere; same condition and gate (edpos()) as f in eddfac.
 """
 @inline function _gout(num, den)
-    r = num / den
+    r = _qd(num, den)
     edpos() && !(abs(den) > 0 && isfinite(r)) ? oftype(r, 0.5) : r
 end
 "g of the outer boundary from the formal solution (the non-bg branch: s1/s0)."
@@ -1090,18 +1114,18 @@ function eddfac_dual(c, P, a, b, chifn, xkpn, plfn, dn, tn, ern, frn, rn, xs1, x
             xang[nj+1] = zero(T)
             _eddf!(nj + 1, xang, xim, xmom0, xmom2, k)
             if tie && bg && TD.TIEX[]
-                hx = (HE[k] + _mom1(nj + 1, xang, xim)) / xmom0[k]
+                hx = _qd(HE[k] + _mom1(nj + 1, xang, xim), xmom0[k])
                 HX[k] = isfinite(hx) ? clamp(hx, -1.0, 1.0) : zero(T)
             end
-            tie && (h = (HE[k] + _mom1(nj + 1, xang, xim)) / (xmom0[k] - 2Ib); TD.SWON[] && _swh(k, h); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : zero(T))
+            tie && (h = _qd(HE[k] + _mom1(nj + 1, xang, xim), xmom0[k] - 2Ib); TD.SWON[] && _swh(k, h); HE[k] = isfinite(h) ? clamp(h, -1.0, 1.0) : zero(T))
             if bg
-                FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(xmom2[k] / xmom0[k], 1.0)) : T(1.0 / 3.0)
+                FX[k] = abs(xmom0[k]) > 1e-10 * Ib && isfinite(xmom2[k] / xmom0[k]) ? max(0.0, min(_qd(xmom2[k], xmom0[k]), 1.0)) : T(1.0 / 3.0)
                 fedd[k] = ep && !(abs(xmom0[k] - 2Ib) > 0 && isfinite((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib))) ? T(1.0 / 3.0) :
-                              max(0.0, min((xmom2[k] - 2Ib / 3) / (xmom0[k] - 2Ib), 1.0))
+                              max(0.0, min(_qd(xmom2[k] - 2Ib / 3, xmom0[k] - 2Ib), 1.0))
                 TD.SWON[] && _swf(k, xmom2[k] - 2Ib / 3, xmom0[k] - 2Ib, ep)
             else
                 fedd[k] = ep && !(abs(xmom0[k]) > 0 && isfinite(xmom2[k] / xmom0[k])) ? T(1.0 / 3.0) :
-                          max(0.0, min(xmom2[k] / xmom0[k], 1.0))
+                          max(0.0, min(_qd(xmom2[k], xmom0[k]), 1.0))
                 TD.SWON[] && _swf(k, xmom2[k], xmom0[k], ep)
             end
         end
