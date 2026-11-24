@@ -1621,12 +1621,75 @@ function mg_install!()
         TX.mg_newstep!(); src = "the checkpoint"
     else
         PM.nloc_reset!(length(mat.x)); PM.mg_fill!(mat)        # (the group records the balance split reads)
-        TX.mg_init_from_grey!(); src = "the grey field (split by the local emission balance of each group)"
+        TX.mg_init_from_grey!(); src = "the grey field (split by the local emission balance of each group, then solved: docs §26)"
+        let f1 = TD.STEPFN[], first = Ref(true)       # the radiation-row solve runs once, inside the first step call: the chemistry's per-step preparation (cpl_prepare!) must have run
+            TD.STEPFN[] = function ()
+                first[] && (first[] = false; PM.cpl_prepare!(mat); mg_radsolve!())
+                f1()
+            end
+        end
     end
     PM.nloc_reset!(length(mat.x))                    # (a restart evaluated the opacities once before the groups existed: no group records in that cache)
     PM.mg_fill!(mat); copyto!(TX.MGVO[], TX.MGVN[])
     pr("MGROUPS: %d groups, edges %s eV, unknowns 10..%d (neqn %d, meqn %d), q from group %d, chemistry energy from group %d; fields from %s\n",
        G, join((@sprintf("%.4g", e) for e in edges), ","), 9 + 2G, 9 + 2G, TF.PARAMS[:meqn], TX.MGSLG[], TX.MGQG[], src)
+    nothing
+end
+"""
+(MGROUPS, restart from a checkpoint without group fields; docs §26) Solve the radiation rows alone at the held gas state: the unknowns E_g, F_g of all groups and zones, the gas
+state (ρ, T, u, r, m, x_H⁺, x_H₂, E_r, F_r) held, to the true-residual tolerance of the Newton iteration. The residual is the group rows of the step (`mg_rows!`) with their own time
+derivatives removed (`TX.MGSTEADY`: Δt → ∞ in the E_g time term, the flux inertia and the tie's grid term), at θ = 1; the band Jacobian is that of the full system with the rows and columns of the
+non-radiation unknowns removed (`TX.mg_restrict_band!`), the Krylov iteration (exact J·v by AD) runs on the group unknowns only (`NewtonKrylov.RADONLY`). The split of `mg_init_from_grey!` is the Newton
+initial guess. Afterwards the old level is the new one (groups and the grey E_r, F_r), and the report line gives ΣE_g − E_r against the gas and the total energy.
+"""
+function mg_radsolve!()
+    a_, b_ = Int(TF.getscalar(:ngrs)), Int(TF.getscalar(:ngre)); G = TX.MGN[]
+    ern = TF.var(:ern); frn = TF.var(:frn); dvn = TF.var(:dvoln); dn = TF.var(:dn); un = TF.var(:un); egn = TF.var(:egn); cc = TF.getscalar(:cc)
+    Er0 = [ern[k] for k in 1:length(ern)]; Fr0 = copy(frn)
+    split_ = [copy(TX.MGEN[][g]) for g in 1:G]; fsplit = [copy(TX.MGFN[][g]) for g in 1:G]
+    thet0 = TF.getscalar(:thet); dt0 = TF.getscalar(:dtime); nit0 = TF.getscalar(:niter)
+    pr("MGRADSOLVE: start; timeo %.6e timen %.6e dtime %.4e thet %.3f conv %.3g niter %d | max|xmen-xmeo|/xmen %.3e\n", TF.getscalar(:timeo), TF.getscalar(:timen), dt0, thet0, TF.getscalar(:conv), Int(nit0),
+       maximum(abs((TF.var(:xmen)[k] - TF.var(:xmeo)[k]) / max(abs(TF.var(:xmen)[k]), 1e-300)) for k in a_:b_))
+    TX.mg_predicted!()                                 # scales at the state the solve starts from (records after cpl_prepare!)
+    g0 = TD.ROUTINES[:matgen]; ok = false; t0 = time()
+    TX.MGSTEADY[] = true; NewtonKrylov.RADONLY[] = true
+    TD.ROUTINES[:matgen] = () -> (g0(); TX.mg_restrict_band!())
+    chk0 = NewtonKrylov.OPT.check; NewtonKrylov.OPT.check = 0           # (NKCHECK belongs to the first step's iteration, not to this solve)
+    TF.setscalar!(:thet, 1.0); TF.setscalar!(:niter, typeof(nit0)(parse(Int, get(ENV, "MGRSNITER", "1000"))))
+    try
+        ok = Trbdf2.newton0!()
+    finally
+        TX.MGSTEADY[] = false; NewtonKrylov.RADONLY[] = false; TD.ROUTINES[:matgen] = g0; NewtonKrylov.OPT.check = chk0
+        TF.setscalar!(:thet, thet0); TF.setscalar!(:dtime, dt0); TF.setscalar!(:niter, nit0)
+    end
+    pr("MGRADSOLVE: newton %s in %d iterations, true residual %.3e (conv %.3g), last dmax %.3e, %.1f s\n", ok ? "converged" : "FAILED", Int(TF.getscalar(:iter)), Trbdf2.TRLAST[], TF.getscalar(:conv), TF.getscalar(:dmax), time() - t0)
+    ok || error("MGRADSOLVE: the steady radiation solve did not converge")
+    for g in 1:G; copyto!(TX.MGEO[][g], TX.MGEN[][g]); copyto!(TX.MGFO[][g], TX.MGFN[][g]); end
+    copyto!(TF.var(:ero), ern); copyto!(TF.var(:fro), frn)
+    size(TX.MGVO[]) == size(TX.MGVN[]) && copyto!(TX.MGVO[], TX.MGVN[])
+    TX.mg_newstep!()
+    # report
+    ΔEr = sum((ern[k] - Er0[k]) * dvn[k] for k in a_:b_); Er = sum(Er0[k] * dvn[k] for k in a_:b_)
+    Eg = sum(dn[k] * dvn[k] * egn[k] for k in a_:b_); Ek = sum(dn[k] * dvn[k] * 0.25 * (un[k]^2 + un[k+1]^2) for k in a_:b_)
+    pr("MGRADSOLVE: sum_k dV (sum_g E_g - E_r) = %.6e erg of E_r(grey) %.6e (%.3e); gas internal energy %.6e (%.3e), gas internal + kinetic + radiation %.6e (%.3e)\n", ΔEr, Er, ΔEr / Er,
+       Eg, ΔEr / Eg, Eg + Ek + Er, ΔEr / (Eg + Ek + Er))
+    let (mz, mg_, mk) = (0.0, 0, 0), (rz, rg, rk) = (0.0, 0, 0), (sz, sg, sk) = (0.0, 0, 0)
+        for k in a_:b_
+            for g in 1:G
+                d_ = abs(TX.MGEN[][g][k] - split_[g][k]) / max(abs(split_[g][k]), 1e-300); d_ > mz && (mz = d_; mg_ = g; mk = k - a_ + 1)
+            end
+        end
+        for k in a_+1:b_, g in 1:G
+            q = abs(TX.MGFN[][g][k]) / (cc * max(0.5 * (TX.MGEN[][g][k-1] + TX.MGEN[][g][k]), 1e-300)); q > rz && (rz = q; rg = g; rk = k - a_ + 1)
+            q = abs(TX.MGFN[][g][k]) / (cc * max(TX.MGEN[][g][k-1], TX.MGEN[][g][k], 1e-300)); q > sz && (sz = q; sg = g; sk = k - a_ + 1)
+        end
+        pr("MGRADSOLVE: largest |F_g|/(c E_g) (E_g the mean of the interface's two zones) %.4g (group %d, interface %d); with the larger of the two zones %.4g (group %d, interface %d); largest relative change of E_g against the split %.3e (group %d, zone %d)\n",
+           rz, rg, rk, sz, sg, sk, mz, mg_, mk)
+        for g in 1:G
+            pr("MGRADSOLVE: group %d: sum E dV %.6e (split %.6e) erg; max|F|/cE %.3e\n", g, sum(TX.MGEN[][g][k] * dvn[k] for k in a_:b_), sum(split_[g][k] * dvn[k] for k in a_:b_),
+               maximum(abs(TX.MGFN[][g][k]) / (cc * max(0.5 * (TX.MGEN[][g][k-1] + TX.MGEN[][g][k]), 1e-300)) for k in a_+1:b_))
+        end
+    end
     nothing
 end
 """

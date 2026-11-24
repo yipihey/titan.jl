@@ -42,6 +42,7 @@ scale (the former constant MGES = MGCUFL/c = 3.3e-71, then 1e-150 E_r for ln E_g
 balance is undefined (no emission or no absorption in the group: s ≤ 0 or not finite), which is where the choice of s is immaterial by the bijection.
 """
 const MGES = MGCUFL / 2.99792458e10
+const MGSTEADY = Ref(false)                     # true only inside `mg_radsolve!` (popiii_m2c): the group rows without their time derivatives (docs §26)
 const MGSC = Ref(Vector{Vector{Float64}}())     # per-zone scale s_g,k of each group's unknown (see above)
 const MGTCMB = Ref(0.0)
 vvec(n, m) = [zeros(m) for _ in 1:n]
@@ -593,6 +594,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
     X(i, k) = x[(kb(k) - 1) * neqn + i]
     ern, frn, rn, dn, dvoln, u, r, rmu, d, dvol, dmdt, urel = W.ern, W.frn, W.rn, W.dn, W.dvoln, W.u, W.r, W.rmu, W.d, W.dvol, W.dmdt, W.urel
     G = MGN[]
+    dts = MGSTEADY[] ? Inf : dt                     # the group rows' own time derivatives (E_g, the flux inertia, the grid term of the tie): 0 in the steady solve of the initial state (`MGSTEADY`)
     # grey rows → sums
     # (identities, boundary and ghost rows included: E_r, F_r are the sums of the group unknowns, see `mg_esum!`; their grey ghost rows E_r(k±1) − E_r(k), … would read the sums too, leave the ghost
     #  unknowns of E_r, F_r in no row, and the band matrix singular)
@@ -612,7 +614,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
         # ---- energy
         for k in ngrs:ngre
             aur = 0.5 * (u[k+1] / r[k+1] + uor(u, r, k, ngrs))
-            w = (en[k] * dvoln[k] - EO[k] * c.dvolo[k]) / dt + rmu[k+1] * fg[k+1] - rmu[k] * fg[k] +
+            w = (en[k] * dvoln[k] - EO[k] * c.dvolo[k]) / dts + rmu[k+1] * fg[k+1] - rmu[k] * fg[k] +
                 fedd[k] * eg[k] * (rmu[k+1] * u[k+1] - rmu[k] * u[k]) +
                 (1 - 3fedd[k]) * 0.5 * xmu * eg[k] * aur * dvol[k] +
                 excap(cc, ke[k], d[k], dt) * (cc * ke[k] * eg[k] - em[k]) * d[k] * dvol[k] - M.xfer[g][k] * d[k] * dvol[k]
@@ -653,7 +655,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
         qF, qFo = M.qF[g], M.qFo[g]; chi = M.chif[g]
         for k in ngrs+1:ngre
             inert = (qF[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
-                     qFo[k] * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dt) -
+                     qFo[k] * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2cc^2 * dts) -
                     ((dmdt[k] + dmdt[k+1]) * frb[k] - (dmdt[k-1] + dmdt[k]) * frb[k-1]) / (2cc^2)
             drag = 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) * av[k] * fg[k] / cc
             w = if !sph
@@ -672,7 +674,7 @@ function mg_rows!(R, M::MGWS{T}, c, W, x, kb, P, dt, θ, xmu, cc, sph, tie) wher
                 if TIEFRAME[]                        # F_g is the comoving flux, as the grey row (TitanResidFast.TIEFRAME), per group
                     hi = min(HE[k], 0.0)
                     egup = decide(:up, 21 + g, k, val(rn[k]) >= c.ro[k]) ? eg[k] : eg[k-1]
-                    B += (-dmdt[k] * erb[k] + (rn[k]^(c.mu + 1) - c.ro[k]^(c.mu + 1)) / ((c.mu + 1) * dt) * egup +
+                    B += (-dmdt[k] * erb[k] + (rn[k]^(c.mu + 1) - c.ro[k]^(c.mu + 1)) / ((c.mu + 1) * dts) * egup +
                           rmu[k] * u[k] * 0.5 * (fedd[k-1] * eg[k-1] + fedd[k] * eg[k]) -
                           2u[k] * (rcm * hd^2 * eg[k-1] + rcp * hi^2 * eg[k])) / cc
                 end
@@ -751,3 +753,21 @@ end
 
 "(diagnostic) group luminosities L_g = 4π r² F_g at interface k (values of the new level)."
 mg_lum(k) = [4π * v(:rn)[k]^2 * MGFN[][g][k] for g in 1:MGN[]]
+
+"""
+Restrict the band Jacobian and the residual in COMMON to the radiation unknowns (the steady solve of the initial group fields, docs §26): every row of a non-radiation unknown (1 … MGI0: the
+state variables, E_r, F_r, the coupled species) becomes the identity with a zero right-hand side (its correction is 0: the gas state is held), and the columns of those unknowns are zeroed in the group
+rows. What remains is the Jacobian of the group rows (E_g, F_g of all zones, ghosts included) with respect to the group unknowns, exactly the entries the full band matrix holds.
+"""
+function mg_restrict_band!()
+    E = (v(:em2), v(:em1), v(:e00), v(:ep1), v(:ep2)); rhs = v(:rhs); i0 = MGI0[]; ne = gi(:neqn)
+    k0 = gi(:ngrs) - 2; k1 = gi(:ngre) + 2
+    @inbounds for k in k0:k1
+        for M in E
+            for j in 1:ne, i in 1:i0; M[i, j, k] = 0.0; end
+            for j in 1:i0, i in i0+1:ne; M[i, j, k] = 0.0; end
+        end
+        for i in 1:i0; E[3][i, i, k] = 1.0; rhs[i, k] = 0.0; end
+    end
+    nothing
+end

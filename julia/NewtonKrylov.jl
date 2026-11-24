@@ -163,6 +163,7 @@ function resid(ne, nb; rbuf::Union{Nothing,Matrix{Float64}} = nothing)
     TX.residual!(R, ws, c, XZ_BUF); vec(R)
 end
 
+const RADONLY = Ref(false)      # true only inside the steady solve of the initial group fields (popiii_m2c mg_radsolve!, docs §26): only the group unknowns (codes 8, 9) are active
 function activeset(c)
     ne, nb, k0 = c.neqn, c.nb, c.k0; a, b = c.ngrs, c.ngre
     act = falses(ne * nb); code = nkcode(c)
@@ -171,6 +172,7 @@ function activeset(c)
         act[(kb-1)*ne+i] = cd in (1, 2, 4, 7, 9) ? a <= k <= b + 1 :
                            cd in (3, 5, 6, 8) ? a <= k <= b :
                            (cd == 0 && i in (8, 9) && TC.CPLH[] !== nothing) ? (a <= k <= b && TX.cplz(k)) : false
+        RADONLY[] && !(cd in (8, 9)) && (act[(kb-1)*ne+i] = false)
     end
     act
 end
