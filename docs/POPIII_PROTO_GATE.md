@@ -64,3 +64,22 @@ These are initial values chosen from the documented noise of the subconv work, n
 - NKCHECK with MGROUPS=4 from a grey checkpoint inherits mgprod's wall at E_g4 (docs M3e.4) only for long runs; the NKCHECK probe is one Newton solve and is not affected.
 - The T2 `mstar_msun` key is approximate; `pt_p*` and `w_max` exist only with TDC. T3 `m4compare` smin applies to the new case too (frames below step 290 / 775 are dropped from the tables, not from `t3_metrics.py`).
 - **Smoke-test status (24 Nov 2026, subconv-mg code, box load ~40):** T0 ran in full: all 8 tdc_tests + mg/slabflux/subzone PASS (counts t4 9, t5 5, t6 3, t7 1, t8 3, t9 14, mesa 2, t10 15, mg 14, slabflux 38, subzone 8; exit codes 0). `popiii_regress.jl` runs after `phase6_run.jl pure` regenerates its snapshots (about 20 min) but FAILS 5 checks against the stored references (SUBC 895 vs 587 steps etc.; the stored `lib/p2_runs` copies are older than the code): the gate therefore only fails on an INCREASE of `t0.regress.fail_lines` vs the reference. `noh_test.jl` initialises but did not finish in 900 s at load 40: reported as SKIP (timeout; n=100, 1800 s now default, untested). T1: NKCHECK grey, ETOTMON ledger (k295: |sum imb|/sum thr 7.2e-3, max|G| 7.7e-3) ran and parse correctly; the round trip and bit-identity runs were started and stopped unfinished (untested end to end). **NKCHECK with MGROUPS=4 from a grey checkpoint produces no listing** (no matrix-vector check is reached; mgprod 24.4 transient): the gate now advances the state `GATE_MGWARM` steps with MGROUPS=4 first or uses a group-carrying checkpoint (8th column of states.txt); this warm-up path is UNTESTED. T2 and T3 and `make_library.sh` were not run.
+
+## Default merge gate (agreed with the multigroup session, 24 Nov 2026)
+
+Every merge into `popiii-proto` must pass these five gates. Everything else in T0–T3 runs on demand or nightly.
+
+1. **NKCHECK=2** (AD vs FD J·v), grey **and** `MGROUPS=4`, on the fixed state set.
+   - The set includes the zie1 ionisation-front checkpoint (front zones 44–47).
+   - References: grey 1.5e-10 (cc7b8dc zie1: 1.64e-10); MG 2.306e-7 (mgprod 063452c).
+   - FAIL if either worsens.
+2. **Bit-identity with `MGROUPS` unset** against the previous gated commit: step lines plus decompressed tstate.
+   - Exception: a deliberate physics change (e.g. Stage 2: TDC as the convection path). It is gated by gates 1, 3 and 4 against the previous metrics and recorded as a new reference.
+3. **Late production restarts**: 50 steps each, from copies of zie1 S16 and zie3 S8 (`/zpool/nvme/data/tabel_scratch/titan_popiii/prod_env/`; never `runs/zie*`).
+4. **ETOTMON** over a fixed window: it must close no worse than at the previous gated commit.
+5. **One MG window**: zie3 from fp3a1, 40 steps. At 063452c all steps are accepted, with a median dt of about 9e3 s.
+   - When mgstart lands, add MG from the IC, 100 steps.
+
+**Not in the default suite** (inert unless switched on; the code stays): SWDIAG, EIGDIAG, the DTERRDIAG group extension, the h2diag tables, photoheat_check.jl.
+
+**Speed:** run the suite with `TITAN_PKG=1` against one image built per gated commit. Time to first step falls from about 400 s to about 95 s per run (measured on the production restarts by the MG session).
