@@ -1,0 +1,2 @@
+snapshots compared: 8 (steps 655,660,665,670,675,680,685,690); fields compared: 240; fields with differences: 0; extra fields in B: cd
+BIT-IDENTICAL

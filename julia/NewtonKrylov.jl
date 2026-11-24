@@ -798,16 +798,23 @@ function check!(S::Sys)
                     @printf("NKCHECK AD vs FD outside zones %d:%d: %d rows, max %.3e, median %.3e, rows > 1e-4: %d, > 1e-2: %d\n", zx1, zx2, count(out), maximum(ro), median(rr[out]), count(>(1e-4), ro), count(>(1e-2), ro))
                     for i in 1:ne
                         ri = [(kb - 1) * ne + i for kb in 1:nb]; kall = argmax([ro[r] for r in ri])
-                        nmi = i <= length(nm) ? nm[i] : (i - 9) % 2 == 1 ? "E_g$((i - 9 + 1) ÷ 2)" : "F_g$((i - 9) ÷ 2)"
+                        nmi = i <= length(nm) ? nm[i] : (TX.TDC_ON[] && i == ne) ? "w" : (i - 9) % 2 == 1 ? "E_g$((i - 9 + 1) ÷ 2)" : "F_g$((i - 9) ÷ 2)"
                         @printf("NKCHECK AD vs FD outside eq %-6s: worst row %.3e (zone %d; J v AD %+.5e FD %+.5e)\n", nmi, ro[ri[kall]], k0 + kall - 1 - a + 1, ya[ri[kall]], yf[ri[kall]])
                     end
+                end
+            end
+            if ef == 1.0 && haskey(ENV, "NKEQ")       # NKEQ=<eq>,…: the AD-vs-FD mismatch row by row over the zones NKZ (M3e)
+                za1, za2 = parse.(Int, split(get(ENV, "NKZ", "28:34"), ":"))
+                for ie in parse.(Int, split(ENV["NKEQ"], ",")), kb in 1:nb
+                    zn_ = k0 + kb - 1 - a + 1; (za1 <= zn_ <= za2) || continue; r = (kb - 1) * ne + ie
+                    @printf("NKCHECK AD row eq %-3d zone %3d: Jv(AD) %+.5e  Jv(FD) %+.5e  rowscale %.3e  rel %.3e  w_iterate %.3e\n", ie, zn_, ya[r], yf[r], sa[r], rr[r], TX.TDC_ON[] && ie == ne ? TX.WTN[][k0+kb-1] : NaN)
                 end
             end
             ef == 1.0 || continue
             rr1 = rr
             for i in 1:ne
                 ri = [(kb - 1) * ne + i for kb in 1:nb]; kall = argmax([rr[r] for r in ri]); zn(kb) = k0 + kb - 1 - a + 1
-                nmi = i <= length(nm) ? nm[i] : (i - 9) % 2 == 1 ? "E_g$((i - 9 + 1) ÷ 2)" : "F_g$((i - 9) ÷ 2)"
+                nmi = i <= length(nm) ? nm[i] : (TX.TDC_ON[] && i == ne) ? "w" : (i - 9) % 2 == 1 ? "E_g$((i - 9 + 1) ÷ 2)" : "F_g$((i - 9) ÷ 2)"
                 @printf("NKCHECK AD vs FD eq %-6s: worst row %.3e (zone %d; J v AD %+.5e FD %+.5e; row scale %.3e)\n", nmi, rr[ri[kall]], zn(kall), ya[ri[kall]], yf[ri[kall]], sa[ri[kall]])
             end
         end
