@@ -136,12 +136,14 @@ function build_he(t::EqTable)
     (z1, z2)
 end
 
-const CACHE = get(ENV, "EQEOS_CACHE", joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "SCVH95",
+# (a function, not a const: the cache path is read when the table is first needed, so that a precompiled TitanStack image does not freeze it)
+cache_path() = get(ENV, "EQEOS_CACHE", joinpath(get(ENV, "POPIII_LIT", joinpath(homedir(), "Projects", "popiii_lit")), "SCVH95",
                   (HEEOS ? "eqeos_table_lr20_he" : "eqeos_table_lr20") * (SCVHXE ? "_xe" : "") * ".jls"))   # from log rho = -20: below the old edge at -12 the cubic extrapolated p by factors of thousands
 const TAB = Ref{Any}(nothing)
 "The table (built once and cached outside the repository; SCVH95 tables are not redistributable from here)."
 function table()
     TAB[] === nothing || return TAB[]::EqTable
+    CACHE = cache_path()
     if HEEOS
         t, he = isfile(CACHE) ? deserialize(CACHE) : (t_ = build(); h_ = build_he(t_); serialize(CACHE, (t_, h_)); (t_, h_))
         HETAB[] = he; TAB[] = t

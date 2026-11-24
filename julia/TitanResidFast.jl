@@ -825,6 +825,7 @@ Dual numbers ~70 % of the implicit solve) on n tasks. The zones are independent 
 bit-identical to the serial sweep. 0 or 1 (the default): serial.
 """
 const MAT_THREADS = Ref(parse(Int, get(ENV, "MATTHREADS", string(Threads.nthreads()))))
+__init__() = (MAT_THREADS[] = parse(Int, get(ENV, "MATTHREADS", string(Threads.nthreads()))))   # (again when a precompiled TitanStack image is loaded: the build process has one thread)
 function material_gas end
 "`material_gasne(m, ρ, T) -> (p_gas, e_gas, a_s, n_e)`; default: material_gas and n_e = 0 (no Compton exchange)."
 material_gasne(m, ρ, T) = (material_gas(m, ρ, T)..., zero(ρ))
