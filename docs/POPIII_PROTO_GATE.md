@@ -74,7 +74,7 @@ Every merge into `popiii-proto` must pass these five gates. Everything else in T
    - References: grey 1.5e-10 (cc7b8dc zie1: 1.64e-10); MG 2.306e-7 (mgprod 063452c).
    - FAIL if either worsens.
 2. **Bit-identity with `MGROUPS` unset** against the previous gated commit: step lines plus decompressed tstate.
-   - Exception: a deliberate physics change (e.g. Stage 2: TDC as the convection path). It is gated by gates 1, 3 and 4 against the previous metrics and recorded as a new reference.
+   - Exception: a deliberate physics change (e.g. Stage 2: TDC as the convection path). It is gated by gates 1, 3, 4 and 5 against the previous metrics (gate 5: steps accepted and median dt vs Stage 1, because TDC changes the energy row MG also uses) and recorded as a new reference.
 3. **Late production restarts**: 50 steps each, from copies of zie1 S16 and zie3 S8 (`/zpool/nvme/data/tabel_scratch/titan_popiii/prod_env/`; never `runs/zie*`).
 4. **ETOTMON** over a fixed window: it must close no worse than at the previous gated commit.
 5. **One MG window**: zie3 from fp3a1, 40 steps. At 063452c all steps are accepted, with a median dt of about 9e3 s.
