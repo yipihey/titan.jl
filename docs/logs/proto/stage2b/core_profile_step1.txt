@@ -1,0 +1,13 @@
+  5 r=1.5e+09 T=1.37e+08 rho=2.53 w=2.23e+05 sup=10.8 a=1.57e+04 aζ~5.18e+04 U=2.42e-05 lmix=2.25e+09 HP=3.24e+14 del=114 G1=1.3389 nabraw=1.12 nabrad=10.6 PtP=1.9e-07 Fc/Ft=1
+  8 r=3.23e+09 T=1.37e+08 rho=2.55 w=4.61e+05 sup=3.53 a=7.34e+04 aζ~1.38e+05 U=2.41e-06 lmix=4.84e+09 HP=1.49e+14 del=113 G1=1.3389 nabraw=1.06 nabrad=11.5 PtP=8.6e-07 Fc/Ft=1
+ 11 r=6.96e+09 T=1.36e+08 rho=2.6 w=1.15e+06 sup=2.79 a=3.4e+05 aζ~5.68e+05 U=2.47e-07 lmix=1.04e+10 HP=6.73e+13 del=109 G1=1.3391 nabraw=1.91 nabrad=11.4 PtP=7.3e-06 Fc/Ft=1
+ 14 r=1.5e+10 T=1.34e+08 rho=2.86 w=5.24e+06 sup=3.81 a=1.55e+06 aζ~3.03e+06 U=2.79e-08 lmix=2.25e+10 HP=2.77e+13 del=89.6 G1=1.3404 nabraw=1.62 nabrad=11.2 PtP=0.00016 Fc/Ft=1
+ 17 r=3.23e+10 T=1.31e+08 rho=5.03 w=1.62e+07 sup=4.67 a=8.13e+06 aζ~1.76e+07 U=2.78e-09 lmix=4.84e+10 HP=6.43e+12 del=46.2 G1=1.3471 nabraw=0.446 nabrad=7.73 PtP=0.0021 Fc/Ft=1
+ 20 r=6.96e+10 T=1.2e+08 rho=30.4 w=3.16e+07 sup=0.564 a=1.07e+08 aζ~8.02e+07 U=7.21e-11 lmix=9.72e+10 HP=1.78e+11 del=7.38 G1=1.4045 nabraw=-0.612 nabrad=0.737 PtP=0.018 Fc/Ft=1
+ 23 r=1.5e+11 T=6.39e+07 rho=3.54 w=0 sup=-0.0388 a=1.85e+08 aζ~0 U=3.17e-10 lmix=4.97e+10 HP=3.4e+10 del=5.7 G1=1.4165 nabraw=0.222 nabrad=0.249 PtP=0 Fc/Ft=-0
+ 26 r=3.23e+11 T=2.52e+07 rho=0.123 w=0 sup=-0.0138 a=1.93e+08 aζ~0 U=2.9e-09 lmix=9.21e+10 HP=6.26e+10 del=9.79 G1=1.3881 nabraw=0.241 nabrad=0.282 PtP=0 Fc/Ft=-0
+ 29 r=6.96e+11 T=8.76e+06 rho=0.00356 w=0 sup=-0.00714 a=1.6e+08 aζ~0 U=4.23e-08 lmix=1.83e+11 HP=1.24e+11 del=13.9 G1=1.3741 nabraw=0.246 nabrad=0.296 PtP=0 Fc/Ft=-0
+ 32 r=1.5e+12 T=2.55e+06 rho=6.21e-05 w=0 sup=-0.00508 a=1.21e+08 aζ~0 U=1.04e-06 lmix=3.4e+11 HP=2.29e+11 del=19.3 G1=1.3642 nabraw=0.247 nabrad=0.318 PtP=0 Fc/Ft=-0
+ 35 r=3.23e+12 T=4.81e+05 rho=2.17e-07 w=0 sup=-0.00518 a=9.5e+07 aζ~0 U=5.96e-05 lmix=5.57e+11 HP=3.74e+11 del=33.4 G1=1.3522 nabraw=0.247 nabrad=0.393 PtP=0 Fc/Ft=-0
+ 38 r=6.96e+12 T=6.47e+04 rho=8.83e-11 w=0 sup=-0.00215 a=1.54e+08 aζ~0 U=0.00673 lmix=1.31e+12 HP=8.79e+11 del=174 G1=1.3374 nabraw=0.249 nabrad=0.359 PtP=0 Fc/Ft=-0
+snap 12 step 63346 dt 17.03041982304953

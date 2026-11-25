@@ -63,3 +63,24 @@ Wall includes ~400-700 s start-up (no TITAN_PKG image used); per-step wall not s
 - Non-coupled network species (Y of the stellar network outside the coupled x_H+, x_H2): not mixed by TDC rows, only by mix!.
 - Legacy MLT drivers break: s5_run.jl, qstar_run.jl (TX.MLT_* assignments), QuasiStarSetup/ProblemSetup/extend_grid/newtrace (CONVECTION without w), popiii_regress SUBC, stellareos_test uses only material_thermo (kept). scripts/subconv diag_*.jl, abnfig.py read removed cv_* fields.
 - No TITAN_PKG image built for this commit; NKCHECK w rows at the FB kink are not FD-testable (tol.json 'w rows info').
+
+## Stage 2b (24 Nov 2026): the zie1 S16 dt collapse is a real overturn, not a TDC defect
+
+Diagnosis (scripts and profiles in docs/logs/proto/stage2b/; runs in .../proto/s16diag/, d0 = 12 steps with SNAPEVERY=1, d1 = 90+ steps with SNAPEVERY=10; no julia code changed).
+
+**The S16 start state is a convectively unstable core that Stage 1 never mixed.** In the Stage-1 snapshot (ref_r16, step 63335) zones 2-20 (r < 7e10 cm, T = 1.4e8 K, beta = 0.035) have ∇ = dlnT/dlnP = 6.0 against ∇_ad = 0.25, delta = 114, and the density RISES outward (rho 2.5 at the centre, 5 at k = 17, 30 at k = 20, constant T, radiation-dominated so P hydrostatic at any rho): an entropy-inverted core. Stage-1 MLT had no flux there (CONVDIAG sup = NaN, F_c = 0), so the star sat in it with dt 6.5e6 s. TDC (w free) correctly finds sup = 3-12 at every core interface.
+
+Hypotheses:
+- H1 hot-branch blob thermodynamics: NEGATIVE. `lr_zone` hot class = `h.gas` differentiated; `LResp.lresp_derivs` adds P_rad = aT^4/3, e_rad = aT^4/rho (same as conv_thermo, same as the residual's energy row with fedd = 1/3, E_r/aT^4 − 1 = −2e-5 uniform in the Stage-1 state). Core interfaces: Gamma1,b = 1.3389, delta_b = 113.7, c_P,b = 1.21e12 = h.thermo's frozen values (nad_fr = 0.2500, 1/Gamma1 = alpha − delta ∇_ad holds); the blob sup = 3.3-5 against ∇ − ∇_ad = 5.75 differs by the mu-gradient term of the Ledoux form, as designed. Only the blend band T1..T2 (not populated here, T > 1e8) uses h.gas without the table blend in `lr_zone`: a known inconsistency, irrelevant at S16.
+- H2 ΔlnP_hs/RCAP: NEGATIVE as a cause. lph = −6.6e-7 … −3e-6 in the core (matches −rho g Δr/P to 9 %), l = 1.0e9 (= r) ≈ alpha·r by the RCAP form; ΔlnP (actual) / lph = 1.09 in the Stage-1 state. The normalisation is tiny (delta |lph| ~ 1e-4) so sup is a sensitive indicator, but it is the true density contrast Δln rho = 2.5e-4 … 2.8e-3 per zone, not noise.
+- H3 real fast transient: POSITIVE. The ℓ = r, a = 3.4e3 cm/s … 1e8 cm/s (zone 2 … 20) and sup = 3-12 give growth within ~1e3 s at r > 1e10 cm; w reaches 3-4e7 cm/s (Mach 0.06), P_t/P 0.04, and the core overturns: rho_c 2.5 → 40 (monotone, uniform core by step 63420), u = ±1e8 cm/s breathing of period ~150 s (T at k = 9 swings 5 %), i.e. the sound-crossing time r/c_s = 100 s of the radiation-dominated core. dt follows this dynamics, TR-BDF2 error control on w/u/F_r at 3 %: 13 s at start, 20 s (steps 63335-63370), 117 s (63380), 323 s (63399), 1.45e3 (63409), 3.4e3 s (63419), 0.7-3e3 s afterwards. At step 63430: w 4e4 … 1.5e6 cm/s, sup 0.9 … 4e-5 (≈ MLT, w/(a zeta) ≈ 0.5 … 1), P_t/P < 1e-4, F_c/F_tot = 1 only because the core is adiabatic and carries its own energy. No Stage-2 defect: the Stage-1 "dt 6.5e6 s" was the unmixed unstable state.
+- H4 w ≫ a zeta: only in the first steps (w/(a zeta) = 13 at k = 2, 4 at k = 5, 1.7 at k = 11, 0.4 at k = 20): w at the inner interfaces is fed by diffusion/advection from the violently growing outer part, not by the local source (a²sup/ℓ·dt = 0.7 cm/s in 13 s); it relaxes to a zeta on ℓ/w = 1e4 s. Not a units/limit error: U = 2.4e-4 … 1e-9 = U_KW limit at large omega (omega = kappa rho l = 0.26·2.5·1e9 = 7e8).
+- SWDIAG / FB flips (coordinator): the limiting w zones (3, 5, 9, 14, 43, 51) are all deep in the w > 0 branch (w = 1e5 … 4e7 ≫ the F scale; F ≈ 0 at the solution, fb ≈ F smooth); the w ≈ 0 kink only sits at the convective boundary (zone 22-23), never the limiting zone. No switch flipping seen; the decide(:up) donor records are untouched by w ≥ 0.
+
+Gate rows (no code change, so the Stage 2 rows above stand; HEAD cdaf476):
+| gate | result |
+|---|---|
+| S16 50 steps | dt 13 s start, 117 s at step 45; 90 steps (d1): dt 3.4e3 s at step 85, core rho uniform 40, P_t/P 1.6e-4, w ≈ 0.5-1 × a zeta |
+| NKCHECK grey S16 / zie3 S8 50 steps | unchanged (no code change; Stage 2 rows) |
+
+Consequence for production: restart a TDC production run from a state that was evolved without convection (S16) pays ~100 steps (~1500 s sim, ~1 h wall at 8 threads) for the overturn of the entropy-inverted core; this is the physical response, not a stall. Starting TDC from the S6/S8 windows, where the hot core is stable, has no such transient (zie3 S8: dt 8e3 s).
