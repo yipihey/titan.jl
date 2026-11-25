@@ -122,13 +122,47 @@ function ghosts!(m::StarGas)
     for k in b+1:min(b + 2, size(m.Y, 2)); m.Y[:, k] .= m.Y[:, b]; end
 end
 
+const STAR_FREE_EOS = Ref(get(ENV, "STAR_FREE_EOS", "0") == "1")
+@inline function _star_pe_raw(m::StarGas, ρ, T, cp)
+    if STAR_FREE_EOS[] && isdefined(Main, :FreeEnergyEOS)
+        FE = Main.FreeEnergyEOS
+        u, p = FE.eos_full_ion(ρ, T, cp; pairs = m.pairs, coulomb = m.coulomb)
+        return p, u
+    end
+    g = SE.gas_state(ρ, T, cp; pairs = m.pairs, coulomb = m.coulomb)
+    return g.p, g.e
+end
+@inline _fval(x::ForwardDiff.Dual) = _fval(ForwardDiff.value(x))
+@inline _fval(x) = Float64(x)
+"Chain-rule lift of _star_pe_raw(ρ, T) onto arbitrary outer Duals (avoids compiling 24-wide nested Duals inside EOS)."
+function _star_pe(m::StarGas, ρ, T, cp)
+    if !(ρ isa ForwardDiff.Dual || T isa ForwardDiff.Dual)
+        return _star_pe_raw(m, ρ, T, cp)
+    end
+    D = promote_type(typeof(ρ), typeof(T))
+    ρd = D(ρ); Td = D(T)
+    ρv = ForwardDiff.value(ρd); Tv = ForwardDiff.value(Td)
+    # Note: if outer D is itself a Dual of a Dual, recurse cleanly on value; for 1-level outer Dual, evaluate 2-wide on Float64!
+    if ρv isa ForwardDiff.Dual || Tv isa ForwardDiff.Dual
+        return _star_pe_raw(m, ρd, Td, cp)
+    end
+    # 2-wide ForwardDiff on Float64 (ρv, Tv): exact value + ∂(p,e)/∂(ρ,T)
+    res = ForwardDiff.jacobian(v -> begin
+        p_, e_ = _star_pe_raw(m, v[1], v[2], cp)
+        [p_, e_]
+    end, [Float64(ρv), Float64(Tv)])
+    p0, e0 = _star_pe_raw(m, Float64(ρv), Float64(Tv), cp)
+    Pρ = ForwardDiff.partials(ρd); PT = ForwardDiff.partials(Td)
+    return D(p0, res[1, 1] * Pρ + res[1, 2] * PT), D(e0, res[2, 1] * Pρ + res[2, 2] * PT)
+end
 @inline function TX.material_gas(m::StarGas, ρ, T)
-    g = SE.gas_state(ρ, T, zonecomp(m); pairs = m.pairs, coulomb = m.coulomb)
-    return g.p, g.e, sqrt(5.0 / 3.0 * g.p / ρ)
+    p, e = _star_pe(m, ρ, T, zonecomp(m))
+    return p, e, sqrt(5.0 / 3.0 * p / ρ)
 end
 @inline function TX.material_gasne(m::StarGas, ρ, T)
-    g = SE.gas_state(ρ, T, zonecomp(m); pairs = m.pairs, coulomb = m.coulomb)
-    return g.p, g.e, sqrt(5.0 / 3.0 * g.p / ρ), g.ne
+    cp = zonecomp(m)
+    p, e = _star_pe(m, ρ, T, cp)
+    return p, e, sqrt(5.0 / 3.0 * p / ρ), ρ * cp.νe
 end
 "C¹ soft cap: identity below 0.7c, saturating to c above."
 @inline softcap(κ, c) = isinf(c) ? κ : (κ <= 0.7c ? κ : c - 0.3c * exp(-(κ - 0.7c) / (0.3c)))
@@ -148,6 +182,40 @@ end
 function TX.material_thermo(m::StarGas, ρ, T)
     st = SE.eos(ρ, T; comp = zonecomp(m), pairs = m.pairs, coulomb = m.coulomb, radiation = true)
     return st.∇ad, st.cP, st.δ
+end
+"Stage-2 TDC local zone thermodynamics for StarGas: Float64 2×2 Jacobian + Hessian lifted onto outer Duals (no 3-deep 24-wide Duals!)."
+function TX.material_lrzone(m::StarGas, k, ρ, T, x, rs, dual::Bool)
+    cp = zonecomp(m, k)
+    ρv = _fval(ρ); Tv = _fval(T)
+    # 1st derivatives at Float64 (ρv, Tv):
+    f1(v) = begin; p_, e_ = _star_pe_raw(m, v[1], v[2], cp); [p_, e_]; end
+    v0 = [ρv, Tv]
+    p0, u0 = _star_pe_raw(m, ρv, Tv, cp)
+    J = ForwardDiff.jacobian(f1, v0)      # 2×2: [pρ pT; uρ uT]
+    D = promote_type(typeof(ρ), typeof(T))
+    z = zero(D)
+    if D <: ForwardDiff.Dual
+        # 2nd derivatives via tiny 4-point central difference in ln ρ, ln T on the exact Float64 J
+        # (accurate to ~1e-10, ZERO 3-deep nested Dual compilation!)
+        h = 1e-5
+        Jrp = ForwardDiff.jacobian(f1, [ρv * exp(h), Tv]); Jrm = ForwardDiff.jacobian(f1, [ρv * exp(-h), Tv])
+        Jtp = ForwardDiff.jacobian(f1, [ρv, Tv * exp(h)]); Jtm = ForwardDiff.jacobian(f1, [ρv, Tv * exp(-h)])
+        dJ_dρ = (Jrp .- Jrm) ./ (2h * ρv)
+        dJ_dT = (Jtp .- Jtm) ./ (2h * Tv)
+        ρd = D(ρ); Td = D(T)
+        Pρ = ForwardDiff.partials(ρd); PT = ForwardDiff.partials(Td)
+        p  = D(p0, J[1, 1] * Pρ + J[1, 2] * PT)
+        u  = D(u0, J[2, 1] * Pρ + J[2, 2] * PT)
+        pρ = D(J[1, 1], dJ_dρ[1, 1] * Pρ + dJ_dT[1, 1] * PT)
+        pT = D(J[1, 2], dJ_dρ[1, 2] * Pρ + dJ_dT[1, 2] * PT)
+        uρ = D(J[2, 1], dJ_dρ[2, 1] * Pρ + dJ_dT[2, 1] * PT)
+        uT = D(J[2, 2], dJ_dρ[2, 2] * Pρ + dJ_dT[2, 2] * PT)
+        d = (; ρ = ρd, T = Td, p, u, dp = (pρ, pT, z, z), du = (uρ, uT, z, z), dS1 = (z, z, z, z), dS2 = (z, z, z, z))
+    else
+        d = (; ρ = ρv, T = Tv, p = p0, u = u0, dp = (J[1, 1], J[1, 2], 0.0, 0.0), du = (J[2, 1], J[2, 2], 0.0, 0.0),
+               dS1 = (0.0, 0.0, 0.0, 0.0), dS2 = (0.0, 0.0, 0.0, 0.0))
+    end
+    return (; cpl = false, d, fr = TX.LResp.lresp_frozen(d), tau = 0.0)
 end
 
 # ----------------------------------------------------------------------------------------------- nuclear source
@@ -209,20 +277,28 @@ const TSOLVE = Ref{Any}(nothing); const ZONEOK = Ref{Any}(nothing)
 # ----------------------------------------------------------------------------------------------- T from e
 "T such that e_gas(ρ, T; comp) = e (Newton in ln T with c_V, safeguarded). Returns (T, relative error of e)."
 function T_of_e(ρ, e, T0, comp; pairs = true, coulomb = true)
+    use_fe = STAR_FREE_EOS[] && isdefined(Main, :FreeEnergyEOS)
     T = T0; lo = 0.0; hi = Inf
     err = Inf
     for it in 1:40
-        st = SE.eos(ρ, T; comp, pairs, coulomb)
-        f = st.e - e; err = abs(f) / abs(e)
+        if use_fe
+            FE = Main.FreeEnergyEOS
+            ev = FE.eos_full_ion(ρ, T, comp; pairs, coulomb)[1]
+            cV = ForwardDiff.derivative(t_ -> FE.eos_full_ion(ρ, t_, comp; pairs, coulomb)[1], T)
+        else
+            st = SE.eos(ρ, T; comp, pairs, coulomb)
+            ev = st.e; cV = st.cV
+        end
+        f = ev - e; err = abs(f) / max(abs(e), 1e-30)
         err < 1e-12 && return T, err
         f > 0 ? (hi = T) : (lo = T)
-        Tn = T - f / st.cV
+        Tn = T - f / cV
         Tn = Tn <= lo || Tn >= hi ? (isfinite(hi) && lo > 0 ? sqrt(lo * hi) : (isfinite(hi) ? 0.5 * hi : 2T)) : Tn
         Tn = clamp(Tn, 0.3T, 3T)
         T = Tn
     end
-    st = SE.eos(ρ, T; comp, pairs, coulomb)
-    T, abs(st.e - e) / abs(e)
+    ev = use_fe ? Main.FreeEnergyEOS.eos_full_ion(ρ, T, comp; pairs, coulomb)[1] : SE.eos(ρ, T; comp, pairs, coulomb).e
+    T, abs(ev - e) / max(abs(e), 1e-30)
 end
 
 # ----------------------------------------------------------------------------------------------- stage hook

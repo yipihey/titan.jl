@@ -4,6 +4,7 @@ for f in ("TitanDriver", "JuliaPhysics", "TitanResidFast", "BlockSolver", "Titan
           "ProblemSetup", "StellarEOS", "StellarOpacity", "NucNet", "StellarMaterial", "StarMaterial")
     include(joinpath(@__DIR__, f * ".jl"))
 end
+get(ENV, "STAR_FREE_EOS", "0") == "1" && include(joinpath(@__DIR__, "FreeEnergyEOS.jl"))
 const TD = TitanDriver; const TF = TD.TF; const TX = TitanResidFast; const PS = ProblemSetup; const TC = TitanCore
 const TM = TitanMaterials; const Z0 = Z0Physics; const SE = StellarEOS; const NN = NucNet; const SM = StarMaterial
 const Msun = 1.98847e33; const Lsun = 3.828e33; const Rsun = 6.957e10

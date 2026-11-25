@@ -118,6 +118,10 @@ function parse_params(path = joinpath(FSRC, "titan.par"))
                 get(ENV, "COUPLED", "0") == "1" || error("TDC (HOT=1) needs COUPLED=1 (the species rows 8, 9 carry the turbulent mixing)")
                 P[:meqn] = max(P[:meqn], 9 + (haskey(ENV, "MGROUPS") && ENV["MGROUPS"] != "0" ? 2mg_ngroups(ENV["MGROUPS"]) : 0) + 1)
             end
+            if lowercase(k) == "meqn" && haskey(ENV, "TITAN_MEQN")
+                get(ENV, "TITAN_NOLIB", "0") == "1" || error("TITAN_MEQN needs TITAN_NOLIB=1")
+                P[:meqn] = max(P[:meqn], parse(Int, ENV["TITAN_MEQN"]))
+            end
         end
     end
     P

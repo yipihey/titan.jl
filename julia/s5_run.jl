@@ -15,6 +15,7 @@
 #   run:        MAXSTEPS, TEND [yr], XSTOP [1e-3], EVERY [20] log interval, PROFILE_X [list of X_c] profile dumps, RELAX [1], STOPZAMS [0],
 #               SAVE [name] checkpoint in /tmp/s5 at the end (+ every CKEVERY [400] steps as <name>_auto), RESTART [name]
 #   debugging:  DETAIL, DTWHY, NORULE, TRACE, ZONEDUMP [n], RESDUMP, JACTEST, ITERTEST, DUMPNOCORE, NANREPORT, VSPLIT
+haskey(ENV, "TITAN_MEQN") || (ENV["TITAN_MEQN"] = "8")
 include(joinpath(@__DIR__, "s4_star.jl"))
 include(joinpath(@__DIR__, "Trbdf2.jl"))
 envf(k, d) = haskey(ENV, k) ? parse(Float64, ENV[k]) : d
@@ -97,9 +98,20 @@ function dt_rule(dt0)
 end
 TC.DT_RULE[] = get(ENV, "NORULE", "0") == "1" ? nothing : dt_rule
 get(ENV, "NOCONV", "0") == "1" && (TX.CONVECTION[] = false)
+if TX.CONVECTION[]
+    nq_ = Int(TF.getscalar(:neqn)) + 1
+    TF.PARAMS[:meqn] >= nq_ || error("TDC: meqn = $(TF.PARAMS[:meqn]) < $nq_ (set TITAN_MEQN=8)")
+    TF.setscalar!(:neqn, nq_); TX.TDC_ON[] = true; TX.tdc_alloc!(length(TF.var(:dn)))
+    tp_ = parse.(Float64, split(get(ENV, "TDCPAR", "1,1,1,1,0.01,1,0"), ","))
+    TX.TDCP[] = TX.TDC.TDCPar(; A_s = tp_[1], A_d = tp_[2], A_c = tp_[3], α_p = tp_[4], α_t = tp_[5], α_D = tp_[6], α_m = tp_[7])
+    TX.TDC_CEN[] = parse(Float64, get(ENV, "TDCCEN", "0"))
+    TC.CPLH[] = (; newstep = () -> TX.tdc_newstep!(), reset = () -> TX.tdc_reset!(),
+                   update = (rhs, a_, b_) -> TX.tdc_update!(rhs, a_, b_),
+                   dmax = (rhs, a_, b_) -> TX.tdc_dmax!(rhs, a_, b_))
+    pr("TDC enabled: neqn = %d, TDCPAR = %s, STAR_FREE_EOS = %s\n", nq_, string(tp_), string(SM.STAR_FREE_EOS[]))
+end
 TD.FAIL_TFAC[] = envf("FAILTFAC", 0.5); Trbdf2.TFAC[] = envf("FAILTFAC", 0.5)
 TC.PRED_LAGRHO[] = get(ENV, "LAGRHO", "1") == "1"
-TX.MLT_RCAP[] = get(ENV, "RCAP", "1") == "1"; TX.MLT_HSDISC[] = get(ENV, "HSDISC", "1") == "1"
 SM.VERBOSE_SPLIT[] = get(ENV, "VSPLIT", "0") == "1"
 TC.EXTRAP_FRAC[] = envf("EXTRAP", 0.3)
 SM.REGION_CAP[] = get(ENV, "REGIONCAP", "1") == "1"; SM.install_stage_hook!(mat); SM.install_dt_hook!(mat); get(ENV, "PREDICT", "1") == "1" && SM.install_state_predictor!()
@@ -109,6 +121,7 @@ mat.nuc = false
 if get(ENV, "TRACE", "0") == "1"       # Newton trace: per iteration the largest correction of each variable (zone index counted from the centre)
     oldmd = TD.ROUTINES[:maxdel]
     ixn = Dict(Int(TF.getscalar(s)) => string(s) for s in (:ir, :im, :id, :iu, :it, :ie, :if))
+    TX.TDC_ON[] && (ixn[Int(TF.getscalar(:neqn))] = "iw")
     TD.ROUTINES[:maxdel] = () -> begin
         oldmd()
         kx = TF.var(:kx); dx = TF.var(:dx)

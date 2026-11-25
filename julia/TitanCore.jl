@@ -410,6 +410,7 @@ function _ghost_and_derived!(mode::Symbol, eos!, opac!)
         (vf(s) for s in (:r, :u, :xm, :xme, :drdt, :dmdt, :urel, :rmu, :rmup1, :rmum1))
     ro, uo, xmo, xmeo = vf(:ro), vf(:uo), vf(:xmo), vf(:xmeo)
     fr, fro = vf(:fr), vf(:fro)
+    asn = vf(:asn)
     @inbounds for k in a-1:b+2
         r[k] = θ * rn[k] + (1.0 - θ) * ro[k]
         u[k] = θ * un[k] + (1.0 - θ) * uo[k]
@@ -422,7 +423,7 @@ function _ghost_and_derived!(mode::Symbol, eos!, opac!)
         rmu[k] = r[k]^mu; rmup1[k] = r[k]^mup1; rmum1[k] = r[k]^mum1
         if lrad
             frnom[k] = abs(frn[k]) + 1.0e-30           # (the Teff/xlum choice is overwritten in the Fortran too)
-            unom[k] = abs(un[k]) + 1.0e-30
+            unom[k] = CPLH[] === nothing ? (abs(un[k]) + 1.0e-30) : max(abs(un[k]), 1.0e-2 * max(asn[clamp(k, a, b)], 1.0))
         else
             unom[k] = max(abs(un[k]), 1.0)
         end

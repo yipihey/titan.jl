@@ -79,8 +79,13 @@ function build!(; rI, rho, T, u, geom = 2, rad = false, Er = nothing, Fr = nothi
         inflow === nothing && error("outer = :inflow needs inflow = (rho, T, u)")
         ρx, Tx, ux = inflow
         dn[k] = ρx; dn[k+1] = ρx; tn[k] = Tx; tn[k+1] = Tx; un[k] = ux; un[k+1] = ux
-        # TITAN's ideal gas (JuliaPhysics.eos!): e = (k/(m0 μ)) T/(γ−1); Z0 gas: translational + ionization
-        ex = material isa TM.Builtin ? TF.getscalar(:ck) / (TF.getscalar(:cm0) * gmu) * Tx / (gam - 1) : Z0.gas_e(ρx, Tx)
+        # TITAN's ideal gas (JuliaPhysics.eos!): e = (k/(m0 μ)) T/(γ−1); non-Builtin: query material's own energy zero!
+        ex = if material isa TM.Builtin
+            TF.getscalar(:ck) / (TF.getscalar(:cm0) * gmu) * Tx / (gam - 1)
+        else
+            TX.ZONE[] = k
+            TX.material_gas(material, ρx, Tx)[2]
+        end
         s!(:ur, ux); s!(:dr, ρx); s!(:tr, Tx); s!(:phir0, ρx * ux); s!(:phir2, ρx * ux * ex)
     else
         dn[k] = dn[k-1]; dn[k+1] = dn[k]; tn[k] = tn[k-1]; tn[k+1] = tn[k]; un[k+1] = 0.0

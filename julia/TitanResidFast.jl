@@ -931,7 +931,6 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
     ngrs, ngre, neqn, mu, k0, nb = c.ngrs, c.ngre, c.neqn, c.mu, c.k0, c.nb
     P = c.p; θ = P.θ; dt = P.dt; xmu = Float64(mu); iw = neqn; par = TDCP[]
     c.lrad || error("TDC needs the radiation field (κ = avchi)")
-    isnan(PEXT[]) || error("TDC: free surface (PEXT) not supported")
     wtn = WTN[]; wto = WTO[]; Mg_ = MG[] ? mgws(T, c.mgr) : nothing
     r, u, xm, rmu, d, dvol, dvoln, dmdt, avchi = W.r, W.u, W.xm, W.rmu, W.d, W.dvol, W.dvoln, W.dmdt, W.avchi
     dn, tn, ern, pgn = W.dn, W.tn, W.ern, W.pgn
@@ -1690,7 +1689,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         r3m = ((r[k-1] + r[k]) / 2)^(1.5xmu)
         w = (un[k] * dn[k-1] * dvoln[k-1] - c.uo[k] * c.do_[k-1] * c.dvolo[k-1]) / (2dt) +
             0.5 * (dmdt[k-1] + dmdt[k]) * ub[k-1] +
-            rmu[k] * (PEXT[] - pg[k-1]) +
+            rmu[k] * (PEXT[] - pg[k-1] - (TDC_ON[] ? W.tPt[k-1] : zero(pg[k-1]))) +
             (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk -
             r[k]^(-0.5xmu) * r3m * qf[k-1]
         c.lrad && (w -= avchi[k] * fr[k] / cc * mk)
