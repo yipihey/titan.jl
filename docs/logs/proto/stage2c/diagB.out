@@ -1,0 +1,86 @@
+ngrs 5 ngre 104 T1 300000.0 T2 900000.0 ZONE0[] (stale, left by the last sweep) = 104 eqzone[ZONE0] = false COLDMLT 10000.0 MLT_NOINFALL true TAU_MLT 1.0 MLT_AD true MLT_HS true MLT_RCAP true MLT_HSDISC true
+
+--- zone opacity at (rho_k, T_k) with ZONE[] = k (correct) and with ZONE[] = ZONE0 (what convcoef's pre-sweep and its serial tail use)
+k   6  eq 1  rho 2.838 T 1.423e+08  chi(ZONE=k) 0.26284  chi(ZONE=ZONE0) 0.048312
+k   7  eq 1  rho 2.838 T 1.423e+08  chi(ZONE=k) 0.26284  chi(ZONE=ZONE0) 0.048312
+k   8  eq 1  rho 2.839 T 1.423e+08  chi(ZONE=k) 0.26284  chi(ZONE=ZONE0) 0.048311
+k   9  eq 1  rho 2.845 T 1.423e+08  chi(ZONE=k) 0.26284  chi(ZONE=ZONE0) 0.048309
+k  10  eq 1  rho 2.853 T 1.423e+08  chi(ZONE=k) 0.26284  chi(ZONE=ZONE0) 0.048305
+k  11  eq 1  rho 2.86 T 1.423e+08  chi(ZONE=k) 0.26284  chi(ZONE=ZONE0) 0.048301
+k  12  eq 1  rho 2.867 T 1.423e+08  chi(ZONE=k) 0.26284  chi(ZONE=ZONE0) 0.048298
+k  13  eq 1  rho 2.877 T 1.423e+08  chi(ZONE=k) 0.26285  chi(ZONE=ZONE0) 0.048293
+k  14  eq 1  rho 2.891 T 1.422e+08  chi(ZONE=k) 0.26285  chi(ZONE=ZONE0) 0.048286
+k  15  eq 1  rho 2.916 T 1.422e+08  chi(ZONE=k) 0.26286  chi(ZONE=ZONE0) 0.048274
+k  16  eq 1  rho 2.96 T 1.422e+08  chi(ZONE=k) 0.26288  chi(ZONE=ZONE0) 0.048253
+k  17  eq 1  rho 3.038 T 1.421e+08  chi(ZONE=k) 0.26291  chi(ZONE=ZONE0) 0.048216
+k  18  eq 1  rho 3.175 T 1.42e+08  chi(ZONE=k) 0.26297  chi(ZONE=ZONE0) 0.14895
+k  19  eq 1  rho 3.425 T 1.417e+08  chi(ZONE=k) 0.26307  chi(ZONE=ZONE0) 0.14887
+k  20  eq 1  rho 3.911 T 1.413e+08  chi(ZONE=k) 0.26328  chi(ZONE=ZONE0) 0.14872
+k  21  eq 1  rho 4.94 T 1.405e+08  chi(ZONE=k) 0.26369  chi(ZONE=ZONE0) 0.14834
+k  22  eq 1  rho 7.451 T 1.385e+08  chi(ZONE=k) 0.26464  chi(ZONE=ZONE0) 0.14695
+k  23  eq 1  rho 16.59 T 1.312e+08  chi(ZONE=k) 0.2678  chi(ZONE=ZONE0) 0.13912
+k  24  eq 1  rho 31.32 T 1.142e+08  chi(ZONE=k) 0.27576  chi(ZONE=ZONE0) NaN NaN(ZONE0)
+k  25  eq 1  rho 22.92 T 9.951e+07  chi(ZONE=k) 0.28312  chi(ZONE=ZONE0) NaN NaN(ZONE0)
+k  26  eq 1  rho 9.906 T 8.223e+07  chi(ZONE=k) 0.29192  chi(ZONE=ZONE0) 0.16545
+k  27  eq 1  rho 3.542 T 6.388e+07  chi(ZONE=k) 0.30343  chi(ZONE=ZONE0) 0.18161
+k  28  eq 1  rho 1.179 T 4.778e+07  chi(ZONE=k) 0.314  chi(ZONE=ZONE0) 0.057299
+k  29  eq 1  rho 0.3822 T 3.497e+07  chi(ZONE=k) 0.32248  chi(ZONE=ZONE0) 0.04817
+k  30  eq 1  rho 0.1226 T 2.522e+07  chi(ZONE=k) 0.32957  chi(ZONE=ZONE0) 0.048889
+k  31  eq 1  rho 0.03877 T 1.797e+07  chi(ZONE=k) 0.33481  chi(ZONE=ZONE0) 0.049291
+k  32  eq 1  rho 0.01197 T 1.264e+07  chi(ZONE=k) 0.33891  chi(ZONE=ZONE0) 0.084569
+k  33  eq 1  rho 0.003561 T 8.759e+06  chi(ZONE=k) 0.34177  chi(ZONE=ZONE0) 0.20021
+
+--- tau accumulation, outside in (convcoef's loop, ZONE = ZONE0 as in convcoef), first NaN
+first NaN tau (outside in) at k = 25: chi = NaN rho = 22.9191 T = 9.95133e+07 dr = 2.61963e+10 (ZONE=ZONE0=104)
+tau at the centre NaN
+
+--- NaN origin: network zone ZONE0 = 104 populations (NLOST) applied at the hot core state (rho_k, T_k): material_opac -> nlo_it -> nlo_ratio
+k 22 rho 7.451 T 1.385e+08 | zone 104 d: H -2.02 e 1.1 Hp 1 He 4.21e-05 H2 1 Hm 0.01689334947371009 | Keq(H- <-> H+e) 1.948e+31
+   n1 0 ne 3.689e+24 np 3.339e+24 n2_tl3 1.263e+17 | nlo_base (bP,bR) (228.00046319647916, 5.587443674320948) | nlo_ratio (R_E,R_P,R_R),ne = ((5530.779909700111, 0.027299930809360648, 0.7244850001869115), 3.689490532383766e24, Float64[])
+   nlte_means_fast hbfP=false -> (6.22426287987774, 6.22426287987774, 4.048019131421645)
+   nlte_means_fast hbfP=true -> (6.22426287987774, 6.22426287987774, 4.048019131421645)
+k 24 rho 31.32 T 1.142e+08 | zone 104 d: H -2.02 e 1.07 Hp 1 He 0.000368 H2 1 Hm 0.020486220043036976 | Keq(H- <-> H+e) 1.459e+31
+   n1 0 ne 1.507e+25 np 1.404e+25 n2_tl3 6.026e+17 | nlo_base (bP,bR) (NaN, NaN) | nlo_ratio (R_E,R_P,R_R),ne = ((NaN, NaN, NaN), 1.5073866379846508e25, Float64[])
+   nlte_means_fast hbfP=false -> (20.95797748727849, 20.95797748727849, 10.78525388880506)
+   nlte_means_fast hbfP=true -> (20.95797748727849, 20.95797748727849, 10.78525388880506)
+k 25 rho 22.92 T 9.951e+07 | zone 104 d: H -2.02 e 1.07 Hp 1 He 0.000326 H2 1 Hm 0.02382884405210134 | Keq(H- <-> H+e) 1.186e+31
+   n1 0 ne 1.101e+25 np 1.027e+25 n2_tl3 4.826e+17 | nlo_base (bP,bR) (NaN, NaN) | nlo_ratio (R_E,R_P,R_R),ne = ((NaN, NaN, NaN), 1.1006282446174682e25, Float64[])
+   nlte_means_fast hbfP=false -> (20.360555889049408, 20.360555889049408, 10.637131138894006)
+   nlte_means_fast hbfP=true -> (20.360555889049408, 20.360555889049408, 10.637131138894006)
+k 26 rho 9.906 T 8.223e+07 | zone 104 d: H -2.03 e 1.07 Hp 1 He 0.00017 H2 1 Hm 0.029359757668976662 | Keq(H- <-> H+e) 8.906e+30
+   n1 0 ne 4.764e+24 np 4.439e+24 n2_tl3 2.364e+17 | nlo_base (bP,bR) (96.87249939816526, 10.229677765348143) | nlo_ratio (R_E,R_P,R_R),ne = ((35032.41463417303, 0.1615971929064388, 0.8523333782734968), 4.764486680959094e24, Float64[])
+   nlte_means_fast hbfP=false -> (15.653926420123275, 15.653926420123275, 8.719095808363877)
+   nlte_means_fast hbfP=true -> (15.653926420123275, 15.653926420123275, 8.719095808363877)
+
+--- nlo_base(rho, T) (called by nlo_ratio, hot state, w = nlo_w(T) = 1): pieces at (31.32, 1.142e8) and the NaN boundary
+rho 31.32 T 1.142e+08 w 1 | OPAC (Rt,Pt) 0.2758 0.003898 | EQ.composition xp 0.999977 xh2 0 | he z1 0.02944 z2 2.405e-05 | n1e 3.174e+20 nee 1.445e+25 nHee 7.561e+23 | Keq 1.458e+31 nHm 3.145e+14 | G2O.n2_lte NaN
+   nlte_means_fast(n1 = 3.1737340821989805e20, ...) = (NaN, NaN, NaN)
+rho 7.451 T 1.385e+08 w 1 | OPAC (Rt,Pt) 0.2646 0.000472 | EQ.composition xp 0.989828 xh2 0 | he z1 0.04052 z2 5.743e-05 | n1e 3.396e+22 nee 3.441e+24 nHee 1.428e+23 | Keq 1.948e+31 nHm 5.999e+15 | G2O.n2_lte 0
+   nlte_means_fast(n1 = 3.396477304898047e22, ...) = (228.00709130756306, 228.00709130756306, 5.5873249476710205)
+nlo_base NaN scan, T = 1.142e8: Tuple{Float64, Bool}[(2.0, 0), (5.0, 0), (8.0, 0), (10.0, 0), (12.0, 0), (15.0, 0), (20.0, 0), (31.32, 1)]
+nlo_base NaN scan, rho = 31.32: Tuple{Float64, Bool}[(1.0e6, 1), (1.0e7, 1), (3.0e7, 1), (1.0e8, 1), (1.142e8, 1), (1.4e8, 1)]
+
+--- core interfaces: the recording pass (conv_diag_pass) + dh.thermo re-evaluated at (rho_i, T_i), ZONE = k
+k  6 rho_i 2.837 T_i 1.423e+08 | lp_raw -3.654e-07 lph -3.654e-07 sw 1 | nab_raw 6.002 nab 6.002 nad 0.25 (dh.thermo 0.25) cp 1.206e+12 (1.206e+12) del 113.7 (113.7) kap 0.2628 (0.2628) | sup 5.751 U 0.000208 zeta 2.398 | fpot 1.811e+19 wtau(cvw) NaN tau NaN | fconv NaN
+k  7 rho_i 2.838 T_i 1.423e+08 | lp_raw -4.785e-07 lph -4.785e-07 sw 1 | nab_raw 6.005 nab 6.005 nad 0.25 (dh.thermo 0.25) cp 1.205e+12 (1.205e+12) del 113.7 (113.7) kap 0.2628 (0.2628) | sup 5.755 U 9.67e-05 zeta 2.399 | fpot 5.046e+19 wtau(cvw) NaN tau NaN | fconv NaN
+k  8 rho_i 2.839 T_i 1.423e+08 | lp_raw -7.985e-07 lph -7.985e-07 sw 1 | nab_raw 6.007 nab 6.007 nad 0.25 (dh.thermo 0.25) cp 1.204e+12 (1.204e+12) del 113.6 (113.6) kap 0.2628 (0.2628) | sup 5.757 U 4.49e-05 zeta 2.399 | fpot 1.405e+20 wtau(cvw) NaN tau NaN | fconv NaN
+k  9 rho_i 2.842 T_i 1.423e+08 | lp_raw -1.334e-06 lph -1.334e-06 sw 1 | nab_raw 5.995 nab 5.995 nad 0.25 (dh.thermo 0.25) cp 1.203e+12 (1.203e+12) del 113.6 (113.6) kap 0.2628 (0.2628) | sup 5.745 U 2.08e-05 zeta 2.397 | fpot 3.905e+20 wtau(cvw) NaN tau NaN | fconv NaN
+k 10 rho_i 2.849 T_i 1.423e+08 | lp_raw -2.234e-06 lph -2.234e-06 sw 1 | nab_raw 6.009 nab 6.009 nad 0.25 (dh.thermo 0.25) cp 1.199e+12 (1.199e+12) del 113.5 (113.5) kap 0.2628 (0.2628) | sup 5.759 U 9.62e-06 zeta 2.4 | fpot 1.095e+21 wtau(cvw) NaN tau NaN | fconv NaN
+k 11 rho_i 2.856 T_i 1.423e+08 | lp_raw -3.743e-06 lph -3.743e-06 sw 1 | nab_raw 6.034 nab 6.034 nad 0.25 (dh.thermo 0.25) cp 1.192e+12 (1.192e+12) del 113.2 (113.2) kap 0.2628 (0.2628) | sup 5.784 U 4.46e-06 zeta 2.405 | fpot 3.08e+21 wtau(cvw) NaN tau NaN | fconv NaN
+k 12 rho_i 2.863 T_i 1.423e+08 | lp_raw -6.274e-06 lph -6.274e-06 sw 1 | nab_raw 6.053 nab 6.053 nad 0.25 (dh.thermo 0.25) cp 1.185e+12 (1.185e+12) del 112.7 (112.7) kap 0.2628 (0.2628) | sup 5.803 U 2.07e-06 zeta 2.409 | fpot 8.631e+21 wtau(cvw) NaN tau NaN | fconv NaN
+k 13 rho_i 2.872 T_i 1.423e+08 | lp_raw -1.052e-05 lph -1.052e-05 sw 1 | nab_raw 6.062 nab 6.062 nad 0.25 (dh.thermo 0.25) cp 1.174e+12 (1.174e+12) del 112 (112) kap 0.2628 (0.2628) | sup 5.812 U 9.62e-07 zeta 2.411 | fpot 2.406e+22 wtau(cvw) NaN tau NaN | fconv NaN
+k 14 rho_i 2.884 T_i 1.423e+08 | lp_raw -1.769e-05 lph -1.769e-05 sw 1 | nab_raw 6.061 nab 6.061 nad 0.25 (dh.thermo 0.25) cp 1.156e+12 (1.156e+12) del 110.8 (110.8) kap 0.2628 (0.2628) | sup 5.811 U 4.5e-07 zeta 2.411 | fpot 6.668e+22 wtau(cvw) NaN tau NaN | fconv NaN
+k 15 rho_i 2.904 T_i 1.422e+08 | lp_raw -2.985e-05 lph -2.985e-05 sw 1 | nab_raw 6.047 nab 6.047 nad 0.25 (dh.thermo 0.25) cp 1.129e+12 (1.129e+12) del 108.9 (108.9) kap 0.2629 (0.2629) | sup 5.797 U 2.11e-07 zeta 2.408 | fpot 1.835e+23 wtau(cvw) NaN tau NaN | fconv NaN
+k 16 rho_i 2.938 T_i 1.422e+08 | lp_raw -5.078e-05 lph -5.078e-05 sw 1 | nab_raw 6.017 nab 6.017 nad 0.25 (dh.thermo 0.25) cp 1.084e+12 (1.084e+12) del 105.8 (105.8) kap 0.2629 (0.2629) | sup 5.767 U 9.97e-08 zeta 2.401 | fpot 5.006e+23 wtau(cvw) NaN tau NaN | fconv NaN
+k 17 rho_i 2.999 T_i 1.421e+08 | lp_raw -8.759e-05 lph -8.759e-05 sw 1 | nab_raw 5.962 nab 5.962 nad 0.25 (dh.thermo 0.25) cp 1.015e+12 (1.015e+12) del 101 (101) kap 0.2629 (0.2629) | sup 5.712 U 4.75e-08 zeta 2.39 | fpot 1.35e+24 wtau(cvw) NaN tau NaN | fconv NaN
+k 18 rho_i 3.106 T_i 1.42e+08 | lp_raw -0.0001548 lph -0.0001548 sw 1 | nab_raw 5.86 nab 5.86 nad 0.25 (dh.thermo 0.25) cp 9.095e+11 (9.095e+11) del 93.71 (93.71) kap 0.2629 (0.2629) | sup 5.61 U 2.29e-08 zeta 2.369 | fpot 3.58e+24 wtau(cvw) NaN tau NaN | fconv NaN
+k 19 rho_i 3.3 T_i 1.419e+08 | lp_raw -0.0002851 lph -0.0002851 sw 1 | nab_raw 5.664 nab 5.664 nad 0.2501 (dh.thermo 0.2501) cp 7.613e+11 (7.613e+11) del 83.21 (83.21) kap 0.263 (0.263) | sup 5.414 U 1.12e-08 zeta 2.327 | fpot 9.24e+24 wtau(cvw) NaN tau NaN | fconv NaN
+k 20 rho_i 3.668 T_i 1.415e+08 | lp_raw -0.0005654 lph -0.0005654 sw 1 | nab_raw 5.286 nab 5.286 nad 0.2501 (dh.thermo 0.2501) cp 5.724e+11 (5.724e+11) del 69.38 (69.38) kap 0.2632 (0.2632) | sup 5.036 U 5.43e-09 zeta 2.244 | fpot 2.307e+25 wtau(cvw) NaN tau NaN | fconv NaN
+k 21 rho_i 4.425 T_i 1.409e+08 | lp_raw -0.001281 lph -0.001281 sw 1 | nab_raw 4.654 nab 4.654 nad 0.2501 (dh.thermo 0.2501) cp 3.627e+11 (3.627e+11) del 52.84 (52.84) kap 0.2635 (0.2635) | sup 4.404 U 2.54e-09 zeta 2.099 | fpot 5.653e+25 wtau(cvw) NaN tau NaN | fconv NaN
+k 22 rho_i 6.196 T_i 1.395e+08 | lp_raw -0.0037 lph -0.0037 sw 1 | nab_raw 3.841 nab 3.841 nad 0.2503 (dh.thermo 0.2503) cp 1.709e+11 (1.709e+11) del 34.61 (34.61) kap 0.2642 (0.2642) | sup 3.591 U 1.08e-09 zeta 1.895 | fpot 1.458e+26 wtau(cvw) NaN tau NaN | fconv NaN
+k 23 rho_i 12.02 T_i 1.348e+08 | lp_raw -0.01781 lph -0.01781 sw 1 | nab_raw 3.059 nab 3.059 nad 0.2512 (dh.thermo 0.2512) cp 4.146e+10 (4.146e+10) del 15.99 (15.99) kap 0.2662 (0.2662) | sup 2.808 U 3.73e-10 zeta 1.676 | fpot 4.571e+26 wtau(cvw) NaN tau NaN | fconv NaN
+k 24 rho_i 23.96 T_i 1.227e+08 | lp_raw -0.1205 lph -0.1204 sw 1 | nab_raw 1.148 nab 1.148 nad 0.2559 (dh.thermo 0.2559) cp 8.592e+09 (8.592e+09) del 6.597 (6.597) kap 0.2717 (0.2717) | sup 0.8916 U 9.72e-11 zeta 0.9443 | fpot 5.661e+26 wtau(cvw) NaN tau NaN | fconv NaN
+k 25 rho_i 27.12 T_i 1.069e+08 | lp_raw -0.4943 lph -0.4845 sw 1 | nab_raw 0.2788 nab 0.2788 nad 0.2624 (dh.thermo 0.2624) cp 4.101e+09 (4.101e+09) del 4.258 (4.258) kap 0.2794 (0.2794) | sup 0.01637 U 9.55e-11 zeta 0.1279 | fpot 2.604e+24 wtau(cvw) NaN tau NaN | fconv NaN
+stopped: LoadError: DomainError with -0.05122461370357059:
+sqrt was called with a negative real argument but will only return a complex result if called with a complex argument. Try sqrt(Complex(x)).
+in expression starting at /home/tabel/Projects/titan.jl/.claude/worktrees/proto/docs/logs/proto/stage2c/diagB.jl:72
