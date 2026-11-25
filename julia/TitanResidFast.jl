@@ -110,6 +110,13 @@ zone with a constant external pressure PEXT[] outside (RHFC02 App. A2.3) instead
 """
 const PEXT = Ref(NaN)
 """
+HYDROSTATIC[] (default false; lgrid = 3): quasi-hydrostatic stellar evolution mode. When true, drops the
+inertial ∂u/∂t, advection, and artificial-viscosity terms from the gas momentum rows (exact hydrostatic
+balance ∇(P_g + P_t) + ρ g − (χ̄ F_r / c) ρ = 0), while retaining exact Lagrangian grid velocity u = Δr/Δt
+and −P dV/dt gravitational contraction work in the energy equation. Default false is bit-identical to TITAN.
+"""
+const HYDROSTATIC = Ref(false)
+"""
 GRIDVEL[] (lgrid = 2 only): `nothing` (default) = every interface fixed. Otherwise a vector of interface velocities w [cm/s] (driver
 index, zero for an interface that stays): the grid row is r_new − r_old − w Δt with the Δt of the stage, so an interface follows the
 same straight path r_old + w t through the TR, the BDF2 and the backward-Euler stage of a step. The driver sets w between steps
@@ -1669,12 +1676,16 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         else
             (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk
         end
-        w = (un[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
+        w = if HYDROSTATIC[]
+            rmu[k] * (pg[k] - pg[k-1]) + fgk
+        else
+            (un[k] * (dn[k-1] * dvoln[k-1] + dn[k] * dvoln[k]) -
              c.uo[k] * (c.do_[k-1] * c.dvolo[k-1] + c.do_[k] * c.dvolo[k])) / (2dt) -
             0.5 * ((dmdt[k] + dmdt[k+1]) * ub[k] - (dmdt[k-1] + dmdt[k]) * ub[k-1]) +
             rmu[k] * (pg[k] - pg[k-1]) +
             fgk +
             r1 * (r3k * qf[k] - r3m * qf[k-1])
+        end
         c.lrad && (w -= (Mg === nothing ? avchi[k] * fr[k] : Mg.frc[k]) / cc * mk)   # (MGROUPS: Σ_g χ̄_g F_g)
         TDC_ON[] && (w += rmu[k] * (W.tPt[k] - W.tPt[k-1]))                      # M3b: turbulent pressure, discretised as the p_g term
         R[iu, kb(k)] = w
@@ -1687,11 +1698,16 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         k = ngre + 1
         mk = 0.5 * d[k-1] * dvol[k-1]
         r3m = ((r[k-1] + r[k]) / 2)^(1.5xmu)
-        w = (un[k] * dn[k-1] * dvoln[k-1] - c.uo[k] * c.do_[k-1] * c.dvolo[k-1]) / (2dt) +
+        w = if HYDROSTATIC[]
+            rmu[k] * (PEXT[] - pg[k-1] - (TDC_ON[] ? W.tPt[k-1] : zero(pg[k-1]))) +
+            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk
+        else
+            (un[k] * dn[k-1] * dvoln[k-1] - c.uo[k] * c.do_[k-1] * c.dvolo[k-1]) / (2dt) +
             0.5 * (dmdt[k-1] + dmdt[k]) * ub[k-1] +
             rmu[k] * (PEXT[] - pg[k-1] - (TDC_ON[] ? W.tPt[k-1] : zero(pg[k-1]))) +
             (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk -
             r[k]^(-0.5xmu) * r3m * qf[k-1]
+        end
         c.lrad && (w -= avchi[k] * fr[k] / cc * mk)
         R[iu, kb(k)] = w
     end

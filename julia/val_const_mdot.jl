@@ -32,12 +32,12 @@ haskey(ENV, "DTERR") || (ENV["DTERR"] = "0.03")
 haskey(ENV, "DTERRTRACE") || (ENV["DTERRTRACE"] = "0")
 haskey(ENV, "DTERRBE") || (ENV["DTERRBE"] = "1")
 
-using Printf, ForwardDiff
+using Printf, ForwardDiff, Serialization
 
 const JDIR = @__DIR__
 for f in ("TitanDriver", "JuliaPhysics", "TitanResidFast", "BlockSolver", "TitanCore", "Z0Physics",
           "TitanMaterials", "ProblemSetup", "StellarEOS", "FreeEnergyEOS", "StellarOpacity",
-          "NucNet", "StellarMaterial", "StarMaterial", "Trbdf2", "NewtonKrylov")
+          "NucNet", "StellarMaterial", "StarMaterial", "GridEq", "Trbdf2", "NewtonKrylov")
     include(joinpath(JDIR, f * ".jl"))
 end
 
@@ -327,10 +327,117 @@ function acc_diagnostics(mat::AccretionGas, sd, a::Int, b::Int, Mdot::Float64)
         D[j] > 0 ? (last = j; gap = 0) : (gap += 1); j += 1
     end
     Mcc = (m_enc(last)) / max(Mstar, 1e20)
+
+    # Supergiant envelope pulsation & density-inversion diagnostics (inside R_ph):
+    wtn = TX.WTN[]; par = TX.TDCP[]
+    max_dlnrho = -Inf; r_inv = 0.0; max_Gam = 0.0; max_PtP = 0.0; Ekin_star = 0.0
+    k_lim = clamp(max(ksh, kph), a + 2, b - 1)
+    for k in a:k_lim
+        rc_k = 0.5 * (rn[k] + rn[k+1])
+        Pr_k = ern[k] / 3.0
+        Pt_k = par.α_p * dn[k] * 0.5 * (wtn[k]^2 + wtn[k+1]^2)
+        Ptot_k = max(pgn[k] + Pr_k, 1e-30)
+        PtP = Pt_k / Ptot_k
+        PtP > max_PtP && (max_PtP = PtP)
+        mk_g = 4π * dn[k] * (rn[k+1]^3 - rn[k]^3) / 3.0
+        k < ksh && (Ekin_star += 0.5 * mk_g * 0.5 * (un[k]^2 + un[k+1]^2))
+        if k > a && k < k_lim
+            rc_p = 0.5 * (rn[k+1] + rn[k+2])
+            dlr = log(rc_p / rc_k)
+            if dlr > 0 && dn[k] > 1e-13 && dn[k+1] > 1e-13
+                g_rho = log(dn[k+1] / dn[k]) / dlr
+                if g_rho > max_dlnrho
+                    max_dlnrho = g_rho; r_inv = rn[k+1]
+                end
+            end
+        end
+        m_k = m_enc(k + 1)
+        if m_k > 0.01 * Mstar
+            Lk = 4π * rn[k+1]^2 * max(frn[k+1], 0.0)
+            Gam_k = chifn[k] * Lk / (4π * Z0.c * Z0.G * m_k)
+            Gam_k > max_Gam && (max_Gam = Gam_k)
+        end
+    end
+    isfinite(max_dlnrho) || (max_dlnrho = 0.0)
+    u_ph_kms = un[clamp(kph + 1, a, b + 1)] / 1e5
+
     return (; Mstar = Mstar / Msun, Mgrid = Mgrid / Msun, Rstar = Rstar / Rsun, Rph = Rph / Rsun,
               Teff, Lsurf = Lsurf / Lsun, Lph = Lph / Lsun, Lmax = Lmax / Lsun, Lacc = Lacc / Lsun,
               Lnuc = Lnuc / Lsun, LEdd = LEdd / Lsun, Tc = tn[a], Tmax, ρc = dn[a],
-              Xc = SM.hmass(mat.sg, a), Dc = mat.sg.Y[SM.ID, a], Mcc, umax_cs, ksh = ksh - a + 1, kph = kph - a + 1)
+              Xc = SM.hmass(mat.sg, a), Dc = mat.sg.Y[SM.ID, a], Mcc, umax_cs, ksh = ksh - a + 1, kph = kph - a + 1,
+              max_dlnrho, r_inv = r_inv / Rsun, max_Gam, max_PtP, u_ph_kms, Ekin_star)
+end
+
+"Dump full radial structure profile (for density inversion, super-Eddington, TDC, and pulsation eigenmode analysis)."
+function dump_profile(path::String, mat::AccretionGas, sd, a::Int, b::Int, D0::Float64)
+    rn, dn, tn, un, frn, ern, pgn, chifn, asn = (TF.var(s) for s in (:rn, :dn, :tn, :un, :frn, :ern, :pgn, :chifn, :asn))
+    xmen = TF.var(:xmen); xmtot = TF.getscalar(:xmtot)
+    wtn = TX.WTN[]; par = TX.TDCP[]; Dmix = mat.sg.Dmix
+    tau = zeros(b + 2); tt = 0.0
+    for k in b:-1:a; tt += chifn[k] * dn[k] * (rn[k+1] - rn[k]); tau[k] = tt; end
+    open(path, "w") do io
+        println(io, "zone,r_Rsun,dr_Rsun,m_Msun,rho,T,u_kms,cs_kms,P_gas,P_rad,P_turb,beta,kappa_R,tau_R,Gamma_Edd,L_rad_Lsun,L_conv_Lsun,w_conv_kms,Dmix,nabla,nabla_ad,dlnrho_dlnr,X_H,D_over_D0")
+        for k in a:b
+            j = k - a + 1
+            rc = 0.5 * (rn[k] + rn[k+1]); dr = rn[k+1] - rn[k]
+            m_k = 4π * (xmtot - xmen[k+1])
+            Pr = ern[k] / 3.0; Pg = pgn[k]
+            Pt = par.α_p * dn[k] * 0.5 * (wtn[k]^2 + wtn[k+1]^2)
+            Ptot = max(Pg + Pr, 1e-30); beta = Pg / Ptot
+            Lrad = 4π * rn[k+1]^2 * frn[k+1]
+            Lconv = 4π * rn[k+1]^2 * sd.fcv[k+1]
+            Gam = m_k > 0 ? chifn[k] * max(Lrad, 0.0) / (4π * Z0.c * Z0.G * m_k) : 0.0
+            # Local nabla and exact nabla_ad (gas + rad) via 2x2 AD on _acc_pe_raw:
+            nab = NaN; dlnrho = NaN
+            if k < b
+                Ptot_p = max(pgn[k+1] + ern[k+1] / 3.0, 1e-30)
+                dlP = log(Ptot_p / Ptot)
+                abs(dlP) > 1e-12 && (nab = log(tn[k+1] / tn[k]) / dlP)
+                rc_p = 0.5 * (rn[k+1] + rn[k+2])
+                dlnrho = log(dn[k+1] / dn[k]) / log(rc_p / rc)
+            end
+            cp = SM.zonecomp(mat.sg, k)
+            J = ForwardDiff.jacobian(v -> begin
+                p_, e_ = _acc_pe_raw(v[1], v[2], cp)
+                [p_ + Z0.arad * v[2]^4 / 3.0, e_ + Z0.arad * v[2]^4 / v[1]]
+            end, [dn[k], tn[k]])
+            pρ, pT, uρ, uT = J[1, 1], J[1, 2], J[2, 1], J[2, 2]
+            cP_tot = uT + (tn[k] / dn[k]^2) * pT^2 / max(pρ, 1e-30)
+            nad = (Ptot / max(tn[k], 1.0)) * pT / max(dn[k]^2 * pρ * cP_tot, 1e-30)
+            @printf(io, "%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.5e,%.5e,%.6e,%.6e,%.6e,%.5f,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.6f,%.5e\n",
+                    j, rc / Rsun, dr / Rsun, m_k / Msun, dn[k], tn[k], un[k+1] / 1e5, asn[k] / 1e5,
+                    Pg, Pr, Pt, beta, chifn[k], tau[k], Gam, Lrad / Lsun, Lconv / Lsun,
+                    wtn[k+1] / 1e5, Dmix[k+1], isfinite(nab) ? nab : 0.0, isfinite(nad) ? nad : 0.0,
+                    isfinite(dlnrho) ? dlnrho : 0.0, SM.hmass(mat.sg, k), mat.sg.Y[SM.ID, k] / D0)
+        end
+    end
+    nothing
+end
+
+"Configure TitanResidFast.GRIDEQ[] for the Dorfi-Drury implicit moving mesh (tracks shock + photosphere smoothly)."
+function grideq_update!(a::Int, b::Int, k_rel::Int; κ_target = 30.0, κ_ramp0 = 2.0, n_ramp = 60,
+                        fv = 0.5, fvr = 10.0, w_tau = 1.0, w_chi = 3.0, w_u = 1.0, fdyn = 0.2,
+                        pr_dec = 6.0, pm_dec = 6.0, amix = 0.4)
+    rn, un, asn = TF.var(:rn), TF.var(:un), TF.var(:asn)
+    n = b - a + 1; mgr = length(rn)
+    κ = κ_ramp0 * (κ_target / κ_ramp0)^clamp(k_rel / max(n_ramp, 1), 0.0, 1.0)
+    tauv = zeros(mgr); tfl = zeros(mgr); sx = zeros(mgr)
+    flc = 1.0 / min(fv * κ_target / κ, fvr)
+    @inbounds for j in 1:n
+        k = a + j - 1
+        rc = 0.5 * (rn[k] + rn[k+1])
+        um = 0.5 * (abs(un[k]) + abs(un[k+1]))
+        tc = rc / max(um + asn[k], 1.0)
+        dxj = j >= 2 ? log(rn[k+1] / rn[k]) : 1.0
+        tfl[k] = dxj * tc * flc
+        tauv[k] = κ * tc
+        sx[k] = w_u > 0 ? w_u * ((un[k+1] - un[k]) / max(um + asn[k], 1.0))^2 : 0.0
+    end
+    fr = (pr_dec / log(10))^2; fm = (pm_dec / log(10))^2
+    TX.GRIDEQ[] = (; k1 = a + 1, k2 = b + 1, w = (1.0, 1.0, 1.0, 1.0, 1.0), alph = 1.5, gmax = 100.0,
+                   tauv, tfl, flc, wtau = w_tau, tlo = 0.1, thi = 1e4, kap = κ, fdyn, sx,
+                   wχ = w_chi, gp = (0.0, 0.0), fr, fm, amix)
+    nothing
 end
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -481,8 +588,9 @@ function main()
     TX.TDC_ON[] = true
     TF.setscalar!(:neqn, 8)
     TX.tdc_alloc!(length(TF.var(:dn)))
-    TX.TDCP[] = TX.TDC.TDCPar(; A_s = 1.0, A_d = 1.0, A_c = 1.0, α_p = 1.0, α_t = 0.01, α_D = 1.0, α_m = 0.0)
+    TX.TDCP[] = TX.TDC.TDCPar(; A_s = 1.0, A_d = 1.0, A_c = 1.0, α_p = envf("ALPHAP", 1.0), α_t = 0.01, α_D = 1.0, α_m = 0.0)
     TX.TDC_CEN[] = 0.0
+    TC.UNOM_FLOOR[] = 1.0e-2
     TC.CPLH[] = (; newstep = () -> TX.tdc_newstep!(), reset = () -> TX.tdc_reset!(),
                    update = (rhs, a_, b_) -> TX.tdc_update!(rhs, a_, b_),
                    dmax = (rhs, a_, b_) -> TX.tdc_dmax!(rhs, a_, b_))
@@ -497,6 +605,17 @@ function main()
     TD.FAIL_TFAC[] = 0.5; Trbdf2.TFAC[] = 0.5
     TC.PRED_LAGRHO[] = true; TC.EXTRAP_FRAC[] = 0.3; TC.ER_TAUMIN[] = 3000.0
 
+    # Optional GRIDEQ=1 Dorfi-Drury implicit moving mesh (tracks accretion shock & photosphere smoothly!)
+    use_grideq = get(ENV, "GRIDEQ", "0") == "1"
+    geq_kap    = envf("GEQKAP", 30.0)
+    geq_kap0   = envf("GEQKAP0", 2.0)
+    geq_nramp  = envi("GEQRAMPN", 60)
+    geq_fmove  = envf("GEQFMOVE", 0.4)
+    geq_wu     = envf("GEQWU", 1.0)
+    geq_wtau   = envf("GEQWTAU", 1.0)
+    geq_wchi   = envf("GEQWCHI", 3.0)
+    geq_ctol   = envf("GEQCTOL", 0.3)
+
     # Wire StarMaterial nuclear burning / mixing hooks to our unified AccretionGas
     SM.TSOLVE[] = T_solve_acc
     SM.ZONEOK[] = k -> TF.var(:tn)[k] > UE_T1
@@ -505,8 +624,21 @@ function main()
     nuc_cap() = min(sg.dtcap, SM.predict_cap(sg))
     empty!(TC.DT_HOOKS); push!(TC.DT_HOOKS, nuc_cap)
     empty!(Trbdf2.DT_BOUNDS); push!(Trbdf2.DT_BOUNDS, nuc_cap)
+    if use_grideq
+        fmcap = function ()
+            TX.GRIDEQ[] === nothing && return Inf
+            rn_ = TF.var(:rn); ro_ = TF.var(:ro); f = 0.0
+            for kk in a+2:b
+                wd = min(ro_[kk] - ro_[kk-1], ro_[kk+1] - ro_[kk])
+                wd > 0 && (f = max(f, abs(rn_[kk] - ro_[kk]) / wd))
+            end
+            f > 0 ? geq_fmove / f * TF.getscalar(:dtime) : Inf
+        end
+        push!(TC.DT_HOOKS, fmcap)
+        push!(Trbdf2.DT_BOUNDS, fmcap)
+    end
 
-    # Relaxation rule (Backward Euler for initial ~4 tdyn to damp polytrope acoustic modes cleanly);
+    # Relaxation rule (Backward Euler for initial ~3 tdyn to damp polytrope acoustic modes cleanly);
     # once relaxed, TR-BDF2's Hosea-Shampine embedded error controller (DTERR) drives dt automatically!
     tdyn0 = sqrt(R0^3 / (Z0.G * M0))
     relaxed = Ref(false)
@@ -523,18 +655,59 @@ function main()
     xme_prev = copy(TF.var(:xmen)::Vector{Float64})
     phir0_const = -Mdot / (4π * rout^2)
 
-    pr("VAL_CONST_MDOT [%s]: Mdot=%.3e Msun/yr, M0=%.2f Msun, R0=%.1f Rsun, Mstop=%.1f Msun, nz=%d, r=%.2f..%.1e Rsun, FREE_EOS C² B-spline + TDC + DTERR(%s) + NKRYLOV\n",
-       tag, Mdot_yr, M0_msun, R0_rsun, Mstop, n, rin/Rsun, rout/Rsun, ENV["DTERR"])
-    println(csvio, "step,t_yr,dt_s,M_star,M_grid,R_star,R_ph,Teff,L_surf,L_ph,L_max,L_acc,L_nuc,L_Edd,Tc,Tmax,rho_c,Xc,Dc_over_D0,Mcc_over_M,umax_cs,ksh,kph")
-    pr("%6s %10s %8s %8s %8s %8s %7s %9s %9s %9s %8s %8s %7s\n",
-       "step", "t [yr]", "M*", "Mgrid", "R* [Rs]", "Rph [Rs]", "Teff", "Lph [Ls]", "Lnuc", "L/LEdd", "Tc [1e7]", "Dc/D0", "dt [s]")
+    # Checkpoint save / restart support
+    ckdir = joinpath(outdir, "ck")
+    save_name = get(ENV, "SAVE", "")
+    rest_name = get(ENV, "RESTART", "")
+    ckevery   = envi("CKEVERY", 250)
+    profevery = envi("PROFEVERY", 0)
+    profmasses = haskey(ENV, "PROFMASS") && !isempty(ENV["PROFMASS"]) ? sort(parse.(Float64, split(ENV["PROFMASS"], ","))) : Float64[]
+    k_start = 0; k_geq0 = Ref(-1)
+
+    function save_ck(name::String, k_cur::Int)
+        mkpath(ckdir)
+        TF.save_state(joinpath(ckdir, "$(name).tstate.gz"))
+        serialize(joinpath(ckdir, "$(name).aux"), (; Y = copy(sg.Y), Yprev = copy(sg.Yprev),
+                  fscale = copy(sg.fscale), fslope = copy(sg.fslope), Dmix = copy(sg.Dmix),
+                  dtcap = sg.dtcap, xme_prev = copy(xme_prev), wtn = copy(TX.WTN[]), wto = copy(TX.WTO[]),
+                  k = k_cur, relaxed = relaxed[], k_geq0 = k_geq0[]))
+    end
+    if !isempty(rest_name)
+        TF.load_state!(joinpath(ckdir, "$(rest_name).tstate.gz"))
+        aux = deserialize(joinpath(ckdir, "$(rest_name).aux"))
+        sg.Y .= aux.Y; sg.Yprev .= aux.Yprev; sg.fscale .= aux.fscale; sg.fslope .= aux.fslope
+        sg.Dmix = copy(aux.Dmix); sg.dtcap = aux.dtcap
+        copyto!(xme_prev, aux.xme_prev); copyto!(TX.WTN[], aux.wtn); copyto!(TX.WTO[], aux.wto)
+        k_start = aux.k; relaxed[] = aux.relaxed; k_geq0[] = aux.k_geq0
+        # Re-apply runtime tolerances / dt cap on restart
+        TF.setscalar!(:stol, 0.3); TF.setscalar!(:tmax, 1e30); TF.setscalar!(:niter, 25); TF.setscalar!(:conv, envf("CONV", 1e-3))
+        haskey(ENV, "DT0") && TF.setscalar!(:dtime, envf("DT0", TF.getscalar(:dtime)))
+        TD.EOS[](); TD.OPAC[]()
+        TC._ghost_and_derived!(:update, () -> TD.EOS[](), () -> TD.OPAC[]())
+        pr("RESTARTED from %s at step %d (t=%.3e yr, dt=%.2e s)\n", rest_name, k_start, TF.getscalar(:timen)/yr, TF.getscalar(:dtime))
+    end
+
+    pr("VAL_CONST_MDOT [%s]: Mdot=%.3e Msun/yr, M0=%.2f Msun, R0=%.1f Rsun, Mstop=%.1f Msun, nz=%d, r=%.2f..%.1e Rsun, FREE_EOS + TDC(αp=%.1f) + DTERR(%s) + NKRYLOV + GRIDEQ=%d\n",
+       tag, Mdot_yr, M0_msun, R0_rsun, Mstop, n, rin/Rsun, rout/Rsun, TX.TDCP[].α_p, ENV["DTERR"], use_grideq ? 1 : 0)
+    println(csvio, "step,t_yr,dt_s,M_star,M_grid,R_star,R_ph,Teff,L_surf,L_ph,L_max,L_acc,L_nuc,L_Edd,Tc,Tmax,rho_c,Xc,Dc_over_D0,Mcc_over_M,umax_cs,ksh,kph,max_dlnrho_dlnr,r_inv_Rsun,max_Gamma_Edd,max_Pt_over_P,u_ph_kms,Ekin_star_erg")
+    pr("%6s %10s %8s %8s %8s %8s %7s %9s %9s %8s %8s %7s %7s %7s\n",
+       "step", "t [yr]", "M*", "Mgrid", "R* [Rs]", "Rph [Rs]", "Teff", "Lph [Ls]", "Lnuc", "L/LEdd", "Tc [1e7]", "dlnρ_m", "Γ_max", "dt [s]")
 
     STEP_CORE = () -> (relaxed[] ? Trbdf2.step!() : TD.step!())
     D0 = Y_prim[NN.IDX[:d]]
     t0w = time()
-    for k in 1:maxsteps
-        if !relaxed[] && (TF.getscalar(:timen) >= 3.0 * tdyn0 || k >= 30)
+    for step_i in 1:maxsteps
+        k = k_start + step_i
+        if !relaxed[] && (TF.getscalar(:timen) >= 3.0 * tdyn0 || step_i >= 30)
             relaxed[] = true
+        end
+        if use_grideq && relaxed[]
+            if k_geq0[] < 0
+                k_geq0[] = k
+                TC.GRIDMOVE[] = true; TF.setscalar!(:ctol, geq_ctol)
+            end
+            grideq_update!(a, b, k - k_geq0[]; κ_target = geq_kap, κ_ramp0 = geq_kap0, n_ramp = geq_nramp,
+                           w_u = geq_wu, w_tau = geq_wtau, w_chi = geq_wchi)
         end
         # Solve coupled hydro + radiation + TDC (+ nuclear level factor once Tmax > 5e5 K)
         snap = TD.snapshot(); dt0 = TF.getscalar(:dtime)
@@ -579,23 +752,34 @@ function main()
 
         diag = acc_diagnostics(mat, sd, a, b, Mdot)
         t_yr = TF.getscalar(:timen) / yr
-        if k == 1 || k % envi("PRINTEVERY", 25) == 0 || diag.Mstar >= Mstop
-            pr("%6d %10.3e %8.3f %8.3f %8.2f %8.2f %7.0f %9.3e %9.3e %8.4f %8.4f %8.4f %7.2e\n",
+        if step_i == 1 || step_i % envi("PRINTEVERY", 25) == 0 || diag.Mstar >= Mstop
+            pr("%6d %10.3e %8.3f %8.3f %8.2f %8.2f %7.0f %9.3e %9.3e %8.4f %8.4f %7.2f %7.2f %7.2e\n",
                k, t_yr, diag.Mstar, diag.Mgrid, diag.Rstar, diag.Rph, diag.Teff, diag.Lph, diag.Lnuc,
-               (diag.Lph) / max(diag.LEdd, 1.0), diag.Tc / 1e7, diag.Dc / D0, dt)
+               (diag.Lph) / max(diag.LEdd, 1.0), diag.Tc / 1e7, diag.max_dlnrho, diag.max_Gam, dt)
         end
-        if k == 1 || k % envi("CSVEVERY", 5) == 0 || diag.Mstar >= Mstop
-            @printf(csvio, "%d,%.6e,%.4e,%.5f,%.5f,%.4f,%.4f,%.2f,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.6f,%.5e,%.5f,%.4f,%d,%d\n",
+        if step_i == 1 || step_i % envi("CSVEVERY", 5) == 0 || diag.Mstar >= Mstop
+            @printf(csvio, "%d,%.6e,%.4e,%.5f,%.5f,%.4f,%.4f,%.2f,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.6f,%.5e,%.5f,%.4f,%d,%d,%.4f,%.4f,%.4f,%.4e,%.3f,%.5e\n",
                     k, t_yr, dt, diag.Mstar, diag.Mgrid, diag.Rstar, diag.Rph, diag.Teff, diag.Lsurf, diag.Lph,
                     diag.Lmax, diag.Lacc, diag.Lnuc, diag.LEdd, diag.Tc, diag.Tmax, diag.ρc, diag.Xc,
-                    diag.Dc / D0, diag.Mcc, diag.umax_cs, diag.ksh, diag.kph)
+                    diag.Dc / D0, diag.Mcc, diag.umax_cs, diag.ksh, diag.kph,
+                    diag.max_dlnrho, diag.r_inv, diag.max_Gam, diag.max_PtP, diag.u_ph_kms, diag.Ekin_star)
             flush(csvio)
+        end
+        if (profevery > 0 && (step_i == 1 || step_i % profevery == 0)) || (!isempty(profmasses) && diag.Mstar >= profmasses[1])
+            pdir = joinpath(outdir, "profiles"); mkpath(pdir)
+            ppath = joinpath(pdir, @sprintf("%s_s%05d_M%.1f.csv", tag, k, diag.Mstar))
+            dump_profile(ppath, mat, sd, a, b, D0)
+            while !isempty(profmasses) && diag.Mstar >= profmasses[1]; popfirst!(profmasses); end
+        end
+        if !isempty(save_name) && (step_i % ckevery == 0 || diag.Mstar >= Mstop)
+            save_ck(save_name, k)
         end
         if diag.Mstar >= Mstop
             pr("Target M_star = %.2f Msun reached at step %d (t = %.3e yr, wall = %.1f s)\n", diag.Mstar, k, t_yr, time() - t0w)
             break
         end
     end
+    !isempty(save_name) && save_ck(save_name, k_start + maxsteps)
     close(csvio); close(logio)
 end
 
