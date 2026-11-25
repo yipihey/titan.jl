@@ -627,3 +627,19 @@ The inventory above is of 14 Nov (HEAD 326df84). In `popiii-proto` the following
 | TIEFRAME | provisional, default off | env read deleted: `TX.TIEFRAME[]` is set by the unconditional ECOMPAT block |
 
 Stage-1 default values changed in `popiii_stack.jl` (now the zie1/zie3 grey production values): CONV 1e-3 -> 0.01, DTERR 0.1 -> 0.03, GRIDEQ 1 -> off, SUBZONE 1,2 -> 0, MATTHREADS 8 -> 16; added NKRYLOV=1, SLABFLUX=1, SLABTIE=1.
+
+
+## Stage 2 of the popiii-proto tree (24 Nov 2026): convection is TDC only (see docs/POPIII_PROTO.md, "Stage 2")
+
+With HOT=1 (convection on) the turbulent velocity w is always the last Newton unknown (neqn + 1). Deleted:
+
+| Switch / code | Was | Now |
+|---|---|---|
+| TDC (env) | provisional, off; `TX.TDC_ON` | env key deleted; `TX.TDC_ON[]` stays as the internal "w unknown installed" flag, set with `TX.CONVECTION[]`. TDCPAR (default 1,1,1,1,0.01,1,0) and TDCCEN stay as parameters |
+| MLTBUOY / `TX.MLT_BUOY` | provisional, off | deleted (its `buoy_blob`/`_buoy_zone` are the TDC source) |
+| COLDMLT / `PM.COLDMLT`, `cold_thermo` | stack default 1e4, turned on MLT_NOINFALL | deleted (also from popiii_stack.jl, config_grey.env) |
+| `TX.MLT_NOINFALL`, `TX.TAU_MLT`, `TX.MLT_AD`, `TX.MLT_HS`, `TX.MLT_RCAP`, `TX.MLT_HSDISC` | RCAP, HSDISC set by the driver | deleted; ℓ = α (H_P⁻² + r⁻²)^-1/2 and the discrete ΔlnP_hs of `_tdc!` unconditional |
+| MLT block of `residual!`, `convcoef`, `_mlt_pre!`, `Ctx.cv`, `W.mnad/mcp/mdl/mkp`, `SW_MLT*` registrations | old local MLT | deleted |
+| `PM.material_thermo(::NetGas)` (1e30 placeholder) | MLT thermodynamics of the hot branch | deleted; the `Z0Gas`/`StarGas`/`StellarGas` methods stay (stand-alone tests) |
+| StarMaterial.mix! D | v ℓ/3 of the MLT block | α_D ℓ w of TDC |
+| CONVDIAG fields hs_w, nad_used, nab, w_tau, w_inf, tau, w_th | MLT gates | dropped; fpot_th := fpot (TDC potential flux) |

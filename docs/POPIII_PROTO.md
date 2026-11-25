@@ -20,6 +20,9 @@ Reference = cc7b8dc code (the pkgstart 1ed14cf runs are the same code: `git diff
 Cause (bisected on 1-step IC runs, same config): a1a2ff4 is bit-identical to the reference; 54814fc (hydrogen ionisation unknown = logit ln(x_H+/x_HI), merged in 9a4c8d3) is the first differing commit and the later mgprod commits do not change it. popiii-proto equals mgprod 063452c bitwise (zie1 IC, 3 snapshots, 0 differences; MGROUPS=4 restart from rp_k650, 40 steps, 8 snapshots, BIT-IDENTICAL). The logit changes the grey path (unknown, DTERR/Krylov/maxdel weights), so bit identity with cc7b8dc is not attainable on mgprod-based trees without reverting it. Our convection code (off) adds no difference.
 Dropped by instruction (Tom, prune): zie3 restart, image-path (TITAN_PKG) run, NKCHECK run; the TitanStack image for this tree did build (image_build.log, 373 s) but was not exercised. zie3 IC 40-step proto log kept.
 
+## Bit-identity vs production
+The Stage-1 differences vs cc7b8dc come from mgprod 54814fc (hydrogen-ionisation logit unknown), which the multigroup session verified is an equivalent change of variable in grey (LG check, /zpool/nvme/data/tabel_scratch/titan_popiii/lg_runs): at fixed dt (SDFIXDT, 2 steps) 76856d0 vs cc7b8dc agree to round-off for CONV 1e-2...1e-8 (zie1 S16: T 1e-10-7e-10, rho ~5e-10, x_H+ <= 3e-9; IC: T <= 2e-12). The free-dt differences are the step controller (min(x_H+, x_HI) DTERR weights change the proposed dt by ~5 %; at the IC cc7b8dc fails Newton at 2.4e7 s and accepts 6e6 s, the logit tree accepts 2.4e7 s). Hence the grey bit-identity reference for gate 2 is popiii-proto itself. Tight-CONV runs need DTERR = 1e3*CONV and NKRYLOV=1,CONV,60.
+
 ## Open lag
 Grey Lyman-Werner heat GASQ is lagged by one step (exact in MG); measured 7e-10 relative, unchanged.
 
