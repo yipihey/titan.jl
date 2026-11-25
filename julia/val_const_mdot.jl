@@ -275,6 +275,45 @@ function advect_nuc!(sg::SM.StarGas, xme_prev::Vector{Float64}, Y_prim::Vector{F
     nothing
 end
 
+"Exact ionizing EUV photon rate S_EUV = 4π R_ph² ∫_{13.6 eV}^∞ (π B_ν(T_eff) / hν) dν [s⁻¹] (HOY12 eq. 15)."
+function euv_photon_rate(Rph_cm::Float64, Teff::Float64)
+    Teff > 800.0 || return 0.0
+    h_P = 6.62607015e-27; k_B = 1.380649e-16; c = Z0.c
+    x0 = 13.598434 * 1.602176634e-12 / (k_B * Teff)
+    x0 > 650.0 && return 0.0
+    # Change variable x = x0 + t: ∫_{x0}^∞ x²/(e^x - 1) dx = e^{-x0} ∫_0^∞ (x0 + t)² / (1 - e^{-(x0+t)}) * e^{-t} dt
+    # Integrate via 60-step Simpson on u ∈ [0, 30]:
+    dt = 0.5; acc = 0.0
+    for i in 0:60
+        t = i * dt; w = (i == 0 || i == 60) ? 1.0 : (isodd(i) ? 4.0 : 2.0)
+        x = x0 + t
+        acc += w * (x^2 / max(-expm1(-x), 1e-300)) * exp(-t)
+    end
+    I_x = exp(-x0) * (dt / 3.0) * acc
+    pref = 4π * Rph_cm^2 * (2π * (k_B * Teff)^3 / (c^2 * h_P^3))
+    return pref * I_x
+end
+
+"Exact per-zone D-burning and H-burning energy generation rates [erg/g/s] for HOY12 Fig. 1 Kippenhahn maps."
+function zone_nuc_dh(ρ::Float64, T::Float64, Y)
+    T < 3.0e5 && return 0.0, 0.0
+    pl = NN.Plasma(ρ, Y)
+    k = NN.rates_k(T, ρ, pl, NN.ye_of(Y); screen = :chugunov)
+    eD = 0.0; eH = 0.0
+    iD = NN.IDX[:d]; iP = NN.IDX[:p]
+    @inbounds for (ir, r) in enumerate(NN.NET)
+        ev = NN.event(r, k[ir], Y)
+        ev > 0.0 || continue
+        de = (NN.NA * NN.MeV * (r.Q - r.Enu)) * ev
+        if iD in r.rin
+            eD += de
+        elseif iP in r.rin
+            eH += de
+        end
+    end
+    return eD, eH
+end
+
 "Locate accretion shock radius R_star, enclosed mass M_star, photosphere R_ph, and interior L_max."
 function acc_diagnostics(mat::AccretionGas, sd, a::Int, b::Int, Mdot::Float64)
     rn, dn, tn, un, frn, ern, pgn, chifn, asn = (TF.var(s) for s in (:rn, :dn, :tn, :un, :frn, :ern, :pgn, :chifn, :asn))
@@ -360,12 +399,20 @@ function acc_diagnostics(mat::AccretionGas, sd, a::Int, b::Int, Mdot::Float64)
     end
     isfinite(max_dlnrho) || (max_dlnrho = 0.0)
     u_ph_kms = un[clamp(kph + 1, a, b + 1)] / 1e5
+    # Peak relativistic compactness 2 G m / (r c²) inside star + exact EUV ionizing photon rate (HOY12 eq. 15)
+    max_xi_gr = 0.0
+    for k in a+1:k_lim+1
+        rn[k] > 0 || continue
+        xi_k = 2.0 * Z0.G * m_enc(k) / (rn[k] * Z0.c^2)
+        xi_k > max_xi_gr && (max_xi_gr = xi_k)
+    end
+    S_EUV = euv_photon_rate(Rph, Teff)
 
     return (; Mstar = Mstar / Msun, Mgrid = Mgrid / Msun, Rstar = Rstar / Rsun, Rph = Rph / Rsun,
               Teff, Lsurf = Lsurf / Lsun, Lph = Lph / Lsun, Lmax = Lmax / Lsun, Lacc = Lacc / Lsun,
               Lnuc = Lnuc / Lsun, LEdd = LEdd / Lsun, Tc = tn[a], Tmax, ρc = dn[a],
               Xc = SM.hmass(mat.sg, a), Dc = mat.sg.Y[SM.ID, a], Mcc, umax_cs, ksh = ksh - a + 1, kph = kph - a + 1,
-              max_dlnrho, r_inv = r_inv / Rsun, max_Gam, max_PtP, u_ph_kms, Ekin_star)
+              max_dlnrho, r_inv = r_inv / Rsun, max_Gam, max_PtP, u_ph_kms, Ekin_star, max_xi_gr, S_EUV)
 end
 
 "Dump full radial structure profile (for density inversion, super-Eddington, TDC, and pulsation eigenmode analysis)."
@@ -376,7 +423,7 @@ function dump_profile(path::String, mat::AccretionGas, sd, a::Int, b::Int, D0::F
     tau = zeros(b + 2); tt = 0.0
     for k in b:-1:a; tt += chifn[k] * dn[k] * (rn[k+1] - rn[k]); tau[k] = tt; end
     open(path, "w") do io
-        println(io, "zone,r_Rsun,dr_Rsun,m_Msun,rho,T,u_kms,cs_kms,P_gas,P_rad,P_turb,beta,kappa_R,tau_R,Gamma_Edd,L_rad_Lsun,L_conv_Lsun,w_conv_kms,Dmix,nabla,nabla_ad,dlnrho_dlnr,X_H,D_over_D0")
+        println(io, "zone,r_Rsun,dr_Rsun,m_Msun,rho,T,u_kms,cs_kms,P_gas,P_rad,P_turb,beta,kappa_R,tau_R,Gamma_Edd,L_rad_Lsun,L_conv_Lsun,w_conv_kms,Dmix,nabla,nabla_ad,dlnrho_dlnr,X_H,D_over_D0,eps_D_cgs,eps_H_cgs,xi_GR")
         for k in a:b
             j = k - a + 1
             rc = 0.5 * (rn[k] + rn[k+1]); dr = rn[k+1] - rn[k]
@@ -404,11 +451,13 @@ function dump_profile(path::String, mat::AccretionGas, sd, a::Int, b::Int, D0::F
             pρ, pT, uρ, uT = J[1, 1], J[1, 2], J[2, 1], J[2, 2]
             cP_tot = uT + (tn[k] / dn[k]^2) * pT^2 / max(pρ, 1e-30)
             nad = (Ptot / max(tn[k], 1.0)) * pT / max(dn[k]^2 * pρ * cP_tot, 1e-30)
-            @printf(io, "%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.5e,%.5e,%.6e,%.6e,%.6e,%.5f,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.6f,%.5e\n",
+            eD_k, eH_k = zone_nuc_dh(dn[k], tn[k], view(mat.sg.Y, :, k))
+            xi_k = rn[k+1] > 0 ? 2.0 * Z0.G * m_k / (rn[k+1] * Z0.c^2) : 0.0
+            @printf(io, "%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.5e,%.5e,%.6e,%.6e,%.6e,%.5f,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.6f,%.5e,%.4e,%.4e,%.4e\n",
                     j, rc / Rsun, dr / Rsun, m_k / Msun, dn[k], tn[k], un[k+1] / 1e5, asn[k] / 1e5,
                     Pg, Pr, Pt, beta, chifn[k], tau[k], Gam, Lrad / Lsun, Lconv / Lsun,
                     wtn[k+1] / 1e5, Dmix[k+1], isfinite(nab) ? nab : 0.0, isfinite(nad) ? nad : 0.0,
-                    isfinite(dlnrho) ? dlnrho : 0.0, SM.hmass(mat.sg, k), mat.sg.Y[SM.ID, k] / D0)
+                    isfinite(dlnrho) ? dlnrho : 0.0, SM.hmass(mat.sg, k), mat.sg.Y[SM.ID, k] / D0, eD_k, eH_k, xi_k)
         end
     end
     nothing
@@ -570,7 +619,8 @@ function main()
         TF.setscalar!(:xmtot, ε); TF.setscalar!(:xmext, ε - m[b+2])
     end
 
-    # Fixed Eulerian RHD + Stage-2 TDC + ECOMPAT + VEFIMP + FLUXTIE + SLABFLUX
+    # Fixed Eulerian RHD + Stage-2 TDC + ECOMPAT + VEFIMP + FLUXTIE + SLABFLUX (+ opt-in GR_CORR=1!)
+    TX.GR_CORR[] = get(ENV, "GR_CORR", "0") == "1"
     TX.REGULAR_CENTRE[] = true
     empty!(TX.XMINT[])
     TX.GASROW[] = true
@@ -672,6 +722,45 @@ function main()
                   dtcap = sg.dtcap, xme_prev = copy(xme_prev), wtn = copy(TX.WTN[]), wto = copy(TX.WTO[]),
                   k = k_cur, relaxed = relaxed[], k_geq0 = k_geq0[]))
     end
+    # Time-dependent episodic / burst accretion schedule (MDOT_MODE=const | burst; Sakurai et al. 2015/2016)
+    mdot_mode  = get(ENV, "MDOT_MODE", "const")
+    mdot_burst = envf("MDOT_BURST", 0.2)
+    mdot_quiet = envf("MDOT_QUIET", 1.0e-4)
+    t_burst    = envf("T_BURST", 5.0)       # yr
+    t_quiet    = envf("T_QUIET", 50.0)      # yr
+    t_ramp     = envf("T_RAMP", 0.35)       # smooth tanh ramp width [yr]
+    start_quiet = get(ENV, "START_QUIET", "1") == "1"
+    t_ep0 = Ref(0.0)
+    t_stop_yr = envf("TSTOP_YR", 1e30)
+    function mdot_of_t(t_yr_now::Float64)
+        mdot_mode == "burst" || return Mdot_yr
+        dt_e = max(t_yr_now - t_ep0[], 0.0)
+        P_cyc = t_quiet + t_burst
+        φ = mod(dt_e, P_cyc)
+        # Smooth cyclic burst pulse with tanh edges (width t_ramp):
+        if start_quiet
+            # Quiescent on [0, t_quiet), burst on [t_quiet, P_cyc)
+            w_up = 0.5 * (1.0 + tanh((φ - t_quiet) / t_ramp))
+            w_dn = 0.5 * (1.0 + tanh((P_cyc - φ) / t_ramp))
+            w_b  = w_up * w_dn
+        else
+            # Burst on [0, t_burst), quiescent on [t_burst, P_cyc)
+            w_b = 0.5 * (1.0 - tanh((φ - t_burst) / t_ramp))
+        end
+        return mdot_quiet + (mdot_burst - mdot_quiet) * clamp(w_b, 0.0, 1.0)
+    end
+    if mdot_mode == "burst"
+        # Cap dt so TR-BDF2 smoothly resolves burst transitions and quiescent/burst phases!
+        dt_ep_cap = min(0.25 * t_burst, 0.25 * t_quiet, envf("DTMAX_YR", 2.0)) * yr
+        ep_cap = () -> dt_ep_cap
+        push!(TC.DT_HOOKS, ep_cap)
+        push!(Trbdf2.DT_BOUNDS, ep_cap)
+    elseif haskey(ENV, "DTMAX_YR")
+        dt_u_cap = envf("DTMAX_YR", 1e10) * yr
+        push!(TC.DT_HOOKS, () -> dt_u_cap)
+        push!(Trbdf2.DT_BOUNDS, () -> dt_u_cap)
+    end
+
     if !isempty(rest_name)
         TF.load_state!(joinpath(ckdir, "$(rest_name).tstate.gz"))
         aux = deserialize(joinpath(ckdir, "$(rest_name).aux"))
@@ -679,6 +768,7 @@ function main()
         sg.Dmix = copy(aux.Dmix); sg.dtcap = aux.dtcap
         copyto!(xme_prev, aux.xme_prev); copyto!(TX.WTN[], aux.wtn); copyto!(TX.WTO[], aux.wto)
         k_start = aux.k; relaxed[] = aux.relaxed; k_geq0[] = aux.k_geq0
+        t_ep0[] = TF.getscalar(:timen) / yr
         # Re-apply runtime tolerances / dt cap on restart
         TF.setscalar!(:stol, 0.3); TF.setscalar!(:tmax, 1e30); TF.setscalar!(:niter, 25); TF.setscalar!(:conv, envf("CONV", 1e-3))
         haskey(ENV, "DT0") && TF.setscalar!(:dtime, envf("DT0", TF.getscalar(:dtime)))
@@ -687,9 +777,9 @@ function main()
         pr("RESTARTED from %s at step %d (t=%.3e yr, dt=%.2e s)\n", rest_name, k_start, TF.getscalar(:timen)/yr, TF.getscalar(:dtime))
     end
 
-    pr("VAL_CONST_MDOT [%s]: Mdot=%.3e Msun/yr, M0=%.2f Msun, R0=%.1f Rsun, Mstop=%.1f Msun, nz=%d, r=%.2f..%.1e Rsun, FREE_EOS + TDC(αp=%.1f) + DTERR(%s) + NKRYLOV + GRIDEQ=%d\n",
-       tag, Mdot_yr, M0_msun, R0_rsun, Mstop, n, rin/Rsun, rout/Rsun, TX.TDCP[].α_p, ENV["DTERR"], use_grideq ? 1 : 0)
-    println(csvio, "step,t_yr,dt_s,M_star,M_grid,R_star,R_ph,Teff,L_surf,L_ph,L_max,L_acc,L_nuc,L_Edd,Tc,Tmax,rho_c,Xc,Dc_over_D0,Mcc_over_M,umax_cs,ksh,kph,max_dlnrho_dlnr,r_inv_Rsun,max_Gamma_Edd,max_Pt_over_P,u_ph_kms,Ekin_star_erg")
+    pr("VAL_CONST_MDOT [%s]: mode=%s Mdot=%.3e Msun/yr, M0=%.2f Msun, R0=%.1f Rsun, Mstop=%.1f Msun, nz=%d, r=%.2f..%.1e Rsun, FREE_EOS + TDC(αp=%.1f) + DTERR(%s) + NKRYLOV + GR=%d + GRIDEQ=%d\n",
+       tag, mdot_mode, Mdot_yr, M0_msun, R0_rsun, Mstop, n, rin/Rsun, rout/Rsun, TX.TDCP[].α_p, ENV["DTERR"], TX.GR_CORR[] ? 1 : 0, use_grideq ? 1 : 0)
+    println(csvio, "step,t_yr,dt_s,M_star,M_grid,R_star,R_ph,Teff,L_surf,L_ph,L_max,L_acc,L_nuc,L_Edd,Tc,Tmax,rho_c,Xc,Dc_over_D0,Mcc_over_M,umax_cs,ksh,kph,max_dlnrho_dlnr,r_inv_Rsun,max_Gamma_Edd,max_Pt_over_P,u_ph_kms,Ekin_star_erg,max_2Gm_rc2,S_EUV_s,Mdot_cur")
     pr("%6s %10s %8s %8s %8s %8s %7s %9s %9s %8s %8s %7s %7s %7s\n",
        "step", "t [yr]", "M*", "Mgrid", "R* [Rs]", "Rph [Rs]", "Teff", "Lph [Ls]", "Lnuc", "L/LEdd", "Tc [1e7]", "dlnρ_m", "Γ_max", "dt [s]")
 
@@ -734,14 +824,18 @@ function main()
         SM.burn!(sg; sd)
         SM.mix!(sg; sd, capmix = false, bridge = 4, tmax = 0.02)
 
-        # Gently update outer inflow (ur, dr, phir2) to track growing M_grid while keeping phir0 STRICTLY constant!
+        # Update outer inflow (ur, dr, phir0, phir2) for constant or episodic burst Mdot(t)!
+        t_yr = TF.getscalar(:timen) / yr
+        Mdot_yr_cur = mdot_of_t(t_yr)
+        Mdot_cur = Mdot_yr_cur * Msun / yr
+        phir0_cur = -Mdot_cur / (4π * rout^2)
         M_tot = 4π * (TF.getscalar(:xmtot) - TF.var(:xmen)[b+1])
         vff_new = sqrt(2 * Z0.G * max(M_tot, M0) / rout)
         ur_new = -vff_new
-        dr_new = -phir0_const / vff_new
+        dr_new = -phir0_cur / vff_new
         _, er_new = _acc_pe_raw(dr_new, Tinflow, SE.composition(0.75, 0.25, 0.0))
         TF.setscalar!(:ur, ur_new); TF.setscalar!(:dr, dr_new); TF.setscalar!(:tr, Tinflow)
-        TF.setscalar!(:phir0, phir0_const); TF.setscalar!(:phir2, phir0_const * er_new)
+        TF.setscalar!(:phir0, phir0_cur); TF.setscalar!(:phir2, phir0_cur * er_new)
         TF.var(:dn)[b+1] = dr_new; TF.var(:dn)[b+2] = dr_new
         TF.var(:tn)[b+1] = Tinflow; TF.var(:tn)[b+2] = Tinflow
         TF.var(:un)[b+1] = ur_new; TF.var(:un)[b+2] = ur_new
@@ -750,19 +844,19 @@ function main()
         # Re-fill EOS/opac with updated composition & outer ghost
         TD.EOS[](); TD.OPAC[]()
 
-        diag = acc_diagnostics(mat, sd, a, b, Mdot)
-        t_yr = TF.getscalar(:timen) / yr
-        if step_i == 1 || step_i % envi("PRINTEVERY", 25) == 0 || diag.Mstar >= Mstop
+        diag = acc_diagnostics(mat, sd, a, b, Mdot_cur)
+        if step_i == 1 || step_i % envi("PRINTEVERY", 25) == 0 || diag.Mstar >= Mstop || t_yr >= t_stop_yr
             pr("%6d %10.3e %8.3f %8.3f %8.2f %8.2f %7.0f %9.3e %9.3e %8.4f %8.4f %7.2f %7.2f %7.2e\n",
                k, t_yr, diag.Mstar, diag.Mgrid, diag.Rstar, diag.Rph, diag.Teff, diag.Lph, diag.Lnuc,
                (diag.Lph) / max(diag.LEdd, 1.0), diag.Tc / 1e7, diag.max_dlnrho, diag.max_Gam, dt)
         end
-        if step_i == 1 || step_i % envi("CSVEVERY", 5) == 0 || diag.Mstar >= Mstop
-            @printf(csvio, "%d,%.6e,%.4e,%.5f,%.5f,%.4f,%.4f,%.2f,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.6f,%.5e,%.5f,%.4f,%d,%d,%.4f,%.4f,%.4f,%.4e,%.3f,%.5e\n",
+        if step_i == 1 || step_i % envi("CSVEVERY", 5) == 0 || diag.Mstar >= Mstop || t_yr >= t_stop_yr
+            @printf(csvio, "%d,%.6e,%.4e,%.5f,%.5f,%.4f,%.4f,%.2f,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.5e,%.6f,%.5e,%.5f,%.4f,%d,%d,%.4f,%.4f,%.4f,%.4e,%.3f,%.5e,%.4e,%.4e,%.4e\n",
                     k, t_yr, dt, diag.Mstar, diag.Mgrid, diag.Rstar, diag.Rph, diag.Teff, diag.Lsurf, diag.Lph,
                     diag.Lmax, diag.Lacc, diag.Lnuc, diag.LEdd, diag.Tc, diag.Tmax, diag.ρc, diag.Xc,
                     diag.Dc / D0, diag.Mcc, diag.umax_cs, diag.ksh, diag.kph,
-                    diag.max_dlnrho, diag.r_inv, diag.max_Gam, diag.max_PtP, diag.u_ph_kms, diag.Ekin_star)
+                    diag.max_dlnrho, diag.r_inv, diag.max_Gam, diag.max_PtP, diag.u_ph_kms, diag.Ekin_star,
+                    diag.max_xi_gr, diag.S_EUV, Mdot_yr_cur)
             flush(csvio)
         end
         if (profevery > 0 && (step_i == 1 || step_i % profevery == 0)) || (!isempty(profmasses) && diag.Mstar >= profmasses[1])
@@ -771,11 +865,12 @@ function main()
             dump_profile(ppath, mat, sd, a, b, D0)
             while !isempty(profmasses) && diag.Mstar >= profmasses[1]; popfirst!(profmasses); end
         end
-        if !isempty(save_name) && (step_i % ckevery == 0 || diag.Mstar >= Mstop)
+        if !isempty(save_name) && (step_i % ckevery == 0 || diag.Mstar >= Mstop || t_yr >= t_stop_yr)
             save_ck(save_name, k)
         end
-        if diag.Mstar >= Mstop
-            pr("Target M_star = %.2f Msun reached at step %d (t = %.3e yr, wall = %.1f s)\n", diag.Mstar, k, t_yr, time() - t0w)
+        if diag.Mstar >= Mstop || t_yr >= t_stop_yr
+            pr("Target reached at step %d: M*=%.2f Msun, t=%.3e yr, Teff=%.0f K, S_EUV=%.2e s^-1 (wall = %.1f s)\n",
+               k, diag.Mstar, t_yr, diag.Teff, diag.S_EUV, time() - t0w)
             break
         end
     end

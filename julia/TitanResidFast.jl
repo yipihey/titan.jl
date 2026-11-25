@@ -117,6 +117,15 @@ and −P dV/dt gravitational contraction work in the energy equation. Default fa
 """
 const HYDROSTATIC = Ref(false)
 """
+GR_CORR[] (default false; spherical μ = 2 self-gravity): exact 1D spherical post-Newtonian / TOV
+general-relativistic gravity correction (Misner-Sharp 1964; Fuller, Woosley & Weaver 1986; Woods et al. 2017):
+  g_GR = (G m_g / r²) · (1 + ε/c² + P/(ρ c²)) · (1 + 4π r³ P / (m_g c²)) / (1 + u²/c² − 2 G m_g / (r c²))
+with 1PN baryon-conserving gravitational mass-energy m_g(r) = m_b(r) + c⁻² ∫ (ε − G m / r) dm_b.
+Applied consistently to both gas momentum and Stage-2 TDC buoyancy/scale height, with exact ForwardDiff AD.
+Default false is 100% bit-identical to Newtonian TITAN.
+"""
+const GR_CORR = Ref(false)
+"""
 GRIDVEL[] (lgrid = 2 only): `nothing` (default) = every interface fixed. Otherwise a vector of interface velocities w [cm/s] (driver
 index, zero for an interface that stays): the grid row is r_new − r_old − w Δt with the Δt of the stage, so an interface follows the
 same straight path r_old + w t through the TR, the BDF2 and the backward-Euler stage of a step. The driver sets w between steps
@@ -414,7 +423,8 @@ const WSNAMES = (:rn, :xmen, :dn, :un, :tn, :ern, :frn, :pgn, :egn, :asn, :chifn
     :dso, :uso, :egrso, :egso, :erso, :frso, :xso1, :xso2,       # old-level limiter slopes (oldslope!)
     :erb, :ersn, :frb, :frsn, :qe, :qeo, :qF, :qFo, :dfm, :dfe, :xnu, :xnc, :ss, :fcv, :egbg, :egsng, :xnen, :snuc, :srcw, :vcv, :lcv, :nabv, :nadv,
     :xs1, :xs2, :xsn, :xb1, :xb2, :xsn1, :xsn2, :cpS1, :cpS2, :cpL, :cpQ, :cpY,     # COUPLED: species iterate (x_H⁺, x_H₂, x_HI), face values, slopes, rates, cooling
-    :tw, :two, :ta, :tU, :tsup, :tell, :trhoz, :tellz, :tF, :tHP, :trho, :tT, :tcp, :tPt, :tgx, :tAz, :tmzn, :tmzo, :tdV, :tD, :tQ, :tdel, :tg)   # TDC (M3b): w, background, zone arrays, exchange
+    :tw, :two, :ta, :tU, :tsup, :tell, :trhoz, :tellz, :tF, :tHP, :trho, :tT, :tcp, :tPt, :tgx, :tAz, :tmzn, :tmzo, :tdV, :tD, :tQ, :tdel, :tg,   # TDC (M3b): w, background, zone arrays, exchange
+    :fgr, :xmg)                                                                                                                                   # GR_CORR: TOV/1PN gravity multiplier & gravitational mass
 struct WS{T}
     a::NamedTuple{WSNAMES,NTuple{length(WSNAMES),Vector{T}}}
     xnuo::Vector{Float64}
@@ -926,6 +936,55 @@ to the grey diffusion flux, docs/POPIII_MULTIGROUP.md §17); where a zone is thi
     end
     den / num
 end
+"Exact 1D spherical TOV / Misner-Sharp 1PN GR gravity multiplier into W.fgr[ngrs+1:ngre+1] (zero alloc, concrete Vector{T})."
+function _gr_factors!(W, c::Ctx, fedd, ::Type{T}) where {T}
+    P = c.p; ngrs = c.ngrs; ngre = c.ngre
+    fgr = W.fgr; xmg = W.xmg
+    @inbounds for k in ngrs:ngre+1; fgr[k] = one(T); end
+    (c.mu == 2 && P.cgrav > 0) || return nothing
+    cc2 = P.cc^2
+    G4 = 4.0 * P.cpi * P.cgrav   # 4π G (since xm is mass per steradian)
+    r, u, d, pg, eg, er, xm, dvol = W.r, W.u, W.d, W.pg, W.eg, W.er, W.xm, W.dvol
+    # Accumulate 1PN gravitational mass-energy excess per steradian: Δm_g = Δm_b (ε/c² − G m / (r c²))
+    xmg[ngrs] = xm[ngrs]
+    cum_dmg = zero(T)
+    @inbounds for j in ngrs:ngre
+        dj = val(d[j]) > 1e-40 ? d[j] : T(1e-40)
+        epsj = eg[j] + (c.lrad ? er[j] / dj : zero(T))
+        dmj = d[j] * dvol[j]
+        rmid = 0.5 * (r[j] + r[j+1])
+        xmid = 0.5 * (xm[j] + xm[j+1])
+        potj = val(rmid) > 0 ? G4 * xmid / rmid : zero(T)
+        cum_dmg += dmj * (epsj - potj) / cc2
+        xmg[j+1] = xm[j+1] + cum_dmg
+    end
+    @inbounds for k in ngrs+1:ngre+1
+        rk = r[k]; xmk = xm[k]; xmgk = xmg[k]
+        (val(rk) > 0 && val(xmk) > 0 && val(xmgk) > 0) || continue
+        if k <= ngre
+            dm1 = val(d[k-1]) > 1e-40 ? d[k-1] : T(1e-40)
+            dp1 = val(d[k])   > 1e-40 ? d[k]   : T(1e-40)
+            Pm = pg[k-1] + (c.lrad ? fedd[k-1] * er[k-1] : zero(T))
+            Pp = pg[k]   + (c.lrad ? fedd[k]   * er[k]   : zero(T))
+            em = eg[k-1] + (c.lrad ? er[k-1] / dm1 : zero(T))
+            ep = eg[k]   + (c.lrad ? er[k]   / dp1 : zero(T))
+            ρi = 0.5 * (dm1 + dp1); Pi = 0.5 * (Pm + Pp); ei = 0.5 * (em + ep)
+        else
+            dm1 = val(d[k-1]) > 1e-40 ? d[k-1] : T(1e-40)
+            ρi = dm1
+            Pi = pg[k-1] + (c.lrad ? fedd[k-1] * er[k-1] : zero(T))
+            ei = eg[k-1] + (c.lrad ? er[k-1] / dm1 : zero(T))
+        end
+        w_rel = one(T) + (ei + Pi / ρi) / cc2
+        p_src = one(T) + (rk^3 * Pi) / (xmgk * cc2)
+        ξ_gr  = 2.0 * G4 * xmgk / (rk * cc2)
+        gam2  = one(T) + (u[k] / P.cc)^2 - ξ_gr
+        denom = val(gam2) > 0.05 ? gam2 : T(0.05)
+        fgr[k] = (xmgk / xmk) * w_rel * p_src / denom
+    end
+    return nothing
+end
+
 """
     _tdc!(R, W, c, x, fedd, kb)
 
@@ -954,7 +1013,7 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
     @inbounds for k in ngrs+1:ngre
         Pm = pgn[k-1] + (AD_JV[] ? fedd[k-1] : c.fedd[k-1]) * ern[k-1]; Pp = pgn[k] + (AD_JV[] ? fedd[k] : c.fedd[k]) * ern[k]
         Ti = 0.5 * (tn[k-1] + tn[k]); ρi = 0.5 * (dn[k-1] + dn[k]); Pi = 0.5 * (Pm + Pp)
-        gk = 2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g
+        gk = (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * (GR_CORR[] ? W.fgr[k] : one(T))
         ForwardDiff.value(gk) > 0 || continue                       # no gravity → no buoyancy: trivial row, no flux
         HP = Pi / (ρi * gk); l = c.alpha / sqrt(1 / HP^2 + 1 / r[k]^2)      # ℓ = α min(H_P, r) (smooth minimum; was MLT_RCAP)
         tell[k] = l
@@ -963,8 +1022,8 @@ function _tdc!(R, W, c::Ctx, x::AbstractVector{T}, fedd, kb) where {T}
         end
         (zv[k-1] === false || zv[k] === false) && continue          # unphysical iterate: trivial row (the step will be rejected)
         κk = Mg_ === nothing ? avchi[k] : mg_kappa_eddy(Mg_, k, Ti)      # M3e: MGROUPS: the Rosseland-type mean of the groups' opacities (grey avchi otherwise)
-        lph = (GFV[] || GVAR[]) ? -(gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +         # discrete hydrostatic ΔlnP of TITAN's own momentum balance (was MLT_HSDISC)
-                                  gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +
+        lph = (GFV[] || GVAR[]) ? -((gfz(k - 1, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k])) +         # discrete hydrostatic ΔlnP of TITAN's own momentum balance (was MLT_HSDISC)
+                                  gfz(k, k, d, dvol, r, rmu, 2xmu * P.cpi * P.cgrav, xm[k], gxe(r[k]))) * (GR_CORR[] ? W.fgr[k] : one(T)) +
                                   (1 - 0.5xmu) * P.g * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])) / (rmu[k] * Pi) :
                                  -gk * 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1]) / (rmu[k] * Pi)
         ΔlnP = log(Pp / Pm); ΔlnT = log(tn[k] / tn[k-1]); Δlnρ = log(dn[k] / dn[k-1])
@@ -1551,6 +1610,7 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
     # ---------------------------------------------------------------- GRID
     kb(k) = k - k0 + 1
     X(i, k) = AD_JV[] ? zero(T) : x[(kb(k) - 1) * neqn + i]
+    GR_CORR[] && _gr_factors!(W, c, fedd, T)
     TDC_ON[] && _tdc!(R, W, c, x, fedd, kb)          # M3b: the w rows, F_c, P_t, the exchange Q and D_mix at the iterate (before the momentum, energy and species rows that use them)
     if P.lgrid == 1
         α = P.alph * (1 + P.alph); gam = (P.tau / dt)^P.ibet
@@ -1670,11 +1730,12 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         mk = 0.5 * (d[k] * dvol[k] + d[k-1] * dvol[k-1])
         r1 = r[k]^(-0.5xmu)
         r3k = ((r[k] + r[k+1]) / 2)^(1.5xmu); r3m = ((r[k-1] + r[k]) / 2)^(1.5xmu)
+        fgrk = GR_CORR[] ? W.fgr[k] : one(T)
         fgk = if GFV[] || GVAR[]                # gravity force with the finite-volume weight / as the gradient of the binding energy
             xek = gxe(r[k]); G4_ = 2xmu * P.cpi * P.cgrav
-            gfz(k - 1, k, d, dvol, r, rmu, G4_, xm[k], xek) + gfz(k, k, d, dvol, r, rmu, G4_, xm[k], xek) + (1 - 0.5xmu) * P.g * mk
+            (gfz(k - 1, k, d, dvol, r, rmu, G4_, xm[k], xek) + gfz(k, k, d, dvol, r, rmu, G4_, xm[k], xek)) * fgrk + (1 - 0.5xmu) * P.g * mk
         else
-            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk
+            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] * fgrk + (1 - 0.5xmu) * P.g) * mk
         end
         w = if HYDROSTATIC[]
             rmu[k] * (pg[k] - pg[k-1]) + fgk
@@ -1698,14 +1759,15 @@ function residual!(R::AbstractMatrix{T}, ws::WS{T}, c::Ctx, x::AbstractVector{T}
         k = ngre + 1
         mk = 0.5 * d[k-1] * dvol[k-1]
         r3m = ((r[k-1] + r[k]) / 2)^(1.5xmu)
+        fgrk = GR_CORR[] ? W.fgr[k] : one(T)
         w = if HYDROSTATIC[]
             rmu[k] * (PEXT[] - pg[k-1] - (TDC_ON[] ? W.tPt[k-1] : zero(pg[k-1]))) +
-            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk
+            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] * fgrk + (1 - 0.5xmu) * P.g) * mk
         else
             (un[k] * dn[k-1] * dvoln[k-1] - c.uo[k] * c.do_[k-1] * c.dvolo[k-1]) / (2dt) +
             0.5 * (dmdt[k-1] + dmdt[k]) * ub[k-1] +
             rmu[k] * (PEXT[] - pg[k-1] - (TDC_ON[] ? W.tPt[k-1] : zero(pg[k-1]))) +
-            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] + (1 - 0.5xmu) * P.g) * mk -
+            (2xmu * P.cpi * P.cgrav * xm[k] / rmu[k] * fgrk + (1 - 0.5xmu) * P.g) * mk -
             r[k]^(-0.5xmu) * r3m * qf[k-1]
         end
         c.lrad && (w -= avchi[k] * fr[k] / cc * mk)

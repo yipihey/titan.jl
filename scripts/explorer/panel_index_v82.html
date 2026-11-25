@@ -1,0 +1,1652 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Pop III Run Explorer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: an instrument console. Controls and readouts on top, profiles as small multiples, track and cost below. */
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --fg: #15181d; --muted: #5d6470; --faint: #8b919b; --grid: #e3e6eb; --rule: #d4d8de;
+  --run-a: #2a78d6; --run-b: #eb6834; --c3: #1baf7a; --c4: #eda100; --c5: #e87ba4; --c6: #7d5fd3; --c7: #5b6573; --c8: #008300; --focus: #2a78d6;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #101318; --panel: #171b22; --fg: #e7eaef; --muted: #a2a9b4; --faint: #737b87; --grid: #262c36; --rule: #2f3642;
+  --run-a: #3987e5; --run-b: #d95926; --c3: #199e70; --c4: #c98500; --c5: #d55181; --c6: #9a82ea; --c7: #aab3bf; --c8: #008300; --focus: #3987e5; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #101318; --panel: #171b22; --fg: #e7eaef; --muted: #a2a9b4; --faint: #737b87; --grid: #262c36; --rule: #2f3642;
+  --run-a: #3987e5; --run-b: #d95926; --c3: #199e70; --c4: #c98500; --c5: #d55181; --c6: #9a82ea; --c7: #aab3bf; --c8: #008300; --focus: #3987e5; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 14px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px }
+.wrap { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px }
+.wrap > *, section, header, details { min-width: 0 }
+header { display: grid; gap: 6px }
+h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; text-wrap: balance }
+h2 { font-size: 15px; font-weight: 600; margin: 0; text-wrap: balance }
+.lede { color: var(--muted); margin: 0; max-width: 78ch }
+.bar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px }
+.ctl { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted) }
+.ctl { min-width: 0; max-width: 100% }
+.ctl select { min-width: 0; max-width: 100%; text-overflow: ellipsis }
+.ctl label { white-space: nowrap }
+select, button, input[type=checkbox] { font: inherit; color: var(--fg) }
+select { background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 8px }
+button { background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-family: var(--mono); font-size: 12.5px }
+button:hover { border-color: var(--muted) }
+input[type=number] { font: inherit; font-family: var(--mono); font-size: 12.5px; color: var(--fg); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 6px; width: 5.6em }
+input[type=number]::placeholder { color: var(--faint) }
+.ctl.xr { flex-wrap: wrap }
+.leg { font-size: 11.5px; gap: 2px 12px }
+.nucc canvas { height: 300px; cursor: crosshair }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px }
+.scrub { display: flex; gap: 10px; align-items: center; flex: 1 1 360px; min-width: 0 }
+.scrub input[type=range] { flex: 1; min-width: 0; accent-color: var(--run-a) }
+.chips { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums }
+.chip { display: flex; gap: 6px; align-items: baseline }
+.chip b { font-weight: 500; color: var(--fg) }
+.chip span { color: var(--faint); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase }
+.specwarn { border-left: 3px solid var(--c4); padding: 6px 10px; margin: 6px 0 10px; color: var(--fg); font-size: 13px; line-height: 1.45; max-width: 75ch }
+.key { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); align-items: center }
+.sw { display: inline-block; width: 18px; height: 2px; vertical-align: middle; margin-right: 6px; border-radius: 1px }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 12px }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px 8px; min-width: 0; display: grid; gap: 4px }
+.card .hd { display: flex; justify-content: space-between; gap: 8px; align-items: baseline }
+.card .hd h3 { font-size: 12.5px; font-weight: 600; margin: 0 }
+.card .hd .val { font-family: var(--mono); font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right }
+canvas { width: 100%; display: block; touch-action: pan-y }
+.prof canvas { height: 190px; cursor: crosshair }
+.wide canvas { height: 260px }
+.tall canvas { height: 350px; cursor: crosshair }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 12px }
+.hid { display: none !important }
+.cvh { grid-column: 1 / -1; margin: 6px 0 0 }
+.kipp canvas { height: 360px; cursor: crosshair }
+.hrd canvas { height: 360px; cursor: crosshair }
+.puls canvas { height: 280px; cursor: crosshair }
+.pulsbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 12.5px; color: var(--muted) }
+.pulsbar button { padding: 2px 8px; font-size: 11.5px }
+.spc canvas { height: 300px; cursor: crosshair }
+.obs canvas { height: 380px; cursor: crosshair }
+.obsctl { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12.5px; color: var(--muted) }
+.obsctl select { font: inherit; font-size: 12.5px }
+details.specmore > summary { cursor: pointer; font-size: 13.5px; color: var(--fg); padding: 6px 0 }
+details.specmore[open] > summary { margin-bottom: 8px }
+.cardnote { color: var(--muted); font-size: 12.5px; padding: 8px 2px }
+.seg { display: inline-flex; justify-self: start }
+.seg button { border-radius: 0; padding: 2px 9px; font-family: var(--sans); font-size: 12px; color: var(--muted) }
+.seg button:first-child { border-radius: 6px 0 0 6px }
+.seg button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px }
+.seg button[aria-pressed="true"] { color: var(--fg); border-color: var(--focus); background: color-mix(in srgb, var(--focus) 12%, transparent); position: relative }
+.tauleg { font-size: 11.5px; gap: 2px 14px }
+.tauleg svg { vertical-align: middle; margin-right: 6px }
+.flc canvas { height: 280px }
+.fltab { overflow-x: auto; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums }
+.fltab table { border-collapse: collapse; min-width: 560px; width: 100% }
+.fltab th, .fltab td { padding: 3px 8px; border-bottom: 1px solid var(--rule); text-align: right; white-space: nowrap }
+.fltab th:first-child, .fltab td:first-child { text-align: left }
+.fltab th { color: var(--faint); font-weight: 500; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase }
+.fltab tr.sel td { color: var(--fg); font-weight: 600 }
+.fltab tr { cursor: pointer }
+.flctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.card .hd h3 sub, .note sub { font-size: 0.75em }
+section { display: grid; gap: 10px }
+.sechead { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; justify-content: space-between }
+.note { color: var(--muted); font-size: 12.5px; margin: 0; max-width: 90ch }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums }
+th, td { padding: 6px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid) }
+th:first-child, td:first-child { text-align: left }
+th { color: var(--muted); font-weight: 500; font-size: 11.5px; letter-spacing: 0.03em }
+td.mono { font-family: var(--mono) }
+.empty { color: var(--muted); font-size: 13px; padding: 16px }
+.live { display: grid; gap: 8px }
+.live .sechead .ctl { font-family: var(--mono); font-size: 11.5px; color: var(--faint) }
+#livetab tr.row, #stoptab tr.row { cursor: pointer }
+#livetab tr.row:hover td, #stoptab tr.row:hover td { background: var(--bg) }
+#livetab tr.sel td, #stoptab tr.sel td { background: var(--bg) }
+#livetab tr.sel td:first-child, #stoptab tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--focus) }
+td.cmp, th.cmp { width: 2.2em; text-align: center }
+td.cmp input { width: 16px; height: 16px; accent-color: var(--focus); cursor: pointer; margin: 0 }
+#livetab tr.cmpon td, #stoptab tr.cmpon td { background: color-mix(in srgb, var(--focus) 8%, transparent) }
+.cmpbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted) }
+.cmpbar button { font: inherit; font-size: 12px; padding: 2px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer }
+#livetab td.desc, #stoptab td.desc { text-align: left; white-space: normal; min-width: 26em; color: var(--muted); font-size: 12px }
+.pill { display: inline-block; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 6px; border-radius: 9px; border: 1px solid var(--rule); color: var(--muted); margin-left: 6px }
+.pill.run { color: var(--c3); border-color: var(--c3) }
+.pill.stall { color: var(--c4); border-color: var(--c4) }
+td .sw { width: 10px; height: 10px; border-radius: 2px; margin-right: 6px }
+details.hist { color: var(--muted); font-size: 12.5px; max-width: 90ch }
+details.hist summary { cursor: pointer; color: var(--fg); font-size: 13px }
+details.stopped summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 4px 0 }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Pop III Run Explorer</h1>
+    <p class="lede">Runs stopped before 20 Nov 2026 are in the <a href="https://claude.ai/artifact/5bG6zZELMijTW8yJs27Ej6" target="_blank" rel="noopener">Pop III Run Archive</a> (this page reached its size limit).</p>
+    <p class="lede" id="lede">Profiles, track and computing cost of the from-scratch Pop III protostar runs. Goal: follow the accretion until the cloud is accreted (300 M☉) or the star stops the inflow. Production is <b>t_c128c</b>: the 128-zone line c128 (from 141.5 M☉), continued since 269.9 M☉ with the chemistry coupled into the hydrodynamic Newton step in the stiff band (14 Nov; time steps about 6× longer than the split-chemistry c128, which it replaces, at equal results within a few per cent). Between 263 and 270 M☉ the hot envelope inside the photosphere drained and collapsed onto the star (infall up to 1200 km/s). t_ec and t_b224c8 are the 224-zone references of the 10 M☉ phase. The page checks for new data every two minutes.</p>
+    <details class="hist"><summary>History of the runs to 12 Nov</summary><p>Profiles, track and computing cost of the from-scratch runs. Since 11 Nov, 21:00 three runs are active, each on 4 pinned threads, with the CMB and the diluted light of the star incident on the H₂ lines and with HD chemistry and cooling: b224, c128 and f128. <b>b224</b> is the new baseline: it takes base64 at 0.045 M☉ (step 26 000) onto a fixed mesh of 224 zones, 3 % wide in radius from 3 to 1000 R☉, where the surface and the accretion shock are, and coarse in the core and the envelope. Without HD this mesh reproduces full6 between 2.3 and 7.2 M☉ within 2 to 5 % in radius, with no failed step; with HD a test on this mesh flashed below 0.63 M☉, with excursions of 20 to 50 % in radius, and was quiet after that, within 3 to 7 % of two test meshes that resolve the shock from 1.3 M☉ on. At 2.40 M☉ the time step of that test fell to the time the gas needs to cross one zone at the shock, the artefact of the step rule known from the resolved-shock meshes; a copy of the test with the rule applied after the chemistry step runs on (5.1 M☉, 67 R☉ at 00:53, 12 Nov). b224 itself swelled to 111 R☉ at 0.60 M☉, collapsed at 0.61 to 0.63 M☉ onto the branch of the test (56 to 58 R☉ from 0.9 to 1.3 M☉), and was held at 1.33 to 1.35 M☉ by the same artefact from 22:15 to 23:53 on 11 Nov (those frames show a stalled run, not a star that stopped accreting). It left the stall with a second swelling (96 R☉ at 1.36 M☉), came back to 60 R☉ at 1.5 M☉ and ran without further stalls to 4.20 M☉; since 02:15 on 12 Nov it is held there by the same step-rule artefact (4.22 M☉ at 06:27; frames after that show a stalled run, not a star that stopped accreting). The copy with the rule applied after the chemistry step passed this mass without a stall. The mesh of b224 also samples the infalling envelope poorly (1 to 4 zones per half decade of radius beyond 3000 R☉); a mesh of 200 zones that follows both radius and mass and moves with the star is in its first test, from the same checkpoint as b224 (0.92 M☉ at 00:53, 12 Nov). It conserves the total mass to 1 part in 10¹², keeps eight zones of 2 % across the accretion shock and follows b224 through the flashing phase, but it swells again at 0.91 M☉ where b224 did not, and a fixed mesh with a fine envelope shows that b224's coarse envelope lets about 9 % too little mass through 10⁴ R☉ and 21 % too little through 3×10⁴ R☉, while the moving mesh lets 20 % too much through 3×10⁴ R☉ (its envelope moves faster than the gas); a version with the envelope frozen beyond 3000 R☉ failed to converge at 0.107 M☉ with the post-chemistry step rule on and passed that point with the rule off. The code is in the repository, switched off by default; it is not in this explorer yet. Emission (12 Nov): non-LTE H I, He I and He II atoms (tested against Storey &amp; Hummer 1995 and Porter et al. 2012) applied to c128 snapshots from 142 to 190 M☉ find the envelope between the star and the shell in LTE and fully ionized; the recombination lines made there, He II 1640 included, are buried under a continuum optical depth of about 10⁴, and the lines that escape come from the cool infall outside the 3400 K photosphere (Hα about 280 L☉, 4×10⁻⁵ of the luminosity). <b>base64</b>, the first baseline from the initial conditions on 64 zones (2×10⁴ M☉ cloud, continuum transport from log n_c = 14), was stopped on 11 Nov, 20:01 at 1.78 M☉: on 64 fixed zones the radius of the star stays on one mesh interface (144 R☉) and the accretion shock is one zone. <b>nohd64</b>, the same run without HD (with HD the core is at 220 K when log n_c = 7.8, without it at 676 K, and the collapse comes 7×10⁶ yr earlier); <b>c128</b>, the production line continued from 141.5 M☉ on 128 zones (146 zones merged two to one between 11 and 1500 R☉); and <b>f128</b>, full6 continued from 14.3 M☉ on 128 zones (its 380 zones merged three to one). <b>Caution for nohd64 after 0.5 M☉ (11 Nov, 14:39):</b> on the fixed 64-zone mesh one zone, 39 % wide in radius, holds the whole photosphere. The star there is several times larger than in full6 at the same mass, its luminosity comes in flashes, and most steps fail to converge; the radius and luminosity of that phase are not results. full3 and full4 were stopped at 10.5 and 10.9 M☉; full6 and c146 end where their continuations begin. The earlier runs: <b>full4</b> switches continuum radiation transport on at log n_c = 14, before the continuum matters; <b>full3</b> uses the fitted continuum cooling with an escape factor and switches radiation on at log n_c = 18.5. The two are the same run up to log n_c = 14 (step 9500). After that: core growth, then accretion on the fixed mesh. <b>full6</b> is a new start from the initial conditions with the cloud extended from 10⁴ to 2×10⁴ M☉ (outer edge 167 pc instead of 55 pc), continuum transport from log n_c = 14, and artificial viscosity only in radial compression (shocks), not in stretched free fall. <b>full2</b> ran without continuum cooling or radiation in the dense core and is valid only below log n_c ≈ 14; it was stopped at log n_c = 22.4. The reference history is the earlier production run (0.5 to 97 M☉). <b>fx3</b> is the same production run from 102.7 to 105.9 M☉ (10 Nov) on its mesh of 286 zones, recorded in full since it was restarted with shock-only viscosity, zone-local chemistry sub-steps and the faster line solver; its photosphere pulsates and the cycle is not resolved. <b>c146</b> continues that run from 105.4 M☉ on a mesh of 146 zones (zones merged three to one outside 30 R☉); it is recorded here from 106 M☉ and was the production line from 10 Nov, 22:55 to 11 Nov, 11:00 (141.5 M☉). On this mesh the cycle is gone: the photosphere stays on one mesh interface (5640 R☉), while the envelope between the star and the photosphere gains mass at about 2×10⁻³ M☉ per year, the same rate as in fx3. Overlay matches frames by protostar mass once there is a protostar, and by central density before.</p></details>
+  </header>
+
+  <section class="live" aria-label="Running simulations">
+    <div class="sechead"><h2>Running now</h2><span class="ctl" id="livestamp" aria-live="polite">loading…</span></div>
+    <div class="cmpbar" id="cmpbar"><span>Tick <b>Compare</b> on any rows (running or stopped) to overlay those runs, dashed in their own colours, on the selected run's profiles (at the matched mass) and track. Click a row to make it the selected run.</span><span id="cmplist"></span><button id="cmpclear" type="button" hidden>Clear comparison</button></div>
+    <div class="tablewrap"><table id="livetab"></table></div>
+    <details class="stopped"><summary id="stoppedsum">Stopped runs</summary><div class="tablewrap"><table id="stoptab"></table></div></details>
+  </section>
+
+  <div class="bar" role="group" aria-label="Run and frame">
+    <div class="ctl"><label for="run">Run</label>
+      <select id="run"></select></div>
+    <div class="ctl"><label for="ovr">Overlay</label>
+      <select id="ovr"><option value="auto">nearest other run</option><option value="none">none</option></select></div>
+    <div class="ctl"><label for="xax">Profiles against</label>
+      <select id="xax"><option value="logr">radius</option><option value="logm">enclosed mass</option><option value="zone">zone number</option></select></div>
+    <div class="ctl"><button id="pdfbtn" type="button" title="ABN02 Fig. 2-style printable figure of the selected run: profiles at separated times since protostar formation, histories and a summary table (US Letter, vector)">Printable figure (PDF)</button>
+      <a id="pdflink" href="#" target="_blank" rel="noopener">open</a> <span id="pdfmsg" class="note" aria-live="polite"></span></div>
+    <div class="ctl xr" role="group" aria-label="Range of the x axis of the profiles">
+      <label for="xmin" id="xlab">log₁₀ r (R☉) from</label><input type="number" id="xmin" step="any" aria-label="x-axis minimum">
+      <label for="xmax">to</label><input type="number" id="xmax" step="any" aria-label="x-axis maximum">
+      <button id="xauto" title="Empty both boxes: show the full range of the run">Full range</button></div>
+    <div class="scrub">
+      <button id="prev" aria-label="Previous frame">◀</button>
+      <button id="play" aria-label="Play">Play</button>
+      <button id="next" aria-label="Next frame">▶</button>
+      <span class="ctl"><input type="checkbox" id="loop" checked><label for="loop">Loop</label></span>
+      <input type="range" id="frame" min="0" max="0" value="0" aria-label="Frame">
+    </div>
+  </div>
+
+  <div class="chips" id="chips" aria-live="polite"></div>
+  <div class="key" id="key"></div>
+
+  <section>
+    <div class="grid" id="profiles"></div>
+  </section>
+
+  <p class="note"><b>Optical depth</b> in these panels is the grey continuum optical depth the run itself uses: τ<sub>R</sub>(r) = ∫ χ<sub>R</sub> ρ dr from r out to the outer mesh boundary, where τ<sub>R</sub> = 0 (gas beyond the mesh does not count). χ<sub>R</sub> is the Rosseland mean of the extinction, absorption plus Rayleigh and Thomson scattering, from the equilibrium opacity table and corrected in the non-equilibrium zones for the zone's own composition. The dotted line is τ<sub>R</sub> = 2/3, the run's photosphere (r_ph, T_eff). It is not a line optical depth: the H₂ lines have their own transfer, line by line. Wavelength-dependent depths are in the spectrum section below.</p>
+
+  <section aria-label="Observable spectrum">
+    <div class="sechead"><h2>Observable spectrum</h2>
+      <div class="obsctl"><label for="obssrc">Source</label><select id="obssrc"><option value="auto">automatic</option><option value="full">with lines (non-LTE, fewer snapshots)</option><option value="cont">continuum only</option></select></div></div>
+    <div class="key" id="obskey"></div>
+    <div class="chips" id="obschips" aria-live="polite"></div>
+    <div class="specwarn" id="obswarn" hidden></div>
+    <div class="card wide obs"><div class="hd"><h3>ν L<sub>ν</sub> (L☉) against wavelength (μm)</h3><div class="val" id="obsv"></div></div><canvas id="obs" aria-label="Spectrum leaving the grid and through the photosphere"></canvas><div class="cardnote" id="obsmsg" hidden></div></div>
+    <p class="note"><b>Leaving the grid</b> (solid): L<sub>ν</sub> leaving the outermost zone of the mesh, the spectrum an observer would receive (no gas beyond the mesh). <b>Through the photosphere</b> (dashed): L<sub>ν</sub> = 16π² r² H<sub>ν</sub>, the net flux through the interface where the run's grey Rosseland optical depth from the edge reaches 2/3, i.e. what emerges from just above the photosphere before the envelope outside reprocesses it. Both come from the same static spherical formal solution of the snapshot nearest to the frame (step shown in the chips). With the <i>with lines</i> source the continuum includes H I, He I, He II bound–free and free–free opacity, and each line is drawn as a spike from the continuum to the extreme of its emergent profile at the edge (up: emission, down: absorption; the profile itself, with the infall, is in the diagnostics below); for spectra computed since 14 Nov the lines are also transferred to the photosphere sphere (dashed spikes: L<sub>ν</sub> = 16π² r² H<sub>ν</sub> through r<sub>ph</sub> in the same observer-frame solution), so the difference between the solid and the dashed spikes is what the envelope outside the photosphere adds or absorbs; older spectra have the photosphere continuum only. The <i>continuum only</i> source has more snapshots (H₂ lines there are sticks of line luminosity, in the diagnostics). Dotted: blackbody of the run's T<sub>eff</sub> at its photosphere radius. If the chips flag a luminosity mismatch, the spectrum radiates an unresolved zone and is not a prediction for that snapshot.</p>
+  </section>
+
+  <details class="specmore" id="specmore"><summary>More spectrum diagnostics: radius of τ<sub>λ</sub> = 2/3, optical depth by process, H₂ line sticks, line profiles, line optical depths and the line table</summary>
+  <section>
+    <div class="sechead"><h2>Continuum spectrum</h2><div class="key" id="speckey"></div></div>
+    <div class="chips" id="specchips" aria-live="polite"></div>
+    <div class="specwarn" id="specwarn" hidden></div>
+    <div class="grid2">
+      <div class="card wide spc"><div class="hd"><h3>ν L<sub>ν</sub> (L☉) against wavelength (μm)</h3><div class="val" id="spv"></div></div><canvas id="spec" aria-label="Emergent spectrum at the mesh edge and at the photosphere"></canvas></div>
+      <div class="card wide spc"><div class="hd"><h3>Radius where τ<sub>λ</sub> = 2/3 (R☉) against wavelength (μm)</h3><div class="val" id="spv2"></div></div><canvas id="spect" aria-label="Radius of monochromatic optical depth two thirds against wavelength"></canvas></div>
+      <div class="card wide spc"><div class="hd"><h3>Optical depth by process against wavelength (μm)</h3><div class="val" id="spv3"></div></div>
+        <div class="seg" id="taud" role="group" aria-label="Depth down to which the optical depth is accumulated"><button type="button" data-d="0" aria-pressed="true">down to τ<sub>λ</sub> = 2/3</button><button type="button" data-d="1" aria-pressed="false">down to the grey photosphere r<sub>ph</sub></button></div>
+        <canvas id="spectau" aria-label="Optical depth of each opacity process from the mesh edge inwards against wavelength"></canvas><div class="key tauleg" id="taukey"></div></div>
+    </div>
+    <p class="note">Computed after the fact from the snapshot nearest to the frame; nothing feeds back into the run. <b>Continuum:</b> static spherical transfer at 216 wavelengths (0.05 to 1000 μm) on the snapshot's density, gas temperature and non-equilibrium composition. Opacity: collision-induced absorption of H₂ (H₂–H₂, H₂–He, H₂–H), H⁻ bound–free and free–free, H bound–free (levels n ≤ 30) and free–free, Rayleigh scattering on H₂ and H and Thomson scattering (coherent). <b>No lines in the continuum transfer</b>, neither in absorption nor in emission: no H I lines (Lyman, Balmer, Paschen, …), no He I (584 Å, 10830, 5876 Å) or He II (304 Å, 1640, 4686 Å) lines, no H₂ or HD lines. Helium enters only through H₂–He collision-induced absorption: no He bound–free or free–free continua (the wavelength grid ends at 0.05 μm, so the He II and most of the He I continua lie outside it anyway). Bound–free continua emit by recombination of the zone's own electrons; everything else emits thermally at the gas temperature. <b>Edge</b> is the outer mesh boundary: what leaves the computed volume. <b>Photosphere</b> is the run's grey τ<sub>R</sub> = 2/3 surface. <b>H₂ lines</b> (rovibrational quadrupole lines of the run's level model) come from the run's own line transfer, in emission only, drawn as sticks whose height is each line's luminosity (L☉, not ν L<sub>ν</sub>), scaled per snapshot to the gas's collisional line cooling; they see no continuum extinction and do not absorb the continuum. HD lines are not computed. The right panel shows where the monochromatic radial optical depth τ<sub>λ</sub> = ∫ (κ<sub>λ</sub> + σ<sub>λ</sub>) ρ dr, from the mesh edge inwards, reaches 2/3; the dotted line is the grey photosphere. <b>Check:</b> the temperature structure is the grey run's, so ∫L<sub>ν</sub>dν need not equal the run's luminosity; the chips give both. They disagree strongly where the photosphere sits inside the accretion shock and the optical depth jumps from below 2/3 to hundreds within one zone: there the spectrum at the photosphere is not resolved. <b>Optical depth by process</b> (third panel): the optical depth of each opacity process accumulated from the outer mesh boundary inwards, with the same opacities and points as the continuum transfer, either down to the radius where the monochromatic τ<sub>λ</sub> reaches 2/3 (the processes then sum to 2/3: they are what makes the photosphere at that wavelength) or down to the run's grey photosphere r<sub>ph</sub>. It is extinction (absorption with stimulated emission subtracted, plus scattering) and contains no lines; the thin line is the sum of the processes.</p>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Full spectrum with lines</h2><div class="flctl"><label for="flsel">Line</label><select id="flsel"></select></div></div>
+    <div class="chips" id="flchips" aria-live="polite"></div>
+    <div class="grid2">
+      <div class="card wide spc"><div class="hd"><h3>ν L<sub>ν</sub> (L☉) against wavelength (μm), 0.01–1000 μm, with the lines</h3><div class="val" id="flv"></div></div><canvas id="fullspec" aria-label="Full emergent spectrum with line markers"></canvas></div>
+      <div class="card flc"><div class="hd"><h3>Line profile L<sub>ν</sub>/L<sub>c</sub> against velocity (km/s, + = redshift)</h3><div class="val" id="flpv"></div></div><canvas id="flprof" aria-label="Profile of the selected line"></canvas></div>
+      <div class="card flc"><div class="hd"><h3>Radial line-centre optical depth τ<sub>0</sub> against radius (R☉)</h3><div class="val" id="fltv"></div></div><canvas id="fltau" aria-label="Line-centre optical depth against radius"></canvas></div>
+    </div>
+    <div class="fltab" id="fltab"></div>
+    <p class="note">Computed after the fact (julia/SpecFull.jl, snapfull.jl) from the snapshot nearest to the frame, for fewer snapshots than the continuum above (about one minute each). <b>Continuum</b> 1000 to 0.01 μm: H₂ collision-induced absorption, H⁻ bound–free and free–free, bound–free of every level of H I (n ≤ 20), He I (CHIANTI terms + hydrogenic shells) and He II (n ≤ 20) with their own recombination emission, free–free on H⁺, He⁺ and He²⁺, Rayleigh and Thomson scattering. <b>Level populations</b>: non-LTE statistical equilibrium of the three atoms at the snapshot's T and n_e, with the run's ionisation (ground state and ion fixed to the snapshot), in the continuum J of this transfer and Sobolev escape in the snapshot's velocity field; H₂ from the run's own line transfer (ALI). <b>Lines</b> (37: Lyman, Balmer, Paschen, Brackett; He I 584 … 20581; He II 304 … 10124; H₂ 1–0, 2–1 and 0–0) as opacity and emissivity with Voigt profiles (thermal + 2 km/s microturbulence, radiative damping, electron impact, the ions' linear Stark pattern for H I and He II), solved in the observer frame along the tangent rays with the infall: absorption appears where the line's source function is below the light behind it, emission otherwise; infall gives redshifted absorption. EW &lt; 0 is emission. <b>Photosphere</b>: where the run's mesh puts the whole photosphere into one zone (c128), that zone is split into sub-layers on the run's grey τ scale with a grey Eddington T(τ), normalised so that the continuum carries the run's luminosity (the factor is shown); this is a model assumption, not resolved physics. Not included: HD lines (no level data in the code yet), line photons scattered by electrons, the line J in the populations beyond Sobolev, lines feeding each other's windows; a window is ±600 km/s, so far Stark wings of Lyα are cut.</p>
+  </section>
+  </details>
+
+  <section>
+    <div class="sechead"><h2>Track</h2>
+      <div class="key">
+        <div class="ctl"><label for="ty">Quantity</label><select id="ty"></select></div>
+        <div class="ctl"><label for="tx">against</label><select id="tx">
+          <option value="t">time since the first frame</option><option value="step">step</option><option value="M_star">protostar mass</option></select></div>
+      </div></div>
+    <div class="card wide"><div class="hd"><h3 id="trh"></h3><div class="val" id="trv"></div></div><canvas id="track" aria-label="Track chart; click to jump to a frame"></canvas></div>
+    <p class="note">Click the track to jump to the nearest frame of the selected run. The vertical line marks the frame shown above. Dashed lines labelled D, pp or CNO mark the onset of that burning in the selected run (see below).</p>
+  </section>
+
+  <section aria-label="Full evolution overview (Hosokawa et al. Fig. 1 and HR diagram)">
+    <div class="sechead"><h2>Full Evolution Overview: Interior Structure (HOY12 Fig. 1) &amp; HR Diagram</h2>
+      <div class="pulsbar">
+        <div class="ctl"><label for="kippx">Kippenhahn x-axis</label><select id="kippx">
+          <option value="M_star">protostar mass M* (log M☉)</option><option value="t">time t (yr)</option><option value="step">step</option></select></div>
+        <span class="ctl"><input type="checkbox" id="kippref" checked><label for="kippref">10⁻³ M☉/yr ZAMS ref</label></span>
+        <span class="ctl"><input type="checkbox" id="hrzams" checked><label for="hrzams">ZAMS &amp; Hayashi strip</label></span>
+      </div></div>
+    <div class="grid2">
+      <div class="card kipp">
+        <div class="hd"><h3>Interior Structure Evolution (HOY12 Fig. 1): R*, R<sub>ph</sub>, M<sub>r</sub> shells, convection &amp; burning</h3><div class="val" id="kippv"></div></div>
+        <div class="key leg" id="kippkey"></div>
+        <canvas id="kipp" aria-label="Hosokawa et al. Figure 1 style Kippenhahn interior evolution chart; click to seek"></canvas>
+      </div>
+      <div class="card hrd">
+        <div class="hd"><h3>Hertzsprung–Russell Diagram (L<sub>ph</sub> vs T<sub>eff</sub>)</h3><div class="val" id="hrv"></div></div>
+        <div class="key leg" id="hrkey"></div>
+        <canvas id="hrd" aria-label="Interactive Hertzsprung-Russell diagram with ZAMS, constant-radius lines and pulsation loops; click to seek"></canvas>
+      </div>
+    </div>
+    <p class="note"><b>Left (HOY12 Fig. 1):</b> Full evolution on a single diagram showing the stellar surface R<sub>*</sub> (solid), photosphere R<sub>ph</sub> (dashed), interior fixed enclosed-mass trajectories M<sub>r</sub> = 1, 3, 10, 30, 100, 300, 1000, 3000 M☉ (dotted), the 70% enclosed-mass radius (dash-dot), convective layers (grey shading), active deuterium-burning shells (amber hatch), hydrogen-burning shells (crimson hatch), and relativistic compactness ξ<sub>GR</sub> = 2Gm/rc² ≥ 10⁻³ when present. Click anywhere to jump to that snapshot. <b>Right (HR diagram):</b> Standard astronomical orientation (T<sub>eff</sub> decreasing left to right) with constant-radius diagonals, Pop III ZAMS reference stars (15–300 M☉), Hayashi H⁻ pulsation strip (3700–5600 K), and multi-run Compare overlays.</p>
+  </section>
+
+  <section aria-label="Fast-timescale pulsations and instability analyzer">
+    <div class="sechead"><h2>Fast-Timescale Pulsations, Density Inversions &amp; FFT Spectrum</h2>
+      <div class="pulsbar">
+        <div class="ctl"><label for="pulswin">Window</label><select id="pulswin">
+          <option value="50">±25 frames</option><option value="150" selected>±75 frames</option><option value="400">±200 frames</option><option value="0">Full run</option></select></div>
+        <div class="ctl"><label for="pulsvar">Trace</label><select id="pulsvar">
+          <option value="LT">L_ph &amp; T_eff</option><option value="RR">R*, R_ph &amp; Mdot</option><option value="GI">max Γ_Edd &amp; density inversion</option></select></div>
+        <div class="ctl"><label for="fftx">Spectrum axis</label><select id="fftx">
+          <option value="Q">Pulsation constant Q [days]</option><option value="P">Period P [yr]</option></select></div>
+        <button id="jmpL" type="button" title="Jump to peak photospheric luminosity in window">Peak L<sub>ph</sub></button>
+        <button id="jmpInv" type="button" title="Jump to strongest density inversion in window">Peak Inversion</button>
+        <button id="jmpGam" type="button" title="Jump to peak local Eddington ratio in window">Peak Γ<sub>Edd</sub></button>
+      </div></div>
+    <div class="chips" id="pulschips" aria-live="polite"></div>
+    <div class="grid2">
+      <div class="card puls">
+        <div class="hd"><h3 id="pulstsh">High-cadence zoom time series</h3><div class="val" id="pulsv"></div></div>
+        <div class="key leg" id="pulskey"></div>
+        <canvas id="pulsts" aria-label="Zoomed fast-timescale pulsation time series; click to jump to frame"></canvas>
+      </div>
+      <div class="card puls">
+        <div class="hd"><h3 id="pulsffth">Hann-windowed FFT of log₁₀ L<sub>ph</sub>(t)</h3><div class="val" id="fftv"></div></div>
+        <div class="key leg" id="fftkey"></div>
+        <canvas id="pulsfft" aria-label="FFT power spectrum of photospheric luminosity in the selected window"></canvas>
+      </div>
+    </div>
+    <p class="note">Designed for fast-timescale supergiant pulsations and episodic accretion bursts. The left panel zooms cleanly around the current frame with click-to-seek; the right panel resamples log₁₀ L<sub>ph</sub>(t) onto a uniform time grid, detrends linearly, applies a Hann window, and computes the exact DFT spectrum against either the pulsation constant Q = P<sub>d</sub> √((M<sub>*</sub>/M☉)/(R<sub>*</sub>/R☉)³) (with Inayoshi et al. 2013's 0.055–0.095 d linear κ-mechanism instability band shaded) or period P in years.</p>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Photons ahead of the photosphere</h2><div class="key" id="photkey"></div></div>
+    <div class="chips" id="photchips" aria-live="polite"></div>
+    <div class="card wide"><div class="hd"><h3>Ionizing and Lyman–Werner photon rates (s⁻¹), selected run, against log M*</h3><div class="val" id="photv"></div></div><canvas id="phot" aria-label="Emitted and escaping photon rates against protostar mass"></canvas></div>
+    <p class="note">Post-processed from every snapshot (scripts: julia/ionfs_post.jl, branch ionfs-v2): the frequency-resolved formal solution of the emergent spectrum (sub-zone photosphere, source from grey τ &gt; 3000, so photons leaking from below the photosphere count), followed by a photon-conserving ray through the infall with H, He and H₂ absorbers and H₂ self-shielding. “Emitted” leaves the photosphere; “at r_a” reaches r_a = max(r_ph + 10 R☉, 2 r_ph). The break-out alarm fires when Q_H at r_a exceeds 10⁴² s⁻¹ or the LW dissociation time at r_a falls below 10 flow times; the coupled ray (IONFSIMP) is then switched on in the run.</p>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Nuclear burning</h2><div class="ctl"><input type="checkbox" id="nucall"><label for="nucall">All decades</label></div></div>
+    <div class="key" id="nuckey"></div>
+    <div class="chips" id="nucchips" aria-live="polite"></div>
+    <div class="card wide nucc"><div class="hd"><h3>Luminosity by burning process (L☉), selected run</h3><div class="val" id="nuv"></div></div><canvas id="nuc" aria-label="Luminosity of each nuclear burning process against the track's x axis; click to jump to a frame"></canvas></div>
+    <p class="note">Recomputed from each snapshot's temperature, density and nuclear abundances with the run's own reaction network (zones above 3×10⁵ K); the five parts add up to the nuclear luminosity the run recorded, net of neutrino losses. The x axis is the one chosen for the track. <b>Hydrogen (pp chain to ³He)</b> is p+p and pep together with the d(p,γ)³He that follows them. <b>Deuterium</b> is the burning of deuterium that p+p did not make in the same zone: the deuterium the gas came with. <b>³He</b> is ³He+³He, ³He+⁴He and the ⁷Be, ⁷Li and ⁸B branches, whatever the origin of the ³He. <b>Onset marks</b> (D, pp, CNO): the first snapshot from which the process supplies more than 0.1 % of the luminosity at the photosphere in three snapshots in a row. The luminosity used is the running median over 100 snapshots to either side, because the photosphere can pulsate; the search goes through every recorded snapshot, not only the frames shown here. An onset that lies before the first recorded snapshot cannot be dated from this record. The chart reaches six decades below the onset level; a process weaker than that is off the bottom (its value is in the readout) until “All decades” is ticked. Runs recorded before the abundances were stored (reference, full2) have no abundance panels and no burning chart.</p>
+  </section>
+
+  <section>
+    <div class="sechead"><h2 id="perfh">Where the time goes</h2>
+      <div class="key" id="perfkey"></div></div>
+    <div class="card wide"><canvas id="perf" aria-label="Wall seconds per step by category"></canvas></div>
+    <div class="card wide"><canvas id="perf2" aria-label="Newton divergences per step and GC share"></canvas></div>
+    <div class="tablewrap"><table id="phases"></table></div>
+    <p class="note">One bar per report interval (100 steps): wall seconds per step split into the hydro and radiation solve, chemistry, H₂ line transfer, output and the rest; garbage collection is part of these and shown separately below. Phases: collapse by central density until the remap onto the accretion mesh, then by protostar mass.</p>
+  </section>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const tok = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const RUNS = {};
+const CMP = new Set((() => { try { return JSON.parse(localStorage.getItem("cmpRuns") || "[]") } catch (e) { return [] } })());
+const ST = { run: "b224", i: 0, taud: 0, cursor: null, playing: false, timer: null, xlim: { logr: [null, null], logm: [null, null], zone: [null, null] } };
+const XLAB = { logr: "radius r (R☉), log scale", logm: "enclosed mass m (M☉), log scale", zone: "zone number (from the centre)" };
+const XINP = { logr: "log₁₀ r (R☉)", logm: "log₁₀ m (M☉)", zone: "zone number" };      // the range inputs take base-10 logs
+// run key -> [name, colour token]; a run keeps its colour whichever run is selected
+let RUNDEF = { nohd64: ["nohd64 (no HD)", "--c7"], full6: ["full6", "--c6"], base64: ["base64 (64 zones)", "--c8"], b224: ["b224 baseline", "--c3"], f128: ["f128 (full6 on 128 zones)", "--c6"], c146: ["c146 (146 zones)", "--run-b"], c128: ["c128 production", "--run-b"], full4: ["full4", "--c4"], full3: ["full3", "--c5"], fx3: ["fx3 (286 zones)", "--c7"], full2: ["full2", "--c3"], ref: ["reference", "--run-a"] };
+Object.assign(RUNDEF, { z100: ["z100 (100 zones)", "--run-a"], z100h: ["z100h (100 zones)", "--c8"], t_ps0: ["t_ps0", "--c4"], t_b224c: ["t_b224c", "--c3"],
+  t_b224c8: ["t_b224c8 (8 threads)", "--c4"], t_xu1: ["t_xu1 (control)", "--c7"], t_xu2: ["t_xu2 (XADVU=2)", "--c5"], t_ec: ["t_ec (ECHEMSPLIT)", "--c6"], t_gt2: ["t_gt2", "--c7"],
+  nohd64c: ["nohd64c", "--c7"], full1: ["full1", "--c5"], full5: ["full5", "--c4"] });
+const COLS = ["--run-a", "--run-b", "--c3", "--c4", "--c5", "--c6", "--c7", "--c8"];
+const col = k => tok((RUNDEF[k] || ["", "--c7"])[1]), nm = k => (RUNDEF[k] || [k])[0];
+let MAN = null; const NOSNAP = new Set(["ref"]);
+
+const PANELS = [
+  { t: "Temperature (K)", c: [["logT", "gas", false, true], ["logTrad", "radiation", true, true]], log: true },
+  { t: "Density (g cm⁻³)", c: [["logrho", "", false, true]], log: true, sec: true },
+  { t: "Velocity (km s⁻¹)", c: [["u"]], ref: 0, cur: true },
+  { t: "Luminosity (L☉)", c: [["L"]], log: true },
+  { t: "Ionised, molecular and H⁻ fraction", c: [["xHp", "x(H⁺)"], ["xH2", "x(H₂)", true], ["logxHm", "x(H⁻)", 2, true]], log: true, fix: [-7, 0.3] },
+  { t: "Grey continuum optical depth τ_R", c: [["logtau", "", false, true]], log: true, ref: 2 / 3 },
+  { t: "Eddington ratio Γ", c: [["Gamma"]], log: true, ref: 1 },
+  { t: "F / cE", c: [["FcE"]], log: true, ref: 1 },
+  { t: "Inflow rate Ṁ (M☉ yr⁻¹)", c: [["Mdot"]], log: true },
+  // nuclei, whatever their chemical state; colour is the nucleus (5th entry), the overlay run is dashed in the same colours
+  { t: "H, D and He nuclei (mass fraction)", c: [["logXH", "¹H", false, true, "--run-a"], ["logXD", "D", false, true, "--run-b"], ["logXHe3", "³He", false, true, "--c3"], ["logXHe4", "⁴He", false, true, "--c4"]],
+    log: true, fix: [-12, 0.3], leg: true },
+  { t: "C, N and O (mass fraction)", c: [["logXC", "C", false, true, "--c5"], ["logXN", "N", false, true, "--c6"], ["logXO", "O", false, true, "--c7"]],
+    log: true, cur: true, span: 12, floor: -30, leg: true, none: "No C, N or O above a mass fraction of 1e-30 in the range shown." },
+  // Optional v82 diagnostic profile panels (auto-hidden for runs that do not store these fields)
+  { opt: true, t: "Convective flux L_conv/L_tot & P_t/P_tot", c: [["f_conv", "L_conv/L_tot", false, false, "--run-a"], ["f_pturb", "P_t/P_tot", true, false, "--run-b"]], ref: 0, cur: true, leg: true },
+  { opt: true, t: "Density gradient ∂ln ρ / ∂ln r (inversion > 0)", c: [["dlnrho", "∂ln ρ / ∂ln r", false, false, "--run-b"]], ref: 0, fix: [-6, 4], leg: true },
+  { opt: true, t: "GR compactness ξ_GR = 2Gm / (r c²)", c: [["xi_GR", "2Gm/rc²", false, false, "--c6"]], log: true, leg: true },
+];
+// burning processes: [scalar, legend label, colour token (the fuel's colour in the abundance panels), short label]
+const NUC = [["L_pp", "hydrogen (pp chain to ³He)", "--run-a", "pp"], ["L_D", "deuterium", "--run-b", "D"], ["L_He3", "³He", "--c3", "³He"],
+  ["L_3a", "helium (3α, α captures)", "--c4", "3α"], ["L_CNO", "CNO cycle", "--c5", "CNO"]];
+const MARKNAME = { D: "Deuterium burning", pp: "Hydrogen burning (pp chain)", CNO: "CNO cycle" };
+const TRACK = [["M_star", "Protostar mass (M☉)", true], ["R_star", "Protostar radius (R☉)", true], ["r_ph", "Photosphere radius (R☉)", true],
+  ["T_eff_lum", "T_eff from L and r_ph (K)", false], ["T_c", "Central temperature (K)", true], ["logn_c", "log central density (cm⁻³)", false],
+  ["dt_s", "Time step (s)", true], ["u_min", "Fastest infall (km s⁻¹)", false], ["L_ph", "Luminosity at photosphere (L☉)", true],
+  ["S_EUV", "Ionizing EUV photon rate S_EUV (s⁻¹)", true], ["max_dlnrho", "Peak density inversion ∂lnρ/∂lnr", false],
+  ["max_Gam", "Peak local Eddington ratio Γ_Edd", true], ["max_PtP", "Peak TDC P_t / P_tot", false],
+  ["max_xi_gr", "Peak GR compactness 2Gm/rc²", true], ["Mdot_cur", "Imposed outer accretion rate Ṁ (M☉/yr)", true]];
+
+const OLDSP = {};
+async function loadRun(key) {
+  const prev = RUNS[key]; OLDSP[key] = prev ? { spec: prev.spec, full: prev.full, tau: prev.tau } : null;
+  try {
+    const mr = await fetch(key + "/frames.json", { cache: "no-store" }); if (!mr.ok) throw new Error("no profile frames published yet");
+    const meta = await mr.json();
+    const b64 = (await (await fetch(key + "/frames.b64.txt", { cache: "no-store" })).text()).trim(), bin = atob(b64), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const buf = u8.buffer;
+    const names = meta.fields.map(f => f[0]), nf = names.length;
+    const frames = meta.frames.map(fr => {
+      const a = new Float32Array(buf, fr.off, fr.n * nf), f = {};
+      names.forEach((k, j) => f[k] = a.subarray(j * fr.n, (j + 1) * fr.n));
+      const s = {}; meta.scalars.forEach((k, j) => s[k] = fr.s[j] === null ? NaN : fr.s[j]);
+      f.zone = Float32Array.from({ length: fr.n }, (_, k) => k + 1); f.zone_o = Float32Array.from({ length: fr.n }, (_, k) => k + 1.5);      // zone number, centre and outer edge
+      return { f, s, n: fr.n };
+    });
+    const t0 = frames.length ? frames[0].s.t_yr : 0;
+    frames.forEach(fr => fr.s.t = fr.s.t_yr - t0);
+    RUNS[key] = { frames, ranges: {}, nuc: meta.nuc || null, t0 };
+  } catch (e) { RUNS[key] = prev && prev.frames && prev.frames.length ? prev : { frames: [], ranges: {}, err: String(e) }; }      // a failed reload keeps the frames we had
+  // spectra (optional): per spectrum ν L_ν at the edge, at the photosphere, r(τ_ν = 2/3), H₂ line luminosities at both places
+  try {
+    const meta = await (await fetch(key + "/spec.json", { cache: "no-store" })).json();
+    const bin = atob((await (await fetch(key + "/spec.b64.txt", { cache: "no-store" })).text()).trim()), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const n = meta.nnu, nl = meta.nl, per = 3 * n + 2 * nl;
+    if (u8.length % 4) throw new Error("spec: byte length " + u8.length + " not a multiple of 4");
+    const a = new Float32Array(u8.buffer), nsp = Math.min(meta.spectra.length, Math.floor(a.length / per));      // json and data of different refreshes: keep what both cover
+    const S = meta.spectra.slice(0, nsp).map((row, j) => { const s = {}; meta.scalars.forEach((k, i) => s[k] = row[i] === null ? NaN : row[i]);
+      const o = j * per; return { s, Le: a.subarray(o, o + n), Lp: a.subarray(o + n, o + 2 * n), rt: a.subarray(o + 2 * n, o + 3 * n),
+        le: a.subarray(o + 3 * n, o + 3 * n + nl), lp: a.subarray(o + 3 * n + nl, o + per) } });
+    RUNS[key].spec = { lam: meta.lam.map(Math.log10), lamline: meta.lamline.map(Math.log10), S };
+  } catch (e) { RUNS[key].spec = (OLDSP[key] && OLDSP[key].spec) || null }
+  // optical depth by process (optional): per spectrum 2 depths (τ_λ = 2/3, r_ph) × np processes × nν Int16 = 100 log10 τ (−32768: no contribution)
+  try {
+    const meta = await (await fetch(key + "/spectau.json", { cache: "no-store" })).json();
+    const bin = atob((await (await fetch(key + "/spectau.b64.txt", { cache: "no-store" })).text()).trim()), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const n = meta.nnu, np = meta.np, per = 2 * np * n;
+    if (u8.length % 2) throw new Error("spectau: byte length " + u8.length + " is odd");
+    const a = new Int16Array(u8.buffer), nsp = Math.min(meta.spectra.length, Math.floor(a.length / per));      // (little-endian platforms)
+    const S = meta.spectra.slice(0, nsp).map((row, j) => { const o = j * per;
+      return { step: row[0], t: row[1], pd: row[2], nthick: row[3], d: [a.subarray(o, o + np * n), a.subarray(o + np * n, o + per)] } });
+    RUNS[key].tau = { lam: meta.lam.map(Math.log10), proc: meta.proc, label: meta.label, S };
+  } catch (e) { RUNS[key].tau = (OLDSP[key] && OLDSP[key].tau) || null }
+  // full spectra with lines (optional): continuum edge, photosphere, r(τ=2/3); per line the profile L/Lc on the velocity grid, (L, EW, Lc); r grid and log τ0
+  try {
+    const meta = await (await fetch(key + "/specfull.json", { cache: "no-store" })).json();
+    const bin = atob((await (await fetch(key + "/specfull.b64.txt", { cache: "no-store" })).text()).trim()), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const n = meta.nnu, nl = meta.nl, nv = meta.nv, nr = meta.nrt, v2 = (meta.ver || 1) >= 2, per = 3 * n + nl * nv + 3 * nl + nr + nl * nr + (v2 ? nl * nv + 3 * nl : 0);
+    if (u8.length % 4) throw new Error("specfull: byte length " + u8.length + " not a multiple of 4");
+    const a = new Float32Array(u8.buffer), nsp = Math.min(meta.spectra.length, Math.floor(a.length / per));
+    const S = meta.spectra.slice(0, nsp).map((row, j) => { const s = {}; meta.scalars.forEach((k, i) => s[k] = row[i] === null ? NaN : row[i]);
+      let o = j * per; const Le = a.subarray(o, o + n), Lp = a.subarray(o + n, o + 2 * n), rt = a.subarray(o + 2 * n, o + 3 * n); o += 3 * n;
+      const prof = []; for (let l = 0; l < nl; l++) { prof.push(a.subarray(o, o + nv)); o += nv }
+      const sc = []; for (let l = 0; l < nl; l++) { sc.push({ L: a[o], EW: a[o + 1], Lc: a[o + 2] }); o += 3 }
+      const rg = a.subarray(o, o + nr); o += nr; const tau = []; for (let l = 0; l < nl; l++) { tau.push(a.subarray(o, o + nr)); o += nr }
+      // ver 2: the lines through the photosphere sphere (L/Lc profiles and L, EW, Lc at r_ph; NaN for spectra computed before)
+      let profP = null, scP = null;
+      if (v2) { profP = []; for (let l = 0; l < nl; l++) { profP.push(a.subarray(o, o + nv)); o += nv }
+        scP = []; for (let l = 0; l < nl; l++) { scP.push({ L: a[o], EW: a[o + 1], Lc: a[o + 2] }); o += 3 } }
+      return { s, Le, Lp, rt, prof, sc, rg, tau, profP, scP } });
+    RUNS[key].full = { lam: meta.lam.map(Math.log10), lines: meta.lines, lam0: meta.lam0, v: meta.v, S };
+  } catch (e) { RUNS[key].full = (OLDSP[key] && OLDSP[key].full) || null }
+}
+
+function finite(v) { return Number.isFinite(v) }
+function pct(arr, p) { if (!arr.length) return NaN; const s = arr.slice().sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.max(0, Math.round(p / 100 * (s.length - 1))))] }
+// x range of the run and y range of every panel; with win = [lo, hi] the y ranges are those of the zones inside that x window
+function rangesFor(key, xk, win) {
+  const R = RUNS[key], ck = win ? xk + "|" + win[0] + "|" + win[1] : xk; if (R.ranges[ck]) return R.ranges[ck];
+  if (win) { const old = Object.keys(R.ranges).filter(k => k.includes("|")); if (old.length > 40) old.forEach(k => delete R.ranges[k]) }
+  const xs = [];
+  const step = Math.max(1, Math.floor(R.frames.length / 120));
+  if (!win) {
+    for (let i = 0; i < R.frames.length; i += step) for (const k of [xk, xk + "_o"]) if (R.frames[i].f[k]) for (const v of R.frames[i].f[k]) if (finite(v)) xs.push(v);
+    const last = R.frames[R.frames.length - 1].f[xk + "_o"]; if (last) xs.push(last[last.length - 1]);
+  }
+  const out = { x: win || [pct(xs, 0), pct(xs, 100)], y: [] };
+  for (const P of PANELS) {
+    if (P.fix) { out.y.push(P.fix); continue }
+    const vs = [];
+    const take = fr => { const xc = fr.f[xk]; for (const [k, , , isl] of P.c) { const a = fr.f[k]; if (!a) continue;
+      for (let j = 0; j < a.length; j++) { const v = a[j]; if (!finite(v) || (win && !(xc[j] >= win[0] && xc[j] <= win[1]))) continue;
+        if (P.log && !isl) { if (v > 0) vs.push(Math.log10(v)) } else vs.push(v) } } };
+    for (let i = 0; i < R.frames.length; i += step) take(R.frames[i]);
+    if (!vs.length) { out.y.push(P.log ? [-3, 0] : [0, 1]); continue }
+    if (P.full) { vs.length = 0; for (const fr of R.frames) take(fr) }
+    let lo = pct(vs, P.full ? 0 : P.log ? 1 : 0.5), hi = pct(vs, P.full ? 100 : 99.5), pad = 0.05 * (hi - lo || 1);
+    out.y.push(P.log ? [lo - 0.3, hi + 0.3] : [lo - pad, hi + pad]);
+  }
+  R.ranges[xk] = out; return out;
+}
+
+function niceTicks(lo, hi, n) {
+  const span = hi - lo; if (!(span > 0)) return [lo];
+  const raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
+  const st = (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * mag, t = [];
+  for (let v = Math.ceil(lo / st) * st; v <= hi + 1e-9 * st; v += st) t.push(Math.abs(v) < st * 1e-9 ? 0 : v);
+  return t;
+}
+function fmt(v) {
+  if (!finite(v)) return "–"; const a = Math.abs(v);
+  if (a !== 0 && (a >= 1e5 || a < 1e-3)) return v.toExponential(2);
+  return a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toPrecision(3);
+}
+function setup(cv) {
+  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const W = Math.max(10, Math.round(r.width * d)), H = Math.max(10, Math.round(r.height * d));
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H }
+  const g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, r.width, r.height);
+  return { g, w: r.width, h: r.height };
+}
+// axes in data space; ylog: values are log10 already, ticks labelled as powers of ten
+function axes(g, w, h, xl, yl, o) {
+  const m = { l: 46, r: o.y2 ? 62 : 8, t: 6, b: o.xlabel ? 30 : 20 };
+  const X = v => m.l + (v - xl[0]) / (xl[1] - xl[0]) * (w - m.l - m.r);
+  const Y = v => h - m.b - (v - yl[0]) / (yl[1] - yl[0]) * (h - m.t - m.b);
+  g.font = "11px " + tok("--mono"); g.lineWidth = 1;
+  g.strokeStyle = tok("--grid"); g.fillStyle = tok("--muted");
+  const dec = []; if (o.ylog && yl[1] - yl[0] <= 9) for (let v = Math.ceil(yl[0] - 1e-9); v <= yl[1] + 1e-9; v++) dec.push(v);      // every decade
+  const yt = dec.length >= 2 ? dec : o.ylog ? niceTicks(yl[0], yl[1], 4).filter(v => Math.abs(v - Math.round(v)) < 1e-6) : niceTicks(yl[0], yl[1], 4);
+  const ytt = yt.length >= 2 ? yt : niceTicks(yl[0], yl[1], 4);
+  g.textAlign = "right"; g.textBaseline = "middle";
+  if (o.ylog && yl[1] - yl[0] > 9 && yl[1] - yl[0] <= 60) {      // labels every few decades: a faint line at every decade so values can be read off
+    g.save(); g.globalAlpha = 0.45; for (let v = Math.ceil(yl[0]); v <= yl[1]; v++) { const y = Y(v); g.beginPath(); g.moveTo(m.l, y); g.lineTo(w - m.r, y); g.stroke() } g.restore() }
+  for (const v of ytt) { const y = Y(v); g.beginPath(); g.moveTo(m.l, y); g.lineTo(w - m.r, y); g.stroke();
+    g.fillText(o.ylog ? (Math.abs(v - Math.round(v)) < 1e-6 ? "1e" + Math.round(v) : (10 ** v).toPrecision(2)) : fmt(v), m.l - 5, y) }
+  g.textAlign = "center"; g.textBaseline = "top";
+  for (const v of niceTicks(xl[0], xl[1], Math.max(3, Math.floor((w - 60) / 70))).filter(v => !o.xint || Math.abs(v - Math.round(v)) < 1e-6)) {
+    const x = X(v); g.beginPath(); g.moveTo(x, m.t); g.lineTo(x, h - m.b); g.stroke();
+    g.textAlign = x > w - m.r - 18 ? "right" : "center"; g.fillText(o.xfmt ? o.xfmt(v) : fmt(v), x > w - m.r - 18 ? w - 1 : x, h - m.b + 4) }
+  g.textAlign = "center";
+  if (o.xlabel) { g.fillStyle = tok("--faint"); g.fillText(o.xlabel, (m.l + w - m.r) / 2, h - 13) }
+  X.w = w - m.r;
+  let Y2 = null;
+  if (o.y2) {      // secondary axis on the right (log values, ticks as powers of ten)
+    const y2 = o.y2; Y2 = v => h - m.b - (v - y2[0]) / (y2[1] - y2[0]) * (h - m.t - m.b);
+    g.fillStyle = tok("--muted"); g.textAlign = "left"; g.textBaseline = "middle";
+    const t2 = niceTicks(y2[0], y2[1], 4);
+    if (y2[1] - y2[0] <= 60) for (let v = Math.ceil(y2[0]); v <= y2[1]; v++) { const y = Y2(v); g.strokeStyle = tok("--muted"); g.beginPath(); g.moveTo(w - m.r, y); g.lineTo(w - m.r + 2, y); g.stroke() }      // a minor tick at every decade
+    for (const v of t2) { const y = Y2(v); g.strokeStyle = tok("--muted"); g.beginPath(); g.moveTo(w - m.r, y); g.lineTo(w - m.r + 4, y); g.stroke();
+      g.fillText(Math.abs(v - Math.round(v)) < 1e-6 ? "1e" + Math.round(v) : (10 ** v).toPrecision(2), w - m.r + 6, y) }
+    g.strokeStyle = tok("--muted"); g.beginPath(); g.moveTo(w - m.r, m.t); g.lineTo(w - m.r, h - m.b); g.stroke();
+    if (o.y2label) { g.save(); g.fillStyle = tok("--faint"); g.textAlign = "center"; g.textBaseline = "bottom"; g.translate(w - 2, (m.t + h - m.b) / 2); g.rotate(Math.PI / 2); g.fillText(o.y2label, 0, 0); g.restore() }
+  }
+  return { X, Y, Y2, m };
+}
+function line(g, xs, ys, X, Y, col, dash, wid) {
+  g.save(); g.strokeStyle = col; g.lineWidth = wid || 1.7; g.lineJoin = "round"; if (dash) g.setLineDash(dash === 2 ? [1.5, 3] : dash === 3 ? [6, 3, 1.5, 3] : [5, 4]);      // true: dashed, 2: dotted, 3: dash-dot
+  g.beginPath(); let on = false;
+  for (let i = 0; i < xs.length; i++) { const x = xs[i], y = ys[i];
+    if (!finite(x) || !finite(y)) { on = false; continue } const px = X(x), py = Y(y); on ? g.lineTo(px, py) : g.moveTo(px, py); on = true }
+  g.stroke(); g.restore();
+}
+
+// a zone's value drawn across the zone, from its inner to its outer interface (the first zone from its centre)
+function steps(fr, xk, ys) {
+  const xc = fr.f[xk], xo = fr.f[xk + "_o"];
+  if (!xo) return [Array.from(xc), ys];
+  const X = [], Y = [];
+  for (let k = 0; k < ys.length; k++) { X.push(k === 0 ? xc[0] : xo[k - 1], xo[k]); Y.push(ys[k], ys[k]) }
+  return [X, Y];
+}
+function zoneAt(fr, xk, x) {
+  const xc = fr.f[xk], xo = fr.f[xk + "_o"];
+  if (xo) { for (let k = 0; k < xo.length; k++) if (x <= xo[k]) return k; return xo.length - 1 }
+  let bi = -1, bd = Infinity; for (let i = 0; i < xc.length; i++) { const d = Math.abs(xc[i] - x); if (d < bd) { bd = d; bi = i } } return bi;
+}
+// the run drawn dashed over the selected one: the chosen run, or (nearest other run) the first other run with a frame at this stage
+function overlayRun(s) {
+  const v = $("ovr").value; if (v === "none") return null;
+  if (v !== "auto") return v === ST.run ? null : v;
+  const c = Object.keys(RUNDEF).filter(k => k !== ST.run);
+  return c.find(k => match(k, s) >= 0) || c[0];
+}
+function onTrack(key) { if (CMP.size) return key === ST.run || CMP.has(key); const v = $("ovr").value; return key === ST.run || v === "auto" || v === key }
+// overlays drawn on the profiles: the runs ticked for comparison (each matched to the frame shown), else the single Overlay choice
+function overlayList(s) {
+  if (CMP.size) return [...CMP].filter(k => k !== ST.run && RUNS[k]).map(k => { const j = match(k, s); return { k, fr: j >= 0 ? RUNS[k].frames[j] : null } });
+  const ok = overlayRun(s); if (!ok) return []; const j = match(ok, s); return [{ k: ok, fr: j >= 0 ? RUNS[ok].frames[j] : null }];
+}
+function saveCmp() { try { localStorage.setItem("cmpRuns", JSON.stringify([...CMP])) } catch (e) {} }
+async function toggleCmp(k, on) {
+  if (on) CMP.add(k); else CMP.delete(k); saveCmp(); cmpUI();
+  if (on && !RUNS[k]) { await loadRun(k); await loadPerf(k) }
+  drawAll();
+}
+function cmpUI() {
+  for (const tr of document.querySelectorAll("#livetab tr.row, #stoptab tr.row")) { const on = CMP.has(tr.dataset.k); tr.classList.toggle("cmpon", on); const cb = tr.querySelector("input.cmpcb"); if (cb) cb.checked = on }
+  $("cmplist").innerHTML = [...CMP].map(k => `<span><i class="sw" style="background:${col(k)}"></i>${esc(k)}</span>`).join(" ");
+  $("cmpclear").hidden = !CMP.size;
+}
+function match(key, s) {
+  const F = RUNS[key] ? RUNS[key].frames : []; if (!F.length) return -1;
+  const useM = hasStar(s);
+  let best = -1, bd = Infinity;
+  F.forEach((fr, j) => { const q = fr.s;
+    const d = useM ? (hasStar(q) ? Math.abs(Math.log10(q.M_star / s.M_star)) : Infinity) : Math.abs(q.logn_c - s.logn_c);
+    if (d < bd) { bd = d; best = j } });
+  return bd < (useM ? 0.1 : 0.3) ? best : -1;
+}
+
+// the x range of the profiles: the limits typed in; an empty box means the limit of the run's full range
+function xwin(xk, auto) {
+  const [a, b] = ST.xlim[xk]; if (a === null && b === null) return auto;
+  const lo = a === null ? auto[0] : a, hi = b === null ? auto[1] : b;
+  return hi > lo ? [lo, hi] : auto;
+}
+function syncX() {
+  const xk = $("xax").value, R = RUNS[ST.run], auto = R && R.frames.length ? rangesFor(ST.run, xk).x : null;
+  $("xlab").textContent = XINP[xk] + " from";
+  [["xmin", 0], ["xmax", 1]].forEach(([id, j]) => { const v = ST.xlim[xk][j]; $(id).value = v === null ? "" : v; $(id).placeholder = auto && finite(auto[j]) ? auto[j].toFixed(2) : "" });
+}
+function buildProfiles() {
+  const box = $("profiles"); box.innerHTML = "";
+  PANELS.forEach((P, k) => {
+    const c = document.createElement("div"); c.className = "card prof" + (P.opt ? " optp" : ""); c.id = "pcard" + k;
+    c.innerHTML = `<div class="hd"><h3>${P.t}</h3><div class="val" id="pv${k}"></div></div>` +
+      (P.leg ? `<div class="key leg">` + P.c.map(([, lab, , , ct]) => `<span><i class="sw" style="background:var(${ct})"></i>${lab}</span>`).join("") + `</div>` : "") + `<canvas id="pc${k}"></canvas>`;
+    box.appendChild(c);
+    const cv = c.querySelector("canvas");
+    const mv = e => { const r = cv.getBoundingClientRect(); ST.cursor = { k, px: e.clientX - r.left }; drawProfiles() };
+    cv.addEventListener("pointermove", mv); cv.addEventListener("pointerdown", mv);
+    cv.addEventListener("pointerleave", () => { ST.cursor = null; drawProfiles() });
+  });
+}
+function drawProfiles() {
+  const R = RUNS[ST.run];
+  if (!R || !R.frames.length) {      // no profiles for this run (not loaded yet, or none published): say so instead of leaving the previous run's plots up
+    $("key").innerHTML = `<span>${nm(ST.run)}: ${R && R.err ? "profiles could not be loaded (" + R.err + ")" : R ? "no profile frames published for this run yet" : "loading profiles…"}</span>`;
+    for (const cv of document.querySelectorAll("#profiles canvas")) { const g = cv.getContext("2d"); g.clearRect(0, 0, cv.width, cv.height) }
+    return;
+  }
+  const xk = $("xax").value, fr = R.frames[ST.i];
+  // enclosed mass: start the axis at the second cell's inner edge (the central cell's tiny centre mass would stretch the axis to 1e-15 M☉ and less)
+  let auto = rangesFor(ST.run, xk).x;
+  if (xk === "logm" && fr.f.logm_o && finite(fr.f.logm_o[0]) && fr.f.logm_o[0] < auto[1]) auto = [fr.f.logm_o[0], auto[1]];
+  const xl = xwin(xk, auto), zoom = xl !== auto;
+  const rg = zoom ? rangesFor(ST.run, xk, xl) : rangesFor(ST.run, xk);
+  const inx = (F, j) => !zoom || (F.f[xk][j] >= xl[0] && F.f[xk][j] <= xl[1]);
+  const msg = (g, t) => { g.fillStyle = tok("--muted"); g.font = "12.5px " + tok("--sans"); g.textAlign = "left"; g.textBaseline = "top"; g.fillText(t, 12, 14) };
+  const OV = overlayList(fr.s), ofrs = OV.filter(o => o.fr), multi = CMP.size > 0;
+  const ca = col(ST.run);
+  let cx = null;
+  if (ST.cursor && PANELS[ST.cursor.k]) { const Pk = PANELS[ST.cursor.k], wk = $("pc" + ST.cursor.k).getBoundingClientRect().width, mr = Pk.sec ? 62 : 8;
+    cx = xl[0] + (ST.cursor.px - 46) / (wk - 46 - mr) * (xl[1] - xl[0]) }
+  PANELS.forEach((P, k) => {
+    const card = $("pcard" + k);
+    if (P.opt && card) {
+      const has = P.c.some(([key]) => fr.f[key]);
+      card.classList.toggle("hid", !has);
+      if (!has) return;
+    }
+    const cv = $("pc" + k), { g, w, h } = setup(cv);
+    let yl = rg.y[k];
+    if (!P.c.some(([key]) => fr.f[key])) { msg(g, "Not recorded for this run."); return }
+    if (P.cur) {      // range of the frame shown (and of the overlay frame) inside the x range shown, not of the whole run
+      let lo = Infinity, hi = -Infinity;
+      for (const F of [fr, ...ofrs.map(o => o.fr)]) if (F) for (const [key] of P.c) { const a = F.f[key]; if (!a) continue;
+        for (let j = 0; j < a.length; j++) { const v = a[j]; if (finite(v) && inx(F, j) && !(v < P.floor)) { if (v < lo) lo = v; if (v > hi) hi = v } } }
+      if (P.none && !(lo <= hi)) { msg(g, P.none); return }
+      if (P.ref !== undefined) { lo = Math.min(lo, P.ref); hi = Math.max(hi, P.ref) }
+      if (P.span && hi - lo > P.span) lo = hi - P.span;
+      if (lo <= hi) { const pad = 0.06 * (hi - lo || 1); yl = [lo - pad, hi + pad] }
+    }
+    const xsp = xl[1] - xl[0], xdg = Math.min(6, Math.max(2, Math.ceil(-Math.log10(xsp)) + 1));      // enough digits for a narrow range
+    // density panel: the other coordinate on a right-hand axis (enclosed mass against radius, radius against mass, both against zone number)
+    const sks = P.sec ? (xk === "logr" ? ["logm"] : xk === "logm" ? ["logr"] : ["logr", "logm"]) : [];
+    let y2 = null;
+    if (sks.length) { let lo = Infinity, hi = -Infinity;
+      for (const sk of sks) { const a = fr.f[sk + "_o"]; if (!a) continue; for (let j = 0; j < a.length; j++) if (finite(a[j]) && inx(fr, j)) { lo = Math.min(lo, a[j]); hi = Math.max(hi, a[j]) } }
+      if (lo < hi) { const pad = 0.05 * (hi - lo); y2 = [lo - pad, hi + pad] } }
+    const A = axes(g, w, h, xl, yl, { ylog: P.log, y2, y2label: xk === "logr" ? "enclosed mass m (M☉)" : xk === "logm" ? "radius r (R☉)" : "r (R☉) solid · m (M☉) dotted", xint: xk === "zone", xlabel: XLAB[xk], xfmt: xk === "zone" ? v => String(Math.round(v)) : v => (Math.abs(v - Math.round(v)) < 1e-6 ? "1e" + Math.round(v) : fmt(10 ** v)) });      // ticks as the values themselves (powers of ten), as on the y axes
+    g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+    if (P.ref !== undefined) { g.strokeStyle = tok("--faint"); g.setLineDash([2, 3]); g.beginPath(); const y = A.Y(P.log ? Math.log10(P.ref) : P.ref); g.moveTo(A.m.l, y); g.lineTo(w, y); g.stroke(); g.setLineDash([]) }
+    const tr = v => P.log ? (v > 0 ? Math.log10(v) : NaN) : v, id = v => v;      // a field stored as log10 is drawn as it is
+    for (const o of ofrs) { const ofr = o.fr, cb = col(o.k);
+      P.c.forEach(([key, , alt, isl, ct]) => { if (!ofr.f[key]) return; const [xs, ys] = steps(ofr, xk, Array.from(ofr.f[key], isl ? id : tr)); line(g, xs, ys, A.X, A.Y, ct && !multi ? tok(ct) : cb, alt === 2 ? 2 : true, alt ? 1.2 : 1.4) }) }
+    P.c.forEach(([key, , alt, isl, ct]) => { if (!fr.f[key]) return; const [xs, ys] = steps(fr, xk, Array.from(fr.f[key], isl ? id : tr)); line(g, xs, ys, A.X, A.Y, ct ? tok(ct) : ca, alt, 1.8) });
+    if (y2) sks.forEach((sk, j) => { const xo = fr.f[xk + "_o"], yo = fr.f[sk + "_o"]; if (!xo || !yo) return;      // interface values: the coordinate mapping itself
+      line(g, Array.from(xo), Array.from(yo), A.X, A.Y2, tok("--muted"), j ? 2 : null, 1.3) });
+    g.restore();
+    if (ST.cursor) {
+      const px = A.X(cx); if (px >= A.m.l && px <= w - A.m.r) { g.strokeStyle = tok("--muted"); g.lineWidth = 1; g.beginPath(); g.moveTo(px, A.m.t); g.lineTo(px, h - A.m.b); g.stroke() }
+    }
+  });
+  PANELS.forEach((P, k) => {
+    const el = $("pv" + k);
+    if (cx === null || !P.c.some(([key]) => fr.f[key])) { el.textContent = ""; return }
+    const bi = zoneAt(fr, xk, cx);
+    const rr = "r " + fmt(10 ** fr.f.logr[bi]) + " R☉", mm = "m " + fmt(10 ** fr.f.logm[bi]) + " M☉";      // the zone's centre
+    const xlab = xk === "logr" ? rr : xk === "logm" ? mm : "zone " + (bi + 1) + "  ·  " + rr + "  ·  " + mm;
+    const sec = P.sec && xk !== "zone" ? "  ·  " + (xk === "logr" ? mm : rr) : "";
+    el.textContent = bi < 0 ? "" : xlab + "  ·  " + P.c.map(([key, lab, , isl]) => (lab ? lab + " " : "") + (fr.f[key] ? fmt(isl ? 10 ** fr.f[key][bi] : fr.f[key][bi]) : "–")).join("  ·  ") + (bi < 0 ? "" : sec);
+  });
+  const kk = $("key");
+  kk.innerHTML = `<span><i class="sw" style="background:${ca}"></i>${nm(ST.run)} frame ${ST.i + 1} of ${R.frames.length}</span>` +
+    OV.map(o => o.fr ? `<span><i class="sw" style="background:${col(o.k)};height:0;border-top:2px dashed ${col(o.k)}"></i>${nm(o.k)} at step ${o.fr.s.step} (matched)</span>` : `<span>${nm(o.k)}: no frame at this stage</span>`).join("") +
+    `<span>Second curve in a panel (radiation T, x(H₂)) is drawn dashed in the same colour, x(H⁻) dotted. In the two abundance panels the colour is the nucleus (legend in the panel) and the overlay run is dashed. Density panel, right-hand axis (grey): ${xk === "logr" ? "enclosed mass (M☉) at the zone edges" : xk === "logm" ? "radius (R☉) at the zone edges" : "radius (R☉, solid) and enclosed mass (M☉, dotted) at the zone edges"}; a straight run of steps there is the mesh, so staircasing shows directly.</span>`;
+}
+
+function chips() {
+  const s = RUNS[ST.run].frames[ST.i].s, c = [];
+  const add = (lab, v) => c.push(`<div class="chip"><span>${lab}</span><b>${v}</b></div>`);
+  add("step", s.step); add("t", s.t_yr.toExponential(6) + " yr"); add("Δt", fmt(s.dt_s) + " s"); add("log n_c", s.logn_c.toFixed(2));
+  add("T_c", fmt(s.T_c) + " K");
+  if (hasStar(s)) { add("M*", s.M_star.toFixed(3) + " M☉"); add("R*", fmt(s.R_star) + " R☉") }
+  if (finite(s.r_ph)) { add("r_ph", fmt(s.r_ph) + " R☉"); add("T_eff", fmt(s.T_eff_lum) + " K") }
+  if (finite(s.S_EUV) && s.S_EUV > 0) add("S_EUV", fmt(s.S_EUV) + " s⁻¹");
+  if (finite(s.max_xi_gr) && s.max_xi_gr > 1e-6) add("max 2Gm/rc²", fmt(s.max_xi_gr));
+  if (finite(s.Mdot_cur) && s.Mdot_cur > 0) add("Ṁ(t)", fmt(s.Mdot_cur) + " M☉/yr");
+  add("zones", s.nz);
+  $("chips").innerHTML = c.join("");
+}
+
+// the spectrum nearest in step to the frame shown
+function specFor(key, step) {
+  const sp = RUNS[key] && RUNS[key].spec; if (!sp || !sp.S.length) return null;
+  let b = null, bd = Infinity; for (const q of sp.S) { const d = Math.abs(q.s.step - step); if (d < bd) { bd = d; b = q } } return b;
+}
+// the optical depth by process nearest in step to the frame shown
+function tauFor(key, step) {
+  const tk = RUNS[key] && RUNS[key].tau; if (!tk || !tk.S.length) return null;
+  let b = null, bd = Infinity; for (const q of tk.S) { const d = Math.abs(q.step - step); if (d < bd) { bd = d; b = q } } return b;
+}
+// process -> [colour token, dash]: CIA, H⁻, H and H⁺, scattering; the H family avoids the selected run's own colour
+const TAUDASH = { solid: 0, dashed: 1, dotted: 2, dashdot: 3 }, TAUSVG = ["", "5 4", "1.5 3", "6 3 1.5 3"];
+function drawTau(cl) {
+  const cv = $("spectau"), R = RUNS[ST.run], fr = R.frames[ST.i], q = tauFor(ST.run, fr.s.step), tk = R.tau, d = ST.taud ? 1 : 0;
+  for (const b of document.querySelectorAll("#taud button")) b.setAttribute("aria-pressed", String(+b.dataset.d === d));
+  const { g, w, h } = setup(cv);
+  if (!q) { g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText("No optical depths by process for this run yet.", 16, 24); $("taukey").innerHTML = ""; $("spv3").textContent = ""; return }
+  const hc = col(ST.run) === tok("--run-b") ? "--c5" : "--run-b", n = tk.lam.length, np = tk.proc.length, v = q.d[d];
+  const sty = [["--c6", 0], ["--c6", 1], ["--c6", 2], ["--c4", 0], ["--c4", 1], [hc, 0], [hc, 1], [hc, 2], [hc, 3], ["--c3", 0], ["--c3", 1], ["--c3", 2]];
+  const lgp = j => Array.from(v.subarray(j * n, (j + 1) * n), x => x === -32768 ? NaN : x / 100);      // log10 τ of process j
+  const Y = Array.from({ length: np }, (_, j) => lgp(j));
+  const tot = Array.from({ length: n }, (_, i) => { let sum = 0; for (let j = 0; j < np; j++) if (finite(Y[j][i])) sum += 10 ** Y[j][i]; return sum > 0 ? Math.log10(sum) : NaN });
+  const fin = tot.filter(finite), top = fin.length ? Math.ceil(Math.max(...fin) + 0.3) : 1, yl = [top - (d ? 8 : 6), top];
+  const xl = [-1.35, 3.05], lamfmt = x => { const p = 10 ** x; return p >= 1 ? String(Math.round(p)) : p.toPrecision(1) };
+  const A = axes(g, w, h, xl, yl, { ylog: true, xint: true, xfmt: lamfmt }), key = [];
+  g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+  const r23 = Math.log10(2 / 3); g.strokeStyle = tok("--faint"); g.lineWidth = 1; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(A.m.l, A.Y(r23)); g.lineTo(w - A.m.r, A.Y(r23)); g.stroke(); g.setLineDash([]);
+  for (let j = 0; j < np; j++) {
+    if (!Y[j].some(y => finite(y) && y >= yl[0])) continue;
+    const c = tok(sty[j][0]), ds = sty[j][1]; line(g, tk.lam, Y[j], A.X, A.Y, c, ds, 1.6);
+    key.push(`<span><svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" stroke="${c}" stroke-width="2"${ds ? ` stroke-dasharray="${TAUSVG[ds]}"` : ""}/></svg>${tk.label[j]}</span>`);
+  }
+  line(g, tk.lam, tot, A.X, A.Y, tok("--fg"), false, 1);
+  g.restore();
+  key.push(`<span><svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" stroke="${tok("--fg")}" stroke-width="1"/></svg>sum of the processes</span>`,
+    `<span><svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" stroke="${tok("--faint")}" stroke-width="1" stroke-dasharray="${TAUSVG[2]}"/></svg>τ = 2/3</span>`);
+  $("taukey").innerHTML = key.join("");
+  if (cl !== null) { const px = A.X(cl); g.strokeStyle = tok("--muted"); g.lineWidth = 1; g.beginPath(); g.moveTo(px, A.m.t); g.lineTo(px, h - A.m.b); g.stroke() }
+  if (cl === null) { $("spv3").textContent = ""; return }
+  let bi = 0, bd = Infinity; tk.lam.forEach((l, j) => { const dd = Math.abs(l - cl); if (dd < bd) { bd = dd; bi = j } });
+  const P = Y.map(y => finite(y[bi]) ? 10 ** y[bi] : 0), sum = P.reduce((a, b) => a + b, 0);
+  if (!(sum > 0)) { $("spv3").textContent = "λ " + fmt(10 ** tk.lam[bi]) + " μm"; return }
+  const thin = d === 0 && Math.log10(sum) < r23 - 0.012, inner = d === 1 && q.pd === "inner";      // thin: the solved region ends before τ_λ reaches 2/3
+  const top4 = P.map((p, j) => [p, j]).filter(e => e[0] > 0).sort((a, b) => b[0] - a[0]).slice(0, 4)
+    .map(([p, j]) => tk.label[j].replace(/ \(.*\)/, "") + " " + (p / sum < 0.005 ? "<1" : Math.round(100 * p / sum)) + " %");
+  $("spv3").textContent = "λ " + fmt(10 ** tk.lam[bi]) + " μm  ·  τ " + fmt(d === 0 && !thin ? 2 / 3 : sum) + (thin ? " to the inner end (thin)" : inner ? " to the inner end of the solved region" : "") + "  ·  " + top4.join("  ·  ");
+}
+function drawSpec() {
+  const cv = $("spec"), cv2 = $("spect"), R = RUNS[ST.run], fr = R.frames[ST.i], sp = R.spec, q = specFor(ST.run, fr.s.step), ca = col(ST.run);
+  if (!q) {
+    for (const c of [cv, cv2]) { const { g } = setup(c); g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText("No spectra for this run yet.", 16, 24) }
+    drawTau(null);
+    $("specchips").innerHTML = ""; $("speckey").innerHTML = ""; $("spv").textContent = ""; $("spv2").textContent = ""; $("specwarn").hidden = true; return }
+  const lg = a => Array.from(a, v => v > 0 ? Math.log10(v) : NaN);
+  const ye = lg(q.Le), yp = lg(q.Lp), yli = lg(q.le), yr = lg(q.rt), s = q.s;
+  let bb = null;        // blackbody of the run's T_eff at the run's photosphere radius
+  if (finite(s.T_eff) && finite(s.r_ph)) { const A4 = 4 * Math.PI * (s.r_ph * 6.957e10) ** 2;
+    bb = sp.lam.map(l => { const nu = 2.99792e10 / (10 ** l * 1e-4), x = 6.62607e-27 * nu / (1.380649e-16 * s.T_eff);
+      const v = A4 * Math.PI * 2 * 6.62607e-27 * nu ** 4 / 2.99792e10 ** 2 / Math.expm1(x) / 3.83e33; return v > 0 && finite(v) ? Math.log10(v) : NaN }) }
+  const all = ye.concat(yp, yli).filter(finite), top = all.length ? Math.ceil(Math.max(...all) + 0.3) : 0;
+  const xl = [-1.35, 3.05], yl = [top - 9, top], lamfmt = v => { const p = 10 ** v; return p >= 1 ? String(Math.round(p)) : p.toPrecision(1) };
+  let cl = null;
+  {
+    const { g, w, h } = setup(cv), A = axes(g, w, h, xl, yl, { ylog: true, xint: true, xfmt: lamfmt });
+    g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+    g.strokeStyle = tok("--c3"); g.lineWidth = 1; g.beginPath();
+    sp.lamline.forEach((l, j) => { if (!finite(yli[j]) || yli[j] < yl[0]) return; const x = Math.round(A.X(l)) + 0.5; g.moveTo(x, A.Y(yl[0])); g.lineTo(x, A.Y(yli[j])) }); g.stroke();
+    if (bb) { g.save(); g.setLineDash([2, 3]); line(g, sp.lam, bb, A.X, A.Y, tok("--faint"), false, 1.3); g.restore() }
+    line(g, sp.lam, yp, A.X, A.Y, ca, true, 1.5); line(g, sp.lam, ye, A.X, A.Y, ca, false, 1.9);
+    g.restore();
+    if (ST.scur !== null && ST.scur !== undefined) { const xv = xl[0] + (ST.scur - A.m.l) / (w - A.m.l - A.m.r) * (xl[1] - xl[0]);
+      if (xv >= xl[0] && xv <= xl[1]) { cl = xv; const px = A.X(xv); g.strokeStyle = tok("--muted"); g.lineWidth = 1; g.beginPath(); g.moveTo(px, A.m.t); g.lineTo(px, h - A.m.b); g.stroke() } }
+  }
+  {
+    const { g, w, h } = setup(cv2), fin = yr.filter(finite), rp = s.r_ph > 0 ? Math.log10(s.r_ph) : NaN;
+    if (!fin.length) { g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText("Transparent at every wavelength: τ_λ stays below 2/3 down to the inner end of the solved region (the centre, or the zone where the grey τ_R reaches 300).", 16, 24) }
+    else {
+      if (finite(rp)) fin.push(rp);
+      const lo = Math.min(...fin), hi = Math.max(...fin), pad = Math.max(0.15, 0.08 * (hi - lo)), A = axes(g, w, h, xl, [lo - pad, hi + pad], { ylog: true, xint: true, xfmt: lamfmt });
+      g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+      if (finite(rp)) { g.strokeStyle = tok("--faint"); g.setLineDash([2, 3]); g.beginPath(); g.moveTo(A.m.l, A.Y(rp)); g.lineTo(w, A.Y(rp)); g.stroke(); g.setLineDash([]) }
+      line(g, sp.lam, yr, A.X, A.Y, ca, false, 1.9); g.restore();
+      if (cl !== null) { const px = A.X(cl); g.strokeStyle = tok("--muted"); g.lineWidth = 1; g.beginPath(); g.moveTo(px, A.m.t); g.lineTo(px, h - A.m.b); g.stroke() }
+    }
+  }
+  drawTau(cl);
+  if (cl !== null) {
+    let bi = 0, bd = Infinity; sp.lam.forEach((l, j) => { const d = Math.abs(l - cl); if (d < bd) { bd = d; bi = j } });
+    let li = -1, ld = 0.012; sp.lamline.forEach((l, j) => { const d = Math.abs(l - cl); if (d < ld && q.le[j] > 0) { ld = d; li = j } });
+    $("spv").textContent = "λ " + fmt(10 ** sp.lam[bi]) + " μm  ·  edge " + fmt(q.Le[bi]) + "  ·  photosphere " + fmt(q.Lp[bi]) + (li >= 0 ? "  ·  H₂ line " + (10 ** sp.lamline[li]).toFixed(2) + " μm " + fmt(q.le[li]) : "");
+    $("spv2").textContent = "λ " + fmt(10 ** sp.lam[bi]) + " μm  ·  r " + fmt(q.rt[bi]) + " R☉";
+  } else { $("spv").textContent = ""; $("spv2").textContent = "" }
+  const c = [], add = (lab, v) => c.push(`<div class="chip"><span>${lab}</span><b>${v}</b></div>`), rat = (a, b) => finite(a) && finite(b) && b > 0 ? " (ratio " + (a / b).toFixed(2) + ")" : "";
+  add("spectrum of step", s.step + (s.step !== fr.s.step ? " (frame: " + fr.s.step + ")" : ""));
+  add("edge ∫L_ν dν", fmt(s.Lc_edge) + " L☉"); add("run's L at edge", s.Lrun_edge === 0 ? "none: no continuum transport yet" : fmt(s.Lrun_edge) + " L☉" + rat(s.Lc_edge, s.Lrun_edge));
+  if (s.kph > 0) { add("photosphere ∫L_ν dν", fmt(s.Lc_ph) + " L☉"); add("run's L there", fmt(s.Lrun_ph) + " L☉" + rat(s.Lc_ph, s.Lrun_ph)); add("T_eff", fmt(s.T_eff) + " K") }
+  else add("photosphere", "none: τ_R < 2/3 to the centre");
+  add("H₂ lines at edge", fmt(s.Ll_edge) + " L☉"); add("run's L_lines", fmt(s.Ll_run) + " L☉");
+  if (finite(s.lscale) && Math.abs(s.lscale - 1) > 0.02) add("line sticks scaled by", s.lscale.toFixed(2));
+  $("specchips").innerHTML = c.join("");
+  // validity: the continuum's frequency integral against the run's own luminosity at the same place
+  const bad = [], chk = (lab, a, b) => { if (finite(a) && finite(b) && b > 0) { const r = a / b; if (r > 2 || r < 0.5) bad.push(lab + " " + (r >= 1 ? fmt(r) + " times" : fmt(r) + " of") + " the run's luminosity") } };
+  chk("at the edge", s.Lc_edge, s.Lrun_edge); if (s.kph > 0) chk("through the photosphere", s.Lc_ph, s.Lrun_ph);
+  const wv = $("specwarn");
+  if (bad.length) { wv.hidden = false; wv.innerHTML = "<b>Not a prediction for this snapshot.</b> The continuum integrates to " + bad.join(" and ") +
+    ". The grey run carries its flux through zones it does not resolve (an optically thick zone that holds the whole photosphere, or the accretion shock), so this post-processed spectrum radiates the zone-mean gas temperature from the zone's face; the run's own luminosity and T<sub>eff</sub> are the numbers to use." }
+  else wv.hidden = true;
+  $("speckey").innerHTML = `<span><i class="sw" style="background:${ca}"></i>continuum at the mesh edge</span>` +
+    `<span><i class="sw" style="background:${ca};height:0;border-top:2px dashed ${ca}"></i>continuum through the photosphere</span>` +
+    `<span><i class="sw" style="background:${tok("--c3")};width:2px;height:12px"></i>H₂ lines at the edge (luminosity per line)</span>` +
+    `<span><i class="sw" style="background:${tok("--faint")};height:0;border-top:2px dotted ${tok("--faint")}"></i>blackbody of T_eff at r_ph · grey photosphere</span>`;
+}
+for (const id of ["spec", "spect", "spectau"]) {
+  const mv = e => { const r = $(id).getBoundingClientRect(); ST.scur = e.clientX - r.left; drawSpec() };
+  $(id).addEventListener("pointermove", mv); $(id).addEventListener("pointerdown", mv);
+  $(id).addEventListener("pointerleave", () => { ST.scur = null; drawSpec() });
+}
+for (const b of document.querySelectorAll("#taud button")) b.addEventListener("click", () => { ST.taud = +b.dataset.d; safe(drawSpec) });
+
+// ---- observable spectrum: what leaves the grid and what passes the photosphere, from the nearest snapshot with a spectrum
+function obsPick() {
+  const R = RUNS[ST.run], fr = R.frames[ST.i]; if (!fr) return null;
+  const st = fr.s.step, F = R.full && R.full.S.length ? fullFor(ST.run, st) : null, C = R.spec && R.spec.S.length ? specFor(ST.run, st) : null;
+  const want = $("obssrc").value;
+  if (want === "full") return F ? { kind: "full", q: F, lam: R.full.lam, F: R.full } : C ? { kind: "cont", q: C, lam: R.spec.lam, note: "no spectrum with lines for this run yet; continuum shown" } : null;
+  if (want === "cont") return C ? { kind: "cont", q: C, lam: R.spec.lam } : null;
+  // automatic: lines when that snapshot is as close to the frame as the nearest continuum one, or within 3 % of the run's steps so far
+  if (F && C) { const span = Math.max(1, R.frames[R.frames.length - 1].s.step - R.frames[0].s.step), dF = Math.abs(F.s.step - st), dC = Math.abs(C.s.step - st);
+    return dF <= dC || dF <= 0.03 * span ? { kind: "full", q: F, lam: R.full.lam, F: R.full } : { kind: "cont", q: C, lam: R.spec.lam, note: "nearest spectrum with lines is " + fmt(dF) + " steps away; continuum shown (choose the source above)" } }
+  return F ? { kind: "full", q: F, lam: R.full.lam, F: R.full } : C ? { kind: "cont", q: C, lam: R.spec.lam } : null;
+}
+function drawObs() {
+  const cv = $("obs"), msg = $("obsmsg"), R = RUNS[ST.run], fr = R.frames[ST.i], ca = col(ST.run); msg.hidden = true;
+  const P = obsPick();
+  if (!P) { const { g } = setup(cv); g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText("No spectrum for this run yet: spectra are computed after the fact from its snapshots (the newest first).", 16, 24);
+    $("obschips").innerHTML = ""; $("obskey").innerHTML = ""; $("obsv").textContent = ""; $("obswarn").hidden = true; return }
+  const q = P.q, s = q.s, lam = P.lam, lg = a => Array.from(a, v => v > 0 && finite(v) ? Math.log10(v) : NaN);
+  const ye = lg(q.Le), yp = lg(q.Lp);
+  // line spikes (edge): extreme of the emergent profile (L/Lc × νL_ν of the continuum at λ0)
+  // line spikes from the continuum at λ0 to the extreme of the line's profile (L/Lc × νL_ν of the continuum): at the edge (q.prof, q.sc)
+  // and, for ver-2 spectra, through the photosphere sphere (q.profP, q.scP)
+  const mk = (pf, scs, ph) => { const out = []; if (P.kind !== "full" || !pf || !scs) return out;
+    P.F.lines.forEach((nmL, i) => { const sc = scs[i], pr = pf[i]; if (!sc || !pr || !(sc.Lc > 0) || !finite(sc.EW) || sc.EW === 0) return;
+      let ext = 1; for (const v of pr) if (finite(v) && Math.abs(v - 1) > Math.abs(ext - 1)) ext = v;
+      if (Math.abs(ext - 1) < 1e-3) return;
+      out.push({ i, name: nmL, ph, lx: Math.log10(P.F.lam0[i] / 1e4), y0: Math.log10(sc.Lc), y1: ext > 0 ? Math.log10(sc.Lc * ext) : NaN, em: sc.EW < 0, L: Math.abs(sc.L), EW: sc.EW }) });
+    return out };
+  const spikes = mk(q.prof, q.sc, false), spikesP = mk(q.profP, q.scP, true), hasP = spikesP.length > 0;
+  const all = ye.concat(yp, spikes.map(z => z.y1), spikesP.map(z => z.y1)).filter(finite);
+  if (!all.length) { const { g } = setup(cv); g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText("This spectrum has no finite values.", 16, 24); return }
+  const top = Math.ceil(Math.max(...all) + 0.3), lmin = Math.min(...lam.filter(finite)), lmax = Math.max(...lam.filter(finite));
+  const xl = [Math.max(-2.05, Math.floor(lmin * 4) / 4), Math.min(3.05, Math.ceil(lmax * 4) / 4)], yl = [top - 10, top];
+  const lamfmt = v => { const p = 10 ** v; return p >= 1 ? String(Math.round(p)) : p.toPrecision(1) };
+  const { g, w, h } = setup(cv), A = axes(g, w, h, xl, yl, { ylog: true, xint: true, xfmt: lamfmt, xlabel: "wavelength (μm)" });
+  g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+  if (finite(s.T_eff) && finite(s.r_ph) && s.r_ph > 0) { const A4 = 4 * Math.PI * (s.r_ph * 6.957e10) ** 2;
+    const bb = lam.map(l => { const nu = 2.99792e10 / (10 ** l * 1e-4), x = 6.62607e-27 * nu / (1.380649e-16 * s.T_eff);
+      const v = A4 * Math.PI * 2 * 6.62607e-27 * nu ** 4 / 2.99792e10 ** 2 / Math.expm1(x) / 3.828e33; return v > 0 && finite(v) ? Math.log10(v) : NaN });
+    line(g, lam, bb, A.X, A.Y, tok("--faint"), 2, 1.2) }
+  line(g, lam, yp, A.X, A.Y, tok("--fg"), true, 1.6);
+  line(g, lam, ye, A.X, A.Y, ca, false, 2.0);
+  for (const z of spikesP) { if (!finite(z.y1) || z.lx < xl[0] || z.lx > xl[1]) continue; const x = Math.round(A.X(z.lx)) + 0.5;
+    g.save(); g.setLineDash([3, 2]); g.strokeStyle = tok(z.em ? "--c4" : "--c6"); g.globalAlpha = 0.75; g.lineWidth = 1.3; g.beginPath(); g.moveTo(x, A.Y(z.y0)); g.lineTo(x, A.Y(z.y1)); g.stroke(); g.restore() }
+  for (const z of spikes) { if (!finite(z.y1) || z.lx < xl[0] || z.lx > xl[1]) continue; const x = Math.round(A.X(z.lx)) + 0.5;
+    g.strokeStyle = tok(z.em ? "--c4" : "--c6"); g.lineWidth = 1.6; g.beginPath(); g.moveTo(x, A.Y(z.y0)); g.lineTo(x, A.Y(z.y1)); g.stroke() }
+  // labels for the strongest lines
+  g.font = "10.5px " + tok("--mono"); g.fillStyle = tok("--fg"); g.textAlign = "center";
+  const used = [];
+  for (const z of spikes.filter(z => finite(z.y1)).sort((a, b) => b.L - a.L).slice(0, 10)) { const x = A.X(z.lx); if (z.lx < xl[0] || z.lx > xl[1] || used.some(u => Math.abs(u - x) < 7 * z.name.length + 8)) continue; used.push(x);
+    const y = Math.max(A.m.t + 10, Math.min(h - A.m.b - 4, A.Y(z.em ? z.y1 : z.y0) - 6)); g.fillText(z.name, x, y) }
+  g.restore();
+  // hover readout
+  if (ST.ocur !== null && ST.ocur !== undefined) { const xv = xl[0] + (ST.ocur - A.m.l) / (w - A.m.l - A.m.r) * (xl[1] - xl[0]);
+    if (xv >= xl[0] && xv <= xl[1]) { const px = A.X(xv); g.strokeStyle = tok("--muted"); g.lineWidth = 1; g.beginPath(); g.moveTo(px, A.m.t); g.lineTo(px, h - A.m.b); g.stroke();
+      let bi = 0, bd = Infinity; lam.forEach((l, j) => { const d = Math.abs(l - xv); if (d < bd) { bd = d; bi = j } });
+      let sz = null, sd = 0.01; for (const z of spikes.concat(spikesP)) { const d = Math.abs(z.lx - xv); if (d < sd) { sd = d; sz = z } }
+      const lineTxt = z => { const e = q.sc && q.sc[z.i], p = q.scP && q.scP[z.i], f = (c, w) => c && finite(c.EW) ? fmt(Math.abs(c.L)) + " L☉, EW " + fmt(c.EW) + " Å (" + (c.EW < 0 ? "emission" : "absorption") + ")" : "–";
+        return "  ·  " + z.name + ": leaving the grid " + f(e) + (hasP ? "; through the photosphere " + f(p) : "") };
+      $("obsv").textContent = "λ " + fmt(10 ** lam[bi]) + " μm  ·  leaving the grid " + fmt(q.Le[bi]) + " L☉  ·  through the photosphere " + fmt(q.Lp[bi]) + " L☉" + (sz ? lineTxt(sz) : "") } }
+  else $("obsv").textContent = "";
+  // chips
+  const c = [], add = (lab, v) => c.push(`<div class="chip"><span>${lab}</span><b>${v}</b></div>`), rat = (a, b) => finite(a) && finite(b) && b > 0 ? " (ratio " + (a / b).toFixed(2) + ")" : "";
+  add("source", P.kind === "full" ? "with lines" : "continuum only");
+  add("spectrum of step", s.step + (s.step !== fr.s.step ? " (frame " + fr.s.step + ")" : ""));
+  add("leaving the grid ∫L_ν dν", fmt(s.Lc_edge) + " L☉"); add("run's L at the edge", s.Lrun_edge === 0 ? "none yet" : fmt(s.Lrun_edge) + " L☉" + rat(s.Lc_edge, s.Lrun_edge));
+  if (finite(s.Lc_ph) && s.Lc_ph > 0) { add("through the photosphere ∫L_ν dν", fmt(s.Lc_ph) + " L☉"); add("run's L there", fmt(s.Lrun_ph) + " L☉" + rat(s.Lc_ph, s.Lrun_ph)) }
+  add("r_ph", fmt(s.r_ph) + " R☉"); add("T_eff", fmt(s.T_eff) + " K");
+  if (P.kind === "full" && finite(s.nrefined) && s.nrefined > 0) add("photosphere sub-layers", Math.round(s.nrefined) + " (modelled)");
+  $("obschips").innerHTML = c.join("");
+  const bad = [], chk = (lab, a, b) => { if (finite(a) && finite(b) && b > 0) { const r = a / b; if (r > 2 || r < 0.5) bad.push(lab + " " + (r >= 1 ? fmt(r) + " times" : fmt(r) + " of") + " the run's luminosity") } };
+  chk("leaving the grid", s.Lc_edge, s.Lrun_edge); chk("through the photosphere", s.Lc_ph, s.Lrun_ph);
+  const wv = $("obswarn"), notes = [];
+  if (P.note) notes.push(P.note);
+  if (bad.length) notes.push("<b>Not a prediction for this snapshot.</b> The spectrum integrates to " + bad.join(" and ") + ": it radiates a zone the run does not resolve (the whole photosphere in one zone, or the accretion shock); use the run's own L and T<sub>eff</sub>.");
+  wv.hidden = !notes.length; wv.innerHTML = notes.join("<br>");
+  $("obskey").innerHTML = `<span><i class="sw" style="background:${ca}"></i>leaving the grid (observable)</span>` +
+    `<span><i class="sw" style="background:${tok("--fg")};height:0;border-top:2px dashed ${tok("--fg")}"></i>through the photosphere${P.kind === "full" && !hasP ? " (continuum; lines at r_ph not computed for this snapshot)" : ""}</span>` +
+    (P.kind === "full" ? `<span><i class="sw" style="background:${tok("--c4")};width:2px;height:12px"></i>emission line</span><span><i class="sw" style="background:${tok("--c6")};width:2px;height:12px"></i>absorption line</span>` +
+      (hasP ? `<span><i class="sw" style="background:transparent;width:0;height:12px;border-left:2px dashed ${tok("--muted")}"></i>dashed spike: the line through the photosphere</span>` : "") : "") +
+    `<span><i class="sw" style="background:${tok("--faint")};height:0;border-top:2px dotted ${tok("--faint")}"></i>blackbody T_eff at r_ph</span>`;
+}
+{ const cv = $("obs"), mv = e => { const r = cv.getBoundingClientRect(); ST.ocur = e.clientX - r.left; safe(drawObs, "obsmsg") };
+  cv.addEventListener("pointermove", mv); cv.addEventListener("pointerdown", mv); cv.addEventListener("pointerleave", () => { ST.ocur = null; safe(drawObs, "obsmsg") }) }
+
+function drawTrack() {
+  const cv = $("track"), { g, w, h } = setup(cv);
+  const [yk, , ylog] = TRACK.find(t => t[0] === $("ty").value), xk = $("tx").value;
+  const series = [];
+  for (const key of Object.keys(RUNDEF).slice().reverse()) {
+    const R = RUNS[key]; if (!R || !R.frames.length) continue;
+    if (!onTrack(key)) continue;
+    const pts = R.frames.map(fr => { let x = fr.s[xk], y = fr.s[yk];
+      if ((yk === "M_star" || yk === "R_star" || xk === "M_star") && !hasStar(fr.s)) { if (yk === "M_star" || yk === "R_star") y = NaN; if (xk === "M_star") x = NaN }
+      if (ylog) y = y > 0 ? Math.log10(y) : NaN;
+      if (xk === "M_star") x = x > 0 ? Math.log10(x) : NaN;
+      return [x, y] });
+    series.push({ key, pts });
+  }
+  const xs = [], ys = []; series.forEach(S => S.pts.forEach(([x, y]) => { if (finite(x) && finite(y)) { xs.push(x); ys.push(y) } }));
+  if (!xs.length) { g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText("No values of this quantity yet.", 16, 24); cv._map = null; return }
+  let xl = [Math.min(...xs), Math.max(...xs)], yl = yk === "u_min" ? [Math.min(...ys), Math.max(...ys)] : [pct(ys, 0.5), pct(ys, 99.5)];
+  if (xl[1] === xl[0]) xl = [xl[0] - 1, xl[1] + 1]; const p = 0.05 * (yl[1] - yl[0] || 1); yl = [yl[0] - p, yl[1] + p];
+  const A = axes(g, w, h, xl, yl, { ylog, xlabel: xk === "t" ? "years since the run's first frame" : xk === "step" ? "step" : "protostar mass (M☉)", xfmt: xk === "M_star" ? v => fmt(10 ** v) : null });
+  g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+  for (const S of series) line(g, S.pts.map(p => p[0]), S.pts.map(p => p[1]), A.X, A.Y, col(S.key), S.key !== ST.run, 1.6);
+  const cur = series.find(S => S.key === ST.run);
+  if (cur) { const [x, y] = cur.pts[ST.i];
+    if (finite(x)) { g.strokeStyle = tok("--fg"); g.lineWidth = 1; g.beginPath(); g.moveTo(A.X(x), A.m.t); g.lineTo(A.X(x), h - A.m.b); g.stroke() }
+    if (finite(x) && finite(y)) { g.fillStyle = col(ST.run); g.strokeStyle = tok("--panel"); g.lineWidth = 2; g.beginPath(); g.arc(A.X(x), A.Y(y), 4.5, 0, 7); g.fill(); g.stroke() } }
+  g.restore();
+  drawMarks(g, A, h, xk);
+  cv._map = { A, pts: cur ? cur.pts : [] };
+  // readout: the selected run's point nearest the pointer, or the frame shown
+  let ri = cur ? ST.i : -1;
+  if (cur && ST.tcur !== null && ST.tcur !== undefined) { let bd = Infinity; cur.pts.forEach(([x, y], j) => { if (!finite(x) || !finite(y)) return; const d = Math.abs(A.X(x) - ST.tcur); if (d < bd) { bd = d; ri = j } });
+    const [x, y] = cur.pts[ri]; if (finite(x) && finite(y)) { g.strokeStyle = tok("--muted"); g.lineWidth = 1; g.beginPath(); g.moveTo(A.X(x), A.m.t); g.lineTo(A.X(x), h - A.m.b); g.stroke();
+      g.strokeStyle = col(ST.run); g.lineWidth = 1.5; g.beginPath(); g.arc(A.X(x), A.Y(y), 5, 0, 7); g.stroke() } }
+  $("trh").textContent = TRACK.find(t => t[0] === yk)[1];
+  if (ri >= 0) { const q = R0(ri), xv = xk === "t" ? "t " + fmt(q.t) + " yr" : xk === "step" ? "step " + q.step : "M* " + fmt(q.M_star) + " M☉";
+    $("trv").textContent = xv + "  ·  " + fmt(q[yk]) + (xk !== "step" ? "  ·  step " + q.step : "") } else $("trv").textContent = "";
+}
+function R0(i) { return RUNS[ST.run].frames[i].s }
+
+// onset of D, pp and CNO burning in the selected run, as labelled dashed lines on a chart whose x axis is xk
+function drawMarks(g, A, h, xk, bottom) {
+  const R = RUNS[ST.run]; if (!R || !R.nuc) return;
+  g.save(); g.font = "11px " + tok("--mono"); g.textBaseline = "top"; let row = 0;
+  for (const m of R.nuc.marks) {
+    if (m.state !== "at") continue;
+    const x = xk === "t" ? m.t_yr - R.t0 : xk === "step" ? m.step : m.M_star > 0 ? Math.log10(m.M_star) : NaN; if (!finite(x)) continue;
+    const px = A.X(x); g.strokeStyle = tok("--muted"); g.lineWidth = 1; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(px, A.m.t); g.lineTo(px, h - A.m.b); g.stroke(); g.setLineDash([]);
+    const lab = m.key + " onset", tw = g.measureText(lab).width, left = px + 4 + tw > A.X.w;
+    g.fillStyle = tok("--muted"); g.textAlign = left ? "right" : "left"; g.fillText(lab, px + (left ? -4 : 4), bottom ? h - A.m.b - 15 - 13 * row++ : A.m.t + 2 + 13 * row++);
+  }
+  g.restore();
+}
+function drawNuc() {
+  const cv = $("nuc"), { g, w, h } = setup(cv), R = RUNS[ST.run], xk = $("tx").value;
+  const note = t => { g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText(t, 16, 24); cv._map = null; $("nuv").textContent = "" };
+  $("nuckey").innerHTML = NUC.map(([, lab, c]) => `<span><i class="sw" style="background:${tok(c)}"></i>${lab}</span>`).join("") +
+    `<span><i class="sw" style="background:${tok("--faint")}"></i>luminosity at the photosphere (running median)</span>` +
+    `<span><i class="sw" style="background:none;height:0;border-top:2px dotted ${tok("--faint")}"></i>0.1 % of it: the onset level (dotted)</span>`;
+  if (!R.nuc) { $("nucchips").innerHTML = ""; note("The nuclear abundances of this run were not recorded."); return }
+  const lg = v => v > 0 ? Math.log10(v) : NaN;
+  const xs = R.frames.map(fr => { const s = fr.s; return xk === "M_star" ? (s.logn_c > 23 ? lg(s.M_star) : NaN) : s[xk] });
+  const ser = NUC.map(([k]) => R.frames.map(fr => lg(fr.s[k]))), ref = R.frames.map(fr => lg(fr.s.L_ph_med)), thr = ref.map(v => v + Math.log10(R.nuc.thr));
+  // status of the three marked processes
+  $("nucchips").innerHTML = R.nuc.marks.map(m => {
+    const M = finite(m.M_star) && m.M_star > 0 ? m.M_star.toFixed(2) + " M☉" : null, p = 100 * m.frac;
+    const f = finite(p) && p > 0 ? (p >= 0.01 ? p.toPrecision(2) : p.toExponential(1)) + " % of L in the latest snapshot" : "no energy from it yet";
+    const v = m.state === "at" ? "onset at " + (M ? M + ", " : "") + "step " + m.step : m.state === "before" ? "already on in the first recorded snapshot" + (M ? " (" + M + ")" : "") + "; now " + f : "not yet, " + f;
+    return `<div class="chip"><span>${MARKNAME[m.key] || m.key}</span><b>${v}</b></div>` }).join("");
+  const fx = xs.filter(finite), fy = ser.flat().concat(ref, thr).filter(finite);
+  if (!fx.length || !fy.length) { note(xk === "M_star" ? "No protostar in this run yet: choose time or step for the track's x axis." : "No luminosities to show yet."); return }
+  let xl = [Math.min(...fx), Math.max(...fx)]; if (xl[1] === xl[0]) xl = [xl[0] - 1, xl[1] + 1];
+  // by default down to six decades below the onset level; "All decades" shows everything
+  const ft = thr.filter(finite), hi = Math.ceil(Math.max(...fy) + 0.2), all = $("nucall").checked || !ft.length;
+  const lo = all ? Math.max(Math.floor(Math.min(...fy)), hi - 40) : Math.floor(Math.min(...ft)) - 6;
+  const A = axes(g, w, h, xl, [lo, hi], { ylog: true, xlabel: xk === "t" ? "years since the run's first frame" : xk === "step" ? "step" : "protostar mass (M☉)",
+    xfmt: xk === "M_star" ? v => { const m = 10 ** v, sp = xl[1] - xl[0]; return sp < 0.3 && m >= 1 ? m.toFixed(sp < 0.03 ? 2 : 1) : fmt(m) } : null });
+  g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+  line(g, xs, ref, A.X, A.Y, tok("--faint"), false, 1.3); line(g, xs, thr, A.X, A.Y, tok("--faint"), 2, 1.5);
+  NUC.forEach(([, , c], j) => line(g, xs, ser[j], A.X, A.Y, tok(c), false, 1.9));
+  const x0 = xs[ST.i]; if (finite(x0)) { g.strokeStyle = tok("--fg"); g.lineWidth = 1; g.beginPath(); g.moveTo(A.X(x0), A.m.t); g.lineTo(A.X(x0), h - A.m.b); g.stroke() }
+  g.restore();
+  drawMarks(g, A, h, xk, true);
+  cv._map = { A, xs };
+  let ri = ST.i;
+  if (ST.ncur !== null && ST.ncur !== undefined) { let bd = Infinity; xs.forEach((x, j) => { if (!finite(x)) return; const d = Math.abs(A.X(x) - ST.ncur); if (d < bd) { bd = d; ri = j } });
+    const x = xs[ri]; if (finite(x)) { g.strokeStyle = tok("--muted"); g.lineWidth = 1; g.beginPath(); g.moveTo(A.X(x), A.m.t); g.lineTo(A.X(x), h - A.m.b); g.stroke();
+      NUC.forEach(([, , c], j) => { const y = ser[j][ri]; if (!finite(y) || y < lo) return; g.fillStyle = tok(c); g.strokeStyle = tok("--panel"); g.lineWidth = 2; g.beginPath(); g.arc(A.X(x), A.Y(y), 4, 0, 7); g.fill(); g.stroke() }) } }
+  const q = R.frames[ri].s, xv = xk === "t" ? "t " + fmt(q.t) + " yr" : xk === "step" ? "step " + q.step : "M* " + fmt(q.M_star) + " M☉";
+  $("nuv").textContent = xv + "  ·  " + NUC.map(([k, , , sh]) => sh + " " + (q[k] > 0 ? fmt(q[k]) : "0")).join("  ·  ") + "  ·  L " + fmt(q.L_ph_med) + (xk !== "step" ? "  ·  step " + q.step : "");
+}
+{ const mv = e => { const r = $("nuc").getBoundingClientRect(); ST.ncur = e.clientX - r.left; drawNuc() };
+  $("nuc").addEventListener("pointermove", mv); $("nuc").addEventListener("pointerleave", () => { ST.ncur = null; drawNuc() });
+  $("nuc").addEventListener("click", e => { const m = $("nuc")._map; if (!m) return; const px = e.clientX - $("nuc").getBoundingClientRect().left;
+    let bi = -1, bd = Infinity; m.xs.forEach((x, j) => { if (!finite(x)) return; const d = Math.abs(m.A.X(x) - px); if (d < bd) { bd = d; bi = j } }); if (bi >= 0) seek(bi) }) }
+{ const mv = e => { const r = $("track").getBoundingClientRect(); ST.tcur = e.clientX - r.left; drawTrack() };
+  $("track").addEventListener("pointermove", mv); $("track").addEventListener("pointerleave", () => { ST.tcur = null; drawTrack() }) }
+$("track").addEventListener("click", e => {
+  const m = $("track")._map; if (!m) return; const r = $("track").getBoundingClientRect(), px = e.clientX - r.left;
+  let bi = -1, bd = Infinity; m.pts.forEach(([x], j) => { if (!finite(x)) return; const d = Math.abs(m.A.X(x) - px); if (d < bd) { bd = d; bi = j } });
+  if (bi >= 0) seek(bi);
+});
+
+// photons ahead of the photosphere: <run>/ionfs_post.csv (ionfs_post.jl), loaded per run on demand
+const PHOT = {}, PHS = [["Qem_H", "H-ionizing, emitted", "--run-a", false], ["QH_a", "H-ionizing, at r_a", "--run-a", 3], ["Qem_LW", "LW, emitted", "--run-b", false],
+  ["Qesc_LW", "LW, leaving the mesh", "--run-b", 2], ["Qem_HeI", "He I-ionizing, emitted", "--c3", false], ["Qem_HeII", "He II-ionizing, emitted", "--c5", false]];
+async function loadPhot(key) {
+  if (PHOT[key] !== undefined) return PHOT[key];
+  PHOT[key] = null;
+  try { const r = await fetch(key + "/ionfs_post.csv", { cache: "no-store" }); if (!r.ok) return null;
+    const L = (await r.text()).trim().split("\n"), hd = L[0].split(",");
+    PHOT[key] = L.slice(1).map(l => { const v = l.split(","), o = {}; hd.forEach((k, j) => o[k] = +v[j]); return o }).sort((a, b) => a.step - b.step) } catch (e) { PHOT[key] = null }
+  return PHOT[key];
+}
+async function drawPhot() {
+  const key = ST.run, P = await loadPhot(key); if (key !== ST.run) return;
+  const cv = $("phot"), { g, w, h } = setup(cv);
+  $("photkey").innerHTML = PHS.map(([, lab, c, d]) => `<span><i class="sw" style="background:none;height:0;border-top:2px ${d ? "dashed" : "solid"} ${tok(c)}"></i>${lab}</span>`).join("");
+  const note = t => { g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText(t, 16, 24); $("photv").textContent = ""; $("photchips").innerHTML = "" };
+  if (!P || !P.length) { note("No photon post-processing for this run yet."); return }
+  const lg = v => v > 0 ? Math.log10(v) : NaN, rows = P.filter(o => o.Mstar_Msun > 0);
+  if (!rows.length) { note("No protostar in this run yet."); return }
+  const xs = rows.map(o => lg(o.Mstar_Msun)), ser = PHS.map(([k]) => rows.map(o => lg(o[k])));
+  const last = rows[rows.length - 1], na = rows.filter(o => o.alarm > 0).length;
+  $("photchips").innerHTML = `<div class="chip"><span>Break-out alarm</span><b>${na ? na + " of " + rows.length + " snapshots, first at M* " + fmt(rows.find(o => o.alarm > 0).Mstar_Msun) + " M☉" : "not raised in " + rows.length + " snapshots"}</b></div>` +
+    `<div class="chip"><span>Latest H front</span><b>${finite(last.rIF_H_Rsun) && last.rIF_H_Rsun > 0 ? fmt(last.rIF_H_Rsun - last.r_ph_Rsun) + " R☉ beyond r_ph" : "at the photosphere"}</b></div>` +
+    `<div class="chip"><span>Latest H₂ front (f_H₂ = 0.5)</span><b>${finite(last.rH2_05_Rsun) ? fmt(last.rH2_05_Rsun - last.r_ph_Rsun) + " R☉ beyond r_ph" : "—"}</b></div>`;
+  const fy = ser.flat().filter(finite); if (!fy.length) { note("All photon rates are zero."); return }
+  let xl = [Math.min(...xs.filter(finite)), Math.max(...xs.filter(finite))]; if (xl[1] === xl[0]) xl = [xl[0] - 0.1, xl[1] + 0.1];
+  const hi = Math.ceil(Math.max(...fy) + 0.2), lo = Math.max(Math.floor(Math.min(...fy)), hi - 16);
+  const A = axes(g, w, h, xl, [lo, hi], { ylog: true, xlabel: "protostar mass (M☉)", xfmt: v => fmt(10 ** v) });
+  g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+  PHS.forEach(([, , c, d], j) => line(g, xs, ser[j], A.X, A.Y, tok(c), d, 1.8));
+  rows.forEach((o, j) => { if (o.alarm > 0 && finite(xs[j])) { g.fillStyle = tok("--c7"); g.fillRect(A.X(xs[j]) - 1, A.m.t, 2, 6) } });
+  g.restore();
+  $("photv").textContent = "latest: M* " + fmt(last.Mstar_Msun) + " M☉ · T_eff " + fmt(last.T_eff) + " K · Q_H emitted " + fmt(last.Qem_H) + " · Q_LW emitted " + fmt(last.Qem_LW) + " s⁻¹";
+}
+
+let PERF = []; const PERFS = {};
+function parsePerf(txt) {
+  const L = txt.trim().split("\n"), hd = L[0].split(",");
+  return L.slice(1).map(l => { const v = l.split(","), o = {}; hd.forEach((k, j) => o[k] = k === "dtlim" ? v[j] : +v[j]); return o }).filter(o => o.nsteps > 0);
+}
+function phaseOf(o) {
+  const n = o.log_nc;
+  if (n < 23.35) return n < 8 ? "Collapse: log n_c < 8" : n < 16 ? "Collapse: log n_c 8–16" : n < 21 ? "Collapse: log n_c 16–21" : "Collapse: log n_c 21 to remap";
+  const M = o.mstar; return !(M > 0) ? "Accretion: no protostar found" : M < 10 ? "Accretion: M* < 10 M☉" : M < 30 ? "Accretion: M* 10–30 M☉" : M < 100 ? "Accretion: M* 30–100 M☉" : "Accretion: M* > 100 M☉";
+}
+const PCATS = [["t_step", "Hydro and radiation", "--run-a"], ["t_chem", "Chemistry", "--run-b"], ["t_lines", "H₂ lines", "--c3"], ["t_other", "Output and the rest", "--c4"]];
+function drawPerf() {
+  const cv = $("perf"), cv2 = $("perf2");
+  { const pk = PERFS[ST.run] && PERFS[ST.run].length ? ST.run : "base64"; PERF = PERFS[pk] || []; $("perfh").textContent = "Where the time goes (" + nm(pk) + ")" }
+  $("perfkey").innerHTML = PCATS.map(([, lab, c]) => `<span><i class="sw" style="background:${tok(c)};height:8px;width:10px"></i>${lab}</span>`).join("") +
+    `<span><i class="sw" style="background:${tok("--c5")}"></i>GC share</span>`;
+  if (!PERF.length) { const { g } = setup(cv); g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText("No cost records yet.", 16, 24); setup(cv2); return }
+  {
+    const { g, w, h } = setup(cv);
+    const xs = PERF.map(o => o.step), tot = PERF.map(o => (o.t_step + o.t_chem + o.t_lines + o.t_other) / o.nsteps);
+    const xl = [Math.min(...xs) - 50, Math.max(...xs) + 50], yl = [0, Math.max(pct(tot, 98) * 1.1, 1e-3)];
+    const A = axes(g, w, h, xl, yl, { xlabel: "step  ·  wall seconds per step" });
+    const bw = Math.max(1, (A.X(xl[0] + 100) - A.X(xl[0])) - 1);
+    g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+    PERF.forEach(o => { let y0 = 0; const x = A.X(o.step - o.nsteps / 2) - bw / 2;
+      for (const [k, , c] of PCATS) { const v = o[k] / o.nsteps; g.fillStyle = tok(c); const yt = A.Y(y0 + v), yb = A.Y(y0); g.fillRect(x, yt, bw, Math.max(0, yb - yt - (bw > 4 ? 1 : 0))); y0 += v } });
+    g.restore();
+  }
+  {
+    const { g, w, h } = setup(cv2);
+    const xs = PERF.map(o => o.step), div = [], gcs = [];
+    PERF.forEach((o, j) => { const p = j > 0 ? PERF[j - 1] : null;
+      div.push(p && p.pid === o.pid ? (o.ndiv - p.ndiv) / o.nsteps : NaN);
+      gcs.push(o.gc_s / Math.max(1e-9, o.t_step + o.t_chem + o.t_lines + o.t_other)) });
+    const yl = [0, Math.max(1, ...div.filter(finite)) * 1.1];
+    const A = axes(g, w, h, [Math.min(...xs) - 50, Math.max(...xs) + 50], yl, { xlabel: "step  ·  Newton divergences per step (bars), GC share of wall time (line, same axis)" });
+    const bw = Math.max(1, (A.X(Math.min(...xs) + 100) - A.X(Math.min(...xs))) - 1);
+    g.fillStyle = tok("--faint"); PERF.forEach((o, j) => { if (!finite(div[j])) return; const yt = A.Y(div[j]); g.fillRect(A.X(o.step - o.nsteps / 2) - bw / 2, yt, bw, A.Y(0) - yt) });
+    line(g, xs, gcs, A.X, A.Y, tok("--c5"), false, 1.8);
+  }
+  const ph = new Map();
+  PERF.forEach((o, j) => { const k = phaseOf(o), p = j > 0 ? PERF[j - 1] : null;
+    const r = ph.get(k) || { n: 0, step: 0, chem: 0, lines: 0, oth: 0, gc: 0, alloc: 0, div: 0, first: o.step, last: o.step };
+    r.n += o.nsteps; r.step += o.t_step; r.chem += o.t_chem; r.lines += o.t_lines; r.oth += o.t_other; r.gc += o.gc_s; r.alloc += o.alloc_GB;
+    if (p && p.pid === o.pid) r.div += o.ndiv - p.ndiv; r.last = o.step; ph.set(k, r) });
+  let html = "<thead><tr><th>Phase</th><th>steps</th><th>wall h</th><th>s / step</th><th>hydro+rad</th><th>chemistry</th><th>H₂ lines</th><th>other</th><th>GC</th><th>alloc GB / step</th><th>divergences / step</th></tr></thead><tbody>";
+  for (const [k, r] of ph) { const T = r.step + r.chem + r.lines + r.oth, P = v => (100 * v / T).toFixed(0) + " %";
+    html += `<tr><td>${k}</td><td class="mono">${r.n}</td><td class="mono">${(T / 3600).toFixed(2)}</td><td class="mono">${(T / r.n).toFixed(3)}</td><td class="mono">${P(r.step)}</td><td class="mono">${P(r.chem)}</td><td class="mono">${P(r.lines)}</td><td class="mono">${P(r.oth)}</td><td class="mono">${P(r.gc)}</td><td class="mono">${(r.alloc / r.n).toFixed(2)}</td><td class="mono">${(r.div / r.n).toFixed(2)}</td></tr>` }
+  $("phases").innerHTML = html + "</tbody>";
+}
+
+function seek(i) { const R = RUNS[ST.run]; if (!R.frames.length) return; ST.i = Math.max(0, Math.min(R.frames.length - 1, i)); $("frame").value = ST.i; drawAll() }
+// the full spectrum (with lines) nearest in step to the frame shown
+function fullFor(key, step) {
+  const F = RUNS[key] && RUNS[key].full; if (!F || !F.S.length) return null;
+  let b = null, bd = Infinity; for (const q of F.S) { const d = Math.abs(q.s.step - step); if (d < bd) { bd = d; b = q } } return b;
+}
+let FLSEL = 0, FLNAMES = "";
+function drawFull() {
+  const cv = $("fullspec"), cp = $("flprof"), ct = $("fltau"), R = RUNS[ST.run], fr = R.frames[ST.i], F = R.full, q = F ? fullFor(ST.run, fr.s.step) : null, ca = col(ST.run);
+  if (!q) {
+    for (const c of [cv, cp, ct]) { const { g } = setup(c); g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText("No full spectra for this run yet.", 16, 24) }
+    $("flchips").innerHTML = ""; $("fltab").innerHTML = ""; $("flv").textContent = ""; $("flpv").textContent = ""; $("fltv").textContent = ""; return }
+  const names = F.lines.join("|");
+  if (names !== FLNAMES) { FLNAMES = names; $("flsel").innerHTML = F.lines.map((l, i) => `<option value="${i}">${l} (${F.lam0[i] >= 1e4 ? (F.lam0[i] / 1e4).toPrecision(4) + " μm" : F.lam0[i].toFixed(F.lam0[i] < 1000 ? 1 : 0) + " Å"})</option>`).join(""); $("flsel").value = String(FLSEL) }
+  const lg = a => Array.from(a, v => v > 0 ? Math.log10(v) : NaN), s = q.s;
+  const ye = lg(q.Le), yp = lg(q.Lp), all = ye.concat(yp).filter(finite), top = all.length ? Math.ceil(Math.max(...all) + 0.3) : 0;
+  const xl = [-2.05, 3.05], yl = [top - 10, top], lamfmt = v => { const p = 10 ** v; return p >= 1 ? String(Math.round(p)) : p.toPrecision(1) };
+  { const { g, w, h } = setup(cv), A = axes(g, w, h, xl, yl, { ylog: true, xint: true, xfmt: lamfmt });
+    line(g, F.lam, ye, A.X, A.Y, ca); line(g, F.lam, yp, A.X, A.Y, ca, 1);
+    // line markers: emission up (EW < 0), absorption down, length by |EW| (log), the selected line labelled
+    g.save(); g.font = "10.5px " + tok("--mono");
+    F.lines.forEach((nmL, i) => { const lx = Math.log10(F.lam0[i] / 1e4); if (lx < xl[0] || lx > xl[1]) return; const ew = q.sc[i].EW; if (!finite(ew) || ew === 0) return;
+      const len = Math.min(40, 6 + 8 * Math.max(0, Math.log10(Math.abs(ew)) + 2)), x = A.X(lx), y0 = A.m.t + 46;
+      g.strokeStyle = tok(ew < 0 ? "--c4" : "--c6"); g.lineWidth = i === FLSEL ? 2.4 : 1.2; g.beginPath(); g.moveTo(x, y0); g.lineTo(x, ew < 0 ? y0 - len : y0 + len); g.stroke();
+      if (i === FLSEL) { g.fillStyle = tok("--fg"); g.textAlign = "center"; g.fillText(nmL, x, A.m.t + 2 + 8) } });
+    g.restore();
+    $("flv").textContent = `${nm(ST.run)} step ${s.step} (frame step ${fr.s.step}); solid: edge, dotted: through the photosphere; ticks: lines, up = emission, down = absorption` }
+  // profile
+  const i = Math.min(FLSEL, F.lines.length - 1), pr = Array.from(q.prof[i]), vv = F.v;
+  { const { g, w, h } = setup(cp), fin = pr.filter(finite), lo = Math.min(1, ...fin), hi = Math.max(1, ...fin), pad = Math.max(0.02, 0.08 * (hi - lo));
+    const A = axes(g, w, h, [vv[0], vv[vv.length - 1]], [lo - pad, hi + pad], { xlabel: "velocity (km/s)" });
+    line(g, [vv[0], vv[vv.length - 1]], [1, 1], A.X, A.Y, tok("--muted"), 1, 1); line(g, vv, pr, A.X, A.Y, ca);
+    const sc = q.sc[i]; $("flpv").textContent = `${F.lines[i]}: L_line ${fmt(sc.L)} L☉, EW ${fmt(sc.EW)} Å (${sc.EW < 0 ? "emission" : "absorption"}), continuum νL_ν ${fmt(sc.Lc)} L☉` }
+  // optical depth
+  { const xr = lg(q.rg), yt = Array.from(q.tau[i], v => v > -29 ? v : NaN), fin = yt.filter(finite), { g, w, h } = setup(ct);
+    const yl2 = fin.length ? [Math.floor(Math.min(...fin, -1)), Math.ceil(Math.max(...fin, 1))] : [-1, 1];
+    const A = axes(g, w, h, [xr[0], xr[xr.length - 1]], yl2, { ylog: true, xlabel: "radius (R☉)", xfmt: v => fmt(10 ** v) });
+    line(g, [xr[0], xr[xr.length - 1]], [0, 0], A.X, A.Y, tok("--muted"), 1, 1); line(g, xr, yt, A.X, A.Y, ca);
+    $("fltv").textContent = fin.length ? `τ0 at the inner end ${fmt(10 ** yt[0])}` : "line opacity zero in the solved region" }
+  // chips and table
+  const rat = (a, b) => finite(a) && finite(b) && b > 0 ? fmt(a / b) : "–";
+  $("flchips").innerHTML = [["∫L_ν edge", fmt(s.Lc_edge) + " L☉"], ["run edge", fmt(s.Lrun_edge) + " L☉"], ["∫L_ν photosphere", fmt(s.Lc_ph) + " L☉"], ["run photosphere", fmt(s.Lrun_ph) + " L☉"],
+    ["ratio (photosphere)", rat(s.Lc_ph, s.Lrun_ph)], ["r_ph", fmt(s.r_ph) + " R☉"], ["T_eff", fmt(s.T_eff) + " K"], ["points", Math.round(s.np) + " (" + Math.round(s.nrefined) + " sub-layers)"]]
+    .map(([k, v]) => `<div class="chip"><span>${k}</span><b>${v}</b></div>`).join("");
+  $("fltab").innerHTML = "<table><thead><tr><th>line</th><th>λ0</th><th>L_line (L☉)</th><th>EW (Å)</th><th>kind</th><th>τ0 inner</th></tr></thead><tbody>" +
+    F.lines.map((l, j) => { const c = q.sc[j], t0 = q.tau[j][0]; return `<tr data-i="${j}"${j === i ? ' class="sel"' : ""}><td>${l}</td><td>${F.lam0[j] >= 1e4 ? (F.lam0[j] / 1e4).toPrecision(4) + " μm" : F.lam0[j].toFixed(1) + " Å"}</td><td>${fmt(c.L)}</td><td>${fmt(c.EW)}</td><td>${!finite(c.EW) || c.EW === 0 ? "–" : c.EW < 0 ? "emission" : "absorption"}</td><td>${t0 > -29 ? fmt(10 ** t0) : "0"}</td></tr>` }).join("") + "</tbody></table>";
+}
+document.addEventListener("change", e => { if (e.target && e.target.id === "flsel") { FLSEL = +e.target.value; if (RUNS[ST.run] && RUNS[ST.run].frames.length) drawFull() } });
+document.addEventListener("click", e => { const tr = e.target && e.target.closest && e.target.closest("#fltab tr[data-i]"); if (tr) { FLSEL = +tr.dataset.i; $("flsel").value = String(FLSEL); drawFull() } });
+// one panel failing (an unexpected data shape) must not stop the others from drawing
+function safe(f, msgId) { try { f() } catch (e) { console.error(e); const el = msgId && $(msgId); if (el) { el.hidden = false; el.textContent = "This panel could not be drawn for this frame (" + (e && e.message ? e.message : e) + ")." } } }
+// Pop III protostar helper: works for both cloud-collapse runs (logn_c > 23) AND bloated supergiant runs (M_star >= 0.4)
+function hasStar(s) { return finite(s.M_star) && s.M_star > 0.05 && (!finite(s.logn_c) || s.logn_c > 16 || s.M_star >= 0.4) }
+// Reference Pop III ZAMS (Titan.jl s5_run.jl FreeEnergyEOS) and low-Mdot 1e-3 Msun/yr track (HOY12 Fig. 1)
+const ZAMS_REF = [[15, 1.54, 4.795, 4.51], [50, 3.31, 4.928, 5.708], [100, 4.30, 4.970, 6.13], [300, 8.95, 5.002, 6.865]];
+const HOY12_1E3_MR = [[2.0,15.4],[2.8,13.4],[4.0,13.5],[5.8,16.1],[7.7,23.8],[8.7,34.3],[12.1,27.8],[15.4,17.7],[19.1,11.8],[23.6,8.21],[29.1,5.90],[35.6,4.50],[45.9,3.66],[66.6,3.44],[101.0,4.30]];
+
+// Interpolate radius (log10 R/Rsun) where enclosed mass crosses M_tgt [Msun] inside frame fr
+function rAtMass(fr, mTgt) {
+  const lm = fr.f.logm, lr = fr.f.logr;
+  if (!lm || !lr || !(mTgt > 0)) return NaN;
+  const lt = Math.log10(mTgt);
+  for (let k = 0; k < lm.length - 1; k++) {
+    const a = lm[k], b = lm[k + 1];
+    if (finite(a) && finite(b) && a <= lt && b >= lt) {
+      const t = b > a ? (lt - a) / (b - a) : 0;
+      return lr[k] + t * (lr[k + 1] - lr[k]);
+    }
+  }
+  return NaN;
+}
+
+// Compute per-frame pulsation/inversion summary (uses stored scalar if present, else derives cleanly from profile arrays)
+function framePulsMeta(fr) {
+  if (fr._pm) return fr._pm;
+  const s = fr.s, f = fr.f;
+  let maxInv = finite(s.max_dlnrho) ? s.max_dlnrho : NaN;
+  let maxGam = finite(s.max_Gam) ? s.max_Gam : NaN;
+  if (!finite(maxInv) && f.logrho && f.logr) {
+    let best = -Infinity;
+    const rlim = finite(s.r_ph) && s.r_ph > 0 ? Math.log10(s.r_ph) : (finite(s.R_star) && s.R_star > 0 ? Math.log10(s.R_star) : Infinity);
+    for (let k = 1; k < f.logr.length - 1; k++) {
+      if (f.logr[k + 1] > rlim) break;
+      const dl = f.logr[k + 1] - f.logr[k];
+      if (dl > 1e-4 && finite(f.logrho[k]) && finite(f.logrho[k + 1])) {
+        const g = (f.logrho[k + 1] - f.logrho[k]) / dl;
+        if (g > best) best = g;
+      }
+    }
+    if (best > -Infinity) maxInv = best;
+  }
+  if (!finite(maxGam) && f.Gamma && f.logr) {
+    let best = 0;
+    const rlim = finite(s.r_ph) && s.r_ph > 0 ? Math.log10(s.r_ph) : Infinity;
+    for (let k = 1; k < f.Gamma.length; k++) {
+      if (f.logr[k] > rlim) break;
+      if (finite(f.Gamma[k]) && f.Gamma[k] > best) best = f.Gamma[k];
+    }
+    maxGam = best;
+  }
+  const Teff = finite(s.T_eff_lum) && s.T_eff_lum > 0 ? s.T_eff_lum : (finite(s.T_eff) ? s.T_eff : NaN);
+  fr._pm = { maxInv, maxGam, Teff };
+  return fr._pm;
+}
+
+// =================================================================================================
+// v82 View 1: Hosokawa et al. (2012) Figure 1 — Full Interior Structure Evolution (Kippenhahn Map)
+// =================================================================================================
+function drawKipp() {
+  const cv = $("kipp"), { g, w, h } = setup(cv), R = RUNS[ST.run];
+  $("kippkey").innerHTML =
+    `<span><i class="sw" style="background:${tok("--fg")}"></i>R* (surface)</span>` +
+    `<span><i class="sw" style="background:#e03131"></i>R<sub>shock</sub></span>` +
+    `<span><i class="sw" style="background:none;height:0;border-top:2px dashed ${tok("--run-a")}"></i>R<sub>ph</sub></span>` +
+    `<span><i class="sw" style="background:none;height:0;border-top:2px dotted ${tok("--muted")}"></i>M<sub>r</sub> shells</span>` +
+    `<span><i class="sw" style="background:none;height:0;border-top:2px dashed ${tok("--c6")}"></i>70% M*</span>` +
+    `<span><i class="sw" style="background:rgba(130,140,155,0.45);height:9px;width:12px"></i>convective</span>` +
+    `<span><i class="sw" style="background:rgba(237,161,0,0.45);height:9px;width:12px"></i>D burn</span>` +
+    `<span><i class="sw" style="background:rgba(214,39,40,0.42);height:9px;width:12px"></i>H burn</span>`;
+  if (!R || !R.frames.length) { cv._map = null; return }
+  const xk = $("kippx").value, lg = v => v > 0 ? Math.log10(v) : NaN;
+  const xs = R.frames.map(fr => { const s = fr.s; return xk === "M_star" ? (hasStar(s) ? lg(s.M_star) : NaN) : s[xk] });
+  const rStar = R.frames.map(fr => hasStar(fr.s) ? lg(fr.s.R_star) : NaN);
+  const rPh   = R.frames.map(fr => lg(fr.s.r_ph));
+  const r70   = R.frames.map(fr => hasStar(fr.s) ? rAtMass(fr, 0.7 * fr.s.M_star) : NaN);
+  const fx = xs.filter(finite), fy = rStar.concat(rPh).filter(finite);
+  if (fx.length < 2 || !fy.length) {
+    g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans");
+    g.fillText("Not enough protostellar frames yet for Kippenhahn evolution view.", 16, 24); cv._map = null; return;
+  }
+  const xl = [Math.min(...fx), Math.max(...fx)]; if (xl[1] === xl[0]) { xl[0] -= 0.1; xl[1] += 0.1 }
+  let ylo = Math.min(...fy, 0.0), yhi = Math.max(...fy) + 0.25;
+  ylo = Math.max(-0.5, Math.min(ylo - 0.4, 0.0));
+  const A = axes(g, w, h, xl, [ylo, yhi], {
+    ylog: true,
+    xlabel: xk === "M_star" ? "protostar mass M* (M☉)" : xk === "t" ? "time since first frame (yr)" : "step",
+    xfmt: xk === "M_star" ? v => fmt(10 ** v) : null
+  });
+  g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+
+  // Per-frame vertical bands for convective layers, active D-burning, active H-burning, and GR compactness >= 1e-3
+  const idxValid = []; xs.forEach((x, i) => { if (finite(x) && finite(rStar[i])) idxValid.push(i) });
+  for (let ii = 0; ii < idxValid.length; ii++) {
+    const i = idxValid[ii], fr = R.frames[i], f = fr.f;
+    const xL = ii > 0 ? 0.5 * (A.X(xs[idxValid[ii - 1]]) + A.X(xs[i])) : A.X(xs[i]) - 2;
+    const xR = ii + 1 < idxValid.length ? 0.5 * (A.X(xs[i]) + A.X(xs[idxValid[ii + 1]])) : A.X(xs[i]) + 2;
+    const bw = Math.max(1.2, xR - xL + 0.5);
+    const lr = f.logr, lro = f.logr_o, lrs = rStar[i];
+    if (!lr) continue;
+    const fc = f.f_conv || f.cv_Fconv_Ftot;
+    const eD = f.eps_D, eH = f.eps_H, lT = f.logT, xi = f.xi_GR;
+    const drawBand = (pred, style) => {
+      g.fillStyle = style;
+      let y0 = null, y1 = null;
+      for (let k = 0; k < lr.length; k++) {
+        const rk = lr[k]; if (!finite(rk) || rk > lrs) { if (y0 !== null) { g.fillRect(xL, A.Y(y1), bw, Math.max(1, A.Y(y0) - A.Y(y1))); y0 = null } continue }
+        if (pred(k)) {
+          const rLo = k === 0 ? Math.max(ylo, rk - 0.15) : (lro ? lro[k - 1] : 0.5 * (lr[k - 1] + rk));
+          const rHi = lro ? Math.min(lro[k], lrs) : Math.min(rk + 0.04, lrs);
+          if (y0 === null) y0 = rLo;
+          y1 = rHi;
+        } else if (y0 !== null) {
+          g.fillRect(xL, A.Y(y1), bw, Math.max(1, A.Y(y0) - A.Y(y1))); y0 = null;
+        }
+      }
+      if (y0 !== null) g.fillRect(xL, A.Y(y1), bw, Math.max(1, A.Y(y0) - A.Y(y1)));
+    };
+    if (fc) drawBand(k => finite(fc[k]) && fc[k] > 0.02, "rgba(130, 140, 155, 0.34)");
+    if (eD) drawBand(k => finite(eD[k]) && eD[k] > 1e3, "rgba(237, 161, 0, 0.42)");
+    else if (lT) drawBand(k => finite(lT[k]) && lT[k] >= 6.0 && lT[k] < 6.8 && (!f.logXD || f.logXD[k] > -6), "rgba(237, 161, 0, 0.30)");
+    if (eH) drawBand(k => finite(eH[k]) && eH[k] > 1e4, "rgba(214, 39, 40, 0.42)");
+    else if (lT) drawBand(k => finite(lT[k]) && lT[k] >= 7.85, "rgba(214, 39, 40, 0.35)");
+    if (xi) drawBand(k => finite(xi[k]) && xi[k] >= 1e-3, "rgba(125, 95, 211, 0.35)");
+  }
+
+  // Optional 1e-3 Msun/yr ZAMS reference curve (HOY12 Fig. 1 blue curve)
+  if ($("kippref").checked && xk === "M_star") {
+    line(g, HOY12_1E3_MR.map(p => Math.log10(p[0])), HOY12_1E3_MR.map(p => Math.log10(p[1])), A.X, A.Y, tok("--run-a"), false, 1.4);
+  }
+
+  // Fixed interior enclosed mass shells M_r = 1, 3, 10, 30, 100, 300, 1000, 3000 Msun
+  const shells = [1, 3, 10, 30, 100, 300, 1000, 3000];
+  g.font = "10px " + tok("--mono"); g.fillStyle = tok("--muted");
+  for (const ms of shells) {
+    const ys = R.frames.map((fr, i) => (finite(xs[i]) && hasStar(fr.s) && fr.s.M_star >= ms * 1.02) ? rAtMass(fr, ms) : NaN);
+    const any = ys.filter(finite); if (any.length < 2) continue;
+    line(g, xs, ys, A.X, A.Y, tok("--muted"), 2, 1.15);
+    // Label near right end of shell trajectory
+    let li = -1; for (let i = ys.length - 1; i >= 0; i--) if (finite(ys[i]) && finite(xs[i])) { li = i; break }
+    if (li >= 0) { const px = Math.min(A.X(xs[li]) - 3, w - A.m.r - 28), py = A.Y(ys[li]) - 3; g.textAlign = "right"; g.fillText(ms + " M☉", px, py) }
+  }
+  // 70% enclosed mass line (dot-dash)
+  line(g, xs, r70, A.X, A.Y, tok("--c6"), 3, 1.5);
+  // Photosphere, accretion shock & hydrostatic surface
+  const rSh = R.frames.map(fr => {
+    const lr = fr.f.logr, u = fr.f.u; if (!lr || !u || lr.length < 4) return NaN;
+    const rmax = lr[lr.length - 1] - 0.22; // exclude outer boundary inflow transient
+    let best = 0, rk = NaN;
+    for (let k = 1; k < lr.length - 1; k++) {
+      if (lr[k] > rmax) break;
+      const du = u[k] - u[k + 1]; // positive when inward infall (u < 0) decelerates across shock
+      if (u[k + 1] < -3 && du > best) { best = du; rk = 0.5 * (lr[k] + lr[k + 1]) }
+    }
+    return best > 5 ? rk : NaN;
+  });
+  line(g, xs, rPh, A.X, A.Y, tok("--run-a"), true, 1.5);
+  line(g, xs, rSh, A.X, A.Y, "#e03131", false, 2.0);
+  line(g, xs, rStar, A.X, A.Y, tok("--fg"), false, 2.2);
+
+  // Current frame vertical cursor
+  const x0 = xs[ST.i];
+  if (finite(x0)) {
+    g.strokeStyle = tok("--run-b"); g.lineWidth = 1.3; g.beginPath(); g.moveTo(A.X(x0), A.m.t); g.lineTo(A.X(x0), h - A.m.b); g.stroke();
+    if (finite(rStar[ST.i])) { g.fillStyle = tok("--run-b"); g.beginPath(); g.arc(A.X(x0), A.Y(rStar[ST.i]), 4, 0, 7); g.fill() }
+  }
+  g.restore();
+  cv._map = { A, xs };
+  let ri = ST.i;
+  if (ST.kcur !== null && ST.kcur !== undefined) {
+    let bd = Infinity; xs.forEach((x, j) => { if (!finite(x)) return; const d = Math.abs(A.X(x) - ST.kcur); if (d < bd) { bd = d; ri = j } });
+    if (finite(xs[ri])) { g.strokeStyle = tok("--muted"); g.lineWidth = 1; g.beginPath(); g.moveTo(A.X(xs[ri]), A.m.t); g.lineTo(A.X(xs[ri]), h - A.m.b); g.stroke() }
+  }
+  const s = R.frames[ri].s, r7 = r70[ri];
+  $("kippv").textContent = `M* ${fmt(s.M_star)} M☉ · R* ${fmt(s.R_star)} · R_ph ${fmt(s.r_ph)}` + (finite(r7) ? ` · R_70% ${fmt(10 ** r7)} R☉` : "") + ` · step ${s.step}`;
+}
+
+// =================================================================================================
+// v82 View 2: Interactive Hertzsprung–Russell (HR) Diagram (reversed log Teff vs log L_ph)
+// =================================================================================================
+function drawHR() {
+  const cv = $("hrd"), { g, w, h } = setup(cv), R = RUNS[ST.run];
+  $("hrkey").innerHTML =
+    `<span><i class="sw" style="background:${col(ST.run)}"></i>${nm(ST.run)}</span>` +
+    `<span><i class="sw" style="background:rgba(214,39,40,0.28);height:9px;width:12px"></i>Hayashi pulsation strip</span>` +
+    `<span><i class="sw" style="background:none;height:0;border-top:2px dotted ${tok("--muted")}"></i>const R☉</span>`;
+  if (!R || !R.frames.length) { cv._map = null; return }
+  const series = [];
+  for (const key of Object.keys(RUNDEF).slice().reverse()) {
+    const rk = RUNS[key]; if (!rk || !rk.frames.length || !onTrack(key)) continue;
+    const pts = rk.frames.map(fr => {
+      const pm = framePulsMeta(fr), L = fr.s.L_ph;
+      return [pm.Teff > 500 ? Math.log10(pm.Teff) : NaN, L > 0 ? Math.log10(L) : NaN];
+    });
+    series.push({ key, pts });
+  }
+  const tAll = [], lAll = [];
+  series.forEach(S => S.pts.forEach(([t, l]) => { if (finite(t) && finite(l)) { tAll.push(t); lAll.push(l) } }));
+  if (!tAll.length) { g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans"); g.fillText("No photospheric (T_eff, L_ph) points yet.", 16, 24); cv._map = null; return }
+  const showRef = $("hrzams").checked;
+  let tLo = Math.min(...tAll, showRef ? 3.5 : 10), tHi = Math.max(...tAll, showRef ? 5.05 : 0);
+  let lLo = Math.min(...lAll, showRef ? 2.5 : 10), lHi = Math.max(...lAll, showRef ? 6.9 : 0);
+  tLo -= 0.08; tHi += 0.08; lLo -= 0.25; lHi += 0.25;
+  // Reversed x-axis: map u = -log10(Teff) so hot is on the left, cool on the right!
+  const xl = [-tHi, -tLo], yl = [lLo, lHi];
+  const A = axes(g, w, h, xl, yl, { ylog: true, xlabel: "effective temperature T_eff (K) — hot ← → cool", xfmt: v => fmt(10 ** (-v)) });
+  const Xt = lt => A.X(-lt);
+  g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+
+  if (showRef) {
+    // Hayashi H- pulsation strip (3700 - 5600 K)
+    const x1 = Xt(Math.log10(5600)), x2 = Xt(Math.log10(3700));
+    g.fillStyle = "rgba(214, 39, 40, 0.11)"; g.fillRect(x1, A.m.t, x2 - x1, h - A.m.t - A.m.b);
+    // Constant-radius diagonals R = 3, 30, 300, 3000, 30000 Rsun
+    g.font = "10px " + tok("--mono"); g.fillStyle = tok("--faint");
+    for (const rr of [3, 30, 300, 3000, 30000]) {
+      const xs = [tLo, tHi], ys = xs.map(lt => 2 * Math.log10(rr) + 4 * (lt - Math.log10(5772)));
+      line(g, xs.map(v => -v), ys, A.X, A.Y, tok("--faint"), 2, 1.0);
+      const yPref = lLo + 0.72 * (lHi - lLo);
+      let ltLbl = Math.log10(5772) + 0.25 * (yPref - 2 * Math.log10(rr));
+      ltLbl = Math.max(tLo + 0.14, Math.min(tHi - 0.18, ltLbl));
+      const yLbl = 2 * Math.log10(rr) + 4 * (ltLbl - Math.log10(5772));
+      if (yLbl > lLo + 0.2 && yLbl < lHi - 0.2) { g.textAlign = "left"; g.fillText(rr + " R☉", Xt(ltLbl) + 4, A.Y(yLbl) - 3) }
+    }
+    // Titan.jl Pop III ZAMS reference locus (15, 50, 100, 300 Msun)
+    line(g, ZAMS_REF.map(z => -z[2]), ZAMS_REF.map(z => z[3]), A.X, A.Y, tok("--fg"), true, 1.3);
+    for (const z of ZAMS_REF) {
+      g.fillStyle = "#f2c200"; g.strokeStyle = tok("--fg"); g.lineWidth = 1.2;
+      g.beginPath(); g.arc(Xt(z[2]), A.Y(z[3]), 4.2, 0, 7); g.fill(); g.stroke();
+    }
+  }
+  for (const S of series) line(g, S.pts.map(p => -p[0]), S.pts.map(p => p[1]), A.X, A.Y, col(S.key), S.key !== ST.run, S.key === ST.run ? 1.8 : 1.3);
+  const cur = series.find(S => S.key === ST.run);
+  if (cur) {
+    const [lt, ll] = cur.pts[ST.i];
+    if (finite(lt) && finite(ll)) {
+      g.fillStyle = col(ST.run); g.strokeStyle = tok("--panel"); g.lineWidth = 2.2;
+      g.beginPath(); g.arc(Xt(lt), A.Y(ll), 5.5, 0, 7); g.fill(); g.stroke();
+    }
+  }
+  g.restore();
+  cv._map = { A, Xt, pts: cur ? cur.pts : [] };
+  let ri = cur ? ST.i : -1;
+  if (cur && ST.hcur) {
+    let bd = Infinity;
+    cur.pts.forEach(([lt, ll], j) => { if (!finite(lt) || !finite(ll)) return; const d = Math.hypot(Xt(lt) - ST.hcur.x, A.Y(ll) - ST.hcur.y); if (d < bd) { bd = d; ri = j } });
+    const [lt, ll] = cur.pts[ri];
+    if (finite(lt) && finite(ll)) { g.strokeStyle = tok("--fg"); g.lineWidth = 1.6; g.beginPath(); g.arc(Xt(lt), A.Y(ll), 6.5, 0, 7); g.stroke() }
+  }
+  if (ri >= 0) {
+    const q = R.frames[ri].s, pm = framePulsMeta(R.frames[ri]);
+    $("hrv").textContent = `T_eff ${fmt(pm.Teff)} K · L_ph ${fmt(q.L_ph)} L☉ · M* ${fmt(q.M_star)} M☉ · step ${q.step}`;
+  } else $("hrv").textContent = "";
+}
+
+// =================================================================================================
+// v82 View 3: Fast-Timescale Pulsations, Density Inversions & In-Browser Hann-Windowed FFT
+// =================================================================================================
+function drawPuls() {
+  const cv = $("pulsts"), cf = $("pulsfft"), R = RUNS[ST.run];
+  if (!R || R.frames.length < 3) { $("pulschips").innerHTML = ""; cv._map = null; return }
+  const N = R.frames.length, win = +$("pulswin").value;
+  let i0 = 0, i1 = N - 1;
+  if (win > 0 && N > win) {
+    const half = Math.floor(win / 2);
+    i0 = Math.max(0, Math.min(N - win, ST.i - half));
+    i1 = Math.min(N - 1, i0 + win - 1);
+  }
+  const sub = R.frames.slice(i0, i1 + 1);
+  const ts = sub.map(fr => fr.s.t_yr), Ls = sub.map(fr => fr.s.L_ph);
+  const Te = sub.map(fr => framePulsMeta(fr).Teff);
+  const Rs = sub.map(fr => fr.s.R_star), Rph = sub.map(fr => fr.s.r_ph);
+  const Gam = sub.map(fr => framePulsMeta(fr).maxGam), Inv = sub.map(fr => Math.max(0, framePulsMeta(fr).maxInv));
+  const mode = $("pulsvar").value;
+
+  // Store peak jump indices for buttons
+  let bL = i0, bInv = i0, bGam = i0, vL = -Infinity, vInv = -Infinity, vGam = -Infinity;
+  sub.forEach((fr, j) => {
+    if (finite(Ls[j]) && Ls[j] > vL) { vL = Ls[j]; bL = i0 + j }
+    if (finite(Inv[j]) && Inv[j] > vInv) { vInv = Inv[j]; bInv = i0 + j }
+    if (finite(Gam[j]) && Gam[j] > vGam) { vGam = Gam[j]; bGam = i0 + j }
+  });
+  ST.pulsPeaks = { bL, bInv, bGam };
+
+  // Left canvas: zoomed time series with dual y-axes
+  {
+    const { g, w, h } = setup(cv);
+    const ft = ts.filter(finite);
+    if (ft.length < 2) { g.fillStyle = tok("--muted"); g.fillText("Insufficient time points.", 16, 24); cv._map = null; return }
+    const xl = [Math.min(...ft), Math.max(...ft)]; if (xl[1] === xl[0]) { xl[0] -= 0.1; xl[1] += 0.1 }
+    let y1, y2, y1log = false, y2log = false, l1, l2, c1 = tok("--run-a"), c2 = tok("--run-b");
+    if (mode === "LT") {
+      y1 = Ls.map(v => v > 0 ? Math.log10(v) : NaN); y1log = true; l1 = "L_ph (L☉, left)";
+      y2 = Te; l2 = "T_eff (K, right)"; $("pulstsh").textContent = "Zoomed L_ph & T_eff time series";
+    } else if (mode === "RR") {
+      y1 = Rs; l1 = "R* shock (R☉)"; y2 = Rph; l2 = "R_ph (R☉, dashed)"; c1 = tok("--c3"); c2 = tok("--run-a");
+      $("pulstsh").textContent = "Zoomed R* & R_ph radius breathing";
+    } else {
+      y1 = Gam.map(v => v > 0 ? Math.log10(v) : NaN); y1log = true; l1 = "max Γ_Edd (log, left)";
+      y2 = Inv; l2 = "max (∂lnρ/∂lnr)_+ (right)"; c1 = tok("--c4"); c2 = tok("--run-b");
+      $("pulstsh").textContent = "Zoomed super-Eddington Γ_Edd & density inversions";
+    }
+    const f1 = y1.filter(finite), f2 = y2.filter(finite);
+    if (!f1.length) { g.fillStyle = tok("--muted"); g.fillText("No values in window.", 16, 24); cv._map = null; return }
+    let yl1 = [Math.min(...f1), Math.max(...f1)]; const p1 = 0.08 * (yl1[1] - yl1[0] || 0.2); yl1 = [yl1[0] - p1, yl1[1] + p1];
+    let yl2 = f2.length ? [Math.min(...f2), Math.max(...f2)] : [0, 1];
+    if (mode === "RR") { yl1 = [Math.min(yl1[0], yl2[0]), Math.max(yl1[1], yl2[1])]; yl2 = yl1 }
+    const p2 = 0.08 * (yl2[1] - yl2[0] || 1); if (mode !== "RR") yl2 = [yl2[0] - p2, yl2[1] + p2];
+    const A = axes(g, w, h, xl, yl1, { ylog: y1log, xlabel: "time t (yr)", xfmt: v => (xl[1] - xl[0]) < 10 ? v.toFixed(2) : fmt(v) });
+    const Y2 = v => h - A.m.b - (v - yl2[0]) / (yl2[1] - yl2[0]) * (h - A.m.t - A.m.b);
+    if (mode !== "RR" && f2.length) {
+      g.save(); g.font = "10px " + tok("--mono"); g.fillStyle = c2; g.textAlign = "right"; g.textBaseline = "middle";
+      for (const v of niceTicks(yl2[0], yl2[1], 4)) { const py = Y2(v); if (py > A.m.t + 8 && py < h - A.m.b - 8) g.fillText(fmt(v), w - A.m.r - 4, py) }
+      g.restore();
+    }
+    g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+    if (mode === "GI") {
+      // Shade positive density inversion region
+      g.fillStyle = "rgba(235, 104, 52, 0.16)";
+      g.beginPath(); let started = false;
+      for (let j = 0; j < ts.length; j++) if (finite(ts[j]) && finite(y2[j])) {
+        const px = A.X(ts[j]), py = Y2(y2[j]); if (!started) { g.moveTo(px, Y2(0)); started = true } g.lineTo(px, py);
+      }
+      if (started) { g.lineTo(A.X(ts[ts.length - 1]), Y2(0)); g.closePath(); g.fill() }
+    }
+    line(g, ts, y1, A.X, A.Y, c1, false, 1.9);
+    if (f2.length) line(g, ts, y2, A.X, mode === "RR" ? A.Y : Y2, c2, true, 1.5);
+    const tc = R.frames[ST.i].s.t_yr;
+    if (finite(tc) && tc >= xl[0] && tc <= xl[1]) {
+      g.strokeStyle = tok("--fg"); g.lineWidth = 1.2; g.beginPath(); g.moveTo(A.X(tc), A.m.t); g.lineTo(A.X(tc), h - A.m.b); g.stroke();
+    }
+    g.restore();
+    $("pulskey").innerHTML = `<span><i class="sw" style="background:${c1}"></i>${l1}</span><span><i class="sw" style="background:none;height:0;border-top:2px dashed ${c2}"></i>${l2}</span>`;
+    $("pulsv").textContent = `frames ${i0 + 1}–${i1 + 1} (Δt = ${fmt(xl[1] - xl[0])} yr)`;
+    cv._map = { A, ts, i0 };
+  }
+
+  // Right canvas: live Hann-windowed DFT of detrended log10(L_ph(t))
+  let peakP = NaN, peakQ = NaN, tdynMed = NaN;
+  {
+    const { g, w, h } = setup(cf);
+    const pairs = [];
+    for (let j = 0; j < ts.length; j++) if (finite(ts[j]) && finite(Ls[j]) && Ls[j] > 0) pairs.push([ts[j], Math.log10(Ls[j])]);
+    if (pairs.length < 12 || pairs[pairs.length - 1][0] <= pairs[0][0]) {
+      g.fillStyle = tok("--muted"); g.font = "13px " + tok("--sans");
+      g.fillText("Need ≥ 12 frames spanning a positive time interval for FFT.", 16, 24);
+      $("fftv").textContent = ""; $("fftkey").innerHTML = "";
+    } else {
+      const t0 = pairs[0][0], t1 = pairs[pairs.length - 1][0], Tspan = t1 - t0;
+      const Mfft = 256, dt = Tspan / (Mfft - 1);
+      const yU = new Float64Array(Mfft);
+      let p = 0;
+      for (let m = 0; m < Mfft; m++) {
+        const tm = t0 + m * dt;
+        while (p < pairs.length - 2 && pairs[p + 1][0] < tm) p++;
+        const dt0 = pairs[p + 1][0] - pairs[p][0];
+        const f = dt0 > 0 ? (tm - pairs[p][0]) / dt0 : 0;
+        yU[m] = pairs[p][1] + f * (pairs[p + 1][1] - pairs[p][1]);
+      }
+      // Linear detrend + Hann window
+      let sx = 0, sy = 0, sxx = 0, sxy = 0;
+      for (let m = 0; m < Mfft; m++) { sx += m; sy += yU[m]; sxx += m * m; sxy += m * yU[m] }
+      const sl = (Mfft * sxy - sx * sy) / Math.max(Mfft * sxx - sx * sx, 1e-30), ic = (sy - sl * sx) / Mfft;
+      for (let m = 0; m < Mfft; m++) yU[m] = (yU[m] - (ic + sl * m)) * 0.5 * (1 - Math.cos(2 * Math.PI * m / (Mfft - 1)));
+      // Exact real DFT for frequencies f_k = k / Tspan (k = 2 .. Mfft/2)
+      const Mmed = pct(sub.map(fr => fr.s.M_star).filter(finite), 50);
+      const Rmed = pct(sub.map(fr => fr.s.R_star).filter(finite), 50);
+      const Gc = 6.6743e-8, Ms = 1.98847e33, Rsu = 6.957e10, yr = 3.15576e7;
+      if (Mmed > 0 && Rmed > 0) tdynMed = Math.sqrt((Rmed * Rsu) ** 3 / (Gc * Mmed * Ms)) / yr;
+      const fxMode = $("fftx").value;
+      const xs = [], ys = [];
+      let maxA = 0, bi = -1;
+      for (let k = 2; k <= Math.floor(Mfft / 3); k++) {
+        let re = 0, im = 0, ang = 2 * Math.PI * k / Mfft;
+        for (let m = 0; m < Mfft; m++) { const a = ang * m; re += yU[m] * Math.cos(a); im -= yU[m] * Math.sin(a) }
+        const amp = Math.hypot(re, im), P_yr = Tspan / k;
+        const Q_d = (Mmed > 0 && Rmed > 0) ? (P_yr * 365.25) * Math.sqrt(Mmed / (Rmed ** 3)) : NaN;
+        const xv = fxMode === "Q" ? Q_d : P_yr;
+        if (!finite(xv)) continue;
+        xs.push(xv); ys.push(amp);
+        if (amp > maxA) { maxA = amp; bi = xs.length - 1; peakP = P_yr; peakQ = Q_d }
+      }
+      if (maxA > 0 && xs.length) {
+        const ord = xs.map((_, i) => i).sort((a, b) => xs[a] - xs[b]);
+        const sxA = ord.map(i => xs[i]), syA = ord.map(i => ys[i] / maxA);
+        const xl = fxMode === "Q" ? [0.01, Math.min(0.30, Math.max(0.18, peakQ * 2.2))] : [Math.min(...sxA), Math.min(Tspan / 1.5, Math.max(...sxA))];
+        const A = axes(g, w, h, xl, [0, 1.12], { xlabel: fxMode === "Q" ? "pulsation constant Q = P_d √(M/R³) [days]" : "period P [yr]" });
+        g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, w - A.m.l - A.m.r, h - A.m.t - A.m.b); g.clip();
+        if (fxMode === "Q") {
+          g.fillStyle = "rgba(27, 175, 122, 0.16)";
+          g.fillRect(A.X(0.055), A.m.t, A.X(0.095) - A.X(0.055), h - A.m.t - A.m.b);
+        }
+        line(g, sxA, syA, A.X, A.Y, col(ST.run), false, 1.9);
+        g.restore();
+        $("fftkey").innerHTML = `<span><i class="sw" style="background:${col(ST.run)}"></i>normalized FFT |log₁₀ L<sub>ph</sub>|</span>` +
+          (fxMode === "Q" ? `<span><i class="sw" style="background:rgba(27,175,122,0.30);height:9px;width:12px"></i>Inayoshi+13 κ-band (0.055–0.095 d)</span>` : "");
+        $("fftv").textContent = `peak P = ${fmt(peakP)} yr (${fmt(peakP * 365.25)} d)` + (finite(peakQ) ? ` · Q = ${peakQ.toFixed(3)} d` : "");
+      }
+    }
+  }
+
+  // Summary chips for the zoomed pulsation window
+  const fL = Ls.filter(v => finite(v) && v > 0), fT = Te.filter(finite), fR = Rs.filter(finite), fI = Inv.filter(finite), fG = Gam.filter(finite);
+  const swL = fL.length ? Math.max(...fL) / Math.min(...fL) : NaN;
+  const swT = fT.length ? Math.max(...fT) - Math.min(...fT) : NaN;
+  const swR = fR.length ? 100 * (Math.max(...fR) - Math.min(...fR)) / Math.max(pct(fR, 50), 1e-9) : NaN;
+  const chips = [
+    ["P_peak", finite(peakP) ? fmt(peakP) + " yr" : "–"],
+    ["Q_peak", finite(peakQ) ? peakQ.toFixed(3) + " d" : "–"],
+    ["P / t_dyn", finite(peakP) && finite(tdynMed) && tdynMed > 0 ? (peakP / tdynMed).toFixed(2) : "–"],
+    ["L_ph swing", finite(swL) ? swL.toFixed(2) + "×" : "–"],
+    ["ΔT_eff", finite(swT) ? fmt(swT) + " K" : "–"],
+    ["ΔR*/R*", finite(swR) ? swR.toFixed(1) + " %" : "–"],
+    ["max (∂lnρ/∂lnr)_+", fI.length ? Math.max(...fI).toFixed(2) : "–"],
+    ["max Γ_Edd", fG.length ? Math.max(...fG).toFixed(2) : "–"],
+  ];
+  $("pulschips").innerHTML = chips.map(([k, v]) => `<div class="chip"><span>${k}</span><b>${v}</b></div>`).join("");
+}
+
+// Event listeners for Kippenhahn, HR, and Pulsation canvases
+{
+  const mvK = e => { const r = $("kipp").getBoundingClientRect(); ST.kcur = e.clientX - r.left; drawKipp() };
+  $("kipp").addEventListener("pointermove", mvK); $("kipp").addEventListener("pointerleave", () => { ST.kcur = null; drawKipp() });
+  $("kipp").addEventListener("click", e => { const m = $("kipp")._map; if (!m) return; const px = e.clientX - $("kipp").getBoundingClientRect().left;
+    let bi = -1, bd = Infinity; m.xs.forEach((x, j) => { if (!finite(x)) return; const d = Math.abs(m.A.X(x) - px); if (d < bd) { bd = d; bi = j } }); if (bi >= 0) seek(bi) });
+  const mvH = e => { const r = $("hrd").getBoundingClientRect(); ST.hcur = { x: e.clientX - r.left, y: e.clientY - r.top }; drawHR() };
+  $("hrd").addEventListener("pointermove", mvH); $("hrd").addEventListener("pointerleave", () => { ST.hcur = null; drawHR() });
+  $("hrd").addEventListener("click", e => { const m = $("hrd")._map; if (!m || !m.pts.length) return; const r = $("hrd").getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+    let bi = -1, bd = Infinity; m.pts.forEach(([lt, ll], j) => { if (!finite(lt) || !finite(ll)) return; const d = Math.hypot(m.Xt(lt) - px, m.A.Y(ll) - py); if (d < bd) { bd = d; bi = j } }); if (bi >= 0) seek(bi) });
+  $("pulsts").addEventListener("click", e => { const m = $("pulsts")._map; if (!m) return; const px = e.clientX - $("pulsts").getBoundingClientRect().left;
+    let bi = -1, bd = Infinity; m.ts.forEach((t, j) => { if (!finite(t)) return; const d = Math.abs(m.A.X(t) - px); if (d < bd) { bd = d; bi = j } }); if (bi >= 0) seek(m.i0 + bi) });
+  $("kippx").addEventListener("change", drawKipp); $("kippref").addEventListener("change", drawKipp);
+  $("hrzams").addEventListener("change", drawHR);
+  $("pulswin").addEventListener("change", drawPuls); $("pulsvar").addEventListener("change", drawPuls); $("fftx").addEventListener("change", drawPuls);
+  $("jmpL").addEventListener("click", () => ST.pulsPeaks && seek(ST.pulsPeaks.bL));
+  $("jmpInv").addEventListener("click", () => ST.pulsPeaks && seek(ST.pulsPeaks.bInv));
+  $("jmpGam").addEventListener("click", () => ST.pulsPeaks && seek(ST.pulsPeaks.bGam));
+}
+
+function drawAll() { const R = RUNS[ST.run]; if (!R || !R.frames.length) { $("chips").innerHTML = `<div class="empty">No frames in this run yet${R && R.err ? " (" + R.err + ")" : ""}.</div>`; return }
+  safe(chips); safe(drawProfiles); safe(drawObs, "obsmsg"); if ($("specmore").open) { safe(drawSpec); safe(drawFull) } safe(drawTrack); safe(drawKipp); safe(drawHR); safe(drawPuls); safe(drawNuc); safe(drawPerf); drawPhot().catch(() => {}) }
+$("specmore").addEventListener("toggle", () => { if ($("specmore").open && RUNS[ST.run] && RUNS[ST.run].frames.length) { safe(drawSpec); safe(drawFull) } });
+$("obssrc").addEventListener("change", () => safe(drawObs, "obsmsg"));
+async function selectRun() { ST.run = $("run").value; if (!RUNS[ST.run]) { $("chips").innerHTML = `<div class="empty">Loading ${nm(ST.run)}…</div>`; await loadRun(ST.run); await loadPerf(ST.run) } markSel(); const R = RUNS[ST.run]; $("frame").max = Math.max(0, R.frames.length - 1); syncX(); seek(R.frames.length - 1) }
+
+$("run").addEventListener("change", selectRun);
+$("ovr").addEventListener("change", drawAll);
+$("xax").addEventListener("change", () => { syncX(); drawAll() });
+// printable figure: scripts/abnfig/abnfig.py writes <run>/abnfig.pdf at each refresh; offered through the viewer's save prompt
+// (the downloads capability), with a plain link as the fallback where saving is unavailable
+function pdfSync() { $("pdflink").href = ST.run + "/abnfig.pdf"; $("pdfmsg").textContent = "" }
+setInterval(() => { if (!$("pdflink").href.endsWith(ST.run + "/abnfig.pdf")) pdfSync() }, 500); pdfSync();
+$("pdfbtn").addEventListener("click", async () => {
+  const run = ST.run, msg = $("pdfmsg"); msg.textContent = "fetching…";
+  let blob;
+  try { const r = await fetch(run + "/abnfig.pdf", { cache: "no-store" }); if (!r.ok) throw new Error("HTTP " + r.status); blob = await r.blob() }
+  catch (e) { msg.textContent = "no figure published for " + run + " yet"; return }
+  let dl = null; try { dl = await claude.use("downloads") } catch (e) { dl = null }
+  if (!dl) { msg.textContent = "saving is not available here: use “open”"; return }
+  try { await dl.save({ filename: run + "_abnfig.pdf", data: blob }); msg.textContent = "saved" }
+  catch (e) { msg.textContent = e && e.code === "declined" ? "" : "could not save (" + ((e && e.code) || "error") + "): use “open”" }
+});
+[["xmin", 0], ["xmax", 1]].forEach(([id, j]) => $(id).addEventListener("input", e => {
+  const t = e.target.value.trim(), v = t === "" ? null : Number(t); ST.xlim[$("xax").value][j] = v !== null && finite(v) ? v : null; drawProfiles() }));
+$("xauto").addEventListener("click", () => { ST.xlim[$("xax").value] = [null, null]; syncX(); drawProfiles() });
+$("ty").addEventListener("change", drawTrack); $("tx").addEventListener("change", () => { drawTrack(); drawNuc() }); $("nucall").addEventListener("change", drawNuc);
+$("frame").addEventListener("input", e => seek(+e.target.value));
+$("prev").addEventListener("click", () => seek(ST.i - 1)); $("next").addEventListener("click", () => seek(ST.i + 1));
+$("play").addEventListener("click", () => {
+  ST.playing = !ST.playing; $("play").textContent = ST.playing ? "Pause" : "Play";
+  clearInterval(ST.timer);
+  if (ST.playing) { if (ST.i >= RUNS[ST.run].frames.length - 1) seek(0);
+    ST.timer = setInterval(() => { if (ST.i >= RUNS[ST.run].frames.length - 1) { if ($("loop").checked) seek(0); else $("play").click(); return } seek(ST.i + 1) }, 110) }
+});
+document.addEventListener("keydown", e => { if (e.target.tagName === "SELECT" || e.target.type === "number") return; if (e.key === "ArrowLeft") seek(ST.i - 1); if (e.key === "ArrowRight") seek(ST.i + 1) });
+let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(drawAll, 120) });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawAll);
+new MutationObserver(drawAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+TRACK.forEach(([k, lab]) => { const o = document.createElement("option"); o.value = k; o.textContent = lab; $("ty").appendChild(o) });
+buildProfiles();
+async function loadPerf(k) { try { PERFS[k] = parsePerf(await (await fetch(k + "/perf.csv", { cache: "no-store" })).text()) } catch (e) { PERFS[k] = [] } }
+const hm = t => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function ago(t) { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 60 ? m + " min" : m < 2880 ? (m / 60).toFixed(1) + " h" : Math.round(m / 1440) + " d" }
+const f3 = (v, d) => v === null || v === undefined || !isFinite(v) ? "–" : Math.abs(v) >= 100 ? v.toFixed(1) : v.toPrecision(d || 3);
+const SUP = n => String(n).split("").map(c => c === "-" ? "⁻" : "⁰¹²³⁴⁵⁶⁷⁸⁹"[+c]).join("");
+const fe = v => { if (v === null || v === undefined || !isFinite(v)) return "–"; if (v === 0) return "0"; const e = Math.floor(Math.log10(Math.abs(v))), m = v / 10 ** e; return m.toFixed(1) + "×10" + SUP(e) };
+function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]) }
+function applyManifest(man) {
+  MAN = man; const order = man.runs.map(r => r.key).filter(k => !NOSNAP.has(k) || RUNDEF[k]);
+  if (!order.includes("ref")) order.push("ref");
+  const nd = {}; let ci = 0;
+  for (const k of order) nd[k] = RUNDEF[k] || [k, COLS[ci++ % COLS.length]];
+  RUNDEF = nd;
+  const run = $("run"), ovr = $("ovr"), cur = run.value || ST.run, ov = ovr.value;
+  const lab = r => r.key + (r.status === "running" ? " · running" : r.status === "stalled" ? " · stalled" : "") + " — " + r.desc;
+  const byKey = Object.fromEntries(man.runs.map(r => [r.key, r]));
+  const opts = order.map(k => byKey[k] ? lab(byKey[k]) : k + " — " + nm(k));
+  run.innerHTML = order.map((k, i) => `<option value="${k}">${esc(opts[i])}</option>`).join("");
+  ovr.innerHTML = `<option value="auto">nearest other run</option>` + order.map(k => `<option value="${k}">${esc(nm(k))}</option>`).join("") + `<option value="none">none</option>`;
+  run.value = order.includes(cur) ? cur : order[0]; ovr.value = [...ovr.options].some(o => o.value === ov) ? ov : "auto";
+  const head = `<tr><th class="cmp">Compare</th><th>Run</th><th>M☉</th><th>R☉</th><th>M☉/h (wall)</th><th>M☉/yr</th><th>Zones</th><th>Threads</th><th>Failed solves / 1000 steps</th><th>Chem s / 100 steps</th><th>Hydro s / 100 steps</th><th>Step</th><th>dt limiter</th><th>Last data</th><th>What it is</th></tr>`;
+  const row = r => `<tr class="row" data-k="${r.key}" tabindex="0"><td class="cmp"><input type="checkbox" class="cmpcb" aria-label="Compare ${esc(r.key)}"${CMP.has(r.key) ? " checked" : ""}></td><td><i class="sw" style="background:${col(r.key)}"></i>${esc(r.key)}${r.status === "running" ? '<span class="pill run">running</span>' : r.status === "stalled" ? '<span class="pill stall">no progress</span>' : ""}</td>` +
+    `<td>${f3(r.M_star, 4)}</td><td>${f3(r.R_star)}</td><td>${f3(r.rate_Msun_h, 2)}</td><td>${fe(r.rate_Msun_yr)}</td><td>${r.zones || "–"}</td><td>${r.threads || "–"}</td><td>${r.ndiv_1000 ?? "–"}</td>` +
+    `<td>${f3(r.chem_s_100)}</td><td>${f3(r.hydro_s_100)}</td><td class="mono">${r.step ?? "–"}</td><td class="mono">${esc(r.dtlim || "–")}</td><td>${r.perf_mtime ? ago(r.perf_mtime) + " ago" : "–"}</td><td class="desc">${esc(r.desc)}</td></tr>`;
+  const live = man.runs.filter(r => r.status !== "stopped"), dead = man.runs.filter(r => r.status === "stopped" && (r.frames || r.step));
+  $("livetab").innerHTML = head + (live.length ? live.map(row).join("") : `<tr><td colspan="15" class="empty">No run is active.</td></tr>`);
+  $("stoptab").innerHTML = head + dead.map(row).join(""); $("stoppedsum").textContent = `Stopped runs (${dead.length})`; if (!live.length) $("stoptab").closest("details").open = true;
+  for (const tr of document.querySelectorAll("#livetab tr.row, #stoptab tr.row")) {
+    const go = () => { $("run").value = tr.dataset.k; selectRun() };
+    const cb = tr.querySelector("input.cmpcb");
+    if (cb) { cb.addEventListener("click", e => e.stopPropagation()); cb.addEventListener("keydown", e => e.stopPropagation()); cb.addEventListener("change", () => toggleCmp(tr.dataset.k, cb.checked)) }
+    tr.addEventListener("click", go); tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go() } });
+  }
+  stamp(); markSel(); cmpUI();
+}
+document.addEventListener("click", e => { if (e.target && e.target.id === "cmpclear") { CMP.clear(); saveCmp(); cmpUI(); drawAll() } });
+function markSel() { for (const tr of document.querySelectorAll("#livetab tr.row, #stoptab tr.row")) tr.classList.toggle("sel", tr.dataset.k === ST.run) }
+let CHECKED = null;
+function stamp() { $("livestamp").textContent = MAN ? `data updated ${hm(MAN.updated)} (${ago(MAN.updated)} ago) · checked ${CHECKED ? hm(CHECKED) : "–"}` : "no run list yet" }
+async function getManifest() { const r = await fetch("runs.json", { cache: "no-store" }); if (!r.ok) throw new Error("runs.json " + r.status); CHECKED = Date.now() / 1000; return r.json() }
+async function refresh() {
+  let man; try { man = await getManifest() } catch (e) { stamp(); return }
+  if (MAN && man.updated === MAN.updated) { stamp(); return }
+  const keys = man.runs.filter(r => r.status === "running" && r.frames).map(r => r.key);
+  const atEnd = RUNS[ST.run] && ST.i >= RUNS[ST.run].frames.length - 1;
+  await Promise.all(keys.map(async k => { await loadRun(k); await loadPerf(k) }));
+  applyManifest(man);
+  const R = RUNS[ST.run]; if (R && keys.includes(ST.run)) { $("frame").max = Math.max(0, R.frames.length - 1); seek(atEnd ? R.frames.length - 1 : Math.min(ST.i, R.frames.length - 1)) } else drawAll();
+}
+(async () => {
+  try { applyManifest(await getManifest()) } catch (e) { $("livestamp").textContent = "run list not available (" + e.message + ")"; applyManifest({ updated: 0, runs: Object.keys(RUNDEF).map(k => ({ key: k, desc: nm(k), status: "stopped", frames: true })) }) }
+  const live = MAN.runs.filter(r => r.status !== "stopped" && r.frames).map(r => r.key);
+  const withFr = MAN.runs.filter(r => r.frames).map(r => r.key);
+  $("run").value = live.includes("t_c128c") ? "t_c128c" : live.includes("c128") ? "c128" : live[0] || withFr[0] || $("run").options[0].value;
+  await Promise.all(live.map(async k => { await loadRun(k); await loadPerf(k) }));
+  for (const k of [...CMP]) { if (!RUNDEF[k]) { CMP.delete(k); continue } if (!RUNS[k]) { await loadRun(k); await loadPerf(k) } }
+  cmpUI();
+  await selectRun();
+  // the stopped runs (overlays, track) in the background
+  const rest = Object.keys(RUNDEF).filter(k => !RUNS[k]);
+  for (const k of rest) { await loadRun(k); await loadPerf(k) }
+  drawAll();
+  setInterval(refresh, 120000); setInterval(stamp, 30000);
+})();
+</script>
