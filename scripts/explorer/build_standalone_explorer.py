@@ -63,6 +63,91 @@ SPECS = [
     ("episodic_cycle", ["episodic_cycle"], "Episodic full burst cycle (6yr quiet @ 1e-3 / 4yr burst @ 0.25 M☉/yr)", "#eda100", 1e-3),
 ]
 
+def euv_nebular_est(seuv_s):
+    """Case-B nebular line luminosity upper limits [Lsun] driven by ionizing photon rate Q_H = seuv_s [s⁻¹]."""
+    LSUN = 3.828e33; EV = 1.602176634e-12
+    if not np.isfinite(seuv_s) or seuv_s <= 0:
+        return [0.0] * 10
+    Llya = 0.68 * seuv_s * (10.2 * EV) / LSUN
+    L2g  = 0.32 * seuv_s * (10.2 * EV) / LSUN
+    Lhb  = 4.78e-13 * seuv_s / LSUN
+    Lha  = 2.80 * Lhb
+    Lpaa = 0.33 * Lhb
+    Lbrg = 0.028 * Lhb
+    return [r3(Llya), r3(L2g), r3(Lha), r3(Lhb), r3(Lpaa), r3(Lbrg), 0.0, 0.0, 0.0, 0.0]
+
+def add_breakout_run(runs_dir, out):
+    """Ingest live 1D RHD H II / He III / LW breakout run (val_hii_breakout_rhd.jl) with exact non-LTE atomic lines."""
+    csv_p = os.path.join(runs_dir, "hii_breakout_rhd.csv")
+    if not os.path.exists(csv_p) or os.path.getsize(csv_p) < 200:
+        return
+    c = load_csv(csv_p)
+    if c is None:
+        return
+    PC_RSUN = 3.085677581e18 / 6.957e10
+    rows = {int(c["step"][i]): {k: float(v[i]) for k, v in c.items()} for i in range(len(c["step"]))}
+    sts = sorted(rows.keys())
+    idx = np.unique(np.linspace(0, len(sts) - 1, min(140, len(sts)), dtype=int))
+    trk = []; line_lc = []
+    for ii in idx:
+        r = rows[sts[ii]]
+        rhii_rs = max(r["R_HII_pc"] * PC_RSUN, r["R_star_Rsun"])
+        rlw_rs  = max(r["R_LW_pc"] * PC_RSUN, rhii_rs)
+        trk.append([
+            sts[ii], rt(r["t_yr"]), 100.0, r3(rhii_rs), r3(rlw_rs),
+            r3(r["Teff"]), r3(r["L_star_Lsun"]), 0.0, r3(max(r["u_max_kms"], 0.0)),
+            r3(r["R_HeIII_pc"]), r3(r["Q_H_s"]), r3(abs(r["Mdot_0p02pc_Msunyr"]))
+        ])
+        line_lc.append([
+            sts[ii], rt(r["t_yr"]),
+            r3(r["L_Lya_Lsun"]), r3(r["L_2g_Lsun"]), r3(r["L_Ha_Lsun"]), r3(r["L_Hb_Lsun"]),
+            r3(r["L_Paa_Lsun"]), r3(r["L_Brg_Lsun"]), r3(r["L_HeII1640_Lsun"]), r3(r["L_HeII4686_Lsun"]),
+            r3(r["L_HeI5876_Lsun"]), r3(r["L_HeI10830_Lsun"])
+        ])
+    pdir = os.path.join(runs_dir, "profiles")
+    pfiles = {}
+    for fn in sorted(glob.glob(os.path.join(pdir, "hii_breakout_rhd_s*.csv"))):
+        m = re.search(r"_s(\d+)_", os.path.basename(fn))
+        if m:
+            pfiles[int(m.group(1))] = fn
+    profs = []
+    for st in sorted(pfiles.keys()):
+        pf = load_csv(pfiles[st])
+        if pf is None:
+            continue
+        # Match nearest track row
+        bst = min(sts, key=lambda s: abs(s - st))
+        r = rows[bst]
+        rc = np.maximum(pf["r_Rsun"], 1.0); lr = np.log10(rc); n = len(rc)
+        ki = np.unique(np.linspace(0, n - 1, min(48, n), dtype=int))
+        rhii_rs = max(r["R_HII_pc"] * PC_RSUN, r["R_star_Rsun"])
+        rlw_rs  = max(r["R_LW_pc"] * PC_RSUN, rhii_rs)
+        rsh_rs  = r["R_shock_pc"] * PC_RSUN if r["R_shock_pc"] > 0 else None
+        ln = [
+            r3(r["L_Lya_Lsun"]), r3(r["L_2g_Lsun"]), r3(r["L_Ha_Lsun"]), r3(r["L_Hb_Lsun"]),
+            r3(r["L_Paa_Lsun"]), r3(r["L_Brg_Lsun"]), r3(r["L_HeII1640_Lsun"]), r3(r["L_HeII4686_Lsun"]),
+            r3(r["L_HeI5876_Lsun"]), r3(r["L_HeI10830_Lsun"])
+        ]
+        profs.append({
+            "st": st, "t": rt(r["t_yr"]), "M": 100.0, "R": r3(rhii_rs), "Rph": r3(rlw_rs),
+            "Rsh": r3(rsh_rs) if rsh_rs else None, "Te": r3(r["Teff"]), "L": r3(r["L_star_Lsun"]),
+            "sh": [None] * 7, "r70": r3(np.log10(max(r["R_HeIII_pc"] * PC_RSUN, 1.0))) if r["R_HeIII_pc"] > 0 else None,
+            "cb": [], "ln": ln,
+            "lr": [r3(lr[k]) for k in ki],
+            "lT": [r3(np.log10(max(pf["T"][k], 10.0))) for k in ki],
+            "lD": [r3(np.log10(max(pf["rho"][k], 1e-30))) for k in ki],
+            "u":  [r3(pf["u_kms"][k]) for k in ki],
+            "G":  None, "fc": None, "dr": None, "xi": None,
+            "xHp":   [r3(pf["xHp"][k]) for k in ki],
+            "xHepp": [r3(pf["xHepp"][k] * 12.0) for k in ki],
+            "xH2":   [r3(min(pf["xH2"][k] / 1e-3, 1.0)) for k in ki],
+        })
+    out["hii_breakout_rhd"] = {
+        "desc": "1D RHD H II / He III / LW Breakout + Champagne Shock + l-Res Atomic Lines (100 M☉ ZAMS)",
+        "col": "#e03131", "lines_mode": "nlte", "trk": trk, "line_lc": line_lc, "profs": profs
+    }
+    print(f"Embedded hii_breakout_rhd: t={rows[sts[-1]]['t_yr']:6.1f} yr, R_HII={rows[sts[-1]]['R_HII_pc']:.3f} pc, L_Lya={rows[sts[-1]]['L_Lya_Lsun']:.2e}, L_1640={rows[sts[-1]]['L_HeII1640_Lsun']:.2e}, profs={len(profs)}")
+
 def build(runs_dir, html_path):
     pdir = os.path.join(runs_dir, "profiles")
     out = {}
@@ -152,12 +237,13 @@ def build(runs_dir, html_path):
             dlnr = pf["dlnrho_dlnr"] if "dlnrho_dlnr" in pf else np.zeros(n)
             xi = (pf["xi_GR"] if "xi_GR" in pf
                   else 2 * 6.6743e-8 * (m * 1.98847e33) / (rc * 6.957e10 * 2.99792458e10 ** 2))
+            seuv_p = rows[st]["S_EUV_s"] if (st in rows and "S_EUV_s" in rows[st]) else euv_rate(Rph, rows[st]["Teff"] if st in rows else 4500.0)
             profs.append({
                 "st": st, "t": rt(rows[st]["t_yr"]) if st in rows else 0,
                 "M": r3(Mst), "R": r3(Rst), "Rph": r3(Rph), "Rsh": r3(Rsh) if Rsh else None,
                 "Te": r3(rows[st]["Teff"]) if st in rows else 0,
                 "L": r3(rows[st]["L_ph"]) if st in rows else 0,
-                "sh": sh, "r70": r70, "cb": cb,
+                "sh": sh, "r70": r70, "cb": cb, "ln": euv_nebular_est(seuv_p),
                 "lr": [r3(lr[k]) for k in ki],
                 "lT": [r3(np.log10(max(pf["T"][k], 10))) for k in ki],
                 "lD": [r3(np.log10(rho[k])) for k in ki],
@@ -167,9 +253,11 @@ def build(runs_dir, html_path):
                 "dr": [r3(np.clip(dlnr[k], -8, 12)) for k in ki],
                 "xi": [r3(np.log10(max(xi[k], 1e-12))) for k in ki],
             })
-        out[key] = {"desc": desc, "col": col, "trk": trk, "profs": profs}
+        line_lc_est = [[r[0], r[1]] + euv_nebular_est(r[10]) for r in trk]
+        out[key] = {"desc": desc, "col": col, "lines_mode": "est", "trk": trk, "line_lc": line_lc_est, "profs": profs}
         print(f"Embedded {key:15s}: M*={rows[sts[-1]]['M_star']:7.2f} Msun, R*={rows[sts[-1]]['R_star']:7.1f} Rsun, t={rows[sts[-1]]['t_yr']:6.2f} yr, profs={len(profs)}")
 
+    add_breakout_run(runs_dir, out)
     payload = json.dumps(out, separators=(",", ":"), ensure_ascii=False)
     with open(html_path) as f:
         html = f.read()

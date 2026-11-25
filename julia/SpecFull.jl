@@ -62,12 +62,18 @@ const NH = 20; const NHE1 = 10; const NHE2 = 20; const XI = 2e5          # micro
 const VWIN = 6e7; const DV = 6e5; const SUBV = 0.3; const NRT = 80          # windows ±600 km/s at 6 km/s; log-r grid of τ_line
 
 const ATOMS = Ref{Any}(nothing)
-"The three model atoms (built once): H I and He II with CHIANTI collisions, He I with CHIANTI terms + hydrogenic shells."
+const LRES_ATOMS = Ref(get(ENV, "SPECFULL_LRES", "0") == "1")
+"The three model atoms (built once): H I and He II with CHIANTI collisions (opt-in l-resolved via LRES_ATOMS[]), He I with CHIANTI terms + hydrogenic shells."
 function atoms()
     ATOMS[] === nothing || return ATOMS[]
     ad = joinpath(@__DIR__, "atomdata", "chianti")
-    H = MA.hydrogenic(1; nmax = NH, coll = :chianti, chianti = joinpath(ad, "h_1"))
-    He2 = MA.hydrogenic(2; nmax = NHE2, coll = :chianti, chianti = joinpath(ad, "he_2"))
+    if LRES_ATOMS[]
+        H = MA.hydrogenic_lres(1; n_lres = 6, nmax = NH, coll = :chianti, chianti = joinpath(ad, "h_1"))
+        He2 = MA.hydrogenic_lres(2; n_lres = 6, nmax = NHE2, coll = :chianti, chianti = joinpath(ad, "he_2"))
+    else
+        H = MA.hydrogenic(1; nmax = NH, coll = :chianti, chianti = joinpath(ad, "h_1"))
+        He2 = MA.hydrogenic(2; nmax = NHE2, coll = :chianti, chianti = joinpath(ad, "he_2"))
+    end
     He1 = MA.heI(; nmax = NHE1)
     ATOMS[] = (; H, He1, He2, LH = MA.lines(H), L1 = MA.lines(He1), L2 = MA.lines(He2))
 end
@@ -75,7 +81,8 @@ end
 "Continuum frequency grid [Hz], ascending: log-uniform 1000 μm … 0.01 μm plus pairs ±0.1 % at the H n = 1–3, He I and He II edges."
 function nugrid(; n = 250)
     a = atoms(); ν = [c / (1e-4 * λ) for λ in exp10.(range(3, -2, length = n))]
-    for e in (a.H.levels[1].χ, a.H.levels[2].χ, a.H.levels[3].χ, a.He1.levels[1].χ, a.He2.levels[1].χ)
+    χH1 = a.H.levels[1].χ
+    for e in (χH1, χH1 / 4, χH1 / 9, a.He1.levels[1].χ, a.He2.levels[1].χ)
         ν0 = e / h; push!(ν, ν0 * 0.999, ν0 * 1.001)
     end
     sort!(ν)
@@ -139,11 +146,31 @@ function linelist(HL)
     for d in LINEDEF
         nm, at = d[1], d[2]
         if at === :H || at === :He2
-            A_ = at === :H ? a.H : a.He2; l, u = d[3], d[4]; Z = at === :H ? 1 : 2
-            u <= MA.nlev(A_) || continue
-            ν0 = MA.νline(A_, l, u)
-            push!(out, (; name = nm, atom = at, l, u, ν0, f = A_.f[l, u], A = A_.A[u, l], gl = A_.levels[l].g, gu = A_.levels[u].g,
-                        m = at === :H ? mH : 4.0026 * 1.66054e-24, Z, nsl = Float64(l), nsu = Float64(u)))
+            A_ = at === :H ? a.H : a.He2; nl, nu = d[3], d[4]; Z = at === :H ? 1 : 2
+            χ1 = A_.levels[1].χ
+            if A_.coll === :lres
+                # Collect all exact l-resolved fine components between principal shells nl and nu
+                comps = NTuple{6,Float64}[]
+                l0 = 0; u0 = 0
+                for il in 1:MA.nlev(A_)-1, iu in il+1:MA.nlev(A_)
+                    A_.A[iu, il] > 0 || continue
+                    round(Int, sqrt(χ1 / A_.levels[il].χ)) == nl || continue
+                    round(Int, sqrt(χ1 / A_.levels[iu].χ)) == nu || continue
+                    push!(comps, (Float64(il), Float64(iu), A_.f[il, iu], A_.A[iu, il], A_.levels[il].g, A_.levels[iu].g))
+                    l0 == 0 && (l0 = il; u0 = iu)
+                end
+                isempty(comps) && continue
+                ν0 = MA.νline(A_, l0, u0)
+                fl = Z0.hyd_f(nl, nu); gl = 2.0 * nl^2; gu = 2.0 * nu^2
+                A_eff = MA.ACOEF * ν0^2 * (gl / gu) * fl
+                push!(out, (; name = nm, atom = at, l = nl, u = nu, ν0, f = fl, A = A_eff, gl, gu,
+                            m = at === :H ? mH : 4.0026 * 1.66054e-24, Z, nsl = Float64(nl), nsu = Float64(nu), comps))
+            else
+                nu <= MA.nlev(A_) || continue
+                ν0 = MA.νline(A_, nl, nu)
+                push!(out, (; name = nm, atom = at, l = nl, u = nu, ν0, f = A_.f[nl, nu], A = A_.A[nu, nl], gl = A_.levels[nl].g, gu = A_.levels[nu].g,
+                            m = at === :H ? mH : 4.0026 * 1.66054e-24, Z, nsl = Float64(nl), nsu = Float64(nu), comps = NTuple{6,Float64}[]))
+            end
         elseif at === :He1
             l = findfirst(==(d[3]), lab1); u = findfirst(==(d[4]), lab1)
             (l === nothing || u === nothing) && continue
@@ -367,6 +394,15 @@ function strength(ln, k, pts, pop, h2pop)
         fr_ = hdfrac(p.T); nl = p.nHD * fr_[ln.l]; nu = p.nHD * fr_[ln.u]
     else
         n = ln.atom === :H ? pop.nH[k] : ln.atom === :He1 ? pop.n1[k] : pop.n2[k]
+        if hasproperty(ln, :comps) && !isempty(ln.comps)
+            K = 0.0; E = 0.0
+            for (il_f, iu_f, fc, Ac, glc, guc) in ln.comps
+                il = Int(il_f); iu = Int(iu_f)
+                K += MA.BCOEF * fc * (n[il] - glc / guc * n[iu])
+                E += h * ln.ν0 / (4π) * n[iu] * Ac
+            end
+            return (max(K, 0.0), E)
+        end
         nl = n[ln.l]; nu = n[ln.u]
     end
     K = MA.BCOEF * ln.f * (nl - ln.gl / ln.gu * nu)
