@@ -201,6 +201,18 @@ end
 end
 @inline function material_gas0(m::NetGas, ρ, T)
     k = TX.ZONE[]
+    if CNn.UNIFIED_EOS_ON[]
+        if m.eqzone[k]
+            u, p = ue_eq_eos(ρ, T, CNn.zone_comp_k(k))
+        elseif TX.cplz(k)
+            w = TX.CPLW[]
+            y = w === nothing ? cpl_zone(m, k, ρ, T, TX.XSN[][1][k], TX.XSN[][2][k], TX.XSN[][3][k]) : cpl_zone(m, k, ρ, T, w[1][k], w[2][k], Float64(ForwardDiff.value(w[3][k])))
+            p = y[1]; u = y[2]
+        else
+            u, p = CNn.eos(ρ, T, m.x[k], m.net; comp = CNn.zone_comp_k(k))
+        end
+        return p, u, sqrt(5.0 / 3.0 * p / ρ)
+    end
     h = HOT[]
     if h !== nothing && ForwardDiff.value(T) > h.T1
         ps, es = h.gas(ρ, T, k); es -= h.Δ0
@@ -257,8 +269,18 @@ function conv_thermo(m::NetGas, k, ρ, T; x = nothing, tablefr = false)
         (p * δ / (T * ρ * cP), cP, δ, p / (ρ * pρ))
     end
     nanv = (NaN * one(ρ) * one(T), NaN * one(ρ) * one(T), NaN * one(ρ) * one(T), NaN * one(ρ) * one(T))
+    if CNn.UNIFIED_EOS_ON[]
+        cp = CNn.zone_comp_k(k)
+        if m.eqzone[k]
+            th = thermo_of((r, t) -> ue_eq_eos(r, t, cp), "UE")
+            pg = ue_eq_eos(ρ, T, cp)[2]; br = ForwardDiff.value(T) > UE_T1[] ? 3 : 2
+            return (; nad_eq = th[1], cp_eq = th[2], del_eq = th[3], nad_fr = th[1], cp_fr = th[2], del_fr = th[3], phi = one(th[1]),
+                    mu = ρ * kB * T / (pg * mu_), branch = br, alpha_eq = th[4], alpha_fr = th[4],
+                    gam1_eq = 1 / (th[4] - th[3] * th[1]), gam1_fr = 1 / (th[4] - th[3] * th[1]))
+        end
+    end
     h = HOT[]
-    if h !== nothing && ForwardDiff.value(T) > h.T1
+    if !CNn.UNIFIED_EOS_ON[] && h !== nothing && ForwardDiff.value(T) > h.T1
         th = h.thermo(ρ, T, k); pg = h.gas(ρ, T, k)[1]
         pρ_ = ForwardDiff.derivative(r -> h.gas(r, T, k)[1], ρ); α_ = (pg + arad * T^4 / 3) / (ρ * pρ_)       # (gas + radiation, as thermo_of)
         return (; nad_eq = th[1], cp_eq = th[2], del_eq = th[3], nad_fr = th[1], cp_fr = th[2], del_fr = th[3], phi = one(th[1]),
@@ -408,9 +430,9 @@ end
 function nlte_kappas(ρ, T, d, p)
     nH = ρ / CNn.μH(); nHe = PC.yHe * nH
     if d === nothing
-        y = EQ.composition(ρ, T); xp = y[1]; xh2 = y[3]; n1 = nH * max(1 - xp - 2xh2, 0.0); ne = nH * xp
+        y = _eq_comp(ρ, T); xp = y[1]; xh2 = y[3]; n1 = nH * max(1 - xp - 2xh2, 0.0); ne = nH * xp
         if CNn.HECHEM                                 # helium electrons; neutral He for the CIA and Rayleigh terms
-            z1, z2 = EQ.composition_he(ρ, T); ne = nH * (xp + z1 + 2z2); nHe = nH * max(PC.yHe - z1 - z2, 0.0)
+            z1, z2 = _eq_comp_he(ρ, T); ne = nH * (xp + z1 + 2z2); nHe = nH * max(PC.yHe - z1 - z2, 0.0)
         end
         n2 = 4n1 * exp(-E21 / (CNn.kB * T)); nHm = n1 * ne / CNn.Keq([:Hm], [:H, :e], T)
         G2O.ON && CNn.HECHEM && return nlte_means(ρ, T; n1, n2 = G2O.n2_lte(T, n1, ne, n1 + nHe + nH * xh2), nH2 = nH * xh2, nHe, nHp = nH * xp, ne, nHm,
@@ -461,8 +483,27 @@ agree to |Δ ln p| ≤ 0.045, |Δ ln Γ1| ≤ 0.064, |Δu| ≤ 0.2 kT per partic
 """
 const G2B = let v = get(ENV, "G2BLEND", "0"); v == "0" ? nothing : v == "1" ? (0.3, 0.1, 0.01, 1 / 3) : (t = parse.(Float64, split(v, ",")); length(t) == 3 ? (t..., 1 / 3) : Tuple(t)) end
 const QE_ = 4.80320471e-10; const A0_ = 5.29177211e-9
+const UE_T1 = Ref(parse(Float64, get(ENV, "HOTT1", "3e5")))
+const UE_T2 = Ref(parse(Float64, get(ENV, "HOTT2", "9e5")))
+const UE_PAR = Ref{NTuple{4,Float64}}(G2B === nothing ? (0.3, 0.1, 0.01, 1 / 3) : G2B)
+# Self-generated FreeEnergyEOS LTE table hooks (when CNn.FREE_EOS_ON[], replaces external SCVH95 everywhere!)
+const FE_LTE_EOS = Ref{Any}(nothing)
+const FE_LTE_COMP = Ref{Any}(nothing)
+const FE_LTE_COMP_HE = Ref{Any}(nothing)
+const FE_LTE_STEP = Ref{Any}(nothing)
+const FE_LTE_TAB = Ref{Any}(nothing)
+const FE_BSPLINE = Ref{Any}(nothing)
+@inline _use_fe_tab() = CNn.FREE_EOS_ON[] && FE_LTE_EOS[] !== nothing
+@inline _eq_eos(ρ, T) = _use_fe_tab() ? FE_LTE_EOS[](ρ, T) : EQ.eos(ρ, T)
+@inline _eq_comp(ρ, T) = _use_fe_tab() ? FE_LTE_COMP[](ρ, T) : EQ.composition(ρ, T)
+@inline _eq_comp_he(ρ, T) = _use_fe_tab() ? FE_LTE_COMP_HE[](ρ, T) : EQ.composition_he(ρ, T)
+@inline _eq_step(ρ, u, T, dt; cooling = nothing) = _use_fe_tab() ? FE_LTE_STEP[](ρ, u, T, dt; cooling) : EQ.step(ρ, u, T, dt; cooling)
+@inline _smoother5(x) = (x = clamp(x, zero(x), one(x)); x^3 * (10 - 15x + 6x^2))
+@inline _softpos(x, ε) = 0.5 * (x + sqrt(x * x + ε * ε))
+@inline _softclamp(x, hi, ε) = hi - _softpos(hi - _softpos(x, ε), ε)
+
 "(G2BLEND) non-ideality s at (ρ, T) (generic: the table composition through its bicubic interpolant)."
-function g2_s(ρ, T)
+function g2_s(ρ, T, par = G2B)
     t = EQ.table(); x = EQ.gx(t, log10(ρ)); y = EQ.gy(t, log10(min(T, 1e6) + zero(T)))
     xp = clamp(EQ.bicubic(t.xHp, x, y), 0.0, 1.0); f2 = clamp(EQ.bicubic(t.fH2, x, y), 0.0, 1.0)
     z1 = zero(xp); z2 = zero(xp)
@@ -473,13 +514,89 @@ function g2_s(ρ, T)
     nneu = nH * (max(1 - xp - f2, zero(xp)) + f2 / 2 + max(PC.yHe - z1 - z2, zero(xp)))
     kT = CNn.kB * T
     Γ = QE_^2 / (kT * cbrt(3 / (4π * ne))); D = ne * (CNn.hP / sqrt(2π * CNn.me * kT))^3 / 2; P = (4π / 3) * nneu * (2A0_)^3
-    ((Γ / G2B[1])^4 + (D / G2B[2])^4 + (P / G2B[3])^4)^0.25
+    ((Γ / par[1])^4 + (D / par[2])^4 + (P / par[3])^4)^0.25
+end
+"(UNIFIED_EOS) smooth C^∞ non-ideality s at (ρ, T) without hard clamp/max corners."
+function ue_s(ρ, T)
+    par = UE_PAR[]; ε = 1e-7
+    if _use_fe_tab() && FE_LTE_TAB[] !== nothing
+        t = FE_LTE_TAB[](); bs = FE_BSPLINE[]
+        x = (log10(ρ) - t.lρ0) / t.dlρ + 1.0; y = (log10(T) - t.lT0) / t.dlT + 1.0
+        xp = _softclamp(bs(t.c_xHp, x, y), 1.0, ε)
+        f2 = _softclamp(bs(t.c_fH2, x, y), 1.0, ε)
+        yHe_ = (t.Y / CNn._MHE) / (t.X / CNn.mH)
+        z1 = _softclamp(bs(t.c_zHe1, x, y), yHe_, ε)
+        z2 = _softclamp(bs(t.c_zHe2, x, y), yHe_, ε)
+        nH = ρ * t.X / CNn.mH
+        ne = nH * _softpos(xp + z1 + 2z2, 1e-12)
+        nneu = nH * (_softpos(1 - xp - f2, ε) + 0.5 * f2 + _softpos(yHe_ - z1 - z2, ε))
+    else
+        t = EQ.table()
+        x = EQ.gx(t, log10(ρ)); y = EQ.gy(t, log10(T))
+        xp = _softclamp(EQ.bicubic(t.xHp, x, y), 1.0, ε)
+        f2 = _softclamp(EQ.bicubic(t.fH2, x, y), 1.0, ε)
+        z1 = zero(xp); z2 = zero(xp)
+        if CNn.HECHEM && EQ.HETAB[] !== nothing
+            Z1, Z2 = EQ.HETAB[]
+            z1 = _softclamp(EQ.bicubic(Z1, x, y), PC.yHe, ε)
+            z2 = _softclamp(EQ.bicubic(Z2, x, y), PC.yHe, ε)
+        end
+        nH = ρ / CNn.μH()
+        ne = nH * _softpos(xp + z1 + 2z2, 1e-12)
+        nneu = nH * (_softpos(1 - xp - f2, ε) + 0.5 * f2 + _softpos(PC.yHe - z1 - z2, ε))
+    end
+    kT = CNn.kB * T
+    Γ = QE_^2 / (kT * cbrt(3 / (4π * ne)))
+    D = ne * (CNn.hP / sqrt(2π * CNn.me * kT))^3 / 2
+    P = (4π / 3) * nneu * (2A0_)^3
+    ((Γ / par[1])^4 + (D / par[2])^4 + (P / par[3])^4)^0.25
+end
+"(UNIFIED_EOS) C² table blend weight w_tbl(ρ, T) = w_s(ρ, T) · w_cool(T): 0 for s ≤ 1/3 or T ≥ T2, 1 for s ≥ 1 and T ≤ T1."
+function ue_w(ρ, T)
+    T1 = UE_T1[]; T2 = UE_T2[]
+    Tv = ForwardDiff.value(T); ρv = ForwardDiff.value(ρ)
+    (Tv >= T2 || ρv <= 1e-12) && return zero(ρ * T)
+    s = ue_s(ρ, T)
+    ws = _smoother5(log10(s / UE_PAR[][4]) / log10(3.0))
+    ForwardDiff.value(ws) <= 0.0 && return zero(ws)
+    Tv <= T1 && return ws
+    wc = 1 - _smoother5(log(T / T1) / log(T2 / T1))
+    ws * wc
+end
+"(UNIFIED_EOS) EOS mix hook for ChemNet.EOSMIX: smooth C² blend of unified network EOS into LTE table inside warm dense pocket."
+function ue_eosmix(ρ, T, u, p)
+    w = ue_w(ρ, T)
+    ForwardDiff.value(w) <= 0.0 && return (u, p)
+    ue = _eq_eos(ρ, T)
+    (u + w * (ue[1] - u), p + w * (ue[2] - p))
+end
+"(UNIFIED_EOS) EOS for eqzone (warm dense LTE table and hot fully-ionised zones): identical C² blend of eos_full_ion and _eq_eos."
+function ue_eq_eos(ρ, T, comp)
+    w = ue_w(ρ, T)
+    wv = ForwardDiff.value(w)
+    wv >= 1.0 && return _eq_eos(ρ, T)
+    un, pn = CNn.eos_full_ion(ρ, T, comp)
+    wv <= 0.0 && return (un, pn)
+    ue = _eq_eos(ρ, T)
+    (un + w * (ue[1] - un), pn + w * (ue[2] - pn))
+end
+"Fully-ionised ChemNet free-species vector (H⁺ = 1, He²⁺ = yHe, Li⁺ = yLi, molecules/neutrals = 0)."
+function x_full_ion(m::NetGas)
+    out = zeros(length(m.net.free))
+    for (i, s) in enumerate(m.net.free)
+        out[i] = s === :Hp ? 1.0 : s === :Hepp ? CNn.yHe : s === :Lip ? CNn.yLi : 0.0
+    end
+    out
 end
 "(G2BLEND) blend weight of the table at (ρ, T)."
 g2_w(ρ, T) = (s = g2_s(ρ, T); x = clamp(log10(s / G2B[4]) / log10(3.0), 0.0, 1.0); x * x * (3 - 2x))
 "(G2BLEND) the EOS mix of ChemNet.EOSMIX."
 g2_eosmix(ρ, T, u, p) = (w = g2_w(ρ, T); ForwardDiff.value(w) == 0 ? (u, p) : (ue = EQ.eos(ρ, T); (u + w * (ue[1] - u), p + w * (ue[2] - p))))
-G2B !== nothing && (CNn.EOSMIX[] = g2_eosmix)
+if CNn.UNIFIED_EOS_ON[]
+    CNn.EOSMIX[] = ue_eosmix
+elseif G2B !== nothing
+    CNn.EOSMIX[] = g2_eosmix
+end
 "Lagged non-LTE opacity factors of zone k at T0 (see NLOPAC)."
 function nlopc(ρ, T0, d, p)
     OPAC[] === nothing && return nothing     # no opacity table yet (the cold collapse, before RAD's opacity is set): LTE tables later
@@ -597,13 +714,13 @@ function nlo_base(ρ, T)
     Rt, Pt = OPAC[](ρ, T); w = nlo_w(T); Pq = Rq = 1.0
     if w > 0
         # equilibrium composition (as nlte_kappas with d = nothing)
-        y = EQ.composition(ρ, min(T, 1e6)); xp = y[1]; xh2 = y[3]; n1e = nH * max(1 - xp - 2xh2, 0.0); nee = nH * xp; nHee = nHe0
+        y = _eq_comp(ρ, min(T, 1e6)); xp = y[1]; xh2 = y[3]; n1e = nH * max(1 - xp - 2xh2, 0.0); nee = nH * xp; nHee = nHe0
         if CNn.HECHEM
-            z1, z2 = EQ.composition_he(ρ, min(T, 1e6)); nee = nH * (xp + z1 + 2z2); nHee = nH * max(PC.yHe - z1 - z2, 0.0)
+            z1, z2 = _eq_comp_he(ρ, min(T, 1e6)); nee = nH * (xp + z1 + 2z2); nHee = nH * max(PC.yHe - z1 - z2, 0.0)
         end
         n2e = 4n1e * exp(-E21 / (CNn.kB * T)); nHme = n1e * nee / CNn.Keq([:Hm], [:H, :e], T)
         if G2O.ON && CNn.HECHEM                   # G2OPAC: with the He ions and the LTE n = 2 of G2Opacity
-            z1g, z2g = EQ.composition_he(ρ, min(T, 1e6))
+            z1g, z2g = _eq_comp_he(ρ, min(T, 1e6))
             _, Pq, Rq = nlte_means_fast(ρ, T; n1 = n1e, n2 = G2O.n2_lte(T, n1e, nee, n1e + nHee + nH * xh2), nH2 = nH * xh2, nHe = nHee, nHp = nH * xp, ne = nee,
                                         nHm = nHme, hbfP = true, nHep = nH * z1g, nHepp = nH * z2g)
         else
@@ -907,6 +1024,12 @@ TX.opac_pure(::NetGas) = true
     if NLOIT && NLOPAC[]
         k = TX.ZONE[]
         if k <= length(m.eqzone) && !m.eqzone[k]
+            if CNn.UNIFIED_EOS_ON[]
+                χn, κEn, κPn = nlo_it(m, k, ρ, T, k <= length(NLOST[]) ? NLOST[][k] : nothing)
+                w = ue_w(ρ, T); ForwardDiff.value(w) <= 0 && return χn, κEn, κPn
+                κRt, κPt = OPAC[](ρ, T)
+                return exp((1 - w) * log(χn) + w * log(chicap(κRt, T))), exp((1 - w) * log(κEn) + w * log(κPt)), exp((1 - w) * log(κPn) + w * log(κPt))
+            end
             G2B === nothing && return nlo_it(m, k, ρ, T, k <= length(NLOST[]) ? NLOST[][k] : nothing)
             χn, κEn, κPn = nlo_it(m, k, ρ, T, k <= length(NLOST[]) ? NLOST[][k] : nothing)
             w = g2_w(ρ, T); ForwardDiff.value(w) == 0 && return χn, κEn, κPn
@@ -954,9 +1077,21 @@ function TM.fill_opac!(m::NetGas)
         chifn[k] = χ; xken[k] = κE; xkpn[k] = κP
         NLOIT && NLOITDIAG[] > 0 && nloit_diag(m, k, dn[k], tn[k], (χ, κE, κP))
         # electrons for the scattering term of the formal solution (the template state's xnen is not ours)
-        xnen[k] = (CNn.HECHEM ? (m.eqzone[k] ? (Tq = min(tn[k], 1e6); z = EQ.composition_he(dn[k], Tq); EQ.composition(dn[k], Tq)[1] + z[1] + 2z[2]) :
-                                 CNn.full_fast(m.x[k], m.net)[:e]) :
-                   (m.eqzone[k] ? EQ.composition(dn[k], min(tn[k], 1e6))[1] : CNn.full_fast(m.x[k], m.net)[:Hp])) * dn[k] / CNn.μH()
+        if CNn.UNIFIED_EOS_ON[] && m.eqzone[k]
+            w_ = ue_w(dn[k], tn[k])
+            ne_hot = dn[k] * CNn.zone_comp_k(k).νe
+            if w_ <= 0.0
+                xnen[k] = ne_hot
+            else
+                Tq = min(tn[k], 1e6); z = CNn.HECHEM ? _eq_comp_he(dn[k], Tq) : (0.0, 0.0)
+                ne_eq = (_eq_comp(dn[k], Tq)[1] + z[1] + 2z[2]) * dn[k] / CNn.μH()
+                xnen[k] = (1 - w_) * ne_hot + w_ * ne_eq
+            end
+        else
+            xnen[k] = (CNn.HECHEM ? (m.eqzone[k] ? (Tq = min(tn[k], 1e6); z = EQ.composition_he(dn[k], Tq); EQ.composition(dn[k], Tq)[1] + z[1] + 2z[2]) :
+                                     CNn.full_fast(m.x[k], m.net)[:e]) :
+                       (m.eqzone[k] ? EQ.composition(dn[k], min(tn[k], 1e6))[1] : CNn.full_fast(m.x[k], m.net)[:Hp])) * dn[k] / CNn.μH()
+        end
         # coupled network zone: the electrons of the iterate (x_H⁺, x_H₂ of the Newton vector, via nlo_it's CK expansion), the same n_e that
         # chifn's Thomson floor uses, not the composition of the last chemistry
         if TX.COUPLED[] && !m.eqzone[k] && TX.cplz(k) && k <= length(NLONED[]) && isfinite(NLONED[][k])
@@ -981,15 +1116,15 @@ end
 
 "Free-species vector from the equilibrium table's composition (H₂, H⁺; H⁻ and Li⁺ in Saha with the table's electrons)."
 function x_from_table(m::NetGas, ρ, T)
-    y = EQ.composition(ρ, T); nH = ρ / CNn.μH()
-    xH2 = y[3]; xHp = y[1]; xH = 1 - xHp - 2xH2
+    y = _eq_comp(ρ, T); nH = ρ / CNn.μH()
+    xH2 = y[3]; xHp = y[1]; xH = max(1 - xHp - 2xH2, 0.0)
     ne = xHp * nH
-    z1, z2 = CNn.HECHEM ? EQ.composition_he(ρ, T) : (0.0, 0.0)
+    z1, z2 = CNn.HECHEM ? _eq_comp_he(ρ, T) : (0.0, 0.0)
     CNn.HECHEM && (ne = (xHp + z1 + 2z2) * nH)
     xHm = xH * ne / CNn.Keq([:Hm], [:H, :e], T)
     out = zeros(length(m.net.free))
     for (i, s) in enumerate(m.net.free)
-        out[i] = s === :Hp ? xHp : s === :H2 ? xH2 : s === :Hm ? xHm : s === :Hep ? z1 : s === :Hepp ? z2 :
+        out[i] = s === :Hp ? xHp : s === :H2 ? xH2 : s === :Hm ? xHm : s === :Hep ? min(z1, CNn.yHe) : s === :Hepp ? min(z2, CNn.yHe) :
                  s === :Lip ? (K = CNn.Keq([:Li], [:Lip, :e], T); CNn.yLi * K / (K + max(ne, 1e-300))) : 0.0
     end
     out
@@ -1333,7 +1468,7 @@ function sl_sweep!(S, a, b, rn, dn, tn, un, ern, frn, xs1, xs2, cplz; mgqt = not
                     m_ = TX.MATERIAL[]
                     if m_ isa NetGas && m_.eqzone[i]
                         Tq = min(tn[i], 1e6)
-                        @inbounds neL[i] = (CNn.HECHEM ? (z_ = EQ.composition_he(dn[i], Tq); EQ.composition(dn[i], Tq)[1] + z_[1] + 2z_[2]) : EQ.composition(dn[i], Tq)[1]) * dn[i] * inv_mu
+                        @inbounds neL[i] = (CNn.HECHEM ? (z_ = _eq_comp_he(dn[i], Tq); _eq_comp(dn[i], Tq)[1] + z_[1] + 2z_[2]) : _eq_comp(dn[i], Tq)[1]) * dn[i] * inv_mu
                     else
                         @inbounds neL[i] = TM.v(:xnen)[i] * (dn[i] / _val(dn[i]))
                     end
@@ -1653,8 +1788,12 @@ function chem_core!(m::NetGas)
     end
     dTz = zeros(length(tn))
     function zone!(k)
-        CPLPREP[] && (m.eqzone[k] || (h !== nothing && tn[k] > h.T1)) && return nothing     # COUPLED prepare: network zones only, no change of state
-        if h !== nothing && tn[k] > h.T1             # hot branch: no chemistry, no re-solve of T with the table (driver: burn and mix)
+        CPLPREP[] && (m.eqzone[k] || (CNn.UNIFIED_EOS_ON[] ? tn[k] > UE_T1[] : (h !== nothing && tn[k] > h.T1))) && return nothing     # COUPLED prepare: network zones only, no change of state
+        if CNn.UNIFIED_EOS_ON[] && tn[k] > UE_T1[]
+            m.x[k] = x_full_ion(m); m.eqzone[k] = true
+            return nothing
+        end
+        if !CNn.UNIFIED_EOS_ON[] && h !== nothing && tn[k] > h.T1             # hot branch: no chemistry, no re-solve of T with the table (driver: burn and mix)
             m.x[k] = x_from_table(m, dn[k], min(tn[k], 1e6)); m.eqzone[k] = true
             return nothing
         end
@@ -1686,13 +1825,14 @@ function chem_core!(m::NetGas)
         ptab = (pgn[k] >= m.pswitch && tn[k] >= PSWTMIN[]) || (m.eqzone[k] && pgn[k] >= PSWHYS[] * m.pswitch && tn[k] >= 0.95 * PSWTMIN[])
         PSWNH > 0 && !ptab && (ptab = dn[k] / CNn.μH() >= (m.eqzone[k] ? PSWHYS[] : 1.0) * PSWNH && tn[k] >= (m.eqzone[k] ? 0.95 : 1.0) * PSWTMIN[])
         tab = ptab || (PSWSTAY[] && m.eqzone[k] && PSWTEX[] > 0 && tn[k] >= PSWTEX[]) || (PSWTAU[] > 0 && tn[k] >= PSWTEX[] && tauz[k] >= (m.eqzone[k] ? 0.5 : 1.0) * PSWTAU[])
-        G2B !== nothing && (tab = g2_w(dn[k], tn[k]) >= (m.eqzone[k] ? 0.99 : 0.999))     # G2BLEND: the table only where the blend is complete
+        !CNn.UNIFIED_EOS_ON[] && G2B !== nothing && (tab = g2_w(dn[k], tn[k]) >= (m.eqzone[k] ? 0.99 : 0.999))     # G2BLEND: the table only where the blend is complete
+        CNn.UNIFIED_EOS_ON[] && (tab = ue_w(dn[k], tn[k]) >= (m.eqzone[k] ? 0.99 : 0.999))
         CPLPREP[] && (tab = false)
         PSWRAMP > 0 && !CPLPREP[] && m.eqzone[k] && k <= RAMPK0[] - (Int(TF.getscalar(:jstep)) - RAMPJ0[]) ÷ PSWRAMP && (tab = true)
         if tab
             coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
             (CPLPOST[] && TX.cplz(k)) && (coolt = nothing)      # COUPLED: the zone's cooling over this step was in the hydro solve
-            _, T1 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
+            _, T1 = _eq_step(dn[k], egn[k], tn[k], dt; cooling = coolt)
             m.x[k] = x_from_table(m, dn[k], T1); m.eqzone[k] = true
         else
             eqprev = m.eqzone[k]
@@ -1794,13 +1934,13 @@ function chem_core!(m::NetGas)
                 ((CHEMFALLBACK[] || (CHEMFBDENSE[] && pgn[k] >= m.pswitch)) && (e isa ErrorException || (p3 !== nothing && e isa ArgumentError))) || rethrow()
                 lock(() -> (NCHEMFB[] += 1), CHEMLOCK); fb = true
                 TL3DBG[] > 0 && @printf("tl3fb k %d r %.3e T %.0f tauz %.2e eqprev %s xe %.2e u %.4e u(10K,x) %.4e u(T,x) %.4e: %s\n", k, rn[k] / 6.957e10, tn[k], tauz[k], eqprev, CNn.full(m.x[k], m.net)[:e], egn[k], CNn.eos(dn[k], 10.0, m.x[k], m.net)[1], CNn.eos(dn[k], tn[k], m.x[k], m.net)[1], first(sprint(showerror, e), 60))
-                if CHEMFBNET > 0 && dn[k] < EQ.rho_min()
+                if CHEMFBNET > 0 && dn[k] < (_use_fe_tab() ? 1e-20 : EQ.rho_min())
                     # below the equilibrium table: keep the network (CHEMFBNET sub-steps; failing that, the composition held and T from u)
                     lock(() -> (NCHEMFBNET[] += 1), CHEMLOCK)
                     chem_fallback_net(m, k, dn[k], Float64(egn[k]), tn[k], dt, envk, phk, cools, exs)
                 else
                     coolt = cool === nothing ? nothing : ((ρ, T, y) -> cool(ρ, T, nothing))
-                    _, T2 = EQ.step(dn[k], egn[k], tn[k], dt; cooling = coolt)
+                    _, T2 = _eq_step(dn[k], egn[k], tn[k], dt; cooling = coolt)
                     (x_from_table(m, dn[k], T2), T2)
                 end
             end
@@ -1973,7 +2113,7 @@ function he_pad!(m::NetGas)
     dn, tn = TM.v(:dn), TM.v(:tn); n = 0
     for k in eachindex(m.x)
         length(m.x[k]) == want - 2 || continue
-        j = clamp(k, a, b); z = EQ.composition_he(dn[j], min(tn[j], 1e6))
+        j = clamp(k, a, b); z = _eq_comp_he(dn[j], min(tn[j], 1e6))
         m.x[k] = vcat(m.x[k][1:i1-1], z[1], z[2], m.x[k][i1:end]); a <= k <= b && (n += 1)
     end
     n > 0 && @printf("HECHEM: (x_He+, x_He++) set from Saha in %d zones\n", n)
@@ -2090,7 +2230,7 @@ function _cpl_g(m::NetGas, k, t0, z, xn)
     end
     xnd = xn === nothing ? nothing : xneut(z[3], z[4], xn)         # the neutral hydrogen, direct value, derivative of 1 − x₁ − 2x₂
     x, fs = CNn.ck_eval((z[3], z[4]), ρ, T, m.net; env = t.env, phc = t.phc, extra = t.extra, xn = xnd)
-    u, p = CNn.eos(ρ, T, x, m.net; xn = xnd)
+    u, p = CNn.eos(ρ, T, x, m.net; xn = xnd, comp = CNn.zone_comp_k(k))
     dfull = CNn.full_fast(x, m.net; xn = xnd)
     Λ = t.cooling === nothing ? zero(u) : t.cooling(ρ, T, dfull)
     md = li_model(k); Λl = zero(u)                         # (Λl: the line cooling alone, which the MGROUPS hydro solve emits into the IR group)
@@ -2286,6 +2426,23 @@ Zone classes as `material_gas0` selects: hot (stellar EOS, T > HOT.T1) and table
 no rates in the hydro step: frozen. Coupled zones: the exact local derivatives (`lr_data`). `dual = false`: the values only (screening; no Hessian).
 """
 function lr_zone(m::NetGas, k, ρ, T, x, rs, dual::Bool)
+    if CNn.UNIFIED_EOS_ON[]
+        if m.eqzone[k]
+            cp = CNn.zone_comp_k(k)
+            d = lr_eosd((r, t) -> ue_eq_eos(r, t, cp), ρ, T)
+            return (; cpl = false, d, fr = lresp_frozen(d), tau = 0.0)
+        elseif x !== nothing && TX.cplz(k)
+            xn = _fullval(x[3]); ins = lr_ins(k, ρ, T, x[1], x[2], rs); dual || (ins = map(_fullval, ins))
+            v = Float64[_fullval(a) for a in ins]
+            c = lr_data(m, k, v, xn, dual)
+            d = lr_lift(c, ins)
+            return (; cpl = true, d, fr = lresp_frozen(d), tau = Float64(lresp_tau((; dS1 = c.J[3, 1:4], dS2 = c.J[4, 1:4]))[1]))
+        else
+            xk = m.x[k]; cp = CNn.zone_comp_k(k)
+            d = lr_eosd((r, t) -> CNn.eos(r, t, xk, m.net; comp = cp), ρ, T)
+            return (; cpl = false, d, fr = lresp_frozen(d), tau = 0.0)
+        end
+    end
     h = HOT[]
     if h !== nothing && ForwardDiff.value(T) > h.T1
         d = lr_eosd((r, t) -> (h.gas(r, t, k)[2], h.gas(r, t, k)[1]), ρ, T)

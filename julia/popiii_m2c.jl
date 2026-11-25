@@ -44,8 +44,16 @@ haskey(ENV, "MGROUPS") && ENV["MGROUPS"] != "0" && include(joinpath(@__DIR__, "J
 end
 # S6-C1: HOT=1: stellar EOS, nuclear network and convective mixing in the hot core (T > HOTT1), see PopIIIMaterial.HOT
 const HOTON = get(ENV, "HOT", "0") == "1"
+const UEON = get(ENV, "UNIFIED_EOS", "0") == "1"
+const FEON = get(ENV, "FREE_EOS", "0") == "1"
+if (HOTON || UEON || FEON) && !PKGON
+    include(joinpath(@__DIR__, "StellarEOS.jl"))
+end
+if (UEON || FEON) && !PKGON
+    include(joinpath(@__DIR__, "FreeEnergyEOS.jl"))
+end
 if HOTON && !PKGON
-    for f in ("StellarEOS", "NucNet", "StellarMaterial", "StarMaterial"); include(joinpath(@__DIR__, f * ".jl")); end
+    for f in ("NucNet", "StellarMaterial", "StarMaterial"); include(joinpath(@__DIR__, f * ".jl")); end
 end
 # INTEGRATOR=trbdf2 (default) | theta: second-order L-stable TR-BDF2 (Trbdf2.jl, G2) or TITAN's theta scheme
 PKGON || (include(joinpath(@__DIR__, "Trbdf2.jl")); include(joinpath(@__DIR__, "NewtonKrylov.jl")); include(joinpath(@__DIR__, "StageCons.jl")))

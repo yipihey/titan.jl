@@ -16,6 +16,7 @@ const POPIII_STACK = [
     "IC" => "abn02red", "MCLOUD" => "7137", "TCMB" => "54.5", "RAD" => "1",
     # material
     "CHEM" => "netmodernli", "HOT" => "1", "ALPHAMLT" => "1.5",
+    "UNIFIED_EOS" => "1", "FREE_EOS" => "1", "G2BLEND" => "1", "H2PF" => "1",
     "SCVHXE" => "1", "HM88" => "1", "G2OPAC" => "2", "NLOHBFDEEP" => "1", "TL3DEEP" => "1",
     "PSWITCH" => "1e30", "PSWTAU" => "0", "PSWSTAY" => "0", "PSWTEX" => "5000", "PSWNH" => "1e19", "PSWHYS" => "0.3",
     "PSWTMIN" => "4500", "PSWRAMP" => "10",

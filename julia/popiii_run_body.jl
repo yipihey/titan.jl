@@ -264,6 +264,28 @@ begin
 end
 # artificial viscosity: viscous length l = ql1 r ≈ 2 Δr (the SOD state's ql0 = 1e-4 cm is zero at these scales, M2g);
 # Δr/r ≈ 0.04 (core) … 0.12 (envelope) on the geometric mass grid; quadratic term only (cq2), as PORTING_NOTES P7
+if ChemNet.UNIFIED_EOS_ON[]
+    ChemNet.UE_ELECTRON[] = StellarEOS.electron_pe
+    ChemNet.UE_COULOMB[] = StellarEOS.coulomb_pe
+    PM.UE_T1[] = parse(Float64, get(ENV, "HOTT1", "3e5"))
+    PM.UE_T2[] = parse(Float64, get(ENV, "HOTT2", "9e5"))
+    ChemNet.EOSMIX[] = PM.ue_eosmix
+    if ChemNet.FREE_EOS_ON[]
+        FE_ = Main.FreeEnergyEOS
+        ChemNet.FE_EOS_NONLTE[]  = FE_.eos_nonlte_dens
+        ChemNet.FE_EOS_FULLION[] = FE_.eos_full_ion
+        ChemNet.FE_DELTA_MU[]    = FE_.delta_mu_ex_7
+        PM.FE_LTE_EOS[]     = FE_.lte_eos
+        PM.FE_LTE_COMP[]    = FE_.lte_composition
+        PM.FE_LTE_COMP_HE[] = FE_.lte_composition_he
+        PM.FE_LTE_STEP[]    = FE_.lte_step
+        PM.FE_LTE_TAB[]     = FE_.lte_table
+        PM.FE_BSPLINE[]     = FE_.bspline2d
+        pr("FREE_EOS: self-consistent Helmholtz free-energy microphysics (PC00+KSDT14+Potekhin96+BMCSL+FD e±) + C² B-spline LTE table + exact Δμ_i^ex in ChemNet (T1=%.3g, T2=%.3g K)\n", PM.UE_T1[], PM.UE_T2[])
+    else
+        pr("UNIFIED_EOS: ChemNet + StellarEOS (Fermi-Dirac e±, YS89 Coulomb, per-zone NucNet X/Y/Z), C² SCVH95 blend in warm dense pocket (T1=%.3g, T2=%.3g K)\n", PM.UE_T1[], PM.UE_T2[])
+    end
+end
 av = (ql0 = 0.0, ql1 = parse(Float64, get(ENV, "AVQL1", "0.15")), cq1 = 0.0, cq2 = parse(Float64, get(ENV, "AVCQ2", "1.0")))
 PS.build!(; rI, rho, T = Tz, u = uI, geom = 2, lgrid = 3, inner = :wall, outer = :free, pext = 0.0,
           selfgrav = true, material = mat, av)
@@ -425,12 +447,16 @@ if HOTON
         Y3 = 1e-5 * Yp; Y0[NN.IDX[:he3]] = Y3; Y0[NN.IDX[:he4]] = (1 - HX - 3Y3) / 4
         for k in axes(SG[].Y, 2); SG[].Y[:, k] .= Y0; end
     end
+    if ChemNet.UNIFIED_EOS_ON[]
+        ChemNet.UE_COMPK[] = k -> (1 <= k <= size(SG[].Y, 2) ? SM.zonecomp(SG[], k) : ChemNet.PRIM_COMP)
+        ChemNet.UE_COMP[] = () -> ChemNet.zone_comp_k(TX.ZONE[])
+    end
     let g0 = (ρ, T, k) -> (st = SE.gas_state(ρ, T, SM.zonecomp(SG[], k)); (st.p, st.e)),
         g = THCHAIN ? ((ρ, T, k) -> thchain(g0, ρ, T, k)) : g0,
         th0 = (ρ, T, k) -> (st = SE.eos(ρ, T; comp = SM.zonecomp(SG[], k), radiation = true); (st.∇ad, st.cP, st.δ)),
         th = THCHAIN ? ((ρ, T, k) -> thchain(th0, ρ, T, k)) : th0
-        ρr, Tr = 1e-4, 1e6                            # zero point of the two EOS in the fully ionised dilute limit
-        Δ0 = g(ρr, Tr, 1)[2] - PopIIIEqEOS.eos(ρr, Tr)[1]
+        ρr, Tr = 1e-12, 1e6                           # zero point of the two EOS in the fully ionised dilute limit (was 1e-4, inside SCVH95!)
+        Δ0 = g(ρr, Tr, 1)[2] - PM._eq_eos(ρr, Tr)[1]
         ee = (ρ, T, k) -> SG[].fcur[k] * SM.eps_nuc(ρ, T, view(SG[].Y, :, k); screen = SG[].screen)
         PM.HOT[] = (; T1 = parse(Float64, get(ENV, "HOTT1", "3e5")), T2 = parse(Float64, get(ENV, "HOTT2", "9e5")), Δ0, gas = g, thermo = th, eps = ee)
     end

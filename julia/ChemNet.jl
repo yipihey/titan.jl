@@ -330,7 +330,8 @@ function reverse_k(r::Reaction; Tmin = 0.0)
     lnkr(T, env) = log(rk(T, env)) - lnKeq(rR, rP, T)
     function k(T, env)
         kf = rk(T, env)
-        T >= Tmin && kf > 1e-290 && return exp(log(kf) - lnKeq(rR, rP, T))
+        dmu_shift = (FREE_EOS_ON[] && hasproperty(env, :dmu) && env.dmu !== nothing) ? _dmu_rxn(rR, rP, env.dmu) : zero(T)
+        T >= Tmin && kf > 1e-290 && return exp(log(kf) - lnKeq(rR, rP, T) + dmu_shift)
         iszero(kf) || kf > 0 || return zero(T)                 # a fit that is ≤ 0 (clipped) stays 0
         if isnan(Tu[])
             t = max(Float64(Tmin), ForwardDiff.value(T)); while rk(t, env) <= 1e-290 && t < 1e6; t *= 1.05; end
@@ -342,7 +343,7 @@ function reverse_k(r::Reaction; Tmin = 0.0)
         if isnan(Ta[])
             a = lnkr(Tu[], env); Ts[] = (lnkr(2Tu[], env) - a) / log(2.0); Ta[] = a
         end
-        exp(Ta[] + Ts[] * log(T / Tu[]))
+        exp(Ta[] + Ts[] * log(T / Tu[]) + dmu_shift)
     end
 end
 
@@ -460,11 +461,22 @@ const PHTAB_LIST = Ref(PhTab[])
         tb
     end
 end
-@inline _ph_et(T, env) = (HM88 && hasproperty(env, :hm)) ? promote_type(typeof(one(T)), typeof(env.hm[1])) : typeof(one(T))
-"(HM88) the Milne inverse of H photoionization × φ (see HM88); otherwise `_photorates_t`."
+@inline function _ph_et(T, env)
+    ET = typeof(one(T))
+    (HM88 && !FREE_EOS_ON[] && hasproperty(env, :hm)) && (ET = promote_type(ET, typeof(env.hm[1])))
+    (FREE_EOS_ON[] && hasproperty(env, :dmu) && env.dmu !== nothing) && (ET = promote_type(ET, typeof(env.dmu[1])))
+    ET
+end
+"(HM88 / FREE_EOS) the Milne inverse of photoionization × non-ideal activity factor; otherwise `_photorates_t`."
 function photorates_t(p::Photo, T, env)
     ET = _ph_et(T, env); r = _photorates_t(p, T, env)
-    a = (HM88 && p.R === :H && hasproperty(env, :hm)) ? r[2] * hm_phi(T, env) : r[2]
+    a = if FREE_EOS_ON[] && hasproperty(env, :dmu) && env.dmu !== nothing
+        r[2] * exp(_dmu_rxn((p.R,), p.P, env.dmu))
+    elseif HM88 && !FREE_EOS_ON[] && p.R === :H && hasproperty(env, :hm)
+        r[2] * hm_phi(T, env)
+    else
+        r[2]
+    end
     (ET(r[1])::ET, ET(a)::ET)
 end
 function _photorates_t(p::Photo, T, env)
@@ -744,6 +756,8 @@ struct Compiled
     cv0::Vector{Float64}; ktup::Any; nR1::Vector{Int}; nslow::Int
     pidx::Base.RefValue{Vector{PIdx}}; pidx_lk::ReentrantLock
     ifree::NTuple{7,Int}; hasLi::Bool; ekeys::Vector{Symbol}
+    sp_kind::Vector{UInt8}; sp_q::Vector{Float64}                          # per compiled species: 0=e, 1=H, 2=He, 3=Li; charge
+    fe_idx::NTuple{11,Int}                                                 # indices of (H2, H, Hp, He, Hep, Hepp, Hm, H2p, Li, Lip, e)
     ws_f64::Vector{CKWS{Float64}}; ws_pool::Vector{Dict{DataType,Any}}
 end
 const COMPILED = CowCache{Compiled}()
@@ -757,6 +771,11 @@ compiled(net) = cowget!(COMPILED, net) do
     for s in net.free; dtmp[s] = 0.0; end
     dtmp[:He] = 0.0; dtmp[:H] = 0.0; hasLi && (dtmp[:Li] = 0.0)
     ekeys = [s for s in keys(dtmp) if s != :e]
+    sp_kind = UInt8[s === :e ? 0x00 : (SPECIES[s].el[2] > 0 ? 0x02 : (SPECIES[s].el[3] > 0 ? 0x03 : 0x01)) for s in sp]
+    sp_q = Float64[Float64(SPECIES[s].q) for s in sp]
+    fe_idx = (get(idx, :H2, 0), get(idx, :H, 0), get(idx, :Hp, 0), get(idx, :He, 0),
+              get(idx, :Hep, 0), get(idx, :Hepp, 0), get(idx, :Hm, 0), get(idx, :H2p, 0),
+              get(idx, :Li, 0), get(idx, :Lip, 0), get(idx, :e, 0))
     nt = Threads.maxthreadid()
     Compiled(sp, idx, fr, [[idx[s] for s in r.R] for r in net.reactions], [[idx[s] for s in r.P] for r in net.reactions],
              get(idx, :H, 0), get(idx, :Li, 0), get(idx, :e, 0), idx[:He],
@@ -766,6 +785,7 @@ compiled(net) = cowget!(COMPILED, net) do
              [s == :H2 ? NaN : Float64(SPECIES[s].cv(300.0)) for s in sp], Tuple(r.k for r in net.reactions),
              [length(r.R) - 1 for r in net.reactions], nslow, Ref(PIdx[]), ReentrantLock(),
              (fp(:Hp), fp(:Hm), fp(:H2), fp(:H2p), fp(:Lip), fp(:Hep), fp(:Hepp)), hasLi, ekeys,
+             sp_kind, sp_q, fe_idx,
              [CKWS{Float64}(length(fr), length(sp), length(net.reactions), nslow) for _ in 1:nt],
              [Dict{DataType,Any}() for _ in 1:nt])
 end
@@ -844,9 +864,190 @@ function echem(x, net)
     c = compiled(net); v = fullvec!(get_ckws(c, eltype(x)).veos, x, c)
     sum(v[j] * c.E0[j] for j in eachindex(v)) / μH()
 end
+"""
+`UNIFIED_EOS=1` (default off; off = bit-identical): unified smooth C² microphysics EOS removing the fixed-primordial,
+ideal-electron, no-pair, no-Coulomb assumptions from ChemNet. Uses per-zone elemental composition `(X, Y, Z)` (from
+`UE_COMP[]` / NucNet, defaulting to primordial `X = 0.75, Y = 0.25, Z = 0` with real atomic masses matching SCVH95 and
+StellarEOS), exact Fermi–Dirac + relativistic + e± pair electrons (`UE_ELECTRON[]` = `StellarEOS.electron_pe`), and
+YS89 Coulomb corrections (`UE_COULOMB[]` = `StellarEOS.coulomb_pe`). Energy zero matches ChemNet & PopIIIEqEOS
+(`E0(H⁺) = 0, E0(H) = -χH, E0(He) = 0, E0(He²⁺) = χHe1 + χHe2`, bare metals at `+χ_m`), eliminating any Δ0 offset.
+"""
+const UNIFIED_EOS = get(ENV, "UNIFIED_EOS", "0") == "1"
+const UNIFIED_EOS_ON = Ref(UNIFIED_EOS)
+const FREE_EOS = get(ENV, "FREE_EOS", "0") == "1"
+const FREE_EOS_ON = Ref(FREE_EOS)
+const UE_ELECTRON = Ref{Any}(nothing)      # (ne, T; pairs) -> (Pe, Ee)
+const UE_COULOMB = Ref{Any}(nothing)       # (ni, zbar, T) -> (Pc, Ec)
+const UE_COMP = Ref{Any}(nothing)          # () -> comp of current zone
+const UE_COMPK = Ref{Any}(nothing)         # (k) -> comp of zone k
+const UE_PAIRS = Ref(true)
+const UE_COULOMB_ON = Ref(true)
+const FE_EOS_NONLTE = Ref{Any}(nothing)    # FreeEnergyEOS.eos_nonlte_dens
+const FE_EOS_FULLION = Ref{Any}(nothing)   # FreeEnergyEOS.eos_full_ion
+const FE_DELTA_MU = Ref{Any}(nothing)      # FreeEnergyEOS.delta_mu_ex_7
+const FE_DMU_NH_MIN = Ref(5e11)            # n_H threshold (~1e-12 g cm⁻³) above which Δμ_i^ex is evaluated in ChemNet
+@inline function _dmu_sp(s::Symbol, dmu)
+    s === :H2 ? dmu[1] : s === :H ? dmu[2] : s === :Hp ? dmu[3] :
+    s === :He ? dmu[4] : s === :Hep ? dmu[5] : s === :Hepp ? dmu[6] :
+    s === :e ? dmu[7] : zero(dmu[1])
+end
+@inline function _dmu_rxn(R, P, dmu)
+    s = zero(dmu[1])
+    for p in P; s += _dmu_sp(p, dmu); end
+    for r in R; s -= _dmu_sp(r, dmu); end
+    s
+end
+@inline function _fe_dmu_from_v(nH, T, v, c::Compiled)
+    (FREE_EOS_ON[] && FE_DELTA_MU[] !== nothing && ForwardDiff.value(nH) >= FE_DMU_NH_MIN[]) || return nothing
+    iH2, iH, iHp, iHe, iHep, iHepp, _, _, _, _, ie = c.fe_idx
+    z = zero(nH * eltype(v)(0))
+    pos(idx) = idx > 0 ? max(nH * v[idx], z) : z
+    # Scale He by real mass ratio so nHe matches FreeEnergyEOS primordial (X=0.75, Y=0.25) exactly
+    he_fac = (0.25 / _MHE) / (0.75 / mH) / yHe
+    nH2 = pos(iH2); nH1 = pos(iH); nHp = pos(iHp)
+    nHe = he_fac * pos(iHe); nHep = he_fac * pos(iHep); nHepp = he_fac * pos(iHepp)
+    ne = ie > 0 ? max(nH * v[ie] + (he_fac - 1.0) * (pos(iHep) + 2pos(iHepp)), z) : (nHp + nHep + 2nHepp)
+    FE_DELTA_MU[](T, nH2, nH1, nHp, nHe, nHep, nHepp, ne; pairs = UE_PAIRS[], coulomb = UE_COULOMB_ON[])
+end
+const _AMU = 1.66053906660e-24
+const _MHE = 4.002602 * _AMU
+const PRIM_COMP = (X = 0.75, Y = 0.25, Z = 0.0,
+                   x = (0.75, 0.25, 0.0, 0.0, 0.0),
+                   m = (mH, _MHE, 12.011 * _AMU, 14.007 * _AMU, 15.999 * _AMU),
+                   zc = (1.0, 2.0, 6.0, 7.0, 8.0),
+                   χ = (χH, χHe1 + χHe2, 489.99eV, 667.05eV, 871.41eV),
+                   νion = 0.75 / mH + 0.25 / _MHE,
+                   νe = 0.75 / mH + 2 * 0.25 / _MHE)
+@inline zone_comp() = UE_COMP[] === nothing ? PRIM_COMP : UE_COMP[]()
+@inline zone_comp_k(k) = UE_COMPK[] === nothing ? PRIM_COMP : UE_COMPK[](k)
+@inline _ue_smoother5(x) = (x = clamp(x, zero(x), one(x)); x^3 * (10 - 15x + 6x^2))
+"C² metal ionisation weight: 0 below 10⁵ K (neutral CNO), 1 above 10^{5.6} K (bare CNO nuclei)."
+@inline _ue_metal_w(T) = _ue_smoother5((log10(T) - 5.0) / 0.6)
+
+"Unified microphysics EOS (before optional table blend) for species vector `v` and elemental composition `comp`."
+function eos_unified_raw(ρ, T, v, c::Compiled, comp; pairs::Bool = UE_PAIRS[], coulomb::Bool = UE_COULOMB_ON[])
+    if FREE_EOS_ON[] && FE_EOS_NONLTE[] !== nothing
+        nH_tot = ρ * comp.x[1] / comp.m[1]
+        nHe_scale = (ρ * comp.x[2] / comp.m[2]) / yHe
+        iH2, iH, iHp, iHe, iHep, iHepp, iHm, iH2p, iLi, iLip, _ = c.fe_idx
+        z = zero(ρ * T * eltype(v)(0))
+        gH(idx)  = idx > 0 ? max(nH_tot * v[idx], z) : z
+        gHe(idx) = idx > 0 ? max(nHe_scale * v[idx], z) : z
+        nZ = (comp.x[3] > 0 ? ρ * comp.x[3] / comp.m[3] : zero(ρ),
+              comp.x[4] > 0 ? ρ * comp.x[4] / comp.m[4] : zero(ρ),
+              comp.x[5] > 0 ? ρ * comp.x[5] / comp.m[5] : zero(ρ))
+        return FE_EOS_NONLTE[](ρ, T, gH(iH2), gH(iH), gH(iHp), gHe(iHe), gHe(iHep), gHe(iHepp);
+                               nHm = gH(iHm), nH2p = gH(iH2p), nLi = gH(iLi), nLip = gH(iLip),
+                               nZ, pairs, coulomb, hs = true)
+    end
+    νH = comp.x[1] / comp.m[1]
+    νHe_tot = comp.x[2] / comp.m[2]
+    he_scale = νHe_tot / yHe
+    ET = promote_type(typeof(ρ), typeof(T), eltype(v), Float64)
+    u_heavy = zero(ET); ν_heavy = zero(ET); ν_e = zero(ET); ν_ion = zero(ET); ν_qpos = zero(ET)
+    @inbounds for j in eachindex(v)
+        knd = c.sp_kind[j]
+        knd == 0x00 && continue
+        νj = (knd == 0x02 ? he_scale : νH) * v[j]
+        u_heavy += νj * ((c.isH2[j] ? u_H2(T) : c.cv0[j]) * kB * T + c.E0[j])
+        ν_heavy += νj
+        q = c.sp_q[j]
+        if q != 0.0
+            ν_e += q * νj
+            if q > 0.0
+                ν_ion += νj
+                ν_qpos += q * νj
+            end
+        end
+    end
+    if comp.x[3] > 0 || comp.x[4] > 0 || comp.x[5] > 0
+        wZ = _ue_metal_w(T)
+        @inbounds for i in 3:5
+            comp.x[i] > 0 || continue
+            νm = comp.x[i] / comp.m[i]
+            ν_heavy += νm
+            u_heavy += νm * (1.5 * kB * T + wZ * comp.χ[i])
+            ν_e += wZ * comp.zc[i] * νm
+            ν_ion += wZ * νm
+            ν_qpos += wZ * comp.zc[i] * νm
+        end
+    end
+    if HM88 && c.iH > 0 && νH > 0 && ForwardDiff.value(v[c.iH]) > 0
+        Nneu = ρ * (νH * v[c.iH] + he_scale * v[c.iHe])
+        @inbounds for j in eachindex(v); c.isH2[j] && (Nneu += ρ * νH * v[j]); end
+        Nion = ρ * (ForwardDiff.value(ν_ion) > 0 ? ν_ion : zero(ν_ion))
+        eex, pex = hm_exc(T, Nneu, Nion)
+        u_heavy += νH * v[c.iH] * eex
+        ν_heavy += νH * v[c.iH] * pex
+    end
+    p = ρ * ν_heavy * kB * T
+    u = u_heavy
+    ne = ForwardDiff.value(ν_e) > 0 ? ρ * ν_e : zero(ρ * ν_e)
+    Pe, Ee = UE_ELECTRON[](ne, T; pairs)
+    p += Pe
+    u += Ee / ρ
+    if coulomb
+        ni = ρ * ν_ion
+        if ForwardDiff.value(ni) > 1e-30
+            zbar = ν_qpos / ν_ion
+            Pc, Ec = UE_COULOMB[](ni, zbar, T)
+            p += Pc
+            u += Ec / ρ
+        end
+    end
+    return (u, p)
+end
+
+"Exact fully-ionised limit of `eos_unified_raw` (H⁺, He²⁺, bare CNO, Fermi–Dirac e±, Coulomb; ChemNet energy zero)."
+function eos_full_ion(ρ, T, comp; pairs::Bool = UE_PAIRS[], coulomb::Bool = UE_COULOMB_ON[])
+    if FREE_EOS_ON[] && FE_EOS_FULLION[] !== nothing
+        return FE_EOS_FULLION[](ρ, T, comp; pairs, coulomb)
+    end
+    νH = comp.x[1] / comp.m[1]
+    νHe = comp.x[2] / comp.m[2]
+    ET = promote_type(typeof(ρ), typeof(T), Float64)
+    ν_heavy = ET(νH + νHe)
+    ν_ion = ET(νH + νHe)
+    ν_e = ET(νH + 2νHe)
+    u_heavy = (1.5 * (νH + νHe)) * kB * T + νHe * (χHe1 + χHe2)
+    if comp.x[3] > 0 || comp.x[4] > 0 || comp.x[5] > 0
+        wZ = _ue_metal_w(T)
+        @inbounds for i in 3:5
+            comp.x[i] > 0 || continue
+            νm = comp.x[i] / comp.m[i]
+            ν_heavy += νm
+            u_heavy += νm * (1.5 * kB * T + wZ * comp.χ[i])
+            ν_e += wZ * comp.zc[i] * νm
+            ν_ion += wZ * νm
+        end
+    end
+    p = ρ * ν_heavy * kB * T
+    u = u_heavy
+    Pe, Ee = UE_ELECTRON[](ρ * ν_e, T; pairs)
+    p += Pe
+    u += Ee / ρ
+    if coulomb
+        ni = ρ * ν_ion
+        if ForwardDiff.value(ni) > 1e-30
+            zbar = ν_e / ν_ion
+            Pc, Ec = UE_COULOMB[](ni, zbar, T)
+            p += Pc
+            u += Ec / ρ
+        end
+    end
+    return (u, p)
+end
+
 "Internal energy per gram and pressure."
-function eos(ρ, T, x, net; xn = nothing)
-    c = compiled(net); v = fullvec!(get_ckws(c, xn === nothing ? eltype(x) : promote_type(eltype(x), typeof(xn))).veos, x, c; xn); nH = ρ / μH()
+function eos(ρ, T, x, net; xn = nothing, comp = nothing)
+    c = compiled(net); v = fullvec!(get_ckws(c, xn === nothing ? eltype(x) : promote_type(eltype(x), typeof(xn))).veos, x, c; xn)
+    if UNIFIED_EOS_ON[]
+        cp = comp === nothing ? zone_comp() : comp
+        u, p = eos_unified_raw(ρ, T, v, c, cp)
+        EOSMIX[] === nothing && return (u, p)
+        return EOSMIX[](ρ, T, u, p)
+    end
+    nH = ρ / μH()
     u = zero(T); N = zero(T)
     @inbounds for j in eachindex(v)
         u += v[j] * ((c.isH2[j] ? u_H2(T) : c.cv0[j]) * kB * T + c.E0[j])
@@ -910,6 +1111,9 @@ function hm_exc(T, Nneu, Nion)
         lwr = wr >= 1e-150 ? log(wr) : _lw_hm(n, 1, Nneu, Nion) - lw1
         z += t; e += t * En; q -= t * lwr
     end
+    if ForwardDiff.value(z) == 0.0
+        return zero(e), zero(q)
+    end
     e / z, q / z
 end
 "Perturber densities of composition v (fullvec) at n_H: neutrals H, He, H₂ (and Li); ions as the electrons."
@@ -919,8 +1123,8 @@ function hm_perturbers(v, c, nH)
     Nion = c.ie > 0 ? max(v[c.ie], zero(v[c.ie])) : zero(Nneu)
     nH * Nneu, nH * Nion
 end
-"φ = Z_w/Z_el of the zone's env (1 without env.hm or with HM88 off)."
-hm_phi(T, env) = (HM88 && hasproperty(env, :hm)) ? 2ZH_hm(T, env.hm[1], env.hm[2]) / ZH_el(T) : one(T)
+"φ = Z_w/Z_el of the zone's env (1 without env.hm, with HM88 off, or when FREE_EOS supplies full Potekhin unbounding)."
+hm_phi(T, env) = (HM88 && !FREE_EOS_ON[] && hasproperty(env, :hm)) ? 2ZH_hm(T, env.hm[1], env.hm[2]) / ZH_el(T) : one(T)
 "The network with every H recombination channel × φ (HM88)."
 function hm88_network(net)
     isrec(r) = (:Hp in r.R) && (:e in r.R) && (:H in r.P) && !(:H in r.R)
@@ -930,9 +1134,13 @@ end
 
 "dx/dt for the free species at H-nucleus density nH."
 function dxdt(x, nH, T, net, env, photo)
-    c = compiled(net); v = fullvec(x, c); dd = zeros(promote_type(eltype(x), typeof(T)), length(v))
+    c = compiled(net); v = fullvec(x, c)
+    dmu = _fe_dmu_from_v(nH, T, v, c)
+    ev = dmu === nothing ? env : merge(env, (; dmu))
+    ET = dmu === nothing ? promote_type(eltype(x), typeof(T)) : promote_type(eltype(x), typeof(T), typeof(dmu[1]))
+    dd = zeros(ET, length(v))
     for (ir, r) in enumerate(net.reactions)
-        Ri = c.R[ir]; rate = r.k(T, env) * nH^(length(Ri) - 1)
+        Ri = c.R[ir]; rate = r.k(T, ev) * nH^(length(Ri) - 1)
         for j in Ri; rate *= v[j]; end
         for j in Ri; dd[j] -= rate; end
         for j in c.P[ir]; dd[j] += rate; end
@@ -940,7 +1148,8 @@ function dxdt(x, nH, T, net, env, photo)
     for (p, R, α) in photo                          # precomputed per zone: photo-rate R, inverse coefficient α
         jr = c.idx[p.R]; jp = [c.idx[s] for s in p.P]
         rate = R * v[jr]; for j in jp; dd[j] += rate; end; dd[jr] -= rate
-        inv_ = α * nH^(length(jp) - 1); for j in jp; inv_ *= v[j]; end    # per H nucleus: α n_H^(k−1) Π x
+        α_eff = dmu === nothing ? α : α * exp(_dmu_rxn((p.R,), p.P, dmu))
+        inv_ = α_eff * nH^(length(jp) - 1); for j in jp; inv_ *= v[j]; end    # per H nucleus: α n_H^(k−1) Π x
         for j in jp; dd[j] -= inv_; end; dd[jr] += inv_
     end
     dd[c.free]
@@ -1137,7 +1346,7 @@ function _ck_eval_barrier(xs, ρ, T, net, env, ph::Vector{Tuple{Photo,TP,TP}}, e
     tl3 = kHp > 0 && hasproperty(env, :tl3) && env.tl3 !== nothing
     ev = if tl3
         t3 = merge(env.tl3, (; ne = nH * xs[kHp]))
-        (HM88 && hasproperty(env, :hm)) ? (; tl3 = t3, hm = env.hm) : (; tl3 = t3)
+        (HM88 && !FREE_EOS_ON[] && hasproperty(env, :hm)) ? (; tl3 = t3, hm = env.hm) : (; tl3 = t3)
     else
         env
     end
@@ -1145,7 +1354,18 @@ function _ck_eval_barrier(xs, ρ, T, net, env, ph::Vector{Tuple{Photo,TP,TP}}, e
     ws = get_ckws(c, ET)
     ks = _fill_ks!(ws.ks, c.ktup, c.nR1, T, ev, nH)
     x = ck_expand!(ws, xs, T, nH, net, c, ci, ph, ks, extra; xn)
-    dd = dxdt_k!(ws, x, nH, net, c, ph, ks; xn)
+    ph_use = ph
+    if FREE_EOS_ON[] && FE_DELTA_MU[] !== nothing && ForwardDiff.value(nH) >= FE_DMU_NH_MIN[]
+        v0 = fullvec!(ws.v, x, c; xn)
+        dmu = _fe_dmu_from_v(nH, T, v0, c)
+        if dmu !== nothing
+            ev_fe = merge(ev, (; dmu))
+            ks = _fill_ks!(ws.ks, c.ktup, c.nR1, T, ev_fe, nH)
+            ph_use = Tuple{Photo,ET,ET}[(p, ET(R), ET(α * exp(_dmu_rxn((p.R,), p.P, dmu)))) for (p, R, α) in ph]
+            x = ck_expand!(ws, xs, T, nH, net, c, ci, ph_use, ks, extra; xn)
+        end
+    end
+    dd = dxdt_k!(ws, x, nH, net, c, ph_use, ks; xn)
     fsl = ws.fsl
     if extra === nothing
         @inbounds for (k, i) in enumerate(sl); fsl[k] = dd[c.free[i]]; end
@@ -1161,7 +1381,7 @@ function _ck_eval_barrier(xs, ρ, T, net, env, ph, extra, xn)
     tl3 = kHp > 0 && hasproperty(env, :tl3) && env.tl3 !== nothing
     ev = if tl3
         t3 = merge(env.tl3, (; ne = nH * xs[kHp]))
-        (HM88 && hasproperty(env, :hm)) ? (; tl3 = t3, hm = env.hm) : (; tl3 = t3)
+        (HM88 && !FREE_EOS_ON[] && hasproperty(env, :hm)) ? (; tl3 = t3, hm = env.hm) : (; tl3 = t3)
     else
         env
     end
@@ -1169,7 +1389,18 @@ function _ck_eval_barrier(xs, ρ, T, net, env, ph, extra, xn)
     ws = get_ckws(c, ET)
     ks = _fill_ks!(ws.ks, c.ktup, c.nR1, T, ev, nH)
     x = ck_expand!(ws, xs, T, nH, net, c, ci, ph, ks, extra; xn)
-    dd = dxdt_k!(ws, x, nH, net, c, ph, ks; xn)
+    ph_use = ph
+    if FREE_EOS_ON[] && FE_DELTA_MU[] !== nothing && ForwardDiff.value(nH) >= FE_DMU_NH_MIN[]
+        v0 = fullvec!(ws.v, x, c; xn)
+        dmu = _fe_dmu_from_v(nH, T, v0, c)
+        if dmu !== nothing
+            ev_fe = merge(ev, (; dmu))
+            ks = _fill_ks!(ws.ks, c.ktup, c.nR1, T, ev_fe, nH)
+            ph_use = Tuple{Photo,ET,ET}[(p, ET(R), ET(α * exp(_dmu_rxn((p.R,), p.P, dmu)))) for (p, R, α) in ph]
+            x = ck_expand!(ws, xs, T, nH, net, c, ci, ph_use, ks, extra; xn)
+        end
+    end
+    dd = dxdt_k!(ws, x, nH, net, c, ph_use, ks; xn)
     fsl = ws.fsl
     if extra === nothing
         @inbounds for (k, i) in enumerate(sl); fsl[k] = dd[c.free[i]]; end

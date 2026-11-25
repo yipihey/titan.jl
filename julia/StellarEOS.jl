@@ -236,9 +236,12 @@ function netN(η::Float64, θ::Float64, pairs::Bool)
     return N, dN
 end
 
-"Solve n_net(η, θ) = target (Float64), safeguarded Newton on ln n."
+"Solve n_net(η, θ) = target (Float64), safeguarded Newton on ln n (or direct η when target == 0 with pairs)."
 function solve_eta(target::Float64, θ::Float64, pairs::Bool)
-    (isfinite(target) && target > 0 && isfinite(θ) && θ > 0) || return NaN
+    (isfinite(target) && target >= 0 && isfinite(θ) && θ > 0) || return NaN
+    if target == 0.0
+        return (pairs && θ > 0.015) ? -1.0 / θ : -Inf
+    end
     r = target / (A0 * θ^1.5 * 0.5 * sqrt(π))               # n/n_Q (nonrelativistic scale)
     ηd = (1.5 * target / (A0 * θ^1.5))^(2 / 3)
     η = r < 0.3 ? log(r) + r / (2 * sqrt(2.0)) : (r > 3.0 ? ηd : 0.5 * (ηd + log1p(r)))
@@ -260,13 +263,15 @@ function solve_eta(target::Float64, θ::Float64, pairs::Bool)
 end
 
 # Yakovlev & Shalybkov (1989) OCP Coulomb free energy per ion in kT, φ(Γ), u = Γ φ' (the fits used in the Timmes–Swesty
-# EOS). The two fits are joined C² over Γ ∈ [0.6, 1.7] in ln Γ; the Γ ≥ 1 branch is shifted by the constant needed to make
-# φ continuous at Γ = 1 (0.0074; fixes its entropy offset).
+# EOS). The two fits are joined C³ over Γ ∈ [0.6, 1.7] in ln Γ (so u = Γ φ' and p_c, e_c are C² everywhere, smooth through
+# nested ForwardDiff); the Γ ≥ 1 branch is shifted by the constant needed to make φ continuous at Γ = 1 (0.0074; fixes entropy).
 const CA1 = -0.898004; const CB1 = 0.96786; const CC1 = 0.220703; const CD1 = -0.86097; const CE1 = 2.5269
 const CA2 = 0.29561; const CB2 = 1.9885; const CC2 = 0.288675
 const CKAP = (-2CC2 + CA2 / CB2) - (CA1 + 4CB1 + (-4CC1) - CE1)
 smoother(x) = (x = clamp(x, zero(x), one(x)); x^3 * (10 - 15x + 6x^2))
 dsmoother(x) = (x <= 0 || x >= 1) ? zero(x) : 30 * x^2 * (1 - x)^2
+smoother7(x) = (x = clamp(x, zero(x), one(x)); x^4 * (35 - 84x + 70x^2 - 20x^3))
+dsmoother7(x) = (x <= 0 || x >= 1) ? zero(x) : 140 * x^3 * (1 - x)^3
 "φ(Γ) and u(Γ) = Γ dφ/dΓ."
 function coulomb_phi(Γ)
     Γ4 = Γ^0.25
@@ -275,10 +280,206 @@ function coulomb_phi(Γ)
     φhi = CA1 * Γ + 4CB1 * Γ4 - 4CC1 / Γ4 + CD1 * log(Γ) - CE1 + CKAP
     uhi = CA1 * Γ + CB1 * Γ4 + CC1 / Γ4 + CD1
     l = log(Γ); l0 = log(0.6); l1 = log(1.7)
-    xx = (l - l0) / (l1 - l0); σ = smoother(xx); dσ = dsmoother(xx) / (l1 - l0)      # dσ/dlnΓ
+    xx = (l - l0) / (l1 - l0); σ = smoother7(xx); dσ = dsmoother7(xx) / (l1 - l0)      # dσ/dlnΓ (C² in u)
     φ = (1 - σ) * φlo + σ * φhi
     u = (1 - σ) * ulo + σ * uhi + dσ * (φhi - φlo)
     return φ, u
+end
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Smooth C² building blocks for unified EOS (ChemNet + StellarEOS): electron_pe and coulomb_pe
+# ---------------------------------------------------------------------------------------------------------------------
+const SQRTPI_2 = 0.5 * sqrt(π)
+# Exact coefficients c_j * Γ(k+j+1) / Γ(k+1) for (1 + θx/2)^{1/2} integrated against x^k e^{-x}, j = 0..6:
+# c_j = (1/2 choose j) / 2^j = (1, 1/4, -1/32, 1/128, -5/2048, 7/8192, -21/65536)
+const MJ_I12 = (1.0, 3/8, -15/128, 105/1024, -4725/32768, 72765/262144, -2837835/4194304)
+const MJ_I32 = (1.0, 5/8, -35/128, 315/1024, -17325/32768, 315315/262144, -14189175/4194304)
+const MJ_I52 = (1.0, 7/8, -63/128, 693/1024, -45045/32768, 945945/262144, -48243195/4194304)
+@inline _mjpoly(c::NTuple{7,Float64}, t) = c[1] + t * (c[2] + t * (c[3] + t * (c[4] + t * (c[5] + t * (c[6] + t * c[7])))))
+
+"Factored non-degenerate relativistic moments ∫₀^∞ x^k (1 + θx/2)^{1/2} e^{-x} dx on LOW grid (zero underflow for any n_e ≥ 0)."
+function _mj_quad(θ)
+    T = promote_type(typeof(θ), Float64)
+    I12 = zero(T); I32 = zero(T); I52 = zero(T)
+    nend = LOW.last[min(searchsortedfirst(EDGES, 46.0) - 1, length(LOW.last))]
+    @inbounds for i in 1:nend
+        x = LOW.x[i]
+        fac = sqrt(1 + 0.5 * θ * x) * exp(-x)
+        I12 += LOW.c12[i] * fac; I32 += LOW.c32[i] * fac; I52 += LOW.c52[i] * fac
+    end
+    I12, I32, I52
+end
+
+"""
+    electron_pe(ne, T; pairs = true) -> (Pe, Ee)
+
+Exact Fermi–Dirac + relativistic + e± pair electron pressure [dyn cm⁻²] and kinetic+pair-creation energy density
+[erg cm⁻³] for net electron density `ne ≥ 0` [cm⁻³] and temperature `T > 0` [K]. Generic in the number type (nested
+ForwardDiff-safe, no underflow or NaN as `ne → 0`, matches `branch_E` to < 1e-14 in value, 1st and 2nd derivatives).
+"""
+function electron_pe(ne, T; pairs::Bool = true)
+    kT = kB * T
+    θ = kT / mc2
+    θv = Z0.pval(θ)
+    nQ = A0 * θ * sqrt(θ) * SQRTPI_2
+    r = ne / nQ
+    rv = Z0.pval(r)
+    # Fast exact asymptotic branch: r < 1e-5 (r^4 < 1e-20) and θ ≤ 2e-3 (T ≲ 1.2e7 K; O(θ^7) < 1e-15, no pairs).
+    # Matches full Fermi–Dirac quadrature to < 1e-14 in value, 1st and 2nd derivatives; C^∞ at ne = 0.
+    if rv < 1e-5 && θv <= 2e-3
+        # m = 1, 2, 3 terms of F_k(η, θ) = Σ (-1)^{m-1} z^m m^{-(k+1)} I_k(1, θ/m)
+        t1 = θ; t2 = 0.5 * θ; t3 = θ / 3.0
+        I12_1 = SQRTPI_2 * _mjpoly(MJ_I12, t1); I32_1 = 1.5 * SQRTPI_2 * _mjpoly(MJ_I32, t1); I52_1 = 3.75 * SQRTPI_2 * _mjpoly(MJ_I52, t1)
+        I12_2 = (SQRTPI_2 / (2 * sqrt(2.0))) * _mjpoly(MJ_I12, t2)
+        I32_2 = (1.5 * SQRTPI_2 / (4 * sqrt(2.0))) * _mjpoly(MJ_I32, t2)
+        I52_2 = (3.75 * SQRTPI_2 / (8 * sqrt(2.0))) * _mjpoly(MJ_I52, t2)
+        I12_3 = (SQRTPI_2 / (3 * sqrt(3.0))) * _mjpoly(MJ_I12, t3)
+        I32_3 = (1.5 * SQRTPI_2 / (9 * sqrt(3.0))) * _mjpoly(MJ_I32, t3)
+        I52_3 = (3.75 * SQRTPI_2 / (27 * sqrt(3.0))) * _mjpoly(MJ_I52, t3)
+        A1 = I12_1 + θ * I32_1; A2 = I12_2 + θ * I32_2; A3 = I12_3 + θ * I32_3
+        z1 = (r * SQRTPI_2) / A1
+        a21 = A2 / A1; a31 = A3 / A1
+        z = z1 * (1 + z1 * (a21 + z1 * (2 * a21^2 - a31)))
+        z2 = z * z; z3 = z2 * z
+        P1 = I32_1 + 0.5 * θ * I52_1; P2 = I32_2 + 0.5 * θ * I52_2; P3 = I32_3 + 0.5 * θ * I52_3
+        E1 = I32_1 + θ * I52_1; E2 = I32_2 + θ * I52_2; E3 = I32_3 + θ * I52_3
+        pref = A0 * mc2 * θ * θ * sqrt(θ)
+        Pe = pref * (2.0 / 3.0) * (z * P1 - z2 * P2 + z3 * P3)
+        Ee = pref * (z * E1 - z2 * E2 + z3 * E3)
+        return Pe, Ee
+    end
+    use_pairs = pairs && θv > 0.015
+    # Ultradilute relativistic without pairs (no underflow even at ne = 0):
+    if !use_pairs && rv < 1e-12
+        I12, I32, I52 = _mj_quad(θ)
+        den = I12 + θ * I32
+        Pe = ne * kT * (2.0 / 3.0) * (I32 + 0.5 * θ * I52) / den
+        Ee = ne * kT * (I32 + θ * I52) / den
+        return Pe, Ee
+    end
+    nt = max(Z0.pval(ne), 0.0)
+    η0 = solve_eta(nt, θv, use_pairs)
+    Tn = promote_type(typeof(ne), typeof(θ), Float64)
+    η = η0 + zero(Tn)
+    ns = npolish(Tn)
+    for _ in 1:ns
+        N, _, _, dN = fgas(η, θ)
+        if use_pairs && Z0.pval(-η - 2 / θ) > PAIRCUT
+            Np, _, _, dNp = fgas(-η - 2 / θ, θ)
+            N = N - Np; dN = dN + dNp
+        end
+        η = η - (N - ne / A0) / dN
+    end
+    _, P, E, _ = fgas(η, θ)
+    Pe = A0 * mc2 * P; Ee = A0 * mc2 * E
+    ηp = -η - 2 / θ
+    if use_pairs && Z0.pval(ηp) > PAIRCUT
+        Np, Pp, Ep, _ = fgas(ηp, θ)
+        Pe += A0 * mc2 * Pp
+        Ee += A0 * mc2 * Ep + 2 * mc2 * A0 * Np
+    end
+    return Pe, Ee
+end
+
+"""
+    electron_f(ne, T; pairs = true) -> (fe, μe, Pe, Ee)
+
+Exact Helmholtz free energy density `fe = F_id^(e±)/V` [erg cm⁻³], kinetic chemical potential `μe = η k_B T` [erg],
+pressure `Pe` [dyn cm⁻²], and kinetic+pair energy density `Ee` [erg cm⁻³] of the ideal Fermi–Dirac electron–positron
+gas at net electron density `ne ≥ 0` and temperature `T > 0`. Generic in number type (nested ForwardDiff-safe).
+Satisfies `∂fe/∂ne = μe`, `fe + T(-∂fe/∂T) = Ee`, and `ne μe - fe = Pe` identically (including e± pairs).
+"""
+function electron_f(ne, T; pairs::Bool = true)
+    kT = kB * T
+    θ = kT / mc2
+    θv = Z0.pval(θ)
+    nQ = A0 * θ * sqrt(θ) * SQRTPI_2
+    r = ne / nQ
+    rv = Z0.pval(r)
+    if rv < 1e-5 && θv <= 2e-3
+        if rv <= 0.0
+            z0 = zero(ne * T)
+            return z0, z0, z0, z0
+        end
+        t1 = θ; t2 = 0.5 * θ; t3 = θ / 3.0
+        I12_1 = SQRTPI_2 * _mjpoly(MJ_I12, t1); I32_1 = 1.5 * SQRTPI_2 * _mjpoly(MJ_I32, t1); I52_1 = 3.75 * SQRTPI_2 * _mjpoly(MJ_I52, t1)
+        I12_2 = (SQRTPI_2 / (2 * sqrt(2.0))) * _mjpoly(MJ_I12, t2)
+        I32_2 = (1.5 * SQRTPI_2 / (4 * sqrt(2.0))) * _mjpoly(MJ_I32, t2)
+        I52_2 = (3.75 * SQRTPI_2 / (8 * sqrt(2.0))) * _mjpoly(MJ_I52, t2)
+        I12_3 = (SQRTPI_2 / (3 * sqrt(3.0))) * _mjpoly(MJ_I12, t3)
+        I32_3 = (1.5 * SQRTPI_2 / (9 * sqrt(3.0))) * _mjpoly(MJ_I32, t3)
+        I52_3 = (3.75 * SQRTPI_2 / (27 * sqrt(3.0))) * _mjpoly(MJ_I52, t3)
+        A1 = I12_1 + θ * I32_1; A2 = I12_2 + θ * I32_2; A3 = I12_3 + θ * I32_3
+        z1 = (r * SQRTPI_2) / A1
+        a21 = A2 / A1; a31 = A3 / A1
+        fac = 1 + z1 * (a21 + z1 * (2 * a21^2 - a31))
+        z = z1 * fac
+        η = log(z1) + log(fac)
+        z2 = z * z; z3 = z2 * z
+        P1 = I32_1 + 0.5 * θ * I52_1; P2 = I32_2 + 0.5 * θ * I52_2; P3 = I32_3 + 0.5 * θ * I52_3
+        E1 = I32_1 + θ * I52_1; E2 = I32_2 + θ * I52_2; E3 = I32_3 + θ * I52_3
+        pref = A0 * mc2 * θ * θ * sqrt(θ)
+        Pe = pref * (2.0 / 3.0) * (z * P1 - z2 * P2 + z3 * P3)
+        Ee = pref * (z * E1 - z2 * E2 + z3 * E3)
+        μe = η * kT
+        fe = ne * μe - Pe
+        return fe, μe, Pe, Ee
+    end
+    use_pairs = pairs && θv > 0.015
+    if !use_pairs && rv < 1e-12
+        if rv <= 0.0
+            z0 = zero(ne * T)
+            return z0, z0, z0, z0
+        end
+        I12, I32, I52 = _mj_quad(θ)
+        den = I12 + θ * I32
+        Pe = ne * kT * (2.0 / 3.0) * (I32 + 0.5 * θ * I52) / den
+        Ee = ne * kT * (I32 + θ * I52) / den
+        η = log((r * SQRTPI_2) / den)
+        μe = η * kT
+        fe = ne * μe - Pe
+        return fe, μe, Pe, Ee
+    end
+    nt = max(Z0.pval(ne), 0.0)
+    η0 = solve_eta(nt, θv, use_pairs)
+    Tn = promote_type(typeof(ne), typeof(θ), Float64)
+    η = η0 + zero(Tn)
+    ns = npolish(Tn)
+    for _ in 1:ns
+        N, _, _, dN = fgas(η, θ)
+        if use_pairs && Z0.pval(-η - 2 / θ) > PAIRCUT
+            Np, _, _, dNp = fgas(-η - 2 / θ, θ)
+            N = N - Np; dN = dN + dNp
+        end
+        η = η - (N - ne / A0) / dN
+    end
+    _, P, E, _ = fgas(η, θ)
+    Pe = A0 * mc2 * P; Ee = A0 * mc2 * E
+    ηp = -η - 2 / θ
+    if use_pairs && Z0.pval(ηp) > PAIRCUT
+        Np, Pp, Ep, _ = fgas(ηp, θ)
+        Pe += A0 * mc2 * Pp
+        Ee += A0 * mc2 * Ep + 2 * mc2 * A0 * Np
+    end
+    μe = η * kT
+    fe = ne * μe - Pe
+    return fe, μe, Pe, Ee
+end
+
+"""
+    coulomb_pe(ni, zbar, T) -> (Pc, Ec)
+
+YS89 one-component-plasma Coulomb pressure [dyn cm⁻²] and energy density [erg cm⁻³] for positive ion density `ni`
+[cm⁻³], mean positive ion charge `zbar ≥ 1`, and temperature `T` [K]. Smooth C² everywhere; safe as `ni → 0`.
+"""
+@inline function coulomb_pe(ni, zbar, T)
+    Z0.pval(ni) <= 1e-30 && return zero(ni * zbar * T), zero(ni * zbar * T)
+    kT = kB * T
+    a = cbrt(3 / (4π * ni))
+    Γ = zbar^2 * qe^2 / (kT * a)
+    _, u = coulomb_phi(Γ)
+    ec = ni * kT * u
+    return ec / 3, ec
 end
 
 """

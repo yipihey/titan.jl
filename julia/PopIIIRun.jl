@@ -602,10 +602,12 @@ NetGas, CMB intensity at the outer boundary, Eddington-factor mode, thin-envelop
 """
 const XMEXT = Ref{Any}(nothing)
 function radsettings!()
-    X = 1 / (1 + 4PC.yHe)
+    X0 = 1 / (1 + 4PC.yHe)
+    Xzone() = (HOTON && SG[] !== nothing && (k_ = TX.ZONE[]; 1 <= k_ <= size(SG[].Y, 2))) ? SM.hmass(SG[], k_) : X0
     # OPACSENS="fcond,fext" (sensitivity test, default 1,1): κ_cond × fcond, and κ_rad × fext beyond OPAL's log R = 1 (over one dex in log R)
     os_ = parse.(Float64, split(get(ENV, "OPACSENS", "1,1"), ","))
-    PM.OPAC[] = all(==(1.0), os_) ? ((ρ, T) -> (StellarOpacity.kappa_R(ρ, T, X), StellarOpacity.kappa_P(ρ, T, X))) : ((ρ, T) -> begin
+    PM.OPAC[] = all(==(1.0), os_) ? ((ρ, T) -> (X = Xzone(); (StellarOpacity.kappa_R(ρ, T, X), StellarOpacity.kappa_P(ρ, T, X)))) : ((ρ, T) -> begin
+        X = Xzone()
         κ = StellarOpacity.kappa_R(ρ, T, X); κr = StellarOpacity.kappa_R_rad(ρ, T, X); ic = max(1 / κ - 1 / κr, zero(κ))     # 1/κ_cond,eff
         lR = log10(ρ) - 3 * (log10(T) - 6); w = clamp(lR - 1, 0.0, 1.0); w = w * w * (3 - 2w)
         (1 / (1 / (κr * os_[2]^w) + ic / os_[1]), StellarOpacity.kappa_P(ρ, T, X))
@@ -1387,7 +1389,7 @@ xinit(y) = [s === :Hp ? y[1] : s === :Hm ? y[2] : s === :H2 ? y[3] : s === :H2p 
 Bν_(ν, T) = 2ChemNet.hP * ν^3 / ChemNet.c^2 / expm1(ChemNet.hP * ν / (ChemNet.kB * T))
 J_cmb(ν) = Bν_(ν, tcmb)
 J_zero(ν) = 0.0
-coolnet(ρ, T, d) = cf(ρ, T, d === nothing ? PopIIIEqEOS.composition(ρ, T) : ytup(d))
+coolnet(ρ, T, d) = cf(ρ, T, d === nothing ? PM._eq_comp(ρ, T) : ytup(d))
 
 # --- HOT=1 (S6-C1): the stellar core's helpers (were defined by the script's HOT block; the HOT key is guarded, so these exist exactly when the image was built with it) ---
 if HOTON
@@ -1396,6 +1398,7 @@ if HOTON
     const LASTSPLIT = Ref((NaN, 0, NaN))
     "e_gas of the blended material for an explicit stellar composition (the zone's, or a trial one in mix!)."
     function e_blend(ρ, T, comp)
+        ChemNet.UNIFIED_EOS_ON[] && return PM.ue_eq_eos(ρ, T, comp)[1]
         h = PM.HOT[]; T <= h.T1 && return PopIIIEqEOS.eos(ρ, T)[1]
         es = SE.gas_state(ρ, T, comp).e - h.Δ0; T >= h.T2 && return es
         u = PopIIIEqEOS.eos(ρ, T)[1]; u + PM.hotw(T, h.T1, h.T2) * (es - u)
