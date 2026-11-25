@@ -1,0 +1,3 @@
+PASS steady uniform MLT state: Q = 0 in the interior; growing w: Q > 0  
+PASS 3-colour tridiagonal Jacobian == dense ForwardDiff Jacobian (rows are 3-point)  max diff 0.00e+00
+T8 failures: 0

@@ -1,0 +1,3 @@
+    f=1 from w=0: w_s = a√sup = 0.40825, final w[5]/w_s = 0.99999975, max |w − tanh|/w_s = 1.50e-03 (BE, dt = 0.02)
+PASS f=1: convection grows to the tanh/MLT amplitude  
+T5 failures: 0

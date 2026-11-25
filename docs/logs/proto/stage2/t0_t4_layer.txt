@@ -1,0 +1,3 @@
+    max |w_sph − w_plane| = 2.37e-04 (curvature ~ h/R = 5e-5 .. ℓ/R = 1e-3); Newton fail 0/0
+PASS spherical rows reproduce plane at R >> L  
+T4 failures: 0

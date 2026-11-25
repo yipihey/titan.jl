@@ -1419,7 +1419,7 @@ if HOTON
         if !any(TF.var(:tn)[k] > PM.HOT[].T1 for k in a:b); sg.acc.nstage = 0; return 0.0; end
         sd = TX.step_diag(dt)
         HOTR[] = SM.burn!(sg; sd); EBURN[] += HOTR[].Ebur
-        HOTM[] = SM.mix!(sg; sd, capmix = false, bridge = parse(Int, get(ENV, "MIXBRIDGE", "4")), tmax = parse(Float64, get(ENV, "MIXTMAX", "0.02")))   # TEMP Stage-2 test
+        HOTM[] = SM.mix!(sg; sd, capmix = false, bridge = 4, tmax = 0.02)
         dt > 0 ? HOTR[].Ebur / dt : 0.0      # a step of zero duration (Δt below the Float64 spacing of t) burns nothing
     end
 end

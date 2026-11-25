@@ -1,0 +1,53 @@
+NKCHECK ne 10 nb 104 active 935 eps 1.001e-05; rows compared 946 (5 Dirichlet rows R = delta left out); |Jv - J_b w| / sum_j |J_b,ij w_j| per row: max 1.908e+00, median 1.673e-06, rows > 1e-4: 61, > 1e-2: 56
+NKCHECK AD repeat: 1st vs 2nd call of J v: max 0.000e+00 (rows > 1e-4: 0); 2nd vs 3rd: max 0.000e+00; worst rows of the first pair: r z-1 0.00e+00; m z-1 0.00e+00; rho z-1 0.00e+00; u z-1 0.00e+00; T z-1 0.00e+00
+NKCHECK AD J v vs FD (eps x1): per row |J v(AD) - J v(FD)| / row scale: max 1.908e+00, median 2.726e-11, rows > 1e-4: 60, > 1e-2: 56 | 2-norm rel 2.942e-10
+NKCHECK AD vs FD outside zones 36:46: 836 rows, max 1.908e+00, median 2.711e-11, rows > 1e-4: 55, > 1e-2: 53
+NKCHECK AD vs FD outside eq r     : worst row 1.918e-10 (zone 86; J v AD +8.79550e+16 FD +8.79550e+16)
+NKCHECK AD vs FD outside eq m     : worst row 3.335e-11 (zone 2; J v AD -1.04631e+27 FD -1.04631e+27)
+NKCHECK AD vs FD outside eq rho   : worst row 6.389e-07 (zone 3; J v AD -3.22168e+23 FD -3.22167e+23)
+NKCHECK AD vs FD outside eq u     : worst row 2.309e-10 (zone 64; J v AD +2.61696e+37 FD +2.61696e+37)
+NKCHECK AD vs FD outside eq T     : worst row 1.812e-08 (zone 48; J v AD -9.15579e+42 FD -9.15579e+42)
+NKCHECK AD vs FD outside eq E_r   : worst row 7.516e-10 (zone 74; J v AD -5.43838e+43 FD -5.43838e+43)
+NKCHECK AD vs FD outside eq F_r   : worst row 2.223e-03 (zone 101; J v AD -5.16223e+02 FD -5.15074e+02)
+NKCHECK AD vs FD outside eq z_H   : worst row 1.507e-10 (zone 80; J v AD +2.72980e+26 FD +2.72980e+26)
+NKCHECK AD vs FD outside eq x_H2  : worst row 2.130e-09 (zone 74; J v AD -1.17200e+28 FD -1.17200e+28)
+NKCHECK AD vs FD outside eq w     : worst row 1.908e+00 (zone 50; J v AD -1.37901e+07 FD -4.01043e+07)
+NKCHECK AD vs FD eq r     : worst row 1.918e-10 (zone 86; J v AD +8.79550e+16 FD +8.79550e+16; row scale 8.795e+16)
+NKCHECK AD vs FD eq m     : worst row 4.056e-11 (zone 44; J v AD +7.45329e+33 FD +7.45329e+33; row scale 7.453e+33)
+NKCHECK AD vs FD eq rho   : worst row 6.389e-07 (zone 3; J v AD -3.22168e+23 FD -3.22167e+23; row scale 3.222e+23)
+NKCHECK AD vs FD eq u     : worst row 4.196e-10 (zone 36; J v AD +3.41668e+35 FD +3.41668e+35; row scale 6.249e+35)
+NKCHECK AD vs FD eq T     : worst row 1.812e-08 (zone 48; J v AD -9.15579e+42 FD -9.15579e+42; row scale 1.692e+43)
+NKCHECK AD vs FD eq E_r   : worst row 7.516e-10 (zone 74; J v AD -5.43838e+43 FD -5.43838e+43; row scale 7.361e+43)
+NKCHECK AD vs FD eq F_r   : worst row 2.223e-03 (zone 101; J v AD -5.16223e+02 FD -5.15074e+02; row scale 5.169e+02)
+NKCHECK AD vs FD eq z_H   : worst row 6.134e-10 (zone 36; J v AD -5.60568e+31 FD -5.60568e+31; row scale 2.958e+32)
+NKCHECK AD vs FD eq x_H2  : worst row 2.130e-09 (zone 74; J v AD -1.17200e+28 FD -1.17200e+28; row scale 1.765e+28)
+NKCHECK AD vs FD eq w     : worst row 1.908e+00 (zone 50; J v AD -1.37901e+07 FD -4.01043e+07; row scale 1.379e+07)
+NKCHECK AD J v vs FD (eps x0.1): per row |J v(AD) - J v(FD)| / row scale: max 1.000e+00, median 6.415e-11, rows > 1e-4: 60, > 1e-2: 54 | 2-norm rel 6.169e-11
+NKCHECK AD vs FD (eps x0.1): the worst rows of the eps x1 list: 10 z50 5.24e-01; 10 z52 9.77e-01; 10 z51 3.56e-01; 10 z53 9.61e-01; 10 z78 1.00e+00; 10 z79 1.00e+00
+NKCHECK AD J v vs FD (eps x10): per row |J v(AD) - J v(FD)| / row scale: max 1.996e+00, median 1.401e-09, rows > 1e-4: 60, > 1e-2: 55 | 2-norm rel 3.074e-08
+NKCHECK AD vs FD (eps x10): the worst rows of the eps x1 list: 10 z50 2.00e+00; 10 z52 1.98e+00; 10 z51 1.98e+00; 10 z53 1.96e+00; 10 z78 1.01e+00; 10 z79 1.00e+00
+NKCHECK AD J v vs FD (eps x100): per row |J v(AD) - J v(FD)| / row scale: max 3.107e+00, median 1.471e-07, rows > 1e-4: 68, > 1e-2: 58 | 2-norm rel 3.074e-06
+NKCHECK AD vs FD (eps x100): the worst rows of the eps x1 list: 10 z50 1.68e+00; 10 z52 2.15e+00; 10 z51 2.28e+00; 10 z53 2.00e+00; 10 z78 1.06e+00; 10 z79 1.01e+00
+NKCHECK AD J v vs FD (eps x0.01): per row |J v(AD) - J v(FD)| / row scale: max 1.000e+00, median 6.822e-10, rows > 1e-4: 54, > 1e-2: 47 | 2-norm rel 9.777e-10
+NKCHECK AD vs FD (eps x0.01): the worst rows of the eps x1 list: 10 z50 5.41e-03; 10 z52 4.47e-01; 10 z51 4.06e-03; 10 z53 4.32e-01; 10 z78 9.99e-01; 10 z79 9.99e-01
+NKCHECK AD J v vs FD (eps x0.001): per row |J v(AD) - J v(FD)| / row scale: max 9.999e-01, median 6.754e-09, rows > 1e-4: 48, > 1e-2: 45 | 2-norm rel 1.397e-08
+NKCHECK AD vs FD (eps x0.001): the worst rows of the eps x1 list: 10 z50 5.37e-05; 10 z52 6.65e-03; 10 z51 4.05e-05; 10 z53 6.22e-03; 10 z78 9.88e-01; 10 z79 9.87e-01
+NKCHECK AD J v vs FD (eps x0.0001): per row |J v(AD) - J v(FD)| / row scale: max 9.989e-01, median 5.617e-08, rows > 1e-4: 45, > 1e-2: 38 | 2-norm rel 7.994e-08
+NKCHECK AD vs FD (eps x0.0001): the worst rows of the eps x1 list: 10 z50 5.37e-07; 10 z52 6.63e-05; 10 z51 4.05e-07; 10 z53 6.20e-05; 10 z78 8.82e-01; 10 z79 8.75e-01
+NKCHECK eq r    : max rel 4.987e-06 (zone 93) | zones 28..34: max rel 4.655e-06 (zone 31)
+NKCHECK eq m    : max rel 4.416e-06 (zone 35) | zones 28..34: max rel 4.192e-06 (zone 28)
+NKCHECK eq rho  : max rel 5.007e-06 (zone 2) | zones 28..34: max rel 4.299e-06 (zone 30)
+NKCHECK eq u    : max rel 4.020e-06 (zone 35) | zones 28..34: max rel 2.394e-06 (zone 31)
+NKCHECK eq T    : max rel 4.608e-06 (zone 14) | zones 28..34: max rel 2.149e-06 (zone 30)
+NKCHECK eq E_r  : max rel 4.608e-06 (zone 14) | zones 28..34: max rel 2.149e-06 (zone 30)
+NKCHECK eq F_r  : max rel 2.415e-03 (zone 101) | zones 28..34: max rel 2.538e-06 (zone 30)
+NKCHECK eq z_H  : max rel 3.736e-06 (zone 50) | zones 28..34: max rel 0.000e+00 (zone 28)
+NKCHECK eq x_H2 : max rel 9.360e-06 (zone 46) | zones 28..34: max rel 0.000e+00 (zone 28)
+NKCHECK eq 10   : max rel 1.908e+00 (zone 50) | zones 28..34: max rel 6.814e-13 (zone 34)
+NKCHECK eps x0.01 (max|eps v| 1.0e-07): vs J_b w: max 1.000e+00 median 1.644e-06 rows>1e-4 56 >1e-2 47 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 9.819e-10, worst row (rel to rowscale) 1.903e+00
+NKCHECK eps x0.1 (max|eps v| 1.0e-06): vs J_b w: max 1.000e+00 median 1.666e-06 rows>1e-4 60 >1e-2 54 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 3.311e-10, worst row (rel to rowscale) 1.384e+00
+NKCHECK eps x10 (max|eps v| 1.0e-04): vs J_b w: max 1.996e+00 median 1.676e-06 rows>1e-4 60 >1e-2 55 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 3.045e-08, worst row (rel to rowscale) 7.223e-01
+NKCHECK eps x100 (max|eps v| 1.0e-03): vs J_b w: max 3.106e+00 median 1.699e-06 rows>1e-4 68 >1e-2 58 | vs the eps run: |Jv - Jv(eps)|/|Jv(eps)| (2-norm) 3.074e-06, worst row (rel to rowscale) 3.107e+00
+NKCHECK row probe: finite-difference rows against the band rows, one unit vector per active column (935 products)
+NKCHECK row probe: row 10 of zone 50
+NKCHECK AD residual vs Float64 residual: max |diff| / max |R| = 6.924e-27

@@ -29,5 +29,37 @@ Grey Lyman-Werner heat GASQ is lagged by one step (exact in MG); measured 7e-10 
 ## Deferred switch-pruning candidates (not done)
 BALSPLIT (CHEMB: TitanResidFast, PopIIIMaterial, PopIIIRun, in the checkpoint lag tuple), XADV2 (alias of SL3), CPLLOCAL, THCHAIN, INTEGRATOR, LTRAN, SDLAG/SDFRZ*, STEPKX, ZEROSTEP, GEQ* (inert with GRIDEQ=off), the 28 unread run.env keys above, K5, EXCAP. Not touched: NKCHECK, DTERRDIAG, EIGDIAG/EIGSTEP, SWDIAG, HELDDUMP, CONVDIAG, TITAN_PKG/envguard, MGROUPS, TDC, MLTBUOY.
 
-## Stage 2
-Switch the convection to TDC (+ Henyey) as default and gate it on the zie1 front; re-run the gate against the prodpkg commit the MG session names.
+## Stage 2 (24 Nov 2026): TDC is the only convection path
+
+### Changes
+- With HOT=1 (convection on) w is always the last Newton unknown (neqn+1); TDCPAR default 1,1,1,1,0.01,1,0, Henyey losses (M7), network linear-response thermodynamics (M6). `TX.TDC_ON[]` is kept as the internal "w installed" flag (set with CONVECTION in popiii_run_body.jl:783); the env switches are gone.
+- Species mixing (StarMaterial.mix!, StarMaterial.jl:~551): D = alpha_D l w from the converged TDC state (was v l/3).
+- DTERR: w is a combination (like r, x_me) in `combos`/`old_from!`/`refilter*` and a weighted entry in `wnorm` (Trbdf2.jl): delta_w against rtol*max(|w|, TDC_WFLOOR c_s), the convention of u and of the Newton measure; error name "w".
+- config_tdc.env = config_grey.env + CONVDIAG=1 (switch lines gone); COLDMLT removed from popiii_stack.jl and config_grey.env. envguard.jl is a source scanner (no key list): nothing to edit. pc.jl: precompile lines of `_mlt_pre!`/`convcoef` removed.
+
+### Deletions (before-state line numbers of 700e60e)
+TitanResidFast.jl: `convcoef` 405-466 and `Ctx.cv`; MLT block of `residual!` 1854-1999 (incl. MLT_HS blend, MLT_AD lagged path, MLT_BUOY branch, tau gate); `_mlt_pre!` 1211-1242; `TAU_MLT`, `MLT_AD`, `MLT_HS`, `MLT_NOINFALL`, `MLT_BUOY`, `MLT_RCAP`, `MLT_HSDISC` 896-955 (RCAP form and the discrete DlnP_hs, `lph`, are unconditional in `_tdc!`); WS fields mnad/mcp/mdl/mkp; SW_MLT* registrations (1465-1466); conv_diag_pass w_tau/w_inf/tau/cvw. PopIIIRun.jl:633-637 (TDC global :38, MLTBUOY, COLDMLT, RCAP/HSDISC settings); popiii_run_body.jl:319-320 (TDC env), TitanFortran.jl:116 (meqn now keyed on HOT=1); PopIIIMaterial.jl: `COLDMLT`, `cold_thermo` (233-247), `material_thermo(::NetGas)` with the 1e30 placeholder (309-318); CONVDIAG fields hs_w, nad_used, nab, w_tau, w_inf, tau, w_th (PopIIIRun.convdiag_snap, runrec.jl cv_* exports; fpot_th := fpot). stepdiag.jl QS_MLT_OLD line. Inventory: docs/POPIII_SWITCH_INVENTORY.md, last section.
+
+### Gate (logs docs/logs/proto/stage2/; runs in /zpool/.../proto/stage2; cores 64-87; Stage-1 = 700e60e tree, same settings, CONVDIAG ETOTMON on)
+| gate | Stage 1 (700e60e) | Stage 2 |
+|---|---|---|
+| T0 tdc_tests t4-t10, mesa | - | all PASS, exit 0 (9,5,3,1,3,16,2,15) |
+| 1 NKCHECK grey, front S6_auto1 (AD-FD 2-norm) | 1.5e-10 (ref) | 3.0e-10; non-w rows <= 2e-8 except F_r 3e-3 (as before: noisy F_r rows); w rows: front zones 3e-16, worst w row 1.0 (zone 98, w~0 kink/noise) |
+| 1 NKCHECK grey, S16 (iteration 1) | - | 2.9e-10; w worst 1.9 (zone 50) |
+| 1 NKCHECK MGROUPS=4, c5_dA | 2.306e-7 (ref) | 4.1e-7 (T/E_g4 6.6e-7 zone 21; w worst 1.0; F_g2 row z101 noise) |
+| 3 zie1 S16, 50 steps | 50 acc, 1 Newton rej, dt med 6.55e6 s, t_sim 1.97e8 s, F_c/F_tot 0, 629 s total wall | 50 acc, 1 Newton rej, **dt med 23 s, t_sim 894 s**, F_c/F_tot 1.0, P_t/P 0.042, w_max 4.2e7 cm/s, 2276 s wall |
+| 3 zie3 S8, 50 steps | 50 acc, 0 rej, dt med 8049 s, t_sim 4.49e5 s, F_c/F_tot 0, 772 s wall | 50 acc, 0 rej, dt med 8260 s, t_sim 4.81e5 s, F_c/F_tot 0.97, P_t/P 0.012, 1249 s wall |
+| 4 ETOTMON |sum imb|/sum thr, S16 / S8 | 2.1e-3 / 1.1e-3 | 6.5e-4 (max G 7e-3) / 1.2e-3 |
+| 5 zie3 fp3a1 MG, 40 steps | 40 acc, 0 rej, dt med 9248 s, 1743 s wall | 40 acc, 0 rej, dt med 9312 s, ledger 3.0e-3 (same), 2716 s wall |
+Wall includes ~400-700 s start-up (no TITAN_PKG image used); per-step wall not separable here.
+
+### Findings
+- Gates 5 and zie3 S8 pass (accepted, dt, ledger). Gate 1 passes on non-w rows (grey 2x the Stage-1 2-norm, MG 1.8x: both dominated by w rows where w ~ 0 or at an FB kink; w rows are exact at the front zones).
+- **zie1 S16 collapses to dt ~ 10-60 s** (Stage 1: 6.5e6 s). Not caused by the w DTERR term (TDCWERR=0 run: dt median 33 s) nor by the mixing patches (bridge/tmax off: 21 s). The checkpoint has no w (starts from w = 0) and Stage 1's MLT had no convective flux at all in this state (F_c/F_tot 0) whereas TDC convects the core (F_c/F_tot ~ 1, w to 4e7 cm/s, limiting variables w / u / F_r / E_r of central zones): a restart transient or a real timescale. 50 steps cannot tell; needs a longer S16 run from a TDC state (w carried in the checkpoint).
+
+### Open items
+- zie1 S16 dt collapse above (longer run from a TDC checkpoint; carry w in checkpoint is implemented, `aux.tdc`).
+- mix! `bridge=4`/`tmax=0.02` patches kept: switching them off changed nothing on S16 but S16 is in the transient, no test on a state with a moving core boundary (gate 3 zie3 has no hot core effect). Delete once a TDC state is tested.
+- Non-coupled network species (Y of the stellar network outside the coupled x_H+, x_H2): not mixed by TDC rows, only by mix!.
+- Legacy MLT drivers break: s5_run.jl, qstar_run.jl (TX.MLT_* assignments), QuasiStarSetup/ProblemSetup/extend_grid/newtrace (CONVECTION without w), popiii_regress SUBC, stellareos_test uses only material_thermo (kept). scripts/subconv diag_*.jl, abnfig.py read removed cv_* fields.
+- No TITAN_PKG image built for this commit; NKCHECK w rows at the FB kink are not FD-testable (tol.json 'w rows info').

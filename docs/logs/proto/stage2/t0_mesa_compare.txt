@@ -1,0 +1,3 @@
+      BE dt=0.001   w reaches 0 at t = 0.90600  (t*: 0.90376, diff/dt = 2.24)  w = -3.40504e-31
+PASS decay: MESA (13) == exact ODE; finite-time zero reached by the FB step, first order in dt  
+MESA compare failures: 0

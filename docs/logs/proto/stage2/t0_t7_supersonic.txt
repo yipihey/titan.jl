@@ -1,0 +1,3 @@
+    100    3      0.1   CFL nz   | 2.96914e-02  2.99910e-02  2.96914e-02  2.99910e-02  | 6, 0
+PASS w <= w_s tanh(w_s Ld/(u ℓ)) (≪ w_s for u ≫ w_s Ld/ℓ), F_c/F_MLT <= same, no gate needed, no Newton failure  
+T7 failures: 0
