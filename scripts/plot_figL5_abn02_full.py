@@ -130,36 +130,38 @@ def main():
     ax.legend(h1 + h2, l1 + l2, loc="upper left", frameon=True, framealpha=0.92, fontsize=7.0)
     ax.set_title("(d) Stage 2: Swelling → KH Contraction → ZAMS", fontweight="bold")
 
-    # (e) Stage 3: ABN02 Minihalo Photoevaporation (f_esc, f_bound, R_HII)
+    # (e) Stage 3: ABN02 Minihalo Photoevaporation (f_esc, f_bound, R_HII) on log-time x-axis
     ax = axs[1, 1]; ax2 = ax.twinx()
     ax.plot(pp["t_Myr"], pp["f_esc_H"], color="#0ca678", lw=2.2, label=rf"Disk/Polar ($M_{{\rm f}}\approx {mp:.0f}\,M_\odot$): $f_{{\rm esc}}$")
     ax.plot(pp["t_Myr"], pp["f_bound"], color="#0ca678", lw=1.6, ls="--", label=r"Disk/Polar: $f_{\rm bound}$")
     ax.plot(p1["t_Myr"], p1["f_esc_H"], color="#e03131", lw=2.2, label=rf"Strict 1D ($M_{{\rm f}}\approx {m1:.0f}\,M_\odot$): $f_{{\rm esc}}$")
     ax.plot(p1["t_Myr"], p1["f_bound"], color="#e03131", lw=1.6, ls="--", label=r"Strict 1D: $f_{\rm bound}$")
-    ax2.plot(pp["t_Myr"], pp["nH_core"], color="#1971c2", lw=1.6, ls=":", label=r"Core $n_{\rm H}(t)$ [cm$^{-3}$] (Polar)")
-    ax.set_xlim(0, max(pp["t_Myr"][-1], p1["t_Myr"][-1])); ax.set_ylim(-0.03, 1.08)
-    ax2.set_yscale("log"); ax2.set_ylim(5e-2, 5e4)
+    ax2.plot(pp["t_Myr"], pp["nH_core"], color="#1971c2", lw=1.8, ls=":", label=r"Core $n_{\rm H}(t)$ [cm$^{-3}$] (Polar)")
+    ax.set_xscale("log")
+    ax.set_xlim(4.5e-3, 2.35); ax.set_ylim(-0.03, 1.08)
+    ax2.set_yscale("log"); ax2.set_ylim(4e-2, 5e4)
     ax.set_xlabel("Post-Breakout Lifetime $t$ [Myr]")
     ax.set_ylabel(r"$f_{\rm esc}$ (solid) & Bound Gas $f_{\rm bound}$ (dashed)")
     ax2.set_ylabel(r"Core Density $n_{\rm H,core}$ [cm$^{-3}$]", color="#1971c2")
     h1, l1 = ax.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, loc="center right", frameon=True, framealpha=0.92, fontsize=6.7)
+    ax.legend(h1 + h2, l1 + l2, loc="lower left", frameon=True, framealpha=0.92, fontsize=6.6)
     ax.set_title("(e) Stage 3: Full-Lifetime ABN02 Minihalo Photoevaporation", fontweight="bold")
 
-    # (f) Stage 3: Time-Resolved JWST Atomic Line Signatures (Polar vs Strict 1D)
+    # (f) Stage 3: Time-Resolved JWST Atomic Line Signatures (Polar vs Strict 1D) on log-time x-axis
     ax = axs[1, 2]
     for ck, lab, col in [("L_Lya", r"Ly$\alpha$", "#e03131"), ("L_Hb", r"H$\beta$", "#1971c2"),
                          ("L_1640", r"He II $\lambda 1640$", "#5f3dc4"), ("L_10830", r"He I $\lambda 10830$", "#0ca678")]:
-        m = pp[ck] > 1.0
+        m = pp[ck] > 0.1
         if np.any(m):
             ax.plot(pp["t_Myr"][m], pp[ck][m], color=col, lw=2.1, label=lab + " (Polar)")
-        m1 = p1[ck] > 1.0
+        m1 = p1[ck] > 0.1
         if np.any(m1):
-            ax.plot(p1["t_Myr"][m1], p1[ck][m1], color=col, lw=1.4, ls="--", alpha=0.8, label=lab + " (1D)")
-    ax.set_yscale("log"); ax.set_xlim(0, max(pp["t_Myr"][-1], p1["t_Myr"][-1])); ax.set_ylim(5e1, 2e6)
+            ax.plot(p1["t_Myr"][m1], p1[ck][m1], color=col, lw=1.4, ls="--", alpha=0.82, label=lab + " (1D)")
+    ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set_xlim(4.5e-3, 2.35); ax.set_ylim(0.2, 2e6)
     ax.set_xlabel("Post-Breakout Lifetime $t$ [Myr]")
     ax.set_ylabel(r"Emergent Nebular Luminosity [$L_\odot$]")
-    ax.legend(loc="lower right", frameon=True, framealpha=0.92, ncol=2, fontsize=6.5)
+    ax.legend(loc="lower left", frameon=True, framealpha=0.92, ncol=2, fontsize=6.4)
     ax.set_title("(f) Stage 3: ABN02 JWST Line Lightcurves", fontweight="bold")
 
     fig.suptitle("Titan.jl End-to-End ABN02 (Abel, Bryan & Norman 2002): Cosmological Collapse → Protostar → ZAMS → Minihalo Photoevaporation",
