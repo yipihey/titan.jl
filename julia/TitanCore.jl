@@ -316,6 +316,8 @@ function nw_freeze_restore(s)
     s.gx === nothing || (TD.GXEDD[] = s.gx)
     nothing
 end
+"Optional velocity-scale floor (in units of local c_s) for unom when CPLH is active (0.0 = bit-identical TITAN default; 1e-2 recommended for static u=0 stars with TDC)."
+const UNOM_FLOOR = Ref(0.0)
 """
 Shared tail of update{h,rh} and peq{h,rh}: ghost-zone boundary values, geometry, EOS/opacity,
 Eddington factors and time-centred / zeroed arrays. `mode` ∈ (:update, :peq) selects the few
@@ -423,7 +425,8 @@ function _ghost_and_derived!(mode::Symbol, eos!, opac!)
         rmu[k] = r[k]^mu; rmup1[k] = r[k]^mup1; rmum1[k] = r[k]^mum1
         if lrad
             frnom[k] = abs(frn[k]) + 1.0e-30           # (the Teff/xlum choice is overwritten in the Fortran too)
-            unom[k] = CPLH[] === nothing ? (abs(un[k]) + 1.0e-30) : max(abs(un[k]), 1.0e-2 * max(asn[clamp(k, a, b)], 1.0))
+            uf = UNOM_FLOOR[]
+            unom[k] = (uf > 0.0 && CPLH[] !== nothing) ? max(abs(un[k]), uf * max(asn[clamp(k, a, b)], 1.0)) : (abs(un[k]) + 1.0e-30)
         else
             unom[k] = max(abs(un[k]), 1.0)
         end

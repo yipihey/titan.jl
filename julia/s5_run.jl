@@ -105,6 +105,7 @@ if TX.CONVECTION[]
     tp_ = parse.(Float64, split(get(ENV, "TDCPAR", "1,1,1,1,0.01,1,0"), ","))
     TX.TDCP[] = TX.TDC.TDCPar(; A_s = tp_[1], A_d = tp_[2], A_c = tp_[3], α_p = tp_[4], α_t = tp_[5], α_D = tp_[6], α_m = tp_[7])
     TX.TDC_CEN[] = parse(Float64, get(ENV, "TDCCEN", "0"))
+    TC.UNOM_FLOOR[] = 1.0e-2
     TC.CPLH[] = (; newstep = () -> TX.tdc_newstep!(), reset = () -> TX.tdc_reset!(),
                    update = (rhs, a_, b_) -> TX.tdc_update!(rhs, a_, b_),
                    dmax = (rhs, a_, b_) -> TX.tdc_dmax!(rhs, a_, b_))
