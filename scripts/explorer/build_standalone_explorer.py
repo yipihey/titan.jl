@@ -59,8 +59,8 @@ SPECS = [
     ("hoy12_md1e1", ["hoy12_md1e1_puls", "hoy12_md1e1_zoom"], "HOY12 0.1 M☉/yr (2→48 M☉ + pulsation zoom)", "#2a78d6", 0.1),
     ("hoy12_md3e1", ["hoy12_md3e1_puls", "hoy12_md3e1_zoom"], "HOY12 0.3 M☉/yr (2→108 M☉ + pulsation zoom)", "#eb6834", 0.3),
     ("sms_md1e0_gr", ["sms_md1e0_gr"], "Supermassive 1.0 M☉/yr + 1D spherical GR", "#7d5fd3", 1.0),
-    ("episodic_short", ["episodic_short"], "Episodic 40yr quiet / 8yr burst @ 0.2 M☉/yr", "#1baf7a", 1e-4),
-    ("episodic_10yr", ["episodic_10yr"], "Episodic 10yr quiet / 5yr burst @ 0.2 M☉/yr", "#eda100", 1e-4),
+    ("episodic_short", ["episodic_short"], "Episodic quiet decay (12yr @ 1e-4 M☉/yr; R* 1313→645 R☉, shock detaches)", "#1baf7a", 1e-4),
+    ("episodic_cycle", ["episodic_cycle"], "Episodic full burst cycle (6yr quiet @ 1e-3 / 4yr burst @ 0.25 M☉/yr)", "#eda100", 1e-3),
 ]
 
 def build(runs_dir, html_path):

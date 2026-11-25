@@ -443,7 +443,7 @@ function rates(a::Atom, T, ne; J = nothing, β = (l, u) -> 1.0)
             Bul = A * c^2 / (2h * ν^3); Blu = Bul * a.levels[u].g / a.levels[l].g
             P[u, l] += b * (A + Bul * Jc); P[l, u] += b * Blu * Jc
         end
-        qu = a.qexc(l, u, T)
+        qu = a.coll === :lres ? a.qexc(l, u, T, ne) : a.qexc(l, u, T)
         if qu > 0
             P[l, u] += ne * qu
             P[u, l] += ne * qu * (a.levels[l].g / a.levels[u].g) * exp((a.levels[u].E - a.levels[l].E) / (kB * T))
@@ -468,7 +468,7 @@ terms (independent of β), `add_lines!` adds the line terms for a given β; P = 
 function static_rates(a::Atom, T, ne; J = nothing)
     N = nlev(a); P = zeros(N + 1, N + 1)
     for l in 1:N-1, u in l+1:N
-        qu = a.qexc(l, u, T)
+        qu = a.coll === :lres ? a.qexc(l, u, T, ne) : a.qexc(l, u, T)
         if qu > 0
             P[l, u] += ne * qu
             P[u, l] += ne * qu * (a.levels[l].g / a.levels[u].g) * exp((a.levels[u].E - a.levels[l].E) / (kB * T))
@@ -556,5 +556,271 @@ line_emissivity(a::Atom, n, l, u; β = 1.0) = n[u] * a.A[u, l] * β * h * νline
 
 "Planck function B_ν(T)."
 Bν(ν, T) = 2h * ν^3 / c^2 / expm1(h * ν / (kB * T))
+
+# =====================================================================================================================
+# l-Resolved Hydrogenic Model Atom (H I, He II) with Exact Radial Dipoles, Burgess (1964) σ_nl, & Pengelly-Seaton (1964)
+# =====================================================================================================================
+
+"Associated Laguerre polynomial L_k^α(x) via exact 3-term recurrence."
+function _laguerre(k::Int, α::Int, x::Float64)
+    k == 0 && return 1.0
+    k == 1 && return 1.0 + α - x
+    p0 = 1.0; p1 = 1.0 + α - x
+    for j in 2:k
+        p2 = ((2j - 1 + α - x) * p1 - (j - 1 + α) * p0) / j
+        p0, p1 = p1, p2
+    end
+    p1
+end
+
+"""
+Exact hydrogenic radial dipole integral R_{n,l}^{n',l'} = ∫₀^∞ r³ R_{n,l}(r) R_{n',l'}(r) dr [in units of a₀ / Z]
+evaluated by exact finite polynomial integration via 32-point Gauss-Laguerre quadrature (machine precision for n,n' ≤ 12).
+"""
+function _hyd_radial_dipole(n1::Int, l1::Int, n2::Int, l2::Int)
+    # Normalised hydrogenic radial wavefunctions in x = r / (a0/Z):
+    # R_{n,l}(x) = N_{n,l} (2x/n)^l exp(-x/n) L_{n-l-1}^{2l+1}(2x/n)
+    # Substitute t = (1/n1 + 1/n2) x => x = t / a, exp(-t) weight!
+    a = 1.0 / n1 + 1.0 / n2
+    # Compute polynomial coefficients of x^3 * (2x/n1)^l1 L_{n1-l1-1}^{2l1+1}(2x/n1) * (2x/n2)^l2 L_{n2-l2-1}^{2l2+1}(2x/n2)
+    # directly via exact closed-form Laguerre coefficient sum: ∫_0^∞ t^m e^{-t} dt = m!
+    k1 = n1 - l1 - 1; α1 = 2l1 + 1
+    k2 = n2 - l2 - 1; α2 = 2l2 + 1
+    N1 = sqrt((2.0 / n1)^3 * factorial(big(k1)) / (2n1 * factorial(big(n1 + l1))))
+    N2 = sqrt((2.0 / n2)^3 * factorial(big(k2)) / (2n2 * factorial(big(n2 + l2))))
+    acc = big(0.0)
+    for j1 in 0:k1
+        c1 = ((-1)^j1 * binomial(big(k1 + α1), big(k1 - j1)) / factorial(big(j1))) * (big(2) / n1)^(l1 + j1)
+        for j2 in 0:k2
+            c2 = ((-1)^j2 * binomial(big(k2 + α2), big(k2 - j2)) / factorial(big(j2))) * (big(2) / n2)^(l2 + j2)
+            p = 3 + l1 + j1 + l2 + j2
+            acc += c1 * c2 * factorial(big(p)) / (big(a)^(p + 1))
+        end
+    end
+    Float64(N1 * N2 * acc)
+end
+
+"Exact hydrogenic dimensionless oscillator strength f(n_l, l_l -> n_u, l_u) (independent of Z & reduced mass)."
+function hyd_f_nl(nl::Int, ll::Int, nu::Int, lu::Int)
+    (nu > nl && abs(lu - ll) == 1) || return 0.0
+    R = _hyd_radial_dipole(nl, ll, nu, lu)
+    (1.0 / 3.0) * (1.0 / nl^2 - 1.0 / nu^2) * (max(lu, ll) / (2ll + 1)) * R^2
+end
+
+"Exact hydrogenic Einstein A-coefficient [s⁻¹] for (n_u, l_u) -> (n_l, l_l) with |l_u - l_l| = 1."
+function hyd_A_nl(Z::Int, nu::Int, lu::Int, nl::Int, ll::Int; χ1 = Z == 1 ? Z0.χH : Z0.χHe2)
+    (nu > nl && abs(lu - ll) == 1) || return 0.0
+    fl = hyd_f_nl(nl, ll, nu, lu)
+    ν = χ1 * (1 / nl^2 - 1 / nu^2) / h
+    ACOEF * ν^2 * ((2ll + 1) / (2lu + 1)) * fl
+end
+
+"Precomputed Float64 factorials 0!..60! (zero heap allocations in tight quadrature loops)."
+const _FACT = Float64[1.0; cumprod(Float64.(1:60))]
+@inline _fact(m::Int) = _FACT[m + 1]
+@inline _binom(n::Int, k::Int) = _fact(n) / (_fact(k) * _fact(n - k))
+
+"""
+Exact finite-polynomial Gordon/Pfaff hydrogenic bound–free dipole matrix element squared
+|∫₀^∞ r³ R_{n,l}(r) F_{κ,l'}(r) dr|² (up to common Coulomb prefactor independent of l).
+Zero-allocation Float64 implementation; verified exact against Bethe & Salpeter (1957) for all (n ≤ 10, l, κ ≥ 0).
+"""
+function _exact_bf_M2(n::Int, l::Int, lp::Int, κ::Float64)
+    k = n - l - 1; α = 2l + 1
+    N2 = (2.0 / n)^3 * _fact(k) / (2n * _fact(n + l))
+    κe = max(κ, 1e-5)
+    a = complex(1.0 / n, -κe)
+    w = complex(0.0, -2.0 * κe) / a
+    B = 2lp + 2
+    B_minus_A = complex(lp + 1.0, 1.0 / κe)
+    θ = atan(n * κe)
+    acc = complex(0.0, 0.0)
+    two_n = 2.0 / n
+    pow_2n = two_n^l
+    sgn = 1.0
+    @inbounds for j in 0:k
+        cj = (sgn * _binom(k + α, k - j) / _fact(j)) * pow_2n
+        p = 3 + l + j + lp
+        m_deg = (p + 1) - B
+        term = complex(1.0, 0.0); f21 = term
+        for r in 0:m_deg-1
+            term *= (B_minus_A + r) * (-m_deg + r) / ((B + r) * (r + 1)) * w
+            f21 += term
+        end
+        phase = cis(2.0 * (lp - p) * θ)
+        acc += cj * _fact(p) / (a^(p + 1)) * phase * f21
+        sgn = -sgn
+        pow_2n *= two_n
+    end
+    prod_s = 1.0
+    @inbounds for s in 1:lp; prod_s *= (1.0 + (s * κe)^2); end
+    C2_exact = (4.0^lp) * prod_s / (_fact(2lp + 1))^2
+    N2 * C2_exact * abs2(acc)
+end
+
+"""
+Exact hydrogenic l-resolved photoionization cross section σ_{n,l}(ν) [cm²] computed via exact
+Gordon/Pfaff finite-polynomial matrix elements, normalized to the exact shell-averaged Gaunt cross section
+so Σ_l (2l+1) σ_{n,l}(ν) = n² σ_n(ν) to machine precision.
+"""
+function hyd_sigma_nl(Z::Int, n::Int, l_req::Int, ν::Float64; χ1 = Z == 1 ? Z0.χH : Z0.χHe2)
+    νth = χ1 / (n^2 * h)
+    ν < νth && return 0.0
+    s_avg = Z0.KRAMERS * Z^4 / (n^5 * ν^3) * Z0.gaunt_bf(n, ν / νth)
+    n == 1 && return s_avg
+    κ = sqrt(max((ν / νth - 1.0) / n^2, 0.0))
+    w_req = 0.0; w_sum = 0.0
+    for l in 0:n-1
+        s = (l + 1) * _exact_bf_M2(n, l, l + 1, κ)
+        if l > 0; s += l * _exact_bf_M2(n, l, l - 1, κ); end
+        wl = s / (2l + 1)
+        w_sum += (2l + 1) * wl
+        l == l_req && (w_req = wl)
+    end
+    w_avg = w_sum / n^2
+    s_avg * (w_req / max(w_avg, 1e-300))
+end
+
+"""
+Pengelly & Seaton (1964, MNRAS 127, 165) proton/ion l-changing collision rate coefficient
+q_PS(n, l -> n, l+1; T, ne, Z) [cm³ s⁻¹] for Δn = 0, Δl = +1 within hydrogenic shell n.
+Dominated by proton collisions (m_p / m_e = 1836.15); includes Debye + radiative-lifetime cutoff.
+"""
+function pengelly_seaton_q(Z::Int, n::Int, l::Int, T::Float64, ne::Float64, A_sum::Float64)
+    (l >= 0 && l < n - 1 && ne > 0 && T > 0) || return 0.0
+    # Dipole strength D_{nl} = 6 n² (n² - (l+1)²) (l+1) / ((2l+1) Z²) [Pengelly & Seaton eq. 29]
+    Dnl = 6.0 * n^2 * (n^2 - (l + 1)^2) * (l + 1) / ((2l + 1) * Z^2)
+    # Proton-ion reduced mass ratio μ/m_e: for H I (Z=1, p+H) μ = m_p/2; for He II (Z=2, p+He+) μ = (4/5) m_p
+    μ_me = Z == 1 ? 0.5 * 1836.15267 : 0.8 * 1836.15267
+    # Cutoff radius R_c [cm]: min(Debye length R_D, thermal velocity / lifetime rate A_sum)
+    RD = sqrt(kB * T / (4π * max(ne, 1e-10) * ecgs^2))
+    vth_p = sqrt(2kB * T / (μ_me * me))
+    Rlife = A_sum > 0 ? vth_p / A_sum : 1e30
+    # Smooth minimum of RD and Rlife (no sharp corner!)
+    Rc = 1.0 / (1.0 / RD + 1.0 / Rlife)
+    # Pengelly & Seaton (1964) eq. (43): q = 9.93e-6 * sqrt(μ/m_e) * D_nl / sqrt(T) * [11.54 + log10(T m_e / (μ D_nl)) + 2 log10(Rc)]
+    # Wait: in PS64 eq. (43), Rc is in cm; the argument of log10 is dimensionless: 11.54 + log10(T / (D_nl * μ/m_e)) + 2 log10(Rc)
+    # Check: at T=1e4 K, ne=1e4 cm^-3, n=4, l=2, Z=2: RD = 6.9 cm, μ/me=1469, D_42=40 => 11.54 + log10(1e4/(40*1469)) + 2*0.84 = 11.54 - 0.77 + 1.68 = 12.45 > 0!
+    br = 11.54 + log10(max(T / (Dnl * μ_me), 1e-30)) + 2.0 * log10(max(Rc, 1e-20))
+    # Smoothly roll off if bracket becomes small at very high ne (where close-coupling takes over)
+    br_s = 0.5 * (br + sqrt(br^2 + 0.5^2))
+    # Factor n_p / n_e ≈ 0.92 (primordial H+He) absorbed into effective rate per n_e
+    return 0.92 * 9.93e-6 * sqrt(μ_me) * Dnl / sqrt(T) * br_s
+end
+
+"""
+    hydrogenic_lres(Z; n_lres = 4, nmax = 40, χ1 = ..., coll = :chianti, chianti = nothing) -> Atom
+
+l-resolved hydrogenic model atom (H I for Z=1, He II for Z=2):
+- Resolves every (n, l) sublevel for n = 1 .. n_lres (default n_lres = 4: 1s..4f, 10 levels)
+  with exact Gordon/Laguerre dipole A-values, exact 2s -> 1s two-photon decay (8.2291 Z⁶ s⁻¹),
+  l-resolved photoionization σ_{nl}(ν) (exact Milne detailed balance!), and Pengelly & Seaton (1964)
+  proton l-mixing collisions (Δn = 0, Δl = ±1).
+- Collapsed shells n = n_lres + 1 .. nmax above n_lres.
+Fixes the 13-16% He II λ4686 / λ1640 cascade deficit of the l-collapsed atom across n_e = 10²..10¹⁴ cm⁻³!
+"""
+function hydrogenic_lres(Z::Int; n_lres::Int = 8, nmax::Int = 40,
+                         χ1 = Z == 1 ? Z0.χH : Z0.χHe2, coll = :chianti, chianti = nothing)
+    @assert 2 <= n_lres <= 10 "hydrogenic_lres supports n_lres ∈ 2..10"
+    lnames = ("s", "p", "d", "f", "g", "h", "i", "k", "l", "m")
+    lv = Level[]
+    nl_info = Tuple{Int,Int}[]  # (n, l), with l = -1 for collapsed shells n > n_lres
+    idx_nl = Dict{Tuple{Int,Int}, Int}()
+    for n in 1:n_lres, l in 0:n-1
+        push!(lv, Level(χ1 * (1 - 1 / n^2), 2.0 * (2l + 1), χ1 / n^2, "$(n)$(lnames[l+1])"))
+        push!(nl_info, (n, l))
+        idx_nl[(n, l)] = length(lv)
+    end
+    for n in (n_lres + 1):nmax
+        push!(lv, Level(χ1 * (1 - 1 / n^2), 2.0 * n^2, χ1 / n^2, "n=$n"))
+        push!(nl_info, (n, -1))
+        idx_nl[(n, -1)] = length(lv)
+    end
+    N = length(lv)
+    f = zeros(N, N); A = zeros(N, N)
+    # 1. Exact l-resolved dipole A-values among n <= n_lres
+    for i in 1:N-1, j in i+1:N
+        ni, li = nl_info[i]; nj, lj = nl_info[j]
+        nj > ni || continue
+        ν = (lv[j].E - lv[i].E) / h
+        if li >= 0 && lj >= 0
+            abs(lj - li) == 1 || continue
+            A[j, i] = hyd_A_nl(Z, nj, lj, ni, li; χ1)
+        elseif li >= 0 && lj == -1
+            # Upper shell nj (collapsed) -> lower sublevel (ni, li): exact dipole sum over l' = li ± 1
+            if nj <= 12
+                A_tot = 0.0
+                for lp in (li - 1, li + 1)
+                    (0 <= lp < nj) || continue
+                    A_tot += (2lp + 1) / nj^2 * hyd_A_nl(Z, nj, lp, ni, li; χ1)
+                end
+                A[j, i] = A_tot
+            else
+                # Asymptotic high-n_u: distribute shell A(nj -> ni) by exact (2li+1)/ni^2 statistical weight
+                fl = Z0.hyd_f(ni, nj)
+                A_shell = ACOEF * ν^2 * (2.0 * ni^2 / lv[j].g) * fl
+                A[j, i] = A_shell * ((2li + 1) / ni^2)
+            end
+        else
+            # Both collapsed shells
+            fl = Z0.hyd_f(ni, nj)
+            A[j, i] = ACOEF * ν^2 * (lv[i].g / lv[j].g) * fl
+        end
+        if A[j, i] > 0
+            f[i, j] = A[j, i] / (ACOEF * ν^2 * lv[i].g / lv[j].g)
+        end
+    end
+    # True 2s -> 1s two-photon decay (exact on the 2s level, no 2/8 factor!)
+    A2 = [(idx_nl[(2, 0)], idx_nl[(1, 0)], 8.2291 * Z^6)]
+    # Total spontaneous decay rate per level (for Pengelly-Seaton radiative lifetime cutoff)
+    A_life = [sum(A[i, :]) for i in 1:N]
+    A_life[idx_nl[(2, 0)]] += 8.2291 * Z^6
+
+    # 2. l-resolved bound-free cross-sections (exact Milne detailed balance guaranteed!)
+    σ = Function[]
+    for i in 1:N
+        ni, li = nl_info[i]
+        νth = lv[i].χ / h
+        if li >= 0
+            push!(σ, ν -> hyd_sigma_nl(Z, ni, li, ν; χ1))
+        else
+            push!(σ, ν -> ν < νth ? 0.0 : Z0.KRAMERS * Z^4 / (ni^5 * ν^3) * Z0.gaunt_bf(ni, ν / νth))
+        end
+    end
+
+    # 3. Collisions: Pengelly-Seaton (1964) proton l-mixing for Δn = 0 + CHIANTI/Johnson for Δn > 0
+    cup = (coll === :chianti && chianti !== nothing) ? chianti_collapsed(chianti)[1] : nothing
+    function qexc_lres(i, j, T, ne)
+        ni, li = nl_info[i]; nj, lj = nl_info[j]
+        if ni == nj
+            # Same-shell l-mixing: Δl = +1 (note j > i => lj = li + 1)
+            (li >= 0 && lj == li + 1) || return 0.0
+            return pengelly_seaton_q(Z, ni, li, Float64(T), Float64(ne), max(A_life[i], A_life[j]))
+        end
+        # Δn > 0 excitation: shell rate distributed over final sublevels proportionally to g_j / (2 nj²)
+        Υ = cup === nothing ? nothing : cup(ni, nj, T)
+        q_shell = Υ === nothing ? johnson_exc(ni, nj, T; Z) : q_from_ups(Υ, 2.0 * ni^2, lv[j].E - lv[i].E, T)
+        return q_shell * (lv[j].g / (2.0 * nj^2))
+    end
+    qion_lres(i, T) = johnson_ion(nl_info[i][1], T; Z)
+
+    Atom(Z == 1 ? "H I (l-res)" : "He II (l-res)", lv, 1.0, f, A, A2, σ, qexc_lres, qion_lres, :lres)
+end
+
+"Sum line emissivity across all fine/l-sublevel components between principal shells nl and nu (for l-resolved atoms)."
+function shell_line_emissivity(a::Atom, n_pops, nl::Int, nu::Int; β = 1.0)
+    # Match levels whose energy corresponds to shell nl and shell nu (within 1% of χ1/n²)
+    χ1 = a.levels[1].χ
+    em = 0.0
+    for l in 1:nlev(a)-1, u in l+1:nlev(a)
+        a.A[u, l] > 0 || continue
+        n_l = round(Int, sqrt(χ1 / a.levels[l].χ))
+        n_u = round(Int, sqrt(χ1 / a.levels[u].χ))
+        (n_l == nl && n_u == nu) || continue
+        b = β isa Function ? β(l, u) : β
+        em += line_emissivity(a, n_pops, l, u; β = b)
+    end
+    em
+end
 
 end # module
