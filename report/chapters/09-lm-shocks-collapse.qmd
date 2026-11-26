@@ -1,0 +1,37 @@
+# Radiative Shocks & 22-Decade Primordial Collapse {#sec-lm-shocks-collapse}
+
+The first wave of landmark tests establishes `Titan.jl` across two foundational regimes of radiation hydrodynamics and primordial astrochemistry: **moving-mesh radiative shocks** [@ensman1994; @stahler1980] and **22-decade primordial cloud collapse with $\mathrm{H}_2$ line transfer, CIE continuum, and Lyman–Werner $J_{\rm crit}$ bifurcation** [@omukai1998; @omukai2001; @ripamonti2004].
+
+![Wave 1 publication overview: Ensman (1994) subcritical & supercritical radiative shocks, Omukai & Nishi (1998) / Omukai (2001) 22-decade collapse & $J_{\rm crit}$ bifurcation, and Ripamonti & Abel (2004) ExoMol $\mathrm{H}_2$ lines vs Borysow CIE continuum.](../figures/figL1_ensman_and_omukai_collapse.png){#fig-lm-wave1}
+
+## 1. Ensman (1994) Subcritical & Supercritical Radiative Shocks {#sec-lm-ensman}
+
+In a radiating shock, upstream gas is preheated by photons streaming ahead of the viscous shock front [@mihalas1984; @ensman1994; @sincell1999a]. Below the critical shock speed ($v_p = 6\,\mathrm{km/s}$, `SUBC`), the radiative precursor stays far cooler than the post-shock equilibrium ($T_{\rm pre} \ll T_{\rm post}$). Above it ($v_p = 20\,\mathrm{km/s}$, `SUPC`), the precursor saturates at $T_{\rm pre} \approx T_{\rm post}$—the exact supercritical jump that governs the protostellar accretion shock [@stahler1980].
+
+Using `TitanDriver` + `TitanResidFast` + tangent-ray variable Eddington factors (`TitanCore.eddfac!`) on an adaptive Dorfi–Drury mesh (`julia/landmarks/lm01_ensman_radiative_shocks.jl`):
+
+| Test | Published Target [@ensman1994] | `Titan.jl` Moving-Mesh RHD | Wall Time |
+|---|---|---|---|
+| **SUBC** ($6\,\mathrm{km/s}$) | $T_{\rm spike}\approx 810\text{–}850\,\mathrm{K}$, $T_{\rm pre}\ll T_{\rm post}$ | $T_{\rm spike}=846.9\,\mathrm{K}$, $T_{\rm pre}/T_{\rm post}=0.278$ ($3.74\times$ jump, $\tau_{\rm pre}=0.76$) | `5.8 s` |
+| **SUPC** ($20\,\mathrm{km/s}$) | $T_{\rm spike}\approx 6000\text{–}6500\,\mathrm{K}$, $T_{\rm pre}\approx T_{\rm post}$ | $T_{\rm spike}=6485\,\mathrm{K}$, $T_{\rm pre}/T_{\rm post}=1.039$ ($6.48\times$ jump, $\tau_{\rm pre}=12.32$, 668 steps) | `6.7 s` |
+
+```{=html}
+<div class="qd-widget" data-widget="landmarks" data-suite="ensman"></div>
+<script type="module" src="../app/js/widgets.js"></script>
+```
+
+{{< lab "p=landmarks&lms=ensman" "Open Ensman radiative shocks in the lab" >}}
+
+## 2. Omukai & Nishi (1998), Omukai (2001) & Ripamonti & Abel (2004) {#sec-lm-omukai}
+
+Following a collapsing primordial core from $n_{\rm H}=1\,\mathrm{cm}^{-3}$ to a hydrostatic protostellar embryo at $10^{22}\,\mathrm{cm}^{-3}$ tests the entire coupled non-LTE chemistry, line transfer, continuum opacity, and LTE EOS stack (`julia/landmarks/lm02_omukai_collapse_jcrit.jl`):
+
+- **Zero-UV loitering & 3-body $\mathrm{H}_2$ conversion ($J_{21}=0$):** Reproduces @omukai1998's loitering minimum ($T_{\min}=236.3\,\mathrm{K}$ at $n_{\rm H}=6.9\times 10^3\,\mathrm{cm}^{-3}$), complete molecular conversion via 3-body formation ($\max x_{\mathrm{H}_2}=0.500$), $\mathrm{H}_2$ dissociation trough around $n_{\rm H}\sim 10^{16}\text{–}10^{20}\,\mathrm{cm}^{-3}$, and adiabatic hydrostatic core bounce ($T>25\,\mathrm{kK}$ at $10^{22}\,\mathrm{cm}^{-3}$).
+- **Lyman–Werner $J_{\rm crit}$ thermal bifurcation:** Adding an external LW background with Wolcott-Green et al. [@wolcottgreen2011] self-shielding reproduces @omukai2001's sharp jump onto the isothermal $T\approx 8{,}000\,\mathrm{K}$ atomic-cooling track ($66\times$ hotter at $n_{\rm H}=10^4\,\mathrm{cm}^{-3}$), the classic pathway to direct-collapse black holes.
+- **ExoMol $\mathrm{H}_2$ lines vs Borysow CIE continuum:** Tracking 183 individual ExoMol RACPPK transitions (`H2Lines.jl`) reproduces @ripamonti2004: ro-vibrational lines peak at $L_{\mathrm{H}_2}\approx 180\,L_\odot$ near $n_{\rm H}=10^{10}\,\mathrm{cm}^{-3}$ before line self-absorption traps them and Borysow CIA/CIE continuum cooling (`ContinuumOpacity.jl`) dominates across $n_{\rm H}=10^{13}\text{–}10^{18}\,\mathrm{cm}^{-3}$.
+
+```{=html}
+<div class="qd-widget" data-widget="landmarks" data-suite="omukai"></div>
+```
+
+{{< lab "p=landmarks&lms=omukai" "Open 22-decade collapse & H₂ lines in the lab" >}}

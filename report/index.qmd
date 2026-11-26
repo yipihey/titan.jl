@@ -1,45 +1,42 @@
 ---
-title: "Quasi-stars under infall"
-subtitle: "A steady envelope model, a Julia TITAN, and what they show"
+title: "Titan.jl"
+subtitle: "Implicit Radiation Hydrodynamics for the First Stars, Supermassive Seeds & Primordial Transients"
 toc: false
 ---
 
-Santarelli, Bellinger and collaborators model the "Little Red Dots" seen by JWST as late-stage
-quasi-stars: a black hole of about $10^5\,M_\odot$ inside a $10^6\,M_\odot$ envelope that radiates at the
-Eddington limit with a surface near 6000 K [@santarelli2026lrd; @santarelli2026quest]. This book records what we
-found when we tested two of their working assumptions and how we built the tools to do it.
-
-1. **Is the photosphere in LTE?** Simple rate estimates say that hydrogen there is controlled by radiative,
-   not collisional, rates (@sec-lte).
-2. **Does a ~6000 K hydrostatic photosphere survive the infall that feeds the black hole?** A steady model with a
-   free-fall accretion shock as its outer boundary finds two branches of solutions and a fold beyond which no
-   steady star exists (@sec-branches).
-3. **What does the dynamics do?** We ported the radiation-hydrodynamics code TITAN [@gehmeyr1994] from
-   Fortran to Julia, verified it against the original, and added the quasi-star physics. After four numerical
-   defects were fixed, it follows the envelope stably while the accretion rate rises a thousandfold to
-   $3\,M_\odot\,{\rm yr}^{-1}$. At that rate the answer depends on resolving a thin, hot cooling layer behind the
-   accretion shock, which only the adaptive grid does. Resolved, the star settles within $1.4\times10^{-3}R$ and 50 K of
-   the steady model's solution (@sec-titan-port, @sec-titan-qs).
-
-::: {.callout-note title="How to read the status of a statement"}
-Every result carries one of four labels.
-**[computed]** is an output of the code described here, reproducible from the repository.
-**[tested]** is a computed result pinned by an automated test (a ✓ badge links to the test).
-**[estimate]** is an order-of-magnitude rate or budget with textbook approximations.
-**[interpretation]** is our reading of the results, not separately derived.
-Open problems are said to be open.
-:::
-
-The equations of the steady model are evaluated in the browser by a tested Rust core compiled to WebAssembly.
-A superscript ⟨name⟩ links to the function that evaluates an equation, a ✓ badge links to the test that pins a
-number, and a *lab* button opens the laboratory in the state that reproduces an experiment. The TITAN figures
-replay simulation output produced by the Julia code in the same repository; @sec-experiments lists every
-experiment with the command that reproduces it.
-
-A short companion, [*What a fed quasi-star looks like*](spectra/index.html), presents only the spectra: the non-LTE
-calculation, a simple model that reproduces it, and the comparison with the Little Red Dots.
+`Titan.jl` is a pure-Julia, fully implicit 1D moving-mesh radiation-hydrodynamics (RHD) and primordial astrophysics suite descended from Gehmeyr & Mihalas's `TITAN` [@gehmeyr1994]. Within a single unified codebase—pairing exact automatic-differentiation Jacobians, smooth $C^2$ thermodynamics (`FreeEnergyEOS`, `StellarEOS`), zero-metallicity and molecular opacities (`StellarOpacity`, `ContinuumOpacity`, ExoMol `H2Lines`), coupled primordial chemistry (`ChemNet`, `UnifiedNonLTE`), 35-group ionizing & Lyman–Werner radiation transport (`IonRay`), $l$-resolved nebular line transfer (`ModelAtom`, `SpecFull`), nuclear burning (`NucNet`), and 1PN/TOV general relativity (`GR_CORR`)—`Titan.jl` reproduces **17 landmark astrophysics papers** across 22 orders of magnitude in density and 10 decades in mass.
 
 <div class="qd-cta">
-<a class="btn btn-primary btn-lg" href="chapters/01-question.qmd">Start reading</a>
-<a class="btn btn-outline-secondary btn-lg" href="app/index.html">Open the laboratory</a>
+<a class="btn btn-primary btn-lg" href="chapters/00-physics-methods.qmd">Physics &amp; Numerical Methods</a>
+<a class="btn btn-outline-primary btn-lg" href="chapters/09-lm-shocks-collapse.qmd">Landmark Atlas</a>
+<a class="btn btn-outline-secondary btn-lg" href="app/index.html">Open Interactive Laboratory</a>
 </div>
+
+## Master Landmark Reproduction Scorecard {#sec-scorecard}
+
+Every row below is backed by a reproducible Julia benchmark driver in `julia/landmarks/` and interactive, downloadable, linked plots in the [Interactive Laboratory](app/index.html).
+
+| # | Landmark Paper(s) | Regime &amp; Physics | Published Target | Titan.jl Result | Explore |
+|---|---|---|---|---|---|
+| 1 | @ensman1994; @stahler1980 | Moving-mesh implicit RHD radiative shocks (`SUBC`, `SUPC`) | SUBC $T_{\rm spike}\!\approx\!810\text{–}850\,\mathrm{K}$; SUPC $T_{\rm pre}\!\approx\!T_{\rm post}$ | SUBC $T_{\rm spike}=846.9\,\mathrm{K}$ ($T_{\rm pre}/T_{\rm post}=0.278$); SUPC $6485\,\mathrm{K}$ ($1.039$, 6.7 s) | {{< lab "p=landmarks&lms=ensman" "Lab" >}} |
+| 2 | @omukai1998; @omukai2001 | 22-decade primordial collapse ($1\to10^{22}\,\mathrm{cm}^{-3}$) + LW $J_{\rm crit}$ | $T_{\min}\approx200\text{–}250\,\mathrm{K}$ @ $10^4$; atomic jump $>J_{\rm crit}$ | $T_{\min}=236.3\,\mathrm{K}$ @ $6.9\times10^3$; $x_{\mathrm{H}_2}=0.500$; $66\times$ bifurcation | {{< lab "p=landmarks&lms=omukai" "Lab" >}} |
+| 3 | @ripamonti2004 | ExoMol $\mathrm{H}_2$ lines (183 transitions) vs Borysow CIE continuum | $\mathrm{H}_2$ peaks $10^{10}$; CIE overtakes $10^{13}\text{–}10^{16}\,\mathrm{cm}^{-3}$ | Peak $L_{\mathrm{H}_2}=180\,L_\odot$ @ $10^{10}$; CIE dominates $10^{13}\text{–}10^{18}\,\mathrm{cm}^{-3}$ | {{< lab "p=landmarks&lms=omukai" "Lab" >}} |
+| 4 | @abel2002 | End-to-end cosmological collapse (`abn02_red` $\to$ `abn02_final` $\to$ core birth $\to$ ZAMS $\to$ photoevaporation) | Match Fig. 2 ($10^{12}\,\mathrm{cm}^{-3}$); $30\text{–}300\,M_\odot$ first star; halo evacuation | RMS $\Delta\log n=0.18$, $\Delta\log T=0.20\,\mathrm{dex}$; core $3\times10^{20}\,\mathrm{cm}^{-3}$; disk $106\,M_\odot$ vs 1D $>220\,M_\odot$; $f_{\rm esc}=0.99$ | {{< lab "p=abn02" "Lab" >}} |
+| 5 | @whalen2004; @kitayama2004; @alvarez2006 | $2.5\,\mathrm{Myr}$ 1D RHD minihalo photoevaporation ($3\times10^5\text{–}5\times10^6\,M_\odot$) | $v_{\rm sh}\approx20\text{–}35\,\mathrm{km/s}$; unbinding near $10^6\,M_\odot$ | $3\times10^5\,M_\odot$: $27\,\mathrm{km/s}$, $n_c=0.16\,\mathrm{cm}^{-3}$, $f_{\rm esc}=0.981$, $f_{\rm bound}=0.397$; `He I 10830` fades $8\times$ | {{< lab "p=landmarks&lms=whalen" "Lab" >}} |
+| 6 | @schaerer2002; @raiter2010 | Pop III ZAMS grid ($5\text{–}500\,M_\odot$), $Q_{\rm HeII}$, $l$-resolved high-$n_e$ lines | $T_{\rm eff}\approx80\text{–}107\,\mathrm{kK}$; $\log Q_{\rm HeII}=49.02$ ($200\,M_\odot$); $2\gamma$ quenched $>10^4$ | $T_{\rm eff}$ within **2.6%**; $\log Q_{\rm HeII}=49.02$ exact; $\mathrm{EW}(1640)=13\text{–}52\,\text{\AA}$; $5\times$ `He I 10830/Hβ` rise | {{< lab "p=landmarks&lms=schaerer" "Lab" >}} |
+| 7 | @omukai2003; @hosokawa2012; @inayoshi2013; @sakurai2015; @omukai2002 | Accreting Pop III protostars, $\kappa$-mechanism pulsations, episodic cycles & live H II breakout | Supergiant bloating $>4\times10^{-3}\,M_\odot\,\mathrm{yr}^{-1}$; pulsation $P\sim0.8\text{–}1.5\,\mathrm{yr}$ | 1D RHD pulsations ($P=0.82, 1.44\,\mathrm{yr}$, $+50\%$ inversion); live 35-group H II/He III/LW breakout & atomic lines | {{< lab "p=popiii" "Lab" >}} |
+| 8 | @chandrasekhar1964; @umeda2016; @woods2017; @haemmerle2018 | SMS GR instability $M_{\rm coll}(\dot{M})$ & live 1D RHD+GR collapse | KEPLER trunc-1PN $0.9\text{–}3.3\times10^5$; GENEC full-1PN $0.75\text{–}2.35\times10^5\,M_\odot$ | Full 1PN ($\kappa=1.1245$): $0.72\text{–}1.88\times10^5$; Trunc-1PN ($\kappa=0.7445$): $0.97\text{–}2.81\times10^5$; live GR **$141\times\,\rho_c, -0.163c$** | {{< lab "p=landmarks&lms=sms" "Lab" >}} |
+| 9 | @begelman2008; @ball2011; @spolyar2008; @freese2016 | Zero-Z Quasi-Stars (JWST LRDs), live `QSTAR` RHD & Supermassive Dark Stars | Hayashi $T_{\rm eff}\approx4.5\text{–}5.2\,\mathrm{kK}$; Dark Stars smooth $5\text{–}25\,\mathrm{kK}$, $T_c\ll10^8\,\mathrm{K}$ | Quasi-Stars $5262\to4499\,\mathrm{K}$; live `QSTAR` $R_{\rm ph}=563\,\mathrm{AU}$, $\Gamma_{\rm Edd}=1.13$; smooth Dark Stars $4.8\to24.4\,\mathrm{kK}$ ($T_c<8\times10^6\,\mathrm{K}$) | {{< lab "p=landmarks&lms=quasistar" "Lab" >}} |
+| 10 | @heger2002; @woosley2007; @kasen2011 | $e^\pm$ pair-instability valley ($\Gamma_1<4/3$), $200\,M_\odot$ PISN breakout, PPISN SLSN | $\Gamma_1<4/3$ at $10^9\,\mathrm{K}$; breakout $<1\,\mathrm{d}$; PPISN $L\sim10^{44}\,\mathrm{erg/s}$ | Exact `StellarEOS` $\min\Gamma_1=1.221$ (605 pts); PISN breakout @ $0.78\,\mathrm{d}$; PPISN **$1.77\times10^{44}\,\mathrm{erg/s}$ @ $40.5\,\mathrm{d}$** ($4.18\times10^{50}\,\mathrm{erg}$) | {{< lab "p=landmarks&lms=pisn" "Lab" >}} |
+
+## How to Use the Interactive Explorer
+
+Every figure in the [Interactive Laboratory](app/index.html) and embedded chapter widgets shares one consistent, framework-free visualization engine (`app/js/viz/plot.js`):
+
+- **Click-to-highlight across linked graphs:** clicking any shell, mass, density, time, or spectral line on one plot highlights the exact matching physical state across all companion plots and tables.
+- **User-controlled axes & zoom:** scroll over a plot to zoom both axes (or over an axis strip to zoom that axis alone), drag to pan, toggle `lin`/`log` independently on $x$ and $y$, type exact `min`–`max` bounds, or double-click / click `reset` to restore defaults.
+- **Publication-ready downloads:** every plot toolbar includes one-click **`svg`** (standalone vector graphic), **`png`** (2× high-DPI bitmap), and **`csv`** (full-precision plotted data) export.
+
+::: {.callout-note title="How to read provenance badges in Part III (Quasi-Stars)"}
+In the Quasi-Star deep-dive chapters (@sec-mesa-quest through @sec-spectra), a Rust/WebAssembly numerical core evaluates the steady-envelope equations live in the browser: a superscript ⟨name⟩ links to the generated Rust API docs, a ✓ badge links to the automated test pinning a number, and **[computed] / [tested] / [estimate] / [interpretation]** tags classify each statement. Companion resources: [*What a fed quasi-star looks like*](spectra/index.html) and [the slide talk](talk/index.html).
+:::

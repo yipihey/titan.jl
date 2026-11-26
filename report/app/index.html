@@ -3,15 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Quasi-star laboratory</title>
+<title>Titan.jl Interactive Laboratory</title>
 <link rel="stylesheet" href="css/quadrant.css">
 <link rel="stylesheet" href="css/brand.css">
-<style>.qd-btn.is-active { border-color: var(--qd-accent); color: var(--qd-accent); font-weight: 600; }</style>
+<style>.qd-btn.is-active { border-color: var(--qd-accent); color: var(--qd-accent); font-weight: 600; background: color-mix(in srgb, var(--qd-accent) 10%, transparent); }</style>
 <script>if (!("gpu" in navigator)) document.documentElement.classList.add("no-webgpu"); else document.documentElement.classList.add("webgpu");</script>
 </head>
 <body class="qd-page qd-page-body">
-<header class="qd-row"><h1 style="margin:0;font-size:1.2rem">Quasi-star laboratory</h1><a href="../index.html" style="margin-left:auto">← back to the book</a></header>
-<nav id="lab-bar" class="qd-row" style="margin:0.5rem 0"></nav>
+<header class="qd-row" style="align-items:baseline;border-bottom:1px solid var(--qd-border);padding-bottom:0.5rem;margin-bottom:0.6rem">
+  <h1 style="margin:0;font-size:1.3rem">Titan.jl Interactive Laboratory</h1>
+  <span class="qd-note" style="margin:0">Click any graph to highlight linked plots · Scroll to zoom · Drag to pan · Toggle lin/log · Download SVG / PNG / CSV</span>
+  <a href="../index.html" style="margin-left:auto;font-weight:600">← back to the book</a>
+</header>
+<nav id="lab-bar" class="qd-row" style="margin:0.5rem 0;gap:0.45rem"></nav>
 <p id="lab-explain" class="qd-note"></p>
 <main id="lab"></main>
 </body>

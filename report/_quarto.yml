@@ -4,10 +4,11 @@ project:
   pre-render:
     - scripts/build_info.py
     - scripts/brand_to_css.py
-  # copied verbatim into _site: the standalone laboratory with its WebAssembly package, and the API documentation
+  # copied verbatim into _site: the standalone laboratory with its WebAssembly package, figures, and API docs
   resources:
     - app/**
     - api/**
+    - figures/**
 
 # quadrant: where the provenance shortcodes look things up
 quadrant:
@@ -17,9 +18,9 @@ quadrant:
   app: app/index.html
 
 book:
-  title: "Quasi-stars under infall"
-  subtitle: "A steady envelope model, a Julia TITAN, and what they show"
-  author: "Tom Abel (KIPAC), with Claude"
+  title: "Titan.jl"
+  subtitle: "Implicit Radiation Hydrodynamics for the First Stars, Supermassive Seeds & Primordial Transients"
+  author: "Tom Abel (KIPAC), with Antigravity & Claude"
   date: today
   site-url: https://yipihey.github.io/titan.jl/
   repo-url: https://github.com/yipihey/titan.jl
@@ -29,12 +30,12 @@ book:
   search: true
   navbar:
     right:
-      - text: "The short book"
-        href: spectra/index.html
-      - text: "The talk"
-        href: talk/index.html
-      - text: "Laboratory"
+      - text: "Interactive Lab"
         href: app/index.html
+      - text: "Spectra Book"
+        href: spectra/index.html
+      - text: "Talk"
+        href: talk/index.html
       - icon: github
         href: https://github.com/yipihey/titan.jl
         aria-label: GitHub
@@ -42,17 +43,22 @@ book:
     style: docked
   chapters:
     - index.qmd
-    - part: "The question"
+    - part: "Physics & Numerical Methods"
+      chapters:
+        - chapters/00-physics-methods.qmd
+    - part: "Landmark Astrophysics Reproductions"
+      chapters:
+        - chapters/09-lm-shocks-collapse.qmd
+        - chapters/10-lm-abn02.qmd
+        - chapters/11-lm-popiii-feedback.qmd
+        - chapters/12-lm-sms-exotics-pisn.qmd
+    - part: "Deep Dive: Quasi-Stars Under Infall"
       chapters:
         - chapters/01-question.qmd
-    - part: "A steady model"
-      chapters:
         - chapters/02-microphysics.qmd
         - chapters/03-envelope.qmd
         - chapters/04-infall.qmd
         - chapters/05-nlte.qmd
-    - part: "TITAN in Julia"
-      chapters:
         - chapters/06-titan-port.qmd
         - chapters/07-titan-quasistar.qmd
         - chapters/08-spectra.qmd
@@ -62,7 +68,7 @@ book:
     - chapters/experiments.qmd
     - chapters/status.qmd
   page-footer:
-    left: "Quasi-stars under infall · MIT License"
+    left: "Titan.jl · MIT License"
     right: "build {{< var build.sha >}} · {{< var build.date >}}"
 
 bibliography: chapters/references.bib

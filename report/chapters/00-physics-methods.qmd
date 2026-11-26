@@ -1,0 +1,78 @@
+# Physics & Numerical Methods in `Titan.jl` {#sec-physics-methods}
+
+Why can a single 1D Julia codebase span **22 orders of magnitude in density** ($n_{\rm H}=1\to10^{22}\,\mathrm{cm}^{-3}$), resolve sub-AU radiative accretion shocks on top of parsec-scale cosmological minihalos, follow supermassive star general-relativistic collapse to $-0.16\,c$, and synthesize $l$-resolved JWST nebular line spectra? This chapter gives a friendly, self-contained guide to the physics modules and numerical algorithms that make `Titan.jl` both accurate and fast.
+
+## 1. Why Implicit Moving-Mesh RHD? {#sec-why-implicit}
+
+Explicit radiation-hydrodynamics codes are shackled by two brutal timestep limits:
+
+1. **The acoustic Courant–Friedrichs–Lewy (CFL) limit,** $\Delta t_{\rm hyd} < \Delta r / (c_s + |u|)$, which collapses whenever thin shells form around an accretion shock or dense stellar core.
+2. **The radiative diffusion & light-crossing limit,** $\Delta t_{\rm rad} < \min(\Delta r / c,\; \Delta r^2 / D_{\rm rad})$, which can be $10^4\text{–}10^7$ times shorter than the dynamical or evolutionary timescale inside an optically thick stellar envelope!
+
+`Titan.jl` breaks both bottlenecks by solving the coupled **conservation laws of radiation hydrodynamics simultaneously and implicitly** on a **Dorfi–Drury adaptive moving mesh** [@dorfi1987; @gehmeyr1994; @mihalas1984]:
+
+$$
+\begin{aligned}
+\frac{d}{dt}\int_{V}\rho\,dV + \oint_{\partial V}\rho\,u_{\rm rel}\,dA &= 0, \\
+\frac{d}{dt}\int_{V}\rho u\,dV + \oint_{\partial V}\rho u\,u_{\rm rel}\,dA + \int_V\!\left(\nabla P + \rho\frac{G m_{\rm eff}}{r^2}f_{\rm GR} - \frac{\rho\chi_F}{c}F + \nabla\!\cdot Q\right)dV &= 0, \\
+\frac{d}{dt}\int_{V}\rho e\,dV + \oint_{\partial V}\rho e\,u_{\rm rel}\,dA + \int_V\!\left(P\nabla\!\cdot u + Q\!:\!\nabla u - c\rho\kappa_P\!\left(E - a T^4\right) - \rho\varepsilon_{\rm nuc} + \Lambda_{\rm net}\right)dV &= 0, \\
+\frac{d}{dt}\int_{V} E\,dV + \oint_{\partial V} E\,u_{\rm rel}\,dA + \int_V\!\left(\nabla\!\cdot F + f_{\rm Edd} E\,\nabla\!\cdot u + c\rho\kappa_P\!\left(E - a T^4\right)\right)dV &= 0, \\
+\frac{1}{c^2}\frac{DF}{Dt} + \nabla(f_{\rm Edd} E) + \frac{3f_{\rm Edd}-1}{r}E + \frac{\rho\chi_F}{c}F &= 0,
+\end{aligned}
+$$ {#eq-rhd-full}
+
+where $u_{\rm rel} = u - \dot{r}$ is the fluid velocity relative to the moving cell interface, $Q$ is the tensor artificial viscosity, and $f_{\rm Edd} = K/J$ is the variable Eddington factor obtained from a tangent-ray formal solution of the spherical transfer equation (`TitanCore.eddfac!`).
+
+::: {.callout-tip title="Why smooth physics matters as much as the solver"}
+In an implicit Newton–Raphson solver, **discontinuous switches kill timesteps faster than physical stiffness**. Whenever an opacity cliff, convective boundary, or LTE/non-LTE transition has a discontinuous jump or kink, the Jacobian changes sign across the jump and Newton repeatedly halves $\Delta t$. Across `Titan.jl`, every regime boundary—non-LTE $\leftrightarrow$ LTE EOS (`UnifiedNonLTE.w_lte`), mixing-length convection onset ($F_{\rm conv}\propto\zeta^3$), continuum vs line cooling, and supergiant swelling—uses **$C^2$-smooth quintic Hermite ramps** (`smoother5`) and exact **ForwardDiff automatic-differentiation Jacobians** (`TitanResidFast.jl`), letting `BlockSolver.jl` converge in 3–5 iterations at $\Delta t \sim 10^2\text{–}10^4\,\Delta t_{\rm CFL}$.
+:::
+
+## 2. Solver Architecture & Four Complementary Integrators {#sec-solvers}
+
+Different astrophysical epochs have radically different stiffness profiles, so `Titan.jl` pairs one shared microphysics stack with four tailored numerical engines:
+
+| Engine / Module | Spatial &amp; Time Scheme | Best Regime | Landmark Benchmarks |
+|---|---|---|---|
+| **Implicit Moving-Mesh RHD** (`TitanCore`, `TitanResidFast`, `BlockSolver`) | 7-equation Dorfi–Drury adaptive grid, $\theta$-scheme &amp; 2nd-order L-stable **TR-BDF2** [@bank1985; @hosea1996], stencil-colored ForwardDiff block-pentadiagonal Newton | Radiating shocks, accreting Pop III protostars, $\kappa$-pulsations, quasi-star envelopes, live 1D GR collapse | `lm01`, `lm05`, `lm06`, `popiii`, `qstar` |
+| **Symplectic Staggered Leapfrog + Cached Non-LTE** (`lm08_abn02`) | Energy-conserving staggered Lagrangian kick–drift with Von Neumann–Richtmyer viscosity, $C^2$-gated `H2CoolCache`, change-triggered `ContinuumOpacity` caching | Multi-decade cosmological cloud collapse ($n_{\rm H}=10^5\to10^{21}\,\mathrm{cm}^{-3}$) through core bounce | `lm02`, `lm08` (ABN02 Stage 1) |
+| **1D Spherical HLLC + Implicit Levermore–Pomraning FLD** (`lm03`, `lm07`, `lm08` Stage 3) | Godunov HLLC Riemann solver + tridiagonal implicit radiation diffusion with Levermore–Pomraning flux limiter [@levermore1981] | PISN shock breakout, PPISN colliding shells, D-type H II minihalo photoevaporation | `lm03`, `lm07`, `lm08` (Stage 3) |
+| **4D Fitting-Point Shooting** (`lm04`, `steady/`) | Midpoint shooting in $(R_*, L_*, T_c, P_c)$ with exact `FreeEnergyEOS` + `StellarOpacity` + `NucNet` | Zero-age main-sequence Pop III stars ($5\text{–}500\,M_\odot$), steady quasi-star branches &amp; fold | `lm04`, Chapters 2–4 |
+
+## 3. Thermodynamics & Equation of State (`FreeEnergyEOS` & `StellarEOS`) {#sec-eos-methods}
+
+Primordial gas traverses neutral $\mathrm{H}_2$, dissociating $\mathrm{H}_2\leftrightarrow 2\mathrm{H}$, ionizing $\mathrm{H}\leftrightarrow\mathrm{H}^+$ and $\mathrm{He}\leftrightarrow\mathrm{He}^+\leftrightarrow\mathrm{He}^{2+}$, radiation-dominated plasmas, and relativistic **electron–positron pair production** ($e^- + e^+ \leftrightarrow 2\gamma$) at $T \gtrsim 5\times 10^8\,\mathrm{K}$.
+
+- **Helmholtz free-energy minimization (`FreeEnergyEOS.jl`):** Minimizing $F(V, T, \{N_i\})$ guarantees exact Maxwell relations ($\partial P/\partial T|_V = \partial S/\partial V|_T$) and positive-definite heat capacities $c_V, c_P$ across every dissociation and ionization trough, pre-tabulated on a smooth bicubic cache (`fe_lte_table_X75_Y25_v1.jls`) for sub-microsecond evaluation.
+- **Exact relativistic Fermi–Dirac $e^\pm$ pairs (`StellarEOS.jl`):** Computes the electron–positron Helmholtz free energy `electron_f(ne, T; pairs=true)` via Gauss–Laguerre quadrature and derives exact volumetric $\Gamma_1 = (\partial \ln P / \partial \ln \rho)_S$ with ForwardDiff—capturing the exact pair-instability valley ($\min\Gamma_1 = 1.221 < 4/3$ at $T = 1.18\times 10^9\,\mathrm{K}$) that drives Pair-Instability Supernovae [@heger2002].
+- **Optically-thin vs optically-thick radiation coupling:** Radiation pressure $P_{\rm rad} = \frac{1}{3}a T^4$ couples to the gas pressure only once the gas becomes optically thick (gated smoothly by `UnifiedNonLTE.w_lte`), preventing unphysical radiation-pressure explosions in optically thin low-density halo gas ($n_{\rm H} \ll 10^{14}\,\mathrm{cm}^{-3}$).
+
+## 4. Opacities, Primordial Chemistry & $\mathrm{H}_2$ Line Transfer {#sec-chem-opac}
+
+- **Primordial Chemistry (`ChemNet.jl`, `ChemRates.jl`, `UnifiedNonLTE.jl`):** Tracks $\mathrm{H}, \mathrm{H}^+, \mathrm{H}^-, \mathrm{H}_2, \mathrm{H}_2^+, \mathrm{He}, \mathrm{He}^+, \mathrm{He}^{2+}, e^-$ with implicit BDF1/matrix-solve updates for 3-body $\mathrm{H}_2$ formation ($\mathrm{H}+\mathrm{H}+\mathrm{H}\to\mathrm{H}_2+\mathrm{H}$), $\mathrm{H}^-$ associative detachment, collisional dissociation (with detailed balance into LTE), and chemical heating/cooling ($\pm 4.478\,\mathrm{eV}$ per $\mathrm{H}_2$ formed/dissociated).
+- **ExoMol RACPPK $\mathrm{H}_2$ Line Cooling (`H2Lines.jl`):** Loads 183 ro-vibrational transitions (`v <= 2, J <= 16`) with exact Einstein $A_{ul}$ coefficients, computes individual optical depths $\tau_i$ via local Sobolev/Jeans escape probabilities $\beta_i = (1-e^{-\tau_i})/\tau_i$, and bridges smoothly to Glover & Abel low-density collisional rates (`H2CoolCache`). This resolves the exact optical-depth barrier at $n_{\rm H} \gtrsim 10^{10}\,\mathrm{cm}^{-3}$ where optically thin $\mathrm{H}_2$ cooling fails [@ripamonti2004].
+- **Continuum & Stellar Opacities (`ContinuumOpacity.jl`, `StellarOpacity.jl`):** Combines Borysow $\mathrm{H}_2\text{–}\mathrm{H}_2$ and $\mathrm{H}_2\text{–}\mathrm{He}$ collision-induced absorption/emission (CIA/CIE, which dominates cooling over $n_{\rm H}=10^{13}\text{–}10^{18}\,\mathrm{cm}^{-3}$), $\mathrm{H}^-$ bound–free & free–free [@john1988], H/He bound–free & free–free, Rayleigh scattering, and electron scattering $\kappa_{\rm es} = 0.20(1+X)\,\mathrm{cm}^2\,\mathrm{g}^{-1}$.
+
+## 5. Multigroup Ionizing & LW Radiation (`IonRay`) and $l$-Resolved Atomic Lines (`ModelAtom`, `SpecFull`) {#sec-rad-lines}
+
+To predict **JWST observational signatures** alongside live H II/He III/LW feedback without sacrificing speed, `Titan.jl` implements **Option A** coupled radiative transfer:
+
+- **35-Group Photoionization + Lyman–Werner RT (`IonRay.jl`):** Splits the spectrum into 6 optical/FUV bands (including the dedicated $11.2\text{–}13.6\,\mathrm{eV}$ Lyman–Werner band with Wolcott-Green, Haiman & Bryan @wolcottgreen2011 $\mathrm{H}_2$ self-shielding) plus 28 EUV bins spanning $13.6\text{–}300\,\mathrm{eV}$ across the $\mathrm{H\,I}$ ($13.6\,\mathrm{eV}$), $\mathrm{He\,I}$ ($24.6\,\mathrm{eV}$), and $\mathrm{He\,II}$ ($54.4\,\mathrm{eV}$) edges using exact Verner et al. [@verner1996] cross-sections. Exact photon-conserving shell attenuation feeds directly into a coupled $3\times 3$ implicit matrix update for $(\mathrm{He}^0, \mathrm{He}^+, \mathrm{He}^{2+})$ and $\mathrm{H}^+$—allowing $\sim 10\times$ larger RHD timesteps during rapid R-type ionization-front breakout!
+- **$l$-Resolved Collisional–Radiative Atomic Modeling (`ModelAtom.jl`, `SpecFull.jl`):** Solves exact statistical equilibrium with CHIANTI collisional rates resolved in angular momentum $l$ up to $n_{\rm lres}=6$ (and bundled up to $n_{\max}=30$) for $\mathrm{H\,I}$ and $\mathrm{He\,II}$, plus 20-level singlet/triplet $\mathrm{He\,I}$ including the metastable $2^3S$ state. This directly predicts:
+  - **Hydrogen 2-photon ($2s\to 1s$) nebular continuum** and its exact collisional quenching above $n_e \sim 10^4\,\mathrm{cm}^{-3}$ [@raiter2010];
+  - **$\mathrm{He\,II}\,\lambda 1640$ and $\lambda 4686$** recombination lines and rest-frame equivalent widths [@schaerer2002];
+  - **Metastable $\mathrm{He\,I}\,\lambda 10830$**, which brightens $5\times$ by collisional excitation from $2^3S$ in dense nebulae and plummets by $10^4\times$ when a $\mathrm{He\,III}$ front sweeps out a minihalo!
+
+## 6. Nuclear Burning (`NucNet`) & General Relativity (`GR_CORR`) {#sec-nuc-gr}
+
+- **Primordial Nuclear Network (`NucNet.jl`):** Evaluates pp-chain, self-consistent $3\alpha$ carbon seeding, and trace-CNO H-burning with Chugunov electrostatic screening (`screen = :chugunov`). In metal-free massive and supermassive stars, $3\alpha$ builds $X_{\rm CNO}\sim 10^{-8}$ at $T_c\approx 1.0\text{–}1.6\times 10^8\,\mathrm{K}$ until CNO balances $L_{\rm Edd}$.
+- **Exact 1PN / TOV General Relativity (`TitanResidFast.GR_CORR`):** Replaces Newtonian gravity $Gm/r^2$ with the full Tolman–Oppenheimer–Volkoff effective gravitational force:
+
+$$
+g_{\rm GR} = \frac{G m_g}{r^2} \frac{\left(1 + \dfrac{e + P/\rho}{c^2}\right)\left(1 + \dfrac{4\pi r^3 P}{m_g c^2}\right)}{1 - \dfrac{2 G m_g}{r c^2}}, \qquad m_g(r) = \int_0^r 4\pi r'^2 \rho \left(1 + \frac{e - \phi}{c^2}\right) dr'.
+$$ {#eq-tov}
+
+Crucially, keeping the gravitational mass-energy defect $m_g - m_b \propto (e - \phi)/c^2$ yields Chandrasekhar's exact stability threshold $\langle\Gamma_1 - 4/3\rangle_P = 1.1245\,(2GM/Rc^2)$ [@chandrasekhar1964], directly explaining why full-1PN codes (`Titan.jl`, GENEC @haemmerle2018) predict $\sim 33\%$ lower SMS collapse masses than truncated-1PN codes omitting $(e-\phi)/c^2$ (KEPLER @woods2017; see @sec-lm-sms).
+
+::: {.callout-tip title="Explore every module live"}
+Open the {{< lab "p=landmarks&lms=ensman" "Interactive Laboratory" >}} to inspect any benchmark, click points to link graphs, toggle linear/log axes, adjust min–max limits, and export SVG, PNG, or CSV directly from your browser.
+:::

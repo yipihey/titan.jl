@@ -68,3 +68,15 @@
 .qd-widget { margin: 1rem 0 1.5rem; }
 .qd-widget .qd-controls { padding: 0.5rem 0.75rem; border: 1px solid var(--qd-border); border-radius: var(--qd-radius); background: var(--qd-tint); }
 .qd-widget .qd-slider input[type="range"] { width: 11rem; }
+
+/* linked selection readout & grouped lab tabs */
+.qd-selbar { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; align-items: center; padding: 0.45rem 0.75rem; margin: 0.4rem 0 0.6rem; border: 1px solid color-mix(in srgb, var(--qd-accent) 45%, transparent); border-radius: var(--qd-radius); background: color-mix(in srgb, var(--qd-accent) 9%, transparent); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.qd-selbar strong { color: var(--qd-accent); }
+.qd-tabgroup { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; padding: 0.2rem 0.45rem; border: 1px solid var(--qd-border); border-radius: var(--qd-radius); background: var(--qd-tint); }
+.qd-tabgroup-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--qd-muted); margin-right: 0.2rem; font-weight: 600; }
+.qd-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin: 0.4rem 0; }
+.qd-table th, .qd-table td { padding: 0.3rem 0.55rem; border-bottom: 1px solid var(--qd-border); text-align: left; font-variant-numeric: tabular-nums; }
+.qd-table th { font-weight: 600; color: var(--qd-muted); }
+.qd-table tr.is-hl td { background: color-mix(in srgb, var(--qd-accent) 14%, transparent); font-weight: 600; }
+.qd-pill { display: inline-block; padding: 0.08rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; border: 1px solid var(--qd-border); margin-right: 0.25rem; cursor: pointer; background: transparent; color: inherit; }
+.qd-pill.is-active { background: var(--qd-accent); color: #fff; border-color: var(--qd-accent); }

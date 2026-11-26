@@ -1,0 +1,25 @@
+# End-to-End First Star: Abel, Bryan & Norman (2002) {#sec-lm-abn02}
+
+**Abel, Bryan & Norman (2002, *Science* 295, 93)** [@abel2002] followed a cosmological $z\approx 19$ dark-matter minihalo in 3D adaptive-mesh hydrodynamics down to $n_c = 10^{12}\,\mathrm{cm}^{-3}$, halting where $\mathrm{H}_2$ ro-vibrational lines became optically thick. Here we start directly from the **exact vector-digitized ABN02 Fig. 2 "9 Myr later" snapshot** (`lib/popiii/abn02red/abn02_red_fig2.csv`, $M_{\rm cloud}=7{,}137\,M_\odot$ inside $22.5\,\mathrm{pc}$, $n_c=8.30\times 10^5\,\mathrm{cm}^{-3}$, $T_c=254\,\mathrm{K}$, $f_{\mathrm{H}_2,c}=1.40\times 10^{-3}$, plus exact $z=19$ dark-matter potential `dm_z19_r`) and evolve the first star continuously as far as 1D spherical physics remains valid—explicitly pinpointing where 3D disk rotation diverges from strict 1D spherical infall (`julia/landmarks/lm08_abn02_full_evolution.jl`).
+
+![End-to-end ABN02 evolution in Titan.jl: (a–b) Stage 1 collapse overlaid directly against published abn02_final Fig. 2 and pushed to hydrostatic core birth ($3\times10^{20}\,\mathrm{cm}^{-3}$); (c–d) Stage 2 protostellar evolution comparing 3D disk-regulated ($106\,M_\odot$) vs strict 1D spherical ($>220\,M_\odot$) tracks; (e–f) Stage 3 full-lifetime ($2.2\,\mathrm{Myr}$, log-time) minihalo photoevaporation & JWST atomic line lightcurves.](../figures/figL5_abn02_end_to_end.png){#fig-lm-abn02}
+
+## Interactive Linked ABN02 Explorer
+
+Click any shell on Stage 1, any protostellar mass on Stage 2, or any post-breakout time on Stage 3 to highlight the corresponding physical state across all four panels.
+
+```{=html}
+<div class="qd-widget" data-widget="abn02"></div>
+<script type="module" src="../app/js/widgets.js"></script>
+```
+
+{{< lab "p=abn02" "Open ABN02 End-to-End Explorer in the lab" >}}
+
+## Quantitative Stage-by-Stage Findings
+
+| Stage | Physical Epoch | `Titan.jl` Result | Physical Significance |
+|---|---|---|---|
+| **Stage 1a** | Collapse to ABN02 final ($n_c=1.01\times 10^{12}\,\mathrm{cm}^{-3}$, $t=254.6\,\mathrm{kyr}$) | Direct overlay vs `abn02_final_fig2.csv`: **RMS $\Delta\log n_{\rm H}=0.18\,\mathrm{dex}$, $\Delta\log T=0.20\,\mathrm{dex}$** across $M=0.05\text{–}5{,}000\,M_\odot$ | Inside $M<3\,M_\odot$, ExoMol 183-line Sobolev/Jeans trapping warms the core to $1{,}150\,\mathrm{K}$ vs ABN02's optically thin $570\,\mathrm{K}$—resolving the exact optical-depth barrier where ABN02 stopped! |
+| **Stage 1b** | Continuation past ABN02's halt to core birth (`13,785` symplectic steps) | $f_{\mathrm{H}_2}\to 0.72$ ($10^{15}\,\mathrm{cm}^{-3}$) $\to$ Borysow CIE $\to$ dissociation ($10^{19}$) $\to$ **hydrostatic core birth at $n_c=3.0\times 10^{20}\,\mathrm{cm}^{-3}$, $T_c=2.5\times 10^5\,\mathrm{K}$** | Core mass $M_{\rm core}\approx 0.016\text{–}0.020\,M_\odot$ ($R_{\rm core}\approx 1.7\text{–}4.1\,R_\odot$), bounded by an accretion shock peaking at $u_{\min}=-26.5\,\mathrm{km/s}$. |
+| **Stage 2** | Protostellar growth along extracted $\dot{M}_{\rm ABN02}(M_*)$ — **where 1D spherical symmetry breaks down** | Extracted spherical flux $\dot{M}_{\rm 1D}(1,10,50,150\,M_\odot)=4.35\times 10^{-2}, 2.51\times 10^{-2}, 9.97\times 10^{-3}, 2.86\times 10^{-3}\,M_\odot\,\mathrm{yr}^{-1}$ | **Strict 1D (zero rotation)** stays above the @omukai2003 bloating threshold past $100\,M_\odot$, reaching ZAMS only at $237\,M_\odot$ ($M_{\rm f,1D}\gtrsim 220\,M_\odot$, PISN/BH). **3D disk-regulated** ($v_{\rm rot}/v_{\rm Kep}\approx 0.4$, @hosokawa2011) contracts onto ZAMS at $113\,M_\odot$ and breaks out via polar H II cavities at **$106\,M_\odot$**—bracketing ABN02's $30\text{–}300\,M_\odot$ prediction. |
+| **Stage 3** | Full-lifetime ($2.2\,\mathrm{Myr}$) live 1D RHD photoevaporation &amp; JWST lines | Option A 35-group `IonRay` + `ModelAtom`: $v_{\rm sh}=30\text{–}37\,\mathrm{km/s}$, $R_{\rm HII}=124\,\mathrm{pc}$, $n_c\to 0.06\text{–}0.07\,\mathrm{cm}^{-3}$, **$f_{\rm esc}=0.986\text{–}0.996$** | Exposes a sharp 4-decade **`He I λ10830` cliff** between $t=0.05$ and $0.25\,\mathrm{Myr}$ as the $\mathrm{He\,III}$ front sweeps out the minihalo, while `Lyα`, `He II λ1640`, and `Hβ` decay gradually with core evacuation. |

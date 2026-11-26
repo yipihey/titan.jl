@@ -62,3 +62,20 @@ WebAssembly package used by the figures and the laboratory.
 
 The full engineering record of the port, with every check and its numbers, is
 [`docs/PORTING_NOTES.md`](https://github.com/yipihey/titan.jl/blob/main/docs/PORTING_NOTES.md).
+
+## Landmark Astrophysics Reproduction Suite (`julia/landmarks/`) {#sec-exp-landmarks}
+
+Every landmark benchmark runs standalone from the repository root with `julia -t 2 --project=...` and writes its CSV outputs to `/zpool/nvme/data/tabel_scratch/titan_popiii/val/runs/landmarks/` (configurable via `OUTDIR`):
+
+| Benchmark | Command | Chapter |
+|---|---|---|
+| **LM01:** Ensman (1994) `SUBC` &amp; `SUPC` moving-mesh RHD | `julia -t 2 julia/landmarks/lm01_ensman_radiative_shocks.jl` | @sec-lm-ensman |
+| **LM02:** Omukai (1998/2001) 22-decade collapse &amp; Ripamonti &amp; Abel (2004) $\mathrm{H}_2$ lines | `julia -t 2 julia/landmarks/lm02_omukai_collapse_jcrit.jl` | @sec-lm-omukai |
+| **LM03:** Whalen+04 / Kitayama+04 / Alvarez+06 minihalo photoevaporation | `julia -t 2 julia/landmarks/lm03_whalen04_minihalo_photoevap.jl` | @sec-lm-whalen |
+| **LM04:** Schaerer (2002) Pop III ZAMS grid &amp; Raiter+10 high-$n_e$ diagnostics | `julia -t 2 julia/landmarks/lm04_schaerer02_popiii_grid.jl` | @sec-lm-schaerer |
+| **LM05:** Woods+17 / Haemmerlé+18 SMS GR collapse + live 1D RHD+GR | `julia -t 2 julia/landmarks/lm05_woods17_sms_gr_collapse.jl` | @sec-lm-sms |
+| **LM06:** Begelman+08/Ball+11 Quasi-Stars + live `QSTAR` RHD + Freese+16 Dark Stars | `julia -t 2 julia/landmarks/lm06_begelman08_quasistar_and_darkstar.jl` | @sec-lm-sms |
+| **LM07:** Heger+02 $e^\pm$ pair valley, Kasen+11 PISN breakout &amp; Woosley+07 PPISN | `julia -t 2 julia/landmarks/lm07_heger02_kasen11_pisn_ppisn.jl` | @sec-lm-pisn |
+| **LM08:** Abel, Bryan &amp; Norman (2002) end-to-end collapse $\to$ core birth $\to$ ZAMS $\to$ photoevaporation | `julia -t 2 julia/landmarks/lm08_abn02_full_evolution.jl` | @sec-lm-abn02 |
+| **Pop III H II Breakout:** Live 1D RHD 35-group H II / He III / LW breakout | `julia -t 2 julia/val_hii_breakout_rhd.jl` | @sec-lm-popiii-rhd |
+| **Report Data Exporter:** Bundle all landmark &amp; Pop III JSONs + figures | `python3 report/scripts/export_landmarks_data.py` | all landmark widgets |

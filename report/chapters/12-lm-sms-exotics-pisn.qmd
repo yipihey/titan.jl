@@ -1,0 +1,55 @@
+# Supermassive Stars, Quasi-Stars, Dark Stars & Pair-Instability SNe {#sec-lm-sms-exotics-pisn}
+
+The high-mass frontier of primordial astrophysics spans **general-relativistic collapse of supermassive stars (SMSs)** [@chandrasekhar1964; @umeda2016; @woods2017; @haemmerle2018], **accreting black holes embedded in Eddington envelopes (Quasi-Stars / JWST Little Red Dots)** [@begelman2008; @begelman2010; @ball2011], **dark-matter-powered Supermassive Dark Stars** [@spolyar2008; @freese2016], and **Pair-Instability & Pulsational Pair-Instability Supernovae (PISN / PPISN)** [@heger2002; @woosley2007; @kasen2011].
+
+## 1. Wave 3: SMS GR Collapse, Quasi-Stars & Dark Stars {#sec-lm-sms}
+
+![Wave 3 overview: (a) Full 1PN/TOV vs Truncated KEPLER 1PN SMS collapse curve $M_{\rm coll}(\dot{M})$; (b) live 1D RHD+GR collapse plunging to $141\times\,\rho_c$ and $|u_{\min}|/c=0.163$; (c) smooth zero-Z Quasi-Star & Supermassive Dark Star HR locus + live 1D RHD `QSTAR` inset; (d) JWST $z=10$ NIRSpec SED separation.](../figures/figL3_sms_quasistar_darkstar.png){#fig-lm-wave3}
+
+### Resolving the KEPLER vs GENEC Supermassive Star GR Collapse Offset
+
+Evaluating `Titan.jl`'s exact `FreeEnergyEOS` + `NucNet` (self-consistent $3\alpha\to\mathrm{CNO}$, $X_{\rm CNO}\approx 10^{-8}$, $T_c\approx 1.61\times 10^8\,\mathrm{K}$) stability integral (`julia/landmarks/lm05_woods17_sms_gr_collapse.jl`, `3/3 PASS`) quantitatively decomposes the classic ~33% offset between KEPLER [@woods2017] and GENEC [@haemmerle2018]:
+
+| Ablation at $\dot{M}=1.0\,M_\odot\,\mathrm{yr}^{-1}$ | $M_{\rm coll}$ [$M_\odot$] | Fractional Shift | Physical Origin |
+|---|---:|---:|---|
+| Full 1PN/TOV ($\kappa=1.1245$, `GR_CORR`, $X_{\rm CNO}=10^{-8}$) | `173,118` | baseline | Matches @haemmerle2018 GENEC ($\sim 2.0\times 10^5\,M_\odot$); includes $(e-\phi)/c^2$ mass-energy defect $m_g - m_b$ |
+| Turn off $e^\pm$ pairs (`pairs=false`) | `173,118` | `0.0%` | $T_c=1.6\times 10^8\,\mathrm{K}$ is below pair-creation onset ($\gtrsim 3.5\times 10^8\,\mathrm{K}$) |
+| Truncated KEPLER 1PN ($\kappa=0.7445$) | **`255,298`** | **`+47.5%`** | Omitting $(e-\phi)/c^2$ shifts $M_{\rm coll}\propto\kappa^{-1}$, matching @woods2017 KEPLER (`270,000`) within **5.4%**! |
+
+In live 1D Lagrangian RHD+GR (`GR_CORR = true`, exact discrete TOV balance including the outer half-zone weight), a $2.5\times 10^5\,M_\odot$ SMS core at $0.72\,R_{\rm crit}$ plunges cleanly into relativistic collapse (**$\rho_c/\rho_{c,0}=141.3\times$, $|u_{\min}|/c=0.163$** at $t=8.0\,t_{\rm dyn}$), while both $1.35\,R_{\rm crit}$ (GR) and $0.72\,R_{\rm crit}$ (Newtonian) remain flat ($\rho_c/\rho_{c,0}=0.99\text{–}1.01$).
+
+```{=html}
+<div class="qd-widget" data-widget="landmarks" data-suite="sms"></div>
+<script type="module" src="../app/js/widgets.js"></script>
+```
+
+{{< lab "p=landmarks&lms=sms" "Open SMS GR Collapse in the lab" >}}
+
+### Zero-Z Quasi-Stars (JWST LRDs) & Smooth Supermassive Dark Stars
+
+In `julia/landmarks/lm06_begelman08_quasistar_and_darkstar.jl` (`3/3 PASS`, zero hard switches):
+
+- **Zero-Z Quasi-Stars [@begelman2008; @ball2011]:** Matching the sub-photospheric H-ionization Eddington wall ($\kappa_R = \kappa_{\rm es}$ at $\tau_{\rm sub}\approx 5.5$) with zero-Z `StellarOpacity` recovers the Hayashi locus **$T_{\rm eff}=5{,}262\to 4{,}499\,\mathrm{K}$** (`4,886 K`, $R_{\rm ph}=396\,\mathrm{AU}$ at $10^5\,M_\odot$), directly matching our live 1D RHD `QSTAR.tstate.gz` super-Eddington envelope ($R_{\rm ph}=563\,\mathrm{AU}$, $\Gamma_{\rm Edd}=1.00\text{–}1.13$).
+- **Supermassive Dark Stars [@spolyar2008; @freese2016]:** Using a smooth $C^\infty$ Eddington-$\beta$-weighted Lane–Emden polytrope $n_{\rm eff}(M)=1.5+1.5(1-\beta)^2$ inside an adiabatically contracted DM halo ($m_\chi=100\,\mathrm{GeV}$) yields a smooth, fusion-free HR track ($T_{\rm eff}=4{,}845\to 24{,}435\,\mathrm{K}$, $R=8.6\to 50\,\mathrm{AU}$, $T_c < 7.7\times 10^6\,\mathrm{K}\ll 10^8\,\mathrm{K}$). At $10^5\,M_\odot$, the Dark Star (`17.0 kK`, rest-UV peak) cleanly separates inside the JWST NIRSpec $z=10$ band from the red Quasi-Star (`4.9 kK`, LRD) and Pop III ZAMS cluster (`95.5 kK`).
+
+```{=html}
+<div class="qd-widget" data-widget="landmarks" data-suite="quasistar"></div>
+```
+
+{{< lab "p=landmarks&lms=quasistar" "Open Quasi-Stars & Dark Stars in the lab" >}}
+
+## 2. Wave 4: Pair-Instability Valley, PISN Shock Breakout & PPISN Colliding Shells {#sec-lm-pisn}
+
+![Wave 4 overview: (a) Exact `StellarEOS` $e^\pm$ pair-instability valley ($\min\Gamma_1=1.221$); (b–c) Kasen+11 $200\,M_\odot$ RSG PISN shock breakout ($t_{\rm peak}=0.78\,\mathrm{d}$); (d) Woosley+07 PPISN colliding-shell SLSN ($L_{\rm peak}=1.77\times10^{44}\,\mathrm{erg/s}$ at $40.5\,\mathrm{d}$, $E_{\rm rad}=4.18\times10^{50}\,\mathrm{erg}$).](../figures/figL4_pisn_shock_breakout_and_ppisn.png){#fig-lm-wave4}
+
+Using `StellarEOS.electron_f(ne, T; pairs=true)` + 1D spherical HLLC + implicit Levermore–Pomraning FLD RHD (`julia/landmarks/lm07_heger02_kasen11_pisn_ppisn.jl`, `3/3 PASS` in `2.2 s`):
+
+- **Exact $e^\pm$ pair-instability valley [@heger2002]:** Maps $\min\Gamma_1 = 1.221$ at $T=1.18\times 10^9\,\mathrm{K}$ (`605` unstable points with $\Gamma_1 < 4/3$), cleanly separating PPISN ($50\,M_\odot$ He core), PISN ($100\,M_\odot$), and direct BH collapse ($140\,M_\odot$).
+- **PISN Shock Breakout [@kasen2011]:** $200\,M_\odot$ red-supergiant explosion peaks at $t=0.78\,\mathrm{d}$ with $v_{\max}=2.4\times 10^4\,\mathrm{km/s}$.
+- **PPISN Colliding Shells [@woosley2007]:** A fast $10\,M_\odot$ shell ($5{,}000\,\mathrm{km/s}$) overtaking a $10\,M_\odot$ prior pulse ($1{,}500\,\mathrm{km/s}$) converts kinetic energy into a superluminous transient peaking at **$L_{\rm peak}=1.77\times 10^{44}\,\mathrm{erg/s}$ at $t=40.5\,\mathrm{d}$** with **$E_{\rm rad}=4.18\times 10^{50}\,\mathrm{erg}$**.
+
+```{=html}
+<div class="qd-widget" data-widget="landmarks" data-suite="pisn"></div>
+```
+
+{{< lab "p=landmarks&lms=pisn" "Open Pair-Instability & PPISN Explorer in the lab" >}}

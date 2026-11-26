@@ -1,6 +1,10 @@
-// widgets.js - chapter widgets: <div class="qd-widget" data-widget="NAME" [data-run="…"]></div> plus this module script.
+// widgets.js - chapter widgets: <div class="qd-widget" data-widget="NAME" [data-suite="…"] [data-run="…"]></div>.
 // Each widget starts from the default state (state.js); the "open in the lab" buttons carry their own hash.
 import { makeDefaults } from './state.js';
+import { mountLandmarks } from './panels/landmarks.js';
+import { mountAbn02 } from './panels/abn02.js';
+import { mountPopIII } from './panels/popiii.js';
+import { mountLineSpec } from './panels/linespec.js';
 import { mountMicro } from './panels/micro.js';
 import { mountEnvelope } from './panels/envelope.js';
 import { mountShoot } from './panels/shoot.js';
@@ -12,6 +16,10 @@ import { mountAnalytic } from './panels/analytic.js';
 import { mountTests } from './panels/tests.js';
 
 const MOUNT = {
+  landmarks: (el, S) => mountLandmarks(el, S, () => {}, { suite: el.dataset.suite }),
+  abn02: (el, S) => mountAbn02(el, S),
+  popiii: (el, S) => mountPopIII(el, S, () => {}, { run: el.dataset.run }),
+  linespec: (el, S) => { if (el.dataset.line) S.lsline = el.dataset.line; if (el.dataset.z) S.lsz = parseFloat(el.dataset.z); return mountLineSpec(el, S); },
   micro: (el, S) => mountMicro(el, S),
   envelope: (el, S) => mountEnvelope(el, S),
   shoot: (el, S) => { S.mdot = 5; return mountShoot(el, S); },
